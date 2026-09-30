@@ -147,8 +147,7 @@ isServe)` / `answerHeading(isServe)`, because paper is the only thing a
 - **Team accounts are Win-only here.** `OutreachDetailsDrawer` takes `isServe`
   and renders no assignees section for it: the roles the assign modal offers
   are campaign roles, so an elected official gets no assignment rather than
-  one in Win's vocabulary. The `win-team-accounts` flag would usually hide it
-  anyway — this is the product rule, not the flag.
+  one in Win's vocabulary.
 - **Org switching must not replay detail queries.** `outreachDetailQueryKey`
   is not org-scoped, and the org picker's switch invalidation runs before
   `router.push` unmounts this page — a plain `invalidateQueries` refired every

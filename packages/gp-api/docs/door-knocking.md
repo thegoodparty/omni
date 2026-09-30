@@ -1951,11 +1951,13 @@ an assigned volunteer knocks six `@AllowVolunteer()` routes scoped to their own
 knocked. See § Volunteer access to the walk (ENG-11051), which this line used to
 contradict.
 
-**The backend does not land dark.** gp-api checks no flag anywhere,
-`DoorKnockingModule` is registered unconditionally, and the routes are held by
-the Pro gate (`assertProAccess`) and by role. The volunteer walk is gated on
-`win-team-accounts` (`activeOrgVolunteer.server.ts`). The figures in § Spend
-visibility are production measurements, not projections.
+**The flag line has drifted.** `native-door-knocking` still gates the
+dashboard surfaces and still demands the variant be literally `on`, but it
+does not gate _all_ of them: the volunteer walk (`activeOrgVolunteer.server.ts`)
+carries no flag of its own. And the backend no longer lands dark — gp-api
+checks no flag anywhere, `DoorKnockingModule` is registered unconditionally,
+and the routes are held by the Pro gate (`assertProAccess`) and by role. The
+figures in § Spend visibility are production measurements, not projections.
 
 ## Phones at the door
 

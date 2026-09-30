@@ -7,14 +7,13 @@ import DashboardMenu from './DashboardMenu'
 
 // Renders the real DashboardMenu / NewNavMenu (unlike DashboardLayout.test.tsx,
 // which mocks DashboardMenu out entirely) to exercise the two ENG-10829
-// gating decisions together: the win-team-accounts flag (nav item) and the
+// gating decisions together: the Team nav item's elected-office gate and the
 // viewer's organization role (account-settings visibility).
 
 const {
   mockUseElectedOffice,
   mockUseOrganization,
   mockUseOrganizationRole,
-  mockUseTeamAccountsFlag,
   mockUseAppUser,
   mockUseClerkUser,
   mockUseIsMobile,
@@ -22,7 +21,6 @@ const {
   mockUseElectedOffice: vi.fn(),
   mockUseOrganization: vi.fn(),
   mockUseOrganizationRole: vi.fn(),
-  mockUseTeamAccountsFlag: vi.fn(),
   mockUseAppUser: vi.fn(),
   mockUseClerkUser: vi.fn(),
   mockUseIsMobile: vi.fn(),
@@ -35,9 +33,6 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => mockUseOrganization(),
   useOrganizationRole: () => mockUseOrganizationRole(),
   OrganizationPicker: () => null,
-}))
-vi.mock('@shared/experiments/teamAccountsFlag', () => ({
-  useTeamAccountsFlag: (...args: unknown[]) => mockUseTeamAccountsFlag(...args),
 }))
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => mockUseAppUser(),
@@ -69,7 +64,6 @@ beforeEach(() => {
   mockUseElectedOffice.mockReturnValue({ data: null, isLoading: false })
   mockUseOrganization.mockReturnValue({ slug: 'campaign-1' })
   mockUseOrganizationRole.mockReturnValue(undefined)
-  mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: false })
   mockUseAppUser.mockReturnValue([null, vi.fn(), false])
   mockUseClerkUser.mockReturnValue({ user: null, isLoaded: true })
   // Desktop by default — matches the jsdom-default (isMobile=false) baseline
@@ -78,8 +72,7 @@ beforeEach(() => {
 })
 
 describe('DashboardMenu — Team removed from the primary nav (ENG-11061)', () => {
-  it('never renders a primary-nav Team item, flag on or off', () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+  it('never renders a primary-nav Team item', () => {
     renderMenu()
     // The account-menu Team item only exists inside the closed dropdown
     // below, so an unopened render proves the primary nav has none.
@@ -96,22 +89,13 @@ describe('DashboardMenu — Team item in the account menu (ENG-11061)', () => {
     await user.click(screen.getByText('Manage account'))
   }
 
-  it('is absent when the flag is off', async () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: false })
-    renderMenu()
-    await openAccountMenu()
-    expect(screen.queryByText('Team')).not.toBeInTheDocument()
-  })
-
-  it('shows Team in the account menu when the flag is on', async () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+  it('shows Team in the account menu', async () => {
     renderMenu()
     await openAccountMenu()
     expect(screen.getByText('Team')).toBeInTheDocument()
   })
 
-  it('hides Team for an elected office, even when the flag is on', async () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+  it('hides Team for an elected office', async () => {
     mockUseElectedOffice.mockReturnValue({
       data: { id: 'eo-1' },
       isLoading: false,
@@ -133,7 +117,6 @@ describe('DashboardMenu — Team item in the account menu (ENG-11061)', () => {
   // result). Without the synchronous organization.electedOfficeId check,
   // Team would flash for a Serve org during exactly this window.
   it('hides Team for an elected office even while the async elected-office query is still pending', async () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
     mockUseElectedOffice.mockReturnValue({ data: undefined, isLoading: true })
     mockUseOrganization.mockReturnValue({
       slug: 'eo-1',
@@ -142,11 +125,6 @@ describe('DashboardMenu — Team item in the account menu (ENG-11061)', () => {
     renderMenu()
     await openAccountMenu()
     expect(screen.queryByText('Team')).not.toBeInTheDocument()
-  })
-
-  it('reads the flag without tracking exposure (nav is not the treatment surface)', () => {
-    renderMenu()
-    expect(mockUseTeamAccountsFlag).toHaveBeenCalledWith(false)
   })
 })
 
@@ -159,20 +137,12 @@ describe('DashboardMenu — Team item in the mobile sidebar (ENG-11061)', () => 
     mockUseIsMobile.mockReturnValue(true)
   })
 
-  it('is absent when the flag is off', () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: false })
-    renderMenu()
-    expect(screen.queryByText('Team')).not.toBeInTheDocument()
-  })
-
-  it('shows Team in the mobile sidebar when the flag is on', () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+  it('shows Team in the mobile sidebar', () => {
     renderMenu()
     expect(screen.getByText('Team')).toBeInTheDocument()
   })
 
-  it('hides Team for an elected office, even when the flag is on', () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+  it('hides Team for an elected office', () => {
     mockUseElectedOffice.mockReturnValue({
       data: { id: 'eo-1' },
       isLoading: false,
@@ -186,7 +156,6 @@ describe('DashboardMenu — Team item in the mobile sidebar (ENG-11061)', () => 
   })
 
   it('hides Team for an elected office even while the async elected-office query is still pending', () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
     mockUseElectedOffice.mockReturnValue({ data: undefined, isLoading: true })
     mockUseOrganization.mockReturnValue({
       slug: 'eo-1',
