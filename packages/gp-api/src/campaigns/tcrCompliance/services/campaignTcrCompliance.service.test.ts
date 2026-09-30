@@ -3459,6 +3459,59 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     })
   })
 
+  // 2026-09-30: Campaign Verify answered 403 to every status read for hours.
+  // This read is the first thing PIN entry does, so without a fallback every
+  // candidate holding a valid PIN got a 502 for as long as the vendor was out.
+  it('retrieveCampaignVerifyToken verifies the PIN on the stored status when the read is refused', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      peerlyCvStatus: 'APPROVED',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockRejectedValueOnce(
+      new BadGatewayException('Peerly API error: Campaign Verify Retrieve'),
+    )
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+
+    await withEnv('prod', async () => {
+      const token = await service.retrieveCampaignVerifyToken(
+        '123456',
+        tcrWithIdentity,
+      )
+
+      expect(token).toBe('cv-token')
+      expect(mockPeerly.verifyCampaignVerifyPin).toHaveBeenCalledWith(
+        'peerly-1',
+        '123456',
+        { id: 1, user: null },
+      )
+    })
+  })
+
+  // From REQUESTED, IN_REVIEW or nothing at all we do not know whether a PIN
+  // exists, and "that PIN was never issued" is the wrong thing to tell a
+  // candidate about a vendor we simply could not reach. The 502 says retry.
+  it('retrieveCampaignVerifyToken surfaces the read failure when no PIN was ever observed', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      peerlyCvStatus: 'IN_REVIEW',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockRejectedValueOnce(
+      new BadGatewayException('Peerly API error: Campaign Verify Retrieve'),
+    )
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.retrieveCampaignVerifyToken('123456', tcrWithIdentity),
+      ).rejects.toThrow(BadGatewayException)
+    })
+    expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
+  })
+
   it('retrieveCampaignVerifyToken does not run detection when the PIN is rejected', async () => {
     mockModel.findFirstOrThrow.mockResolvedValueOnce({
       id: 'tcr-2',

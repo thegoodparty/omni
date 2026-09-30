@@ -264,10 +264,10 @@ const MAX_REREAD_FACTOR = 24
  * the set totalled 787 and the account read 3,038 GB/day against a 1,056 GB/day
  * allowance, i.e. ~3.9 GB/day per unit of factor. 130 therefore predicts ~500
  * GB/day, or roughly half the allowance, leaving the other half for humans and
- * for whatever the next alert needs. The set totals 125 today.
+ * for whatever the next alert needs. The set totals 127 today.
  *
  * WHAT THE REMAINING HEADROOM WILL AND WILL NOT BUY, since this is where the
- * next person will want to spend it. 118 of those 125 are the eleven
+ * next person will want to spend it. 120 of those 127 are the twelve
  * hand-written log alerts; the six route alerts are 6 and the door-knocking
  * recording rule is 1. Another rule at the per-rule ceiling of 24 does not fit,
  * and neither does putting the four Geoapify tiers back on Loki — a 24h window
@@ -358,6 +358,61 @@ describe('people-person-id-repoint-collision', () => {
   // action nobody is otherwise told to take, so it goes to the rotation that
   // owns the people surface.
   it('pages a group rather than the default receiver', () => {
+    expect(alert!.notify).toEqual('win-bugs')
+  })
+})
+
+describe('win-cv-status-reads-failing', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'win-cv-status-reads-failing',
+  )
+
+  // Verbatim from cvStatusPoll.service.ts: runScan logs the first, runFreshScan
+  // the second, and the rule counts both through the shared substring. Mirrored
+  // rather than imported because deploy/ does not compile against src/, so this
+  // is the test that notices when somebody rewords a log line and silently
+  // unhooks the alert from the event it was written for.
+  const FAILURE_LINES = [
+    '[CV status scan] CV poll failed for record',
+    '[CV fresh poll] CV poll failed for record',
+  ]
+
+  const matchesExpr = (line: string) => {
+    const [, literal] = /\|= "([^"]+)"/.exec(alert!.expr) ?? []
+    if (!literal) throw new Error(`no line filter in: ${alert!.expr}`)
+    return line.includes(literal)
+  }
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('keeps every range vector inside the window the engine fetches', () => {
+    const fetched = alert!.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS
+    expect(widestRangeSeconds(alert!.expr)).toBeLessThanOrEqual(fetched)
+  })
+
+  it('counts both the full scan and the fresh poll', () => {
+    for (const line of FAILURE_LINES) {
+      expect(matchesExpr(line), line).toBe(true)
+    }
+  })
+
+  // The fresh poll reads twice an hour, so one failure is a blip the next pass
+  // corrects. Firing on that would reproduce the incident this rule replaces: a
+  // page per failed read, on a read that retries itself.
+  it('needs more than one failure in the window', () => {
+    expect(alert!.threshold).toBeGreaterThanOrEqual(1)
+  })
+
+  // Whoever is woken has to reach the registration and the vendor's response,
+  // and the per-record lines are the only place either appears.
+  it('points the reader at the per-record failure lines', () => {
+    expect(alert!.message).toContain('CV poll failed for record')
+    expect(alert!.message).toContain('tcrComplianceId')
+  })
+
+  it('pages the group that owns 10DLC registration', () => {
     expect(alert!.notify).toEqual('win-bugs')
   })
 })

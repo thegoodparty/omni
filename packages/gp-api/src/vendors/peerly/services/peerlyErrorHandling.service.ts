@@ -58,18 +58,28 @@ export class PeerlyErrorHandlingService {
     //   - templateMessages: a content rejection (banned word, URL shortener)
     //     surfaced below as a 400 carrying Peerly's own wording.
     //
+    // A third shape is a fault, but cannot be one per line:
+    //
+    //   - context.retriedByCaller: a scheduled read the caller repeats minutes
+    //     later. Left at `error` it pages once per record a sweep fails on;
+    //     the sweep's own per-record `error` lines carry that signal instead.
+    //
     // Everything else — nested 5xx, transport errors, anything unclassified —
     // stays at `error` and keeps paging. Over the 14 days to 2026-09-27 all 21
-    // lines this alert matched were one of the two cases above, so it fired 18
-    // times on non-incidents; the vendor being down was never among them.
-    const expected = context?.expectedRejection === true || !!templateMessages
+    // lines this alert matched were one of the first two cases above, so it
+    // fired 18 times on non-incidents; the vendor being down was never among
+    // them. It was on 2026-09-30, and it paged once per swept record.
+    const logAtWarn =
+      context?.expectedRejection === true ||
+      context?.retriedByCaller === true ||
+      !!templateMessages
     const logPayload = {
       data: !formattedError ? error : '',
       ...context?.recoveryInfo,
     }
     const logMessage = `${genericMessage}: ${formattedError ? JSON.stringify(formattedError) : ''}${recoverySuffix}`
 
-    if (expected) {
+    if (logAtWarn) {
       logger?.warn(logPayload, logMessage)
     } else {
       logger?.error(logPayload, logMessage)
@@ -95,7 +105,7 @@ export class PeerlyErrorHandlingService {
       // thing that keeps an expected rejection at error level.
       const detailPayload = { data: JSON.stringify(responseData, null, 2) }
       const detailMessage = 'Peerly API error response:'
-      if (expected) {
+      if (logAtWarn) {
         logger?.warn(detailPayload, detailMessage)
       } else {
         logger?.error(detailPayload, detailMessage)

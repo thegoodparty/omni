@@ -375,7 +375,10 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     tcrOverrides?: Partial<
       Pick<
         TcrCompliance,
-        'status' | 'peerlyIdentityId' | 'peerlyCvVerificationId'
+        | 'status'
+        | 'peerlyIdentityId'
+        | 'peerlyCvVerificationId'
+        | 'peerlyCvStatus'
       >
     >,
   ) => ({
@@ -496,6 +499,7 @@ describe('ComplianceStateService - findStateForCampaign', () => {
   // A transient Peerly error must not 502 the compliance-state read (polled by
   // the agent + FE). retrieveCampaignVerifyDetails throws BadGatewayException via
   // handleApiError on any non-404 failure, so mock that production error here.
+  // With nothing observed yet there is no mirror to fall back to.
   it('degrades CV status + PIN delivery to null when the Peerly read throws', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
     mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
@@ -508,6 +512,44 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     expect(result.stage).toBe(ComplianceStage.awaiting_pin)
     expect(result.peerlyCvStatus).toBeNull()
     expect(result.pinDelivery).toBeNull()
+  })
+
+  // 2026-09-30: Campaign Verify refused every status read for hours. Reporting
+  // null there tells the FE "verification in progress" and hides the PIN box
+  // from a candidate whose PIN is already in their hand, so an unreadable
+  // vendor became a dead end. The persisted mirror is at worst one poll old,
+  // and the PIN is still checked against Peerly on submission.
+  it('falls back to the last observed CV status when the read throws', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    mockFindUniqueOrThrow.mockResolvedValue(
+      awaitingPinCampaign({
+        peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+      }),
+    )
+    mockRetrieveCv.mockRejectedValue(
+      new BadGatewayException('Peerly retrieve_cv failed'),
+    )
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.APPROVED)
+    // The delivery channel only exists in the live payload, and guessing one
+    // would tell the candidate their PIN went somewhere we never read.
+    expect(result.pinDelivery).toBeNull()
+  })
+
+  it('does not resurrect an unrecognized stored status on a failed read', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    mockFindUniqueOrThrow.mockResolvedValue(
+      awaitingPinCampaign({ peerlyCvStatus: 'SOMETHING_NEW' }),
+    )
+    mockRetrieveCv.mockRejectedValue(
+      new BadGatewayException('Peerly retrieve_cv failed'),
+    )
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.peerlyCvStatus).toBeNull()
   })
 
   it('short-circuits to APPROVED with null PIN delivery in non-prod', async () => {

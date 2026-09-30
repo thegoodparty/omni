@@ -62,6 +62,7 @@ import {
 import {
   ComplianceStage,
   MIN_BIO_LENGTH,
+  PeerlyCvVerificationStatusSchema,
   SubmitToPeerlyOutput,
 } from '@goodparty_org/contracts'
 import { DerivedPinDelivery } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
@@ -2554,11 +2555,41 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // and mint the token so the retry can finish the flow. The enriched read
     // (same retrieve_cv call as the status-only variant) also carries the PIN
     // delivery channel for the detection below.
-    const details =
-      await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
-        peerlyIdentityId,
-        campaign,
-      )
+    const details = await this.peerlyIdentityService
+      .retrieveCampaignVerifyDetails(peerlyIdentityId, campaign)
+      .catch((err: unknown) => {
+        // A vendor that cannot answer "has a PIN been issued" must not be able
+        // to refuse a candidate who is holding one. On 2026-09-30 Campaign
+        // Verify answered 403 to every status read for hours, and this read is
+        // the first thing PIN entry does — so every submission would have 502'd
+        // while the PINs themselves were perfectly valid.
+        //
+        // The persisted mirror is what the CV scan last observed. Only the two
+        // states that mean a PIN exists (APPROVED) or has already been consumed
+        // (VERIFIED) are worth acting on; from REQUESTED, IN_REVIEW or nothing
+        // at all we genuinely do not know, and a 502 that says "try again" is
+        // better than a 409 that tells the candidate a PIN was never issued.
+        // verify_pin below is still the authority on the digits themselves.
+        const lastObserved = PeerlyCvVerificationStatusSchema.safeParse(
+          record.peerlyCvStatus,
+        )
+        if (!lastObserved.success) {
+          throw err
+        }
+        const observed = lastObserved.data
+        if (
+          observed !== PeerlyCvVerificationStatus.APPROVED &&
+          observed !== PeerlyCvVerificationStatus.VERIFIED
+        ) {
+          throw err
+        }
+        this.logger.warn(
+          { err, tcrComplianceId: record.id, peerlyIdentityId },
+          '[TCR Compliance] Campaign Verify status read failed during PIN ' +
+            `entry; proceeding on the last observed status ${observed}`,
+        )
+        return { status: observed, pinDelivery: null }
+      })
     if (details.status !== PeerlyCvVerificationStatus.VERIFIED) {
       // APPROVED is the only state in which a PIN actually exists. REQUESTED,
       // IN_REVIEW, REJECTED and null all mean CampaignVerify never issued one,
