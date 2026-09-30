@@ -10,73 +10,7 @@
   /* Layout: a fixed-width operator column. Summary on top, then the queue as a
      severity-railed list. Shares the explorer's palette because they are two pages
      over one snapshot and should read as one system. */
-  :root {
-    --bg: #f4f6f7;
-    --surface: #ffffff;
-    --surface-2: #eef1f3;
-    --ink: #14181b;
-    --ink-2: #4b555d;
-    --ink-3: #78848c;
-    --line: #dde3e6;
-    --line-2: #c6d0d5;
-    --accent: #0f5f61;
-    --accent-ink: #ffffff;
-    --good: #1c6b45;
-    --good-bg: #dff0e6;
-    --warn: #8a5a09;
-    --warn-bg: #fbeed3;
-    --crit: #a32c22;
-    --crit-bg: #fadedb;
-    --shadow: 0 1px 2px rgba(20, 24, 27, 0.06), 0 1px 1px rgba(20, 24, 27, 0.04);
-    --sans: 'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
-      sans-serif;
-    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme='light']) {
-      --bg: #0f1315;
-      --surface: #171c1f;
-      --surface-2: #1f262a;
-      --ink: #e8edef;
-      --ink-2: #aeb9bf;
-      --ink-3: #7d8a91;
-      --line: #2a3338;
-      --line-2: #3a464c;
-      --accent: #4bb3b0;
-      --accent-ink: #07211f;
-      --good: #6fd39b;
-      --good-bg: #123024;
-      --warn: #e0b45c;
-      --warn-bg: #362a10;
-      --crit: #f08a7e;
-      --crit-bg: #3a1a17;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-      color-scheme: dark;
-    }
-  }
-
-  :root[data-theme='dark'] {
-    --bg: #0f1315;
-    --surface: #171c1f;
-    --surface-2: #1f262a;
-    --ink: #e8edef;
-    --ink-2: #aeb9bf;
-    --ink-3: #7d8a91;
-    --line: #2a3338;
-    --line-2: #3a464c;
-    --accent: #4bb3b0;
-    --accent-ink: #07211f;
-    --good: #6fd39b;
-    --good-bg: #123024;
-    --warn: #e0b45c;
-    --warn-bg: #362a10;
-    --crit: #f08a7e;
-    --crit-bg: #3a1a17;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-    color-scheme: dark;
-  }
-
+/* __THEME_CSS__ */
   body {
     margin: 0;
     background: var(--bg);
@@ -128,6 +62,28 @@
     margin-left: auto;
     font-size: 12px;
     color: var(--ink-3);
+  }
+
+  .masthead .siblings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    font-size: 12px;
+  }
+
+  .masthead .siblings a {
+    padding: 3px 10px;
+    color: var(--ink-2);
+    text-decoration: none;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    background: var(--surface);
+  }
+
+  .masthead .siblings a:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   .lede {
@@ -438,35 +394,6 @@
     font-variant-numeric: tabular-nums;
     color: var(--ink-2);
     white-space: nowrap;
-  }
-
-  .chip {
-    padding: 1px 7px;
-    border-radius: 3px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-  }
-
-  .chip.crit {
-    color: var(--crit);
-    background: var(--crit-bg);
-  }
-
-  .chip.warn {
-    color: var(--warn);
-    background: var(--warn-bg);
-  }
-
-  .chip.good {
-    color: var(--good);
-    background: var(--good-bg);
-  }
-
-  .chip.low {
-    color: var(--ink-2);
-    background: var(--surface-2);
   }
 
   .chip.okr {
@@ -997,148 +924,7 @@
     color: var(--ink-3);
   }
 
-  /* --- event card (the explorer's card, opened from a name in the table) --- */
-
-  .eventname {
-    padding: 0;
-    white-space: nowrap;
-    font: inherit;
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--ink);
-    text-align: left;
-    background: none;
-    border: 0;
-    border-bottom: 1px dotted var(--line-2);
-    cursor: pointer;
-  }
-
-  .eventname:hover {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-  }
-
-  tr.is-open .eventname {
-    color: var(--accent);
-    font-weight: 600;
-  }
-
-  .eventdetail > td {
-    padding: 0;
-    background: var(--surface-2);
-  }
-
-  .eventcard {
-    padding: 14px 16px;
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-    font-size: 13px;
-    white-space: normal;
-  }
-
-  .eventcard .verdictrow {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 12px;
-    color: var(--ink-2);
-  }
-
-  .eventcard .lineage {
-    margin-bottom: 12px;
-    padding: 8px 10px;
-    border: 1px solid var(--line-2);
-    border-radius: 4px;
-    background: var(--surface);
-  }
-
-  .eventcard .lineage p {
-    margin: 4px 0 0;
-    color: var(--ink-2);
-  }
-
-  .eventcard .fields {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 12px 18px;
-    margin-bottom: 12px;
-  }
-
-  .eventcard .fieldlbl {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ink-3);
-  }
-
-  .eventcard .v {
-    margin-top: 2px;
-    color: var(--ink);
-    overflow-wrap: anywhere;
-  }
-
-  .eventcard .muted {
-    color: var(--ink-3);
-  }
-
-  .eventcard .muted-mono {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--ink-3);
-  }
-
-  .eventcard .volume {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .eventcard .usedby {
-    margin: 2px 0 0;
-    padding-left: 16px;
-  }
-
-  .eventcard .links {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-
-  .eventcard .btn {
-    max-width: 320px;
-    padding: 4px 10px;
-    font-size: 12px;
-    color: var(--ink-2);
-    text-decoration: none;
-    background: var(--surface);
-    border: 1px solid var(--line-2);
-    border-radius: 4px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .eventcard .btn:hover {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-
-  /* The identifiers, last and quieter: the same split the caveat block makes between
-     prose and names. */
-  .eventcard .prov {
-    margin-bottom: 0;
-    padding-top: 10px;
-    border-top: 1px dashed var(--line);
-  }
-
-  .eventcard .prov .v {
-    font-size: 12px;
-    color: var(--ink-2);
-  }
-
+/* __CARD_CSS__ */
   .handoff textarea {
     width: 100%;
     min-height: 160px;
@@ -1264,6 +1050,22 @@
       el('span', 'run', 'run ' + (data.run_date || 'unknown')),
       el('span', 'age', daysAgo(data.run_date)),
     )
+    // The two pages everyone else reads, over this same snapshot. What gets ruled on
+    // here is what they show next.
+    const siblings = el('div', 'siblings')
+    const link = (label, href) => {
+      const a = el('a', null, label)
+      a.href = href
+      a.target = '_blank'
+      a.rel = 'noreferrer'
+      return a
+    }
+    add(
+      siblings,
+      link('Analytics events explorer', '__EXPLORER_URL__'),
+      link('Product map', '__MAP_URL__'),
+    )
+    add(head, siblings)
     return head
   }
 
@@ -1575,259 +1377,7 @@
   // `selectable` turns the evidence table into a picker. Only the flags queue gets it,
   // and only where a cause holds more than one event: a cause is normally one ruling,
   // and a checkbox on a single-row table is furniture.
-  // --- event cards ------------------------------------------------------------
-  //
-  // Clicking an event name in an evidence table opens the same card the analytics
-  // event explorer shows. Deliberately the same card: these two pages describe the
-  // same events to the same people, and a second, differently-worded description of
-  // one event is a way for them to disagree.
-  //
-  // It is here because several of the caveats above need it. "Find the replacement
-  // event named in the declaration" needs the supersession note; "ask whether that gap
-  // is unusual for this event" needs the weekly series. Both used to be a tab away, and
-  // a check that costs a tab is a check that gets skipped.
-
-  const EVENT_CARDS = DATA.event_cards || {}
-  const WEEKS = DATA.series_weeks || []
-
-  const AMPLITUDE_ORG = 'goodparty'
-
-  const amplitudeUrl = (eventType) =>
-    'https://app.amplitude.com/data/' + AMPLITUDE_ORG +
-    '/default/events/main/latest/' + encodeURIComponent(eventType) +
-    '?view=All&eventsTab=Events&tab=DETAILS' +
-    '&propertyValidityFilter=All%2520Properties'
-
-  const prUrl = (pr) =>
-    /^\d+$/.test(pr) ? 'https://github.com/thegoodparty/omni/pull/' + pr : pr
-
-  const num = (n) => (n || 0).toLocaleString('en-US')
-
-  const shortDate = (s) => {
-    if (!s) return 'an unknown date'
-    const d = new Date(s + (s.length === 10 ? 'T00:00:00Z' : ''))
-    return isNaN(d)
-      ? s
-      : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
-  }
-
-  // The explorer's verdicts, word for word. The evidence table shows the raw status
-  // because it is a scanning surface with a STATUS header; the card is a reading
-  // surface, and there it says what the status means.
-  const verdictFor = (card) => {
-    const p = card.provenance || {}
-    switch (card.status) {
-      case 'active':
-        return ['good', 'Working',
-          'Fired ' + num(card.count_30d) + ' times in the last 30 days, most recently ' +
-          shortDate(card.last_seen) + '.']
-      case 'dormant':
-        // One word off the explorer's sentence, deliberately. "The code is still
-        // there" is the exact ambiguity the fields below resolve: on a rank-2 row the
-        // NAME is still there and the caller is gone, and this card is the only place
-        // that shows both. The explorer carries no call-site data, so it cannot
-        // contradict itself the same way -- but its copy has the same looseness.
-        return ['warn', 'Silent',
-          'The name is still in the code but nothing has fired for 30 days. Either ' +
-          'nobody uses this feature or the instrument broke.']
-      case 'deprecating':
-        return ['warn', 'Being removed',
-          'The code was removed ' + shortDate(p.retired_date) +
-          '. Still firing inside the 30-day window, which is expected.']
-      case 'orphaned_firing':
-        return ['crit', 'Do not trust this',
-          'The code was removed ' + shortDate(p.retired_date) +
-          ' but events are still arriving. Something is firing that we no longer control.']
-      case 'retired':
-        return ['low', 'Retired',
-          'Removed ' + shortDate(p.retired_date) +
-          (card.supersession ? '.' : ' and quiet since. Nothing replaced it.')]
-      case 'instrumented_never_observed':
-        return ['crit', 'Never seen',
-          'Recorded as being in the code, but Amplitude has never received it. Either ' +
-          'the instrumentation is broken or the code axis is wrong.']
-      case 'code_unknown':
-        return ['low', 'Unknown',
-          'We cannot tell whether this is still in the code. Usually auto-tracked, or ' +
-          'too new to have a provenance record.']
-      case 'system':
-        return ['low', 'Auto-tracked',
-          'Amplitude records this automatically. It is never health-flagged.']
-      default:
-        return ['low', card.status || 'Unknown', '']
-    }
-  }
-
-  const sparkline = (series) => {
-    const box = el('span', 'spark')
-    if (!series || !series.length) {
-      box.className = 'muted-mono'
-      box.textContent = 'no data'
-      return box
-    }
-    const w = 96
-    const h = 24
-    const gap = 2
-    const bw = Math.max(2, (w - gap * (series.length - 1)) / series.length)
-    const max = Math.max.apply(null, series.concat([1]))
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    svg.setAttribute('width', w)
-    svg.setAttribute('height', h)
-    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h)
-    series.forEach((v, i) => {
-      const bh = v === 0 ? 1 : Math.max(1.5, (v / max) * h)
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-      rect.setAttribute('x', (i * (bw + gap)).toFixed(1))
-      rect.setAttribute('y', (h - bh).toFixed(1))
-      rect.setAttribute('width', bw.toFixed(1))
-      rect.setAttribute('height', bh.toFixed(1))
-      rect.setAttribute('rx', (v === 0 ? 0.5 : Math.min(2, bw / 2)).toFixed(1))
-      rect.setAttribute('fill', v === 0 ? 'var(--line-2)' : 'var(--ink-2)')
-      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title')
-      title.textContent = 'week of ' + (WEEKS[i] || '') + ': ' + num(v)
-      rect.appendChild(title)
-      svg.appendChild(rect)
-    })
-    box.appendChild(svg)
-    return box
-  }
-
-  const cardField = (label, value) => {
-    const node = el('div', 'field')
-    add(node, el('div', 'fieldlbl', label))
-    const v = el('div', 'v')
-    if (value === null || value === undefined || value === '') {
-      add(v, el('span', 'muted', '—'))
-    } else if (typeof value === 'string' || typeof value === 'number') {
-      v.textContent = String(value)
-    } else {
-      add(v, value)
-    }
-    add(node, v)
-    return node
-  }
-
-  // How far this event's removal got, as one sentence.
-  //
-  // Deleting an event is two steps: delete the code that sends it, then delete its name
-  // from the registry. We used to print a field per step -- "name removed: still
-  // declared" beside "sent from: nothing" -- and a half-finished deletion read as two
-  // facts contradicting each other. It stopped the person who designed the system
-  // twice.
-  //
-  // The two can never both be set, which is what makes one field the honest shape: the
-  // count works by finding the name in the registry and counting its references, so
-  // deleting the name leaves nothing to count and the column goes null. Measured over
-  // 664 events: 372 called, 39 declared-but-uncalled, 162 fully removed, 91 with no
-  // resolvable key path.
-  const inTheCode = (card) => {
-    const n = card.call_site_count
-    const retired = (card.provenance || {}).retired_date
-
-    if (n === null || n === undefined) {
-      if (retired) return 'removed on ' + retired
-      return el('span', 'muted', 'no call site we can find, so nothing to follow')
-    }
-    if (n > 0) {
-      return 'declared, and called from ' + (n === 1 ? '1 place' : n + ' places')
-    }
-    return card.call_site_retired_date
-      ? 'declared, but nothing has called it since ' + card.call_site_retired_date
-      : 'declared, but nothing calls it and we cannot date when that changed'
-  }
-
-  const cardLink = (label, href) => {
-    const a = el('a', 'btn', label)
-    a.href = href
-    a.target = '_blank'
-    a.rel = 'noreferrer'
-    return a
-  }
-
-  const renderEventCard = (eventType) => {
-    const card = EVENT_CARDS[eventType]
-    const box = el('div', 'eventcard')
-
-    // No explorer row is the normal state for anything declared in Govern and never
-    // observed, which is a third of the flagged set. Say so, and still offer the link
-    // out: Amplitude is where a taxonomy-only event actually lives.
-    if (!card) {
-      add(
-        box,
-        el('p', 'muted',
-          'No catalog entry for this event. That is expected when it was declared in ' +
-          'Amplitude and never fired, since the catalog is built from what arrives.'),
-      )
-      add(box, add(el('div', 'links'),
-        cardLink('Open in Amplitude', amplitudeUrl(eventType))))
-      return box
-    }
-
-    const [tone, label, sentence] = verdictFor(card)
-    const head = el('div', 'verdictrow')
-    add(head, el('span', 'chip ' + tone, label), el('span', null, sentence))
-    add(box, head)
-
-    // Directly under the verdict, because it is the field that decides whether a
-    // retirement is safe: the caveats send you here to check a declared successor.
-    if (card.supersession) {
-      const lineage = el('div', 'lineage')
-      add(lineage, el('div', 'fieldlbl', 'Lineage'))
-      add(lineage, el('p', null, card.supersession))
-      add(box, lineage)
-    }
-
-    const top = el('div', 'fields')
-    add(top, cardField('What it is', card.description))
-    add(top, cardField('Where it fires', card.fires_on))
-    const vol = el('span', 'volume')
-    add(vol, sparkline(card.series))
-    add(vol, el('span', 'muted-mono', num(card.count_30d) + ' / 30d'))
-    add(top, cardField('Weekly volume', vol))
-    add(box, top)
-
-    const p = card.provenance || {}
-    const mid = el('div', 'fields')
-    add(mid, cardField('Added to the code', p.instrumented_date))
-    add(mid, cardField('In the code', inTheCode(card)))
-    add(mid, cardField('Last fired', card.last_seen))
-    add(mid, cardField('First fired', card.first_seen))
-    add(box, mid)
-
-    const used = (card.questions || []).concat(
-      (card.used_by || []).map((u) => u.label),
-    )
-    if (used.length) {
-      const list = el('ul', 'usedby')
-      used.forEach((u) => add(list, el('li', null, u)))
-      // Retiring something a report still reads is a different decision from retiring
-      // something nothing reads, and that was not visible anywhere on this page.
-      add(box, cardField('Used by', list))
-    }
-
-    const links = el('div', 'links')
-    add(links, cardLink('Open in Amplitude', amplitudeUrl(eventType)))
-    if (card.url && card.url.indexOf('n/a') !== 0) {
-      add(links, cardLink(card.url, card.url))
-    }
-    if (p.instrumented_pr) {
-      add(links, cardLink('Instrumenting PR', prUrl(p.instrumented_pr)))
-    }
-    if (p.retired_pr) add(links, cardLink('Removing PR', prUrl(p.retired_pr)))
-    add(box, links)
-
-    const ids = el('div', 'fields prov')
-    add(ids, cardField('Product area', card.area))
-    add(ids, cardField('Tags', (card.tags || []).join(', ')))
-    add(ids, cardField('OKR anchor', card.okr))
-    add(ids, cardField('Declared intent', card.declared_intent))
-    add(ids, cardField('Watchlist', card.watchlist_status))
-    add(ids, cardField('All-time count', num(card.count_total)))
-    add(box, ids)
-
-    return box
-  }
-
+// __CARD_JS__
   // An event name that opens its card in a row underneath, the way the explorer's
   // table does. Built lazily and kept: reopening a card should cost nothing, and an
   // operator comparing four events in a cause opens and closes the same ones.
@@ -1843,7 +1393,7 @@
         detail = el('tr', 'eventdetail')
         const cellNode = el('td')
         cellNode.colSpan = span
-        add(cellNode, renderEventCard(eventType))
+        add(cellNode, EventCard.render(eventType))
         add(detail, cellNode)
         tr.insertAdjacentElement('afterend', detail)
       } else {

@@ -5,7 +5,8 @@ since the last run, and every open decision in one ranked list. Built for the on
 who triages this, which is what separates it from the analytics-event explorer next door
 (that one answers product questions for everyone else).
 
-Ticket: DATA-2546. Subtask DATA-2547 adds the sitemap view.
+Ticket: DATA-2546, under the DATA-2580 epic with the analytics event explorer and the
+product map (`../product-map/`). The masthead links to both.
 Design doc: `docs/superpowers/specs/2026-09-28-event-health-console-design.md`
 (gitignored, local only).
 
@@ -84,10 +85,11 @@ The same card the analytics event explorer shows, opened in a row under the one 
 clicked: the verdict in plain words, what it is, where it fires, nine weeks of volume,
 when it entered and left the code, what reads it, and a link straight into Amplitude.
 
-It is the same card on purpose. These two pages describe the same events to the same
-people, and a second, differently-worded description of one event is a way for them to
-disagree. The console lifts it from the explorer snapshot rather than rebuilding it, the
-way it already lifts the area rollup.
+It is the same card on purpose, and since DATA-2580 it is the same code: `../shared/card.js`
+and `card.css`, inlined by `build.py`, rendered here through `EventCard.render`. Three
+pages describe the same events to the same people, and a second, differently-worded
+description of one event is a way for them to disagree. The card data is lifted from the
+explorer snapshot rather than rebuilt, the way the area rollup already is.
 
 It carries cards only for events under an open decision, because the whole catalog is
 most of a megabyte of page nobody opens. An event with no catalog entry says so and
@@ -286,29 +288,20 @@ digest raising the item again.
 Per-event "I looked at this one and it is fine" has no home yet. That file is phase 2
 and is the only genuinely new mechanism in the whole ticket.
 
-## Staying consistent with the explorer
+## Staying consistent with the other two pages
 
-The two pages share no code, so consistency is a thing someone has to keep doing. What
-is aligned today:
+Three things are one piece of code, in `../shared/`, inlined by every page's `build.py`:
+the palette (`theme.css`), the event card (`card.css`, `card.js`) and the usage and
+feedback script (`usage.js`, `usage.css`). Change one there, rebuild the three pages,
+and it changed everywhere. `partials.py` fails a build that leaves a placeholder
+unfilled. The console does not declare the artifact runtime, so it inlines the card and
+the theme but not the usage script.
 
-| | |
-| --- | --- |
-| Colour tokens | identical in light and dark. Dark had drifted in 13 values and was re-aligned to the explorer's. |
-| The event card | same fields, same order, same wording, same links |
-| Status wording | the card uses the explorer's verdicts (Working, Silent, Do not trust this, Never seen, Retired, Auto-tracked) |
-| Sparkline | same 9-week bars, same tooltip |
-| Fonts | Public Sans and IBM Plex Mono, same stacks |
-
-Deliberately different, in two places. The console's `dormant` verdict says "The name
-is still in the code" where the explorer says "The code is still there" — one word, and
-it is the exact ambiguity the fields under it resolve. The explorer carries no
-call-site data so it cannot contradict itself the same way, but its copy has the same
-looseness and should probably follow.
-
-And the **evidence table shows raw status strings** where the card
-shows the plain verdict. The table is a scanning surface with a STATUS header, read by
-one operator who knows them; the card is a reading surface. If that stops being true,
-the table should move to the plain words too.
+What is still aligned by hand: status wording outside the card (the evidence table shows
+raw status strings, because it is a scanning surface read by one operator; the card says
+the plain verdict), and the console's `dormant` verdict, which says "The name is still in
+the code" where the explorer's says "The code is still there". That one word is the exact
+ambiguity the card's fields resolve, and the explorer's copy should probably follow.
 
 ## Things that will surprise you
 

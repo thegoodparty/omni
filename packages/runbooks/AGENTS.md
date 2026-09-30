@@ -55,11 +55,22 @@ has to run inside the governance job after the health step: the report is gitign
 exists only during a run. The page is where the reviewer looks at the evidence and picks
 a verb per row; it writes nothing itself, and leaves as a plain-text handoff pasted into
 `/triage-instrumentation-gaps`, which still owns every write. So the console replaced the
-elicitation half of that skill and none of the application half. `surfaces/` is where
-operator pages built from committed
-governance data live; its `build.py` must stay dependency-free because the republish
-routine runs it with a bare interpreter. Detail in
+elicitation half of that skill and none of the application half. Detail in
 `surfaces/governance-console/README.md`.
+
+A fourth, the product map in `surfaces/product-map/` (DATA-2547), shows the same events
+laid over the product's flows and pages, with the steps where nothing fires. It is the
+explorer's audience and the explorer's data, organised the way people remember using the
+site. Its node model is hand-authored in the template for now; its cards are lifted from
+the explorer snapshot.
+
+`surfaces/` is where pages built from committed governance data live. The three published
+pages (explorer, map, console) are one epic, DATA-2580, and share `surfaces/shared/`: the
+palette, the event card and the usage/feedback script, inlined by each page's `build.py`
+through `shared/partials.py`. Change the card there and rebuild all three; never restyle
+it in one template. Every `build.py` must stay dependency-free because the republish
+routines run them with a bare interpreter, and `partials.py` fails a build that leaves a
+placeholder unfilled.
 
 Questions are not intaken from the spreadsheet. The source of truth is the ClickUp Analytics Questions list: `scripts/python/question_intake.py` reads accepted questions into `scripts/python/monitored_events.yaml`, and `event_state_gsheet.py writeback-questions` pushes each question's answer state and last-checked date back onto its ClickUp task. See `books/refresh-event-state-surface.md`.
 

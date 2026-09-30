@@ -1,4 +1,5 @@
-"""Inline the snapshot into the console page, producing the single-file artifact.
+"""Inline the snapshot and the shared partials into the console page, producing the
+single-file artifact.
 
 Usage:  python3 build.py   ->  governance-console.html
 
@@ -9,19 +10,18 @@ The snapshot itself is built separately by
 scripts/python/governance_console_snapshot.py.
 """
 import json
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-
-
-def inline_payload(doc) -> str:
-    """JSON safe to embed in a <script> block. ``</`` would close the block early."""
-    return json.dumps(doc, separators=(",", ":")).replace("</", "<\\/")
+sys.path.insert(0, str(HERE.parent / "shared"))
+from partials import inline, inline_payload  # noqa: E402
 
 
 def build() -> Path:
     doc = json.loads((HERE / "data" / "governance-console.json").read_text())
-    html = (HERE / "template.html").read_text().replace("__DATA__", inline_payload(doc))
+    html = inline((HERE / "template.html").read_text())
+    html = html.replace("__DATA__", inline_payload(doc))
     out = HERE / "governance-console.html"  # gitignored: derived from template + data
     out.write_text(html)
 

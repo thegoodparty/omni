@@ -1,0 +1,182 @@
+  .chip {
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .chip.crit {
+    color: var(--crit);
+    background: var(--crit-bg);
+  }
+
+  .chip.warn {
+    color: var(--warn);
+    background: var(--warn-bg);
+  }
+
+  .chip.good {
+    color: var(--good);
+    background: var(--good-bg);
+  }
+
+  .chip.low {
+    color: var(--ink-2);
+    background: var(--surface-2);
+  }
+
+
+  /* --- event card (shared by the explorer, the product map and the console) --- */
+
+  .eventname {
+    padding: 0;
+    white-space: nowrap;
+    font: inherit;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink);
+    text-align: left;
+    background: none;
+    border: 0;
+    border-bottom: 1px dotted var(--line-2);
+    cursor: pointer;
+  }
+
+  .eventname:hover {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  tr.is-open .eventname {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .eventdetail > td {
+    padding: 0;
+    background: var(--surface-2);
+  }
+
+  .eventcard {
+    padding: 14px 16px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+    white-space: normal;
+  }
+
+  .eventcard .verdictrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    color: var(--ink-2);
+  }
+
+  .eventcard .lineage {
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    background: var(--surface);
+  }
+
+  .eventcard .lineage p {
+    margin: 4px 0 0;
+    color: var(--ink-2);
+  }
+
+  .eventcard .fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px 18px;
+    margin-bottom: 12px;
+  }
+
+  .eventcard .fieldlbl {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+  }
+
+  .eventcard .v {
+    margin-top: 2px;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+
+  .eventcard .muted {
+    color: var(--ink-3);
+  }
+
+  .eventcard .muted-mono {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+
+  .eventcard .volume {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .eventcard .usedby {
+    margin: 2px 0 0;
+    padding-left: 16px;
+  }
+
+  .eventcard .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .eventcard .btn {
+    max-width: 320px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--ink-2);
+    text-decoration: none;
+    background: var(--surface);
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .eventcard .btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* The identifiers, last and quieter: the same split the caveat block makes between
+     prose and names. */
+  .eventcard .prov {
+    margin-bottom: 0;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+  }
+
+  .eventcard .prov .v {
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+
+  .eventcard .names {
+    padding-bottom: 12px;
+    border-bottom: 1px dashed var(--line);
+  }
+
+  .eventcard .mono {
+    font-family: var(--mono);
+    font-size: 12px;
+  }
