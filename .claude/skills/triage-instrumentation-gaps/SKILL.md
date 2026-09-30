@@ -630,7 +630,10 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    including paths with no rows yet. Two questions: does each `excluding` still exclude
    exactly what it did, and does every key a model de-duplicates on still exist? A path
    that now passes a qualifier it used to fail (or the reverse) and is not named by the
-   rule is **drift C**: stop and take it to the reviewer. The macros compile only a
+   rule is **drift C**: stop and take it to the reviewer. So is a **new key that splits
+   the population** (`product: win|serve`, `fanout`) where the old event could not tell
+   the groups apart: counting it as before is the status quo, but it is now a choice,
+   and the reviewer makes it. The macros compile only a
    `method` exclusion (`is_outreach_activation_event`, `product_output_predicate`), so a
    group separable only by another property cannot be excluded without a macro change.
 6. **Find every reader, more than one way**, in both repos:
@@ -656,6 +659,17 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
       (`m_*.yaml`) may not, because CI runs
       `dbt build --full-refresh --select state:modified+` and one mart description
       pulled 1,720 nodes. Merges first: the sem PR changes what these models count.
+
+      Before opening it, from `dbt/project`:
+      - **Size the rebuild:** `dbt ls --quiet --output name --resource-type model -s <each changed model>+`.
+      - **Compare old and new against prod.** `dbt compile -s <model> --output json`
+        on `main` and on the branch, pull `compiled` out of the JSON, and run both.
+        Report total rows, users, and the post-cutover slice by channel. Any
+        difference must be explained row by row.
+      - **Repoint dev schemas first.** Compiled SQL resolves a `ref` to your
+        `private_*` schema whenever an object of that name exists there, even a
+        stale hand-made one, and says nothing. Grep the compiled SQL for `private_`
+        and point each hit at `dbt` before running it.
    2. **Sem PR.** Before editing any `sem_*.yml`, ask the reviewer, as its own question
       and nothing else: "This will change the semantic layer and notify people. Are you
       sure?" Then add the new leg, keep the old one with
