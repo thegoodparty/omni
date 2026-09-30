@@ -317,8 +317,14 @@ const measure = (
         !sharesPricing(base, candidate)
       )
     }),
-    liveWebCases: pairs.filter((p) => p.base.liveWeb || p.candidate.liveWeb)
-      .length,
+    // Cases, not attempt-pairs: with three attempts per case a pair count
+    // would report three times the number of cases the rest of the score is
+    // computed over.
+    liveWebCases: new Set(
+      pairs
+        .filter((p) => p.base.liveWeb || p.candidate.liveWeb)
+        .map((p) => p.base.caseId),
+    ).size,
   }
 }
 
@@ -450,19 +456,26 @@ const orientFlags = (judgments: readonly GradedJudgment[]): OrientedFlag[] => {
   return [...seen.values()]
 }
 
-const floorFailures = (judgments: readonly GradedJudgment[]): FloorFailure[] =>
-  judgments.flatMap((j) => {
+// Deduped by arm and case for the same reason orientFlags is: the
+// order-swap subsample judges the same pair twice, so a floor kept per
+// judgment reports one broken run as two on exactly the pairs that got the
+// second look.
+const floorFailures = (
+  judgments: readonly GradedJudgment[],
+): FloorFailure[] => {
+  const seen = new Map<string, FloorFailure>()
+  const add = (arm: Arm, caseId: string): void => {
+    const key = `${arm}\u0000${caseId}`
+    if (!seen.has(key)) seen.set(key, { arm, caseId })
+  }
+  for (const j of judgments) {
     const floor = j.absoluteFloor
-    if (floor === null) return []
-    const failures: FloorFailure[] = []
-    if (floor.X_acceptable === 'no') {
-      failures.push({ arm: j.slotMap.X, caseId: j.key.caseId })
-    }
-    if (floor.Y_acceptable === 'no') {
-      failures.push({ arm: j.slotMap.Y, caseId: j.key.caseId })
-    }
-    return failures
-  })
+    if (floor === null) continue
+    if (floor.X_acceptable === 'no') add(j.slotMap.X, j.key.caseId)
+    if (floor.Y_acceptable === 'no') add(j.slotMap.Y, j.key.caseId)
+  }
+  return [...seen.values()]
+}
 
 export interface ScoreInput {
   normalized: NormalizedAgent

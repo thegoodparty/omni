@@ -377,6 +377,30 @@ describe('the panel', () => {
     expect(result.dimensions[OVERALL]?.directionConflict).toBe(false)
   })
 
+  // A floor is not put to a majority. One seat calling a run unacceptable
+  // is a finding about that run, and reading seats[0] alone dropped it
+  // before scoring ever saw it.
+  it('takes a floor failure from any seat, not only the first', async () => {
+    const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    const { llm } = fake([
+      reply({ floor: { X_acceptable: 'yes', Y_acceptable: 'yes' } }),
+      reply({
+        floor: {
+          X_acceptable: 'no',
+          Y_acceptable: 'unclear',
+          note: 'X invented a source',
+        },
+      }),
+      reply({ floor: { X_acceptable: 'yes', Y_acceptable: 'yes' } }),
+    ])
+    const result = graded(await judgeCase(llm, plan(normalized), threeSeats))
+    expect(result.absoluteFloor).toEqual({
+      X_acceptable: 'no',
+      Y_acceptable: 'unclear',
+      note: 'X invented a source',
+    })
+  })
+
   it('reports the least severe magnitude among the winning seats', async () => {
     const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
     const { llm } = fake([

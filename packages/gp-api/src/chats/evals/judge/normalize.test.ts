@@ -138,6 +138,35 @@ describe('blinding', () => {
     expect(y.finalOutput).toBe(x.finalOutput)
   })
 
+  // The base ref here is the branch "main", which is also a fragment of
+  // ordinary English. A substring strip would hand the judge "do[ref]" and
+  // "re[ref]ing" — prose damaged in a way that looks like a quality defect.
+  it('leaves a ref that is a fragment of ordinary words alone', () => {
+    const prose = 'Your domain filing is remaining open on Main Street.'
+    const { payload } = blind(
+      withOutput(BASE, prose),
+      withOutput(CANDIDATE, prose),
+    )
+    const [x] = payload.runs
+    expect(BASE.variant.ref).toBe('main')
+    expect(x.finalOutput).toBe(
+      'Your domain filing is remaining open on [ref] Street.',
+    )
+  })
+
+  // Matching case-sensitively strips the arm that wrote the ref in lower
+  // case and leaves the arm that capitalised it intact, and that asymmetry
+  // is the direction signal the blinding exists to remove.
+  it('strips a ref whichever way an arm capitalised it', () => {
+    const { payload } = blind(
+      withOutput(BASE, `Merged to ${BASE.variant.ref}.`),
+      withOutput(CANDIDATE, 'Merged to Main.'),
+    )
+    const [x, y] = payload.runs
+    expect(x.finalOutput).toBe('Merged to [ref].')
+    expect(y.finalOutput).toBe(x.finalOutput)
+  })
+
   it('replaces self-identifying model talk with a neutral label', () => {
     const { payload } = blind(
       withOutput(BASE, 'I am Claude, built by Anthropic.'),

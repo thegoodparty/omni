@@ -56,6 +56,7 @@ const FlagSchema = z.object({
 export type Flag = z.infer<typeof FlagSchema>
 
 const AcceptabilitySchema = z.enum(['yes', 'no', 'unclear'])
+type Acceptability = z.infer<typeof AcceptabilitySchema>
 
 // Small and load-bearing: a pairwise judge returns `tie` when both runs are
 // bad, and without this a SAME verdict can hide "same, and both broken".
@@ -313,6 +314,32 @@ const leastMagnitude = (
   )
 }
 
+// The floor is not put to a majority the way a dimension verdict is. One
+// seat calling a run unacceptable is a finding about that run, and a panel
+// that outvoted it has not made the run acceptable — so the combined floor
+// takes the least acceptable answer any seat gave.
+const worstAcceptable = (values: readonly Acceptability[]): Acceptability =>
+  values.includes('no') ? 'no' : values.includes('unclear') ? 'unclear' : 'yes'
+
+const combineFloor = (seats: readonly SeatVerdict[]): AbsoluteFloor | null => {
+  const floors = seats
+    .map((s) => s.verdict.absolute_floor)
+    .filter((f): f is AbsoluteFloor => f !== undefined)
+  if (floors.length === 0) return null
+  const notes = [
+    ...new Set(
+      floors
+        .map((f) => f.note)
+        .filter((n): n is string => n !== undefined && n.length > 0),
+    ),
+  ]
+  return {
+    X_acceptable: worstAcceptable(floors.map((f) => f.X_acceptable)),
+    Y_acceptable: worstAcceptable(floors.map((f) => f.Y_acceptable)),
+    ...(notes.length === 0 ? {} : { note: notes.join(' | ') }),
+  }
+}
+
 const dimensionOf = (
   verdict: CaseVerdict,
   dimension: string,
@@ -417,7 +444,7 @@ export const judgeCase = async (
     // different arm in the next judgment, so turning it into an arm is
     // scoring's job with that judgment's own slot map.
     flags: seats.flatMap((s) => s.verdict.flags ?? []),
-    absoluteFloor: seats[0]?.verdict.absolute_floor ?? null,
+    absoluteFloor: combineFloor(seats),
   }
 }
 

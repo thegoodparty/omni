@@ -152,11 +152,28 @@ const stripList = (records: readonly RunRecord[]): [string, string][] => {
     .sort((a, b) => b[0].length - a[0].length)
 }
 
+// Whole-token and case-insensitive, because a ref is routinely an ordinary
+// word: a plain substring strip turns "domain" into "do[ref]" and
+// "remaining" into "re[ref]ing", and when one arm capitalises the word and
+// the other does not it mangles one side only — which is itself the
+// direction signal the blinding exists to remove. Boundaries are
+// alphanumeric rather than \b so a needle ending in punctuation still
+// matches, and a hyphenated extension such as "main-2" still strips.
+const literalPattern = (needle: string): RegExp =>
+  new RegExp(
+    `(?<![0-9A-Za-z])${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` +
+      '(?![0-9A-Za-z])',
+    'gi',
+  )
+
 const replaceLiterals = (
   text: string,
   list: readonly [string, string][],
 ): string =>
-  list.reduce((acc, [needle, token]) => acc.split(needle).join(token), text)
+  list.reduce(
+    (acc, [needle, token]) => acc.replace(literalPattern(needle), token),
+    text,
+  )
 
 // Opaque ids an agent may echo into its answer. Rewritten to sequential
 // handles against one table per case, so an id that appears in both arms

@@ -530,6 +530,30 @@ describe('flags and the absolute floor', () => {
     )
     expect(result.floorFailures).toEqual([{ arm: 'candidate', caseId: 'a' }])
   })
+
+  // The order-swap subsample judges the same pair in both orders, so a
+  // floor kept per judgment reports one broken run as two.
+  it('counts one floor failure per arm and case, not per judgment', () => {
+    const result = score(
+      [
+        judgment({
+          caseId: 'a',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'tie',
+          floor: { X_acceptable: 'no', Y_acceptable: 'yes' },
+        }),
+        judgment({
+          caseId: 'a',
+          order: 'swapped',
+          slotMap: X_IS_BASE,
+          verdict: 'tie',
+          floor: { X_acceptable: 'yes', Y_acceptable: 'no' },
+        }),
+      ],
+      noFloor(),
+    )
+    expect(result.floorFailures).toEqual([{ arm: 'candidate', caseId: 'a' }])
+  })
 })
 
 describe('the measured layer', () => {
@@ -607,6 +631,26 @@ describe('the measured layer', () => {
     expect(
       score([], noFloor(), toolError).evidence.toolErrors.delta,
     ).toBeCloseTo(1, 10)
+  })
+
+  // The report prints this as "N case(s) used native web search", so an
+  // attempt-pair count reads as three times the number of cases the rest
+  // of the score was computed over.
+  it('counts cases that saw the live web, not attempt-pairs', () => {
+    const live = (record: RunRecord, attempt: number): RunRecord => ({
+      ...record,
+      attempt,
+      runId: `${record.runId}-${attempt}`,
+      liveWeb: true,
+    })
+    const agent = normalizeAgent(
+      [1, 2, 3].flatMap((attempt) => [
+        live(BASE, attempt),
+        live(CANDIDATE, attempt),
+      ]),
+      () => 0,
+    )
+    expect(score([], noFloor(), agent).evidence.liveWebCases).toBe(1)
   })
 })
 
