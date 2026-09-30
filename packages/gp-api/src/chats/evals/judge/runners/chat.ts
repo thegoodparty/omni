@@ -106,7 +106,10 @@ export interface ChatRunRequest {
 // scope handlers inject into the constituent tool, so a pin can only touch a
 // reference the validator would have accepted as a table. Everything else a
 // `FROM` introduces — EXTRACT(... FROM col) and its siblings — is left alone.
-const PINNABLE_TABLES: Record<string, string[]> = {
+// Partial, not Record: most agent ids have no entry, which is the case
+// `pinnableTablesFor` exists to refuse. A bare Record would claim every key
+// resolves and leave that guard looking redundant.
+const PINNABLE_TABLES: Partial<Record<string, string[]>> = {
   chief_of_staff: CONSTITUENT_TABLES.map((config) => config.table),
   priority_flow: CONSTITUENT_TABLES.map((config) => config.table),
   campaign_assistant: WIN_CONSTITUENT_TABLES.map((config) => config.table),

@@ -366,6 +366,41 @@ describe('runChatCase', () => {
     TURN_TIMEOUT_MS,
   )
 
+  // The pinnable tables are resolved per agent, from the same app-layer
+  // allowlists the scope handlers inject. `ordinance_flow` is drivable but
+  // reads none of them, so a dataVersion for it could only ever be recorded
+  // and never applied — and a pin the prototype patch cannot apply is the
+  // silent skew JUDGE_DATA_VERSION exists to prevent. Refused before either
+  // seam is installed, so there is nothing to unwind.
+  it(
+    'refuses a pinned run for an agent that reads no pinnable table',
+    async () => {
+      await expect(
+        runChatCase(
+          { service },
+          request({
+            agentId: 'ordinance_flow',
+            organizationSlug: 'judge-unused',
+            dataVersion: '3237',
+          }),
+        ),
+      ).rejects.toThrow('reads no version-pinnable table')
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // Without a dataVersion there is no pin to resolve, so the same agent runs.
+  it(
+    'does not refuse that agent when nothing asked for a pin',
+    async () => {
+      const record = await runFor('ordinance_flow')
+
+      expect(record.dataVersion).toBeUndefined()
+      expect(record.toolQueries).toEqual([])
+    },
+    TURN_TIMEOUT_MS,
+  )
+
   it(
     'refuses an agent it cannot drive rather than emitting a record',
     async () => {
