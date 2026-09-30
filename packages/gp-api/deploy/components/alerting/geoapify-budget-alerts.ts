@@ -70,8 +70,8 @@ const DAY_SECONDS = 86_400
 const ACTION: Record<(typeof TIERS)[number], string> = {
   60: 'Nothing is broken yet — this is the tier that asks a question. Is this real pilot growth, or one organization looping? If it is growth, the plan is the thing to change, and changing it means changing GEOAPIFY_DAILY_CREDIT_POOL in deploy/components/alerting/geoapify-budget-alerts.ts to match. If it is a loop, you have most of a day to catch it.',
   80: 'Decide now rather than watching. At this share of the pool the account plausibly runs dry before the window rolls, and the remedy with the longest lead time — upgrading the Geoapify plan — is the one that stops being available once it does.',
-  90: 'Act. Pull the `native-door-knocking` flag from the heaviest organization, or upgrade the plan. There is no global cap in the code (deliberately — one org must not be able to fail another org’s knock), so nothing but this page is standing between the remaining headroom and an exhausted account.',
-  95: 'Treat as an outage in waiting. Once Geoapify refuses, `planRoute` throws and every list creation across every organization answers 502 “Route optimization failed” — door knocking stops working for customers who spent nothing. Pull the flag from the heaviest organizations now and upgrade behind it.',
+  90: 'Act. Upgrade the Geoapify plan, or reach the heaviest organization and get it to pause list-building until the window rolls. There is no global cap in the code (deliberately — one org must not be able to fail another org’s knock), so nothing but this page is standing between the remaining headroom and an exhausted account.',
+  95: 'Treat as an outage in waiting. Once Geoapify refuses, `planRoute` throws and every list creation across every organization answers 502 “Route optimization failed” — door knocking stops working for customers who spent nothing. Throttle the heaviest organizations now and upgrade behind it.',
 }
 
 /**

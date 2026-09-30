@@ -18,6 +18,14 @@ interface ElectionApiVoterDensity {
   cells: VoterDensityCell[]
 }
 
+// The public page asks for the map on every render and each miss fans out to
+// election-api, which in turn resolves the district and reads its cells. The
+// cells are recomputed on a daily cadence, so answering an identical lookup
+// from memory for a minute costs no freshness a visitor could notice. Per
+// process, so each replica warms its own.
+const CACHE_TTL_MS = 60_000
+const MAX_CACHE_ENTRIES = 1_000
+
 /**
  * Serves the public /people page's heat map out of election-db, where the
  * precomputed cells sit beside the `District` they are keyed on, so one call
@@ -35,6 +43,11 @@ interface ElectionApiVoterDensity {
  */
 @Injectable()
 export class VoterDensityProxyService {
+  private readonly cache = new Map<
+    string,
+    { expiresAtMs: number; value: VoterDensityResponse | null }
+  >()
+
   constructor(
     private readonly httpService: HttpService,
     private readonly logger: PinoLogger,
@@ -46,6 +59,10 @@ export class VoterDensityProxyService {
   async getVoterDensity(
     personId: string,
   ): Promise<VoterDensityResponse | null> {
+    const now = Date.now()
+    const cached = this.cache.get(personId)
+    if (cached && cached.expiresAtMs > now) return cached.value
+
     const data = await this.getFromElectionApi<ElectionApiVoterDensity>(
       `${this.baseUrl()}/v1/persons/${encodeURIComponent(personId)}/voter-density`,
       personId,
@@ -54,8 +71,31 @@ export class VoterDensityProxyService {
 
     // A 404 (unknown person) and a resolved person with no district are the
     // same thing to the page: no map.
-    if (!data || !data.districtId) return null
-    return { coverage: data.coverage, cells: data.cells }
+    const value =
+      !data || !data.districtId
+        ? null
+        : { coverage: data.coverage, cells: data.cells }
+
+    this.remember(personId, value, now)
+    return value
+  }
+
+  // A failed read throws before reaching here, so only answers are cached.
+  private remember(
+    personId: string,
+    value: VoterDensityResponse | null,
+    now: number,
+  ): void {
+    if (this.cache.size >= MAX_CACHE_ENTRIES) {
+      for (const [key, entry] of this.cache) {
+        if (entry.expiresAtMs <= now) this.cache.delete(key)
+      }
+      // Nothing had expired, so every entry is live and there is no
+      // least-useful one to drop. Starting over costs one round trip per
+      // person and keeps the map bounded.
+      if (this.cache.size >= MAX_CACHE_ENTRIES) this.cache.clear()
+    }
+    this.cache.set(personId, { value, expiresAtMs: now + CACHE_TTL_MS })
   }
 
   /** Resolves to null on a 404; throws a 502 on anything else. */

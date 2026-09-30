@@ -334,8 +334,8 @@ def test_make_call_site_retired_lookup_none_when_never_removed(monkeypatch):
 
 
 def test_make_call_site_retired_lookup_ignores_comment_removal(monkeypatch):
-    # Removing a comment that merely names the key-path is NOT a call-site removal: the
-    # call-context anchor excludes prose, so no spurious retirement date is stamped.
+    # Removing a comment that merely names the key-path is NOT a call-site removal: comments
+    # are stripped before matching, so no spurious retirement date is stamped.
     lines = [
         _header("a" * 40, "aaaaaaa", "2026-06-20", "tidy comments (#99)"),
         "-  // drop EVENTS.Dashboard.Viewed soon",
@@ -343,6 +343,87 @@ def test_make_call_site_retired_lookup_ignores_comment_removal(monkeypatch):
     monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
     lookup = bf.make_call_site_retired_lookup("/root", "origin/develop", bf.INSTRUMENTATION_PATHS)
     assert lookup("EVENTS.Dashboard.Viewed") is None
+
+
+def test_make_call_site_retired_lookup_ignores_block_comment_removal(monkeypatch):
+    # A JSDoc continuation line reaches the diff without its ``/*`` opener when only part of
+    # the comment is removed. Still prose, still not a call site.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-06-20", "tidy docs (#99)"),
+        "-   * fires EVENTS.Dashboard.Viewed on mount",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/develop", bf.INSTRUMENTATION_PATHS)
+    assert lookup("EVENTS.Dashboard.Viewed") is None
+
+
+def test_make_call_site_retired_lookup_resolves_prettier_wrapped_key_path(monkeypatch):
+    # DATA-2577: Prettier breaks a long key-path across lines, so NO diff line carries the
+    # dotted path. Matching the commit's removed block as one text sees it; a per-line
+    # match (and the pickaxe that used to bound the walk) cannot.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-09-08", "delete the legacy flow (#2100)"),
+        "-    checkGender:",
+        "-      EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience",
+        "-        .CheckGender,",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/main", bf.INSTRUMENTATION_PATHS)
+    path = "EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience.CheckGender"
+    assert lookup(path) == "2026-09-08"
+
+
+def test_make_call_site_retired_lookup_resolves_map_value_position(monkeypatch):
+    # The other half of the blank-date population (DATA-2577): an unwrapped key-path in a
+    # map-value position, which the old call-argument anchor did not admit.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-07-16", "drop demographics step (#1990)"),
+        "-      'voter-demographics': EVENTS.OnboardingV2.VoterInsightsViewed,",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/main", bf.INSTRUMENTATION_PATHS)
+    assert lookup("EVENTS.OnboardingV2.VoterInsightsViewed") == "2026-07-16"
+
+
+def test_make_call_site_retired_lookup_ignores_a_rewrap(monkeypatch):
+    # Prettier re-wrapping a live call site is a move, not a removal: the key-path is on both
+    # sides of the diff, nets to zero, and stamps no date.
+    path = "EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience.CheckGender"
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-09-08", "reformat (#2101)"),
+        f"-  trackEvent({path})",
+        "+  trackEvent(",
+        "+    EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience",
+        "+      .CheckGender,",
+        "+  )",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/main", bf.INSTRUMENTATION_PATHS)
+    assert lookup(path) is None
+
+
+def test_make_call_site_retired_lookup_walks_git_once_for_every_key_path(monkeypatch):
+    # One un-pickaxed walk resolves every key-path, so N zero-count events cost one pass --
+    # and it stays lazy, so a run with no zero-count event still does no git work.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-06-11", "remove both calls (#95)"),
+        "-  trackEvent(EVENTS.Dashboard.Viewed)",
+        "-  trackEvent(EVENTS.Pro.Submitted)",
+    ]
+    walks = []
+
+    def fake_walk(*args, **kwargs):
+        walks.append((args, kwargs))
+        return iter(lines)
+
+    monkeypatch.setattr(bf, "run_git_log", fake_walk)
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/main", bf.INSTRUMENTATION_PATHS)
+    assert walks == []
+    assert lookup("EVENTS.Dashboard.Viewed") == "2026-06-11"
+    assert lookup("EVENTS.Pro.Submitted") == "2026-06-11"
+    assert lookup("EVENTS.Never.Removed") is None
+    assert len(walks) == 1
+    assert "pickaxe" not in walks[0][1]
 
 
 def test_augment_call_site_columns_populates_rows(monkeypatch):

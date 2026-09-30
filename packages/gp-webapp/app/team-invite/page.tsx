@@ -179,9 +179,8 @@ const TeamInvitePage = () => {
       // constraint /post-auth-redirect documents for its own navigation.
       // A volunteer lands on the reductive /volunteer shell (ENG-11052)
       // rather than the campaign dashboard; /volunteer's own layout is the
-      // single source of truth for the win-team-accounts flag check, so
-      // this doesn't need to re-check it — a flag-off session bounces
-      // straight back to /dashboard from there.
+      // single source of truth for that check, so this doesn't need to
+      // re-check it.
       window.location.href =
         res.data.role === 'volunteer' ? '/volunteer' : '/dashboard'
       return

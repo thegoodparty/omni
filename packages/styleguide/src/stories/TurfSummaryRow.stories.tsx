@@ -83,12 +83,6 @@ export default meta
 
 type Story = StoryObj<typeof TurfSummaryRow>
 
-// **The assignee control is flag-gated and Storybook cannot resolve the
-// flag.** `useTeamAccountsFlag` reads Amplitude, which has no answer here,
-// so the top right renders empty rather than "Unassigned". That is a real
-// product state — an org without team accounts sees exactly this — but it
-// is not the state the details drawer usually shows. The seeded roster
-// above is what the control WOULD read once the flag resolves on.
 export const Playground: Story = {
   args: {
     turf,

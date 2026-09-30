@@ -1,7 +1,7 @@
 import { HttpService } from '@nestjs/axios'
 import { of, throwError } from 'rxjs'
 import { AxiosError } from 'axios'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { VoterDensityProxyService } from '../services/voter-density-proxy.service'
 
@@ -42,12 +42,25 @@ const densityResponse = (body: {
     },
   })
 
-const get = (personId: string = PERSON_ID) =>
+const get = (personId: string = PERSON_ID, ip?: string) =>
   service.client.get('/v1/public-person-profiles/voter-density', {
     params: { personId },
+    ...(ip ? { headers: { 'X-Forwarded-For': ip } } : {}),
   })
 
+/** The proxy answers an identical lookup from memory for 60s. */
+const densityCache = () =>
+  (
+    service.app.get(VoterDensityProxyService) as unknown as {
+      cache: Map<string, unknown>
+    }
+  ).cache
+
 describe('GET /v1/public-person-profiles/voter-density', () => {
+  beforeEach(() => {
+    densityCache().clear()
+  })
+
   it('returns coverage + cells for a district with density data', async () => {
     const httpSpy = mockHttp(() =>
       densityResponse({
@@ -151,5 +164,58 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
   it('400s on a non-uuid personId', async () => {
     const res = await get('not-a-uuid')
     expect(res.status).toBe(400)
+  })
+
+  it('answers a repeat lookup without going upstream again', async () => {
+    const httpSpy = mockHttp(() =>
+      densityResponse({ coverage: 0.4, cells: [] }),
+    )
+
+    const first = await get()
+    const second = await get()
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(second.data.coverage).toBe(0.4)
+    expect(httpSpy).toHaveBeenCalledOnce()
+    httpSpy.mockRestore()
+  })
+
+  it('does not cache a failed read', async () => {
+    const failing = mockHttp(() =>
+      throwError(
+        () =>
+          new AxiosError('boom', 'ERR', undefined, undefined, {
+            status: 500,
+          } as never),
+      ),
+    )
+    expect((await get()).status).toBe(502)
+    failing.mockRestore()
+
+    const recovered = mockHttp(() =>
+      densityResponse({ coverage: 0.9, cells: [] }),
+    )
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.coverage).toBe(0.9)
+    recovered.mockRestore()
+  })
+
+  it('refuses the 31st read from one address', async () => {
+    const httpSpy = mockHttp(() =>
+      densityResponse({ coverage: 0.1, cells: [] }),
+    )
+
+    for (let i = 0; i < 30; i++) {
+      const allowed = await get(PERSON_ID, '10.3.0.1')
+      expect(allowed.status).toBe(200)
+    }
+
+    const refused = await get(PERSON_ID, '10.3.0.1')
+
+    expect(refused.status).toBe(429)
+    httpSpy.mockRestore()
   })
 })

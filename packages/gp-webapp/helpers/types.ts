@@ -837,15 +837,3 @@ export interface DomainRegistrationMetadata {
   price?: number
   years?: number
 }
-
-// ===== Ecanvasser Types =====
-
-export interface Ecanvasser {
-  id: number
-  createdAt: Date | string
-  updatedAt: Date | string
-  apiKey: string
-  campaignId: number
-  lastSync?: Date | string | null
-  error?: string | null
-}

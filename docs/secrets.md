@@ -30,8 +30,18 @@ string keys. There is no per-key secret and no SSM parameter for app secrets.
 | `ELECTION_API_PROD` / `_DEV`       | election-api ECS tasks            | prod / dev        |
 | `AI_SECRETS_PROD` / `AI_SECRETS_DEV` | gp-ai Terraform roots (Fargate + Lambda) | prod / dev |
 | `broker-<env>`                     | PMF broker only                   | prod / dev        |
+| `LOCAL_DEV_ENV`                    | laptops, via `POST /v1/dev-env/bundle` | dev only     |
 
 preview stacks share the `*_DEV` secrets — there is no preview secret.
+
+`LOCAL_DEV_ENV` is the one blob that leaves the account by design: the dev-only
+vending endpoint hands its contents to a verified `thegoodparty` GitHub org
+member setting up a local checkout, so it holds only dev-grade values and only
+the keys a laptop needs. It is keyed by package
+(`{ "gp-api": { … }, "gp-webapp": { … } }`), and adding a key is a reviewed
+edit to the secret like any other. **A key that lives in both `GP_API_DEV` and
+`LOCAL_DEV_ENV` rotates in both places** — accepted tech debt, deliberately
+traded for having no code path that could leak a non-vendable key.
 
 ## How a secret reaches running code
 

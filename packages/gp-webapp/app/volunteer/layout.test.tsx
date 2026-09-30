@@ -23,10 +23,10 @@ describe('VolunteerLayout', () => {
     vi.clearAllMocks()
   })
 
-  // A typed /volunteer URL must never render this shell for an owner/manager,
-  // or exist at all while win-team-accounts is off — both collapse into the
-  // same "not an active volunteer org" signal from isActiveOrgVolunteer.
-  it('sends a non-volunteer (or flag-off) visitor to /dashboard', async () => {
+  // A typed /volunteer URL must never render this shell for an owner/manager
+  // — that collapses into the "not an active volunteer org" signal from
+  // isActiveOrgVolunteer.
+  it('sends a non-volunteer visitor to /dashboard', async () => {
     isActiveOrgVolunteer.mockResolvedValue(false)
 
     await VolunteerLayout({ children })

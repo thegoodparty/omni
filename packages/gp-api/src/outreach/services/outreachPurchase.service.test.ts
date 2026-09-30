@@ -25,6 +25,7 @@ const mockOutreachService = {
   finalizeOutreachPurchase: vi.fn(),
   failOutreachPurchase: vi.fn(),
   recordCheckoutSession: vi.fn(),
+  recordFreePurchase: vi.fn(),
   markFreeTextsConsumed: vi.fn(),
 } as unknown as OutreachService
 
@@ -722,7 +723,7 @@ describe('OutreachPurchaseHandlerService', () => {
       )
     })
 
-    it('never records the zero-amount synthetic marker as a session', async () => {
+    it('records the zero-amount marker as a free purchase, not a session', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(undefined)
@@ -736,6 +737,11 @@ describe('OutreachPurchaseHandlerService', () => {
       })
 
       expect(mockOutreachService.recordCheckoutSession).not.toHaveBeenCalled()
+      expect(mockOutreachService.recordFreePurchase).toHaveBeenCalledWith(
+        123,
+        111,
+        'free_confirmed_abc',
+      )
     })
 
     it('finalizes a string outreachId before redeeming free texts', async () => {
