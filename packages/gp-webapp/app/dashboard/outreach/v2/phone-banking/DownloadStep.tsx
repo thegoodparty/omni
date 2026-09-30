@@ -8,6 +8,10 @@ import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CHANNEL_META } from '../channelMeta'
 import { Intro } from '../social/Intro'
 
+// One value for every sheet count: the rendered label carries the count, and
+// a CTA that varies with it would split a funnel breakdown by button.
+const DOWNLOAD_GATED_CTA = 'Download call sheets'
+
 interface DownloadStepProps {
   // The created list. Absent while the candidate cannot have one yet: the
   // gated flow shows this screen as a preview off `pending`, and the download
@@ -18,7 +22,7 @@ interface DownloadStepProps {
   // Which product's event name the download reports under — the flow's own
   // `surface.isServe`, threaded rather than re-derived.
   isServe: boolean
-  // Handed the button's own label, for the Pro gate's Flow Started.
+  // Handed the CTA the Pro gate's Flow Started reports.
   onDownloadGated?: (cta: string) => void
 }
 
@@ -127,7 +131,7 @@ export const DownloadStep = ({
           type="button"
           variant="outline"
           className="w-full"
-          onClick={() => onDownloadGated?.(downloadLabel)}
+          onClick={() => onDownloadGated?.(DOWNLOAD_GATED_CTA)}
         >
           <DownloadIcon className="size-4" />
           {downloadLabel}
