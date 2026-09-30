@@ -632,7 +632,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'A door-knocking voter-map build failed after gp-api had already started the response, in the last 10 minutes.',
       'The candidate saw the map fail to load. Because the response was already committed as a 200, the per-route error alert cannot see this — the log line is the only signal.',
-      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Databricks statement exceeded` there is the 60s statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. A missing `districtId` means the eligibility resolve failed before any scan started.',
+      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Databricks statement exceeded` there is the 60s statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. Every line names a `districtId`: the district resolve and the voter-data eligibility gate both run before the response head, so an organization that was never eligible answers 4xx and cannot reach this alert.',
     ].join('\n\n'),
     notify: 'win-bugs',
     // The statement timeout is the case this whole registry was built for: the

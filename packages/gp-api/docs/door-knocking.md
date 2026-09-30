@@ -1670,6 +1670,18 @@ Three consequences worth knowing before changing this:
   `DoorKnockingPackBuildFailed` log line, and that log line is what pages —
   the per-route status alert sees a 200. A response that ends with no pack
   frame makes the decoder throw rather than render an empty district.
+- **So anything decidable about the request runs in front of the envelope.**
+  `DoorKnockingPackService.stream` awaits `resolveEligibleDistrictId` — the
+  district resolve and the voter-data eligibility gate — and only then opens the
+  stream, handing the resolved `districtId` to the build. An org with no
+  district is not a failed build, it is a request that was never answerable, and
+  it gets the same 400 every other voter-data read gives it; the alert above
+  stays reserved for builds that really did die after the first byte. On 2026-09-30
+  it was the other way round and one ineligible campaign paged `@win-bugs` four
+  times in three seconds. The cost is the resolve's own latency ahead of the
+  head — ~32ms in prod, two election-api position reads and two small Postgres
+  reads — against a ~120s gateway ceiling, so it buys the status code back for
+  a fraction of the gap the envelope exists to close.
 - **The client's disconnect now cancels the build.** Destroying the response
   aborts the signal the drain checks between chunks, which relies on Fastify
   destroying the stream it is sending when the socket goes away. It does, and
