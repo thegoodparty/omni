@@ -120,12 +120,21 @@ describe('TenDlcStatusPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('counts only the failure buckets toward the stuck total', async () => {
+  it('counts red and amber buckets toward the stuck total, never nudges', async () => {
     mockGetTenDlcStatusSnapshot.mockResolvedValue(
       snapshot({
         rejected: [entry({ campaignId: 1, campaignSlug: 'rejected-camp' })],
         billingBlocked: [
           entry({ campaignId: 2, campaignSlug: 'billing-camp' }),
+        ],
+        // Amber (escalated to Peerly) counts as stuck, exactly like the
+        // nightly report's header counts its escalation mirror sections.
+        cvInReviewStalled: [
+          entry({
+            campaignId: 4,
+            campaignSlug: 'escalated-camp',
+            peerlyIdentityId: 'ident-4',
+          }),
         ],
         // Nudge bucket — reported, never counted.
         awaitingPin: [entry({ campaignId: 3, campaignSlug: 'pin-camp' })],
@@ -134,8 +143,9 @@ describe('TenDlcStatusPage', () => {
 
     render(<TenDlcStatusPage />)
 
-    expect(await screen.findByText('2 stuck')).toBeInTheDocument()
+    expect(await screen.findByText('3 stuck')).toBeInTheDocument()
     expect(screen.getByText('rejected-camp')).toBeInTheDocument()
+    expect(screen.getByText('escalated-camp')).toBeInTheDocument()
     expect(screen.getByText('pin-camp')).toBeInTheDocument()
   })
 

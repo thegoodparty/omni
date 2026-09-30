@@ -2,9 +2,11 @@ import type { TenDlcStatusBucketKey } from '@goodparty_org/sdk'
 
 export interface BucketMeta {
   label: string
-  // red = broken (counts toward the stuck total, same set as the nightly
-  // report's failure sections), amber = escalated to the vendor and waiting,
-  // gray = candidate-side nudge, not stuck.
+  // Tone drives the badge color AND the stuck count. red (broken on our
+  // side) and amber (escalated to Peerly, waiting on the vendor) both count
+  // as stuck — the nightly report's "N stuck" header counts its two
+  // vendor-escalation mirror sections the same way, and the page must match
+  // the report. gray = candidate-side nudge, reported but never counted.
   tone: 'red' | 'amber' | 'gray'
   hint: string
 }
@@ -67,10 +69,11 @@ export const BUCKET_META: Record<TenDlcStatusBucketKey, BucketMeta> = {
   },
 }
 
-// The same populations the nightly report counts in its "N stuck" header —
-// gray buckets are candidate-side nudges, reported but never counted.
-// Derived from the tone so a new bucket can't join the meta table without
-// also landing in (or out of) the count.
+// The same populations the nightly report counts in its "N stuck" header:
+// every failure section including the two Peerly-escalation mirrors (amber
+// here), never the gray nudge sections. Derived from the tone so a new
+// bucket can't join the meta table without also landing in (or out of) the
+// count.
 export const STUCK_BUCKET_KEYS: TenDlcStatusBucketKey[] = (
   Object.keys(BUCKET_META) as TenDlcStatusBucketKey[]
 ).filter((key) => BUCKET_META[key].tone !== 'gray')
