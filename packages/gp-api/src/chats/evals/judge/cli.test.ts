@@ -164,6 +164,6 @@ describe('run', () => {
 
   // Failing loudly beats half-running a sweep whose pieces do not exist.
   it('refuses a real run in the skeleton', () => {
-    expect(() => run(['--agents=all'])).toThrow(/only --dry-run/)
+    expect(() => run(['--agents=all'])).toThrow(/does not run one/)
   })
 })

@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { differenceInMilliseconds, parseISO } from 'date-fns'
-import type {
-  DatabricksProvider,
-  DatabricksRowSet,
-} from '@/llm/tools/queryDatabricks.tool'
 import { useTestService } from '@/test-service'
 import { PRICING_VERSION } from '../pricing'
 import { isComparable, type RunRecord } from '../record'
@@ -67,7 +63,6 @@ const request = (
 const runFor = async (
   agentId: string,
   overrides: Partial<ChatRunRequest> = {},
-  ports: { constituentProvider?: DatabricksProvider } = {},
 ): Promise<RunRecord> => {
   const seeded = await seedChatOrg(
     service.prisma,
@@ -76,7 +71,7 @@ const runFor = async (
     'judge-case',
   )
   return runChatCase(
-    { service, ...ports },
+    { service },
     request({
       agentId,
       organizationSlug: seeded.organizationSlug,
@@ -255,18 +250,12 @@ describe('runChatCase', () => {
     'does not report a pinned version no query ever applied',
     async () => {
       // Nothing configures a Databricks credential locally or in CI, so the
-      // constituent tool never registers and nothing reaches the provider.
-      // Recording the version anyway would claim a pin that never happened,
-      // which is the one failure the field exists to prevent.
-      const provider: DatabricksProvider = {
-        query: (): Promise<DatabricksRowSet> =>
-          Promise.resolve({ columns: [], rows: [] }),
-      }
-      const record = await runFor(
-        'chief_of_staff',
-        { dataVersion: '3237' },
-        { constituentProvider: provider },
-      )
+      // constituent tool never registers and no provider is ever constructed.
+      // The seam is installed on DatabricksSqlProvider's prototype either
+      // way, so the pin is armed and nothing reaches it. Recording the version
+      // anyway would claim a pin that never happened, which is the one
+      // failure the field exists to prevent.
+      const record = await runFor('chief_of_staff', { dataVersion: '3237' })
 
       expect(record.toolQueries).toEqual([])
       expect(record.dataVersion).toBeUndefined()
@@ -356,14 +345,12 @@ describe('runChatCase', () => {
       // outside runChatCase, so a first install left standing would rewrite
       // the SQL of every later request in the process — and, being recorded
       // as installed, would fail every later arm with a concurrency error.
-      const provider: DatabricksProvider = {
-        query: (): Promise<DatabricksRowSet> =>
-          Promise.resolve({ columns: [], rows: [] }),
-      }
-
+      // The Databricks patch is on DatabricksSqlProvider's prototype now, so
+      // it is installed on every run rather than only when a provider was
+      // handed in: this unwind is on the path every case takes.
       await expect(
         runChatCase(
-          { service, constituentProvider: provider },
+          { service },
           request({
             agentId: 'chief_of_staff',
             organizationSlug: 'judge-unused',
@@ -372,9 +359,44 @@ describe('runChatCase', () => {
         ),
       ).rejects.toThrow('was given no script')
 
-      // Claimable again, which it would not be if the refusal had left the
-      // first install recorded.
-      instrumentDatabricksProvider(provider).restore()
+      // Claimable again, which the prototype would not be if the refusal had
+      // left the first install recorded.
+      instrumentDatabricksProvider().restore()
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // The pinnable tables are resolved per agent, from the same app-layer
+  // allowlists the scope handlers inject. `ordinance_flow` is drivable but
+  // reads none of them, so a dataVersion for it could only ever be recorded
+  // and never applied — and a pin the prototype patch cannot apply is the
+  // silent skew JUDGE_DATA_VERSION exists to prevent. Refused before either
+  // seam is installed, so there is nothing to unwind.
+  it(
+    'refuses a pinned run for an agent that reads no pinnable table',
+    async () => {
+      await expect(
+        runChatCase(
+          { service },
+          request({
+            agentId: 'ordinance_flow',
+            organizationSlug: 'judge-unused',
+            dataVersion: '3237',
+          }),
+        ),
+      ).rejects.toThrow('reads no version-pinnable table')
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // Without a dataVersion there is no pin to resolve, so the same agent runs.
+  it(
+    'does not refuse that agent when nothing asked for a pin',
+    async () => {
+      const record = await runFor('ordinance_flow')
+
+      expect(record.dataVersion).toBeUndefined()
+      expect(record.toolQueries).toEqual([])
     },
     TURN_TIMEOUT_MS,
   )

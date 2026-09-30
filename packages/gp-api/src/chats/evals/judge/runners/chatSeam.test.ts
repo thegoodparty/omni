@@ -11,10 +11,8 @@ import {
   type LlmTool,
   type StreamTextFn,
 } from '@/llm/services/llm.service'
-import type {
-  DatabricksProvider,
-  DatabricksRowSet,
-} from '@/llm/tools/queryDatabricks.tool'
+import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import { SPEND_ENV, SPEND_VALUE } from '../config'
 import {
   UnpinnableSqlError,
   assertTestProcess,
@@ -102,14 +100,17 @@ const TABLES = ['serve_agent_voters']
 
 // Enables the paid path for one call. Nothing here reaches Anthropic: the
 // stubbed streamTextFn stands in for the model.
+// Reads the constant rather than a literal: the two gates that decide whether
+// real money moves were written against different strings on different
+// branches, and a test that hardcodes one of them hides the next drift.
 const withSpendEnabled = <T>(fn: () => T): T => {
-  const previous = process.env.JUDGE_SPEND
-  process.env.JUDGE_SPEND = '1'
+  const previous = process.env[SPEND_ENV]
+  process.env[SPEND_ENV] = SPEND_VALUE
   try {
     return fn()
   } finally {
-    if (previous === undefined) delete process.env.JUDGE_SPEND
-    else process.env.JUDGE_SPEND = previous
+    if (previous === undefined) delete process.env[SPEND_ENV]
+    else process.env[SPEND_ENV] = previous
   }
 }
 
@@ -297,51 +298,66 @@ describe('pinDeltaVersion', () => {
 })
 
 describe('instrumentDatabricksProvider', () => {
-  const buildProvider = (): {
-    provider: DatabricksProvider
-    seen: string[]
-  } => {
-    const seen: string[] = []
-    const provider: DatabricksProvider = {
-      query: (sql: string): Promise<DatabricksRowSet> => {
-        seen.push(sql)
-        return Promise.resolve({ columns: [], rows: [] })
-      },
-    }
-    return { provider, seen }
-  }
-
   const sql = 'SELECT COUNT(*) AS count FROM serve_agent_voters'
   const pin = { version: '3237', tables: TABLES }
 
+  // A REAL provider, because the patch is on DatabricksSqlProvider's
+  // prototype: an instance of anything else would not be instrumented, and
+  // instrumenting one instance is exactly the bug this replaced.
+  // `CONSTITUENT_DATA_PROVIDER` is registered by both
+  // chief-of-staff.module.ts and priority-flow.module.ts with two independent
+  // factories, so a container lookup by that token returns one of two
+  // providers by Nest's ordering rather than by which handler is about to
+  // run.
+  const sqlProvider = (seen: string[]): DatabricksSqlProvider =>
+    new DatabricksSqlProvider({
+      hostname: 'host.cloud.databricks.com',
+      httpPath: '/sql/1.0/warehouses/abc',
+      accessToken: 'unused-in-this-test',
+      logger: { warn: () => undefined },
+      clientFactory: () => ({
+        connect: async () => ({
+          openSession: async () => ({
+            executeStatement: async (statement: string) => {
+              seen.push(statement)
+              return {
+                fetchAll: async () => [],
+                close: async () => undefined,
+              }
+            },
+            close: async () => undefined,
+          }),
+          close: async () => undefined,
+        }),
+      }),
+    })
+
   it('rejects a bad pinned version before the turn starts', () => {
-    const { provider } = buildProvider()
     expect(() =>
-      instrumentDatabricksProvider(provider, { ...pin, version: 'latest' }),
+      instrumentDatabricksProvider({ ...pin, version: 'latest' }),
     ).toThrow(UnpinnableSqlError)
   })
 
   it('rejects a pin with no table to apply it to', () => {
-    const { provider } = buildProvider()
     expect(() =>
-      instrumentDatabricksProvider(provider, { version: '3237', tables: [] }),
+      instrumentDatabricksProvider({ version: '3237', tables: [] }),
     ).toThrow(UnpinnableSqlError)
   })
 
-  // A rejected install patched nothing, so it must not record the provider as
+  // A rejected install patched nothing, so it must not record the target as
   // patched: one malformed case would otherwise kill every well-formed case
   // behind it in the sweep, with an error naming a concurrency bug that never
-  // happened — sending the operator after the wrong thing entirely.
-  it('leaves the provider claimable after a rejected install', async () => {
-    const { provider, seen } = buildProvider()
+  // happened — sending the operator after the wrong thing entirely. On the
+  // prototype the stakes are higher than on an instance, because the entry
+  // outlives every provider the process builds.
+  it('leaves the class claimable after a rejected install', async () => {
+    const seen: string[] = []
+    const provider = sqlProvider(seen)
     expect(() =>
-      instrumentDatabricksProvider(provider, {
-        version: 'latest',
-        tables: TABLES,
-      }),
+      instrumentDatabricksProvider({ version: 'latest', tables: TABLES }),
     ).toThrow(UnpinnableSqlError)
 
-    const instrumented = instrumentDatabricksProvider(provider, pin)
+    const instrumented = instrumentDatabricksProvider(pin)
     await provider.query(sql)
     instrumented.restore()
 
@@ -350,28 +366,49 @@ describe('instrumentDatabricksProvider', () => {
   })
 
   it('records the agent SQL verbatim and runs the pinned form', async () => {
-    const { provider, seen } = buildProvider()
-    const instrumented = instrumentDatabricksProvider(provider, pin)
+    const seen: string[] = []
+    const provider = sqlProvider(seen)
+    const instrumented = instrumentDatabricksProvider(pin)
 
     await provider.query(sql)
+    instrumented.restore()
+
+    expect(instrumented.queries).toEqual([sql])
+    expect(seen).toEqual([`${sql} VERSION AS OF 3237`])
+  })
+
+  // THE POINT OF PATCHING THE CLASS. The instrumented run never sees this
+  // provider — it is built afterwards, the way a second module's factory
+  // builds its own — and it is still pinned and recorded. Under the old
+  // instance patch this arm read the live table and reported no queries.
+  it('instruments a provider the caller never handed over', async () => {
+    const seen: string[] = []
+    const instrumented = instrumentDatabricksProvider(pin)
+    const neighbour = sqlProvider(seen)
+
+    await neighbour.query(sql)
+    instrumented.restore()
 
     expect(instrumented.queries).toEqual([sql])
     expect(seen).toEqual([`${sql} VERSION AS OF 3237`])
   })
 
   it('runs the query unchanged when no version is pinned', async () => {
-    const { provider, seen } = buildProvider()
-    const instrumented = instrumentDatabricksProvider(provider)
+    const seen: string[] = []
+    const provider = sqlProvider(seen)
+    const instrumented = instrumentDatabricksProvider()
 
     await provider.query(sql)
+    instrumented.restore()
 
     expect(instrumented.queries).toEqual([sql])
     expect(seen).toEqual([sql])
   })
 
   it('stops recording once restored', async () => {
-    const { provider, seen } = buildProvider()
-    const instrumented = instrumentDatabricksProvider(provider, pin)
+    const seen: string[] = []
+    const provider = sqlProvider(seen)
+    const instrumented = instrumentDatabricksProvider(pin)
     instrumented.restore()
 
     await provider.query(sql)
@@ -380,23 +417,30 @@ describe('instrumentDatabricksProvider', () => {
     expect(seen).toEqual([sql])
   })
 
-  it('restores a provider that carries query on its prototype', async () => {
-    // Every real provider is a class, so this is the branch production takes.
+  // Restoring has to put the ORIGINAL prototype method back, not delete the
+  // property: deleting it would leave every provider in the process with no
+  // query method at all. This is the prototype form of the old "restores a
+  // provider that carries query on its prototype" case — that one built a
+  // stand-in class, which a prototype patch does not touch at all.
+  it('leaves the class callable after a second install', async () => {
     const seen: string[] = []
-    class FakeProvider implements DatabricksProvider {
-      query(statement: string): Promise<DatabricksRowSet> {
-        seen.push(statement)
-        return Promise.resolve({ columns: [], rows: [] })
-      }
-    }
-    const provider = new FakeProvider()
-    const instrumented = instrumentDatabricksProvider(provider, pin)
-    instrumented.restore()
+    const provider = sqlProvider(seen)
+    instrumentDatabricksProvider(pin).restore()
+    const second = instrumentDatabricksProvider({ ...pin, version: '4000' })
 
     await provider.query(sql)
+    second.restore()
 
-    expect(instrumented.queries).toEqual([])
-    expect(seen).toEqual([sql])
+    expect(second.queries).toEqual([sql])
+    expect(seen).toEqual([`${sql} VERSION AS OF 4000`])
+  })
+
+  it('refuses two overlapping installs', () => {
+    const first = instrumentDatabricksProvider()
+    expect(() => instrumentDatabricksProvider()).toThrow(
+      /already installed on this instance/,
+    )
+    first.restore()
   })
 })
 
@@ -568,6 +612,24 @@ describe('installLlmCapture', () => {
       script: scriptWithToolSteps(0),
     })
     installed.restore()
+  })
+
+  // The two cases above are refused by a guard that runs BEFORE the claim, so
+  // they would still pass if `claim` went back to recording the target up
+  // front. This one throws INSIDE the install — binding a method that is not
+  // there — which is the only shape that tells the two apart: nothing was
+  // patched, so nothing may be recorded, and there is no restore handle to
+  // clear it with.
+  it('leaves the target claimable when the patch itself throws', () => {
+    const half = {} as unknown as LlmService
+    expect(() =>
+      installLlmCapture(half, { script: scriptWithToolSteps(0) }),
+    ).toThrow(TypeError)
+
+    Object.assign(half, {
+      streamChatCompletion: () => Promise.reject(new Error('never called')),
+    })
+    installLlmCapture(half, { script: scriptWithToolSteps(0) }).restore()
   })
 
   it('reports the scripted tool calls it made', async () => {

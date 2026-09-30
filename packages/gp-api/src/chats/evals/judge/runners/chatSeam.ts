@@ -9,7 +9,9 @@ import {
   type LlmTool,
   type ToolCall,
 } from '@/llm/services/llm.service'
-import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import type { DatabricksRowSet } from '@/llm/tools/queryDatabricks.tool'
+import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from '../config'
 import type { JsonValue, TraceStep } from '../record'
 
 // The three seams a chat run is observed at. Each one is the only place the
@@ -266,11 +268,9 @@ export interface InstalledLlmCapture {
 export interface LlmCaptureOptions {
   // The canned model. With it nothing is spent and the turn is deterministic.
   script?: ChatTurnScript
-  // Ask for the real, paid Anthropic call instead. Needs JUDGE_SPEND=1 too.
+  // Ask for the real, paid Anthropic call instead. Needs the spend switch.
   realModel?: boolean
 }
-
-const SPEND_ENV = 'JUDGE_SPEND'
 
 // No script means the real model answers, which bills Anthropic for every
 // turn of a sweep. A forgotten `script` field type-checks cleanly, so the paid
@@ -284,10 +284,11 @@ const assertMaySpend = (options: LlmCaptureOptions): void => {
         'to ask for the real, paid model on purpose',
     )
   }
-  if (process.env[SPEND_ENV] !== '1') {
+  if (!spendsRealMoney(process.env)) {
     throw new Error(
       `installLlmCapture was asked for the real model, but ${SPEND_ENV} is ` +
-        'not "1": a real turn spends money and has to be enabled explicitly',
+        `not "${SPEND_VALUE}": a real turn spends money and has to be ` +
+        'enabled explicitly',
     )
   }
 }
@@ -471,39 +472,73 @@ export interface InstrumentedProvider {
 
 // Captures and optionally pins every query the constituent-data tool runs.
 //
-// The provider is null whenever no Databricks credential is configured, which
-// is every local and CI run: the tool then never registers and there is no
-// seam to instrument. That is why `pinDeltaVersion` is tested directly rather
-// than through a live query.
+// ON THE CLASS, NOT ON AN INSTANCE, and that is the correctness fix rather
+// than a style choice. `CONSTITUENT_DATA_PROVIDER` is registered TWICE — once
+// in chief-of-staff.module.ts and once in priority-flow.module.ts — each with
+// its own factory building its own DatabricksSqlProvider. A container lookup
+// by that token returns one of the two by Nest's internal ordering, not by
+// the caller's intent, so an instance patch could instrument priority-flow's
+// provider while the chief-of-staff handler queried its own: `toolQueries`
+// would come back empty with no error, and a `VERSION AS OF` pin would
+// silently not apply, which defeats the one invariant JUDGE_DATA_VERSION
+// exists for. Patching the prototype makes which instance a handler holds
+// unable to matter.
+//
+// The prototype cannot tell which agent is running, so which table names a
+// pin may rewrite has to be handed in rather than read off the instrumented
+// provider: the caller resolves them from the same app-layer allowlist the
+// scope's handler injects into the tool and passes them in the `DeltaPin`.
+// Without that, `pinDeltaVersion` would be back to pinning on the `FROM`
+// keyword, which also introduces a function argument.
+//
+// It also means this records every Databricks query the PROCESS makes while
+// installed, not only the agent's. In a judge arm nothing else is querying,
+// and `assertTestProcess` is what keeps it out of a live one.
+//
+// No provider exists at all wherever no Databricks credential is configured,
+// which is every local and CI run: the tool never registers and no query is
+// ever made, so `queries` stays empty. That is why `pinDeltaVersion` is
+// tested directly rather than through a live query.
 export const instrumentDatabricksProvider = (
-  provider: DatabricksProvider,
   pin?: DeltaPin,
 ): InstrumentedProvider => {
   assertTestProcess('instrumentDatabricksProvider')
-  // Ahead of the claim, not after it: a provider recorded as patched by an
+  // Ahead of the claim, not after it: a prototype recorded as patched by an
   // install that then threw stays recorded, and every well-formed case behind
-  // the malformed one would die naming a concurrency bug that does not exist.
+  // the malformed one would die naming a concurrency bug that does not
+  // exist — and on the class, that entry outlives every instance.
   if (pin !== undefined) assertDeltaPin(pin)
-  return claim(provider, 'instrumentDatabricksProvider', () => {
+  const target = DatabricksSqlProvider.prototype
+  return claim(target, 'instrumentDatabricksProvider', () => {
     const queries: string[] = []
-    // .bind() returns any — TypeScript cannot infer the bound method signature
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const original: DatabricksProvider['query'] = provider.query.bind(provider)
-    const owned = Object.hasOwn(provider, 'query')
-    Object.assign(provider, {
-      query: (sql: string) => {
+    const original = target.query
+    const patch = {
+      // Method shorthand rather than an arrow: a prototype method is called
+      // with the instance as `this`, and the original needs it back.
+      query(
+        this: DatabricksSqlProvider,
+        sql: string,
+      ): Promise<DatabricksRowSet> {
         queries.push(sql)
-        return original(
+        // Rebound per call: `this` is whichever provider the handler happens
+        // to hold, which is the whole reason the patch is on the class.
+        // .bind() returns any — TypeScript cannot infer the bound signature
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const unpatched: DatabricksSqlProvider['query'] = original.bind(this)
+        return unpatched(
           pin ? pinDeltaVersion(sql, pin.version, pin.tables) : sql,
         )
       },
-    })
+    }
+    Object.assign(target, patch)
     return {
       queries,
+      // Puts the original prototype method back rather than deleting the
+      // property: deleting it would leave every provider in the process with
+      // no query method at all.
       restore: () => {
-        if (owned) Object.assign(provider, { query: original })
-        else Reflect.deleteProperty(provider, 'query')
-        installedOn.delete(provider)
+        Object.assign(target, { query: original })
+        installedOn.delete(target)
       },
     }
   })

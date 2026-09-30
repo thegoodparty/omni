@@ -1050,8 +1050,8 @@ describe('runBackgroundCase', () => {
     expect(record.output?.kind).toBe('artifact')
     expect(record.output?.value).toEqual(JSON.parse(ARTIFACT))
     expect(record.dataVersion).toBe('3237')
-    expect(record.telemetry.cost.pricingVersion).toBe(PRICING_VERSION)
-    expect(record.telemetry.cost.usdAtCapture).toBe(3.25)
+    expect(record.telemetry.cost?.pricingVersion).toBe(PRICING_VERSION)
+    expect(record.telemetry.cost?.usdAtCapture).toBe(3.25)
   })
 
   // The digest names the bytes that ran. If the record could carry a different
@@ -1743,7 +1743,7 @@ describe('runBackgroundCase telemetry integrity', () => {
       input,
     )
 
-    expect(record.telemetry.cost.usdAtCapture).toBe(0)
+    expect(record.telemetry.cost?.usdAtCapture).toBe(0)
     expect(record.trace).toContainEqual({
       index: expect.any(Number),
       kind: 'error',
@@ -1763,7 +1763,7 @@ describe('runBackgroundCase telemetry integrity', () => {
       input,
     )
 
-    expect(record.telemetry.cost.usdAtCapture).toBe(3.25)
+    expect(record.telemetry.cost?.usdAtCapture).toBe(3.25)
     expect(record.trace).not.toContainEqual(
       expect.objectContaining({
         error: expect.stringContaining('cost is unmeasured'),

@@ -1,4 +1,6 @@
 import { AGENTS, coverage, type AgentEntry } from './agents'
+import { formatGap, type ArmGap } from './armGap'
+import type { IdenticalOutputs } from './identicalOutputs'
 import type { Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { PRICING_VERSION } from './pricing'
@@ -30,6 +32,17 @@ export interface SweepReport {
   // Taken explicitly so the coverage line always describes the same
   // registry the selection came from.
   registry?: readonly AgentEntry[]
+  // When the two arms were captured, and how far apart. Absent on a report
+  // rendered straight from records with no arm manifests, which is what a
+  // fixture-driven test has.
+  armGap?: ArmGap
+  // Agents whose verdict rests on a case list marked as a placeholder. A
+  // number drawn from inputs somebody wrote to exercise the pipeline is not
+  // the same claim as one drawn from inputs somebody wrote to test the agent.
+  placeholderCases?: readonly string[]
+  // How many of each agent's pairs came back byte-identical. Evidence, not a
+  // verdict: the refusal for an all-identical sweep arrives as a Refusal.
+  identicalOutputs?: readonly IdenticalOutputs[]
 }
 
 const signed = (value: number, digits: number): string =>
@@ -245,6 +258,68 @@ export const coverageLines = (
   return lines
 }
 
+// The arms run sequentially and the report says so, because the alternative
+// is a reader who assumes they were interleaved. See armGap.ts: two
+// worktrees are two processes, so "base, candidate, base, candidate" is not
+// available and the distance between the two captures is stamped instead.
+export const armGapLines = (gap: ArmGap): string[] => {
+  const [first, second] = gap.candidateFirst
+    ? (['candidate', 'base'] as const)
+    : (['base', 'candidate'] as const)
+  return [
+    '### Arm capture windows',
+    '',
+    'The arms are not interleaved in time. Each one is a separate process ' +
+      'in a separate checkout, so the whole of one arm runs before any of ' +
+      'the other. The gap below is how long anything outside the branch ' +
+      'had to move between the two captures: a deploy, the voter table, ' +
+      'the live web.',
+    '',
+    '| arm | started | ended |',
+    '| --- | --- | --- |',
+    `| base | ${gap.base.startedAt} | ${gap.base.endedAt} |`,
+    `| candidate | ${gap.candidate.startedAt} | ${gap.candidate.endedAt} |`,
+    '',
+    `Order: ${first} then ${second}. Gap between the captures: ` +
+      `${formatGap(gap)}.`,
+    ...(gap.farApart
+      ? [
+          '',
+          '> **The arms are far apart.** This comparison is between two ' +
+            'captures taken a long way from each other, so a difference it ' +
+            'reports may belong to whatever changed in between rather than ' +
+            'to the branch. Re-capture both arms together to settle it.',
+        ]
+      : []),
+  ]
+}
+
+export const identicalOutputLines = (
+  results: readonly IdenticalOutputs[],
+): string[] => [
+  '### Identical outputs',
+  '',
+  'Pairs whose two arms produced the same output. A few are ordinary — a ' +
+    'deterministic agent answering a question the branch did not touch will ' +
+    'match. All of them means the candidate never reached the agent, which ' +
+    'is refused above rather than reported as SAME.',
+  '',
+  '| agent | identical pairs | cases |',
+  '| --- | --- | --- |',
+  ...results.map(
+    (r) =>
+      `| ${r.agentId} | ${r.identical} of ${r.of} | ` +
+      `${r.caseIds.length === 0 ? 'none' : r.caseIds.join(', ')} |`,
+  ),
+]
+
+export const placeholderLines = (agentIds: readonly string[]): string[] => [
+  `> **Placeholder inputs:** ${agentIds.join(', ')}. These case lists exist ` +
+    'to exercise the pipeline, not to test the agent, so treat the verdict ' +
+    'as evidence that the judge ran rather than as evidence about the ' +
+    'branch.',
+]
+
 export const renderReport = (
   report: SweepReport,
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
@@ -260,10 +335,27 @@ export const renderReport = (
     lines.push('')
   }
 
+  const placeholders = report.placeholderCases ?? []
+  if (placeholders.length > 0) {
+    lines.push(...placeholderLines(placeholders))
+    lines.push('')
+  }
+
   for (const refusal of report.refusals ?? []) {
     lines.push(`### ${refusal.agentId} — refused`)
     lines.push('')
     lines.push(refusal.reason)
+    lines.push('')
+  }
+
+  const identical = report.identicalOutputs ?? []
+  if (identical.length > 0) {
+    lines.push(...identicalOutputLines(identical))
+    lines.push('')
+  }
+
+  if (report.armGap !== undefined) {
+    lines.push(...armGapLines(report.armGap))
     lines.push('')
   }
 

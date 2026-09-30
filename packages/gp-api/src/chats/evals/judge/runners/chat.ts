@@ -1,6 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
 import { differenceInMilliseconds } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import {
   CreateChatResponseSchema,
   type ChatAnchor,
@@ -8,11 +7,11 @@ import {
 } from '@goodparty_org/contracts'
 import { ChatMessageRole } from '../../../../generated/prisma'
 import { LlmService } from '@/llm/services/llm.service'
-import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStream.service'
 import type { TestServiceContext } from '@/test-service'
 import { PRICING_VERSION, UnpriceableRunError, priceUsd } from '../pricing'
 import {
+  isoUtc,
   RunRecordSchema,
   type Arm,
   type CiContext,
@@ -60,14 +59,10 @@ export const TOOL_BUDGET_FALLBACK_REPLY =
   "I wasn't able to find what I needed to answer that question. You can " +
   'try again, rephrase your question, or ask me about something else.'
 
-const UTC_ISO = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
-
 // Compared as numbers: an axios status is a plain number, and comparing it
 // against the enum member directly is what no-unsafe-enum-comparison rejects.
 const HTTP_CREATED: number = HttpStatus.CREATED
 const HTTP_OK: number = HttpStatus.OK
-
-const isoUtc = (date: Date): string => formatInTimeZone(date, 'UTC', UTC_ISO)
 
 export interface ChatJudgeCase {
   caseId: string
@@ -79,13 +74,6 @@ export interface ChatJudgeCase {
 
 export interface ChatRunnerPorts {
   service: TestServiceContext
-  // The aggregate-only Databricks provider behind query_constituent_data.
-  // The token differs by scope — CONSTITUENT_DATA_PROVIDER for chief_of_staff
-  // and priority_flow, CM_CONSTITUENT_DATA_PROVIDER for campaign_assistant —
-  // and it resolves to null wherever no credential is configured, which is
-  // every local and CI run. `dataVersion` is recorded only if a query
-  // actually went through here, so passing the wrong one cannot fake a pin.
-  constituentProvider?: DatabricksProvider | null
 }
 
 export interface ChatRunRequest {
@@ -118,7 +106,10 @@ export interface ChatRunRequest {
 // scope handlers inject into the constituent tool, so a pin can only touch a
 // reference the validator would have accepted as a table. Everything else a
 // `FROM` introduces — EXTRACT(... FROM col) and its siblings — is left alone.
-const PINNABLE_TABLES: Record<string, string[]> = {
+// Partial, not Record: most agent ids have no entry, which is the case
+// `pinnableTablesFor` exists to refuse. A bare Record would claim every key
+// resolves and leave that guard looking redundant.
+const PINNABLE_TABLES: Partial<Record<string, string[]>> = {
   chief_of_staff: CONSTITUENT_TABLES.map((config) => config.table),
   priority_flow: CONSTITUENT_TABLES.map((config) => config.table),
   campaign_assistant: WIN_CONSTITUENT_TABLES.map((config) => config.table),
@@ -347,9 +338,12 @@ export const runChatCase = async (
           tables: pinnableTablesFor(request.agentId),
         }
   const llmService = ports.service.app.get(LlmService)
-  const databricks = ports.constituentProvider
-    ? instrumentDatabricksProvider(ports.constituentProvider, pin)
-    : undefined
+  // Installed on DatabricksSqlProvider's prototype rather than on a provider
+  // resolved by token: `CONSTITUENT_DATA_PROVIDER` is registered by two
+  // modules with two factories, so a token lookup cannot say which instance
+  // the handler for this scope holds. Unconditional for the same reason —
+  // there is no instance to be handed, or withheld.
+  const databricks = instrumentDatabricksProvider(pin)
   let llm: InstalledLlmCapture
   try {
     llm = installLlmCapture(llmService, {
@@ -357,7 +351,7 @@ export const runChatCase = async (
       ...(request.realModel === true && { realModel: true }),
     })
   } catch (err) {
-    databricks?.restore()
+    databricks.restore()
     throw err
   }
 
@@ -388,7 +382,7 @@ export const runChatCase = async (
     trace = infraTrace(traceErrorText(err))
   } finally {
     llm.restore()
-    databricks?.restore()
+    databricks.restore()
   }
   const endedAt = new Date()
 
@@ -474,14 +468,14 @@ export const runChatCase = async (
       // this is the retries the runner itself made: none.
       retries: 0,
     },
-    toolQueries: databricks?.queries ?? [],
+    toolQueries: databricks.queries,
     // Recorded only when a query actually ran against the pinned version. A
     // run that read no versioned table has no version to report, and claiming
     // one it never applied is the silent failure this field exists to catch —
-    // the provider is null wherever no credential is configured, and there is
-    // more than one token it can be bound to.
+    // no provider is constructed at all wherever no credential is configured,
+    // which is every local and CI run.
     ...(request.dataVersion !== undefined &&
-      (databricks?.queries.length ?? 0) > 0 && {
+      databricks.queries.length > 0 && {
         dataVersion: request.dataVersion,
       }),
     liveWeb: toolSteps.some((step) => step.tool === 'web_search'),

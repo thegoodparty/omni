@@ -11,6 +11,23 @@
 // from a seed and a test can force an exact draw. Returns [0, 1).
 export type Rng = () => number
 
+// THE ONE SPEND SWITCH. Two gates read it — `spends()` in sweepEnv.ts, which
+// decides whether an arm drives a real model, and `assertMaySpend` in
+// runners/chatSeam.ts, which refuses to install the seam without a script.
+// They were written on separate branches against different literals ('true'
+// and '1'), so a live sweep failed closed on its first case with an error that
+// named a developer mistake rather than the mismatch. Lives here because
+// config.ts is the one module both layers already sit above.
+//
+// Only the exact string is affirmative: anything absent or garbled reads as
+// "do not spend", so a mangled value costs a sweep that did not happen rather
+// than one nobody asked for.
+export const SPEND_ENV = 'JUDGE_SPEND'
+export const SPEND_VALUE = 'true'
+
+export const spendsRealMoney = (env: NodeJS.ProcessEnv): boolean =>
+  env[SPEND_ENV] === SPEND_VALUE
+
 export interface OrderSwapConfig {
   // Judging a pair in both orders is the only way to measure position bias,
   // and it costs a second judge call on every pair in the subsample.
@@ -43,6 +60,12 @@ export interface JudgeGates {
   // With more than one seat, the share of cases where seats may disagree on
   // the overall direction.
   panelDisagreementCeiling: number
+  // Refuse an agent whose every judgeable pair came back byte-identical. The
+  // candidate was not applied, and reporting that as SAME is the one failure
+  // mode indistinguishable from a real verdict. Default true: a false alarm
+  // on a genuinely inert change costs a re-read, a false SAME costs a wrong
+  // decision. See identicalOutputs.ts.
+  failOnAllIdenticalOutputs: boolean
 }
 
 export interface JudgePanelConfig {
@@ -69,6 +92,16 @@ export interface RenderConfig {
   identityPatterns: readonly RegExp[]
 }
 
+export interface ArmGapConfig {
+  // The two arms cannot be interleaved in time — each is a separate process
+  // in a separate checkout, so all of base runs and then all of candidate —
+  // so the report stamps the distance between the two captures instead. Past
+  // this many hours it is flagged: whatever moved in between (a deploy, the
+  // Delta table, the live web) had that long to move. A cached background
+  // base arm is the case that blows through it.
+  maxHours: number
+}
+
 export interface JudgeConfig {
   // Attempts per case per arm. v0: 3. Attempt i of one arm pairs with
   // attempt i of the other; judging all k x k pairs is not the plan.
@@ -86,6 +119,7 @@ export interface JudgeConfig {
   orderSwap: OrderSwapConfig
   bootstrap: BootstrapConfig
   render: RenderConfig
+  armGap: ArmGapConfig
 }
 
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
@@ -101,6 +135,7 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     consistencyFloor: 0.7,
     cannotDetermineCeiling: 0.25,
     panelDisagreementCeiling: 0.3,
+    failOnAllIdenticalOutputs: true,
   },
   orderSwap: {
     enabled: true,
@@ -109,6 +144,12 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
   bootstrap: {
     iterations: 2_000,
     confidence: 0.95,
+  },
+  armGap: {
+    // v0. Two arms driven back to back are minutes apart, so this is loose
+    // enough not to cry wolf and tight enough to catch a base arm captured
+    // on another day.
+    maxHours: 6,
   },
   render: {
     maxRenderedChars: 12_000,

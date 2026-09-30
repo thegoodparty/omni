@@ -21,7 +21,19 @@ import {
   type SlotMap,
 } from './normalize'
 import { orient, scoreAgent, type AgentScore } from './score'
-import type { RunRecord } from './record'
+import type { Cost, RunRecord } from './record'
+
+// `cost` is optional on a record, for the run nobody could price. These
+// helpers adjust a fixture's EXISTING cost rather than testing the absent
+// case, so an absent one is a broken fixture and says so rather than
+// quietly producing a record with no price.
+const costOf = (record: RunRecord): Cost => {
+  const cost = record.telemetry.cost
+  if (cost === undefined) {
+    throw new Error(`${record.runId} has no cost to adjust`)
+  }
+  return cost
+}
 
 const [BASE, CANDIDATE] = CHAT_PAIR
 
@@ -801,17 +813,7 @@ describe('the measured layer', () => {
       ...record,
       telemetry: {
         ...record.telemetry,
-        // Spreading a now-optional cost widens usdAtCapture, which CostSchema
-        // still requires. The fixture always carries one, so this only
-        // satisfies the type.
-        ...(record.telemetry.cost === undefined
-          ? {}
-          : {
-              cost: {
-                ...record.telemetry.cost,
-                pricingVersion: '2025-01',
-              },
-            }),
+        cost: { ...costOf(record), pricingVersion: '2025-01' },
       },
     })
     const matched = normalizeAgent([BASE, CANDIDATE], () => 0)
@@ -829,17 +831,7 @@ describe('the measured layer', () => {
       ...record,
       telemetry: {
         ...record.telemetry,
-        // Spreading a now-optional cost widens usdAtCapture, which CostSchema
-        // still requires. The fixture always carries one, so this only
-        // satisfies the type.
-        ...(record.telemetry.cost === undefined
-          ? {}
-          : {
-              cost: {
-                ...record.telemetry.cost,
-                pricingVersion: '2025-01',
-              },
-            }),
+        cost: { ...costOf(record), pricingVersion: '2025-01' },
       },
     })
     const [base, candidate] = INFRA_ERROR_PAIR

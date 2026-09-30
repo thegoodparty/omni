@@ -1,4 +1,5 @@
 import { isBefore, parseISO } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
 
 // The judge's one cross-track contract. Every runner emits this shape and
@@ -15,6 +16,14 @@ import { z } from 'zod'
 // An agent's input and output are opaque above the runner, so they are typed
 // as JSON rather than `unknown` (rules.mdc Rule 0). The recursion is why
 // this needs an explicit annotation and z.lazy.
+// The one format `startedAt`/`endedAt` are written in, beside the schemas
+// that require it. Every runner and the orchestrator write these fields, so a
+// second copy of the format string is a second thing to get wrong.
+const UTC_ISO = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+
+export const isoUtc = (date: Date): string =>
+  formatInTimeZone(date, 'UTC', UTC_ISO)
+
 export type JsonValue =
   | string
   | number

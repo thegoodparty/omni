@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { ChatAnchor } from '@goodparty_org/contracts'
 import {
   ChatScope,
@@ -44,12 +45,27 @@ export const chatScopeFor = (agentId: string): ChatScope => {
   return scope
 }
 
-const slugify = (value: string): string =>
-  value
+// Shortened with a digest of the whole input rather than by cutting the end
+// off it. `organization.slug` is the table's primary key and the attempt
+// number is the last thing in the input, so a plain slice gave every attempt
+// of a long case id one slug and the second attempt died on the key.
+const slugify = (value: string): string => {
+  const readable = value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
-    .slice(0, 40)
+    .slice(0, 31)
+    .replace(/-$/, '')
+  const digest = createHash('sha256').update(value).digest('hex').slice(0, 8)
+  return `${readable}-${digest}`
+}
+
+// Derived, not randomised, and a pure function of its two arguments so that
+// attempt i of both arms seeds the same slug. A slug that differed between
+// arms would reach the system prompt and make every configDigest differ,
+// permanently disarming the orchestrator's identical-config refusal.
+export const chatOrgSlug = (agentId: string, slugKey: string): string =>
+  `judge-${slugify(`${agentId}-${slugKey}`)}`
 
 const snapshotFor = (title: string) => ({
   title,
@@ -69,7 +85,7 @@ export const seedChatOrg = async (
   // to create outside a throwaway database.
   assertTestProcess('seedChatOrg')
   const scope = chatScopeFor(agentId)
-  const organizationSlug = `judge-${slugify(`${agentId}-${slugKey}`)}`
+  const organizationSlug = chatOrgSlug(agentId, slugKey)
 
   if (scope === ChatScope.campaign_assistant) {
     await prisma.organization.create({
