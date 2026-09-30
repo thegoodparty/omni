@@ -1,4 +1,9 @@
-import { JudgeOverrideSchema } from '@goodparty_org/contracts'
+import {
+  JUDGE_RUN_ID_MAX_LENGTH,
+  JudgeOverrideSchema,
+} from '@goodparty_org/contracts'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
 import { RunRecordSchema, type Arm, type RunRecord } from '../record'
@@ -7,6 +12,7 @@ import {
   backgroundConfigDigest,
   baseArmCacheKey,
   buildDispatchMessage,
+  CACHED_BASE_ARM_SCHEMA_VERSION,
   captureCostUsd,
   ciContext,
   isJudgeRunId,
@@ -106,8 +112,21 @@ const METADATA_BUCKET = 'agent-experiment-metadata-dev'
 const ARTIFACT_BUCKET = 'gp-agent-artifacts-dev'
 const AGENT = 'meeting_briefing'
 
+// A behavior projection, which is what the consumer accepts: model, max_turns
+// and output_schema are required of it, and nothing outside the five-field
+// allowlist may appear. The old fixture omitted output_schema, so nothing in
+// the suite stated the contract the Lambda actually enforces.
+const MANIFEST = JSON.stringify({
+  model: 'claude-sonnet-4-6',
+  max_turns: 40,
+  output_schema: {
+    type: 'object',
+    properties: { summary: { type: 'string' } },
+  },
+})
+
 const config: AgentConfig = {
-  manifest: '{"model":"claude-sonnet-4-6","max_turns":40}',
+  manifest: MANIFEST,
   instruction: '# Brief the meeting\n',
 }
 
@@ -144,9 +163,10 @@ const runInput = (
   metadataBucket: METADATA_BUCKET,
   artifactBucket: ARTIFACT_BUCKET,
   poll: { timeoutMs: 5_000, intervalMs: 1_000 },
-  // No CI: an explicit empty env keeps a record's shape from depending on
-  // whether the suite happens to be running inside Actions.
-  env: {},
+  // No CI: an explicit env keeps a record's shape from depending on whether
+  // the suite happens to be running inside Actions. JUDGE_SPEND is the
+  // affirmative switch every dispatching path requires.
+  env: { JUDGE_SPEND: 'true' },
   ...overrides,
 })
 
@@ -173,7 +193,7 @@ const idFor = (input: BackgroundRunInput) =>
 const validRecordShape = (): RunRecord => ({
   schemaVersion: 1,
   sweepId: 'swp1',
-  runId: 'judge-swp1-c1-base-1',
+  runId: '_judge-swp1-c1-base-1',
   agentId: AGENT,
   agentShape: 'background',
   arm: 'base',
@@ -278,7 +298,7 @@ describe('stageAgentConfig', () => {
   it('refuses an agentId that could escape the reserved prefix', async () => {
     await expect(
       stageAgentConfig(fakeStore(), METADATA_BUCKET, '../compliance_setup', {
-        manifest: '{}',
+        manifest: MANIFEST,
         instruction: '',
       }),
     ).rejects.toThrow(/unsafe agentId/)
@@ -298,7 +318,7 @@ describe('judgeRunId', () => {
   it('stays readable when the ids are short enough to fit', () => {
     const runId = judgeRunId({ ...parts, sweepId: 's1', caseId: 'c1' })
 
-    expect(runId).toBe('judge-s1-c1-candidate-1')
+    expect(runId).toBe('_judge-s1-c1-candidate-1')
     expect(isJudgeRunId(runId)).toBe(true)
   })
 
@@ -930,17 +950,18 @@ describe('captureCostUsd', () => {
   it('derives from tokens when the trace has them', () => {
     const tokens = { ...zero, input: 31_213, output: 227 }
 
-    expect(captureCostUsd(tokens, 'claude-sonnet-4-6', 99)).toBe(
-      priceUsd(tokens, 'claude-sonnet-4-6'),
-    )
+    expect(captureCostUsd(tokens, 'claude-sonnet-4-6', 99)).toEqual({
+      usd: priceUsd(tokens, 'claude-sonnet-4-6'),
+    })
   })
 
   // Today's background trace has no token counts, so deriving would print
   // $0.00 beside a verdict as if it had been measured. The harness's own figure
   // is the honest snapshot instead.
   it('falls back to the harness figure rather than reporting nothing', () => {
-    expect(captureCostUsd(zero, 'claude-sonnet-4-6', 3.25)).toBe(3.25)
-    expect(captureCostUsd(zero, 'claude-sonnet-4-6', undefined)).toBe(0)
+    expect(captureCostUsd(zero, 'claude-sonnet-4-6', 3.25)).toEqual({
+      usd: 3.25,
+    })
   })
 
   // priceUsd throws on an unlisted model, and on any cache token while the
@@ -951,15 +972,17 @@ describe('captureCostUsd', () => {
     expect(() => priceUsd({ ...zero, input: 1 }, 'some-new-model')).toThrow(
       UnpriceableRunError,
     )
-    expect(captureCostUsd({ ...zero, input: 1 }, 'some-new-model', 4.5)).toBe(
-      4.5,
-    )
+    expect(
+      captureCostUsd({ ...zero, input: 1 }, 'some-new-model', 4.5),
+    ).toEqual({ usd: 4.5 })
 
     const cached = { ...zero, input: 10, cacheRead: 5 }
     expect(() => priceUsd(cached, 'claude-sonnet-4-6')).toThrow(
       UnpriceableRunError,
     )
-    expect(captureCostUsd(cached, 'claude-sonnet-4-6', 4.5)).toBe(4.5)
+    expect(captureCostUsd(cached, 'claude-sonnet-4-6', 4.5)).toEqual({
+      usd: 4.5,
+    })
   })
 })
 
@@ -1075,7 +1098,8 @@ describe('runBackgroundCase', () => {
 
     expect(record.status).toBe('infraError')
     expect(record.output).toBeNull()
-    expect(record.trace.at(-1)).toMatchObject({
+    expect(record.trace).toContainEqual({
+      index: expect.any(Number),
       kind: 'error',
       error: expect.stringContaining('poll timed out'),
     })
@@ -1125,7 +1149,8 @@ describe('runBackgroundCase', () => {
 
     expect(result.record.status).toBe('infraError')
     expect(result.record.output).toBeNull()
-    expect(result.record.trace.at(-1)).toMatchObject({
+    expect(result.record.trace).toContainEqual({
+      index: expect.any(Number),
       kind: 'error',
       error: expect.stringContaining('cannot be measured'),
     })
@@ -1339,7 +1364,7 @@ describe('runBackgroundBaseArm', () => {
         digest,
         input.agentCase.caseId,
       ),
-    ).toBeUndefined()
+    ).toEqual({ kind: 'miss', reason: 'schemaSkew' })
 
     const queue = fakeQueue()
     const result = await runBackgroundBaseArm(
@@ -1362,7 +1387,11 @@ describe('runBackgroundBaseArm', () => {
     const store = completedRun(input, idFor(input))
 
     const planted = (record: RunRecord) =>
-      JSON.stringify({ capturedAt: record.startedAt, record })
+      JSON.stringify({
+        schemaVersion: CACHED_BASE_ARM_SCHEMA_VERSION,
+        capturedAt: record.startedAt,
+        record,
+      })
     const honest: RunRecord = {
       ...validRecordShape(),
       caseId: input.agentCase.caseId,
@@ -1378,7 +1407,7 @@ describe('runBackgroundBaseArm', () => {
       )
 
     store.objects.set(path(METADATA_BUCKET, key), planted(honest))
-    expect(await read()).toBeDefined()
+    expect((await read()).kind).toBe('entry')
 
     for (const wrong of [
       { ...honest, agentId: 'top_community_issues' },
@@ -1394,7 +1423,7 @@ describe('runBackgroundBaseArm', () => {
       },
     ]) {
       store.objects.set(path(METADATA_BUCKET, key), planted(wrong))
-      expect(await read()).toBeUndefined()
+      expect(await read()).toEqual({ kind: 'miss', reason: 'keyMismatch' })
     }
 
     const queue = fakeQueue()
@@ -1416,5 +1445,502 @@ describe('runBackgroundBaseArm', () => {
         METADATA_BUCKET,
       ),
     ).rejects.toThrow(/only for the base arm/)
+  })
+})
+
+// --- the cross-language run-id contract --------------------------------------
+//
+// This module once declared its own `JUDGE_RUN_ID_PREFIX = 'judge-'` while the
+// consumer read `_judge-`, which turned off every safety the prefix gates:
+// the dispatch was refused, each refusal posted to gp-api's results queue, the
+// ticket lost `is_eval`, and a judge base arm of a write-action experiment was
+// no longer refused at all — so it would have made real product writes on a
+// real organization with every surfacing signal suppressed.
+//
+// The TypeScript half now lives in @goodparty_org/contracts, but contracts
+// cannot be imported by Python, so the equality is asserted against the Python
+// SOURCE TEXT. A drifted constant then fails in CI rather than at a refused
+// dispatch twenty minutes into a sweep.
+describe('the judge run-id contract shared with the dispatch Lambda', () => {
+  const loaderPath = join(
+    __dirname,
+    '../../../../../../gp-ai/pmf_engine/control_plane/manifest_loader.py',
+  )
+
+  // Extracted with a required match, never an optional one: a rename on the
+  // Python side must fail this test loudly rather than make it vacuous.
+  const literalFrom = (source: string, name: string, pattern: string) => {
+    const found = new RegExp(`^${name} = (${pattern})$`, 'm').exec(source)
+    if (!found?.[1]) {
+      throw new Error(
+        `could not find ${name} in ${loaderPath}. It is half of a ` +
+          'cross-language contract; if it was renamed or moved, update this ' +
+          'guard in the same change rather than deleting it',
+      )
+    }
+    return found[1]
+  }
+
+  it('agrees with the consumer on the prefix and the length cap', () => {
+    const source = readFileSync(loaderPath, 'utf8')
+
+    expect(literalFrom(source, 'JUDGE_RUN_ID_PREFIX', '"[^"]*"')).toBe(
+      `"${JUDGE_RUN_ID_PREFIX}"`,
+    )
+    expect(literalFrom(source, 'JUDGE_RUN_ID_MAX_LENGTH', '\\d+')).toBe(
+      String(JUDGE_RUN_ID_MAX_LENGTH),
+    )
+  })
+
+  it('fails loudly rather than vacuously when a literal is renamed', () => {
+    expect(() =>
+      literalFrom(
+        'JUDGE_RUN_ID_RENAMED = "_judge-"\n',
+        'JUDGE_RUN_ID_PREFIX',
+        '"[^"]*"',
+      ),
+    ).toThrow(/could not find JUDGE_RUN_ID_PREFIX/)
+  })
+
+  // The consumer fullmatches the WHOLE id, so the 29 characters the cap leaves
+  // after the prefix is a ceiling this side has to fit, not a suggestion.
+  it('mints ids the consumer accepts, at the tightest fit there is', () => {
+    const consumer = new RegExp(
+      `^${JUDGE_RUN_ID_PREFIX}[A-Za-z0-9_-]{1,` +
+        `${JUDGE_RUN_ID_MAX_LENGTH - JUDGE_RUN_ID_PREFIX.length}}$`,
+    )
+
+    for (const p of [
+      { sweepId: 's1', caseId: 'c1', arm: 'candidate' as Arm, attempt: 1 },
+      {
+        sweepId: 'sweep-2026-09-30-a',
+        caseId: 'brief-2025-11-04-long-case-name',
+        arm: 'candidate' as Arm,
+        attempt: 12,
+      },
+      { sweepId: 'swp1', caseId: 'c1', arm: 'base' as Arm, attempt: 1 },
+    ]) {
+      const runId = judgeRunId(p)
+      expect(runId).toMatch(consumer)
+      expect(runId.length).toBeLessThanOrEqual(JUDGE_RUN_ID_MAX_LENGTH)
+    }
+  })
+})
+
+// --- the staged manifest the consumer will accept ----------------------------
+//
+// `_judge_override_behavior` takes only {model, max_turns, timeout_seconds,
+// output_schema, runtime} and requires the first three. A refusal there is
+// invisible: both arms stage, both dispatch, neither calls back, and the sweep
+// records `infraError: poll timed out` — the symptom, never the cause. So this
+// module refuses the same manifests the Lambda would, before it writes.
+describe('stageAgentConfig manifest validation', () => {
+  const stage = (manifest: string, store = fakeStore()) =>
+    stageAgentConfig(store, METADATA_BUCKET, AGENT, {
+      manifest,
+      instruction: '# x\n',
+    })
+
+  // The most natural mistake there is: passing the PUBLISHED manifest.json,
+  // whose every extra field the consumer refuses.
+  it('refuses the published manifest an orchestrator would reach for', async () => {
+    const published = JSON.stringify({
+      $schema: 'https://json-schema.org/draft-07/schema#',
+      id: AGENT,
+      version: 3,
+      model: 'claude-sonnet-4-6',
+      max_turns: 40,
+      scope: { tables: ['gp.public.x'] },
+      input_schema: { type: 'object' },
+      output_schema: { type: 'object', properties: {} },
+    })
+
+    await expect(stage(published)).rejects.toThrow(
+      /non-behavior field\(s\) \$schema, id, input_schema, scope, version/,
+    )
+  })
+
+  it('refuses a manifest missing what the Fargate runner requires', async () => {
+    await expect(
+      stage(JSON.stringify({ model: 'claude-sonnet-4-6', max_turns: 40 })),
+    ).rejects.toThrow(/missing field\(s\) output_schema/)
+  })
+
+  it('refuses a manifest that is not a JSON object at all', async () => {
+    await expect(stage('not json')).rejects.toThrow(/not a JSON object/)
+    await expect(stage('[]')).rejects.toThrow(/not a JSON object/)
+  })
+
+  it('refuses a staging past the consumer read caps', async () => {
+    await expect(
+      stage(
+        JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_turns: 40,
+          output_schema: { type: 'object', pad: 'p'.repeat(300_000) },
+        }),
+      ),
+    ).rejects.toThrow(/over the consumer's read cap/)
+
+    await expect(
+      stageAgentConfig(fakeStore(), METADATA_BUCKET, AGENT, {
+        manifest: MANIFEST,
+        instruction: 'i'.repeat(1024 * 1024 + 1),
+      }),
+    ).rejects.toThrow(/instruction is \d+ bytes, over the consumer's read cap/)
+  })
+
+  // The point of checking here rather than at the Lambda: a refusal must not
+  // first leave bytes in the reserved prefix for a config nothing can run.
+  it('writes nothing when the manifest would be refused', async () => {
+    const store = fakeStore()
+    await expect(stage('{}', store)).rejects.toThrow()
+
+    expect(store.puts).toEqual([])
+  })
+
+  it('accepts the optional fields the consumer allows', async () => {
+    const store = fakeStore()
+    await stage(
+      JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_turns: 40,
+        timeout_seconds: 1_200,
+        output_schema: { type: 'object', properties: {} },
+        runtime: { max_thinking_tokens: 0 },
+      }),
+      store,
+    )
+
+    expect(store.puts).toHaveLength(2)
+  })
+})
+
+// --- the affirmative spend switch -------------------------------------------
+describe('the spend switch', () => {
+  const run = (spend?: string) => {
+    const input = runInput({
+      env: spend === undefined ? {} : { JUDGE_SPEND: spend },
+    })
+    const store = completedRun(input, idFor(input))
+    const queue = fakeQueue()
+    return {
+      input,
+      store,
+      queue,
+      go: () => runBackgroundCase(deps(store, queue, fakeClock()), input),
+    }
+  }
+
+  // Only the exact string. A shell that expanded an unset variable, a `1`, a
+  // `yes` and a capitalised `TRUE` all fail closed rather than spending.
+  it('refuses anything but the exact string, and stages nothing', async () => {
+    for (const value of [undefined, '', '1', 'yes', 'TRUE', 'True', ' true']) {
+      const { store, queue, go } = run(value)
+
+      await expect(go()).rejects.toThrow(/needs JUDGE_SPEND=true exactly/)
+      expect(store.puts).toEqual([])
+      expect(queue.sent).toEqual([])
+    }
+  })
+
+  // A named throw rather than a synthetic record: a misconfigured sweep that
+  // reported outcomes it never ran would be worse than one that did not run.
+  it('never invents a record for a run it did not dispatch', async () => {
+    const { go } = run('1')
+
+    await expect(go()).rejects.toThrow(Error)
+  })
+
+  it('dispatches once the switch is on', async () => {
+    const { queue, go } = run('true')
+
+    await expect(go()).resolves.toMatchObject({ status: 'produced' })
+    expect(queue.sent).toHaveLength(1)
+  })
+})
+
+// --- what a run that cannot be measured must not become ----------------------
+describe('runBackgroundCase telemetry integrity', () => {
+  // The base-arm cache is the reason this matters. An absent trace used to
+  // yield status 'produced' with toolCalls 0 and toolErrors 0, which makes
+  // isComparable() true, which writes it to the cache — so a base arm whose
+  // every Databricks read failed becomes the permanent baseline for that
+  // digest, and the evidence was in the trace that never arrived.
+  it('refuses to measure a run whose trace never arrived', async () => {
+    const input = baseInput()
+    const runId = idFor(input)
+    const store = fakeStore({
+      [path(ARTIFACT_BUCKET, artifactKey(AGENT, runId))]: ARTIFACT,
+    })
+
+    const result = await runBackgroundBaseArm(
+      deps(store, fakeQueue(), fakeClock()),
+      input,
+      METADATA_BUCKET,
+    )
+
+    expect(result.record.status).toBe('infraError')
+    expect(result.record.output).toBeNull()
+    expect(result.record.trace).toContainEqual({
+      index: expect.any(Number),
+      kind: 'error',
+      error: expect.stringContaining('no trace'),
+    })
+    expect(result.cache).toBe('notCached')
+    expect(store.puts.some((p) => p.key.includes('/base/'))).toBe(false)
+  })
+
+  // A rejection on the trace GET is a real store error, not "not there yet":
+  // getText resolves undefined for a missing key. The artifact, the output,
+  // the latency and the run identity are all already in memory by then, so a
+  // throttle or an expired credential on a decoration-only read must not
+  // discard a completed, fully paid run.
+  it('keeps a completed run whose best-effort trace read threw', async () => {
+    const input = runInput()
+    const runId = idFor(input)
+    const traceAt = path(ARTIFACT_BUCKET, traceKey(AGENT, runId))
+    const store = fakeStore(
+      { [path(ARTIFACT_BUCKET, artifactKey(AGENT, runId))]: ARTIFACT },
+      (key) => {
+        if (key === traceAt)
+          throw new Error('SlowDown: please reduce your rate')
+      },
+    )
+
+    const record = await runBackgroundCase(
+      deps(store, fakeQueue(), fakeClock()),
+      input,
+    )
+
+    expect(record.runId).toBe(runId)
+    expect(record.status).toBe('infraError')
+    expect(record.trace).toContainEqual({
+      index: expect.any(Number),
+      kind: 'error',
+      error: expect.stringContaining('SlowDown'),
+    })
+  })
+
+  // Same rule as the token path, and the fourth instance of it in this
+  // feature: the harness writes total_cost_usd only in its ResultMessage
+  // branch, and its own timeout cancels the loop first — so the expensive
+  // failure is exactly the one with no figure. usdAtCapture is required and
+  // non-nullable, so the zero stays; the trace is what stops it reading as a
+  // measurement.
+  it('says a cost is unmeasured rather than printing it as zero', async () => {
+    const input = runInput()
+    const runId = idFor(input)
+    const store = fakeStore({
+      [path(ARTIFACT_BUCKET, artifactKey(AGENT, runId))]: ARTIFACT,
+      // A real timed-out trace: turns happened, no `result` line ever landed.
+      [path(ARTIFACT_BUCKET, traceKey(AGENT, runId))]:
+        '{"type":"assistant","message":{"content":[{"type":"text"}]}}',
+    })
+
+    const record = await runBackgroundCase(
+      deps(store, fakeQueue(), fakeClock()),
+      input,
+    )
+
+    expect(record.telemetry.cost.usdAtCapture).toBe(0)
+    expect(record.trace).toContainEqual({
+      index: expect.any(Number),
+      kind: 'error',
+      error: expect.stringContaining('cost is unmeasured'),
+    })
+    // Not a reason to discard the run: the agent produced an artifact and the
+    // missing figure is only the bill.
+    expect(record.status).toBe('produced')
+  })
+
+  it('leaves a measured cost unannotated', async () => {
+    const input = runInput()
+    const store = completedRun(input, idFor(input))
+
+    const record = await runBackgroundCase(
+      deps(store, fakeQueue(), fakeClock()),
+      input,
+    )
+
+    expect(record.telemetry.cost.usdAtCapture).toBe(3.25)
+    expect(record.trace).not.toContainEqual(
+      expect.objectContaining({
+        error: expect.stringContaining('cost is unmeasured'),
+      }),
+    )
+  })
+
+  // The module's own rule is that every precondition is settled before
+  // anything is written or sent. `variant` arrives as
+  // Omit<Variant, 'configDigest'>, whose fields are all `.min(1)`, so an
+  // orchestrator that resolved a base commit to '' typechecks, spends the
+  // twenty minutes, and only then throws inside RunRecordSchema.parse —
+  // discarding the run it just paid for.
+  it('validates the record it will build before it spends', async () => {
+    for (const variant of [
+      { ref: '', commit: 'b'.repeat(40), model: 'claude-sonnet-4-6' },
+      { ref: 'judge-track-b', commit: '', model: 'claude-sonnet-4-6' },
+      { ref: 'judge-track-b', commit: 'b'.repeat(40), model: '' },
+    ]) {
+      const input = runInput({ variant })
+      const store = completedRun(input, idFor(input))
+      const queue = fakeQueue()
+
+      await expect(
+        runBackgroundCase(deps(store, queue, fakeClock()), input),
+      ).rejects.toThrow()
+      expect(store.puts).toEqual([])
+      expect(queue.sent).toEqual([])
+    }
+  })
+})
+
+// --- a measurement must survive a failure to save it -------------------------
+describe('runBackgroundBaseArm cache failures', () => {
+  // The base arm has run to completion — twenty minutes and a few dollars —
+  // and the record is in hand. An AccessDenied on `_judge/*` (a role with read
+  // but not write) or a 503 on the PutObject used to throw out of here, so the
+  // caller lost the base record and the paired candidate had nothing to
+  // compare against.
+  it('keeps the base record when caching it fails', async () => {
+    const input = baseInput()
+    const store = completedRun(input, idFor(input))
+    const failing: ObjectStore = {
+      getText: store.getText,
+      putText: async (bucket, key, body) => {
+        if (key.includes('/base/')) {
+          throw new Error(
+            'AccessDenied: not authorized to perform s3:PutObject',
+          )
+        }
+        return store.putText(bucket, key, body)
+      },
+    }
+
+    const result = await runBackgroundBaseArm(
+      { store: failing, queue: fakeQueue(), clock: fakeClock() },
+      input,
+      METADATA_BUCKET,
+    )
+
+    expect(result.record.status).toBe('produced')
+    expect(result.record.arm).toBe('base')
+    // Re-captured next sweep, which is the documented cost of a miss, rather
+    // than losing this sweep as well.
+    expect(result.cache).toBe('notCached')
+  })
+})
+
+// --- why the cache missed ----------------------------------------------------
+//
+// Treating a stale entry as a miss is right; discarding WHY is not. 'absent'
+// is a first capture and costs one run once. 'schemaSkew' costs one run per
+// case per sweep until someone changes the writer, and `cache: 'miss'` alone
+// reads as the first one.
+describe('cache miss reasons', () => {
+  const digest = () => backgroundConfigDigest(config)
+  const read = (store: FakeStore, input: BackgroundRunInput) =>
+    readCachedBaseArm(
+      store,
+      METADATA_BUCKET,
+      AGENT,
+      digest(),
+      input.agentCase.caseId,
+    )
+  const plant = (store: FakeStore, input: BackgroundRunInput, body: string) =>
+    store.objects.set(
+      path(
+        METADATA_BUCKET,
+        baseArmCacheKey(AGENT, digest(), input.agentCase.caseId),
+      ),
+      body,
+    )
+
+  it('tells a first capture apart from a cache nothing can read', async () => {
+    const input = baseInput()
+    const store = completedRun(input, idFor(input))
+
+    expect(await read(store, input)).toEqual({
+      kind: 'miss',
+      reason: 'absent',
+    })
+
+    plant(store, input, '{ truncated')
+    expect(await read(store, input)).toEqual({
+      kind: 'miss',
+      reason: 'unparseable',
+    })
+  })
+
+  // CachedBaseArm leaned on RunRecordSchema's `schemaVersion: z.literal(1)`
+  // and carried no version of its own, so the day that literal moves every
+  // sweep would pay per case forever while reporting a first capture.
+  it('names skew on an envelope from a version that no longer fits', async () => {
+    const input = baseInput()
+    const store = completedRun(input, idFor(input))
+    const record: RunRecord = {
+      ...validRecordShape(),
+      caseId: input.agentCase.caseId,
+      variant: { ...validRecordShape().variant, configDigest: digest() },
+    }
+
+    plant(
+      store,
+      input,
+      JSON.stringify({
+        schemaVersion: CACHED_BASE_ARM_SCHEMA_VERSION + 1,
+        capturedAt: record.startedAt,
+        record,
+      }),
+    )
+    expect(await read(store, input)).toEqual({
+      kind: 'miss',
+      reason: 'schemaSkew',
+    })
+
+    plant(
+      store,
+      input,
+      JSON.stringify({
+        schemaVersion: CACHED_BASE_ARM_SCHEMA_VERSION,
+        capturedAt: record.startedAt,
+        record,
+      }),
+    )
+    expect(await read(store, input)).toEqual({
+      kind: 'entry',
+      entry: expect.objectContaining({
+        schemaVersion: CACHED_BASE_ARM_SCHEMA_VERSION,
+      }),
+    })
+  })
+
+  it('reports the reason beside the run it had to re-capture', async () => {
+    const input = baseInput()
+    const store = completedRun(input, idFor(input))
+    plant(store, input, '{ truncated')
+
+    const result = await runBackgroundBaseArm(
+      deps(store, fakeQueue(), fakeClock()),
+      input,
+      METADATA_BUCKET,
+    )
+
+    expect(result.cache).toBe('miss')
+    expect(result.cacheMissReason).toBe('unparseable')
+  })
+
+  it('writes an entry a later sweep can actually read back', async () => {
+    const input = baseInput()
+    const store = completedRun(input, idFor(input))
+
+    await runBackgroundBaseArm(
+      deps(store, fakeQueue(), fakeClock()),
+      input,
+      METADATA_BUCKET,
+    )
+
+    expect(await read(store, input)).toMatchObject({ kind: 'entry' })
   })
 })

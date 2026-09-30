@@ -1,4 +1,9 @@
-import { judgeOverrideKeys, type JudgeOverride } from '@goodparty_org/contracts'
+import {
+  JUDGE_RUN_ID_MAX_LENGTH,
+  JUDGE_RUN_ID_PREFIX,
+  judgeOverrideKeys,
+  type JudgeOverride,
+} from '@goodparty_org/contracts'
 import { createHash } from 'crypto'
 import { differenceInMilliseconds } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -8,6 +13,7 @@ import {
   isComparable,
   JsonValueSchema,
   RunRecordSchema,
+  VariantSchema,
   type Arm,
   type CiContext,
   type JsonValue,
@@ -92,6 +98,14 @@ export interface BackgroundCase {
 // base: a branch's base ref need not equal what is published, and a cached base
 // arm is only sound if its digest names exactly the bytes that ran.
 export interface AgentConfig {
+  // The BEHAVIOR PROJECTION, not the published `manifest.json`. The consumer
+  // accepts only {model, max_turns, timeout_seconds, output_schema, runtime}
+  // and requires the first three — a judge override may change what the agent
+  // is told to do, never what it is allowed to touch, so `scope`, `routing`
+  // and `input_schema` come from the published manifest alone. Handing this
+  // field a published manifest is refused by stageAgentConfig; see
+  // validateOverrideManifest for why it is refused here rather than at the
+  // Lambda.
   manifest: string
   instruction: string
 }
@@ -119,28 +133,30 @@ export interface BackgroundRunInput {
 // Identity
 // ---------------------------------------------------------------------------
 
-// Reserved, and the hook three Python-side suppressions are meant to key on:
-// the task reaper skipping these run ids, a judge artifact being told apart
-// from a production one, and the dispatch handler's error callback staying away
-// from gp-api. One convention rather than three mechanisms.
+// The run-id prefix and its length cap come from @goodparty_org/contracts,
+// never from a literal here. This module declared its own pair once, and they
+// drifted from the consumer's (`judge-` against `_judge-`), which silently
+// turned off every safety the prefix gates. See the drift guard in the test
+// file: contracts cannot be imported by Python, so the TS/Python equality is
+// asserted against the Python source text instead.
 //
-// NONE of those three exist yet, and neither does the `_judge_override`
-// consumer. A dispatch carrying the override succeeds today and is ignored:
-// parse_dispatch_message only rejects unknown `_`-prefixed keys inside params,
-// so a top-level one rides along unread and the task loads the PUBLISHED
-// manifest. Both arms would then run identical bytes and the judge would
-// confidently report "no difference" — the worst failure an eval harness has.
-// Nothing in this module can detect that, so a real sweep waits on the Python
-// half.
-export const JUDGE_RUN_ID_PREFIX = 'judge-'
-
-// 36, not the dispatch handler's 64. The Lambda passes the run id straight to
-// ECS RunTask as `startedBy`, whose own ceiling is 36 characters — the handler
-// says so where it relies on a uuid7 fitting exactly. A longer id makes
-// RunTask fail, and with the result callback suppressed that failure is
-// invisible: the sweep waits out the whole poll window and records an
-// infraError with no reason.
-const RUN_ID_MAX_LENGTH = 36
+// The consumer landed in 6a5ba31fb and now READS the prefix, so getting it
+// wrong no longer means "ignored" — it means refused:
+//   * `_validate_judge_dispatch` fullmatches the whole run id against
+//     `^_judge-[A-Za-z0-9_-]{1,29}$`, so a mismatched prefix refuses the
+//     dispatch outright and the sweep sees only a poll timeout.
+//   * `send_error_callback` suppresses on `_judge-` alone, so each refusal
+//     posts to gp-api's results queue — the `Experiment run not found`
+//     alerting storm this whole path exists to avoid.
+//   * `is_eval` is derived from it at mint, so without it the broker keeps
+//     its own callback AND overwrites the org's `latest.json` pointer.
+//   * dispatch_handler refuses a judge BASE arm of a write-action experiment
+//     only when it recognises the run id. A base arm writes to gp-api through
+//     the broker's `/agent/mcp` proxy, which does not read `ticket.is_eval`,
+//     so an unrecognised judge run makes real product writes on a real
+//     organization while every signal that would surface them is suppressed.
+//     That is the one consequence here that is not merely cost.
+export { JUDGE_RUN_ID_PREFIX } from '@goodparty_org/contracts'
 
 // Floor on the compressed form, so shortening the id can never buy a
 // collision. 48 bits across one sweep's cases is not a risk; less would start
@@ -217,16 +233,17 @@ export const judgeRunId = (parts: RunIdParts): string => {
   const readable =
     `${JUDGE_RUN_ID_PREFIX}${requireSegment('sweepId', parts.sweepId)}-` +
     `${requireSegment('caseId', parts.caseId)}-${tail}`
-  if (readable.length <= RUN_ID_MAX_LENGTH) return readable
+  if (readable.length <= JUDGE_RUN_ID_MAX_LENGTH) return readable
 
   // Sized to fill exactly what the tail leaves, so the compressed form uses
   // every character available to it rather than a round number that happens
   // to fit.
-  const room = RUN_ID_MAX_LENGTH - JUDGE_RUN_ID_PREFIX.length - tail.length - 1
+  const room =
+    JUDGE_RUN_ID_MAX_LENGTH - JUDGE_RUN_ID_PREFIX.length - tail.length - 1
   if (room < MIN_DIGEST_CHARS) {
     throw new Error(
       `no room for a ${MIN_DIGEST_CHARS}-char digest in a ` +
-        `${RUN_ID_MAX_LENGTH}-char run id once "${tail}" is reserved`,
+        `${JUDGE_RUN_ID_MAX_LENGTH}-char run id once "${tail}" is reserved`,
     )
   }
   return `${JUDGE_RUN_ID_PREFIX}${sha256(readable).slice(0, room)}-${tail}`
@@ -259,6 +276,36 @@ export const isJudgeRunId = (runId: string): boolean =>
   runId.startsWith(JUDGE_RUN_ID_PREFIX)
 
 // ---------------------------------------------------------------------------
+// Reading foreign JSON
+// ---------------------------------------------------------------------------
+
+// Every JSON this module reads comes from S3 or from an orchestrator, so none
+// of it is trusted: it is parsed and schema-checked together, and the two
+// failure modes are told apart. Malformed bytes and a well-formed document
+// that no longer fits the contract mean different things to a caller — see the
+// base-arm cache, where one is a corrupt object and the other is schema skew
+// that will re-charge every sweep until someone is told which it is.
+export type JsonReadFailure = 'unparseable' | 'schemaSkew'
+
+export type JsonRead<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: JsonReadFailure }
+
+const safeJson = <T>(schema: z.ZodType<T>, text: string): JsonRead<T> => {
+  try {
+    const result = schema.safeParse(JSON.parse(text))
+    return result.success
+      ? { ok: true, value: result.data }
+      : { ok: false, reason: 'schemaSkew' }
+  } catch {
+    // Only JSON.parse throws in here. Zod reports a schema failure as a
+    // returned result, never as an exception, which is what keeps the two
+    // reasons from collapsing into one.
+    return { ok: false, reason: 'unparseable' }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Staging
 // ---------------------------------------------------------------------------
 
@@ -282,6 +329,77 @@ export const judgeConfigKeys = (
   return { digest, override: judgeOverrideKeys(agentId, digest) }
 }
 
+// _judge_override_behavior's allowlist and manifest_loader's read caps. Same
+// reason as the dispatch ceilings below: a manifest the consumer refuses is
+// refused with the results callback suppressed, so the sweep stages both arms,
+// dispatches both, hears nothing, and records `infraError: poll timed out` —
+// the symptom, never the cause. These are the checks where that reasoning
+// bites hardest, because the most natural mistake is to hand this field the
+// PUBLISHED manifest.json, whose `$schema`, `id`, `version`, `scope` and
+// `input_schema` are each refused by name or as an unrecognised key.
+const OVERRIDE_BEHAVIOR_FIELDS = new Set([
+  'model',
+  'max_turns',
+  'timeout_seconds',
+  'output_schema',
+  'runtime',
+])
+const OVERRIDE_REQUIRED_FIELDS = ['model', 'max_turns', 'output_schema']
+const MAX_OVERRIDE_MANIFEST_BYTES = 256 * 1024
+const MAX_OVERRIDE_INSTRUCTION_BYTES = 1024 * 1024
+
+// Only the shape the consumer keys on: the field names, and the fact that the
+// document is a JSON object at all. The values are NOT re-validated here —
+// `max_turns` bounds, the model pattern and the Draft-07 `output_schema` check
+// all live in the consumer, and duplicating them would mean two sources of
+// truth for a judgment the consumer makes anyway.
+const OverrideManifestSchema = z.record(z.string(), JsonValueSchema)
+
+const validateOverrideManifest = (config: AgentConfig): void => {
+  const manifestBytes = Buffer.byteLength(config.manifest, 'utf8')
+  if (manifestBytes > MAX_OVERRIDE_MANIFEST_BYTES) {
+    throw new Error(
+      `override manifest is ${manifestBytes} bytes, over the consumer's ` +
+        `read cap of ${MAX_OVERRIDE_MANIFEST_BYTES}`,
+    )
+  }
+  const instructionBytes = Buffer.byteLength(config.instruction, 'utf8')
+  if (instructionBytes > MAX_OVERRIDE_INSTRUCTION_BYTES) {
+    throw new Error(
+      `override instruction is ${instructionBytes} bytes, over the ` +
+        `consumer's read cap of ${MAX_OVERRIDE_INSTRUCTION_BYTES}`,
+    )
+  }
+  const manifest = safeJson(OverrideManifestSchema, config.manifest)
+  if (!manifest.ok) {
+    throw new Error(
+      'override manifest is not a JSON object, so the consumer cannot ' +
+        'project it down to behavior fields',
+    )
+  }
+  const unknown = Object.keys(manifest.value)
+    .filter((key) => !OVERRIDE_BEHAVIOR_FIELDS.has(key))
+    .sort()
+  if (unknown.length > 0) {
+    throw new Error(
+      `override manifest carries non-behavior field(s) ` +
+        `${unknown.join(', ')}; a judge override may only set ` +
+        `${[...OVERRIDE_BEHAVIOR_FIELDS].sort().join(', ')}. A judge run may ` +
+        'change what the agent is told to do, never what it is allowed to ' +
+        'touch, so pass the behavior projection, not the published manifest',
+    )
+  }
+  const absent = OVERRIDE_REQUIRED_FIELDS.filter(
+    (field) => !(field in manifest.value),
+  )
+  if (absent.length > 0) {
+    throw new Error(
+      `override manifest is missing field(s) ${absent.join(', ')}, which ` +
+        'the Fargate runner requires of any manifest the broker serves it',
+    )
+  }
+}
+
 export const stageAgentConfig = async (
   store: ObjectStore,
   bucket: string,
@@ -289,6 +407,7 @@ export const stageAgentConfig = async (
   config: AgentConfig,
 ): Promise<StagedConfig> => {
   const staged = judgeConfigKeys(agentId, config)
+  validateOverrideManifest(config)
   await store.putText(bucket, staged.override.manifest_key, config.manifest)
   await store.putText(
     bucket,
@@ -632,12 +751,8 @@ export const emptyTrace = (): TraceSummary => ({
 const parseTraceLine = (
   text: string,
 ): z.infer<typeof TraceLineSchema> | undefined => {
-  try {
-    const result = TraceLineSchema.safeParse(JSON.parse(text))
-    return result.success ? result.data : undefined
-  } catch {
-    return undefined
-  }
+  const read = safeJson(TraceLineSchema, text)
+  return read.ok ? read.value : undefined
 }
 
 // Bounds on a trace, because the trace of a 20-minute agent run is whatever
@@ -797,16 +912,43 @@ const hasTokens = (tokens: TokenUsage): boolean =>
 // The harness's own total is not fiction, so degrading to it is strictly
 // better than losing the run. The README's "throw rather than guess" belongs
 // to the comparison layer, which re-derives and can still refuse.
+export interface CaptureCost {
+  usd: number
+  // Set when `usd` is a placeholder rather than a measurement, so a report can
+  // print "unmeasured" instead of "$0.00".
+  unmeasured?: string
+}
+
+// Same rule as the token path above, not a new one: this is the fourth place
+// in this feature where a zero would be printed beside a verdict as if it had
+// been measured. The harness writes `total_cost_usd` only inside its
+// `ResultMessage` branch, and its own `timeout_seconds` cancels the loop
+// before that message arrives — so the expensive failure, a run that ran the
+// full window, is exactly the one with no figure. A sweep with two timed-out
+// cases would under-report its bill by roughly 40%. `CostSchema.usdAtCapture`
+// is required and non-nullable, so the zero has to stay in the number; the
+// note is what keeps it from reading as a measurement.
+const unmeasuredCost = (traceCostUsd: number | undefined): CaptureCost =>
+  traceCostUsd === undefined
+    ? {
+        usd: 0,
+        unmeasured:
+          'cost is unmeasured, not zero: the trace carried no ' +
+          'total_cost_usd and no token usage to derive one from, which is ' +
+          'what a run cancelled at its own timeout_seconds looks like',
+      }
+    : { usd: traceCostUsd }
+
 export const captureCostUsd = (
   tokens: TokenUsage,
   model: string,
   traceCostUsd: number | undefined,
-): number => {
-  if (!hasTokens(tokens)) return traceCostUsd ?? 0
+): CaptureCost => {
+  if (!hasTokens(tokens)) return unmeasuredCost(traceCostUsd)
   try {
-    return priceUsd(tokens, model)
+    return { usd: priceUsd(tokens, model) }
   } catch (err) {
-    if (err instanceof UnpriceableRunError) return traceCostUsd ?? 0
+    if (err instanceof UnpriceableRunError) return unmeasuredCost(traceCostUsd)
     throw err
   }
 }
@@ -854,13 +996,58 @@ const UTC_ISO = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
 const isoUtc = (date: Date): string => formatInTimeZone(date, 'UTC', UTC_ISO)
 
 const artifactValue = (body: string): JsonValue | undefined => {
+  const read = safeJson(JsonValueSchema, body)
+  return read.ok ? read.value : undefined
+}
+
+// `getText` resolves undefined for a key that does not exist, so a REJECTION
+// here is a real store error rather than "not there yet" — and the difference
+// matters, which is why the two are returned apart instead of both collapsing
+// to an empty trace.
+const readTraceBody = async (
+  store: ObjectStore,
+  input: BackgroundRunInput,
+  runId: string,
+): Promise<{ body?: string; error?: string }> => {
   try {
-    const result = JsonValueSchema.safeParse(JSON.parse(body))
-    return result.success ? result.data : undefined
-  } catch {
-    return undefined
+    const body = await store.getText(
+      input.artifactBucket,
+      traceKey(input.agentId, runId),
+    )
+    return body === undefined ? {} : { body }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+// The affirmative spend switch. Nothing on this branch constructs a real store
+// or queue yet, so nothing can spend today — but this module is where the ~$13
+// per run is committed, so the gate belongs here rather than in whatever wires
+// it up later.
+//
+// The exact string, which is the feature's convention: `1`, `yes`, `TRUE` and
+// a shell that expanded an unset variable to the empty string all fail closed.
+// And a throw rather than a synthetic record, because a sweep that reported
+// outcomes it never ran would be worse than one that did not run.
+export const JUDGE_SPEND_ENV = 'JUDGE_SPEND'
+const JUDGE_SPEND_ON = 'true'
+
+const requireSpendAuthorized = (env: NodeJS.ProcessEnv): void => {
+  if (env[JUDGE_SPEND_ENV] !== JUDGE_SPEND_ON) {
+    throw new Error(
+      `a background judge run dispatches a Fargate task that spends real ` +
+        `money, so it needs ${JUDGE_SPEND_ENV}=${JUDGE_SPEND_ON} exactly; ` +
+        `got ${env[JUDGE_SPEND_ENV] === undefined ? 'unset' : `"${env[JUDGE_SPEND_ENV]}"`}`,
+    )
+  }
+}
+
+// Exactly the RunRecord fields an orchestrator supplies that the id helpers do
+// not already pin. sweepId, caseId and attempt are checked by judgeRunId.
+const RunPreconditionsSchema = z.object({
+  sweepId: z.string().min(1),
+  variant: VariantSchema.omit({ configDigest: true }),
+})
 
 // One case, one arm, one attempt: stage, dispatch, poll, emit. Returns the
 // record rather than writing it anywhere, so the caller owns storage.
@@ -868,6 +1055,21 @@ export const runBackgroundCase = async (
   deps: BackgroundRunnerDeps,
   input: BackgroundRunInput,
 ): Promise<RunRecord> => {
+  const env = input.env ?? process.env
+  // Checked here rather than beside the dispatch call, because the module's
+  // own rule is that every precondition is settled before anything is written
+  // or sent, and staging writes first.
+  requireSpendAuthorized(env)
+  // The record's own preconditions, checked BEFORE the spend rather than at
+  // RunRecordSchema.parse after it. `variant` arrives as
+  // Omit<Variant, 'configDigest'>, whose fields are all `.min(1)`, so an
+  // orchestrator that resolved a base commit to '' typechecks, spends the
+  // twenty minutes and the few dollars, and only then throws inside parse —
+  // discarding the run it just paid for.
+  RunPreconditionsSchema.parse({
+    sweepId: input.sweepId,
+    variant: input.variant,
+  })
   const { digest, override } = judgeConfigKeys(input.agentId, input.config)
   const runId = judgeRunId({
     sweepId: input.sweepId,
@@ -908,22 +1110,44 @@ export const runBackgroundCase = async (
   // Read on both paths. The harness uploads logs on its timeout and kill paths
   // too, so a timed-out run often still has a partial trace, and a timeout with
   // its tool calls visible is worth far more than one without.
-  const traceBody = await deps.store.getText(
-    input.artifactBucket,
-    traceKey(input.agentId, runId),
-  )
-  // A trace over the cap is NOT quietly replaced with an empty one. Empty
-  // telemetry reads as zero tool errors, which makes isComparable() true,
-  // which lets runBackgroundBaseArm cache a base arm whose every data read may
-  // have failed — a permanent baseline with no evidence of the failure, which
-  // is the exact outcome the notCached guard exists to prevent. A run we cannot
-  // measure at all is an infrastructure result; the artifact stays in S3 and
-  // the run id is deterministic, so re-reading it later is free.
-  const oversizeTrace = traceBody !== undefined && traceTooLarge(traceBody)
+  //
+  // Wrapped, unlike pollForObject. There the trade-off runs the other way: a
+  // store rejection during the poll aborts a case that has produced nothing
+  // yet, so there is nothing to keep. Here the artifact, the output, the
+  // latency and the run identity are all already in memory, and this GET is
+  // decoration. Letting a throttle (`SlowDown`) or a credential that expired
+  // during an 18-minute poll propagate would throw away a completed, fully
+  // paid run on the strength of its very next request.
+  const traceRead = await readTraceBody(deps.store, input, runId)
+
+  // A trace we cannot read is NOT quietly replaced with an empty one, whether
+  // it is over the cap, absent, or unreadable. Empty telemetry reads as zero
+  // tool calls and zero tool errors, which makes isComparable() true, which
+  // lets runBackgroundBaseArm cache a base arm whose every Databricks read may
+  // have failed — a permanent baseline claiming zero tool errors, with the
+  // evidence in the trace that never arrived. That defeats the "a tool error
+  // is never a quality signal" protection for every later sweep of the digest,
+  // which is the exact outcome the notCached guard exists to prevent.
+  //
+  // Absence is not normal for a healthy run: the harness writes
+  // conversation.jsonl unconditionally and uploads it on the timeout and kill
+  // paths too, so an artifact with no trace means the upload 500ed or
+  // `_collect_workspace_files` skipped it past its per-file or total cap.
+  // Treating that as unmeasurable costs nothing in the good case, and a
+  // re-read later is free because the run id is deterministic.
+  const traceFailure =
+    traceRead.error !== undefined
+      ? `trace read failed, so the run cannot be measured: ${traceRead.error}`
+      : traceRead.body === undefined
+        ? 'run published an artifact but no trace, so it cannot be measured'
+        : traceTooLarge(traceRead.body)
+          ? `trace exceeds ${MAX_TRACE_BYTES} bytes, so the run cannot be ` +
+            'measured'
+          : undefined
   const summary =
-    traceBody === undefined || oversizeTrace
-      ? emptyTrace()
-      : parseTrace(traceBody)
+    traceFailure === undefined && traceRead.body !== undefined
+      ? parseTrace(traceRead.body)
+      : emptyTrace()
 
   const value =
     outcome.kind === 'found' ? artifactValue(outcome.body) : undefined
@@ -933,24 +1157,29 @@ export const runBackgroundCase = async (
         artifactKey(input.agentId, runId)
       : value === undefined
         ? 'published artifact is not JSON'
-        : oversizeTrace
-          ? `trace exceeds ${MAX_TRACE_BYTES} bytes, so the run cannot be ` +
-            'measured'
-          : undefined
+        : traceFailure
 
-  const trace =
-    failure === undefined
-      ? summary.trace
-      : [
-          ...summary.trace,
-          {
-            index: summary.trace.length,
-            kind: 'error' as const,
-            error: failure,
-          },
-        ]
+  const cost = captureCostUsd(
+    summary.tokens,
+    input.variant.model,
+    summary.traceCostUsd,
+  )
+  // An unmeasured cost is a trace step rather than a `failure`, because it is
+  // not a reason to discard the run: the agent produced an artifact and the
+  // figure is only the bill. Folding it into `failure` would make the record
+  // infraError and drop a perfectly good comparison over a missing number.
+  const notes = [failure, cost.unmeasured].filter(
+    (note): note is string => note !== undefined,
+  )
+  const trace = [
+    ...summary.trace,
+    ...notes.map((error, offset) => ({
+      index: summary.trace.length + offset,
+      kind: 'error' as const,
+      error,
+    })),
+  ]
 
-  const env = input.env ?? process.env
   const ci = ciContext(env)
 
   return RunRecordSchema.parse({
@@ -987,11 +1216,7 @@ export const runBackgroundCase = async (
       latencyMs: differenceInMilliseconds(endedAt, startedAt),
       tokens: summary.tokens,
       cost: {
-        usdAtCapture: captureCostUsd(
-          summary.tokens,
-          input.variant.model,
-          summary.traceCostUsd,
-        ),
+        usdAtCapture: cost.usd,
         pricingVersion: PRICING_VERSION,
       },
       toolCalls: summary.toolCalls,
@@ -1024,7 +1249,17 @@ export const runBackgroundCase = async (
 // check and the Databricks read stay live, so the capture time is recorded and
 // the report stamps a comparison whose arms are far apart. The cure for a
 // verdict that looks like drift is re-capturing base: one run, not a sweep.
+// Its own version, not RunRecordSchema's. This is the third cross-checkout
+// contract in the feature to need a marker, and the reason is specific: this
+// envelope is written by one checkout and read by another weeks later, and
+// leaning on the record's `schemaVersion: z.literal(1)` alone means that the
+// day that literal moves, every sweep pays ~$13 per case forever while
+// reporting `cache: 'miss'`, which reads as a first capture rather than as a
+// cache nothing can use. Versioning the envelope makes the skew nameable.
+export const CACHED_BASE_ARM_SCHEMA_VERSION = 1
+
 export const CachedBaseArmSchema = z.object({
+  schemaVersion: z.literal(CACHED_BASE_ARM_SCHEMA_VERSION),
   capturedAt: z.string().datetime(),
   record: RunRecordSchema,
 })
@@ -1041,17 +1276,21 @@ export const baseArmCacheKey = (
   `${judgeFolder(agentId, configDigest)}base/` +
   `${requireSegment('caseId', caseId)}.json`
 
-// A cache entry that no longer satisfies the frozen contract is a miss, not an
-// error: the cost of re-capturing is one run, and the cost of handing a
-// half-valid record to the judge is a wrong verdict.
-const safeParseCacheEntry = (body: string): CachedBaseArm | undefined => {
-  try {
-    const result = CachedBaseArmSchema.safeParse(JSON.parse(body))
-    return result.success ? result.data : undefined
-  } catch {
-    return undefined
-  }
-}
+// Why a read missed. Treating a stale entry as a miss is right — the cost of
+// re-capturing is one run, and the cost of handing a half-valid record to the
+// judge is a wrong verdict — but discarding WHY is not. 'absent' is a first
+// capture and costs one run once; 'schemaSkew' costs one run per case per
+// sweep until someone changes the writer, and the two are indistinguishable
+// from `cache: 'miss'` alone.
+export type CacheMissReason =
+  | 'absent'
+  | 'unparseable'
+  | 'schemaSkew'
+  | 'keyMismatch'
+
+export type CacheRead =
+  | { kind: 'entry'; entry: CachedBaseArm }
+  | { kind: 'miss'; reason: CacheMissReason }
 
 // The key path asserts which agent, digest and case an entry is for; the record
 // inside it only claims to. Checking that the two agree is what makes "a cached
@@ -1085,22 +1324,24 @@ export const readCachedBaseArm = async (
   agentId: string,
   configDigest: string,
   caseId: string,
-): Promise<CachedBaseArm | undefined> => {
+): Promise<CacheRead> => {
   const body = await store.getText(
     bucket,
     baseArmCacheKey(agentId, configDigest, caseId),
   )
-  if (body === undefined) return undefined
-  const entry = safeParseCacheEntry(body)
-  if (!entry) return undefined
-  return cacheEntryMatches(entry, agentId, configDigest, caseId)
-    ? entry
-    : undefined
+  if (body === undefined) return { kind: 'miss', reason: 'absent' }
+  const read = safeJson(CachedBaseArmSchema, body)
+  if (!read.ok) return { kind: 'miss', reason: read.reason }
+  return cacheEntryMatches(read.value, agentId, configDigest, caseId)
+    ? { kind: 'entry', entry: read.value }
+    : { kind: 'miss', reason: 'keyMismatch' }
 }
 
 export interface BaseArmResult {
   record: RunRecord
   cache: 'hit' | 'miss' | 'notCached'
+  // Why the cache did not serve this record. Absent on a hit.
+  cacheMissReason?: CacheMissReason
   // When the returned record's run actually happened. On a hit this can predate
   // the candidate by weeks, which is the whole reason it is surfaced.
   capturedAt: string
@@ -1130,11 +1371,11 @@ export const runBackgroundBaseArm = async (
     digest,
     caseId,
   )
-  if (cached) {
+  if (cached.kind === 'entry') {
     return {
-      record: cached.record,
+      record: cached.entry.record,
       cache: 'hit',
-      capturedAt: cached.capturedAt,
+      capturedAt: cached.entry.capturedAt,
     }
   }
 
@@ -1143,16 +1384,48 @@ export const runBackgroundBaseArm = async (
   // run whose data read failed, would be reused by every later sweep — so a
   // dead credential would become a permanent baseline rather than one bad run.
   if (!isComparable(record)) {
-    return { record, cache: 'notCached', capturedAt: record.startedAt }
+    return {
+      record,
+      cache: 'notCached',
+      cacheMissReason: cached.reason,
+      capturedAt: record.startedAt,
+    }
   }
   const entry: CachedBaseArm = {
+    schemaVersion: CACHED_BASE_ARM_SCHEMA_VERSION,
     capturedAt: record.startedAt,
     record,
   }
-  await deps.store.putText(
-    cacheBucket,
-    baseArmCacheKey(input.agentId, digest, caseId),
-    JSON.stringify(entry),
-  )
-  return { record, cache: 'miss', capturedAt: entry.capturedAt }
+  // Failing to SAVE a measurement must not destroy it. The base arm has run to
+  // completion — twenty minutes and a few dollars — and the record is already
+  // in hand; an AccessDenied on `_judge/*` (a role with read but not write) or
+  // a 503 on the PutObject would otherwise throw out of here, so the caller
+  // loses the base record and the paired candidate arm has nothing to compare
+  // against. Reported as notCached, which makes the next sweep re-capture:
+  // that is the documented cost of a miss, rather than losing this sweep too.
+  try {
+    await deps.store.putText(
+      cacheBucket,
+      baseArmCacheKey(input.agentId, digest, caseId),
+      JSON.stringify(entry),
+    )
+  } catch (err) {
+    console.error(
+      `judge: caching the base arm for ${input.agentId}/${caseId} failed; ` +
+        'keeping the record and reporting it uncached',
+      err,
+    )
+    return {
+      record,
+      cache: 'notCached',
+      cacheMissReason: cached.reason,
+      capturedAt: entry.capturedAt,
+    }
+  }
+  return {
+    record,
+    cache: 'miss',
+    cacheMissReason: cached.reason,
+    capturedAt: entry.capturedAt,
+  }
 }
