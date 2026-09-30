@@ -70,6 +70,13 @@ export const bootstrapCi = (
 ): Interval | null => {
   const n = caseScores.length
   if (n === 0) return null
+  // A null rather than a throw, because this is a config value that exists
+  // to be edited and nothing catches a throw from here: the sweep would die
+  // instead of reporting a verdict without an interval, which every caller
+  // already handles. And the throw it would die of names the case series
+  // ("index -1 is outside a series of 0"), pointing a debugger at the
+  // corpus when the iteration count is what is wrong.
+  if (config.iterations <= 0) return null
   const resampleMeans: number[] = []
   for (let iteration = 0; iteration < config.iterations; iteration++) {
     let sum = 0

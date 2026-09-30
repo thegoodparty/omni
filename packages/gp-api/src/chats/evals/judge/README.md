@@ -239,6 +239,12 @@ prevent.
 **Never call a real agent.** No track in this build spends money; real runs
 come after the merge. `RUN_LLM_EVALS=1` is not for this code.
 
+That is enforced, not just asked for. A run with no `script` would be
+answered by the real, paid model, and a forgotten field type-checks cleanly —
+so the paid path takes two deliberate acts: `realModel: true` on the request
+**and** `JUDGE_SPEND=1` in the process. Omit either and the run throws before
+anything is patched.
+
 ## Cost is re-derived, never compared as stored
 
 A record carries raw token counts, the model and a `pricingVersion`, plus
@@ -269,6 +275,37 @@ overstates it by roughly ten times and would silently invalidate every
 stored comparison. Switching caching on therefore fails loudly and needs
 rates added to `pricing.ts`.
 
+A background record's counts come from the `type: result` line of the run's
+`conversation.jsonl`, under `usage`: `input_tokens`, `output_tokens`,
+`cache_read_input_tokens`, `cache_creation_input_tokens` (written by
+`_usage_counts` in `packages/gp-ai/pmf_engine/runner/harness/claude_sdk.py`).
+The harness prices its turns in-process, so before those were logged the only
+token-derived figure on the line was a dollar amount and `priceUsd()` over a
+background record re-derived 0 on both arms.
+
+**An unobserved count is absent, never zero.** The harness logs only the
+counts the SDK actually reported: a `ResultMessage` with no usage object
+produces a line with no `usage` key at all, and a single garbled field drops
+that one key rather than writing it as 0. A reported zero is an observation
+and does reach the line, which is what the cache-read guard above needs. So a
+`usage` missing a key is a record to reject, not a record to price — zero is
+legal to `priceUsd` and would turn a $4 run into $0.00 beside a verdict.
+
+Every result line carries `usage_schema: 1`. A sweep's two arms are two
+checkouts at two commits, so a base arm predating the counts writes a line
+with no `usage` key for a reason that has nothing to do with the run. The
+stamp is how a normalizer tells "this harness did not log counts" from "this
+run's counts were not observed".
+
+**Follow-up, not done here: `TokenUsageSchema` cannot express "unknown".** Its
+four fields are non-optional ints, so a normalizer reading a partial or absent
+`usage` has no way to record that the count is unknown — its only options are
+to reject the record or to invent a zero. Until that is resolved, a
+cross-commit sweep whose base arm predates the counts would report the
+candidate's entire spend as a cost regression against a $0 base. `record.ts`
+is the frozen cross-track contract with other branches in flight against it,
+so the change goes through review rather than a drive-by.
+
 An unknown model throws too. The cost delta is printed beside a verdict as
 evidence, and a guessed or zero rate makes that evidence fiction.
 
@@ -293,6 +330,14 @@ CAN'T SAY and leaves the delta.
 **A refusal is a result, not a failure.** `blocked` keeps its output and stays
 judgeable, because whether declining was correct is exactly what a verdict
 should capture. Only `infraError` has no output.
+
+**`record.toolQueries` is always empty for a background agent.** Not a bug, and
+not worth debugging when you see it. A background agent reaches the warehouse
+by curling the broker from Bash, so its SQL is buried inside a shell command
+string rather than in a structured `sql` tool argument, and only a structured
+one is collected — regexing SQL back out of a shell string would put something
+that is not the agent's verbatim query into a field whose entire value is being
+verbatim. The chat agents, which call a real SQL tool, do populate it.
 
 ## Verify
 

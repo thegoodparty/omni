@@ -3,7 +3,7 @@ import { differenceInMilliseconds, parseISO } from 'date-fns'
 import { useTestService } from '@/test-service'
 import { PRICING_VERSION } from '../pricing'
 import { isComparable, type RunRecord } from '../record'
-import type { ChatTurnScript } from './chatSeam'
+import { instrumentDatabricksProvider, type ChatTurnScript } from './chatSeam'
 import {
   TOOL_BUDGET_FALLBACK_REPLY,
   runChatCase,
@@ -160,7 +160,7 @@ describe('runChatCase', () => {
       })
 
       expect(record.status).toBe('produced')
-      expect(record.output?.value).toBeTruthy()
+      expect(record.output).toEqual({ kind: 'text', value: ANSWER })
       // Absent, not zero: a stored 0 under a real pricing version reads as
       // "this run was free".
       expect(record.telemetry.cost).toBeUndefined()
@@ -282,6 +282,17 @@ describe('runChatCase', () => {
       expect(record.status).toBe('infraError')
       expect(record.output).toBeNull()
       expect(record.variant.configDigest).toBe('unobserved')
+      // The turn never reached the model, so its token counts are defaults
+      // rather than observations. Pricing them would state $0 for a run
+      // whose cost is unknown, which is the "free" reading the schema's
+      // absent-rather-than-zero rule exists to prevent.
+      expect(record.telemetry.cost).toBeUndefined()
+      expect(record.telemetry.tokens).toEqual({
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      })
       expect(record.trace).toEqual([
         {
           index: 0,
@@ -323,6 +334,32 @@ describe('runChatCase', () => {
           /^sha256:[0-9a-f]{64}$/,
         )
       }
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'leaves no patch behind when the LLM seam refuses to install',
+    async () => {
+      // Both patches are process-global and there is no restore handle
+      // outside runChatCase, so a first install left standing would rewrite
+      // the SQL of every later request in the process — and, being recorded
+      // as installed, would fail every later arm with a concurrency error.
+      // The Databricks patch is on the class, so that outlives the sweep.
+      await expect(
+        runChatCase(
+          { service },
+          request({
+            agentId: 'chief_of_staff',
+            organizationSlug: 'judge-unused',
+            script: undefined,
+          }),
+        ),
+      ).rejects.toThrow('was given no script')
+
+      // Claimable again, which it would not be if the refusal had left the
+      // first install recorded.
+      instrumentDatabricksProvider().restore()
     },
     TURN_TIMEOUT_MS,
   )

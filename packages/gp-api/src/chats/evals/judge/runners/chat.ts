@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { differenceInMilliseconds } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import {
   CreateChatResponseSchema,
   type ChatAnchor,
@@ -11,7 +12,6 @@ import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStre
 import type { TestServiceContext } from '@/test-service'
 import { PRICING_VERSION, UnpriceableRunError, priceUsd } from '../pricing'
 import {
-  isoUtc,
   RunRecordSchema,
   type Arm,
   type CiContext,
@@ -21,6 +21,8 @@ import {
   type TokenUsage,
   type TraceStep,
 } from '../record'
+import { WIN_CONSTITUENT_TABLES } from '@/chats/general/campaign-manager/services/constituentDataScope'
+import { CONSTITUENT_TABLES } from '@/chats/general/chief-of-staff/services/constituentDataScope'
 import {
   buildTrace,
   configDigest,
@@ -30,6 +32,8 @@ import {
   readTurnTokens,
   traceErrorText,
   type ChatTurnScript,
+  type DeltaPin,
+  type InstalledLlmCapture,
   type StreamEvent,
 } from './chatSeam'
 import { chatScopeFor } from './seedChatOrg'
@@ -46,17 +50,23 @@ import { chatScopeFor } from './seedChatOrg'
 
 // The model's own words when its tool budget ran out without an answer — see
 // `toolBudgetExhaustedNote` in llm/services/llm.service.ts, which instructs
-// this string verbatim. Duplicated because it is not exported; if the note
-// changes, a run that hit it silently reads as `produced` instead of
-// `blocked`, so the string is exported here for a case list to pin.
+// this string verbatim. Duplicated rather than derived because the note is a
+// longer instruction and this reply is only a substring of it, which is why
+// chat.test.ts pins the two together with `toContain`. If the note is
+// reworded and this copy is not, a run that hit it silently reads as
+// `produced` instead of `blocked`.
 export const TOOL_BUDGET_FALLBACK_REPLY =
   "I wasn't able to find what I needed to answer that question. You can " +
   'try again, rephrase your question, or ask me about something else.'
+
+const UTC_ISO = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
 
 // Compared as numbers: an axios status is a plain number, and comparing it
 // against the enum member directly is what no-unsafe-enum-comparison rejects.
 const HTTP_CREATED: number = HttpStatus.CREATED
 const HTTP_OK: number = HttpStatus.OK
+
+const isoUtc = (date: Date): string => formatInTimeZone(date, 'UTC', UTC_ISO)
 
 export interface ChatJudgeCase {
   caseId: string
@@ -82,9 +92,11 @@ export interface ChatRunRequest {
   variant: { ref: string; commit: string; model: string }
   organizationSlug: string
   anchor?: ChatAnchor
-  // The canned model. Omit it only for a real, paid run — no track in this
-  // build does that.
+  // The canned model. Omitting it means the real, paid model answers, which
+  // no track in this build does: that needs `realModel` and JUDGE_SPEND=1,
+  // and omitting both throws rather than quietly dialling Anthropic.
   script?: ChatTurnScript
+  realModel?: boolean
   // The Delta table version BOTH arms must read. Pins every generated query
   // at the provider seam and is recorded on the run.
   dataVersion?: string
@@ -92,6 +104,27 @@ export interface ChatRunRequest {
   // fallback is always treated as one.
   fallbackReplies?: string[]
   ci?: CiContext
+}
+
+// The tables a pin may rewrite, per agent: the same app-layer allowlists the
+// scope handlers inject into the constituent tool, so a pin can only touch a
+// reference the validator would have accepted as a table. Everything else a
+// `FROM` introduces — EXTRACT(... FROM col) and its siblings — is left alone.
+const PINNABLE_TABLES: Record<string, string[]> = {
+  chief_of_staff: CONSTITUENT_TABLES.map((config) => config.table),
+  priority_flow: CONSTITUENT_TABLES.map((config) => config.table),
+  campaign_assistant: WIN_CONSTITUENT_TABLES.map((config) => config.table),
+}
+
+const pinnableTablesFor = (agentId: string): string[] => {
+  const tables = PINNABLE_TABLES[agentId]
+  if (!tables || tables.length === 0) {
+    throw new Error(
+      `"${agentId}" reads no version-pinnable table, so a dataVersion for ` +
+        'it could only ever be recorded and never applied',
+    )
+  }
+  return tables
 }
 
 // GitHub provenance, so a stored record leads back to the change it judged.
@@ -117,6 +150,14 @@ export const ciContextFromEnv = (
       (attempt > 1 ? `/attempts/${attempt}` : ''),
   }
 }
+
+// The tool-budget fallback plus whatever the case list declared. Blank
+// entries are dropped: `includes('')` is true of every string, so one empty
+// reply in a case list would mark every run in the sweep `blocked`.
+export const buildFallbackReplies = (declared?: string[]): string[] =>
+  [TOOL_BUDGET_FALLBACK_REPLY, ...(declared ?? [])]
+    .map((reply) => reply.trim())
+    .filter((reply) => reply.length > 0)
 
 export const classifyChatStatus = (
   output: string | null,
@@ -148,7 +189,7 @@ const errorStep = (trace: TraceStep[], error: string): TraceStep[] => [
   { index: trace.length, kind: 'error', error },
 ]
 
-interface PricedRun {
+export interface PricedRun {
   // Omitted when the model has no rates on record. pricing.ts throws rather
   // than guessing, because the cost delta is printed beside a verdict as
   // evidence and a guessed rate makes that evidence fiction.
@@ -238,6 +279,38 @@ const driveTurn = async (
   }
 }
 
+// Extracted against the WET default on purpose: this guard has been wrong
+// twice, in both directions, and it cannot be reached from a test without a
+// real turn while it lives inside runChatCase.
+//
+// An unpriceable reason earns a trace step only when the trace does not
+// already carry that reason. "No price on record for model X" is a fact
+// nothing else records, so it belongs in the trace. But two cases already
+// carry it: an infraError run's trace says why the turn ended, and a rejected
+// usage promise put its own specific message there. In both, "usage never
+// resolved" is the same failure restated, and appending it would stack a
+// generic error step behind a specific one.
+export const tracesUnpriceable = (
+  unpriceable: string | undefined,
+  status: RunRecord['status'],
+  usageErrorTraced: boolean,
+): boolean =>
+  unpriceable !== undefined && status !== 'infraError' && !usageErrorTraced
+
+// The reason to trace, or nothing. Returns the string itself rather than a
+// boolean the caller then has to re-derive the string behind: a `?? ''`
+// fallback there would put an empty error on a trace step, and the schema
+// requires a non-empty one — so RunRecordSchema.parse would throw away a
+// completed, judgeable run over the bookkeeping line beside it.
+export const unpriceableStep = (
+  priced: PricedRun,
+  status: RunRecord['status'],
+  usageErrorTraced: boolean,
+): string | undefined =>
+  tracesUnpriceable(priced.unpriceable, status, usageErrorTraced)
+    ? priced.unpriceable
+    : undefined
+
 export const runChatCase = async (
   ports: ChatRunnerPorts,
   request: ChatRunRequest,
@@ -249,27 +322,46 @@ export const runChatCase = async (
 
   const attempt = request.attempt ?? 1
   const runId = `${request.sweepId}:${request.case.caseId}:${request.arm}:${attempt}`
-  const fallbackReplies = [
-    TOOL_BUDGET_FALLBACK_REPLY,
-    ...(request.fallbackReplies ?? []),
-  ]
+  const fallbackReplies = buildFallbackReplies(request.fallbackReplies)
 
-  // Ordered so that nothing is patched until everything that can throw has
-  // already thrown: resolving the service and validating the pinned version
-  // both happen first, and installLlmCapture — the one global patch with no
-  // failure mode — goes last. A patch installed and then abandoned would
-  // answer every later request in the process from the canned script.
+  // Both patches are process-global for as long as they are installed, and
+  // BOTH installs can throw — installLlmCapture on a non-test process, on a
+  // second install against the same instance, or on a request that would
+  // spend real money. So the second one failing has to unwind the first by
+  // hand: there is no restore handle to hand back out of here, and a patch
+  // installed and then abandoned would rewrite the SQL of, and answer from a
+  // canned script, every later request in the process.
+  const pin: DeltaPin | undefined =
+    request.dataVersion === undefined
+      ? undefined
+      : {
+          version: request.dataVersion,
+          tables: pinnableTablesFor(request.agentId),
+        }
   const llmService = ports.service.app.get(LlmService)
   // Installed on DatabricksSqlProvider's prototype rather than on a provider
   // resolved by token: `CONSTITUENT_DATA_PROVIDER` is registered by two
   // modules with two factories, so a token lookup cannot say which instance
   // the handler for this scope holds.
-  const databricks = instrumentDatabricksProvider(request.dataVersion)
-  const llm = installLlmCapture(llmService, request.script)
+  const databricks = instrumentDatabricksProvider(pin)
+  let llm: InstalledLlmCapture
+  try {
+    llm = installLlmCapture(llmService, {
+      ...(request.script && { script: request.script }),
+      ...(request.realModel === true && { realModel: true }),
+    })
+  } catch (err) {
+    databricks.restore()
+    throw err
+  }
 
   const startedAt = new Date()
   let outcome: TurnOutcome
   let trace: TraceStep[]
+  // A rejected usage promise is already in the trace by its own message. The
+  // pricing guard below would otherwise restate the same failure generically,
+  // one step behind it.
+  let usageErrorTraced = false
   try {
     outcome = await driveTurn(ports, request)
     trace = buildTrace(outcome.events, llm.capture.outcomes)
@@ -280,6 +372,7 @@ export const runChatCase = async (
       // counts at zero and says so in the trace rather than discarding an
       // answer that is already persisted and judgeable.
       trace = errorStep(trace, traceErrorText(usageErr))
+      usageErrorTraced = true
     }
   } catch (err) {
     // A throw here is the harness or the route failing, never an agent
@@ -293,9 +386,12 @@ export const runChatCase = async (
   }
   const endedAt = new Date()
 
+  // Absent when the turn ended before usage resolved, which is not the same
+  // as a turn that used nothing.
+  const observed = llm.capture.tokens
   const tokens: TokenUsage = {
-    input: llm.capture.tokens?.input ?? 0,
-    output: llm.capture.tokens?.output ?? 0,
+    input: observed?.input ?? 0,
+    output: observed?.output ?? 0,
     // Zero because prompt caching is not enabled. Carried rather than
     // omitted so the day it is switched on, pricing fails loudly instead of
     // costing a cache read at the full input rate.
@@ -303,7 +399,22 @@ export const runChatCase = async (
     cacheWrite: 0,
   }
   const model = llm.capture.model || request.variant.model
-  const priced = priceRun(tokens, model)
+  // Price only what was measured. When usage never resolved those counts are
+  // defaults, not observations, and pricing them produces a confident $0 for
+  // a run whose cost is genuinely unknown — the "this run was free" reading
+  // the schema's absent-rather-than-zero rule exists to prevent. An
+  // infraError turn is the usual way to get here, but the rule is about
+  // whether the tokens were seen, not about the status: a turn that really
+  // did use nothing reports a true zero, and one that died before reporting
+  // reports nothing at all.
+  const priced =
+    observed === undefined
+      ? {
+          unpriceable:
+            'usage never resolved: the turn ended before the model ' +
+            'reported it, so its cost is unknown rather than zero',
+        }
+      : priceRun(tokens, model)
   const status = classifyChatStatus(
     outcome.output,
     outcome.streamErrored,
@@ -316,9 +427,9 @@ export const runChatCase = async (
         'and the record schema disagree',
     )
   }
-  const finalTrace = priced.unpriceable
-    ? errorStep(trace, priced.unpriceable)
-    : trace
+  const unpriceable = unpriceableStep(priced, status, usageErrorTraced)
+  const finalTrace =
+    unpriceable === undefined ? trace : errorStep(trace, unpriceable)
   const toolSteps = finalTrace.filter((step) => step.kind === 'tool')
 
   return RunRecordSchema.parse({

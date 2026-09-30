@@ -43,12 +43,21 @@ export interface DimensionScore {
   // does not yield a percentage improvement.
   delta: number | null
   interval: Interval | null
+  // Distinct cases with at least one scored pair.
   cases: number
+  // Raw judge calls. Never below the pair count, and above it by however
+  // many pairs the order-swap subsample judged in both orders.
   judgments: number
+  // Per reconciled pair, not per judgment, because the report prints these
+  // in the same table row as `cases`.
   wins: number
   losses: number
   ties: number
   cannotDetermine: number
+  // The same refusals counted per raw judgment. The ceiling gate is a
+  // statement about how often the judge declines, so it needs a numerator
+  // in the same unit as its `judgments` denominator.
+  cannotDetermineJudgments: number
   magnitudes: Readonly<Record<Magnitude, number>>
 }
 
@@ -84,6 +93,9 @@ export interface MeasuredEvidence {
 export interface ExclusionCounts {
   toolError: number
   infraError: number
+  // Pairs whose two arms hashed to the same config. Nothing failed; there
+  // was simply nothing to compare on that case.
+  identicalConfig: number
   unpaired: number
   // A judge failure. Reported apart from CAN'T SAY, which is a real
   // verdict about a real comparison.
@@ -121,6 +133,10 @@ export interface AgentScore {
   panelDisagreementRate: number | null
   flags: readonly OrientedFlag[]
   floorFailures: readonly FloorFailure[]
+  // The judge could not tell whether the floor was met. Reported separately
+  // from floorFailures rather than counted as one, and like a failure it never
+  // changes the label.
+  floorUnclear: readonly FloorFailure[]
   evidence: MeasuredEvidence
   ci: CiContext | null
 }
@@ -207,32 +223,41 @@ const scoreDimension = (
   seed: number,
 ): { score: DimensionScore; pairs: PairScore[] } => {
   const magnitudes = emptyMagnitudes()
-  let wins = 0
-  let losses = 0
-  let ties = 0
-  let cannotDetermine = 0
+  let judgmentCount = 0
+  let cannotDetermineJudgments = 0
 
   const primary = new Map<string, number | null>()
   const swapped = new Map<string, number | null>()
   const identities = new Map<string, { caseId: string; attempt: number }>()
+  // Held per pair rather than counted per judgment, for the same reason
+  // orientFlags, floorVerdicts and the W/T/L tally below dedupe: the
+  // order-swap subsample judges the same pair twice, so a per-judgment
+  // count inflates the distribution on exactly the 20% of pairs that got
+  // the second look — and the report prints that total two lines below the
+  // case count it is meant to describe.
+  const magnitudeOfPair = new Map<string, Magnitude>()
 
   for (const judgment of judgments) {
     const combined = judgment.dimensions[dimension]
     if (combined === undefined) continue
     const value = orient(combined.verdict, judgment.slotMap)
-    if (value === null) cannotDetermine += 1
-    else if (value > 0) wins += 1
-    else if (value < 0) losses += 1
-    else ties += 1
-    if (combined.magnitude !== null) magnitudes[combined.magnitude] += 1
+    judgmentCount += 1
+    if (value === null) cannotDetermineJudgments += 1
 
     const key = pairKey(judgment.key.caseId, judgment.key.attempt)
+    if (combined.magnitude !== null && !magnitudeOfPair.has(key)) {
+      magnitudeOfPair.set(key, combined.magnitude)
+    }
     identities.set(key, {
       caseId: judgment.key.caseId,
       attempt: judgment.key.attempt,
     })
     if (judgment.key.order === 'swapped') swapped.set(key, value)
     else primary.set(key, value)
+  }
+
+  for (const magnitude of magnitudeOfPair.values()) {
+    magnitudes[magnitude] += 1
   }
 
   const pairs: PairScore[] = []
@@ -243,6 +268,21 @@ const scoreDimension = (
       hasSwap ? (swapped.get(key) ?? null) : undefined,
     )
     pairs.push({ ...identity, ...resolved })
+  }
+
+  // Off the reconciled pairs, because the report prints this beside the
+  // case count. A per-judgment tally reads ~20% high against that count,
+  // and it also reports a pair whose two orders split as both a win and a
+  // tie instead of the one half-win the delta was actually scored from.
+  let wins = 0
+  let losses = 0
+  let ties = 0
+  let cannotDetermine = 0
+  for (const pair of pairs) {
+    if (pair.score === null) cannotDetermine += 1
+    else if (pair.score > 0) wins += 1
+    else if (pair.score < 0) losses += 1
+    else ties += 1
   }
 
   // Each case carries equal weight regardless of how many attempts produced
@@ -263,11 +303,12 @@ const scoreDimension = (
         streamFor(seed, dimension),
       ),
       cases: caseScores.length,
-      judgments: wins + losses + ties + cannotDetermine,
+      judgments: judgmentCount,
       wins,
       losses,
       ties,
       cannotDetermine,
+      cannotDetermineJudgments,
       magnitudes,
     },
     pairs,
@@ -302,22 +343,35 @@ const measure = (
     latencyMs: armMean((r) => r.telemetry.latencyMs),
     toolErrors: armMean((r) => r.telemetry.toolErrors),
     pairs: usable.length,
-    // Only over pairs where BOTH arms were priced. `cost` is optional on a
-    // record, and a pair with one unpriced arm is not a table mismatch — it
-    // is a run nobody could price, which `unpriceableReason` already says.
-    // Reading an absent cost as a mismatch would put a stale-base warning on
-    // a report whose arms share one price list.
-    pricingMismatch: pairs.some((p) => {
-      const base = p.base.telemetry.cost
-      const candidate = p.candidate.telemetry.cost
+    // Over `usable`, like every other figure here. A pair whose arm died in
+    // infra was never measured, so letting it set this flag would report a
+    // mismatch about a comparison that was not made.
+    //
+    // The optional reads are deliberate and currently inert: `record.ts`
+    // declares `cost` required on this branch, so neither can short-circuit
+    // today. They are here for the optional `cost` that arrives with the
+    // chat runner, so that merge lands on an already-guarded read rather
+    // than on a break that shows up only once both changes are in. An
+    // absent cost is also not a pricing MISMATCH — there is no second
+    // version for it to disagree with — and it already surfaces as
+    // `unpriceableReason`.
+    pricingMismatch: usable.some((p) => {
+      const base = p.base.telemetry.cost?.pricingVersion
+      const candidate = p.candidate.telemetry.cost?.pricingVersion
       return (
         base !== undefined &&
         candidate !== undefined &&
-        !sharesPricing(base.pricingVersion, candidate.pricingVersion)
+        !sharesPricing(base, candidate)
       )
     }),
-    liveWebCases: pairs.filter((p) => p.base.liveWeb || p.candidate.liveWeb)
-      .length,
+    // Cases, not attempt-pairs: with three attempts per case a pair count
+    // would report three times the number of cases the rest of the score is
+    // computed over.
+    liveWebCases: new Set(
+      pairs
+        .filter((p) => p.base.liveWeb || p.candidate.liveWeb)
+        .map((p) => p.base.caseId),
+    ).size,
   }
 }
 
@@ -342,8 +396,12 @@ const gates = (
         'branch',
     }
   }
+  // Both ends in judgments. `cannotDetermine` is per pair, so using it
+  // here would divide pairs by judgments and read the ceiling ~20% low.
   const cdRate =
-    overall.judgments === 0 ? 0 : overall.cannotDetermine / overall.judgments
+    overall.judgments === 0
+      ? 0
+      : overall.cannotDetermineJudgments / overall.judgments
   if (cdRate > g.cannotDetermineCeiling) {
     return {
       failed: true,
@@ -449,19 +507,46 @@ const orientFlags = (judgments: readonly GradedJudgment[]): OrientedFlag[] => {
   return [...seen.values()]
 }
 
-const floorFailures = (judgments: readonly GradedJudgment[]): FloorFailure[] =>
-  judgments.flatMap((j) => {
+// Deduped by arm and case for the same reason orientFlags is: the
+// order-swap subsample judges the same pair twice, so a floor kept per
+// judgment reports one broken run as two on exactly the pairs that got the
+// second look.
+// `unclear` is reported, but NOT as a failure. `combineFloor` produces it when
+// no seat said `no` and at least one was uncertain, so folding it into the
+// failure count would put "a reasonable user would not accept this" and "the
+// judge could not tell" behind one number — the blend this whole layer refuses
+// everywhere else. Dropping it was worse: an uncertain floor reached here and
+// contributed nothing, so the report never fired on it at all.
+//
+// `no` wins over `unclear` for the same arm and case, because one seat naming
+// a run unacceptable is not softened by another being unsure.
+const floorVerdicts = (
+  judgments: readonly GradedJudgment[],
+): { failed: FloorFailure[]; unclear: FloorFailure[] } => {
+  const worst = new Map<string, { entry: FloorFailure; failed: boolean }>()
+  const add = (arm: Arm, caseId: string, failed: boolean): void => {
+    const key = `${arm}\u0000${caseId}`
+    const held = worst.get(key)
+    if (held === undefined) worst.set(key, { entry: { arm, caseId }, failed })
+    else if (failed) held.failed = true
+  }
+  for (const j of judgments) {
     const floor = j.absoluteFloor
-    if (floor === null) return []
-    const failures: FloorFailure[] = []
-    if (floor.X_acceptable === 'no') {
-      failures.push({ arm: j.slotMap.X, caseId: j.key.caseId })
+    if (floor === null) continue
+    for (const [slot, acceptable] of [
+      [j.slotMap.X, floor.X_acceptable],
+      [j.slotMap.Y, floor.Y_acceptable],
+    ] as const) {
+      if (acceptable === 'no') add(slot, j.key.caseId, true)
+      else if (acceptable === 'unclear') add(slot, j.key.caseId, false)
     }
-    if (floor.Y_acceptable === 'no') {
-      failures.push({ arm: j.slotMap.Y, caseId: j.key.caseId })
-    }
-    return failures
-  })
+  }
+  const held = [...worst.values()]
+  return {
+    failed: held.filter((h) => h.failed).map((h) => h.entry),
+    unclear: held.filter((h) => !h.failed).map((h) => h.entry),
+  }
+}
 
 export interface ScoreInput {
   normalized: NormalizedAgent
@@ -515,6 +600,8 @@ export const scoreAgent = (
   )
   const labelled = label(overall, gate, config)
 
+  const floor = floorVerdicts(gradedJudgments)
+
   const allPairs = [
     ...normalized.judgeable.map((c) => c.records),
     ...normalized.excluded.map((c) => c.records),
@@ -536,6 +623,9 @@ export const scoreAgent = (
         .length,
       infraError: normalized.excluded.filter((e) => e.reason === 'infraError')
         .length,
+      identicalConfig: normalized.excluded.filter(
+        (e) => e.reason === 'identicalConfig',
+      ).length,
       unpaired: normalized.unpaired.length,
       ungraded: judgments.filter((j) => j.kind === 'ungraded').length,
     },
@@ -545,7 +635,8 @@ export const scoreAgent = (
       .map((p) => pairKey(p.caseId, p.attempt)),
     panelDisagreementRate,
     flags: orientFlags(gradedJudgments),
-    floorFailures: floorFailures(gradedJudgments),
+    floorFailures: floor.failed,
+    floorUnclear: floor.unclear,
     evidence: measure(allPairs),
     ci: candidateWithCi?.candidate.ci ?? null,
   }

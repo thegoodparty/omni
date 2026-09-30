@@ -38,6 +38,27 @@ class TestPriceTurn:
         assert claude_sdk._price_turn("claude-sonnet-5", {}) == 0.0
         assert claude_sdk._price_turn("claude-sonnet-5", None) == 0.0
 
+    def test_reads_the_key_names_through_the_shared_mapping(self, monkeypatch):
+        """`_price_turn` bills a timed-out run and `_usage_counts` logs what the
+        judge re-derives from. Two copies of the CLI's key names would let a
+        rename silently read 0 on one side, leaving the billed figure and the
+        re-derived one disagreeing with nothing to detect it. Renaming the
+        shared mapping has to move both.
+        """
+        monkeypatch.setattr(claude_sdk, "_USAGE_TOKEN_KEYS", {"prompt_tokens": "input"})
+        assert claude_sdk._price_turn("claude-sonnet-5", {"prompt_tokens": 1_000_000}) == 3.0
+        assert claude_sdk._price_turn("claude-sonnet-5", {"input_tokens": 1_000_000}) == 0.0
+
+    def test_a_garbled_count_is_not_billed_as_zero_tokens_worth_of_others(self):
+        """Pricing inherits `_usage_counts`' coercion, so a field the CLI
+        garbles drops out of the arithmetic instead of contributing a fabricated
+        count. The other classes still bill."""
+        priced = claude_sdk._price_turn(
+            "claude-sonnet-5",
+            {"input_tokens": "not a number", "output_tokens": 1_000_000},
+        )
+        assert priced == 15.0
+
     def test_cache_read_is_cheap_relative_to_fresh_input(self):
         # The core reason we sum per-turn dollars instead of summing input
         # tokens: a turn dominated by cache-reads costs ~10x less than the same

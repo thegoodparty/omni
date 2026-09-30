@@ -5,9 +5,12 @@ import { toolBudgetExhaustedNote } from '@/llm/services/llm.service'
 import { CiContextSchema } from '../record'
 import {
   TOOL_BUDGET_FALLBACK_REPLY,
+  buildFallbackReplies,
   ciContextFromEnv,
   classifyChatStatus,
   priceRun,
+  tracesUnpriceable,
+  unpriceableStep,
 } from './chat'
 
 const env = (vars: Record<string, string>): NodeJS.ProcessEnv => vars
@@ -47,6 +50,29 @@ describe('TOOL_BUDGET_FALLBACK_REPLY', () => {
     expect(String(toolBudgetExhaustedNote.content)).toContain(
       TOOL_BUDGET_FALLBACK_REPLY,
     )
+  })
+})
+
+describe('buildFallbackReplies', () => {
+  it('always treats the tool-budget fallback as one', () => {
+    expect(buildFallbackReplies()).toEqual([TOOL_BUDGET_FALLBACK_REPLY])
+  })
+
+  it('keeps what the case list declared', () => {
+    const declined = 'I cannot break constituents down by political party.'
+    expect(buildFallbackReplies([declined])).toContain(declined)
+  })
+
+  // `includes('')` is true of every string, so one blank entry in a case list
+  // would mark every run in the sweep blocked.
+  it('does not let a blank case entry mark every run blocked', () => {
+    expect(
+      classifyChatStatus(
+        'Three priorities.',
+        false,
+        buildFallbackReplies(['', '   ']),
+      ),
+    ).toBe('produced')
   })
 })
 
@@ -164,5 +190,54 @@ describe('ciContextFromEnv', () => {
     expect(ci?.workflowRunUrl).toBe(
       'https://github.com/thegoodparty/omni/actions/runs/7/attempts/3',
     )
+  })
+})
+
+// This guard has shipped wrong in both directions: once storing a confident $0
+// for a run whose cost was unknown, and once stacking a generic "usage never
+// resolved" step behind the specific rejection message that had already been
+// traced.
+describe('the unpriceable trace step', () => {
+  it('records an unpriceable model on a run that otherwise succeeded', () => {
+    expect(tracesUnpriceable('no rate for X', 'produced', false)).toBe(true)
+  })
+
+  it('records it on a blocked run too, which is an agent result', () => {
+    expect(tracesUnpriceable('no rate for X', 'blocked', false)).toBe(true)
+  })
+
+  it('stays silent when there is nothing unpriceable to say', () => {
+    expect(tracesUnpriceable(undefined, 'produced', false)).toBe(false)
+  })
+
+  // The trace already says why the turn ended.
+  it('does not restate an infraError the trace already carries', () => {
+    expect(tracesUnpriceable('usage never resolved', 'infraError', false)).toBe(
+      false,
+    )
+  })
+
+  // The inner catch already put the rejection's own message in the trace, and
+  // that message names the actual failure where this one only says usage did
+  // not resolve.
+  it('does not stack behind a usage error already traced', () => {
+    expect(tracesUnpriceable('usage never resolved', 'produced', true)).toBe(
+      false,
+    )
+  })
+
+  // The step carries the reason itself, never a stand-in for it: the trace
+  // step schema requires a non-empty string, so an empty one would make
+  // RunRecordSchema.parse throw away a completed, judgeable run.
+  it('carries the reason the run could not be priced', () => {
+    expect(
+      unpriceableStep({ unpriceable: 'no rate for X' }, 'produced', false),
+    ).toBe('no rate for X')
+  })
+
+  it('carries nothing when there is nothing unpriceable to say', () => {
+    expect(
+      unpriceableStep({ cost: undefined }, 'produced', false),
+    ).toBeUndefined()
   })
 })

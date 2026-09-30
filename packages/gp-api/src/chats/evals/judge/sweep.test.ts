@@ -242,8 +242,18 @@ describe('the canned judge', () => {
     expect(score?.exclusions.ungraded).toBe(0)
     // And every judgment came back cannot-determine, so no pair yielded a
     // usable score and the corpus has zero cases to average.
+    //
+    // Against `cannotDetermineJudgments`, not `cannotDetermine`: the two are
+    // deliberately different units. The refusal is counted per reconciled
+    // pair for the column the report prints beside the case count, and per raw
+    // judgment for the ceiling gate's rate — and the order-swap subsample
+    // judges one pair twice, so only the per-judgment counter can equal a
+    // per-judgment total.
     expect(score?.overall.judgments).toBeGreaterThanOrEqual(3)
-    expect(score?.overall.cannotDetermine).toBe(score?.overall.judgments)
+    expect(score?.overall.cannotDetermineJudgments).toBe(
+      score?.overall.judgments,
+    )
+    expect(score?.overall.cannotDetermine).toBe(3)
     expect(score?.overall.cases).toBe(0)
     expect(score?.overall.wins).toBe(0)
     expect(score?.overall.losses).toBe(0)
@@ -266,20 +276,31 @@ describe('judgeSweep', () => {
     // compared at all.
     expect(score?.overall.cases).toBe(3)
     expect(score?.exclusions.ungraded).toBe(0)
-    // Every judgment got a direction, and none a tie or a cannot-determine.
+    // Every pair got a verdict, and none a cannot-determine.
     //
-    // Counted against `judgments` rather than against `cases`, because the
-    // order-swap subsample judges some pairs twice — and NOT as `wins === n`,
-    // because the fake always names slot X and slots are assigned at random
-    // per case, so X is the candidate in some and the base in others. That is
-    // the blinding working; an assertion on `wins` alone would be an
-    // assertion about the seed.
+    // Counted PER PAIR against the case count, not against `judgments`. One
+    // attempt per case makes those the same number, and the order-swap
+    // subsample is the difference between the two: every swapped pair is
+    // judged twice, so `judgments - cases` is how many pairs got the second
+    // look.
+    //
+    // Each of those reconciles to a TIE rather than to a direction, and that
+    // is the fake judge rather than a bug. It always names slot X, so a pair
+    // it reads in both orders has X winning both times — which is the
+    // definition of order-unstable, and an order-unstable pair contributes
+    // zero to the delta and has to print as one tie instead of as a win and a
+    // loss. The unswapped pairs split between wins and losses by whichever
+    // slot the blinding gave the candidate, which is why the direction is
+    // asserted as a sum: an assertion on `wins` alone would be an assertion
+    // about the seed.
     const overall = score?.overall
     expect(overall?.judgments).toBeGreaterThanOrEqual(3)
+    const swapped = (overall?.judgments ?? 0) - (overall?.cases ?? 0)
+    expect(swapped).toBeGreaterThan(0)
     expect((overall?.wins ?? 0) + (overall?.losses ?? 0)).toBe(
-      overall?.judgments,
+      (overall?.cases ?? 0) - swapped,
     )
-    expect(overall?.ties).toBe(0)
+    expect(overall?.ties).toBe(swapped)
     expect(overall?.cannotDetermine).toBe(0)
     expect(result.exitCode).toBe(0)
   })

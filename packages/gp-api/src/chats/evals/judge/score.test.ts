@@ -16,12 +16,12 @@ import {
 } from './judge'
 import {
   normalizeAgent,
+  SLOTS,
   type NormalizedAgent,
-  type Slot,
   type SlotMap,
 } from './normalize'
 import { orient, scoreAgent, type AgentScore } from './score'
-import type { Cost, RunRecord } from './record'
+import type { RunRecord } from './record'
 
 const [BASE, CANDIDATE] = CHAT_PAIR
 
@@ -65,6 +65,7 @@ const judgment = (spec: JudgmentSpec): GradedJudgment => ({
   slotMap: spec.slotMap,
   dimensions: dims(spec.verdict, spec.magnitude ?? 'clear'),
   seats: [],
+  seatFailures: [],
   flags: spec.flags ?? [],
   absoluteFloor: spec.floor ?? null,
 })
@@ -281,6 +282,114 @@ describe('the order-swap subsample', () => {
   })
 })
 
+describe('the magnitude distribution', () => {
+  // The order-swap subsample judges the same pair twice, so a magnitude
+  // counted per judgment reports one pair's strength as two — printed two
+  // lines below a case count that says one.
+  it('counts a magnitude once per pair, not once per order', () => {
+    const result = score(
+      [
+        judgment({
+          caseId: 'a',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'X',
+          magnitude: 'clear',
+        }),
+        judgment({
+          caseId: 'a',
+          order: 'swapped',
+          slotMap: X_IS_BASE,
+          verdict: 'Y',
+          magnitude: 'clear',
+        }),
+      ],
+      noFloor(),
+    )
+    expect(result.overall.cases).toBe(1)
+    expect(result.overall.magnitudes).toEqual({
+      slight: 0,
+      clear: 1,
+      strong: 0,
+    })
+  })
+})
+
+describe('the win/tie/loss counts', () => {
+  const bothOrders = (
+    caseId: string,
+    primary: SlotVerdict,
+    swapped: SlotVerdict,
+  ): GradedJudgment[] => [
+    judgment({ caseId, slotMap: X_IS_CANDIDATE, verdict: primary }),
+    judgment({
+      caseId,
+      order: 'swapped',
+      slotMap: X_IS_BASE,
+      verdict: swapped,
+    }),
+  ]
+
+  // Same failure the magnitude distribution had: the order-swap subsample
+  // judges one pair twice, so a per-judgment tally reads high against the
+  // case count the report prints in the very same table row.
+  it('counts one win per pair, not once per order', () => {
+    const result = score(bothOrders('a', 'X', 'Y'), noFloor())
+    expect(result.overall.cases).toBe(1)
+    expect(result.overall.wins).toBe(1)
+    expect(result.overall.ties).toBe(0)
+    expect(result.overall.losses).toBe(0)
+    expect(result.overall.judgments).toBe(2)
+  })
+
+  it('counts one loss per pair, not once per order', () => {
+    const result = score(bothOrders('a', 'Y', 'X'), noFloor())
+    expect(result.overall.losses).toBe(1)
+    expect(result.overall.wins).toBe(0)
+  })
+
+  // The delta scored this pair as a single half-win. Tallying the raw
+  // judgments would print it as a win AND a tie, so the row would claim
+  // two outcomes for one comparison.
+  it('reports a reconciled half-win as one win, not a win and a tie', () => {
+    const result = score(bothOrders('a', 'X', 'tie'), noFloor())
+    expect(result.overall.delta).toBe(0.5)
+    expect(result.overall.wins).toBe(1)
+    expect(result.overall.ties).toBe(0)
+  })
+
+  // An order-unstable pair contributes a zero to the delta, so the row has
+  // to show it as a tie rather than as one win and one loss.
+  it('reports an order-unstable pair as one tie', () => {
+    const result = score(bothOrders('a', 'X', 'X'), noFloor())
+    expect(result.orderUnstablePairs).toEqual(['a#1'])
+    expect(result.overall.ties).toBe(1)
+    expect(result.overall.wins).toBe(0)
+    expect(result.overall.losses).toBe(0)
+  })
+
+  // Every pair lands in exactly one bucket, so the four columns sum to the
+  // pair count and a reader can recover the denominator from the row.
+  it('puts every pair in exactly one bucket', () => {
+    const result = score(
+      [
+        ...bothOrders('a', 'X', 'Y'),
+        ...bothOrders('b', 'X', 'tie'),
+        ...bothOrders('c', 'X', 'X'),
+        judgment({ caseId: 'd', slotMap: X_IS_CANDIDATE, verdict: 'Y' }),
+        judgment({
+          caseId: 'e',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'cannot_determine',
+        }),
+      ],
+      noFloor(),
+    )
+    const { wins, ties, losses, cannotDetermine, judgments } = result.overall
+    expect(wins + ties + losses + cannotDetermine).toBe(5)
+    expect(judgments).toBe(8)
+  })
+})
+
 describe("cannot_determine and CAN'T SAY", () => {
   it('leaves cannot_determine out of the delta but counts it', () => {
     const result = score(
@@ -297,6 +406,59 @@ describe("cannot_determine and CAN'T SAY", () => {
     expect(result.overall.delta).toBe(1)
     expect(result.overall.cases).toBe(1)
     expect(result.overall.cannotDetermine).toBe(1)
+  })
+
+  // The column beside the case count is per pair. The rate the ceiling
+  // gate reads is per judgment, because "how often does the judge decline"
+  // is a fact about judge calls.
+  it('counts one refusal per pair and keeps a per-judgment rate', () => {
+    const result = score(
+      [
+        judgment({
+          caseId: 'a',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'cannot_determine',
+        }),
+        judgment({
+          caseId: 'a',
+          order: 'swapped',
+          slotMap: X_IS_BASE,
+          verdict: 'cannot_determine',
+        }),
+      ],
+      noFloor(),
+    )
+    expect(result.overall.cannotDetermine).toBe(1)
+    expect(result.overall.cannotDetermineJudgments).toBe(2)
+    expect(result.overall.judgments).toBe(2)
+  })
+
+  // Guards the unit of the gate's ratio, not just its numerator. Four of
+  // twenty pairs were declined in both orders: 8 of 24 judgments is over
+  // the 25% ceiling, while 4 pairs against 24 judgments is not.
+  it('reads the ceiling in judgments, not pairs over judgments', () => {
+    const declined = Array.from({ length: 4 }, (_, i) => [
+      judgment({
+        caseId: `no-${i}`,
+        slotMap: X_IS_CANDIDATE,
+        verdict: 'cannot_determine',
+      }),
+      judgment({
+        caseId: `no-${i}`,
+        order: 'swapped',
+        slotMap: X_IS_BASE,
+        verdict: 'cannot_determine',
+      }),
+    ]).flat()
+    const decided = Array.from({ length: 16 }, (_, i) =>
+      judgment({ caseId: `yes-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'X' }),
+    )
+    const result = score([...declined, ...decided], noFloor())
+    expect(result.overall.cannotDetermine).toBe(4)
+    expect(result.overall.cannotDetermineJudgments).toBe(8)
+    expect(result.overall.judgments).toBe(24)
+    expect(result.label).toBe("CAN'T SAY")
+    expect(result.labelNote).toMatch(/could not tell on 33%/)
   })
 
   it('gates when the judge could not tell too often', () => {
@@ -516,6 +678,52 @@ describe('flags and the absolute floor', () => {
     expect(result.flags.map((f) => f.arm).sort()).toEqual(['base', 'candidate'])
   })
 
+  // `combineFloor` produces `unclear` when no seat said `no` and at least one
+  // was uncertain. It used to reach scoring and contribute nothing, so the
+  // report never fired on it; folding it into the failure count instead would
+  // blend "would not accept this" with "could not tell".
+  it('reports an unclear floor, and not as a failure', () => {
+    const result = score(
+      [
+        judgment({
+          caseId: 'a',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'tie',
+          floor: { X_acceptable: 'unclear', Y_acceptable: 'yes' },
+        }),
+      ],
+      noFloor(),
+    )
+    expect(result.floorFailures).toEqual([])
+    expect(result.floorUnclear).toEqual([{ arm: 'candidate', caseId: 'a' }])
+  })
+
+  // One seat calling a run unacceptable is not softened by another being
+  // unsure about the same run, so the same arm and case must not appear in
+  // both lists.
+  it('lets a floor failure win over an unclear one on the same run', () => {
+    const result = score(
+      [
+        judgment({
+          caseId: 'a',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'tie',
+          floor: { X_acceptable: 'unclear', Y_acceptable: 'yes' },
+        }),
+        judgment({
+          caseId: 'a',
+          order: 'swapped',
+          slotMap: X_IS_BASE,
+          verdict: 'tie',
+          floor: { X_acceptable: 'yes', Y_acceptable: 'no' },
+        }),
+      ],
+      noFloor(),
+    )
+    expect(result.floorFailures).toEqual([{ arm: 'candidate', caseId: 'a' }])
+    expect(result.floorUnclear).toEqual([])
+  })
+
   it('orients a floor failure the same way', () => {
     const result = score(
       [
@@ -530,20 +738,33 @@ describe('flags and the absolute floor', () => {
     )
     expect(result.floorFailures).toEqual([{ arm: 'candidate', caseId: 'a' }])
   })
+
+  // The order-swap subsample judges the same pair in both orders, so a
+  // floor kept per judgment reports one broken run as two.
+  it('counts one floor failure per arm and case, not per judgment', () => {
+    const result = score(
+      [
+        judgment({
+          caseId: 'a',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'tie',
+          floor: { X_acceptable: 'no', Y_acceptable: 'yes' },
+        }),
+        judgment({
+          caseId: 'a',
+          order: 'swapped',
+          slotMap: X_IS_BASE,
+          verdict: 'tie',
+          floor: { X_acceptable: 'yes', Y_acceptable: 'no' },
+        }),
+      ],
+      noFloor(),
+    )
+    expect(result.floorFailures).toEqual([{ arm: 'candidate', caseId: 'a' }])
+  })
 })
 
 describe('the measured layer', () => {
-  // `cost` is optional on a record, for the run nobody could price. These
-  // helpers adjust a fixture's existing cost rather than testing that case,
-  // so an absent one is a broken fixture and says so.
-  const costOf = (record: RunRecord): Cost => {
-    const cost = record.telemetry.cost
-    if (cost === undefined) {
-      throw new Error(`${record.runId} has no cost to adjust`)
-    }
-    return cost
-  }
-
   const withTokens = (
     record: RunRecord,
     input: number,
@@ -553,7 +774,10 @@ describe('the measured layer', () => {
     telemetry: {
       ...record.telemetry,
       tokens: { input, output: 0, cacheRead: 0, cacheWrite: 0 },
-      cost: { ...costOf(record), usdAtCapture: storedUsd },
+      cost: {
+        usdAtCapture: storedUsd,
+        pricingVersion: record.telemetry.cost?.pricingVersion ?? '2026-09',
+      },
     },
   })
 
@@ -577,13 +801,51 @@ describe('the measured layer', () => {
       ...record,
       telemetry: {
         ...record.telemetry,
-        cost: { ...costOf(record), pricingVersion: '2025-01' },
+        // Spreading a now-optional cost widens usdAtCapture, which CostSchema
+        // still requires. The fixture always carries one, so this only
+        // satisfies the type.
+        ...(record.telemetry.cost === undefined
+          ? {}
+          : {
+              cost: {
+                ...record.telemetry.cost,
+                pricingVersion: '2025-01',
+              },
+            }),
       },
     })
     const matched = normalizeAgent([BASE, CANDIDATE], () => 0)
     const mixed = normalizeAgent([stale(BASE), CANDIDATE], () => 0)
     expect(score([], noFloor(), matched).evidence.pricingMismatch).toBe(false)
     expect(score([], noFloor(), mixed).evidence.pricingMismatch).toBe(true)
+  })
+
+  // Every other figure in the measured layer runs over the pairs that
+  // produced a result on both arms, and this one has to as well: a pair
+  // whose arm died in infra was never measured, so flagging its price
+  // tables would report a mismatch about a comparison nobody made.
+  it('ignores a pair that was never measured', () => {
+    const stale = (record: RunRecord): RunRecord => ({
+      ...record,
+      telemetry: {
+        ...record.telemetry,
+        // Spreading a now-optional cost widens usdAtCapture, which CostSchema
+        // still requires. The fixture always carries one, so this only
+        // satisfies the type.
+        ...(record.telemetry.cost === undefined
+          ? {}
+          : {
+              cost: {
+                ...record.telemetry.cost,
+                pricingVersion: '2025-01',
+              },
+            }),
+      },
+    })
+    const [base, candidate] = INFRA_ERROR_PAIR
+    const agent = normalizeAgent([stale(base), candidate], () => 0)
+    expect(score([], noFloor(), agent).evidence.pairs).toBe(0)
+    expect(score([], noFloor(), agent).evidence.pricingMismatch).toBe(false)
   })
 
   // A model with no rates on record must not be costed at zero, and must
@@ -616,6 +878,26 @@ describe('the measured layer', () => {
       score([], noFloor(), toolError).evidence.toolErrors.delta,
     ).toBeCloseTo(1, 10)
   })
+
+  // The report prints this as "N case(s) used native web search", so an
+  // attempt-pair count reads as three times the number of cases the rest
+  // of the score was computed over.
+  it('counts cases that saw the live web, not attempt-pairs', () => {
+    const live = (record: RunRecord, attempt: number): RunRecord => ({
+      ...record,
+      attempt,
+      runId: `${record.runId}-${attempt}`,
+      liveWeb: true,
+    })
+    const agent = normalizeAgent(
+      [1, 2, 3].flatMap((attempt) => [
+        live(BASE, attempt),
+        live(CANDIDATE, attempt),
+      ]),
+      () => 0,
+    )
+    expect(score([], noFloor(), agent).evidence.liveWebCases).toBe(1)
+  })
 })
 
 describe('exclusion counts', () => {
@@ -632,6 +914,7 @@ describe('exclusion counts', () => {
     expect(result.exclusions).toEqual({
       toolError: 1,
       infraError: 1,
+      identicalConfig: 0,
       unpaired: 1,
       ungraded: 0,
     })
@@ -660,8 +943,11 @@ describe('provenance', () => {
 })
 
 describe('slot vocabulary', () => {
-  it('has exactly two slots', () => {
-    const slots: readonly Slot[] = ['X', 'Y']
-    expect(slots).toHaveLength(2)
+  // `blindCase` destructures the blinded runs into exactly two, and
+  // `orient` maps a slot straight through the slot map, so a third slot
+  // would break both silently. Pinned against the real SLOTS rather than a
+  // local copy of it, which would assert nothing.
+  it('is exactly X and Y', () => {
+    expect(SLOTS).toEqual(['X', 'Y'])
   })
 })

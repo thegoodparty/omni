@@ -97,17 +97,35 @@ jobs:
     name: Parse the request
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Narrower than the workflow: this job writes no comment and reads no PR
-    # body. `contents: read` rather than `permissions: {}` because the first
-    # step does have one question to ask: the collaborator-permission lookup is
-    # listed under Metadata (read) in the REST docs, metadata comes along with
-    # any grant, and `permissions: {}` is documented as turning every
-    # permission off. If the lookup ever comes back 403 for someone who really
-    # can push, this block is the one line to widen — and until then it fails
-    # closed and says so, which is the right way round for a job whose answer
-    # authorises spending.
+    # `contents: read` rather than `permissions: {}` because the first step has
+    # one question to ask: the collaborator-permission lookup is listed under
+    # Metadata (read) in the REST docs, metadata comes along with any grant,
+    # and `permissions: {}` is documented as turning every permission off. If
+    # the lookup ever comes back 403 for someone who really can push, this
+    # block is the one line to widen — and until then it fails closed and says
+    # so, which is the right way round for a job whose answer authorises
+    # spending.
+    #
+    # `pull-requests: write` IS NEW, AND IT REPLACED THE REASON THIS BLOCK USED
+    # TO GIVE. It said "this job writes no comment", and narrowness followed
+    # from that. It writes two now: a push-permission denial and an unreadable
+    # `/judge`, both of which used to go only to `$GITHUB_STEP_SUMMARY` and so
+    # left the thread silent — and the person being told they cannot start the
+    # judge is the person least likely to be reading the Actions tab. The
+    # premise is gone, so the narrowing has to be re-justified rather than kept
+    # out of habit.
+    #
+    # The justification: the write is contained by what this job does, not by
+    # the size of its token. There is no checkout, nothing from the PR head is
+    # fetched or executed, and the only untrusted value in the job — the
+    # comment body — reaches bash through `env` and leaves as a validated
+    # selector or a rejection. A `pull-requests: write` token on a job that
+    # runs no code from the thing it is judging is a different proposition from
+    # one on `judge.yml`'s `sweep`, which does, and which keeps its
+    # `contents: read` for that reason.
     permissions:
       contents: read
+      pull-requests: write
     # `issue.pull_request` is present only on comments that are on a pull
     # request, so this drops every issue comment in the repository before a
     # runner is even assigned.
@@ -128,8 +146,19 @@ jobs:
     #
     # CONTRIBUTOR is deliberately absent even as a pre-filter: having had a PR
     # merged once is not authority to spend on the org's Anthropic account.
+    #
+    # THE `/judge` PREFIX IS PART OF THE GATE, not only of the parser two steps
+    # below. Without it every comment by an org member on every PR in omni —
+    # every `lgtm`, every review reply — assigns a runner and spends a
+    # collaborator-permission API call, and for a member at read level writes a
+    # public step summary headed "Universal Judge: not run" under an unrelated
+    # remark. This is the same expression the `concurrency` group above already
+    # uses, deliberately spelled the same way: the two have to agree about what
+    # counts as a plausible request, or a comment that cannot start a run can
+    # still join the group and cancel one.
     if: >-
       github.event.issue.pull_request != null
+      && startsWith(github.event.comment.body, '/judge')
       && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     outputs:
       requested: ${{ steps.parse.outputs.requested }}
@@ -156,6 +185,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ACTOR: ${{ github.event.comment.user.login }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
 
@@ -164,13 +194,54 @@ jobs:
           # markdown. Nothing reaching this can carry one today, so it closes a
           # class rather than a hole — but the two functions should not
           # disagree about whether that matters.
+          #
+          # AND IT SAYS SO ON THE PR. This used to write `$GITHUB_STEP_SUMMARY`
+          # and stop, which is the same green-and-silent shape judge.yml has
+          # been fixed for repeatedly, with the sharpest version of it: a
+          # denial is the one reply whose reader definitely cannot see the
+          # Actions tab, because not being able to see it is close to what they
+          # are being told. Someone without write access typed `/judge` and got
+          # nothing back at all.
+          #
+          # So it writes a comment file and publishes `comment_path`, and the
+          # poster step at the end of this job posts whichever producer ran —
+          # the same producer/poster split as judge.yml, spelled out twice
+          # because these are two workflows and there is no composite action
+          # for it in the repository yet.
+          #
+          # THE SAME MARKER AS judge.yml'S, so a PR carries one judge comment
+          # rather than one per kind of answer, and a stale plan is replaced by
+          # the reason the next request did not run. The residual is that the
+          # pre-filter set — org members and collaborators at any level — can
+          # overwrite the plan comment by typing `/judge` on any PR. That set
+          # can already cancel a live sweep mid-flight, which is strictly worse
+          # and is recorded on the `concurrency` block above, so a shared
+          # marker hands it nothing new.
+          #
+          # `$msg` and `$2` are the only untrusted-ish values in the body.
+          # `$ACTOR` is a GitHub login, `$perm` one of GitHub's own permission
+          # words, and both have been through the newline scrub above.
           deny() {
             local msg="${1//$'\n'/ }"
             msg="${msg//$'\r'/ }"
+            local next="${2:-}"
+            next="${next//$'\n'/ }"
+            next="${next//$'\r'/ }"
             echo "::notice::$msg"
             echo "allowed=false" >> "$GITHUB_OUTPUT"
             { echo '### Universal Judge: not run'; echo ''; echo "$msg"; } \
               >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo '<!-- universal-judge-plan -->'
+              echo '## Universal Judge'
+              echo ''
+              echo "**Not run — nothing will be spent.** $msg"
+              if [ -n "$next" ]; then
+                echo ''
+                echo "$next"
+              fi
+            } > "$RUNNER_TEMP/deny-comment.md"
+            echo "comment_path=$RUNNER_TEMP/deny-comment.md" >> "$GITHUB_OUTPUT"
             exit 0
           }
 
@@ -187,15 +258,18 @@ jobs:
             --jq .permission 2>"$RUNNER_TEMP/perm-error")"; then
             cat "$RUNNER_TEMP/perm-error" >&2
             if grep -q 'HTTP 404' "$RUNNER_TEMP/perm-error"; then
-              deny "@$ACTOR is not a collaborator on this repository, so the judge is not starting."
+              deny "@$ACTOR is not a collaborator on this repository, so the judge is not starting." \
+                "A judge sweep spends on the organisation's model account, so \`/judge\` is limited to people who can push to this repository. Ask someone with write access to run it."
             fi
-            deny "the permission lookup for @$ACTOR failed; the status is in the log. A sweep spends real money and a check that cannot be answered is a no. If this is happening to everyone it is this job's \`permissions\` block, not anyone's access — the endpoint is listed under Metadata (read)."
+            deny "the permission lookup for @$ACTOR failed; the status is in the log. A sweep spends real money and a check that cannot be answered is a no. If this is happening to everyone it is this job's \`permissions\` block, not anyone's access — the endpoint is listed under Metadata (read)." \
+              "Nothing was spent and nothing is running. [The run log]($RUN_URL) has the status the lookup came back with."
           fi
 
           case "$perm" in
             admin|maintain|write) ;;
             *)
-              deny "@$ACTOR has '$perm' on this repository; a judge sweep needs write."
+              deny "@$ACTOR has '$perm' on this repository; a judge sweep needs write." \
+                "A judge sweep spends on the organisation's model account, so \`/judge\` is limited to people who can push to this repository. Ask someone with write access to run it."
               ;;
           esac
 
@@ -230,6 +304,14 @@ jobs:
           # in the log. Parameter expansion rather than `tr` to stay in this
           # shell.
           line="${line//$'\t'/ }"
+          # A RECORDED SILENCE, and the third green terminal path in this job.
+          # The job's `if:` only checks that the body STARTS WITH `/judge`, so
+          # `/judgement day is coming` reaches here and is turned away — and
+          # that one stays silent on purpose, because nobody typed the command.
+          # A bot replying with usage under a sentence that merely begins with
+          # those six characters is noise, and it is noise anyone on GitHub can
+          # trigger. The two paths below, a denial and an unreadable `/judge`,
+          # are answers to a request someone really made.
           case "$line" in
             /judge|/judge\ *) ;;
             *) echo "requested=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
@@ -279,6 +361,20 @@ jobs:
           # input and a command-line argument. It takes write access to get
           # here and the CLI would reject the ids anyway, so this is tidiness
           # rather than a vector — but the rejection belongs at the gate.
+          #
+          # AND IT SAYS SO ON THE PR. Same green-and-silent shape as `deny()`
+          # above and the same fix: the usage message used to go only to the
+          # job summary, so mistyping the command — the whole reason a usage
+          # message exists — answered with a green check and nothing on the
+          # thread. Its own file name, distinct from `deny-comment.md`, so the
+          # poster's `||` order is what chooses between them rather than write
+          # ordering. The two are mutually exclusive anyway: this step is gated
+          # on `allowed == 'true'`, which a denial never sets.
+          #
+          # Still NOT an error, and still not echoing `$line`: the rejected
+          # text is attacker-controlled on this event, and a comment the bot
+          # signs on a public repository is a worse place to render it than a
+          # workflow command.
           if ! [[ "$agents" =~ ^[a-z0-9_]+(,[a-z0-9_]+)*$ ]] || [ "${#agents}" -gt 256 ]; then
             echo "requested=false" >> "$GITHUB_OUTPUT"
             echo "::notice::not a judge request; the usage is in the run summary"
@@ -292,6 +388,20 @@ jobs:
               echo 'Without `--live` you get the plan and the price and nothing is'
               echo 'spent.'
             } >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo '<!-- universal-judge-plan -->'
+              echo '## Universal Judge'
+              echo ''
+              echo '**That is not a request it can read — nothing will be spent.**'
+              echo ''
+              echo 'Usage: `/judge [agent-id[,agent-id...]|all|auto] [--live]`'
+              echo ''
+              echo 'Agent ids are lowercase snake_case. `auto` judges whatever the'
+              echo 'branch touched and is the default; `all` is the expensive one.'
+              echo 'Without `--live` you get the plan and the price and nothing is'
+              echo 'spent.'
+            } > "$RUNNER_TEMP/usage-comment.md"
+            echo "comment_path=$RUNNER_TEMP/usage-comment.md" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -301,6 +411,92 @@ jobs:
             echo "live=$live"
           } >> "$GITHUB_OUTPUT"
           echo "requested agents=$agents live=$live"
+
+      # TWO PRODUCERS, ONE POSTER, the same split judge.yml uses and for the
+      # same reason: the two paths that end this job without a sweep — a denial
+      # and an unreadable command — each write a comment file and publish
+      # `comment_path`, and this step posts whichever one ran. They are
+      # mutually exclusive, and they use distinct file names so the `||` order
+      # decides rather than write ordering.
+      #
+      # DUPLICATED FROM judge.yml, deliberately and with the duplication named
+      # rather than hidden. Extracting a composite action for "upsert a marked
+      # PR comment" is the right shape once a third workflow wants it —
+      # pr-preview-comment.yml would be that third — and doing it here would
+      # mean a new action on the critical path of the judge's authorisation
+      # job. The two copies have to agree on one thing only: the marker.
+      #
+      # `!cancelled()` rather than the default `success()` for the same reason
+      # judge.yml's poster has it. Both producers here exit 0 today, so the
+      # default would work — but the whole class of bug this round is about is
+      # a terminal path that ends without speaking, and a future refusal in
+      # this job that exits non-zero would be skipped by its own failure. The
+      # `(... || ...)` conjunct is what stops it firing when nothing was
+      # produced.
+      #
+      # WHY THIS JOB CAN POST AT ALL: see the `permissions` block above, which
+      # gained `pull-requests: write` for these two paths and explains why that
+      # is contained here in a way it would not be on a job that checks out the
+      # PR.
+      - name: Upsert the judge comment
+        if: >-
+          !cancelled()
+          && (steps.perm.outputs.comment_path != ''
+          || steps.parse.outputs.comment_path != '')
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_PATH: >-
+            ${{ steps.perm.outputs.comment_path
+            || steps.parse.outputs.comment_path }}
+        with:
+          script: |
+            const fs = require('fs')
+            const marker = '<!-- universal-judge-plan -->'
+            const body = fs.readFileSync(process.env.COMMENT_PATH, 'utf8')
+            const issue_number = Number(process.env.PR_NUMBER)
+
+            const existing = await github.paginate(
+              github.rest.issues.listComments,
+              { ...context.repo, issue_number, per_page: 100 },
+            )
+            // Author first, marker second. On a public repository anyone can
+            // post `<!-- universal-judge-plan -->` on the PR, and this job's
+            // token can edit any user's comment — so matching on the marker
+            // alone would have the bot adopt a stranger's comment and keep
+            // rewriting it from then on.
+            const mine = existing.find(
+              (c) =>
+                c.user?.login === 'github-actions[bot]' && c.body?.includes(marker),
+            )
+            // 403 is swallowed with a warning, and only around the write: a
+            // locked conversation cannot be commented on by anybody, and
+            // failing the run for that would put a red X on a PR whose author
+            // did nothing wrong. Anything else — a 404, a rate limit, a
+            // permissions misconfiguration — stays fatal, because swallowing
+            // it would recreate the silence this step exists to prevent with
+            // no failure to show for it.
+            const post = async (call, args) => {
+              try {
+                await call({ ...context.repo, ...args })
+              } catch (err) {
+                if (err.status !== 403) throw err
+                core.warning(
+                  `the judge could not comment on #${issue_number} (HTTP 403 — ` +
+                    'the conversation is most likely locked). The reason it had ' +
+                    'to give is in this job summary.',
+                )
+              }
+            }
+
+            if (mine) {
+              await post(github.rest.issues.updateComment, {
+                comment_id: mine.id,
+                body,
+              })
+            } else {
+              await post(github.rest.issues.createComment, { issue_number, body })
+            }
 
   judge:
     name: Judge

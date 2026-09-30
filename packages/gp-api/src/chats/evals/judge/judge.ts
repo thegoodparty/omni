@@ -56,6 +56,7 @@ const FlagSchema = z.object({
 export type Flag = z.infer<typeof FlagSchema>
 
 const AcceptabilitySchema = z.enum(['yes', 'no', 'unclear'])
+type Acceptability = z.infer<typeof AcceptabilitySchema>
 
 // Small and load-bearing: a pairwise judge returns `tie` when both runs are
 // bad, and without this a SAME verdict can hide "same, and both broken".
@@ -121,6 +122,10 @@ export interface GradedJudgment {
   // Keyed by dimension name, plus OVERALL.
   dimensions: Readonly<Record<string, CombinedDimension>>
   seats: readonly SeatVerdict[]
+  // Seats that threw, one entry each. A panel that lost a seat still
+  // produced a comparison, but it produced it on fewer opinions than the
+  // config asked for, and that has to be visible rather than silent.
+  seatFailures: readonly string[]
   flags: readonly Flag[]
   absoluteFloor: AbsoluteFloor | null
 }
@@ -313,6 +318,32 @@ const leastMagnitude = (
   )
 }
 
+// The floor is not put to a majority the way a dimension verdict is. One
+// seat calling a run unacceptable is a finding about that run, and a panel
+// that outvoted it has not made the run acceptable — so the combined floor
+// takes the least acceptable answer any seat gave.
+const worstAcceptable = (values: readonly Acceptability[]): Acceptability =>
+  values.includes('no') ? 'no' : values.includes('unclear') ? 'unclear' : 'yes'
+
+const combineFloor = (seats: readonly SeatVerdict[]): AbsoluteFloor | null => {
+  const floors = seats
+    .map((s) => s.verdict.absolute_floor)
+    .filter((f): f is AbsoluteFloor => f !== undefined)
+  if (floors.length === 0) return null
+  const notes = [
+    ...new Set(
+      floors
+        .map((f) => f.note)
+        .filter((n): n is string => n !== undefined && n.length > 0),
+    ),
+  ]
+  return {
+    X_acceptable: worstAcceptable(floors.map((f) => f.X_acceptable)),
+    Y_acceptable: worstAcceptable(floors.map((f) => f.Y_acceptable)),
+    ...(notes.length === 0 ? {} : { note: notes.join(' | ') }),
+  }
+}
+
 const dimensionOf = (
   verdict: CaseVerdict,
   dimension: string,
@@ -386,25 +417,31 @@ export const judgeCase = async (
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
 ): Promise<Judgment> => {
   const seats: SeatVerdict[] = []
+  const seatFailures: string[] = []
   for (const model of config.panel.seats) {
     try {
       seats.push(await runSeat(llm, planned.payload, model, config))
     } catch (err) {
-      // A judge that failed produced no comparison, so this case is
-      // ungraded rather than a CAN'T SAY. Conflating the two would let a
-      // broken judge read as a genuine finding of equivalence.
-      return {
-        kind: 'ungraded',
-        key: planned.key,
-        reason: err instanceof Error ? err.message : String(err),
-      }
+      // Collected, not returned. Returning here on the first failure threw
+      // away every seat already collected and paid for, so one 429 on the
+      // last of three seats binned two clean verdicts and left `modal`
+      // without the majority the panel exists to produce.
+      seatFailures.push(
+        `${model}: ${err instanceof Error ? err.message : String(err)}`,
+      )
     }
   }
   if (seats.length === 0) {
+    // No seat answered, so there is no comparison: ungraded rather than a
+    // CAN'T SAY, since conflating the two would let a broken judge read as
+    // a genuine finding of equivalence.
     return {
       kind: 'ungraded',
       key: planned.key,
-      reason: 'no judge seats configured',
+      reason:
+        seatFailures.length === 0
+          ? 'no judge seats configured'
+          : seatFailures.join('; '),
     }
   }
   return {
@@ -413,11 +450,12 @@ export const judgeCase = async (
     slotMap: planned.slotMap,
     dimensions: combine(seats, config.dimensions),
     seats,
+    seatFailures,
     // Left slot-keyed on purpose. A flag says "X did this", and X is a
     // different arm in the next judgment, so turning it into an arm is
     // scoring's job with that judgment's own slot map.
     flags: seats.flatMap((s) => s.verdict.flags ?? []),
-    absoluteFloor: seats[0]?.verdict.absolute_floor ?? null,
+    absoluteFloor: combineFloor(seats),
   }
 }
 

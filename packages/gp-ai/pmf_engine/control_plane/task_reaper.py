@@ -59,6 +59,10 @@ def handler(event: dict, context) -> None:
     runner's own callback (sent before the task exits) is ordered ahead of ours
     and gp-api's terminal guard drops our late duplicate — a successful run can't
     be flipped to FAILED.
+
+    A judge run reaches the same diagnosis and then stops short of the send; see
+    the comment at that branch for why the suppression sits there rather than at
+    the top of this function.
     """
     detail = event.get("detail", {})
     if detail.get("lastStatus") != "STOPPED":
@@ -69,25 +73,47 @@ def handler(event: dict, context) -> None:
         # Not a scheduler-launched agent task (we tag those with startedBy=run_id).
         return
 
-    if run_id.startswith(JUDGE_RUN_ID_PREFIX):
-        # A judge dispatch has no `experiment_run` row in gp-api, so a
-        # reconciling callback would only log `Experiment run not found`. The
-        # cost of staying out is that the judge's own poll timeout becomes the
-        # sole detector of a silently dead task, not a backstop.
-        logger.info(f"skipping reap for judge run {run_id} (no gp-api run row to reconcile)")
-        return
-
     exit_code = _container_exit_code(detail.get("containers", []))
     if exit_code == 0:
         # Clean exit — the runner reported its own result; nothing to reconcile.
+        return
+
+    stop_code = detail.get("stopCode", "unknown")
+    reason = detail.get("stoppedReason", "")
+
+    # A judge dispatch has no `experiment_run` row in gp-api, so a reconciling
+    # callback would only log `Experiment run not found`. The suppression sits
+    # here, at the send, and not at the top of the handler: the abnormal-stop
+    # diagnosis above is why the reaper exists, and a top-of-handler skip threw
+    # it away, leaving an OOM-killed judge task indistinguishable from a clean
+    # finish.
+    #
+    # This reaper stops nothing. It is an EventBridge target on ECS Task State
+    # Change with lastStatus=STOPPED (packages/gp-ai/infrastructure/modules/
+    # pmf-engine-control-plane/main.tf) and its role holds sqs:SendMessage and
+    # nothing else, so it only ever sees tasks that have already stopped. A
+    # runaway task is bounded by the runner's own
+    # `asyncio.wait_for(timeout=config.timeout_seconds)` plus `_hard_exit(1)`.
+    if run_id.startswith(JUDGE_RUN_ID_PREFIX):
+        # `stoppedReason` is the one field here an outside caller writes freely
+        # (`ecs:StopTask --reason` takes 255 characters of arbitrary text), so
+        # it is bounded and `!r`-quoted: that is what stops a newline in it from
+        # forging a second log line. `str()` first because slicing a non-string
+        # would raise in a handler with no outer guard.
+        #
+        # `reason=eval_run` matches the four other suppression sites
+        # (`scheduler_handler`, `dispatch_handler`, the broker's `run_status`
+        # and `artifact_publish`) so one query spans all five.
+        logger.info(
+            f"results_callback_suppressed reason=eval_run run_id={run_id} "
+            f"stopCode={stop_code} exit={exit_code} stoppedReason={str(reason)[:200]!r}"
+        )
         return
 
     if not RESULTS_QUEUE_URL:
         logger.error(f"RESULTS_QUEUE_URL unset; cannot reap dead task for run {run_id}")
         return
 
-    stop_code = detail.get("stopCode", "unknown")
-    reason = detail.get("stoppedReason", "")
     error = f"Agent task stopped without reporting a result (stopCode={stop_code}, exit={exit_code}): {reason}"[:1000]
     body = {
         "type": "agentExperimentResult",
