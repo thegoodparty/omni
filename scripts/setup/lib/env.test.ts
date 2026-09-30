@@ -11,6 +11,9 @@ describe('parseEnvFile', () => {
         'EMPTY=',
         'QUOTED="some value"',
         '  SPACED_KEY=trimmed  ',
+        'INLINE=false # prod only',
+        'QUOTED_INLINE="debug" # levels: https://x#y',
+        'HASH_IN_QUOTES="a#b"',
       ].join('\n'),
     )
     expect(parsed).toEqual({
@@ -18,6 +21,9 @@ describe('parseEnvFile', () => {
       EMPTY: '',
       QUOTED: 'some value',
       SPACED_KEY: 'trimmed',
+      INLINE: 'false',
+      QUOTED_INLINE: 'debug',
+      HASH_IN_QUOTES: 'a#b',
     })
   })
 })
