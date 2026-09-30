@@ -1,5 +1,5 @@
 <meta charset="utf-8" />
-<title>Analytics Events Explorer</title>
+<title>__PAGE_TITLE__</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link
@@ -500,6 +500,7 @@
 
   /* __CARD_CSS__ */
   /* __NAV_CSS__ */
+  /* __MAP_CSS__ */
   .mono {
     font-family: var(--mono);
     font-size: 12px;
@@ -719,7 +720,7 @@
 <div class="wrap">
   <header class="bar">
     <div class="titlerow">
-      <h1>Analytics Events Explorer</h1>
+      <h1>__PAGE_TITLE__</h1>
       <span class="freshness" id="freshness"></span>
     </div>
     <div class="searchwrap">
@@ -777,6 +778,9 @@
     var DATA = JSON.parse(document.getElementById('snapshot').textContent)
     var SLACK = 'https://goodpartyorg.slack.com/archives/C0BECEK0603'
     var FORM = DATA.request_form_url || ''
+    // The product map is this page with its tree (ProductMap, surfaces/product-map/map.js)
+    // in place of the events table; everything above that section is shared.
+    var MAP = DATA.page === 'map'
     var EVENTS = DATA.events,
       QUESTIONS = DATA.questions,
       AREAS = DATA.areas,
@@ -1859,12 +1863,19 @@
           SLACK,
           'Open #product-analytics',
         ],
-        [
-          'See it on the product map',
-          'The same events laid over the product as people walk through it: each flow, each step, and the steps where nothing fires.',
-          '__MAP_URL__',
-          'Open the product map',
-        ],
+        MAP
+          ? [
+              'Search every event',
+              'The map draws the flows people walk through. The explorer lists every event, including the ones not on a flow yet.',
+              '__EXPLORER_URL__',
+              'Open the explorer',
+            ]
+          : [
+              'See it on the product map',
+              'The same events laid over the product as people walk through it: each flow, each step, and the steps where nothing fires.',
+              '__MAP_URL__',
+              'Open the product map',
+            ],
       ]
       if (USAGE.canComment()) {
         acts.splice(2, 0, [
@@ -1908,17 +1919,33 @@
     function render() {
       // header bits
       var fresh = document.getElementById('freshness')
-      fresh.innerHTML =
-        EVENTS.length +
-        ' events · ' +
-        QUESTIONS.length +
-        ' questions · ' +
-        AREAS.length +
-        ' areas · data as of <b>' +
-        esc(fmtWhen(DATA.refreshed_at)) +
-        '</b> · next refresh <b>' +
-        esc(fmtWhen(nextRun())) +
-        '</b>'
+      // The map is republished by hand, so it has no next refresh to promise.
+      if (MAP) {
+        var surf = ProductMap.surfaces()
+        var drawn = surf.filter(function (f) {
+          return !f.building
+        }).length
+        fresh.innerHTML =
+          drawn +
+          ' flows and pages drawn · ' +
+          (surf.length - drawn) +
+          ' still being built · ' +
+          EVENTS.length +
+          ' events · data as of <b>' +
+          esc(fmtWhen(DATA.refreshed_at)) +
+          '</b>'
+      } else
+        fresh.innerHTML =
+          EVENTS.length +
+          ' events · ' +
+          QUESTIONS.length +
+          ' questions · ' +
+          AREAS.length +
+          ' areas · data as of <b>' +
+          esc(fmtWhen(DATA.refreshed_at)) +
+          '</b> · next refresh <b>' +
+          esc(fmtWhen(nextRun())) +
+          '</b>'
 
       var counts = {}
       EVENTS.forEach(function (e) {
@@ -2021,6 +2048,8 @@
           '<div class="areagrid">' +
             AREAS.slice(0, 20).map(areaCard).join('') +
             '</div>',
+          // On the map the tree is the answer, so the cards start folded above it.
+          !MAP,
         )
         var qs = state.products.length
           ? QUESTIONS.filter(function (q) {
@@ -2155,19 +2184,74 @@
           : '') +
         '</span>'
 
-      out += section(
-        'events',
-        activeQ
-          ? 'Events answering this question'
-          : searching
-            ? 'Events'
-            : 'All events',
-        shown.length,
-        aside,
-        eventTable(shown),
-      )
+      if (MAP) {
+        // The search and filters above pick events exactly as they do on the explorer;
+        // the map then keeps the flows those events are on, plus any step, flow or area
+        // whose own name matches, so a step with nothing firing is still findable.
+        var filtering = !!(activeQ || searching || filtersOn())
+        var phrase = norm(state.q).trim(),
+          words = phrase.split(/\s+/).filter(function (t) {
+            return t && !STOP[t]
+          })
+        if (!words.length) words = phrase.split(/\s+/).filter(Boolean)
+        var drawnMap = ProductMap.render(
+          filtering
+            ? {
+                hit: new Set(
+                  shown.map(function (e) {
+                    return e.event_type
+                  }),
+                ),
+                text:
+                  searching && words.length
+                    ? function (s) {
+                        return (
+                          score([[norm(s), 1]], words, phrase, res.partial) > 0
+                        )
+                      }
+                    : null,
+              }
+            : null,
+        )
+        out += section(
+          'map',
+          activeQ
+            ? 'On the map, for this question'
+            : filtering
+              ? 'On the map'
+              : 'Product map',
+          drawnMap.flows,
+          aside,
+          drawnMap.html,
+        )
+        var offMap = filtering
+          ? shown.filter(function (e) {
+              return !ProductMap.has(e.event_type)
+            })
+          : []
+        if (offMap.length)
+          out += section(
+            'offmap',
+            'Matching events not on the map yet',
+            offMap.length,
+            '<span class="note" style="margin:0">not placed on a drawn flow yet</span>',
+            eventTable(offMap),
+            false,
+          )
+      } else
+        out += section(
+          'events',
+          activeQ
+            ? 'Events answering this question'
+            : searching
+              ? 'Events'
+              : 'All events',
+          shown.length,
+          aside,
+          eventTable(shown),
+        )
 
-      if (scope && scope.related.length) {
+      if (!MAP && scope && scope.related.length) {
         var rel = narrow(scope.related)
         out += section(
           'related',
@@ -2220,6 +2304,7 @@
     }
 
     // __USAGE_JS__
+    // __MAP_JS__
     // ---- events ----------------------------------------------------------------------
     document.addEventListener('click', function (ev) {
       var sum = ev.target.closest('details.dd > summary')
@@ -2308,13 +2393,16 @@
     })
     document.getElementById('tryrow').innerHTML =
       'Try: ' +
-      [
-        'voter file export',
-        'onboarding drop off',
-        'pro upgrade',
-        'campaign plan',
-        'text campaign',
-      ]
+      (MAP
+        ? ['office', 'pro upgrade', 'pledge', 'text message', 'poll']
+        : [
+            'voter file export',
+            'onboarding drop off',
+            'pro upgrade',
+            'campaign plan',
+            'text campaign',
+          ]
+      )
         .map(function (s) {
           return (
             '<button class="pill" data-try="' +
@@ -2335,7 +2423,7 @@
       logSearch()
     })
 
-    SurfaceNav.mount('explorer', { feedback: true })
+    SurfaceNav.mount(MAP ? 'map' : 'explorer', { feedback: true })
     renderNext()
     render()
     USAGE.init({

@@ -35,6 +35,13 @@ this page knows (caveats, resolved lineage, browser-or-server, product) through 
 `opts`; the row badges take their words from `EventCard.verdictFor` too, so a row and its
 card cannot disagree.
 
+**`standalone/template.html` is also the product map's template.** The map build
+(`packages/runbooks/surfaces/product-map/build.py`) renders it with `DATA.page = 'map'`,
+which puts the map's tree (`ProductMap`, from `map.js` there) where the events table sits
+here. Everything above that section is shared: search, filters, question and area cards,
+What's next. So a search or filter change here ships on the map too; rebuild both pages,
+and branch on `MAP` only where the map genuinely differs.
+
 ## How it stays current (nothing here is manual)
 
 ```
