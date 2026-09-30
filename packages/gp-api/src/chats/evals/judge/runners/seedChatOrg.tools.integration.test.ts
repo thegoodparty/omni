@@ -7,6 +7,7 @@ import {
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { ChiefOfStaffHandler } from '@/chats/general/chief-of-staff/chiefOfStaff.handler'
+import { PriorityFlowHandler } from '@/chats/general/priority-flow/priorityFlow.handler'
 import { CampaignManagerHandler } from '@/chats/general/campaign-manager/campaignManager.handler'
 import { OrdinanceFlowHandler } from '@/chats/general/ordinance-flow/ordinanceFlow.handler'
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -190,6 +191,51 @@ describe('the constituent-data tools a seeded Serve scope registers', () => {
       data: { positionId: null },
     })
     const handler = service.app.get(ChiefOfStaffHandler)
+
+    const tools = await withConstituentDeps(handler, async () => {
+      const ctx = await handler.loadContext(conversationId, service.user.id)
+      expect(ctx.districtFilters).toBeNull()
+      return handler.buildTools(ctx)
+    })
+
+    for (const tool of CONSTITUENT_TOOLS) {
+      expect(Object.keys(tools)).not.toContain(tool)
+    }
+  })
+
+  // Same resolver, same `districtFilters`, same allowlist as chief_of_staff —
+  // and the commit documents this file as the verification, so leaving the
+  // third Serve scope out of it left that gate proved for two of three.
+  it('registers both on priority_flow', async () => {
+    const { conversationId } = await seedAndOpen('priority_flow', 'pf-tools')
+    const handler = service.app.get(PriorityFlowHandler)
+
+    const tools = await withConstituentDeps(handler, async () => {
+      const ctx = await handler.loadContext(conversationId, service.user.id)
+      expect(ctx.districtFilters).toEqual([
+        { column: 'state_postal_code', value: 'WA' },
+        { column: 'City Council', value: 'Judge City Council District 1' },
+      ])
+      return handler.buildTools(ctx)
+    })
+
+    expect(Object.keys(tools)).toEqual(
+      expect.arrayContaining(CONSTITUENT_TOOLS),
+    )
+  })
+
+  // The negative for this scope too: one scope proving the seed is the cause
+  // does not prove it for a scope that resolves its own context.
+  it('registers neither on priority_flow once positionId is cleared', async () => {
+    const { conversationId, organizationSlug } = await seedAndOpen(
+      'priority_flow',
+      'pf-no-position',
+    )
+    await service.prisma.organization.update({
+      where: { slug: organizationSlug },
+      data: { positionId: null },
+    })
+    const handler = service.app.get(PriorityFlowHandler)
 
     const tools = await withConstituentDeps(handler, async () => {
       const ctx = await handler.loadContext(conversationId, service.user.id)
