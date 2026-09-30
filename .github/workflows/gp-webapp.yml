@@ -71,6 +71,9 @@ jobs:
       - name: Guard animation assets
         run: npm run check:animation-assets -w ${{ env.WORKSPACE }}
 
+      - name: Check env contract
+        run: npm run check:env-contract -w ${{ env.WORKSPACE }}
+
   # The vitest suite (~400 jsdom files) was the long pole of the single
   # Validate job (~11 of its ~14 minutes), and it gates both PR merge and the
   # release train's await-checks. Fan it out the same way gp-api does. No
