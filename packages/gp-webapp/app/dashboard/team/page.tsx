@@ -1,6 +1,5 @@
-import { auth } from '@clerk/nextjs/server'
-import { redirect } from 'next/navigation'
 import pageMetaData from 'helpers/metadataHelper'
+import candidateAccess from '../shared/candidateAccess'
 import TeamPage from './components/TeamPage'
 
 const meta = pageMetaData({
@@ -15,10 +14,7 @@ export const dynamic = 'force-dynamic'
 // app has no /settings segment; account settings already live at
 // /dashboard/account, so this is the consistent sibling.
 const Page = async (): Promise<React.JSX.Element> => {
-  const { userId } = await auth()
-  if (!userId) {
-    redirect('/login')
-  }
+  await candidateAccess()
 
   return <TeamPage />
 }
