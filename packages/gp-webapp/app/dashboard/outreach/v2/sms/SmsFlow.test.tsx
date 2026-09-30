@@ -11,7 +11,7 @@ import { SmsFlow, SuccessScreen } from './SmsFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 import { gateRef } from '../gate/testing/mockReactiveGate'
 import {
-  SERVE_SMS_GREETING_PREVIEW,
+  SMS_GREETING_PREVIEW,
   SERVE_SMS_SAMPLE_FIRST_NAME,
   SMS_GREETING,
 } from './smsCompose.util'
@@ -387,10 +387,12 @@ describe('SmsFlow', () => {
     expect(receiptCalls).toBe(0)
   })
 
-  // Win's greeting is Peerly's single-brace merge token, and both the
-  // compose chip and the preview bubble stay exactly as they were when
-  // Serve started showing a stand-in name in place of its own token.
-  it('keeps the merge-token chip and the verbatim preview bubble', async () => {
+  // The compose chip reads as the words that open the text ("Hello Sam,"),
+  // so a candidate writing their own body does not open it with a second
+  // greeting — CAS saw "Hello {first_name}, Hello! My name is…" reach the
+  // P2P queue while the chip named a variable. The review bubble stays
+  // verbatim: Win's greeting is Peerly's single-brace merge token.
+  it('shows the greeting as words above the body, verbatim in the bubble', async () => {
     mockDraft()
     api.mock('GET /v1/outreach/:id/receipt', {
       status: 404,
@@ -410,11 +412,11 @@ describe('SmsFlow', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(await screen.findByText('Greeting First Name')).toBeInTheDocument()
     expect(
-      screen.queryByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`),
-    ).toBeNull()
-    expect(screen.queryByText(SERVE_SMS_GREETING_PREVIEW.caption)).toBeNull()
+      await screen.findByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`),
+    ).toBeInTheDocument()
+    expect(screen.getByText(SMS_GREETING_PREVIEW.caption)).toBeInTheDocument()
+    expect(screen.queryByText('Greeting First Name')).toBeNull()
 
     await attachImage()
     await waitFor(() =>
@@ -428,7 +430,7 @@ describe('SmsFlow', () => {
     expect(
       await screen.findByText(SMS_GREETING, { exact: false }),
     ).toBeInTheDocument()
-    expect(screen.queryByText(SERVE_SMS_GREETING_PREVIEW.caption)).toBeNull()
+    expect(screen.queryByText(SMS_GREETING_PREVIEW.caption)).toBeNull()
   })
 
   it('identifies the campaign owner, not the composer, in the intro', async () => {

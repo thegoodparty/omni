@@ -12,7 +12,7 @@ import { createOutreach } from 'helpers/createOutreach'
 import type { TcrCompliance } from 'helpers/types'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
-  SERVE_SMS_GREETING_PREVIEW,
+  SMS_GREETING_PREVIEW,
   SERVE_SMS_SAMPLE_FIRST_NAME,
 } from './smsCompose.util'
 
@@ -384,9 +384,7 @@ describe('SmsFlow serve send path', () => {
       }),
     ).toBeInTheDocument()
     expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
-    expect(
-      screen.getByText(SERVE_SMS_GREETING_PREVIEW.caption),
-    ).toBeInTheDocument()
+    expect(screen.getByText(SMS_GREETING_PREVIEW.caption)).toBeInTheDocument()
 
     // Display-only: nothing re-sent, and the payload above is unchanged.
     expect(bodies).toHaveLength(1)
