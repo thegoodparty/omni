@@ -1,6 +1,6 @@
 enum OutreachType {
   text
-  // Legacy: draft/intent rows from the old CSV/eCanvasser flow (all pending).
+  // Legacy: draft/intent rows from the old CSV-import flow (all pending).
   doorKnocking
   // Native: one envelope row per generated door_knocking_route
   // (see doorKnockingRouteId) so routes appear in the unified outreach list.

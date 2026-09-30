@@ -57,7 +57,6 @@ import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { CampaignIdeologyModule } from '@/campaignIdeology/campaignIdeology.module'
 import { RecommendedListsModule } from '@/recommendedLists/recommendedLists.module'
-import { EcanvasserIntegrationModule } from '@/vendors/ecanvasserIntegration/ecanvasserIntegration.module'
 import { PeerlyModule } from '@/vendors/peerly/peerly.module'
 import { SegmentModule } from '@/vendors/segment/segment.module'
 import { VotersModule } from '@/voters/voters.module'
@@ -105,7 +104,6 @@ import { DevEnvModule } from '@/devEnv/devEnv.module'
     ErrorLoggerModule,
     CrmModule,
     SubscribeModule,
-    EcanvasserIntegrationModule,
     ScheduledMessagingModule,
     OutreachModule,
     OutreachProposalModule,

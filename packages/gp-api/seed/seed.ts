@@ -4,12 +4,11 @@ import { parseArgs } from 'util'
 // factory seeds
 import seedCampaigns from './campaigns'
 import seedTopIssues from './topIssues'
-import seedUsers, { ADMIN_USER, SERVE_USER } from './users'
+import seedUsers, { SERVE_USER } from './users'
 import seedWebsiteData from './websiteData'
 // csv file seeds
 import seedMtfcc from './mtfcc'
 import seedOffices from './offices'
-import { seedEcanvasserDemoAccount } from './util/seedEcanvasserDemoAccount.util'
 import { resyncSeededSequences } from './util/resyncSequences.util'
 import seedContentful from './contentful'
 
@@ -54,7 +53,6 @@ async function main() {
     const users = await seedUsers(prisma)
     const campaignIds = await seedCampaigns(prisma, users)
     await seedTopIssues(prisma, campaignIds)
-    await seedEcanvasserDemoAccount(ADMIN_USER.email, prisma)
     await seedWebsiteData(prisma)
     await seedOffices(SERVE_USER.email, prisma)
     await seedContentful(prisma)

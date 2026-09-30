@@ -854,9 +854,8 @@ export const EVENTS = {
     DraftChatMessageSent: 'Ordinances - Draft Chat Message Sent',
   },
   // ENG-10626: the native door-knocking surface (voter map, turf cutting,
-  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above,
-  // which belongs to the legacy eCanvasser/script surface — different funnel,
-  // don't merge them.
+  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above —
+  // different funnel, don't merge them.
   //
   // The walk is the session: Started when the walk view opens, then exactly
   // one of Completed (left having logged at least one door) or Abandoned
