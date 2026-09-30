@@ -801,7 +801,17 @@ describe('the measured layer', () => {
       ...record,
       telemetry: {
         ...record.telemetry,
-        cost: { ...record.telemetry.cost, pricingVersion: '2025-01' },
+        // Spreading a now-optional cost widens usdAtCapture, which CostSchema
+        // still requires. The fixture always carries one, so this only
+        // satisfies the type.
+        ...(record.telemetry.cost === undefined
+          ? {}
+          : {
+              cost: {
+                ...record.telemetry.cost,
+                pricingVersion: '2025-01',
+              },
+            }),
       },
     })
     const matched = normalizeAgent([BASE, CANDIDATE], () => 0)
@@ -819,7 +829,17 @@ describe('the measured layer', () => {
       ...record,
       telemetry: {
         ...record.telemetry,
-        cost: { ...record.telemetry.cost, pricingVersion: '2025-01' },
+        // Spreading a now-optional cost widens usdAtCapture, which CostSchema
+        // still requires. The fixture always carries one, so this only
+        // satisfies the type.
+        ...(record.telemetry.cost === undefined
+          ? {}
+          : {
+              cost: {
+                ...record.telemetry.cost,
+                pricingVersion: '2025-01',
+              },
+            }),
       },
     })
     const [base, candidate] = INFRA_ERROR_PAIR

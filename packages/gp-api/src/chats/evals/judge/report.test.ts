@@ -333,7 +333,14 @@ describe('the measured layer', () => {
             ...record,
             telemetry: {
               ...record.telemetry,
-              cost: { ...record.telemetry.cost, pricingVersion: '2025-01' },
+              ...(record.telemetry.cost === undefined
+                ? {}
+                : {
+                    cost: {
+                      ...record.telemetry.cost,
+                      pricingVersion: '2025-01',
+                    },
+                  }),
             },
           }
         : record,
