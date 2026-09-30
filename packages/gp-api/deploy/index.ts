@@ -593,7 +593,12 @@ export = async () => {
       DB_NAME: sharedPreviewCluster
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
-      SECRETS_MANAGER_KEYS: Object.keys(containerSecrets).join(','),
+      SECRETS_MANAGER_KEYS: [
+        ...Object.keys(containerSecrets),
+        ...(environment === 'preview' && !e2eCredentialsInSecret
+          ? Object.keys(e2eCredentialKeys)
+          : []),
+      ].join(','),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
       ...(environment === 'preview' && !e2eCredentialsInSecret
         ? {
