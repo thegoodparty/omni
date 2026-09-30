@@ -249,9 +249,11 @@ const signature = (doc: ProseMirrorNode): Signature => {
 // what makes this one check cover every way in: typing, backspace, delete,
 // cut, paste-over, drag-out and undo.
 //
-// A protected span must read exactly as it did. Text typed inside one
-// inherits its mark and changes it, so that fails too. A required token may
-// move or be duplicated but never drop below its count.
+// A protected span must read exactly as it did, and stay in one piece. Text
+// typed inside one inherits its mark and changes it, so that fails the first
+// test; a pill dropped inside one leaves the text intact but splits it
+// ("Sarah [First name] Chen"), so that fails the second. A required token
+// may move or be duplicated but never drop below its count.
 export const findViolation = (
   before: ProseMirrorNode,
   after: ProseMirrorNode,
@@ -260,6 +262,13 @@ export const findViolation = (
   const now = signature(after)
   for (const [id, text] of was.protectedText) {
     if (now.protectedText.get(id) !== text) return id
+  }
+  const pieces = new Map<string, number>()
+  for (const range of lockedRanges(after)) {
+    if (range.kind !== 'protected') continue
+    const count = (pieces.get(range.id) ?? 0) + 1
+    if (count > 1) return range.id
+    pieces.set(range.id, count)
   }
   for (const id of now.protectedText.keys()) {
     if (!was.protectedText.has(id)) return id
@@ -376,7 +385,7 @@ export const guardTransaction = (
   for (const range of [...free].reverse()) {
     clearRange(replacement, range, {
       // Two locked parts the edit swept the text from between keep a space,
-      // or they read as one word ("Paid for byFriends of Sam").
+      // or they read as one word ("Paid for byFriends of Sarah").
       keepSpace:
         range !== first && isLockedEnd(range.from) && isLockedStart(range.to),
     })

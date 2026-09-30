@@ -4,7 +4,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
-import { UndoRedo } from '@tiptap/extensions'
+import { Dropcursor, UndoRedo } from '@tiptap/extensions'
 
 import { cn } from '@styleguide/lib/utils'
 import { tokenPillClassName } from './token-pill'
@@ -166,11 +166,16 @@ export const TokenFieldGuard = Extension.create<GuardOptions>({
 // The whole schema: plain paragraphs of text, tokens and protected spans, and
 // undo. No bold, lists or headings, because an SMS or a spoken script has
 // none, and a list button inserts plain characters rather than a list node.
+//
+// The drop cursor is a caret that follows the pointer while a pill is being
+// dragged, so where it will land is visible before it is let go, including
+// whether that is inside a phrase that will refuse it.
 export const tokenFieldExtensions = (options: GuardOptions) => [
   Document,
   Paragraph,
   Text,
   UndoRedo,
+  Dropcursor.configure({ color: 'var(--color-primary)', width: 2 }),
   TokenNode,
   ProtectedMark,
   TokenFieldGuard.configure(options),

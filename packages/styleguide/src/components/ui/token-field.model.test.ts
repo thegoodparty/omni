@@ -37,7 +37,7 @@ const OPT_OUT: ProtectedSpec = {
 }
 
 const MESSAGE =
-  'Hello {first_name}, vote on Nov 3.\nPaid for by Sam for Council. Reply STOP to opt out.'
+  'Hello {first_name}, vote on Nov 3.\nPaid for by Sarah Chen for Council. Reply STOP to opt out.'
 
 const stateFor = (
   value = MESSAGE,
@@ -124,6 +124,24 @@ describe('findViolation', () => {
     expect(findViolation(state.doc, moved.doc)).toBeNull()
   })
 
+  it('flags a token dropped inside a protected span, which splits it', () => {
+    const state = stateFor(
+      '{first_name}, this is Sarah Chen.',
+      [FIRST_NAME],
+      [{ id: 'candidate_name', text: 'Sarah Chen', reason: 'Your name.' }],
+    )
+    const token = state.doc.nodeAt(1)
+    if (!token) throw new Error('no token')
+    const inside = posOf(state, 'Chen')
+    const moved = state.tr.insert(inside, token).delete(1, 2)
+    expect(docToValue(moved.doc)).toBe(', this is Sarah {first_name}Chen.')
+    expect(findViolation(state.doc, moved.doc)).toBe('candidate_name')
+    expect(guardTransaction(state, moved)).toEqual({
+      id: 'candidate_name',
+      replacement: null,
+    })
+  })
+
   it('lets an optional token be deleted', () => {
     const optional = { ...FIRST_NAME, required: false }
     const state = stateFor('{first_name} hi', [optional], [])
@@ -177,7 +195,7 @@ describe('guardTransaction', () => {
     const from = posOf(state, 'Council.')
     const to = posOf(state, 'STOP')
     const value = apply(state, state.tr.delete(from, to))
-    expect(value).toContain('Paid for by Sam for Reply STOP to opt out.')
+    expect(value).toContain('Paid for by Sarah Chen for Reply STOP to opt out.')
   })
 
   it('never carries protection in with pasted content', () => {

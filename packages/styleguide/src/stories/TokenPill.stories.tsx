@@ -21,7 +21,7 @@ export const InText: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
     <p className="max-w-md text-sm">
-      Hello <TokenPill>First name</TokenPill>, it&apos;s Sam Rivera, running for
+      Hello <TokenPill>First name</TokenPill>, it&apos;s Sarah Chen, running for
       city council.
     </p>
   ),

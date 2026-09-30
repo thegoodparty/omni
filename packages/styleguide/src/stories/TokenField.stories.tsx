@@ -31,7 +31,7 @@ const FIRST_NAME: TokenSpec = {
 const SMS_SPANS: ProtectedSpec[] = [
   {
     id: 'candidate_name',
-    text: 'Sam Rivera',
+    text: 'Sarah Chen',
     reason: 'Your name has to appear in the message. You can reword the rest.',
   },
   {
@@ -42,7 +42,7 @@ const SMS_SPANS: ProtectedSpec[] = [
   },
   {
     id: 'committee_name',
-    text: 'Friends of Sam Rivera',
+    text: 'Friends of Sarah Chen',
     reason:
       'Campaign finance rules require this line. You can write around it.',
   },
@@ -54,13 +54,13 @@ const SMS_SPANS: ProtectedSpec[] = [
   },
 ]
 
-const SMS_MESSAGE = `Hello {first_name}, it's Sam Rivera, running for city council. Can I count on your vote on November 3?
-Paid for by Friends of Sam Rivera. Reply STOP to opt out.`
+const SMS_MESSAGE = `Hello {first_name}, it's Sarah Chen, running for city council. Can I count on your vote on November 3?
+Paid for by Friends of Sarah Chen. Reply STOP to opt out.`
 
 const ROBOCALL_SPANS: ProtectedSpec[] = [
   {
     id: 'candidate_name',
-    text: 'Sam Rivera',
+    text: 'Sarah Chen',
     reason:
       'A recorded call has to say who you are and what you are running for.',
   },
@@ -78,7 +78,7 @@ const ROBOCALL_SPANS: ProtectedSpec[] = [
   },
   {
     id: 'sponsor',
-    text: 'Friends of Sam Rivera',
+    text: 'Friends of Sarah Chen',
     reason:
       'Campaign finance rules require this line. You can write around it.',
   },
@@ -90,8 +90,8 @@ const ROBOCALL_SPANS: ProtectedSpec[] = [
   },
 ]
 
-const ROBOCALL_SCRIPT = `Hi, this is Sam Rivera, candidate for city council. I'm calling to ask for your vote on November 3.
-Paid for by Friends of Sam Rivera. Call us back at (555) 010-2030.`
+const ROBOCALL_SCRIPT = `Hi, this is Sarah Chen, candidate for city council. I'm calling to ask for your vote on November 3.
+Paid for by Friends of Sarah Chen. Call us back at (555) 010-2030.`
 
 // The composer's own arrangement: the field seamless inside a card, and the
 // blocked edit's reason in a status region under it. The shake and tint are
