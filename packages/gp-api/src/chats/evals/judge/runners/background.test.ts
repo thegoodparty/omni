@@ -2053,9 +2053,13 @@ describe('an unreadable base-arm cache', () => {
 //
 // The sweep-wide check in substituteBackgroundCases is what a sweep is meant
 // to hit. This asserts the backstop: a caller that skipped it cannot get a
-// literal token past the runner, and the refusal happens before the first
-// write and the first send rather than at the Lambda, which would refuse it
-// as a poll timeout after the sweep had committed to a $13 run.
+// literal token past the runner.
+//
+// The refusal has to happen before the first write and the first send,
+// because the Lambda would NOT refuse it. `organization_slug` is a plain
+// string with `minLength: 1` in every manifest that declares it, so
+// `{judgeOrgSlug}` validates, the task launches, and the sweep pays for two
+// arms run against an organization that does not exist.
 describe('an unsubstituted placeholder in a case', () => {
   const withPlaceholder = () =>
     runInput({

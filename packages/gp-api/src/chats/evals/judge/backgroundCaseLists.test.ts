@@ -9,19 +9,32 @@ import { JsonValueSchema, type JsonValue } from './record'
 // both shapes, so it lives once, beside the chat lists, in
 // chatCaseLists.test.ts.
 
-// The nine background lists authored in one pass. Named here rather than
-// derived from the registry, because deriving them would make this file agree
-// with whatever the registry says — including a registry that lost one.
+// Every authored background list. Named here rather than derived from the
+// registry, because deriving them would make this file agree with whatever the
+// registry says — including a registry that lost one.
+//
+// Two authoring passes, and every check below applies to both: the first nine
+// carry plain data, and the last six carry `{judge…}` placeholders their sweep
+// substitutes (see backgroundFixtureCaseLists.test.ts). The manifest checks
+// here read KEYS, so a placeholder value is validated the same as a literal
+// one — which is the point, since a substituted list has to satisfy the same
+// `required` and `additionalProperties` either way.
 const AUTHORED = [
+  'campaign_tracker_tasks',
   'district_issue_pulse',
   'district_issue_snapshot',
+  'find_existing_ordinances',
   'meeting_briefing',
   'meeting_schedule',
   'opponent_research',
+  'opportunities_and_challenges',
+  'opposition_research',
   'race_opponent_actions',
   'race_opponent_collection',
   'race_opponent_summary',
   'self_research',
+  'top_community_issues',
+  'trending_issues',
 ] as const
 
 // One baseline plus seven variations. Well under gates.minCases, which is
@@ -35,8 +48,8 @@ const CASES_PER_LIST = 8
 //
 // NOT a JSON Schema engine, and deliberately not: the monorepo declares no
 // validator, and the two manifest facts that decide whether a dispatch is
-// refused are `required` and `additionalProperties: false`. Types and patterns
-// are left to the authored data being static.
+// refused are `required` and `additionalProperties`. Types and patterns are
+// left to the authored data being static.
 const EXPERIMENTS = join(__dirname, '../../../../../runbooks/experiments')
 
 type JsonObject = { [key: string]: JsonValue }
@@ -114,8 +127,18 @@ const inputSchemaFor = (agentId: string): InputSchemaFacts => {
   }
 }
 
+// The two manifests that accept params they do not declare. Which makes the
+// undeclared-key check below matter MORE for them, not less: everywhere else a
+// mistyped key is refused before a Fargate task launches, so it costs nothing;
+// here it is accepted, the run is billed, and the param the case meant to set
+// was never read.
+const PERMITS_EXTRA_PARAMS = new Set<string>([
+  'opportunities_and_challenges',
+  'opposition_research',
+])
+
 describe('the authored background case lists', () => {
-  it('the registry points all nine at their own file', () => {
+  it('the registry points all fifteen at their own file', () => {
     expect(AUTHORED.map((id) => findAgent(id)?.cases)).toEqual(
       AUTHORED.map((id) => `${id}.json`),
     )
@@ -144,7 +167,16 @@ describe('the authored background case lists', () => {
     // whole input_schema is a bare $ref, so a reader that did not resolve it
     // would see no required properties and accept anything at all.
     expect(schema.required.length, `${agentId} input_schema`).toBeGreaterThan(0)
-    expect(schema.additionalProperties, `${agentId} input_schema`).toBe(false)
+
+    // NOT a blanket `false`, which this file asserted while it covered only
+    // the nine plain lists. Fourteen of the sixteen manifests do set it, but
+    // the two research agents do not, so an undeclared key reaches THEM as a
+    // param the agent silently ignores rather than as a refusal. Pinned
+    // exactly, per agent, so a manifest flipping either way fails here naming
+    // itself instead of quietly widening or narrowing what a case may carry.
+    expect(schema.additionalProperties, `${agentId} input_schema`).toBe(
+      PERMITS_EXTRA_PARAMS.has(agentId),
+    )
 
     for (const one of list.cases) {
       if (!('params' in one)) {
@@ -153,10 +185,12 @@ describe('the authored background case lists', () => {
       const keys = Object.keys(one.params)
       expect(keys.length, one.caseId).toBeGreaterThan(0)
 
-      // A missing required key, or any key the manifest does not declare, is
-      // refused by the dispatch Lambda before a Fargate task launches — so it
-      // costs nothing but also runs nothing, and the sweep reports a case that
-      // never happened.
+      // A missing required key is refused by the dispatch Lambda before a
+      // Fargate task launches — so it costs nothing but also runs nothing, and
+      // the sweep reports a case that never happened. An undeclared key is
+      // refused the same way by every manifest but the two in
+      // PERMITS_EXTRA_PARAMS, and is checked here for all of them regardless:
+      // on those two it would otherwise be accepted and ignored.
       expect(
         schema.required.filter((r) => !keys.includes(r)),
         `${agentId}/${one.caseId} is missing required params`,

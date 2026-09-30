@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  JUDGE_FIXTURE_ENV_NAMES,
+  PLACEHOLDER_NAMES,
+  type PlaceholderValues,
+} from './caseParams'
 import { SPEND_ENV, spendsRealMoney } from './config'
 import { ArmSchema, type Arm } from './record'
 import {
@@ -56,19 +61,29 @@ const AgentIdsSchema = NON_EMPTY.transform((value) => [
 const spends = (value: string | undefined): boolean =>
   spendsRealMoney({ [SPEND_ENV]: value })
 
-// AN UNPINNED SWEEP ARRIVES AS AN EMPTY STRING, not as an absent variable,
-// and reading one as malformed would defeat the failure policy it implements.
-// The workflow resolves the mart's Delta version in its own step and publishes
-// it as a step output; when the mart cannot be read that output is empty, and
-// Actions still exports the `env:` entry built from it. The policy is to sweep
-// unpinned and say so in the report — most agents never touch the mart, so
-// refusing a whole paid sweep over an unpinnable table is the wrong trade — so
-// blank reads here exactly as "not set" does.
+// A VALUE A PLAN STEP RESOLVED ARRIVES AS AN EMPTY STRING WHEN IT COULD NOT
+// BE RESOLVED, not as an absent variable, and reading one as malformed would
+// refuse the arm. Actions exports every `env:` entry a job declares, including
+// the ones built from a step output that came back empty, so
+// `NON_EMPTY.optional()` is the wrong shape for all of them: it would kill a
+// paid sweep over a value the policy says to proceed without.
 //
-// The shape is NOT re-checked here. `assertDeltaPin` refuses a non-numeric
-// version before the first turn of the run that would splice it into SQL, and
-// a second regex in this file is one more thing to drift from it.
-const OPTIONAL_VERSION = z
+// The Delta version is the case that established this. The workflow resolves
+// it in a step of its own and publishes it as a step output; when the mart
+// cannot be read that output is empty, and the policy is to sweep unpinned and
+// say so in the report, because most agents never touch the mart and refusing
+// a whole paid sweep over an unpinnable table is the wrong trade.
+//
+// The fixture identifiers below take the same shape for a sharper reason: `''`
+// is not merely accepted downstream, it SUBSTITUTES — a case would be
+// dispatched with `organization_slug: ''`, which the agent's own `minLength`
+// refuses twenty minutes in. Read as "not supplied", the missing value is
+// instead named by `assertNoPlaceholders` before the first dispatch.
+//
+// No shape is re-checked here, for any of them. `assertDeltaPin` refuses a
+// non-numeric version before the first turn of the run that would splice it
+// into SQL; a second regex in this file is one more thing to drift from it.
+const BLANK_IS_UNSET = z
   .string()
   .transform((value) => value.trim())
   .transform((value) => (value === '' ? undefined : value))
@@ -109,7 +124,23 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   // an artifact of the voter data moving between the two captures. It comes
   // from outside the arm processes for exactly that reason: an arm that read
   // the current version itself would read a different one.
-  JUDGE_DATA_VERSION: OPTIONAL_VERSION,
+  JUDGE_DATA_VERSION: BLANK_IS_UNSET,
+  // THE ONE DEV FIXTURE both arms substitute into a background case's params,
+  // threaded for exactly the reason above: an arm that minted its own would
+  // compare two organizations, and every verdict would then be an artifact of
+  // the fixture rather than of the branch. `sweepFixture.ts` mints one per
+  // sweep outside the arms and `fixtureEnv` builds these three entries from
+  // the same constant they are keyed by here.
+  //
+  // All three optional, because most sweeps need none of them: nine of the
+  // fifteen background lists carry plain data, and every chat list does. A
+  // case that needs one and did not get it is refused by
+  // `assertNoPlaceholders`, which names the token and the case before
+  // anything is dispatched — a better failure than an arm that will not
+  // start over a variable most of its agents never read.
+  [JUDGE_FIXTURE_ENV_NAMES.orgSlug]: BLANK_IS_UNSET,
+  [JUDGE_FIXTURE_ENV_NAMES.raceId]: BLANK_IS_UNSET,
+  [JUDGE_FIXTURE_ENV_NAMES.userEmail]: BLANK_IS_UNSET,
 })
 
 export class SweepEnvError extends Error {}
@@ -171,6 +202,25 @@ export interface ArmEnv extends SweepEnv {
   armCommit: string
   candidateRef?: string
   dataVersion?: string
+  // The identifiers a background case's `{judge…}` tokens are substituted
+  // with. Always present and usually EMPTY — a sweep that minted no fixture
+  // supplies none — so the absence is an empty object rather than an optional
+  // field, and `substituteBackgroundCases` takes it either way.
+  fixtureValues: PlaceholderValues
+}
+
+type ParsedArm = z.infer<typeof ArmEnvSchema>
+
+// Keyed off the vocabulary rather than read back out of the parsed object, so
+// the three variables cannot drift from the three tokens they supply: the same
+// constant names the schema key above and the placeholder below.
+const fixtureValuesFrom = (data: ParsedArm): PlaceholderValues => {
+  const values: PlaceholderValues = {}
+  for (const name of PLACEHOLDER_NAMES) {
+    const value = data[JUDGE_FIXTURE_ENV_NAMES[name]]
+    if (value !== undefined) values[name] = value
+  }
+  return values
 }
 
 const requireStore = (env: SweepEnv, what: string): void => {
@@ -237,6 +287,7 @@ export const parseArmEnv = (
     baseRef: data.JUDGE_BASE_REF,
     candidateSha: data.JUDGE_CANDIDATE_SHA,
     armCommit: data.JUDGE_ARM_COMMIT,
+    fixtureValues: fixtureValuesFrom(data),
     ...(data.JUDGE_CANDIDATE_REF !== undefined && {
       candidateRef: data.JUDGE_CANDIDATE_REF,
     }),

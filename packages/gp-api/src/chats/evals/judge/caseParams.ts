@@ -32,6 +32,18 @@ export const JUDGE_PLACEHOLDERS: Record<PlaceholderName, string> = {
   userEmail: '{judgeUserEmail}',
 }
 
+// Which environment variable supplies which token. Part of the vocabulary
+// rather than of the fixture, because both ends of the thread name it: the
+// plan step that mints a fixture builds the export from it (`fixtureEnv` in
+// sweepFixture.ts), and `ArmEnvSchema` declares the same keys from it
+// (sweepEnv.ts), which is what makes an arm unable to read a variable nobody
+// exports.
+export const JUDGE_FIXTURE_ENV_NAMES = {
+  orgSlug: 'JUDGE_FIXTURE_ORG_SLUG',
+  raceId: 'JUDGE_FIXTURE_RACE_ID',
+  userEmail: 'JUDGE_FIXTURE_USER_EMAIL',
+} as const satisfies Record<PlaceholderName, string>
+
 // Partial: a sweep that needs only an org slug has no reason to mint a race,
 // and a value that is absent must fail at the guard naming what is missing
 // rather than be substituted with something invented here.
@@ -142,12 +154,25 @@ const advise = (found: readonly Finding[]): string => {
         'minted a fixture and exported it'
 }
 
-// The pre-dispatch guard. A background sweep costs roughly $13 and the
-// dispatch Lambda enforces `additionalProperties: false` on a params object
-// it has already accepted the message for, so a literal `{judgeOrgSlug}`
-// would be refused per case after the sweep had committed to running — and
-// arrive as a poll timeout with no explanation. Refusing here instead costs
-// nothing.
+// The pre-dispatch guard, and NOTHING DOWNSTREAM OF IT WOULD CATCH THIS.
+// That was worth checking rather than assuming, because it decides whether
+// this function is a convenience or the only thing standing between a typo
+// and a paid run:
+//
+//   - A token in a VALUE is accepted everywhere. Every one of these params is
+//     a plain string with at most `minLength: 1` — no pattern, no format — and
+//     `{judgeOrgSlug}` is fifteen characters, so the manifest passes it, the
+//     message is accepted, a Fargate task launches, and the agent runs against
+//     an organization that does not exist. A roughly $13 background sweep is
+//     then spent on an artifact that is an error or an invention, on BOTH arms,
+//     and the verdict looks like a real comparison.
+//   - A token in a KEY is refused, but only by fourteen of the sixteen
+//     manifests: `opportunities_and_challenges` and `opposition_research` set
+//     `additionalProperties: true`, so there a stray key is silently dropped
+//     instead.
+//
+// So there is no schema below this line that turns a missing fixture value
+// into a cheap failure. Refusing here does, and costs nothing.
 export const assertNoPlaceholders = (
   caseId: string,
   params: Record<string, JsonValue>,

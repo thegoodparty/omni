@@ -507,8 +507,9 @@ export const buildDispatchMessage = (args: {
   // The backstop for the sweep-wide check in substituteBackgroundCases. That
   // one is what makes a missing fixture value cost nothing; this one is what
   // makes a caller who skipped it unable to send a literal `{judgeOrgSlug}`
-  // to the broker, where `additionalProperties: false` would refuse it as a
-  // poll timeout with no stated cause.
+  // to the broker — which would ACCEPT it, since these params are plain
+  // strings with at most a minLength, launch a task, and bill a run against
+  // an organization that does not exist. See assertNoPlaceholders.
   assertNoPlaceholders(args.agentCase.caseId, args.agentCase.params)
   // The handler rejects any `_`-prefixed params key it does not reserve, and
   // it pops the one it does, so a case that hand-rolls its own envelope key

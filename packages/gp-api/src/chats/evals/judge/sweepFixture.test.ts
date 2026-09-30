@@ -1,17 +1,41 @@
 import { describe, expect, it } from 'vitest'
-import { substituteBackgroundCases } from './caseParams'
+import {
+  JUDGE_FIXTURE_ENV_NAMES,
+  substituteBackgroundCases,
+} from './caseParams'
 import type { JsonValue } from './record'
+import { parseArmEnv } from './sweepEnv'
 import {
   deleteJudgeFixture,
   describeFixtureEnv,
   fixtureEnv,
-  fixtureValuesFromEnv,
-  JUDGE_FIXTURE_ENV_NAMES,
   JUDGE_FIXTURE_RACE,
   JudgeFixtureError,
   mintJudgeFixture,
   type FixtureApi,
 } from './sweepFixture'
+
+// The rest of an arm's environment, so what these tests vary is the fixture
+// export and nothing else. The reading half of the thread is `parseArmEnv`:
+// blank-means-unset is defined there, once, for these three and the Delta
+// version together, and sweepEnv.test.ts covers that rule directly. What is
+// proven here is that the EXPORTING half feeds it — a rename on either side
+// shows up as an identifier that does not come back.
+const SHA = 'b'.repeat(40)
+
+const armEnv = (over: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
+  JUDGE_ARM: 'candidate',
+  JUDGE_SWEEP_ID: 'swp_1',
+  JUDGE_AGENTS: 'top_community_issues',
+  JUDGE_BASE_REF: 'universal-judge',
+  JUDGE_CANDIDATE_SHA: SHA,
+  JUDGE_ARM_COMMIT: SHA,
+  JUDGE_RECORDS_DIR: '/tmp/judge',
+  ...over,
+})
+
+const valuesInArm = (exported: Record<string, string>) =>
+  parseArmEnv(armEnv(exported)).fixtureValues
 
 const ORG_SLUG = 'eo-0192e4a0-1f00-7000-8000-0000000c0de1'
 const RACE_ID = 'gAAAAABkRaCeIdFromBallotReady'
@@ -183,25 +207,13 @@ describe('reaching both arms', () => {
   }
 
   it('round-trips every identifier through the environment', () => {
-    expect(fixtureValuesFromEnv(fixtureEnv(IDENTIFIERS))).toEqual(IDENTIFIERS)
+    expect(valuesInArm(fixtureEnv(IDENTIFIERS))).toEqual(IDENTIFIERS)
   })
 
   it('names one variable per placeholder', () => {
     expect(Object.keys(fixtureEnv(IDENTIFIERS))).toEqual(
       Object.values(JUDGE_FIXTURE_ENV_NAMES),
     )
-  })
-
-  // Absent rather than empty: '' would be substituted and dispatched as a
-  // params object the agent's own minLength refuses, instead of failing at
-  // the guard naming the token.
-  it('omits a variable that is unset or blank', () => {
-    expect(
-      fixtureValuesFromEnv({
-        [JUDGE_FIXTURE_ENV_NAMES.orgSlug]: ORG_SLUG,
-        [JUDGE_FIXTURE_ENV_NAMES.raceId]: '  ',
-      }),
-    ).toEqual({ orgSlug: ORG_SLUG })
   })
 
   it('says which variable supplies which token', () => {
@@ -228,14 +240,8 @@ describe('reaching both arms', () => {
       },
     ]
 
-    const base = substituteBackgroundCases(
-      cases,
-      fixtureValuesFromEnv({ ...exported }),
-    )
-    const candidate = substituteBackgroundCases(
-      cases,
-      fixtureValuesFromEnv({ ...exported }),
-    )
+    const base = substituteBackgroundCases(cases, valuesInArm(exported))
+    const candidate = substituteBackgroundCases(cases, valuesInArm(exported))
 
     expect(JSON.stringify(candidate)).toBe(JSON.stringify(base))
     expect(base.map((one) => one.params)).toEqual([

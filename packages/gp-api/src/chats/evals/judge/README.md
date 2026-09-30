@@ -173,10 +173,14 @@ list to 20 or to lower the floor is still open.** Do not read the shortfall as
 a decision either way.
 
 A background case's `params` is what the dispatch Lambda is called with, and
-every manifest sets `additionalProperties: false`, so a wrong key is refused
-before a Fargate task launches — nothing is spent and nothing runs. That makes
-validating a list against its manifest the cheapest check here, and it needs
-no AWS access:
+fourteen of the sixteen manifests set `additionalProperties: false`, so a
+wrong key is usually refused before a Fargate task launches — nothing is spent
+and nothing runs. The exceptions are `opportunities_and_challenges` and
+`opposition_research`, which accept params they do not declare, so on those
+two a mistyped key is billed and silently ignored instead.
+`backgroundCaseLists.test.ts` pins the flag per agent and checks undeclared
+keys for all fifteen either way. That makes validating a list against its
+manifest the cheapest check here, and it needs no AWS access:
 
 ```bash
 uv run --with jsonschema --with referencing python   # Draft7Validator
@@ -241,13 +245,16 @@ supplied" — the same rule `JUDGE_DATA_VERSION` needed, and for a harder
 reason: `''` would substitute cleanly and dispatch a params object the agent's
 own `minLength` refuses.
 
-**An unsubstituted token fails before the first dispatch.**
-`substituteBackgroundCases` checks the WHOLE list and returns none of it if
-any case is short a value, and `buildDispatchMessage` refuses one as a
-backstop. Both matter because the dispatch Lambda enforces
-`additionalProperties: false` on params it has already accepted the message
-for: a literal `{judgeOrgSlug}` would be refused per case, after a roughly
-\$13 sweep had committed to running, and would surface only as a poll timeout.
+**An unsubstituted token fails before the first dispatch, and nothing further
+down would catch it.** `substituteBackgroundCases` checks the WHOLE list and
+returns none of it if any case is short a value, and `buildDispatchMessage`
+refuses one as a backstop. There is no third line of defence: every one of
+these params is a plain string with at most `minLength: 1` — no pattern, no
+format — so a literal `{judgeOrgSlug}` is fifteen valid characters. The
+manifest passes it, the message is accepted, a task launches, and a roughly
+\$13 sweep is spent running both arms against an organization that does not
+exist. The artifacts come back as errors or inventions, they come back
+_identical_, and the verdict looks like a real comparison.
 
 Only `organization_slug` is a real lookup. All three manifests call `race_id`
 a trace and idempotency identifier the agent does not reason over, and

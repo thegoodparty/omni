@@ -8,10 +8,9 @@ import {
 import { Headers, MimeTypes } from 'http-constants-ts'
 import { JsonValueSchema, type JsonValue } from './record'
 import {
+  JUDGE_FIXTURE_ENV_NAMES,
   JUDGE_PLACEHOLDERS,
   PLACEHOLDER_NAMES,
-  type PlaceholderName,
-  type PlaceholderValues,
 } from './caseParams'
 
 // The per-sweep fixture for the six background agents whose input_schema names
@@ -217,17 +216,16 @@ export const deleteJudgeFixture = async (
 
 // The two arms are two processes in two worktrees, so nothing in memory here
 // reaches both. The identifiers therefore travel the way JUDGE_DATA_VERSION
-// does in sweepEnv.ts: resolved once outside the arms, exported into each
-// one's environment, read back in. An arm that minted its own fixture would
-// compare two organizations, and every verdict would then be an artifact of
-// the fixture rather than of the branch.
-export const JUDGE_FIXTURE_ENV_NAMES: Record<PlaceholderName, string> = {
-  orgSlug: 'JUDGE_FIXTURE_ORG_SLUG',
-  raceId: 'JUDGE_FIXTURE_RACE_ID',
-  userEmail: 'JUDGE_FIXTURE_USER_EMAIL',
-}
-
-// What the plan step exports so both arms are handed the same values.
+// does: resolved once outside the arms, exported into each one's environment,
+// read back by `parseArmEnv` as `ArmEnv.fixtureValues`. An arm that minted its
+// own fixture would compare two organizations, and every verdict would then be
+// an artifact of the fixture rather than of the branch.
+//
+// This is the exporting half only. The reading half is `ArmEnvSchema` in
+// sweepEnv.ts, which is where the arm's whole environment is declared and
+// where blank-means-unset is defined once for these three and the Delta
+// version together — a second reader here would be a second contract for what
+// an arm may read.
 export const fixtureEnv = (
   identifiers: JudgeFixtureIdentifiers,
 ): Record<string, string> => ({
@@ -235,21 +233,6 @@ export const fixtureEnv = (
   [JUDGE_FIXTURE_ENV_NAMES.raceId]: identifiers.raceId,
   [JUDGE_FIXTURE_ENV_NAMES.userEmail]: identifiers.userEmail,
 })
-
-// Absent rather than empty for a variable nobody set, so a placeholder whose
-// value never arrived is caught by assertNoPlaceholders naming the token,
-// instead of being substituted with '' and dispatched as a params object the
-// agent's own minLength refuses.
-export const fixtureValuesFromEnv = (
-  source: NodeJS.ProcessEnv = process.env,
-): PlaceholderValues => {
-  const values: PlaceholderValues = {}
-  for (const name of PLACEHOLDER_NAMES) {
-    const value = source[JUDGE_FIXTURE_ENV_NAMES[name]]?.trim()
-    if (value !== undefined && value !== '') values[name] = value
-  }
-  return values
-}
 
 // Which environment variable supplies which token, for the sentence a sweep
 // operator reads when one of them is missing.
