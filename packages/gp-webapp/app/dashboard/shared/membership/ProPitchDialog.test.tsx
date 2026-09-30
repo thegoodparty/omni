@@ -76,7 +76,9 @@ describe('ProPitchDialog', () => {
       EVENTS.ProUpgrade.Membership.PitchJoin,
     )
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Pro',
+    )
   })
 
   it('closes without navigating when the dialog is dismissed', async () => {

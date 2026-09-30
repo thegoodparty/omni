@@ -11,7 +11,6 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
-import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { teamQueryKey } from 'app/dashboard/team/team.util'
 import { useTeamOptions } from 'app/dashboard/door-knocking/native/useTeamOptions'
@@ -41,20 +40,15 @@ interface TurfAssigneeMenuProps {
 // whoever is there rather than adding to them, and a turf that somehow
 // holds two assignees shows the first and collapses to one on the next
 // pick. Multi-assignee is a phone-banking shape, not a turf's.
-//
-// Flag-gated exactly as the section it replaces was: an org without team
-// accounts has no roster to pick from and saw no assign control here
-// before.
 export const TurfAssigneeMenu = ({
   outreachId,
   onMenuOpenChange,
 }: TurfAssigneeMenuProps) => {
-  const { enabled: flagEnabled } = useTeamAccountsFlag(false)
   const organization = useOrganization()
   const orgSlug = organization?.slug
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
-  const team = useTeamOptions(flagEnabled ? orgSlug : undefined)
+  const team = useTeamOptions(orgSlug)
 
   const assigneesQuery = useQuery({
     queryKey: outreachAssigneesQueryKey(outreachId),
@@ -62,7 +56,6 @@ export const TurfAssigneeMenu = ({
       clientRequest('GET /v1/outreach/:id/assignments', {
         id: String(outreachId),
       }).then((res) => res.data.assignees),
-    enabled: flagEnabled,
   })
   const current = assigneesQuery.data?.[0] ?? null
 
@@ -107,7 +100,7 @@ export const TurfAssigneeMenu = ({
   // Hidden rather than disabled on an org with nobody on it, the same rule
   // the drawing panel's assignee control follows: a control whose only
   // outcome is finding out there is nobody to pick is worse than none.
-  if (!flagEnabled || team.length === 0) return null
+  if (team.length === 0) return null
 
   const label =
     team.find((option) => option.userId === current?.userId)?.label ??

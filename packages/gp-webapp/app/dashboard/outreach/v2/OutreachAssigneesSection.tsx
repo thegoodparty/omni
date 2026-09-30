@@ -28,7 +28,6 @@ import {
 import { MoreHorizontalIcon, Trash2Icon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
-import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { ROLE_LABELS, teamQueryKey } from 'app/dashboard/team/team.util'
 import InviteMemberDialog from 'app/dashboard/team/components/InviteMemberDialog'
@@ -55,15 +54,12 @@ interface OutreachAssigneesSectionProps {
 // Manager+ assign/unassign for a self-run list (ENG-11056; the "Assign to"
 // modal is ENG-11059's design correction — every org member is assignable,
 // owner included, not just volunteers), rendered inside the details drawer
-// for nativePhoneBanking/nativeDoorKnocking rows. Gated on win-team-accounts
-// (trackExposure: false — the drawer read isn't the flag's own treatment
-// surface) and returns null off. Volunteers never reach this drawer at all,
-// so there is no second, role-based gate here beyond the flag.
+// for nativePhoneBanking/nativeDoorKnocking rows. Volunteers never reach this
+// drawer at all.
 export const OutreachAssigneesSection = ({
   outreachId,
   outreachName,
 }: OutreachAssigneesSectionProps) => {
-  const { ready: flagReady, enabled: flagEnabled } = useTeamAccountsFlag(false)
   const organization = useOrganization()
   const orgSlug = organization?.slug
   const queryClient = useQueryClient()
@@ -86,7 +82,6 @@ export const OutreachAssigneesSection = ({
       clientRequest('GET /v1/outreach/:id/assignments', {
         id: String(outreachId),
       }).then((res) => res.data.assignees),
-    enabled: flagEnabled,
   })
 
   // Reads the same cache key TeamPage does — sharing it means a candidate who
@@ -97,7 +92,7 @@ export const OutreachAssigneesSection = ({
     queryKey: teamQueryKey(orgSlug),
     queryFn: () =>
       clientRequest('GET /v1/organizations/team', {}).then((res) => res.data),
-    enabled: flagEnabled && !!orgSlug,
+    enabled: !!orgSlug,
   })
 
   const invalidateAll = () =>
@@ -175,8 +170,6 @@ export const OutreachAssigneesSection = ({
       })
     }
   }
-
-  if (!flagReady || !flagEnabled) return null
 
   const assignees = assigneesQuery.data ?? []
   const assignedUserIds = new Set(assignees.map((a) => a.userId))

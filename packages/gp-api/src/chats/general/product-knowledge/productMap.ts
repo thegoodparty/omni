@@ -380,8 +380,6 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
     does: 'GoodParty.org’s own canvassing tool: build a walk list, get turf on a map, and log what happened at each door.',
     inside: [
       'Reached from the Door knocking card on the outreach hub, not from a tab of its own',
-      'Custom door-knocking surveys, so volunteers log answers in the field',
-      'Summaries of interactions by day and by survey answer',
       'A campaign can hold several turfs. Mark the whole campaign done, or one turf at a time, from its row in outreach history. Done does not require every door to have been knocked',
       'Creating a campaign ends at drawing the turfs. The walking route is planned the first time somebody starts knocking a turf, which is also when they are asked whether they are walking or driving',
       'Each turf can be handed to a different person, from its card in the campaign’s row in outreach history',

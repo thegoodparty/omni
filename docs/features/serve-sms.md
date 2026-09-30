@@ -731,17 +731,15 @@ expansion.** Every theme-shaped item below is a polls-layer question in slice
   (`packages/gp-webapp/docs/feature-flags.md`). Two gates, not ten:
   * **gp-api**: both Serve SMS routes on `outreachServeSms.controller.ts`
     (`sms/draft` and `sms`) check `FeaturesService.isFeatureEnabled` and 404
-    when off, the same shape `outreachAssignment.controller.ts` uses for
-    `win-team-accounts`.
+    when off.
   * **webapp**: a wrapper hook in `app/shared/experiments/serveSmsFlag.ts`,
     consumed where the channel card mounts.
 
   **Everything downstream is deliberately ungated.** Delivery, ingest, the
   purchase handler and the results readers are all unreachable without an
   `Outreach` row, and the create route is the only writer — so gating the
-  writer makes the rest inert. This is the reasoning `win-team-accounts`
-  records for gating only its create route, and gate-everywhere would be
-  churn that protects nothing extra.
+  writer makes the rest inert, and gate-everywhere would be churn that
+  protects nothing extra.
 
   The flag gates rollout, not authorization. `@UseElectedOffice()` remains the
   real access check on every route, per the docs' own anti-pattern note.

@@ -66,7 +66,7 @@ const EXCLUDED_STATUS_PROSE = EXCLUDED_STATUS_CODES.join('/')
 // knowing before anyone moves it. Its no-status completions are not the
 // gateway: over the 30 days to 2026-09-17, the 24 on POST /v1/mcp land at
 // 30001-30007ms (19 of them), at exactly 30000ms (4), and one at 28753ms,
-// while POST /v1/ecanvasser/:id/sync in the same window sits at
+// while the gateway-severed timeouts in the same window sit at
 // 118733-120007ms. A cluster that tight on 30s is the calling MCP client's own
 // request deadline expiring, not infrastructure severing the connection.
 //

@@ -12,23 +12,25 @@ Next.js 15 (App Router) + React 19 + Radix UI + Tailwind 3 app that renders **pu
 npm run dev              # next dev --turbopack --port 4001
 npm run build            # next build (also runs TS type-checking)
 npm run start            # next start (serve the production build)
+npm test                 # vitest run
 npm run lint             # eslint . (ESLint CLI, flat config)
 npm run lint:fix         # eslint . --fix (mutates files — stage first)
 npm run format           # prettier -c .   (read-only check)
 npm run format:fix       # prettier --write . (mutates files — stage first)
 ```
 
-There is **no `npm test` script** and no test framework configured. Don't add a stub `test` script — a script that does nothing (or always passes) is worse than no script.
+Vitest runs the handful of tests this package has (`*.test.ts`, node environment, config in `vitest.config.ts`). It is not a broad suite — the rendering is covered by `next build` and by gp-webapp's tests — so only add a test here when the behaviour cannot be seen from either, as with the client-address forwarding in `app/api/`.
 
 There is **no `npm run typecheck` script.** Type errors surface during `next build` and through the editor's TS server. If you need a one-shot check, run `npx tsc --noEmit`.
 
 ## Verify
 
-Reproduce the CI **Validate** job (`.github/workflows/candidate-sites.yml`) before opening a PR. There is no test step (no test framework here). From the repo root:
+Reproduce the CI **Validate** job (`.github/workflows/candidate-sites.yml`) before opening a PR. From the repo root:
 
 ```bash
 npm run lint -w packages/candidate-sites     # eslint . --max-warnings 0
 npm run format -w packages/candidate-sites   # prettier -c . (read-only check)
+npm test -w packages/candidate-sites         # vitest run
 npm run build -w packages/candidate-sites    # next build (build smoke + typecheck)
 ```
 
@@ -61,7 +63,8 @@ app/
 ├── globals.css                         # Tailwind base + globals
 ├── api/
 │   ├── contact-form/[vanityPath]/route.ts   # proxies POST → gp-api /websites/{path}/contact-form
-│   └── websites/[vanityPath]/track-view/route.ts  # proxies POST → gp-api /websites/{path}/track-view
+│   ├── websites/[vanityPath]/track-view/route.ts  # proxies POST → gp-api /websites/{path}/track-view
+│   └── clientAddressForwarding.test.ts      # both proxies forward the visitor's address
 └── [vanityPath]/
     ├── page.tsx                        # vanity-path entry — resolves by /{vanityPath}
     ├── preview/                        # iframe preview route — postMessage-driven
@@ -70,6 +73,7 @@ app/
     └── types/website.type.ts           # Website shape
 helpers/
 ├── fetchHelper.ts                      # thin fetch wrapper around API_ROOT — returns T | null
+├── clientAddress.ts                    # visitor address for the api/ proxies to forward
 └── validations.ts
 appEnv.ts                               # API_ROOT + IS_PROD/IS_PREVIEW/IS_DEV/IS_LOCAL flags
 next.config.ts                          # image domains + global `X-Robots-Tag: noindex`
@@ -93,6 +97,7 @@ Both entry points (`app/page.tsx` for custom-domain, `app/[vanityPath]/page.tsx`
 
 - Never add `'use client'` to a page or layout that's an `async` function. Client components can't be async, so anything that `await`s `params` / `searchParams` / `headers()` (or anything else) must remain a server component. If a client subtree needs that data, fetch it in the server component and pass it down as props.
 - Never call `gp-api` directly from a browser-only component. Use the proxy routes under `app/api/` so `NEXT_PUBLIC_API_BASE` (which is exposed to the client by name) doesn't end up baked into a fetch URL with no observability or auth control.
+- Never drop `clientAddressHeaders(request)` from a proxy under `app/api/`. gp-api meters those public routes per IP, and without the forwarded address every visitor of every site arrives as this function's egress address and shares one bucket.
 - Never remove the `X-Robots-Tag` header in `next.config.ts` without confirming with the team — it's deliberate.
 - Never check in env values. Only `.env.example` (when added) belongs in git; real values go in Vercel project settings or local `.env.local`.
 - Never edit a file under `ai-rules/` directly — it's a submodule that points at `thegoodparty/ai-rules`. Update it via `git -C ai-rules pull` (and stage the new pin in the parent).

@@ -57,7 +57,6 @@ import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { CampaignIdeologyModule } from '@/campaignIdeology/campaignIdeology.module'
 import { RecommendedListsModule } from '@/recommendedLists/recommendedLists.module'
-import { EcanvasserIntegrationModule } from '@/vendors/ecanvasserIntegration/ecanvasserIntegration.module'
 import { PeerlyModule } from '@/vendors/peerly/peerly.module'
 import { SegmentModule } from '@/vendors/segment/segment.module'
 import { VotersModule } from '@/voters/voters.module'
@@ -72,6 +71,7 @@ import { loggerModule } from './observability/logging/logger-module'
 // circular-dependency "undefined at runtime" error in CampaignsService.
 import { GeneralChatsModule } from '@/chats/general/general-chats.module'
 import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
+import { DevEnvModule } from '@/devEnv/devEnv.module'
 
 @Module({
   imports: [
@@ -104,7 +104,6 @@ import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
     ErrorLoggerModule,
     CrmModule,
     SubscribeModule,
-    EcanvasserIntegrationModule,
     ScheduledMessagingModule,
     OutreachModule,
     OutreachProposalModule,
@@ -137,6 +136,7 @@ import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
     BriefingChatsModule,
     GeneralChatsModule,
     TestFixturesModule,
+    DevEnvModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,
     // because it needs a real SQS queue to work.

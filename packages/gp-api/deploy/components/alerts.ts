@@ -173,19 +173,14 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * by definition not ours; paging on it means paging for a broken test, which CI
  * already reports.
  *
+ * `dev-env` is `test-fixtures`' twin: it 404s outside dev, it vends local
+ * `.env` values to a contributor setting a laptop up, and a failure there
+ * stalls one person's `npm run setup` — they are looking at the error already.
+ * There is no product surface behind it to page for.
+ *
  * `version` echoes the build version and `queue` is a method literally named
  * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
  * a product route. Nothing downstream depends on either answering.
- *
- * `ecanvasser` is the one entry here that is not a claim about the routes being
- * unimportant — it is a claim about the system being over. It mirrors a
- * third-party canvassing tool into our Postgres for the control arm of the
- * `native-door-knocking` experiment, and 114 of its 137 prod integrations are
- * already failing to sync against expired or revoked per-candidate API keys.
- * Nobody is going to fix those keys: the whole module is deleted the moment the
- * flag reaches 100%. Until then its 5xx are a known, accepted, un-actioned
- * state, and paging win-bugs for them trains the rotation to ignore it.
- * This entry goes away with the module.
  *
  * Every entry is now a claim of that kind, which was not true until 2026-09-17.
  * `mcp` sat here because it had no ROUTE_MAP entries at all — its only handler
@@ -199,9 +194,9 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
 export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'health',
   'test-fixtures',
+  'dev-env',
   'version',
   'queue',
-  'ecanvasser',
 ]
 
 /**

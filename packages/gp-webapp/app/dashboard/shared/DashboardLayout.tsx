@@ -5,7 +5,6 @@ import DashboardMenu from './DashboardMenu'
 import DashboardNavHeader from './DashboardNavHeader'
 import { NavHeaderActionSlotContext } from './DashboardNavHeaderAction'
 import { NAV_LABELS, type NavHeaderIconKey } from './navLabels'
-import { EcanvasserProvider } from '@shared/hooks/EcanvasserProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradePrompt } from './ProUpgradePrompt'
@@ -144,38 +143,36 @@ const DashboardLayout = ({
   )
 
   return (
-    <EcanvasserProvider>
-      <SidebarProvider>
-        {!hideMenu && (
-          <Sidebar>
-            <DashboardMenu pathname={currentPath} />
-          </Sidebar>
+    <SidebarProvider>
+      {!hideMenu && (
+        <Sidebar>
+          <DashboardMenu pathname={currentPath} />
+        </Sidebar>
+      )}
+      <SidebarInset className="bg-[#f5f5f5]">
+        {!hideMenu && <MobileMenuTrigger />}
+        <ImpersonationBanner />
+        <ElectedOfficeTermDatesModalController />
+        {navHeader && (
+          <DashboardNavHeader
+            icon={navHeader.icon}
+            label={navHeader.label}
+            centered={navHeader.centered}
+            hasAction={navHeaderActionCount > 0}
+            actionSlotRef={setNavHeaderActionSlot}
+          />
         )}
-        <SidebarInset className="bg-[#f5f5f5]">
-          {!hideMenu && <MobileMenuTrigger />}
-          <ImpersonationBanner />
-          <ElectedOfficeTermDatesModalController />
-          {navHeader && (
-            <DashboardNavHeader
-              icon={navHeader.icon}
-              label={navHeader.label}
-              centered={navHeader.centered}
-              hasAction={navHeaderActionCount > 0}
-              actionSlotRef={setNavHeaderActionSlot}
-            />
+        <NavHeaderActionSlotContext.Provider value={navHeaderActionSlotValue}>
+          {hideChatDock ? (
+            pageBody
+          ) : (
+            <DashboardCampaignManagerChat>
+              {pageBody}
+            </DashboardCampaignManagerChat>
           )}
-          <NavHeaderActionSlotContext.Provider value={navHeaderActionSlotValue}>
-            {hideChatDock ? (
-              pageBody
-            ) : (
-              <DashboardCampaignManagerChat>
-                {pageBody}
-              </DashboardCampaignManagerChat>
-            )}
-          </NavHeaderActionSlotContext.Provider>
-        </SidebarInset>
-      </SidebarProvider>
-    </EcanvasserProvider>
+        </NavHeaderActionSlotContext.Provider>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }
 

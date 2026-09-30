@@ -8,6 +8,7 @@ import {
   Controller,
   Get,
   Query,
+  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
@@ -19,6 +20,7 @@ import {
   GetDistrictNamesDTO,
   GetDistrictTypesDTO,
 } from './schemas/districts.schema'
+import { ElectionsRateLimitGuard } from './guards/electionsRateLimit.guard'
 import { ElectionsService } from './services/elections.service'
 import { RacesService } from './services/races.service'
 
@@ -26,6 +28,7 @@ import { RacesService } from './services/races.service'
 @PublicAccess()
 @UsePipes(ZodValidationPipe)
 @UseInterceptors(ZodResponseInterceptor)
+@UseGuards(ElectionsRateLimitGuard)
 export class ElectionsController {
   constructor(
     private readonly racesService: RacesService,

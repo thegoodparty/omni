@@ -25,7 +25,7 @@ No (keep in the feature module's `schemas/`) if:
 ```
 contracts/src/
 ├── campaigns/
-├── ecanvasser/
+├── doorKnocking/
 ├── shared/
 ├── users/
 ├── generated/    # do not edit by hand — Prisma-derived types

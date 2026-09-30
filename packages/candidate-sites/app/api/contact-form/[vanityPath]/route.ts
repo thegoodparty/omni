@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchHelper } from '@/helpers/fetchHelper'
+import { clientAddressHeaders } from '@/helpers/clientAddress'
 
 export async function POST(
   request: NextRequest,
@@ -13,6 +14,7 @@ export async function POST(
     const result = await fetchHelper(`websites/${vanityPath}/contact-form`, {
       method: 'POST',
       body: formData,
+      headers: clientAddressHeaders(request),
     })
 
     return NextResponse.json({ success: true, data: result })

@@ -10,6 +10,7 @@ import {
   Post,
   Put,
   UsePipes,
+  UseGuards,
   UseInterceptors,
   ForbiddenException,
   Query,
@@ -55,6 +56,8 @@ import {
 } from '../schemas/WebsiteResponse.schema'
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
+import { WebsiteContactFormRateLimitGuard } from '../guards/websiteContactFormRateLimit.guard'
+import { WebsiteTrackViewRateLimitGuard } from '../guards/websiteTrackViewRateLimit.guard'
 import {
   hasRenderableName,
   isBioPublishable,
@@ -512,6 +515,7 @@ export class WebsitesController {
 
   @Post(':vanityPath/contact-form')
   @PublicAccess()
+  @UseGuards(WebsiteContactFormRateLimitGuard)
   async contactForm(
     @Param('vanityPath') vanityPath: string,
     @Body() body: ContactFormSchema,
@@ -529,6 +533,7 @@ export class WebsitesController {
 
   @Post(':vanityPath/track-view')
   @PublicAccess()
+  @UseGuards(WebsiteTrackViewRateLimitGuard)
   async trackWebsiteView(
     @Param('vanityPath') vanityPath: string,
     @Body() { visitorId }: TrackWebsiteViewSchema,
@@ -536,6 +541,10 @@ export class WebsitesController {
     const website = await this.websites.findUniqueOrThrow({
       where: { vanityPath },
     })
+
+    if (website.status !== WebsiteStatus.published) {
+      throw new ForbiddenException()
+    }
 
     return this.siteViews.trackWebsiteView(website.id, visitorId)
   }
