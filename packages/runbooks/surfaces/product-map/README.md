@@ -42,7 +42,7 @@ is real and what is not:
 | Six surfaces across Win and Serve, steps read from each flow's own config | Eight more flows, located by file, not drawn |
 | Every event opens the shared card: verdict, both names, volume, Amplitude | Per-step volume where one event covers many steps |
 | Anchor state on every event: anchored, no anchor, call site unknown, no route | Zones on a page are inferred from `fires_on`, not declared anywhere |
-| Feedback composer and usage tracking, the explorer's, from the shared partials | A snapshot-driven builder; the node model is hand-authored in `map.js` |
+| Feedback composer and usage tracking, the explorer's, from the shared partials | Step extraction; the node model is hand-authored in `map.js` |
 | Eleven undrawn flows placed under their areas as "Still being built" placeholders | Their steps, read out of the files each placeholder names |
 
 A placeholder is `building(name, route, src, note?)` in the `TREE`. It renders as a
@@ -56,19 +56,21 @@ and its refresh mechanism is the one `event_anchors.json` already uses.
 
 ## Data
 
-Two inputs, deliberately.
+Both inputs are refreshed by the governance run, so the map moves when the explorer does.
 
-- `data/product-map.json`: the map's own rows. `ev` is `{event_type: [status, count_30d,
-  count_total, series, url, description, fires_on, pr, instrumented, last_seen,
-  anchor_state, newer_than_snapshot, display_name]}`. Seeded from the 2026-09-24 explorer snapshot plus the 2026-09-28 health run for the
-  three events newer than the snapshot. Positional because the prototype was.
 - The explorer snapshot, `packages/prototypes/app/p/analytics-event-explorer/data/event-explorer.json`,
-  whole, because the page searches every event the explorer does. The cards come from it,
-  so the card a person opens here is the card they would open there.
+  whole. The page searches every event in it, and `map.js` builds each step's row
+  (status, volume, series, route) from the same events its cards render, so a step and
+  the card that opens under it cannot disagree.
+- `scripts/python/instrumentation_data/event_anchors.json`, for the anchor tag only:
+  `build.py` reduces each record to ok / none / nosite / noroute. An anchor still under
+  review counts, because the tag asks whether any record of where it fires exists. The
+  route itself follows the explorer, which shows accepted anchors only.
 
-Three events are on the map and not in the explorer snapshot (they postdate it). Their
-card says "no catalog entry" and the row carries a "new since snapshot" tag; that is
-correct, not a bug.
+An event named in `map.js` and missing from the snapshot shows "not in snapshot" on its
+row. `test_every_event_the_map_draws_is_in_the_snapshot` fails when that set grows beyond
+the events newer than the committed snapshot, which it lists; empty that list once the
+snapshot catches up.
 
 ## Rebuilding and publishing
 
@@ -81,6 +83,10 @@ Needs nothing: no uv, no credentials. Then publish `product-map.html` to the URL
 profile scope, `comments` composer only). Passing `capabilities` replaces the whole
 declaration and kills tracking and the feedback button.
 
+The explorer's republish routine (`trig_01E8wipVnESi9uqoEBWZXFKY`, Mon and Thu 12:00 and
+13:00 UTC) republishes this page too, under the same guard: only when the committed
+snapshot's `refreshed_at` is strictly newer than the live page's.
+
 ## Shared with the other two pages
 
 Palette, event card, the nav bar and the usage/feedback script come from `../shared/` and
@@ -92,9 +98,8 @@ for two event generations live on one step. Do not restyle the card here; change
 Its pill buttons are `.pillbtn`, not `.chip`, because `.chip` is the shared card's tone
 badge and the two collided.
 
-The map page does not refresh itself (DATA-2582), so a change to the explorer template
-reaches it only when it is rebuilt and republished by hand. Rebuild both after touching
-the template.
+A change to the explorer template reaches this page on the next scheduled republish
+that has a newer snapshot, or when it is republished by hand.
 
 ## Things that will surprise you
 
