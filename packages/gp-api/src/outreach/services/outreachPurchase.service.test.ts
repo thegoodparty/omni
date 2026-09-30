@@ -760,9 +760,12 @@ describe('OutreachPurchaseHandlerService', () => {
         outreachId: '123',
       })
 
+      // The third argument is what paid for the send, carried so a finalize
+      // failure line names the charge somebody may have to refund.
       expect(mockOutreachService.finalizeOutreachPurchase).toHaveBeenCalledWith(
         123,
         111,
+        'pi_draft',
       )
       expect(mockCampaignsService.redeemFreeTexts).toHaveBeenCalledWith(111)
 
