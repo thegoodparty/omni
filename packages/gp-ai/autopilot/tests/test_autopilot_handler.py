@@ -328,6 +328,23 @@ def test_missing_webhook_secret_returns_401_and_no_self_invoke(monkeypatch, fake
     assert fake_lambda.invoke_calls == []
 
 
+def test_webhook_secret_is_read_from_the_ai_secrets_bundle(monkeypatch, fake_lambda):
+    class FakeSecretsClient:
+        def get_secret_value(self, SecretId):
+            assert SecretId == "AI_SECRETS_TEST"
+            return {"SecretString": json.dumps({"AUTOPILOT_CLICKUP_WEBHOOK_SECRET": TEST_SECRET})}
+
+    monkeypatch.delenv("AUTOPILOT_CLICKUP_WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("AI_SECRETS_NAME", "AI_SECRETS_TEST")
+    monkeypatch.setattr(handler.ai_secrets, "_secrets_client", FakeSecretsClient)
+    event = make_event(status_updated_body())
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert len(fake_lambda.invoke_calls) == 1
+
+
 def test_invalid_json_body_returns_400_and_no_self_invoke(fake_lambda):
     event = {"headers": {"x-signature": sign("not json")}, "body": "not json"}
 
