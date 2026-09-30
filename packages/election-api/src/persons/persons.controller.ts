@@ -5,8 +5,10 @@ import {
   Query,
   Req,
   UnauthorizedException,
+  UseInterceptors,
 } from '@nestjs/common'
 import { FastifyRequest } from 'fastify'
+import { BulkListConcurrencyInterceptor } from 'src/shared/interceptors/bulk-list-concurrency.interceptor'
 import { PersonsService } from './persons.service'
 import {
   GetPersonByIdParamsDTO,
@@ -22,6 +24,12 @@ type MaybeAuthenticatedRequest = FastifyRequest & { m2mToken?: unknown }
 export class PersonsController {
   constructor(private readonly personsService: PersonsService) {}
 
+  // Bound on this route only. A whole state here is multi-megabyte and takes
+  // seconds, and enough of them at once empties the task's Prisma pool and
+  // starves every other read — which is how the public voter-density heat map
+  // came to 502. The point reads below are what that protects, so they are
+  // deliberately not throttled.
+  @UseInterceptors(BulkListConcurrencyInterceptor)
   @Get()
   async getPersons(
     @Query() filterDto: PersonFilterDto,
