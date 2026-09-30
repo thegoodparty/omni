@@ -1,26 +1,29 @@
 #!/usr/bin/env bash
 #
 # setup.sh — one idempotent command from fresh clone to a running, seeded
-# local stack (gp-api on :3000, gp-webapp on :4000). Phase 1 of the bootstrap
-# epic: secrets come from `--from <path-to-a-working-checkout>`; a later
-# phase replaces that with a vending endpoint WITHOUT changing anything else
-# in this script.
+# local stack (gp-api on :3000, gp-webapp on :4000). Secrets default to the
+# GitHub OAuth device flow (read:org) against gp-api's dev-env vending
+# endpoint, so a fresh laptop needs zero human credential hand-off;
+# `--from <path>` remains as an escape hatch and still takes precedence.
 #
 # Usage:
-#   scripts/setup.sh [--from <path>] [--force] [--secrets-only]
-#                    [--user-state <state>]
+#   scripts/setup.sh [--from <path>] [--api-url <url>] [--force]
+#                    [--secrets-only] [--user-state <state>]
 #
-#   --from <path>     A working omni checkout to copy real .env values from.
-#                     Required only when this checkout has no valid .env yet.
+#   --from <path>     A working omni checkout to copy real .env values from,
+#                     instead of the GitHub device flow (takes precedence).
+#   --api-url <url>   Dev gp-api base URL the device flow vends bundles
+#                     from. Defaults to https://gp-api-dev.goodparty.org.
 #   --force           Overwrite an existing-but-invalid .env, and skip the
 #                     confirmation prompt before wiping a non-empty local DB.
-#   --secrets-only    Run only the secrets step (plan/copy/merge/validate/
-#                     write .env files), then exit 0 — no npm ci, no docker,
-#                     no migrate, no dev.sh. Lets another script (e.g.
-#                     scripts/worktree-setup.sh) reuse this step without
-#                     re-implementing it. Assumes node_modules already exists
-#                     (the caller's own install step, not this one, provides
-#                     it) since the secrets step shells out via `npx tsx`.
+#   --secrets-only    Run only the secrets step (plan/copy-or-vend/merge/
+#                     validate/write .env files), then exit 0 — no npm ci,
+#                     no docker, no migrate, no dev.sh. Lets another script
+#                     (e.g. scripts/worktree-setup.sh) reuse this step
+#                     without re-implementing it. Assumes node_modules
+#                     already exists (the caller's own install step, not
+#                     this one, provides it) since the secrets step shells
+#                     out via `npx tsx`.
 #   --user-state <state>
 #                     Product state for the login this script seeds at the
 #                     end (default free-win; see
@@ -35,6 +38,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=scripts/setup-config.sh
+source "$ROOT/scripts/setup-config.sh"
 
 # The packages this script provisions locally: gp-api and gp-webapp, spelled
 # out per-package below rather than looped over an associative array — macOS
@@ -51,6 +56,7 @@ GP_API_ENV="$ROOT/packages/gp-api/.env"
 GP_WEBAPP_ENV="$ROOT/packages/gp-webapp/.env.local"
 
 FROM=""
+API_URL="https://gp-api-dev.goodparty.org"
 FORCE=false
 SECRETS_ONLY=false
 USER_STATE="free-win"
@@ -58,6 +64,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --from)
       FROM="$2"
+      shift 2
+      ;;
+    --api-url)
+      API_URL="$2"
       shift 2
       ;;
     --force)
@@ -73,7 +83,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     -h | --help)
-      sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -197,19 +207,20 @@ need_from=false
 [ "$GP_API_ACTION" = "write" ] && need_from=true
 [ "$GP_WEBAPP_ACTION" = "write" ] && need_from=true
 
-if [ "$need_from" = true ] && [ -z "$FROM" ]; then
-  missing=""
-  [ "$GP_API_ACTION" = "write" ] && missing="$missing gp-api"
-  [ "$GP_WEBAPP_ACTION" = "write" ] && missing="$missing gp-webapp"
-  echo "ERROR: no valid .env for:$missing — and no --from given." >&2
-  echo "Provide --from <path-to-a-working-checkout> — a teammate's omni checkout" >&2
-  echo "that already has real vendor keys in its .env files, e.g.:" >&2
-  echo "  npm run setup -- --from ~/dev/omni" >&2
-  echo "No files were written." >&2
-  exit 1
-fi
+missing=""
+[ "$GP_API_ACTION" = "write" ] && missing="$missing gp-api"
+[ "$GP_WEBAPP_ACTION" = "write" ] && missing="$missing gp-webapp"
 
-if [ "$need_from" = true ]; then
+# TMP_ENV_DIR is created here (not at the top of 3/8) because the device
+# flow below, when it runs, needs somewhere to stage vended bundles before
+# 3/8's build_one merges them — same "nothing real touched until everything
+# validates" invariant as 3/8 itself, just started one step earlier.
+TMP_ENV_DIR="$(mktemp -d)"
+
+# Where secrets for a package that needs (re)building come from, in order:
+#   1. --from <path>     explicit escape hatch; still works, still wins.
+#   2. GitHub device flow  the default — no human credential hand-off.
+if [ "$need_from" = true ] && [ -n "$FROM" ]; then
   indent "copying untracked .env files from $FROM"
   # Mirrors scripts/worktree-setup.sh, one level deeper (e2e-tests/.env):
   # untracked .env* only
@@ -231,17 +242,52 @@ if [ "$need_from" = true ]; then
       fi
     done
   done
+elif [ "$need_from" = true ]; then
+  if [ -z "$GITHUB_OAUTH_CLIENT_ID" ]; then
+    echo "ERROR: no valid .env for:$missing — and no --from given." >&2
+    echo "GitHub OAuth App not registered yet, so the device flow can't run." >&2
+    echo "Provide --from <path-to-a-working-checkout> — a teammate's omni" >&2
+    echo "checkout that already has real vendor keys in its .env files, e.g.:" >&2
+    echo "  npm run setup -- --from ~/dev/omni" >&2
+    echo "Or see the epic's ops prerequisites for registering the OAuth App." >&2
+    echo "No files were written." >&2
+    exit 1
+  fi
+  indent "no --from given; authorizing via the GitHub device flow for:$missing"
+  # The device-flow CLI validates the vending response against
+  # @goodparty_org/contracts, whose dist/ does not exist yet on a fresh
+  # clone (the main build step comes later). Idempotent and ~seconds when
+  # already built; only this branch needs it this early.
+  indent "building contracts (the device flow validates against its schema)"
+  npm run build -w packages/contracts >/dev/null
+  # $missing is a bash word-split list of literal package names this script
+  # built above ("gp-api gp-webapp"), never external input — safe unquoted.
+  # shellcheck disable=SC2086
+  if ! npx tsx "$ROOT/scripts/setup/lib/cli.ts" device-flow \
+    "$GITHUB_OAUTH_CLIENT_ID" "$API_URL" "$TMP_ENV_DIR" $missing; then
+    echo "ERROR: could not fetch dev env bundles via the GitHub device flow." >&2
+    echo "Re-run with --from <path-to-a-working-checkout> instead, or see" >&2
+    echo "the epic's ops prerequisites for help." >&2
+    echo "No files were written." >&2
+    exit 1
+  fi
 fi
 
 log "[3/8] Writing/completing .env files"
-TMP_ENV_DIR="$(mktemp -d)"
 
 # Builds into a temp file and validates, but does not move it into place yet
 # — exits the whole script (see plan_action's comment above) if the merged
 # env still doesn't validate, before anything real has been touched.
+# $device_file, when it exists, is the device flow's vended bundle for
+# this package (staged above); it takes precedence over $path, which is
+# only ever populated by the --from copy step.
 build_one() {
-  local pkg="$1" path="$2" out="$3" copied="-"
-  [ -f "$path" ] && copied="$path"
+  local pkg="$1" path="$2" out="$3" device_file="${4:-}" copied="-"
+  if [ -n "$device_file" ] && [ -f "$device_file" ]; then
+    copied="$device_file"
+  elif [ -f "$path" ]; then
+    copied="$path"
+  fi
   if ! npx tsx "$ROOT/scripts/setup/lib/cli.ts" build "$pkg" "$copied" "$out"; then
     echo "ERROR: could not build a valid env for $pkg (missing vars above)." >&2
     echo "No files were written." >&2
@@ -249,8 +295,10 @@ build_one() {
   fi
 }
 
-[ "$GP_API_ACTION" = "write" ] && build_one gp-api "$GP_API_ENV" "$TMP_ENV_DIR/gp-api.env"
-[ "$GP_WEBAPP_ACTION" = "write" ] && build_one gp-webapp "$GP_WEBAPP_ENV" "$TMP_ENV_DIR/gp-webapp.env"
+[ "$GP_API_ACTION" = "write" ] && build_one gp-api "$GP_API_ENV" \
+  "$TMP_ENV_DIR/gp-api.env" "$TMP_ENV_DIR/device-gp-api.env"
+[ "$GP_WEBAPP_ACTION" = "write" ] && build_one gp-webapp "$GP_WEBAPP_ENV" \
+  "$TMP_ENV_DIR/gp-webapp.env" "$TMP_ENV_DIR/device-gp-webapp.env"
 
 # Only move into place once every package that needed writing has validated —
 # a later package failing above must not leave an earlier one half-applied.
@@ -298,11 +346,15 @@ indent "postgres ready"
 
 # --- 6/8: migrate + seed ------------------------------------------------------
 log "[6/8] Migrate + seed"
+# Best-effort probe: right after the port opens, gpdb may not accept
+# queries yet (or not exist on a fresh volume — prisma creates it). Under
+# set -e a failing substitution would kill the whole script with no
+# output, so a failed probe must mean "treat as fresh", never death.
 table_count="$(
   cd "$ROOT/packages/gp-api" && docker compose exec -T postgres \
     psql -U postgres -d gpdb -tAc \
     "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" \
-    2>/dev/null | tr -d '[:space:]'
+    2>/dev/null | tr -d '[:space:]' || true
 )"
 skip_reset=false
 if [ -n "$table_count" ] && [ "$table_count" != "0" ]; then
@@ -371,6 +423,14 @@ fi
 
 # --- 8/8: summary (+ seed a login) -------------------------------------------
 log "[8/8] Summary"
+secrets_summary="already present"
+if [ "$need_from" = true ]; then
+  if [ -n "$FROM" ]; then
+    secrets_summary="copied from $FROM"
+  else
+    secrets_summary="vended via GitHub device flow"
+  fi
+fi
 
 # Best-effort finishing touch: mint a QA fixture user via gp-api's
 # AdminOrM2MGuard-gated test-fixtures endpoint, so bootstrap ends with a
@@ -433,7 +493,7 @@ cat <<SUMMARY
 
 ==================== omni bootstrap: ready ====================
   preflight            ok  (node ${have_node}, docker, ai-rules)
-  secrets              $([ "$need_from" = true ] && echo "copied from $FROM" || echo "already present")
+  secrets              $secrets_summary
   env files            gp-api=${GP_API_ACTION}  gp-webapp=${GP_WEBAPP_ACTION}
   install/build        ok
   postgres             ok   http://localhost:5432

@@ -16,6 +16,13 @@
 //     with missing var NAMES on stderr and writes nothing if the merged env
 //     still doesn't validate.
 //
+//   npx tsx scripts/setup/lib/cli.ts device-flow <clientId> <apiUrl> \
+//       <outDir> <pkg...>
+//     Walk the GitHub OAuth device flow (read:org), then exchange the
+//     resulting token for a dev-env bundle for each <pkg>, writing
+//     <outDir>/device-<pkg>.env for each. Exits 1, writes nothing, and never
+//     prints the token or any vended value if any step fails.
+//
 //   npx tsx scripts/setup/lib/cli.ts get-var <envFilePath> <varName>
 //     Print <varName>'s parsed value from <envFilePath> (empty line if the
 //     file or the var is absent). Reuses parseEnvFile so bash never
@@ -33,9 +40,22 @@
 //     caller (setup.sh) decides how to react. Never writes anything else to
 //     stdout/stderr, so a credential can only ever reach the one line a
 //     caller explicitly captures.
+import { execFileSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
+import {
+  AccessDeniedError,
+  awaitAccessToken,
+  type DeviceCodeResponse,
+  DeviceFlowExpiredError,
+  requestDeviceCode,
+} from './deviceFlow'
+// devEnvBundle pulls in @goodparty_org/contracts, whose dist/ does not
+// exist yet when the secrets step runs on a fresh clone (contracts builds
+// later in setup.sh). Loaded lazily inside runDeviceFlow so the --from and
+// validation paths never touch it — same pattern as the runtime import()
+// below.
 import {
   buildMergedEnv,
   parseEnvFile,
@@ -161,8 +181,11 @@ const runBuild = async (
   process.exit(0)
 }
 
-// get-var's varName arg reuses the destructured `a` name below; both
-// arguments are always non-secret path/name strings, never values.
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms))
+
+// get-var's varName arg is always a non-secret path/name string, never a
+// value.
 const runGetVar = (envFilePath: string, varName: string) => {
   const parsed = readEnvFile(envFilePath)
   process.stdout.write(`${parsed[varName] ?? ''}\n`)
@@ -180,28 +203,138 @@ const runSeedLoginCommand = async (
   }
 }
 
-const main = async () => {
-  const [command, pkgName, a, b] = process.argv.slice(2)
+// Best-effort only: a headless runner, a Linux box, or a sandboxed `open`
+// must never fail the flow — the human can still follow the printed URL.
+const tryOpen = (uri: string): void => {
+  if (process.platform !== 'darwin') return
+  try {
+    execFileSync('open', [uri], { stdio: 'ignore' })
+  } catch {
+    // best-effort
+  }
+}
 
-  if (command === 'check' && pkgName && a) {
-    await runCheck(pkgName, a)
+export const runDeviceFlow = async (
+  clientId: string,
+  apiUrl: string,
+  outDir: string,
+  packages: string[],
+) => {
+  if (!clientId) {
+    return fail(
+      'GitHub OAuth App not registered yet — use --from <path>, or see ' +
+        "the epic's ops prerequisites.",
+    )
+  }
+
+  let device: DeviceCodeResponse
+  try {
+    device = await requestDeviceCode(clientId)
+  } catch (err) {
+    return fail(
+      `Could not start the GitHub device flow: ${(err as Error).message}`,
+    )
+  }
+
+  console.log(`First, visit: ${device.verification_uri}`)
+  console.log(`Then enter this code: ${device.user_code}`)
+  tryOpen(device.verification_uri)
+  console.log('Waiting for you to authorize in the browser...')
+
+  let token: string
+  try {
+    token = await awaitAccessToken(clientId, device, { sleep })
+  } catch (err) {
+    if (err instanceof DeviceFlowExpiredError) {
+      return fail(
+        'The device code expired before it was authorized. Re-run setup to get a new one.',
+      )
+    }
+    if (err instanceof AccessDeniedError) {
+      return fail('GitHub authorization was denied.')
+    }
+    return fail(`GitHub device flow failed: ${(err as Error).message}`)
+  }
+
+  try {
+    const { fetchDevEnvBundles } = await import('./devEnvBundle')
+    const bundles = await fetchDevEnvBundles(apiUrl, token, packages)
+
+    // Validate every bundle against what was actually requested BEFORE
+    // writing any of them ("no partial writes", same invariant setup.sh's
+    // own build_one keeps). The schema already constrains `package` to a
+    // known enum; this additionally refuses a schema-valid package the
+    // caller never asked for.
+    const unexpected = bundles.filter((b) => !packages.includes(b.package))
+    if (unexpected.length > 0) {
+      return fail(
+        `${apiUrl} returned bundle(s) for unrequested package(s): ` +
+          `${unexpected.map((b) => b.package).join(', ')}.`,
+      )
+    }
+    // ...and the mirror check: a partial response would otherwise leave a
+    // requested device-<pkg>.env unwritten and let build_one fall through
+    // to a stale file or placeholders without naming the real cause.
+    const returned = new Set<string>(bundles.map((b) => b.package))
+    const missing = packages.filter((pkg) => !returned.has(pkg))
+    if (missing.length > 0) {
+      return fail(
+        `${apiUrl} returned no bundle for requested package(s): ` +
+          `${missing.join(', ')}.`,
+      )
+    }
+
+    for (const bundle of bundles) {
+      writeFileSync(
+        join(outDir, `device-${bundle.package}.env`),
+        serializeEnvFile(bundle.variables, Object.keys(bundle.variables)),
+      )
+    }
+    console.log(`Fetched dev env bundle for: ${packages.join(', ')}`)
+  } catch (err) {
+    return fail(`Could not fetch dev env bundles: ${(err as Error).message}`)
+  } finally {
+    // No caching, by design — never let the token outlive this call.
+    token = ''
+  }
+}
+
+const main = async () => {
+  const argv = process.argv.slice(2)
+  const [command] = argv
+
+  if (command === 'check' && argv[1] && argv[2]) {
+    await runCheck(argv[1], argv[2])
     return
   }
-  if (command === 'build' && pkgName && a && b) {
-    await runBuild(pkgName, a, b)
+  if (command === 'build' && argv[1] && argv[2] && argv[3]) {
+    await runBuild(argv[1], argv[2], argv[3])
     return
   }
-  if (command === 'get-var' && pkgName && a) {
-    runGetVar(pkgName, a)
+  // clientId (argv[1]) may legitimately be the empty string — that's the
+  // unregistered-OAuth-App state runDeviceFlow itself fails closed on — so
+  // this checks presence, not truthiness, unlike check/build above.
+  if (
+    command === 'device-flow' &&
+    argv[1] !== undefined &&
+    argv[2] !== undefined &&
+    argv[3] !== undefined &&
+    argv.length > 4
+  ) {
+    await runDeviceFlow(argv[1], argv[2], argv[3], argv.slice(4))
+    return
+  }
+  if (command === 'get-var' && argv[1] && argv[2]) {
+    runGetVar(argv[1], argv[2])
     return
   }
   // The machine secret arrives via the environment, never argv — argv is
   // world-readable on shared machines (ps / /proc/PID/cmdline). Empty or
   // unset is the legitimate skip path.
-  if (command === 'seed-login' && pkgName !== undefined) {
+  if (command === 'seed-login' && argv[1] !== undefined) {
     await runSeedLoginCommand(
       process.env.LOCAL_SETUP_CLERK_MACHINE_SECRET ?? '',
-      pkgName,
+      argv[1],
     )
     return
   }
@@ -211,6 +344,7 @@ const main = async () => {
       'Usage:',
       '  cli.ts check <pkg> <envFilePath>',
       '  cli.ts build <pkg> <copiedEnvPath|-> <outPath>',
+      '  cli.ts device-flow <clientId> <apiUrl> <outDir> <pkg...>',
       '  cli.ts get-var <envFilePath> <varName>',
       '  cli.ts seed-login <userState>   (secret via env var',
       '    LOCAL_SETUP_CLERK_MACHINE_SECRET; empty/unset = skip)',
@@ -218,7 +352,14 @@ const main = async () => {
   )
 }
 
-main().catch((error: Error) => {
-  console.error(error.message)
-  process.exit(1)
-})
+// Guarded so importing this module (cli.test.ts, testing runDeviceFlow)
+// never also runs main() against the test runner's own argv/exit.
+if (
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === resolve(process.argv[1])
+) {
+  main().catch((error: Error) => {
+    console.error(error.message)
+    process.exit(1)
+  })
+}
