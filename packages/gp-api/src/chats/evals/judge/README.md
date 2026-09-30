@@ -252,7 +252,10 @@ byte-identical to what it was. `trace` is concatenated and renumbered as one
 sequence, tool calls and tool errors are counted across the conversation, and
 tokens are summed per turn — a conversation is **priced only when every one of
 its turns reported**, because pricing the two that did report understates a
-total nobody measured.
+total nobody measured. When a turn went unreported the counts are recorded as
+zero rather than as that partial sum, which is what a single unreported turn
+already recorded and the only other thing `TokenUsageSchema` can say; the trace
+carries the reason.
 
 Status is worst-turn-wins. A broken turn makes the case `infraError`, because
 the conversation the case authored did not happen and the turns after it were
@@ -263,12 +266,22 @@ conversation that had to recover is the behavior being compared.
 **A seeded prior transcript reaches the store, because no route writes an
 assistant message.** The assistant row is produced by the stream as a side
 effect of a turn, so there is no HTTP way to put one on the record.
-`runners/seedTranscript.ts` therefore writes directly — but through the two
-methods the live turn uses, `ChatStoreService.appendUserMessageIfAlive` and
-`ChatStreamService.persistAssistantText`, which is why the second is public.
-A hand-built row would be the wrong shape in ways nobody would notice, and the
-model's context would then differ from production while the verdict claimed to
-be about the agent we ship.
+`runners/seedTranscript.ts` therefore writes directly — but every rule it
+writes by is borrowed rather than restated:
+`ChatStoreService.appendUserMessageIfAlive` for the user row (the same call
+`ChatStreamService.run` makes, alive check included), `assistantRowToPersist`
+for the decision `persistAssistantText` makes about what an assistant turn
+stores, `ChatStoreService.appendMessage` for the write both end in, and
+`toJsonPayload` for the conversion a streamed tool call makes on its way to the
+same column. A hand-built row would be the wrong shape in ways nobody would
+notice, and the model's context would then differ from production while the
+verdict claimed to be about the agent we ship.
+
+`persistAssistantText` itself stays **private**. It is the one write in the
+chat stack with no ownership check on it, and what a seeder needs is the rules,
+not the ability to put an assistant row into an arbitrary conversation — so
+only the rules were lifted out, and the seeder makes the ownership check once
+before it writes anything.
 
 What reaches the model is narrower than it looks: `toLlmMessages` replays a
 history row's `role` and `content` and **nothing else**. Segments are not
