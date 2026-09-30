@@ -48,7 +48,7 @@ jobs:
     # a slow pass beats a fast false failure. This is the ONE deadline: the
     # poll below runs as long as setup.sh is alive, so no second clock can
     # expire while setup.sh is still legitimately waiting.
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
         with:
@@ -71,12 +71,37 @@ jobs:
       # setup.sh's own `docker compose up` step stands up — so nothing here
       # needs to override it for "a real local DATABASE_URL for the runner".
       - name: Build a schema-complete fixture checkout
+        # The webapp fixture needs the REAL test-instance Clerk pair (same
+        # Actions secrets the E2E jobs use): Clerk middleware derives its API
+        # host from the publishable key, so .env.example's placeholder 500s
+        # every page and the health gate below can never pass. gp-api's
+        # fixture deliberately keeps placeholders — its health gate is
+        # DB-only, and real keys would make every smoke run create seed
+        # users in the shared Clerk test instance.
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/setup-fixture/packages/gp-api
           mkdir -p /tmp/setup-fixture/packages/gp-webapp
           cp packages/gp-api/.env.example /tmp/setup-fixture/packages/gp-api/.env
           cp packages/gp-webapp/.env.example /tmp/setup-fixture/packages/gp-webapp/.env.local
+          python3 - <<'PY'
+          import os
+          path = '/tmp/setup-fixture/packages/gp-webapp/.env.local'
+          repl = {
+              'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY': os.environ['CLERK_PUBLISHABLE_KEY'],
+              'CLERK_SECRET_KEY': os.environ['CLERK_SECRET_KEY'],
+          }
+          lines = []
+          with open(path) as f:
+              for line in f:
+                  key = line.split('=', 1)[0].strip()
+                  lines.append(f'{key}={repl[key]}\n' if key in repl else line)
+          with open(path, 'w') as f:
+              f.writelines(lines)
+          PY
 
       - name: npm run setup -- --from fixture
         run: |
@@ -111,6 +136,7 @@ jobs:
 
           if [ "$api_ok" != true ] || [ "$webapp_ok" != true ]; then
             echo "api_ok=$api_ok webapp_ok=$webapp_ok" >&2
+            echo "last codes: api=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/v1/health || true) webapp=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4000 || true)" >&2
             echo "--- tail of setup.log ---" >&2
             tail -n 200 setup.log >&2
             exit 1
