@@ -116,6 +116,7 @@ export function ProUpgradePrompt({
       onClose={closeModal}
       onUpgradeLinkClick={closeModal}
       defaultTrackingEnabled
+      source="auto_modal"
     />
   )
 }
