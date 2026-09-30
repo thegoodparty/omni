@@ -156,7 +156,8 @@ export const ComposeStep = ({
               placeholder="Write your message…"
               aria-label="Draft message"
               maxLength={2000}
-              className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
+              variant="seamless"
+              className="min-h-[140px] resize-none [field-sizing:content]"
             />
             <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
               {canUndo && (

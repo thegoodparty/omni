@@ -41,6 +41,8 @@ export interface PolicyRoute {
   routes?: readonly PolicyRoute[]
   /** When true, matching this route does not stop evaluation of its siblings. */
   continue?: boolean
+  /** The labels that split alerts into separate notification groups. */
+  group_by?: readonly string[]
 }
 
 export interface PolicyTree extends PolicyRoute {
@@ -151,6 +153,45 @@ export const receiverFor = (
   }
 
   return walk(tree, tree.receiver)
+}
+
+/**
+ * The notification group an alert with these labels joins, as the label
+ * values that key it.
+ *
+ * WHY THIS IS WORTH MODELLING. Two alerts in one group share one delivery
+ * schedule: once the group has notified, a new alert joining it waits for
+ * `group_interval` rather than `group_wait`. On 2026-09-30 the route rules
+ * grouped by `alert_slug` alone, so `POST /v1/domains/purchase` joined the
+ * group `POST /v1/domains/search` had just notified, waited five minutes,
+ * resolved inside that wait, and was delivered only as resolved.
+ *
+ * `group_by` is inherited, so the nearest route on the matched path that sets
+ * it wins. A label the alert does not carry is left out of the key, which is
+ * Alertmanager's rule, so an alert with no `request_endpoint` groups by slug
+ * alone. Same simplification as `receiverFor`: this follows the first match
+ * and ignores `continue` fan-out.
+ */
+export const groupFor = (
+  tree: PolicyTree,
+  labels: Record<string, string>,
+): Record<string, string> => {
+  const walk = (route: PolicyRoute, inherited: readonly string[]) => {
+    const groupBy = route.group_by ?? inherited
+    for (const child of route.routes ?? []) {
+      const applies = (child.object_matchers ?? []).every((matcher) =>
+        matches(matcher, labels),
+      )
+      if (applies) return walk(child, groupBy)
+    }
+    return groupBy
+  }
+
+  return Object.fromEntries(
+    walk(tree, [])
+      .filter((label) => labels[label] !== undefined)
+      .map((label) => [label, labels[label]]),
+  )
 }
 
 /**

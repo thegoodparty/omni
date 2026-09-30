@@ -4,11 +4,7 @@ import {
   ROUTE_MAP,
 } from '../../../src/generated/route-types'
 import { Alert, SlackGroup } from './alerts.types'
-import {
-  ALERT_OWNERSHIP,
-  ROUTE_ERROR_THRESHOLDS,
-  SERVER_ERRORS_ONLY,
-} from '../alerts'
+import { ALERT_OWNERSHIP, SERVER_ERRORS_ONLY } from '../alerts'
 
 // 400 is excluded because a 400 is never evidence of a fault on its own. In
 // this codebase it is overwhelmingly designed vocabulary — Zod rejecting a
@@ -128,7 +124,7 @@ const serverErrorFilter = orNoStatus('response_statusCode >= 500')
 // exist, all with `noDataState: OK`, and none of them could fire.
 // Cost fell and detection died in the same change.
 //
-// Now: the alerts read Loki again, but there are six rules rather than 75, and
+// Now: the alerts read Loki again, but there are five rules rather than 75, and
 // each reads exactly the window it judges. The count is what makes it
 // affordable — see ROUTE_ALERT_GROUPS.
 //
@@ -137,55 +133,44 @@ const serverErrorFilter = orNoStatus('response_statusCode >= 500')
 // its fetch window divided by its evaluation interval. Gapless coverage needs
 // window >= interval, so ONE is the floor for any rule that must not miss
 // anything, and the only remaining lever is how many rules there are. 75 rules
-// at the floor is 75x ingest; six is six. `global-alerts.test.ts` sums this
+// at the floor is 75x ingest; five is five. `global-alerts.test.ts` sums this
 // across the estate and fails a PR that spends too much of the allowance.
 
 // The window each rule judges, and the interval it judges it on. Always equal,
 // so every log line is read exactly once — the floor above — which is why a
 // window here is one number rather than a pair that could drift apart.
 //
-// TWO WINDOWS, BECAUSE A THRESHOLD IS AN ACCUMULATION AND A COUNT OF ONE IS
-// NOT. Both shapes cost the same single unit, window divided by interval, so
-// the split is free and the choice is entirely about what the rule means.
+// A MINUTE, BECAUSE AT THRESHOLD 0 THE WINDOW DECIDES LATENCY AND NOTHING ELSE.
+// Gapless minute windows tile the same timeline ten-minute ones would, so every
+// error still falls inside exactly one evaluation. Narrowing cannot miss one;
+// it only sees it within a minute instead of within ten. A one-minute count is
+// also part of the ten-minute count that contains it, so no quiet window turns
+// into a page. And measured bursts all arrive inside a single minute: 5 errors
+// inside 14:39 on 2026-09-14 and 47 inside 14:50, 269/449/105 in three
+// consecutive minutes on 2026-09-25, 7 inside 8 seconds on 2026-09-29.
 //
-// At threshold 0 the window decides latency and nothing else. Gapless minute
-// windows tile the same timeline the ten-minute ones did, so every error still
-// falls inside exactly one evaluation — narrowing cannot miss one, it only
-// sees it within a minute instead of within ten. That is the whole reason this
-// changed, and it covers five of the six rules.
+// THE WINDOW ENDS 30 SECONDS BEFORE THE EVALUATION, and that is what stops it
+// losing errors. gp-api's logs reach Loki several seconds behind the request —
+// measured at 4.6s on 2026-09-29 against a stream taking ~32 lines a second,
+// so that is ingestion lag and not a gap in traffic. A window ending at `now`
+// cannot see a line that has not arrived yet, and because consecutive windows
+// tile without overlap, the next window starts after that line's timestamp and
+// never sees it either: an error in the last few seconds of a window was read
+// by no evaluation at all. Shifting the whole window back keeps the tiling —
+// each evaluation at t reads [t-90s, t-30s], the next reads [t-30s, t+30s] —
+// so nothing is read twice and nothing falls between, and any line that
+// lands within 30 seconds of its request is counted. The shift costs nothing
+// in Loki reads, because the window is the same width.
 //
-// At a threshold above 0 the window is load-bearing, and this is the case that
-// keeps ten minutes. `> 2` over ten minutes catches a fault running two errors
-// a minute, at twenty per window. The same threshold over one minute never
-// fires on that fault at all, and nothing else would: the ratio rule that
-// covers "this route is down" needs 10% of non-404 traffic, while two a minute
-// against the ~104 a minute this route serves is under 2%. Narrowing it would
-// open a gap no other rule closes, so it keeps the window its threshold was
-// measured against — see ROUTE_ERROR_THRESHOLDS in alerts.ts.
-//
-// WHAT NARROWING DOES NOT COST, measured rather than assumed. A narrower
-// window at a fixed threshold can only ever fire less often, because a
-// one-minute count is part of the ten-minute count that contains it — so no
-// quiet window turns into a page. And bursts, which is what a threshold exists
-// to catch, survive it: replayed at minute resolution on the thresholded route,
-// 2026-09-14 was 5 errors inside 14:39 and 47 inside 14:50, 2026-09-25 was
-// 269/449/105 in three consecutive minutes, and the 2026-09-29 burst was 7
-// inside 8 seconds. Every measured event on that route arrived inside a single
-// minute, so a minute window would have caught each one ~9 minutes sooner.
-//
-// THE PRICE OF A MINUTE, stated because it is the one thing that gets worse.
-// A rule reading [now-60s, now] cannot see lines that have not arrived yet, and
-// gp-api's logs reach Loki about 5 seconds behind the request — measured at
-// 4.6s on 2026-09-29 against a stream taking ~32 lines a second, so that is
-// ingestion lag and not a gap in traffic. Because consecutive windows tile
-// without overlap, an error in the last ~5 seconds of a window is read by no
-// evaluation at all: roughly 8% of them, where ten minutes loses 0.8%. Any
-// fault producing more than one error is unaffected; a genuinely isolated one
-// has about a one-in-twelve chance of passing unseen. Buying that back needs a
-// window wider than the interval, and the budget has no room for it — the five
-// fast rules at factor 2 is 10 where 5 fit, which lands the estate exactly on
-// MAX_TOTAL_REREAD_FACTOR with nothing left for the next alert.
-type RouteWindow = { range: string; prose: string; seconds: number }
+// THE PRICE is 30 seconds of detection latency on every page: an error is now
+// seen between 30 and 90 seconds after it happened, where it was 0 to 60.
+type RouteWindow = {
+  range: string
+  prose: string
+  seconds: number
+  offsetSeconds: number
+  offsetProse: string
+}
 
 const MINUTE_WINDOW: RouteWindow = {
   range: '1m',
@@ -194,30 +179,12 @@ const MINUTE_WINDOW: RouteWindow = {
   // query parses the number back out of this prose.
   prose: '60 seconds',
   seconds: 60,
+  offsetSeconds: 30,
+  offsetProse: '30 seconds',
 }
 
-const BURST_WINDOW: RouteWindow = {
-  range: '10m',
-  prose: '10 minutes',
-  seconds: 600,
-}
-
-/**
- * The window a group judges, which follows from whether it counts or
- * thresholds.
- *
- * Derived from the threshold rather than listed per group, because the
- * threshold IS the reason a group needs the wider one — at 0 there is nothing
- * to accumulate, so a wider window would add nothing but delay.
- */
-export const routeWindow = (threshold: number): RouteWindow =>
-  threshold > 0 ? BURST_WINDOW : MINUTE_WINDOW
-
-/** Every distinct interval the route rules are evaluated on. */
-export const ROUTE_EVALUATION_SECONDS = [
-  MINUTE_WINDOW.seconds,
-  BURST_WINDOW.seconds,
-]
+/** The interval the route rule group is evaluated on. */
+export const ROUTE_EVALUATION_SECONDS = MINUTE_WINDOW.seconds
 
 // The label the rules group by, named once because the `keep` below has to
 // agree with it exactly and a mismatch is silent — `sum by` on a label the
@@ -304,7 +271,6 @@ export type RouteAlertGroup = {
   label: string
   owners: SlackGroup[]
   serverErrorsOnly: boolean
-  threshold: number
   controllers: ControllerName[]
   endpoints: string[]
 }
@@ -313,12 +279,11 @@ export type RouteAlertGroup = {
  * Every controller that gets a route alert, bucketed into the smallest number
  * of Loki rules that can still say the right thing.
  *
- * WHY GROUPING IS SAFE, which is the question to ask first. Only three things
- * ever varied between the 75 per-controller rules: who is notified, which
- * status filter applies (`SERVER_ERRORS_ONLY`), and how many errors it takes
- * (`ROUTE_ERROR_THRESHOLDS`). Every one of those is a property of the rule, not
- * of the series it returns, so controllers that agree on all three can share a
- * rule without any of them changing meaning. The endpoint alternation is what
+ * WHY GROUPING IS SAFE, which is the question to ask first. Only two things
+ * vary between the 75 per-controller rules this replaced: who is notified, and
+ * which status filter applies (`SERVER_ERRORS_ONLY`). Both are properties of
+ * the rule, not of the series it returns, so controllers that agree on both
+ * can share a rule without any of them changing meaning. The endpoint alternation is what
  * keeps them apart.
  *
  * PAGING STAYS PER-ROUTE. `sum by (request_endpoint)` returns one series per
@@ -327,8 +292,17 @@ export type RouteAlertGroup = {
  * as a per-controller rule did; what it no longer does is name the controller,
  * which the endpoint already implies.
  *
+ * DELIVERY IS PER-ROUTE TOO, and that is the notification policy's job, not
+ * this file's. The policy groups by `request_endpoint` as well as
+ * `alert_slug` (see alert-routing.policy.json), so a second route failing on
+ * the same rule gets its own group and its own `group_wait` delivery. Grouped
+ * by slug alone, it joined the group the first route had already notified and
+ * waited out the 5-minute `group_interval` — by which time a one-minute window
+ * had resolved it, and it went out as resolved, which BugBoss discards. That
+ * is how `POST /v1/domains/purchase` was lost on 2026-09-30.
+ *
  * WHAT IS GENUINELY LOST: the Grafana rule name no longer carries
- * `[controller]`, and 75 alert slugs become six. Alert history and any silence
+ * `[controller]`, and 75 alert slugs become five. Alert history and any silence
  * keyed to an old slug do not survive that. The routing policy is unaffected —
  * it matches on `environment`, not on slug.
  *
@@ -353,9 +327,6 @@ export const routeAlertGroups = (): RouteAlertGroup[] => {
     if (routes.length === 0) continue
 
     const serverErrorsOnly = SERVER_ERRORS_ONLY.includes(controller)
-    // 0 keeps the default "one error pages" for every controller that has not
-    // measured a reason to want otherwise. See ROUTE_ERROR_THRESHOLDS.
-    const threshold = ROUTE_ERROR_THRESHOLDS[controller] ?? 0
 
     const naming = OWNER_NAMING[owners.join(',')]
     if (!naming) {
@@ -369,7 +340,6 @@ export const routeAlertGroups = (): RouteAlertGroup[] => {
       'route-errors',
       naming.slug,
       serverErrorsOnly ? 'server-errors' : null,
-      threshold > 0 ? `min${threshold}` : null,
     ]
       .filter((part) => part !== null)
       .join('-')
@@ -386,7 +356,6 @@ export const routeAlertGroups = (): RouteAlertGroup[] => {
       label: naming.label,
       owners,
       serverErrorsOnly,
-      threshold,
       controllers: [controller],
       endpoints: routes.map(({ endpoint }) => endpoint),
     })
@@ -415,11 +384,16 @@ export const routeAlertGroups = (): RouteAlertGroup[] => {
 // Grafana template expanded at fire time (`urlquery` is a Go text/template
 // builtin) and must not be URL-encoded with the rest, and `$ENV` is restored
 // after encoding so buildAlertDescription still substitutes it. An hour rather
-// than the rule's own window, and the gap is wider now that five of the six
-// judge a single minute: one error keeps a page open ~20 minutes and it is read
+// than the rule's own window, and the gap is wider now that every rule
+// judges a single minute: one error keeps a page open ~20 minutes and it is read
 // later still, so a link scoped to the window would open on nothing.
 const GRAFANA_URL = 'https://goodparty.grafana.net'
 const LOKI_DATASOURCE_UID = 'grafanacloud-logs'
+// Named here as well as in grafana.ts, which is where a rule's own datasource
+// is chosen. These two uids only appear in Explore links the notification
+// carries, and importing them from grafana.ts would be a cycle: grafana.ts
+// imports this module to provision the rules.
+const USAGE_DATASOURCE_UID = 'grafanacloud-usage'
 const ENDPOINT_SENTINEL = '__ENDPOINT__'
 const ENDPOINT_TEMPLATE = '{{ $labels.request_endpoint | urlquery }}'
 
@@ -452,8 +426,77 @@ const errorLinesPane = encodeURIComponent(
 
 const errorLinesLink = `${GRAFANA_URL}/explore?schemaVersion=1&panes=${errorLinesPane}`
 
+// WHAT THE READER GETS WHEN THERE IS NO ROUTE. Everything above is written for
+// an alert instance that carries a `request_endpoint` label, because that is
+// what `sum by (request_endpoint)` returns and what the page exists to name.
+// An instance that failed to EVALUATE carries no series and therefore no such
+// label, and Go's text/template renders a missing key as the literal
+// `[no value]` — so on 2026-09-29 at 17:37Z a five-minute network timeout
+// between Grafana's alerting engine and its own Prometheus
+// (`dial tcp 98.85.154.20:443: i/o timeout`) produced the page
+// "[PROD] [priorities] Route errors detected `[no value]`", whose body told its
+// reader that `[no value]` had returned error responses and offered a link
+// whose Loki query was filtered to `request_endpoint = "<no value>"`. The one
+// action the page recommended could only ever open on an empty screen. The
+// priorities routes served no requests at all in that hour.
+//
+// `execErrState: 'Alerting'` is deliberate and stays (see grafana.ts and
+// docs/observability.md): a rule that goes quiet when its datasource is
+// unreachable reports all-clear precisely when it has stopped looking. What
+// does not follow from that is the page having to LIE about what it measured.
+//
+// The `{{ if }}` is honest rather than a guess at the state, which is the
+// objection that kept this out of buildAlertDescription: annotation templating
+// cannot see `grafana_state_reason`, but a route rule either has a route label
+// or it does not, and on these rules it does not exactly when it did not run.
+// No-data cannot be confused with it — `noDataState` is `OK` and never
+// notifies.
+const NO_ROUTE_SUMMARY = '(this rule could not be evaluated)'
+
+const evaluationFailuresQuery = [
+  '(sum(grafanacloud_grafana_instance_alerting_rule_evaluation_failures_total:rate5m)',
+  'or on() vector(0))',
+  '/',
+  'sum(grafanacloud_grafana_instance_alerting_rule_evaluations_total:rate5m)',
+].join(' ')
+
+// On `grafanacloud-usage`, which is Prometheus and is not metered against the
+// Loki query allowance — so this link keeps working in the case it is for,
+// where the reason the page arrived may be that Loki is refusing queries.
+const evaluationFailuresLink = `${GRAFANA_URL}/explore?schemaVersion=1&panes=${encodeURIComponent(
+  JSON.stringify({
+    a: {
+      datasource: USAGE_DATASOURCE_UID,
+      queries: [
+        {
+          refId: 'A',
+          datasource: { uid: USAGE_DATASOURCE_UID },
+          expr: evaluationFailuresQuery,
+        },
+      ],
+      range: { from: 'now-3h', to: 'now' },
+    },
+  }),
+)}`
+
+const NO_ROUTE_MESSAGE = [
+  '**No route is named above because this rule did not run.** Alerting could not read its datasource for this evaluation, so no route was checked, and no count in this page measured anything. Nothing here says a request failed.',
+  `<${evaluationFailuresLink}|Open the share of rule evaluations that are failing>. Back at zero means one transient evaluation and there is nothing to do here. Still above zero means alerting is blind: every alert now firing is unverified and every silent one unchecked, and \`alerting-rule-evaluations-failing\` is the page that says so.`,
+  'The reason this evaluation failed is in the `Error` annotation on the alert instance in Grafana; *View in Grafana* opens the rule.',
+].join('\n\n')
+
 /**
- * The six rules that watch every owned route for errors.
+ * Route-scoped notification text, guarded on a route actually being named.
+ *
+ * Wrapping rather than appending: the whole of the route prose is untrue of an
+ * instance with no route, so none of it should reach the page, and a reader
+ * should not have to work out which half applies to them.
+ */
+const whenRouteIsNamed = (text: string) =>
+  `{{ if $labels.request_endpoint }}${text}{{ else }}${NO_ROUTE_MESSAGE}{{ end }}`
+
+/**
+ * The five rules that watch every owned route for errors.
  *
  * `noDataState` stays `OK` on these and that is now the correct answer rather
  * than a compromise. A Loki rule that finds no error lines genuinely returns no
@@ -470,25 +513,13 @@ export const routeErrorAlerts = (): Alert[] =>
       ? serverErrorFilter
       : anyErrorFilter
 
-    const window = routeWindow(group.threshold)
-
-    // Grafana evaluates this as `> threshold`, so on a raised one the message
-    // has to say how many it took. Left to the default prose, a rule that needs
-    // three errors still reads "returned server errors", and the reader goes
-    // looking for the first one — which by then is 10 minutes of logs away from
-    // the window that actually fired.
-    const countProse =
-      group.threshold > 0 ? `more than ${group.threshold} ` : ''
-
-    const qualifier = [
-      group.serverErrorsOnly ? 'server errors only' : null,
-      group.threshold > 0 ? `more than ${group.threshold}` : null,
-    ].filter((part) => part !== null)
+    const window = MINUTE_WINDOW
+    const windowProse = `in the ${window.prose} ending ${window.offsetProse} before this check`
 
     return {
       slug: group.slug,
       name: `[${group.label}] Route errors detected${
-        qualifier.length > 0 ? ` (${qualifier.join(', ')})` : ''
+        group.serverErrorsOnly ? ' (server errors only)' : ''
       }`,
       type: 'log' as const,
       expr: routeErrorExpr(
@@ -496,31 +527,36 @@ export const routeErrorAlerts = (): Alert[] =>
         routeEndpointPattern(group.endpoints),
         window.range,
       ),
-      threshold: group.threshold,
+      threshold: 0,
       // Zero, and MORE load-bearing on the minute window than it was on the
       // ten. `for` is counted in whole evaluations, so a `for` of '1m' means
       // "breach on two consecutive evaluations" — which on the minute rules is
       // two minutes rather than the twenty it used to mean, but now costs
       // something it did not before. Every error event measured on these routes
-      // arrived inside a single minute (see routeWindow above): 5 in one
+      // arrived inside a single minute (see MINUTE_WINDOW above): 5 in one
       // minute, 47 in one minute, 7 in eight seconds. A second consecutive
       // breaching evaluation looks at the NEXT minute, which in every one of
       // those cases was clean — so a `for` above zero would have silenced the
-      // exact bursts these rules exist to catch. On the thresholded rule the
-      // count is the debounce; on the others one error is meant to page.
+      // exact bursts these rules exist to catch. One error is meant to page.
       for: '0m',
       // Grafana renders annotations per alert instance, so this is what turns
-      // one rule back into a page that names the route that actually broke.
-      summaryDetail: '`{{ $labels.request_endpoint }}`',
+      // one rule back into a page that names the route that actually broke —
+      // and, when the rule could not evaluate and there is no route to name,
+      // says that instead of rendering `[no value]` as a route.
+      summaryDetail: `{{ if $labels.request_endpoint }}\`{{ $labels.request_endpoint }}\`{{ else }}${NO_ROUTE_SUMMARY}{{ end }}`,
       timeRangeSeconds: window.seconds,
+      timeRangeOffsetSeconds: window.offsetSeconds,
       evaluationIntervalSeconds: window.seconds,
-      message: [
-        group.serverErrorsOnly
-          ? `\`{{ $labels.request_endpoint }}\` returned ${countProse}server errors, or no status at all, in the last ${window.prose} (status ≥ 500 or null). 4xx responses are deliberately excluded on this route's controller — see SERVER_ERRORS_ONLY in alerts.ts.`
-          : `\`{{ $labels.request_endpoint }}\` returned ${countProse}unexpected error responses, or no status at all, in the last ${window.prose} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
-        `<${errorLinesLink}|Open this route's error lines> to read the exception each failing request logged (type, message, stack trace) before deciding what to fix. *View in Grafana* shows only the count that fired.`,
-        `A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Only those running longer than ${NO_STATUS_PROSE} are counted — a shorter one is the caller hanging up, which is not a fault and is far more common. Check \`responseTimeMs\` on those lines; a cluster at ~120,000ms is the timeout, not the handler.`,
-      ].join('\n\n'),
+      message: whenRouteIsNamed(
+        [
+          group.serverErrorsOnly
+            ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, ${windowProse} (status ≥ 500 or null). 4xx responses are deliberately excluded on this route's controller — see SERVER_ERRORS_ONLY in alerts.ts.`
+            : `\`{{ $labels.request_endpoint }}\` returned unexpected error responses, or no status at all, ${windowProse} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
+          `The rule reads ${window.offsetProse} behind real time so that log lines reaching Loki a few seconds late are still counted, which means this page arrives up to ${window.offsetProse} later than the error would otherwise allow.`,
+          `<${errorLinesLink}|Open this route's error lines> to read the exception each failing request logged (type, message, stack trace) before deciding what to fix. *View in Grafana* shows only the count that fired.`,
+          `A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Only those running longer than ${NO_STATUS_PROSE} are counted — a shorter one is the caller hanging up, which is not a fault and is far more common. Check \`responseTimeMs\` on those lines; a cluster at ~120,000ms is the timeout, not the handler.`,
+        ].join('\n\n'),
+      ),
       notify: group.owners,
     } satisfies Alert
   })

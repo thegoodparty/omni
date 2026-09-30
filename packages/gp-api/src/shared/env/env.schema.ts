@@ -299,6 +299,13 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // stays a complete match against .env.example.
   SKIP_MTFCC_SEED: { tier: 'optional', default: 'false' },
 
+  // Read only by scripts/setup/lib/cli.ts, outside src/ — a dedicated
+  // local-setup Clerk dev machine's secret, used to mint a per-run M2M token
+  // for calling this package's own test-fixtures endpoints from
+  // `npm run setup`. Kept here so the contract stays a complete match
+  // against .env.example; absent = setup.sh's login-seeding step skips.
+  LOCAL_SETUP_CLERK_MACHINE_SECRET: { tier: 'optional' },
+
   WINNERS_ELECTION_YEAR: { tier: 'optional', default: '2024' },
 
   ROBOCALL_AUDIO_BUCKET: { tier: 'optional' },

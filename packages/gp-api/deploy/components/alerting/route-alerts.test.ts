@@ -8,9 +8,9 @@ import {
   ALERT_OWNERSHIP,
   CONTROLLERS_WITHOUT_ROUTE_ALERTS,
   GLOBAL_ALERTS,
-  ROUTE_ERROR_THRESHOLDS,
   SERVER_ERRORS_ONLY,
 } from '../alerts'
+import { alertTimeRange } from '../grafana'
 import { buildAlertDescription } from './alert-notification'
 import {
   ROUTE_EVALUATION_SECONDS,
@@ -115,14 +115,20 @@ const rangeSeconds = (expr: string) => {
   return toSeconds(amount, unit)
 }
 
-/** Seconds the notification tells the reader it looked back over. */
-const promisedSeconds = (message: string) => {
-  const match = /in the last (\d+) (seconds|minutes|hours)/.exec(message)
-  const [, amount, unit] = match ?? []
-  if (!amount || !unit) {
+/** The window the notification tells the reader it looked at, in seconds. */
+const promisedWindow = (message: string) => {
+  const match =
+    /in the (\d+) (seconds|minutes|hours) ending (\d+) (seconds|minutes|hours) before/.exec(
+      message,
+    )
+  const [, amount, unit, offset, offsetUnit] = match ?? []
+  if (!amount || !unit || !offset || !offsetUnit) {
     throw new Error(`message does not state a numeric window: ${message}`)
   }
-  return toSeconds(amount, unit)
+  return {
+    width: toSeconds(amount, unit),
+    offset: toSeconds(offset, offsetUnit),
+  }
 }
 
 /**
@@ -141,11 +147,11 @@ const endpointPattern = (expr: string) => {
   return pattern
 }
 
-// The rules that replaced 75 per-controller ones. Only three things ever
-// varied between those: who is notified, which status filter applies, and how
-// many errors it takes. Every one of those is a property of the rule rather
-// than of the series it returns, which is why controllers that agree on all
-// three can share a rule without any of them changing meaning.
+// The rules that replaced 75 per-controller ones. Only two things ever vary
+// between those: who is notified, and which status filter applies. Both are
+// properties of the rule rather than of the series it returns, which is why
+// controllers that agree on both can share a rule without either changing
+// meaning.
 describe('route alert groups', () => {
   // THE COUNT IS THE COST, which is the only reason it is pinned rather than
   // derived. A Loki rule's daily read volume is its fetch window divided by
@@ -154,10 +160,10 @@ describe('route alert groups', () => {
   // how many rules there are. 75 of them at that floor was 75x ingest: 2,690
   // GB/day measured on 2026-09-28, then Grafana Cloud 429s, and then, because
   // `exec_err_state` is `Alerting`, all 154 rules firing at once while
-  // production was healthy. Six is six. A change that adds a seventh is a
+  // production was healthy. Five is five. A change that adds a sixth is a
   // change to the bill, and should have to say so here.
-  it('collapses every owned controller into six rules', () => {
-    expect(GROUPS).toHaveLength(6)
+  it('collapses every owned controller into five rules', () => {
+    expect(GROUPS).toHaveLength(5)
     expect(ALERTS).toHaveLength(GROUPS.length)
   })
 
@@ -282,41 +288,108 @@ describe('the grouped route alerts', () => {
   })
 
   // Grafana evaluates a rule group as a unit, so the group's interval is the
-  // one that actually runs, and the per-alert field only decides which group
-  // grafana.ts puts it in. It buckets by that field, so an interval missing
-  // from this list would provision a group nothing has budgeted for, and the
-  // ratio asserted above is fiction.
-  it('evaluates on an interval a rule group is provisioned for', () => {
+  // one that actually runs, and grafana.ts provisions every route rule into
+  // one group on ROUTE_EVALUATION_SECONDS. An alert claiming another interval
+  // would make the ratio asserted above fiction.
+  it('evaluates on the interval its rule group is provisioned for', () => {
     for (const alert of ALERTS) {
-      expect(ROUTE_EVALUATION_SECONDS, alert.slug).toContain(
-        alert.evaluationIntervalSeconds,
+      expect(alert.evaluationIntervalSeconds, alert.slug).toBe(
+        ROUTE_EVALUATION_SECONDS,
       )
     }
   })
 
   // THE LATENCY PROPERTY, AS A TEST, because it is the one a cost change would
-  // quietly take back. Detection latency is the evaluation interval, so every
-  // rule that just counts errors has to be on the minute — that is what this
-  // collapse was for once the six rules made it affordable.
-  //
-  // The thresholded rule is the deliberate exception and is asserted as one
-  // rather than exempted silently: `> 2` over a minute cannot see a fault
-  // running two errors a minute, and no other rule covers that shape (the
-  // ratio rule needs 10% of non-404 traffic; two a minute here is under 2%).
-  // Its threshold was measured per 10-minute window — see
-  // ROUTE_ERROR_THRESHOLDS — so it keeps the window it was calibrated on.
-  it('detects within a minute unless a threshold needs to accumulate', () => {
-    for (const group of GROUPS) {
-      const alert = ALERTS.find((a) => a.slug === group.slug)
-      expect(alert, group.slug).toBeDefined()
-      expect(alert!.evaluationIntervalSeconds, group.slug).toBe(
-        group.threshold > 0 ? 600 : 60,
-      )
+  // quietly take back. Every rule judges one minute, so every rule reaches a
+  // page within 90 seconds of the error: the 60-second window plus the 30
+  // seconds it trails real time by.
+  it('judges a 60-second window that ends 30 seconds before evaluation', () => {
+    for (const alert of ALERTS) {
+      const { from, to } = alertTimeRange(alert)
+
+      expect(from - to, alert.slug).toBe(60)
+      expect(to, alert.slug).toBe(30)
+      expect(rangeSeconds(alert.expr), alert.slug).toBe(from - to)
+    }
+  })
+
+  // Back to back is what makes the shift free: each evaluation's window starts
+  // exactly where the previous one ended, so no line is read by two
+  // evaluations and none falls between two.
+  it('tiles consecutive evaluations with no gap and no overlap', () => {
+    for (const alert of ALERTS) {
+      const { from, to } = alertTimeRange(alert)
+      const interval = alert.evaluationIntervalSeconds ?? 60
+      const window = (evaluatedAt: number) => ({
+        start: evaluatedAt - from,
+        end: evaluatedAt - to,
+      })
+
+      for (const t of [0, 60, 600, 86_340]) {
+        expect(window(t + interval).start, alert.slug).toBe(window(t).end)
+      }
+    }
+  })
+
+  // THE REASON FOR THE SHIFT, AS A TEST. A line stamped `ts` reaches Loki
+  // `lag` seconds later. An evaluation at `t` counts it only if `ts` is inside
+  // its window AND the line has arrived by `t`. Sweeping every second of an
+  // hour at a 5-second lag (4.6s was measured on 2026-09-29), the shifted
+  // window counts every line exactly once, while the same rule ending at `now`
+  // loses every line stamped in the last 5 seconds of a window — the premise,
+  // proved rather than asserted.
+  it('counts every line that reaches Loki within 30 seconds, and the old window did not', () => {
+    const LAG = 5
+    const timesCounted = (
+      range: { from: number; to: number },
+      interval: number,
+      ts: number,
+      lag: number,
+    ) => {
+      let count = 0
+      for (let t = 0; t <= 3_600 + range.from + interval; t += interval) {
+        const inWindow = ts >= t - range.from && ts < t - range.to
+        if (inWindow && ts + lag <= t) count += 1
+      }
+      return count
     }
 
-    // Not all six, or the property above holds trivially if the thresholds
-    // ever go away.
-    expect(GROUPS.filter((g) => g.threshold === 0).length).toBeGreaterThan(0)
+    for (const alert of ALERTS) {
+      const range = alertTimeRange(alert)
+      const interval = alert.evaluationIntervalSeconds ?? 60
+      const unshifted = { from: range.from - range.to, to: 0 }
+
+      for (let ts = 60; ts < 3_600; ts += 1) {
+        expect(
+          timesCounted(range, interval, ts, LAG),
+          `${alert.slug} @${ts}`,
+        ).toBe(1)
+        expect(
+          timesCounted(range, interval, ts, range.to),
+          `${alert.slug} @${ts}`,
+        ).toBe(1)
+      }
+
+      const lostBefore = []
+      for (let ts = 60; ts < 3_600; ts += 1) {
+        if (timesCounted(unshifted, interval, ts, LAG) === 0)
+          lostBefore.push(ts)
+      }
+      expect(lostBefore.length, alert.slug).toBeGreaterThan(0)
+      expect(lostBefore.every((ts) => ts % interval >= interval - LAG)).toBe(
+        true,
+      )
+    }
+  })
+
+  // The message has to warn the reader that the page trails the error, or a
+  // responder comparing the page time against the logs will distrust both.
+  it('says the window trails real time and what that costs', () => {
+    for (const alert of ALERTS) {
+      expect(alert.message, alert.slug).toContain(
+        'later than the error would otherwise allow',
+      )
+    }
   })
 
   // Zero, and the reason is stronger on a minute window than it was on ten.
@@ -472,6 +545,88 @@ describe('the grouped route alerts', () => {
     }
   })
 
+  // A rule that could not evaluate returns no series, so its alert instance
+  // carries no `request_endpoint` — and Go's text/template renders a missing key
+  // as the literal `[no value]`. On 2026-09-29 at 17:37Z a five-minute network
+  // timeout to Grafana's own Prometheus therefore paged as "[priorities] Route
+  // errors detected `[no value]`", with a body asserting that `[no value]` had
+  // returned errors and a link filtered to `request_endpoint = "<no value>"`,
+  // which can only ever open on an empty screen. The routes named had served no
+  // requests at all that hour.
+  describe('when the rule could not evaluate and no route is named', () => {
+    // The whole of the route prose is untrue of such an instance, so the guard
+    // has to wrap it rather than append to it. Parsed rather than pattern-
+    // matched so the assertions below read the branch a responder would see.
+    const branches = (text: string) => {
+      const match =
+        /^\{\{ if \$labels\.request_endpoint \}\}([\s\S]*)\{\{ else \}\}([\s\S]*)\{\{ end \}\}$/.exec(
+          text,
+        )
+      const [, named, unnamed] = match ?? []
+      if (named === undefined || unnamed === undefined) {
+        throw new Error(`text is not guarded on a route being named: ${text}`)
+      }
+      return { named, unnamed }
+    }
+
+    it('says so in the title instead of naming a route', () => {
+      for (const alert of ALERTS) {
+        const { named, unnamed } = branches(alert.summaryDetail ?? '')
+
+        expect(named, alert.slug).toContain('{{ $labels.request_endpoint }}')
+        expect(unnamed, alert.slug).toBe('(this rule could not be evaluated)')
+      }
+    })
+
+    // The failure mode this exists to stop is a page that reads as a route
+    // outage. Nothing in the branch may claim a request failed, and nothing in
+    // it may interpolate the label that is not there.
+    it('drops every claim about a route, and every link that filters on one', () => {
+      for (const alert of ALERTS) {
+        const { unnamed } = branches(alert.message)
+
+        expect(unnamed, alert.slug).not.toContain('$labels.request_endpoint')
+        expect(unnamed, alert.slug).not.toContain('returned')
+        expect(unnamed, alert.slug).toContain('did not run')
+      }
+    })
+
+    // The one thing a responder can act on is whether alerting is still blind,
+    // and the datasource that answers it has to be one the failure does not
+    // take with it: `grafanacloud-usage` is Prometheus and is not metered
+    // against the Loki query allowance, so it still answers when Loki is
+    // refusing queries with 429.
+    it('links the evaluation-failure share on a datasource that survives the failure', () => {
+      for (const alert of ALERTS) {
+        const { unnamed } = branches(alert.message)
+
+        expect(unnamed, alert.slug).toContain(
+          'https://goodparty.grafana.net/explore',
+        )
+        expect(unnamed, alert.slug).toContain('grafanacloud-usage')
+        expect(unnamed, alert.slug).toContain(
+          encodeURIComponent('alerting_rule_evaluation_failures_total:rate5m'),
+        )
+        expect(unnamed, alert.slug).not.toContain('grafanacloud-logs')
+      }
+    })
+
+    // Both halves survive the description builder, which is what Grafana is
+    // actually given. An `$ENV` left in the guarded branch would reach Slack
+    // verbatim.
+    it('substitutes the environment in both branches', () => {
+      for (const alert of ALERTS) {
+        const description = buildAlertDescription(alert, 'prod')
+
+        expect(description, alert.slug).toContain(
+          '{{ if $labels.request_endpoint }}',
+        )
+        expect(description, alert.slug).toContain('{{ end }}')
+        expect(description, alert.slug).not.toContain('$ENV')
+      }
+    })
+  })
+
   it('keeps every group under the tenant series cap', () => {
     for (const group of GROUPS) {
       expect(group.endpoints.length, group.slug).toBeLessThan(MAX_QUERY_SERIES)
@@ -500,9 +655,12 @@ describe('the grouped route alerts', () => {
   // errors that could only have come from the last ten minutes.
   it('promises the reader the window it actually queried', () => {
     for (const alert of ALERTS) {
-      expect(promisedSeconds(alert.message), alert.slug).toEqual(
-        rangeSeconds(alert.expr),
-      )
+      const { from, to } = alertTimeRange(alert)
+      expect(promisedWindow(alert.message), alert.slug).toEqual({
+        width: rangeSeconds(alert.expr),
+        offset: to,
+      })
+      expect(from - to, alert.slug).toBe(rangeSeconds(alert.expr))
     }
   })
 
@@ -567,7 +725,7 @@ describe('the grouped route alerts', () => {
   })
 })
 
-// The status vocabulary. It lives on the six expressions now rather than on
+// The status vocabulary. It lives on the five expressions now rather than on
 // two recording rules, so every assertion about WHICH statuses count reads the
 // filter and the prose that describes it off the same object again.
 describe('which statuses count as an error', () => {
@@ -837,103 +995,30 @@ describe('every controller is accounted for', () => {
   })
 })
 
-// Raising a controller's threshold buys quiet by giving up the first error or
-// two, which is a trade worth making on exactly one kind of route and a way to
-// go silent everywhere else. These are what keep an entry honest.
-//
-// The threshold is also one of the three things that decides which group a
-// controller lands in, so a raised one splits its controllers into a rule of
-// their own rather than retuning a rule they share.
-describe('route error thresholds', () => {
-  const raised = Object.keys(ROUTE_ERROR_THRESHOLDS) as ControllerName[]
+// The owner's standing rule is that any qualifying error pages. The one route
+// that was exempt, voter-density, skipped real 502s on 2026-09-30 at 17:11 and
+// 18:17 because its rule needed more than 2 in ten minutes.
+describe('a single error pages', () => {
+  const VOTER_DENSITY = 'GET /v1/public-person-profiles/voter-density'
 
-  // The default is the whole safety story for every controller not listed: one
-  // error still pages. If this inverts, a typo in the map silences the estate.
-  it('leaves an unlisted controller paging on a single error', () => {
-    for (const controller of CONTROLLER_NAMES) {
-      if (!OWNED.has(controller)) continue
-      if (ROUTE_MAP[controller].length === 0) continue
-      if (controller in ROUTE_ERROR_THRESHOLDS) continue
+  it('covers voter-density with a rule that fires on one error', () => {
+    expect(
+      ROUTE_MAP['public-person-profiles'].map(({ endpoint }) => endpoint),
+    ).toContain(VOTER_DENSITY)
 
-      expect(groupFor(controller).threshold, controller).toBe(0)
-    }
+    const group = groupFor('public-person-profiles')
+    const alert = alertFor(group.slug)
+
+    expect(new RegExp(endpointPattern(alert.expr)).test(VOTER_DENSITY)).toBe(
+      true,
+    )
+    expect(alert.threshold).toBe(0)
+    expect(alert.message).not.toContain('more than')
   })
 
-  it('applies the configured threshold to the generated rule', () => {
-    for (const controller of raised) {
-      const group = groupFor(controller)
-
-      expect(group.threshold, controller).toBe(
-        ROUTE_ERROR_THRESHOLDS[controller],
-      )
-      expect(alertFor(group.slug).threshold, controller).toBe(group.threshold)
-    }
-  })
-
-  // An entry of 0 is the default wearing a costume: it reads as "measured and
-  // tuned" in a diff while changing nothing, and the next person to widen it
-  // starts from a number nobody chose.
-  it('never lists a controller at the default', () => {
-    for (const controller of raised) {
-      const threshold = ROUTE_ERROR_THRESHOLDS[controller]
-      expect(threshold, `${controller}`).toBeGreaterThan(0)
-      expect(
-        Number.isInteger(threshold),
-        `${controller} is not a whole count`,
-      ).toBe(true)
-    }
-  })
-
-  // The map is keyed by ControllerName, so a typo fails to compile — but an
-  // entry outlives the controller it names, and a silent no-op entry would
-  // absorb a future controller that reused the name.
-  it('names only controllers that have routes', () => {
-    for (const controller of raised) {
-      expect(ROUTE_MAP[controller].length, `${controller}`).toBeGreaterThan(0)
-    }
-  })
-
-  // Raising the bar on a controller that is in no group at all is a claim about
-  // nothing, and reads in review as though the route were covered.
-  it('only raises the bar on a controller that has a rule', () => {
-    for (const controller of raised) {
-      expect(() => groupFor(controller), `${controller}`).not.toThrow()
-    }
-  })
-
-  // THE ONE THAT MATTERS. Giving up the first errors is only safe because a
-  // second rule still answers "is this route substantially broken" — on
-  // public-person-profiles that is the ratio rule, and it is what would have
-  // caught the August outage on its first window. Delete it and this map
-  // quietly becomes the thing that hides the next one.
-  it('keeps a hand-written rule covering every controller it quiets', () => {
-    for (const controller of raised) {
-      const paths = ROUTE_MAP[controller]
-        .map(({ endpoint }) => endpoint.split(' ')[1])
-        .filter((path): path is string => Boolean(path))
-
-      expect(
-        GLOBAL_ALERTS.some((alert) =>
-          paths.some((path) => alert.expr.includes(path)),
-        ),
-        `${controller} has a raised route-error threshold and no hand-written rule querying its routes, so a fault below that threshold now pages nobody at all`,
-      ).toBe(true)
-    }
-  })
-
-  // The notification is read by someone deciding how urgent this is, and "it
-  // returned errors" and "it returned more than two errors" are different
-  // incidents. The prose is generated, so it can drift from the evaluator.
-  it('states the count it took to fire, and only when raised', () => {
-    for (const group of GROUPS) {
-      const alert = alertFor(group.slug)
-      const expected =
-        group.threshold > 0 ? `more than ${group.threshold} ` : ''
-
-      expect(alert.message, group.slug).toContain(`returned ${expected}`)
-      if (group.threshold === 0) {
-        expect(alert.message, group.slug).not.toContain('more than')
-      }
+  it('fires on one error on every rule', () => {
+    for (const alert of ALERTS) {
+      expect(alert.threshold, alert.slug).toBe(0)
     }
   })
 })
