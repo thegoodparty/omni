@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { AGENTS, findAgent, type AgentEntry } from './agents'
+import { AGENTS, requireAgent } from './agents'
 import {
   assertNoPlaceholders,
   JUDGE_PLACEHOLDERS,
   substituteBackgroundCases,
+  type PlaceholderName,
 } from './caseParams'
-import { loadCaseList, type BackgroundCase } from './cases'
+import { loadBackgroundCases } from './cases'
+import { SWEEP_VALUES } from './fixtures/sweep'
 
 // The six background agents whose input_schema names an identifier that has to
 // resolve against a real organization, so their case lists carry a `{judge…}`
@@ -15,8 +17,8 @@ import { loadCaseList, type BackgroundCase } from './cases'
 //
 // Everything these lists share with the other nine — that they parse through
 // the loader, are `placeholder: true`, hold eight uniquely-named cases, and
-// satisfy their manifest's `required` and `additionalProperties: false` — is
-// checked for all fifteen in backgroundCaseLists.test.ts. What is only true
+// satisfy their manifest's `required` and its pinned `additionalProperties` —
+// is checked for all fifteen in backgroundCaseLists.test.ts. What is only true
 // here is the placeholder behaviour, and that is all this file asserts.
 const AUTHORED = [
   'campaign_tracker_tasks',
@@ -27,73 +29,79 @@ const AUTHORED = [
   'trending_issues',
 ] as const
 
-// Which tokens each list is expected to carry. Asserted per agent rather than
-// "at least one somewhere", because a list that lost its org token would still
-// parse, still satisfy the input_schema, and dispatch against whatever literal
-// took its place.
-const EXPECTED_TOKENS: Record<(typeof AUTHORED)[number], string[]> = {
-  campaign_tracker_tasks: [JUDGE_PLACEHOLDERS.raceId],
-  find_existing_ordinances: [JUDGE_PLACEHOLDERS.orgSlug],
-  opportunities_and_challenges: [
-    JUDGE_PLACEHOLDERS.raceId,
-    JUDGE_PLACEHOLDERS.userEmail,
-  ],
-  opposition_research: [
-    JUDGE_PLACEHOLDERS.raceId,
-    JUDGE_PLACEHOLDERS.userEmail,
-  ],
-  top_community_issues: [JUDGE_PLACEHOLDERS.orgSlug],
-  trending_issues: [JUDGE_PLACEHOLDERS.orgSlug],
+const CASES_PER_LIST = 8
+
+// WHICH PARAM carries which token, not merely that the token appears
+// somewhere in the file. A substring search over the whole list passes when
+// seven of eight cases have lost the token, and when the token has moved from
+// `organization_slug` into `state` — which is still schema-valid and still
+// dispatched, against whatever literal took its place. Every one of the 48
+// cases carries its tokens in exactly these named keys, so the precise
+// assertion is available and the loose one is not worth having.
+// Keyed by placeholder NAME rather than by token, so the token a case must
+// carry and the value it must end up with both derive from one entry —
+// JUDGE_PLACEHOLDERS[name] and SWEEP_VALUES[name] — and cannot disagree.
+const TOKEN_PARAMS: Record<
+  (typeof AUTHORED)[number],
+  Partial<Record<PlaceholderName, string>>
+> = {
+  campaign_tracker_tasks: { raceId: 'race_id' },
+  find_existing_ordinances: { orgSlug: 'organization_slug' },
+  opportunities_and_challenges: {
+    raceId: 'race_id',
+    userEmail: 'user_email',
+  },
+  opposition_research: { raceId: 'race_id', userEmail: 'user_email' },
+  top_community_issues: { orgSlug: 'organization_slug' },
+  trending_issues: { orgSlug: 'organization_slug' },
 }
 
-// What a sweep would hand these lists. Shaped like the real values so a
-// substituted params object is the one that would be dispatched.
-const SWEEP_VALUES = {
-  orgSlug: 'eo-0192e4a0-1f00-7000-8000-0000000c0de1',
-  raceId: 'gAAAAABkRaCeIdFromBallotReady',
-  userEmail: 'qa-6f1c9d84-3b52-4a27-9e0f-7c3d51ab2049@goodparty.org',
-}
+// The (placeholder name, param key) pairs one agent's cases must carry.
+const pairsFor = (agentId: (typeof AUTHORED)[number]) =>
+  Object.entries(TOKEN_PARAMS[agentId]) as [PlaceholderName, string][]
 
-const agentFor = (agentId: string): AgentEntry => {
-  const agent = findAgent(agentId)
-  if (agent === undefined) throw new Error(`${agentId} left the registry`)
-  return agent
-}
-
-// The loader returns a JudgeCase, which is a chat case or a background one.
-// Narrowed here rather than cast, so a list filed against the wrong shape
-// fails naming the case instead of arriving at substitution without params.
-const backgroundCases = (agentId: string): BackgroundCase[] =>
-  loadCaseList(agentFor(agentId)).cases.map((one) => {
-    if (!('params' in one)) {
-      throw new Error(`${agentId}/${one.caseId} carries no params`)
-    }
-    return one
-  })
+const casesFor = (agentId: string) => loadBackgroundCases(requireAgent(agentId))
 
 describe('the six fixture-backed background case lists', () => {
   // `wired` means an agent has produced a real verdict at least once. None of
   // these has been dispatched.
   it('leaves all six pending', () => {
-    expect(AUTHORED.map((id) => agentFor(id).status)).toEqual(
+    expect(AUTHORED.map((id) => requireAgent(id).status)).toEqual(
       AUTHORED.map(() => 'pending'),
     )
   })
 
-  it.each(AUTHORED)('%s carries the tokens it needs', (agentId) => {
-    const serialized = JSON.stringify(backgroundCases(agentId))
-    for (const token of EXPECTED_TOKENS[agentId]) {
-      expect(serialized, token).toContain(token)
-    }
-  })
+  it.each(AUTHORED)(
+    '%s carries its tokens in the params that need them',
+    (agentId) => {
+      const cases = casesFor(agentId)
+      expect(cases).toHaveLength(CASES_PER_LIST)
+      const pairs = pairsFor(agentId)
+      expect(pairs.length, agentId).toBeGreaterThan(0)
+      for (const one of cases) {
+        for (const [name, key] of pairs) {
+          expect(one.params[key], `${agentId}/${one.caseId}.${key}`).toBe(
+            JUDGE_PLACEHOLDERS[name],
+          )
+        }
+      }
+    },
+  )
 
   // Every case, not one per list: a list is dispatched whole, and one case
   // that named a token nobody supplies is what the guard exists to catch.
   it.each(AUTHORED)('%s fully substitutes under a sweep', (agentId) => {
-    const cases = backgroundCases(agentId)
-    const substituted = substituteBackgroundCases(cases, SWEEP_VALUES)
-    expect(substituted).toHaveLength(cases.length)
+    const substituted = substituteBackgroundCases(
+      casesFor(agentId),
+      SWEEP_VALUES,
+    )
+    expect(substituted).toHaveLength(CASES_PER_LIST)
     for (const one of substituted) {
+      for (const [name, key] of pairsFor(agentId)) {
+        expect(one.params[key], `${agentId}/${one.caseId}.${key}`).toBe(
+          SWEEP_VALUES[name],
+        )
+      }
       expect(() => assertNoPlaceholders(one.caseId, one.params)).not.toThrow()
     }
   })
@@ -101,9 +109,18 @@ describe('the six fixture-backed background case lists', () => {
   // The failure this design exists to prevent, asserted on the real files:
   // with no fixture, the list refuses rather than dispatching a literal.
   it.each(AUTHORED)('%s refuses to dispatch without a fixture', (agentId) => {
-    expect(() =>
-      substituteBackgroundCases(backgroundCases(agentId), {}),
-    ).toThrow(/unsubstituted placeholder/)
+    expect(() => substituteBackgroundCases(casesFor(agentId), {})).toThrow(
+      /unsubstituted placeholder/,
+    )
+  })
+
+  // Substitution rebuilds; it must not edit the loaded list in place, since a
+  // sweep holds one list and substitutes it once per arm.
+  it.each(AUTHORED)('%s is left untouched by substitution', (agentId) => {
+    const cases = casesFor(agentId)
+    const before = JSON.stringify(cases)
+    substituteBackgroundCases(cases, SWEEP_VALUES)
+    expect(JSON.stringify(cases)).toBe(before)
   })
 })
 
@@ -125,7 +142,7 @@ describe('the background lists that are not fixture-backed', () => {
   })
 
   it.each(OTHERS)('$agentId needs no fixture at all', (agent) => {
-    for (const one of backgroundCases(agent.agentId)) {
+    for (const one of loadBackgroundCases(agent)) {
       expect(() => assertNoPlaceholders(one.caseId, one.params)).not.toThrow()
     }
   })

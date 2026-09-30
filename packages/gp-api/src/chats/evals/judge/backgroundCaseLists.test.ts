@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { findAgent } from './agents'
-import { loadCaseList } from './cases'
+import { requireAgent } from './agents'
+import { loadBackgroundCases, loadCaseList } from './cases'
 import { JsonValueSchema, type JsonValue } from './record'
 
 // The registry-wide check that every named list is really on disk has to span
@@ -132,21 +132,20 @@ const inputSchemaFor = (agentId: string): InputSchemaFacts => {
 // mistyped key is refused before a Fargate task launches, so it costs nothing;
 // here it is accepted, the run is billed, and the param the case meant to set
 // was never read.
-const PERMITS_EXTRA_PARAMS = new Set<string>([
+const PERMITS_EXTRA_PARAMS: readonly string[] = [
   'opportunities_and_challenges',
   'opposition_research',
-])
+]
 
 describe('the authored background case lists', () => {
   it('the registry points all fifteen at their own file', () => {
-    expect(AUTHORED.map((id) => findAgent(id)?.cases)).toEqual(
+    expect(AUTHORED.map((id) => requireAgent(id).cases)).toEqual(
       AUTHORED.map((id) => `${id}.json`),
     )
   })
 
   it.each(AUTHORED)('%s parses through the real loader', (agentId) => {
-    const agent = findAgent(agentId)
-    if (agent === undefined) throw new Error(`${agentId} left the registry`)
+    const agent = requireAgent(agentId)
 
     const list = loadCaseList(agent)
     expect(list.shape).toBe('background')
@@ -175,13 +174,12 @@ describe('the authored background case lists', () => {
     // exactly, per agent, so a manifest flipping either way fails here naming
     // itself instead of quietly widening or narrowing what a case may carry.
     expect(schema.additionalProperties, `${agentId} input_schema`).toBe(
-      PERMITS_EXTRA_PARAMS.has(agentId),
+      PERMITS_EXTRA_PARAMS.includes(agentId),
     )
 
-    for (const one of list.cases) {
-      if (!('params' in one)) {
-        throw new Error(`${agentId}/${one.caseId} carries no params`)
-      }
+    // Narrowed by the loader rather than structurally here, so the shape the
+    // parser already discriminated on is not re-derived per reader.
+    for (const one of loadBackgroundCases(agent)) {
       const keys = Object.keys(one.params)
       expect(keys.length, one.caseId).toBeGreaterThan(0)
 

@@ -6,13 +6,8 @@ import {
   substituteCaseParams,
   UnsubstitutedPlaceholderError,
 } from './caseParams'
+import { SWEEP_VALUES as VALUES } from './fixtures/sweep'
 import type { JsonValue } from './record'
-
-const VALUES = {
-  orgSlug: 'eo-0192e4a0-1f00-7000-8000-0000000c0de1',
-  raceId: 'gAAAAABkRaCeIdFromBallotReady',
-  userEmail: 'qa-6f1c9d84-3b52-4a27-9e0f-7c3d51ab2049@goodparty.org',
-}
 
 describe('substituteCaseParams', () => {
   it('replaces a top-level token', () => {
@@ -58,6 +53,25 @@ describe('substituteCaseParams', () => {
     expect(substituteCaseParams(params, VALUES)).toEqual(params)
   })
 
+  // ONE PASS, not one pass per name. Three sequential replaceAll passes each
+  // scan the PREVIOUS pass's output, so a value that happened to contain
+  // another token's text would be substituted into a second time. Real
+  // identifiers never look like tokens, which is exactly why this has to be a
+  // test rather than an observation.
+  //
+  // `assertNoPlaceholders` would still refuse the result, deliberately: it
+  // judges the bytes that are about to be dispatched and cannot know one of
+  // them came from a fixture. So the property belongs to substitution, and is
+  // asserted on substitution.
+  it('does not substitute into a value it just substituted', () => {
+    expect(
+      substituteCaseParams(
+        { organization_slug: JUDGE_PLACEHOLDERS.orgSlug },
+        { orgSlug: JUDGE_PLACEHOLDERS.raceId, raceId: VALUES.raceId },
+      ),
+    ).toEqual({ organization_slug: JUDGE_PLACEHOLDERS.raceId })
+  })
+
   it('leaves a token whose value the sweep did not supply', () => {
     expect(
       substituteCaseParams(
@@ -65,6 +79,32 @@ describe('substituteCaseParams', () => {
         { orgSlug: VALUES.orgSlug },
       ),
     ).toEqual({ race_id: JUDGE_PLACEHOLDERS.raceId })
+  })
+})
+
+// Pure in, pure out. A sweep loads one case list and substitutes it once per
+// arm, so an in-place edit would make the second arm's params depend on the
+// first's having run.
+describe('substituteCaseParams immutability', () => {
+  it('does not mutate the params it was given', () => {
+    const params: Record<string, JsonValue> = {
+      organization_slug: JUDGE_PLACEHOLDERS.orgSlug,
+      campaign_strategy_context: {
+        candidates: [{ email: JUDGE_PLACEHOLDERS.userEmail }],
+      },
+    }
+    const before = JSON.stringify(params)
+    substituteCaseParams(params, VALUES)
+    expect(JSON.stringify(params)).toBe(before)
+  })
+
+  it('does not mutate the cases it was given', () => {
+    const cases = [
+      { caseId: 'first', params: { organization_slug: '{judgeOrgSlug}' } },
+    ]
+    const before = JSON.stringify(cases)
+    substituteBackgroundCases(cases, VALUES)
+    expect(JSON.stringify(cases)).toBe(before)
   })
 })
 
@@ -95,11 +135,34 @@ describe('assertNoPlaceholders', () => {
   // A misspelling is never substituted, so it would otherwise reach the
   // Lambda as a literal. It needs a different sentence from a value the
   // sweep forgot, because the fix is in the file rather than in the sweep.
-  it('calls out a token that is not in the vocabulary', () => {
+  // Never substituted, so it would otherwise reach the Lambda as a literal.
+  // It needs a different sentence from a value the sweep forgot, because the
+  // fix is in the file rather than in the sweep.
+  //
+  // `{JudgeOrgSlug}` is the case that matters most and the one a lowercase-
+  // anchored matcher missed: it is the likeliest camelCase slip, and nothing
+  // downstream refuses fourteen valid characters.
+  it.each([
+    '{judgeOrgslug}',
+    '{JudgeOrgSlug}',
+    '{JUDGE_ORG_SLUG}',
+    '{ judgeOrgSlug }',
+  ])('calls out %s, which is not in the vocabulary', (token) => {
     expect(() =>
-      assertNoPlaceholders('typo', { organization_slug: '{judgeOrgslug}' }),
-    ).toThrow(/\{judgeOrgslug\} is not a placeholder this build knows/)
+      assertNoPlaceholders('typo', { organization_slug: token }),
+    ).toThrow(/is not a placeholder this build knows/)
   })
+
+  // The other half of that widening: a near-miss must not be substituted
+  // either, or it would be silently repaired into a value nobody authored.
+  it.each(['{JudgeOrgSlug}', '{ judgeOrgSlug }'])(
+    'leaves %s alone rather than substituting it',
+    (token) => {
+      expect(
+        substituteCaseParams({ organization_slug: token }, VALUES),
+      ).toEqual({ organization_slug: token })
+    },
+  )
 
   it('finds a token nested in an array', () => {
     expect(() =>
@@ -162,14 +225,5 @@ describe('substituteBackgroundCases', () => {
         { orgSlug: VALUES.orgSlug },
       ),
     ).toThrow(/case broken/)
-  })
-
-  // Both arms are separate processes in separate worktrees, so the only thing
-  // that makes their params identical is being handed the same values. A
-  // different org per arm would make every verdict an artifact of the fixture.
-  it('gives both arms identical params from one set of values', () => {
-    const base = substituteBackgroundCases(CASES, VALUES)
-    const candidate = substituteBackgroundCases(CASES, VALUES)
-    expect(JSON.stringify(candidate)).toBe(JSON.stringify(base))
   })
 })

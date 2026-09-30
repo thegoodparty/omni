@@ -7,19 +7,7 @@ import {
 } from './sweepEnv'
 import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from './config'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
-
-const SHA = 'a'.repeat(40)
-
-const armEnv = (over: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
-  JUDGE_ARM: 'candidate',
-  JUDGE_SWEEP_ID: 'swp_1',
-  JUDGE_AGENTS: 'chief_of_staff',
-  JUDGE_BASE_REF: 'universal-judge',
-  JUDGE_CANDIDATE_SHA: SHA,
-  JUDGE_ARM_COMMIT: SHA,
-  JUDGE_RECORDS_DIR: '/tmp/judge',
-  ...over,
-})
+import { armEnvFor as armEnv } from './fixtures/sweep'
 
 describe('parseArmEnv', () => {
   it('reads a complete arm environment', () => {

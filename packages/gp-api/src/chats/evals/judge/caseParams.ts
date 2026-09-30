@@ -1,3 +1,4 @@
+import type { BackgroundCase } from './cases'
 import type { JsonValue } from './record'
 
 // Placeholder substitution for a background case's params.
@@ -52,15 +53,38 @@ export type PlaceholderValues = Partial<Record<PlaceholderName, string>>
 // Every `{judge…}` token, declared or not. Substitution only ever touches the
 // three above, so this is what lets a misspelled `{judgeOrgslug}` fail with a
 // sentence instead of reaching the dispatch Lambda as a literal.
-const PLACEHOLDER_TOKEN = /\{judge[A-Za-z0-9_]*\}/g
+// DELIBERATELY WIDER THAN THE VOCABULARY, in both case and spacing. A guard
+// anchored on a lowercase `judge` matches neither `{JudgeOrgSlug}` — the
+// likeliest camelCase slip there is — nor `{JUDGE_ORG_SLUG}`, and nothing else
+// would catch them either, because substitution touches only the three exact
+// literals. Such a typo would sail through as fourteen valid characters and
+// bill two arms. `{ judgeOrgSlug }` is the same hole.
+//
+// Case-insensitive rather than a `[Jj]` class, so the whole word is covered
+// and not just its first letter. Widening costs nothing here: these are
+// authored JSON params, not prose.
+const PLACEHOLDER_TOKEN = /\{\s*judge[A-Za-z0-9_]*\s*\}/gi
 
+// Reversed once, so substitution is a lookup rather than one pass per name.
+const NAME_BY_TOKEN: Record<string, PlaceholderName> = Object.fromEntries(
+  PLACEHOLDER_NAMES.map((name) => [JUDGE_PLACEHOLDERS[name], name]),
+)
+
+// ONE PASS, which is a correctness property rather than a micro-optimisation.
+// Three sequential `replaceAll`s each scan the PREVIOUS pass's output, so a
+// fixture value that happened to contain another token's text would be
+// substituted into — and a fixture value carrying any `{judge…}`-shaped
+// substring would make the guard below refuse a sweep that was in fact
+// complete. Replacing through the matcher touches only the original bytes.
+//
+// A token this build does not know, and a token whose value the sweep did not
+// supply, are both left exactly as they were. Deciding that either is fatal is
+// the guard's job, once, over the whole list.
 const substituteString = (value: string, values: PlaceholderValues): string =>
-  PLACEHOLDER_NAMES.reduce((text, name) => {
-    const replacement = values[name]
-    return replacement === undefined
-      ? text
-      : text.replaceAll(JUDGE_PLACEHOLDERS[name], replacement)
-  }, value)
+  value.replace(PLACEHOLDER_TOKEN, (token) => {
+    const name = NAME_BY_TOKEN[token]
+    return name === undefined ? token : (values[name] ?? token)
+  })
 
 const substituteValue = (
   value: JsonValue,
@@ -161,7 +185,7 @@ const advise = (found: readonly Finding[]): string => {
 //
 //   - A token in a VALUE is accepted everywhere. Every one of these params is
 //     a plain string with at most `minLength: 1` — no pattern, no format — and
-//     `{judgeOrgSlug}` is fifteen characters, so the manifest passes it, the
+//     `{judgeOrgSlug}` is fourteen characters, so the manifest passes it, the
 //     message is accepted, a Fargate task launches, and the agent runs against
 //     an organization that does not exist. A roughly $13 background sweep is
 //     then spent on an artifact that is an error or an invention, on BOTH arms,
@@ -186,10 +210,11 @@ export const assertNoPlaceholders = (
   )
 }
 
-export interface SubstitutableCase {
-  caseId: string
-  params: Record<string, JsonValue>
-}
+// The loader's own shape, narrowed to the two fields substitution touches, so
+// this is not a third declaration of "a background case". `Pick` rather than
+// the whole type, because the runner's case carries `inputFiles` too and the
+// generic below has to accept both.
+export type SubstitutableCase = Pick<BackgroundCase, 'caseId' | 'params'>
 
 // Substitutes a whole list and checks ALL of it before returning any of it.
 // Per-case checking would let a sweep dispatch, poll and pay for cases 1-7

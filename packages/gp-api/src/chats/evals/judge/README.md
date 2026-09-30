@@ -245,6 +245,15 @@ supplied" — the same rule `JUDGE_DATA_VERSION` needed, and for a harder
 reason: `''` would substitute cleanly and dispatch a params object the agent's
 own `minLength` refuses.
 
+**The exporting half is not wired yet, and that is deliberate rather than
+implied.** `sweepArm.ts` still skips every background agent
+(`BACKGROUND_NOT_WIRED`), and `judge.yml` declares no `JUDGE_FIXTURE_*` entry
+and no mint step — so `fixtureValues` is `{}` on every arm CI runs today.
+Minting a real Clerk identity in CI belongs with the background runner, not
+ahead of it. `judgeWorkflow.test.ts` already owns this class of guard for
+`JUDGE_DATA_VERSION`; it should gain the same check for these three when that
+step lands.
+
 **An unsubstituted token fails before the first dispatch, and nothing further
 down would catch it.** `substituteBackgroundCases` checks the WHOLE list and
 returns none of it if any case is short a value, and `buildDispatchMessage`
@@ -256,18 +265,34 @@ manifest passes it, the message is accepted, a task launches, and a roughly
 exist. The artifacts come back as errors or inventions, they come back
 _identical_, and the verdict looks like a real comparison.
 
-Only `organization_slug` is a real lookup. All three manifests call `race_id`
-a trace and idempotency identifier the agent does not reason over, and
-`user_email` is matched only against the roster inside the same params object.
-They still come from the fixture: a field documented as a BallotReady brHashId
-should carry one, and a public case list should carry no email address.
+**None of the three is a live lookup under this harness, and that changes
+what a fixture is worth.** This started out claiming `organization_slug` was
+the real one, because `top_community_issues` and `trending_issues` do read the
+issue feed. They do — but `GET_community_issues` takes no slug argument (its
+query is `{ list }` alone); the org comes from `@UseElectedOffice()`, which
+reads `X-Organization-Slug`; the broker sets that header from
+`ticket.organization_slug`; and a judge dispatch pins that to `judge-*`
+(`JUDGE_ORG_SLUG_PREFIX`) so a run cannot overwrite a real organization's
+`latest.json`. The slug in params is echoed into the artifact and scopes
+nothing. `race_id` never was a lookup — all three manifests call it a trace and
+idempotency identifier — and `user_email` is matched only against the roster
+inside the same params object.
 
-**The fixture's organization is fresh, so its community-issues feed is
-empty.** `top_community_issues` and `trending_issues` read that feed, and on a
-minutes-old `eo-` org there is nothing in it. That is identical on both arms,
-so the comparison is still valid — but it means the carry-forward-existing-
-issues branch of those two agents is not exercised by this harness, and a
-verdict from them speaks only to the cold-start path.
+Two reasons to take them from the fixture survive that: a field documented as a
+BallotReady brHashId should carry one, and a public case list should carry no
+email address. The stronger reason — that an `eo-` organization has to exist
+for the feed read to work — does not. **So whether these three agents need a
+minted Clerk identity at all is open**, and it is recorded on the PR rather
+than decided here, because the alternative (putting the fixture's
+`clerk_user_id` and `eo-` slug on the dispatch message) means unpinning the
+judge slug, which that pin exists to prevent.
+
+One consequence worth stating plainly: because the ticket is pinned to
+`judge-*`, these two agents read the feed of an organization that does not
+exist rather than the fixture's. That is identical on both arms, so the
+comparison is valid — but the carry-forward-existing-issues path is not
+exercised by this harness at all, and a verdict from them speaks only to the
+cold-start path.
 
 **Nothing derived from a fixture response is ever logged.** The response
 carries the user's password, a session token and a single-use Clerk sign-in

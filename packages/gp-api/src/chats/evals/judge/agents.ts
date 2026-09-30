@@ -187,3 +187,14 @@ export const coverage = (agents: readonly AgentEntry[] = AGENTS): Coverage => {
 
 export const findAgent = (agentId: string): AgentEntry | undefined =>
   AGENTS.find((a) => a.agentId === agentId)
+
+// The narrowing every caller of `loadCaseList` needs, since that takes an
+// entry and `findAgent` returns an optional. Here rather than inline in each
+// reader, which was four copies of the same sentence.
+export const requireAgent = (agentId: string): AgentEntry => {
+  const agent = findAgent(agentId)
+  if (agent === undefined) {
+    throw new Error(`${agentId} is not in the agent registry`)
+  }
+  return agent
+}

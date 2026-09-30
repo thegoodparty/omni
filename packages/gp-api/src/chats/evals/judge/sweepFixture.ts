@@ -11,6 +11,7 @@ import {
   JUDGE_FIXTURE_ENV_NAMES,
   JUDGE_PLACEHOLDERS,
   PLACEHOLDER_NAMES,
+  type PlaceholderName,
 } from './caseParams'
 
 // The per-sweep fixture for the six background agents whose input_schema names
@@ -24,16 +25,31 @@ import {
 // runners/seedChatOrg.ts, which derives a chat case's org for the run rather
 // than pointing at a long-lived one.
 //
-// The three kinds of identifier are not equally load-bearing, and saying which
-// is which is the point of this comment. `organization_slug` is a real lookup:
-// top_community_issues and trending_issues read the current issue feed with
-// GET_community_issues scoped to it, so it has to name an elected office that
-// exists. `race_id` is not — all three manifests call it a trace and
-// idempotency identifier the agent does not reason over or look anything up
-// with — but it is still resolved from the live route rather than authored,
-// because a field documented as a BallotReady brHashId should carry one.
+// NONE OF THE THREE IS A LIVE LOOKUP UNDER THIS HARNESS, and that was checked
+// rather than assumed, because an earlier version of this comment claimed the
+// opposite and it decided how much a fixture is worth.
+//
+// `organization_slug` looked like the real one: top_community_issues and
+// trending_issues do read the issue feed. But GET_community_issues takes no
+// slug argument — its query is `{ list }` alone — and the org comes from
+// `@UseElectedOffice()`, which reads `X-Organization-Slug`. The broker sets
+// that header from `ticket.organization_slug`, and a judge dispatch pins that
+// to `judge-*` (JUDGE_ORG_SLUG_PREFIX in runners/background.ts) so a run
+// cannot overwrite a real organization's `latest.json`. So the slug in params
+// is echoed into the artifact and scopes nothing.
+//
+// `race_id` never was: all three manifests call it a trace and idempotency
+// identifier the agent does not reason over or look anything up with.
 // `user_email` is matched only against the roster inside the same params
-// object; it comes from here so a public case list carries no address.
+// object.
+//
+// They still come from here rather than from the case list, for two reasons
+// that survive the above: a field documented as a BallotReady brHashId should
+// carry one, and a public case list should carry no email address. But the
+// stronger justification — that an `eo-` organization has to exist for the
+// feed read to work — does not hold, so whether these three agents need a
+// minted Clerk identity at all is an open question on the PR rather than a
+// settled one here.
 //
 // ONE fixture, in state `serve-won-race`, serves all six. It is the only state
 // that produces both halves: promoteWonRace creates an ElectedOffice, so
@@ -72,6 +88,11 @@ export interface FixtureApi {
     path: string
     query?: Record<string, string>
     body?: JsonValue
+    // Whether to send the admin/M2M bearer. Default true, because the
+    // test-fixtures routes are behind AdminOrM2MGuard — but the race lookup
+    // is `@PublicAccess()`, and an admin credential riding on a call that
+    // needs none widens its blast radius for nothing.
+    auth?: boolean
   }): Promise<JsonValue>
 }
 
@@ -86,11 +107,21 @@ export interface FixtureApiOptions {
 
 // The real edge. Kept to this one adapter so every other function here is
 // exercised against a stub and a test can never mint anything.
+// A mint is a Clerk round trip plus a few writes, so this is generous. It
+// exists because Node's fetch has no request timeout of its own: only
+// undici's 300s headers timeout applies, and an accepted-then-silent
+// connection escapes even that. `mintJudgeFixture` runs BEFORE the arms, so a
+// black-holed dev gp-api would park the whole Actions job until the job
+// timeout and deliver no verdict; `deleteJudgeFixture` runs after a paid
+// sweep, where a hang turns "cleanup is slow" into "the job was killed after
+// the money was spent".
+const FIXTURE_TIMEOUT_MS = 30_000
+
 export const createFixtureApi = ({
   baseUrl,
   token,
 }: FixtureApiOptions): FixtureApi => ({
-  request: async ({ method, path, query, body }) => {
+  request: async ({ method, path, query, body, auth = true }) => {
     const url = new URL(path, baseUrl)
     for (const [key, value] of Object.entries(query ?? {})) {
       url.searchParams.set(key, value)
@@ -98,9 +129,10 @@ export const createFixtureApi = ({
     const response = await fetch(url, {
       method,
       headers: {
-        [Headers.AUTHORIZATION]: `Bearer ${token}`,
+        ...(auth && { [Headers.AUTHORIZATION]: `Bearer ${token}` }),
         [Headers.CONTENT_TYPE]: MimeTypes.APPLICATION_JSON,
       },
+      signal: AbortSignal.timeout(FIXTURE_TIMEOUT_MS),
       ...(body !== undefined && { body: JSON.stringify(body) }),
     })
     const text = await response.text()
@@ -112,7 +144,27 @@ export const createFixtureApi = ({
         `${method} ${path} answered ${response.status}`,
       )
     }
-    return JsonValueSchema.parse(JSON.parse(text))
+    // NOT a bare JSON.parse, and that is the rule above rather than defensive
+    // habit: V8 puts a snippet of its input in the message — `Unexpected
+    // token 'x', "x{"passwor"... is not valid JSON` — so a 2xx body that is
+    // not JSON would propagate the first bytes of a response carrying a
+    // password. Re-thrown with the route and the length only.
+    let json: unknown
+    try {
+      json = JSON.parse(text)
+    } catch {
+      throw new JudgeFixtureError(
+        `${method} ${path} answered ${response.status} with ` +
+          `${text.length} byte(s) that are not JSON`,
+      )
+    }
+    // Deliberately OUTSIDE the catch. Zod is safe to surface here and that
+    // was checked, not assumed: its issues name a path and the expected type,
+    // never the received value. Folding it in would report a schema drift —
+    // the route growing a field, or returning null where a string is
+    // declared — as "not JSON", which is false, and would discard the one
+    // thing that makes such a drift diagnosable.
+    return JsonValueSchema.parse(json)
   },
 })
 
@@ -138,12 +190,26 @@ export interface JudgeFixture {
   userId: number
 }
 
+// One place, because it is called from two: the unwind below, when a minted
+// fixture turns out to be unusable, and the ordinary cleanup after the arms.
+const deleteFixtureUser = (
+  api: FixtureApi,
+  userId: number,
+): Promise<JsonValue> =>
+  api.request({
+    method: 'DELETE',
+    path: FIXTURE_USERS_PATH,
+    body: { userIds: [userId] },
+  })
+
 const resolveRaceId = async (api: FixtureApi): Promise<string> => {
   const races = RaceListItemArraySchema.parse(
     await api.request({
       method: 'GET',
       path: RACES_BY_YEAR_PATH,
       query: { zipcode: JUDGE_FIXTURE_RACE.zip },
+      // `@PublicAccess()` on ElectionsController — no credential needed.
+      auth: false,
     }),
   )
   const match = races.find(
@@ -178,6 +244,18 @@ export const mintJudgeFixture = async (
     }),
   )
   if (fixture.electedOfficeId === undefined) {
+    // The POST already created a Clerk user, an organization, a campaign and
+    // — normally — an elected office. Throwing without deleting would discard
+    // the only id that can reclaim it deliberately, leaving the 6-hourly
+    // sweepTestUsers cron as the only reaper and contradicting this
+    // function's own claim above that a failure leaks no Clerk identity.
+    // Clerk's Backend API budget is the scarce resource here
+    // (src/testFixtures/AGENTS.md).
+    //
+    // Swallowed on purpose: the caller needs the reason the fixture is
+    // unusable, not the reason the cleanup of an unusable fixture also
+    // failed. The cron is the net for that.
+    await deleteFixtureUser(api, fixture.userId).catch(() => undefined)
     throw new JudgeFixtureError(
       `the ${FIXTURE_STATE} fixture produced no elected office, so its ` +
         `organization "${fixture.orgSlug}" is not one the ` +
@@ -194,20 +272,21 @@ export const mintJudgeFixture = async (
   }
 }
 
-// The 6-hourly sweepTestUsers cron is the safety net, so this returns what the
-// endpoint said rather than throwing on a user it could not find: it is called
-// after the arms have run, and throwing there would replace a sweep's real
-// outcome with a cleanup error.
+// A user the endpoint could not find is reported, not thrown: that is an
+// ordinary outcome — the 6-hourly sweepTestUsers cron may have got there
+// first — and it arrives as `notFound` in a 200 body.
+//
+// A TRANSPORT failure still rejects, and that is deliberate rather than an
+// oversight. This runs after the arms, so THE CALLER must not let it replace a
+// finished sweep's outcome with a cleanup error; swallowing it here instead
+// would hide a leaked Clerk identity from the one place that could report it.
+// Wrap the call, do not weaken it.
 export const deleteJudgeFixture = async (
   api: FixtureApi,
   fixture: JudgeFixture,
 ): Promise<DeleteTestFixtureUsersResponse> =>
   DeleteTestFixtureUsersResponseSchema.parse(
-    await api.request({
-      method: 'DELETE',
-      path: FIXTURE_USERS_PATH,
-      body: { userIds: [fixture.userId] },
-    }),
+    await deleteFixtureUser(api, fixture.userId),
   )
 
 // ---------------------------------------------------------------------------
@@ -226,9 +305,11 @@ export const deleteJudgeFixture = async (
 // where blank-means-unset is defined once for these three and the Delta
 // version together — a second reader here would be a second contract for what
 // an arm may read.
+// Keyed by the union rather than by `string`, so dropping an entry is a
+// typecheck failure instead of a variable an arm silently never receives.
 export const fixtureEnv = (
   identifiers: JudgeFixtureIdentifiers,
-): Record<string, string> => ({
+): Record<(typeof JUDGE_FIXTURE_ENV_NAMES)[PlaceholderName], string> => ({
   [JUDGE_FIXTURE_ENV_NAMES.orgSlug]: identifiers.orgSlug,
   [JUDGE_FIXTURE_ENV_NAMES.raceId]: identifiers.raceId,
   [JUDGE_FIXTURE_ENV_NAMES.userEmail]: identifiers.userEmail,
