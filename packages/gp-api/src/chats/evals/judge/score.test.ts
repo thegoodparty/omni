@@ -16,8 +16,8 @@ import {
 } from './judge'
 import {
   normalizeAgent,
+  SLOTS,
   type NormalizedAgent,
-  type Slot,
   type SlotMap,
 } from './normalize'
 import { orient, scoreAgent, type AgentScore } from './score'
@@ -65,6 +65,7 @@ const judgment = (spec: JudgmentSpec): GradedJudgment => ({
   slotMap: spec.slotMap,
   dimensions: dims(spec.verdict, spec.magnitude ?? 'clear'),
   seats: [],
+  seatFailures: [],
   flags: spec.flags ?? [],
   absoluteFloor: spec.floor ?? null,
 })
@@ -278,6 +279,38 @@ describe('the order-swap subsample', () => {
     )
     expect(result.label).toBe("CAN'T SAY")
     expect(result.labelNote).toMatch(/reading position/)
+  })
+})
+
+describe('the magnitude distribution', () => {
+  // The order-swap subsample judges the same pair twice, so a magnitude
+  // counted per judgment reports one pair's strength as two — printed two
+  // lines below a case count that says one.
+  it('counts a magnitude once per pair, not once per order', () => {
+    const result = score(
+      [
+        judgment({
+          caseId: 'a',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'X',
+          magnitude: 'clear',
+        }),
+        judgment({
+          caseId: 'a',
+          order: 'swapped',
+          slotMap: X_IS_BASE,
+          verdict: 'Y',
+          magnitude: 'clear',
+        }),
+      ],
+      noFloor(),
+    )
+    expect(result.overall.cases).toBe(1)
+    expect(result.overall.magnitudes).toEqual({
+      slight: 0,
+      clear: 1,
+      strong: 0,
+    })
   })
 })
 
@@ -648,6 +681,24 @@ describe('the measured layer', () => {
     expect(score([], noFloor(), mixed).evidence.pricingMismatch).toBe(true)
   })
 
+  // Every other figure in the measured layer runs over the pairs that
+  // produced a result on both arms, and this one has to as well: a pair
+  // whose arm died in infra was never measured, so flagging its price
+  // tables would report a mismatch about a comparison nobody made.
+  it('ignores a pair that was never measured', () => {
+    const stale = (record: RunRecord): RunRecord => ({
+      ...record,
+      telemetry: {
+        ...record.telemetry,
+        cost: { ...record.telemetry.cost, pricingVersion: '2025-01' },
+      },
+    })
+    const [base, candidate] = INFRA_ERROR_PAIR
+    const agent = normalizeAgent([stale(base), candidate], () => 0)
+    expect(score([], noFloor(), agent).evidence.pairs).toBe(0)
+    expect(score([], noFloor(), agent).evidence.pricingMismatch).toBe(false)
+  })
+
   // A model with no rates on record must not be costed at zero, and must
   // not take the verdict down with it either.
   it('reports cost as not derivable rather than throwing', () => {
@@ -714,6 +765,7 @@ describe('exclusion counts', () => {
     expect(result.exclusions).toEqual({
       toolError: 1,
       infraError: 1,
+      identicalConfig: 0,
       unpaired: 1,
       ungraded: 0,
     })
@@ -742,8 +794,11 @@ describe('provenance', () => {
 })
 
 describe('slot vocabulary', () => {
-  it('has exactly two slots', () => {
-    const slots: readonly Slot[] = ['X', 'Y']
-    expect(slots).toHaveLength(2)
+  // `blindCase` destructures the blinded runs into exactly two, and
+  // `orient` maps a slot straight through the slot map, so a third slot
+  // would break both silently. Pinned against the real SLOTS rather than a
+  // local copy of it, which would assert nothing.
+  it('is exactly X and Y', () => {
+    expect(SLOTS).toEqual(['X', 'Y'])
   })
 })

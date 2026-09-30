@@ -4,7 +4,11 @@ import type { LlmMessage } from '../../../llm/types/llmMessages.types'
 import type { AgentEntry } from './agents'
 import { createRng } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
-import { CHAT_PAIR, TOOL_ERROR_PAIR } from './fixtures/records'
+import {
+  CHAT_PAIR,
+  IDENTICAL_DIGEST_PAIR,
+  TOOL_ERROR_PAIR,
+} from './fixtures/records'
 import { judgeAll, OVERALL } from './judge'
 import { normalizeAgent, type NormalizedAgent } from './normalize'
 import { coverageLines, renderReport } from './report'
@@ -200,8 +204,11 @@ describe('the magnitude distribution and the flag counts', () => {
   it('reports magnitudes as a distribution, not as a weight', async () => {
     const score = await pipeline(sweepRecords(5))
     const report = renderReport({ agents: [score] })
-    // Five primary judgments plus one order swap, all clear.
-    expect(report).toContain('Overall magnitudes: 6 clear.')
+    // Five pairs, all clear. Six judgments were made — the order-swap
+    // subsample judged one pair twice — and the pair it looked at twice
+    // still counts once, or the total would contradict the case count
+    // printed two lines above it.
+    expect(report).toContain('Overall magnitudes: 5 clear.')
   })
 
   it('counts flags by arm and type', async () => {
@@ -278,12 +285,16 @@ describe('the measured layer', () => {
 
 describe('exclusions', () => {
   it('counts tool error, infra error and ungraded apart', async () => {
-    const records = [...sweepRecords(3), ...TOOL_ERROR_PAIR]
+    const records = [
+      ...sweepRecords(3),
+      ...TOOL_ERROR_PAIR,
+      ...IDENTICAL_DIGEST_PAIR,
+    ]
     const score = await pipeline(records)
     const report = renderReport({ agents: [score] })
     expect(report).toContain(
-      'Excluded: 1 tool error, 0 infra error, 0 unpaired. Separately, ' +
-        '0 ungraded',
+      'Excluded: 1 tool error, 0 infra error, 1 identical config, ' +
+        '0 unpaired. Separately, 0 ungraded',
     )
     expect(report).toContain("which is not a CAN'T SAY verdict")
   })
@@ -318,7 +329,13 @@ describe('provenance', () => {
       },
       dimensions: {},
       regressions: [],
-      exclusions: { toolError: 0, infraError: 0, unpaired: 0, ungraded: 0 },
+      exclusions: {
+        toolError: 0,
+        infraError: 0,
+        identicalConfig: 0,
+        unpaired: 0,
+        ungraded: 0,
+      },
       positionConsistency: null,
       orderUnstablePairs: [],
       panelDisagreementRate: null,

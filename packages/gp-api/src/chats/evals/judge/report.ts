@@ -128,7 +128,8 @@ const exclusionLine = (score: AgentScore): string => {
   const e = score.exclusions
   return (
     `Excluded: ${e.toolError} tool error, ${e.infraError} infra error, ` +
-    `${e.unpaired} unpaired. Separately, ${e.ungraded} ungraded ` +
+    `${e.identicalConfig} identical config, ${e.unpaired} unpaired. ` +
+    `Separately, ${e.ungraded} ungraded ` +
     "(the judge itself failed, which is not a CAN'T SAY verdict)."
   )
 }

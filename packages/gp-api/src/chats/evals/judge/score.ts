@@ -84,6 +84,9 @@ export interface MeasuredEvidence {
 export interface ExclusionCounts {
   toolError: number
   infraError: number
+  // Pairs whose two arms hashed to the same config. Nothing failed; there
+  // was simply nothing to compare on that case.
+  identicalConfig: number
   unpaired: number
   // A judge failure. Reported apart from CAN'T SAY, which is a real
   // verdict about a real comparison.
@@ -219,6 +222,13 @@ const scoreDimension = (
   const primary = new Map<string, number | null>()
   const swapped = new Map<string, number | null>()
   const identities = new Map<string, { caseId: string; attempt: number }>()
+  // Held per pair rather than counted per judgment, for the same reason
+  // orientFlags and floorVerdicts dedupe: the order-swap subsample judges
+  // the same pair twice, so a per-judgment count inflates the distribution
+  // on exactly the 20% of pairs that got the second look — and the report
+  // prints that total two lines below the case count it is meant to
+  // describe.
+  const magnitudeOfPair = new Map<string, Magnitude>()
 
   for (const judgment of judgments) {
     const combined = judgment.dimensions[dimension]
@@ -228,15 +238,21 @@ const scoreDimension = (
     else if (value > 0) wins += 1
     else if (value < 0) losses += 1
     else ties += 1
-    if (combined.magnitude !== null) magnitudes[combined.magnitude] += 1
 
     const key = pairKey(judgment.key.caseId, judgment.key.attempt)
+    if (combined.magnitude !== null && !magnitudeOfPair.has(key)) {
+      magnitudeOfPair.set(key, combined.magnitude)
+    }
     identities.set(key, {
       caseId: judgment.key.caseId,
       attempt: judgment.key.attempt,
     })
     if (judgment.key.order === 'swapped') swapped.set(key, value)
     else primary.set(key, value)
+  }
+
+  for (const magnitude of magnitudeOfPair.values()) {
+    magnitudes[magnitude] += 1
   }
 
   const pairs: PairScore[] = []
@@ -306,13 +322,19 @@ const measure = (
     latencyMs: armMean((r) => r.telemetry.latencyMs),
     toolErrors: armMean((r) => r.telemetry.toolErrors),
     pairs: usable.length,
-    // Compared only when both arms actually carry a cost. `cost` is
-    // optional: a run on a model `pricing.ts` has no rates for keeps its
-    // verdict and loses only its cost line. An absent cost is therefore not
-    // a pricing MISMATCH — there is no second version for it to disagree
-    // with — and it already surfaces as `unpriceableReason`, so counting it
-    // here too would report one gap as two problems.
-    pricingMismatch: pairs.some((p) => {
+    // Over `usable`, like every other figure here. A pair whose arm died in
+    // infra was never measured, so letting it set this flag would report a
+    // mismatch about a comparison that was not made.
+    //
+    // The optional reads are deliberate and currently inert: `record.ts`
+    // declares `cost` required on this branch, so neither can short-circuit
+    // today. They are here for the optional `cost` that arrives with the
+    // chat runner, so that merge lands on an already-guarded read rather
+    // than on a break that shows up only once both changes are in. An
+    // absent cost is also not a pricing MISMATCH — there is no second
+    // version for it to disagree with — and it already surfaces as
+    // `unpriceableReason`.
+    pricingMismatch: usable.some((p) => {
       const base = p.base.telemetry.cost?.pricingVersion
       const candidate = p.candidate.telemetry.cost?.pricingVersion
       return (
@@ -576,6 +598,9 @@ export const scoreAgent = (
         .length,
       infraError: normalized.excluded.filter((e) => e.reason === 'infraError')
         .length,
+      identicalConfig: normalized.excluded.filter(
+        (e) => e.reason === 'identicalConfig',
+      ).length,
       unpaired: normalized.unpaired.length,
       ungraded: judgments.filter((j) => j.kind === 'ungraded').length,
     },

@@ -122,6 +122,10 @@ export interface GradedJudgment {
   // Keyed by dimension name, plus OVERALL.
   dimensions: Readonly<Record<string, CombinedDimension>>
   seats: readonly SeatVerdict[]
+  // Seats that threw, one entry each. A panel that lost a seat still
+  // produced a comparison, but it produced it on fewer opinions than the
+  // config asked for, and that has to be visible rather than silent.
+  seatFailures: readonly string[]
   flags: readonly Flag[]
   absoluteFloor: AbsoluteFloor | null
 }
@@ -413,25 +417,31 @@ export const judgeCase = async (
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
 ): Promise<Judgment> => {
   const seats: SeatVerdict[] = []
+  const seatFailures: string[] = []
   for (const model of config.panel.seats) {
     try {
       seats.push(await runSeat(llm, planned.payload, model, config))
     } catch (err) {
-      // A judge that failed produced no comparison, so this case is
-      // ungraded rather than a CAN'T SAY. Conflating the two would let a
-      // broken judge read as a genuine finding of equivalence.
-      return {
-        kind: 'ungraded',
-        key: planned.key,
-        reason: err instanceof Error ? err.message : String(err),
-      }
+      // Collected, not returned. Returning here on the first failure threw
+      // away every seat already collected and paid for, so one 429 on the
+      // last of three seats binned two clean verdicts and left `modal`
+      // without the majority the panel exists to produce.
+      seatFailures.push(
+        `${model}: ${err instanceof Error ? err.message : String(err)}`,
+      )
     }
   }
   if (seats.length === 0) {
+    // No seat answered, so there is no comparison: ungraded rather than a
+    // CAN'T SAY, since conflating the two would let a broken judge read as
+    // a genuine finding of equivalence.
     return {
       kind: 'ungraded',
       key: planned.key,
-      reason: 'no judge seats configured',
+      reason:
+        seatFailures.length === 0
+          ? 'no judge seats configured'
+          : seatFailures.join('; '),
     }
   }
   return {
@@ -440,6 +450,7 @@ export const judgeCase = async (
     slotMap: planned.slotMap,
     dimensions: combine(seats, config.dimensions),
     seats,
+    seatFailures,
     // Left slot-keyed on purpose. A flag says "X did this", and X is a
     // different arm in the next judgment, so turning it into an arm is
     // scoring's job with that judgment's own slot map.
