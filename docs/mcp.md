@@ -46,6 +46,23 @@ so anyone opening omni gets them without installing anything by hand.
 entry is needed. The Slack server is OAuth-based — authorize the GoodParty workspace
 on first use via `/mcp`; nothing is committed.
 
+## pi
+
+[pi](https://pi.dev) reads project servers from `.pi/mcp.json`, not `.mcp.json`. In
+omni `.pi/mcp.json` is a symlink to `.mcp.json`, so both harnesses get the same
+servers. Add or change servers in `.mcp.json` only, and keep the symlink.
+
+- pi loads `.pi/mcp.json` only in a trusted project. Start pi once at the omni
+  root and choose "Trust"; that decision also covers worktrees inside the checkout.
+- Grafana needs the same `GRAFANA_SERVICE_ACCOUNT_TOKEN` in the shell that starts pi.
+- Sign in to the OAuth servers once per machine: `pi mcp login sentry`,
+  `pi mcp login clickup`, `pi mcp login amplitude`.
+- `pi mcp list` shows each server's state and how to fix it.
+
+Slack is not available in pi yet. The Claude Code plugin signs in with a Slack app
+registered to Anthropic, and Slack's MCP server does not let clients register their
+own, so pi needs a Slack app registered to GoodParty.
+
 ## Reading a Claude Design file
 
 `DesignSync.get_file` caps every read at **256 KiB** and reports success while
