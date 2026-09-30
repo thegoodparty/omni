@@ -7,6 +7,7 @@ import {
   InternalServerErrorException,
   ServiceUnavailableException,
 } from '@nestjs/common'
+import { resolveEnvVar } from '../../shared/env/env'
 import { ModuleRef } from '@nestjs/core'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
 import Stripe from 'stripe'
@@ -32,10 +33,10 @@ import { RaceOpponentService } from '../../raceOpponent/services/raceOpponent.se
 import { OutreachRobocallWebhookService } from '../../outreach/services/outreachRobocallWebhook.service'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
 
-const { STRIPE_WEBSOCKET_SECRET } = process.env
-if (!STRIPE_WEBSOCKET_SECRET) {
-  throw new Error('Please set STRIPE_WEBSOCKET_SECRET in your .env')
-}
+const STRIPE_WEBHOOKS_NOT_CONFIGURED_MESSAGE =
+  'Stripe webhooks are disabled: set STRIPE_WEBSOCKET_SECRET'
+
+const stripeWebsocketSecret = resolveEnvVar('STRIPE_WEBSOCKET_SECRET')
 
 // The two Stripe statuses a subscription can never bill from again. Every other
 // status — active, trialing, past_due, unpaid, incomplete, paused — can still
@@ -72,6 +73,9 @@ export class PaymentEventsService {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(PaymentEventsService.name)
+    if (!stripeWebsocketSecret.configured) {
+      this.logger.warn(STRIPE_WEBHOOKS_NOT_CONFIGURED_MESSAGE)
+    }
   }
 
   // Auto-start opponent collection the moment a campaign first becomes Pro, so
@@ -100,6 +104,9 @@ export class PaymentEventsService {
   }
 
   async handleEvent(event: Stripe.Event) {
+    if (!stripeWebsocketSecret.configured) {
+      throw new BadRequestException(STRIPE_WEBHOOKS_NOT_CONFIGURED_MESSAGE)
+    }
     switch (event.type) {
       case WebhookEventType.CustomerSubscriptionCreated:
         return await this.customerSubscriptionCreatedHandler(event)
