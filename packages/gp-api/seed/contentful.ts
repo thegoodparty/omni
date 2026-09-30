@@ -22,14 +22,24 @@ export default async function seedContentful(prisma: PrismaClient) {
   })
 
   const allEntries: Entry<EntrySkeletonType>[] = []
-  for (let i = 0; i < PAGES; i++) {
-    const page = await client.getEntries({
-      limit: LIMIT,
-      include: 10,
-      skip: i * LIMIT,
-    })
-    allEntries.push(...page.items)
-    if (page.items.length < LIMIT) break
+  // Best-effort, like the Clerk sync below: placeholder .env.example creds
+  // (the cold bootstrap path) or a Contentful outage must not kill the seed.
+  try {
+    for (let i = 0; i < PAGES; i++) {
+      const page = await client.getEntries({
+        limit: LIMIT,
+        include: 10,
+        skip: i * LIMIT,
+      })
+      allEntries.push(...page.items)
+      if (page.items.length < LIMIT) break
+    }
+  } catch (err) {
+    console.warn(
+      'Skipping Contentful sync (fetch failed - placeholder or invalid ' +
+        `CONTENTFUL_* credentials?): ${err instanceof Error ? err.name : err}`,
+    )
+    return
   }
 
   const recognized = allEntries.filter((entry) =>

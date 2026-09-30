@@ -13,7 +13,7 @@ nvm use
 npm run setup
 ```
 
-`npm run setup` runs `npm ci`, copies `.env.example` to `.env` if missing, starts Postgres via docker-compose, and runs `npm run migrate:reset` (which creates tables + seeds).
+`npm run setup` runs `npm ci`, copies `.env.example` to `.env` if missing, starts Postgres via docker-compose, and runs `npm run migrate:reset` (which creates tables + seeds). This is gp-api on its own; to bring up gp-api + gp-webapp together from a fresh clone, use the root orchestrator instead: `npm run setup -- --from <path-to-a-working-checkout>` from the repo root (`docs/development.md`).
 
 Fill in real values for required vendor keys in `.env` before starting the API (see `docs/team-setup.md`). Then:
 
