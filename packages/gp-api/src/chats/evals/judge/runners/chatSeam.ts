@@ -96,14 +96,21 @@ export const assertTestProcess = (what: string): void => {
 // answer.
 const installedOn = new WeakSet<object>()
 
-const claim = (target: object, what: string): void => {
+// Records the target only once `install` has actually patched it. An install
+// that throws leaves nothing patched, and recording it anyway would poison the
+// instance for the life of the process: every later install on it would fail
+// naming a concurrency bug that never happened, and the only thing that clears
+// the entry is a `restore` that was never handed out.
+const claim = <T>(target: object, what: string, install: () => T): T => {
   if (installedOn.has(target)) {
     throw new Error(
       `${what} is already installed on this instance: the judge drives one ` +
         'arm at a time, and two overlapping installs corrupt both records',
     )
   }
+  const installed = install()
   installedOn.add(target)
+  return installed
 }
 
 const MAX_ERROR_CHARS = 200
@@ -257,53 +264,87 @@ export interface InstalledLlmCapture {
   restore: () => void
 }
 
+export interface LlmCaptureOptions {
+  // The canned model. With it nothing is spent and the turn is deterministic.
+  script?: ChatTurnScript
+  // Ask for the real, paid Anthropic call instead. Needs JUDGE_SPEND=1 too.
+  realModel?: boolean
+}
+
+const SPEND_ENV = 'JUDGE_SPEND'
+
+// No script means the real model answers, which bills Anthropic for every
+// turn of a sweep. A forgotten `script` field type-checks cleanly, so the paid
+// path is opt-in twice over: the caller has to name it, and the process has to
+// carry the explicit env flag every other paid path in this repo is gated on.
+const assertMaySpend = (options: LlmCaptureOptions): void => {
+  if (options.script) return
+  if (options.realModel !== true) {
+    throw new Error(
+      'installLlmCapture was given no script: pass one, or set realModel ' +
+        'to ask for the real, paid model on purpose',
+    )
+  }
+  if (process.env[SPEND_ENV] !== '1') {
+    throw new Error(
+      `installLlmCapture was asked for the real model, but ${SPEND_ENV} is ` +
+        'not "1": a real turn spends money and has to be enabled explicitly',
+    )
+  }
+}
+
 // Installs the LLM seam. With a script the model is replaced entirely and
 // nothing is spent; without one the real call runs and the same fields are
 // captured from it, so a later real sweep needs no second code path.
 export const installLlmCapture = (
   llm: LlmService,
-  script?: ChatTurnScript,
+  options: LlmCaptureOptions = {},
 ): InstalledLlmCapture => {
   assertTestProcess('installLlmCapture')
-  claim(llm, 'installLlmCapture')
-  const capture: TurnCapture = { toolNames: [], outcomes: [] }
-  // .bind() returns any — TypeScript cannot infer the bound method signature
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const original: LlmService['streamChatCompletion'] =
-    llm.streamChatCompletion.bind(llm)
-  // A class instance carries the method on its prototype, so deleting the
-  // patch restores it; a hand-built stand-in carries it as an own property,
-  // where deleting would remove the method altogether.
-  const owned = Object.hasOwn(llm, 'streamChatCompletion')
+  // Both checks run before anything is claimed or patched, so a refusal
+  // leaves the singleton exactly as it was.
+  assertMaySpend(options)
+  const { script } = options
+  return claim(llm, 'installLlmCapture', () => {
+    const capture: TurnCapture = { toolNames: [], outcomes: [] }
+    // .bind() returns any — TypeScript cannot infer the bound method signature
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const original: LlmService['streamChatCompletion'] =
+      llm.streamChatCompletion.bind(llm)
+    // A class instance carries the method on its prototype, so deleting the
+    // patch restores it; a hand-built stand-in carries it as an own property,
+    // where deleting would remove the method altogether.
+    const owned = Object.hasOwn(llm, 'streamChatCompletion')
 
-  const patched = async (
-    options: LlmStreamOptions,
-  ): Promise<LlmStreamResult> => {
-    capture.systemPrompt = systemPromptOf(options)
-    capture.toolNames = Object.keys(options.tools ?? {}).sort()
-    const instrumented: LlmStreamOptions = {
-      ...options,
-      ...(options.tools && {
-        tools: instrumentTools(options.tools, capture.outcomes) ?? {},
-      }),
+    const patched = async (
+      streamOptions: LlmStreamOptions,
+    ): Promise<LlmStreamResult> => {
+      capture.systemPrompt = systemPromptOf(streamOptions)
+      capture.toolNames = Object.keys(streamOptions.tools ?? {}).sort()
+      const instrumented: LlmStreamOptions = {
+        ...streamOptions,
+        ...(streamOptions.tools && {
+          tools: instrumentTools(streamOptions.tools, capture.outcomes) ?? {},
+        }),
+      }
+      const result = script
+        ? await runScript(script, instrumented)
+        : await original(instrumented)
+      capture.model = result.model
+      capture.readUsage = () => result.usage
+      return result
     }
-    const result = script
-      ? await runScript(script, instrumented)
-      : await original(instrumented)
-    capture.model = result.model
-    capture.readUsage = () => result.usage
-    return result
-  }
 
-  Object.assign(llm, { streamChatCompletion: patched })
-  return {
-    capture,
-    restore: () => {
-      if (owned) Object.assign(llm, { streamChatCompletion: original })
-      else Reflect.deleteProperty(llm, 'streamChatCompletion')
-      installedOn.delete(llm)
-    },
-  }
+    Object.assign(llm, { streamChatCompletion: patched })
+    return {
+      capture,
+      restore: () => {
+        if (owned) Object.assign(llm, { streamChatCompletion: original })
+        else Reflect.deleteProperty(llm, 'streamChatCompletion')
+        installedOn.delete(llm)
+      },
+    }
+  })
 }
 
 // Reads the turn's aggregate usage. Deliberately one read of one promise:
@@ -341,7 +382,39 @@ export const assertDeltaVersion = (version: string): void => {
   }
 }
 
+export interface DeltaPin {
+  // The Delta table version BOTH arms must read.
+  version: string
+  // The scope's allowed table names, which are what makes a match a table
+  // reference rather than a keyword. Required: with none, nothing can be
+  // pinned and every query the agent writes would be refused.
+  tables: readonly string[]
+}
+
+// Both halves of a pin, checked together so a bad one fails the run before the
+// turn starts rather than at the first query the agent writes.
+export const assertDeltaPin = (pin: DeltaPin): void => {
+  assertDeltaVersion(pin.version)
+  if (pin.tables.length === 0) {
+    throw new UnpinnableSqlError(
+      'a Delta pin needs the allowed table names from the scope: with none ' +
+        'of them, every query the agent writes is refused as unpinnable',
+    )
+  }
+}
+
+// A candidate table reference. `FROM` alone does not make one: it is also
+// SQL's argument separator in EXTRACT(... FROM col), SUBSTRING(... FROM n) and
+// TRIM(... FROM col), and the agent-facing validator restricts which COLUMNS a
+// function may read, not which functions may appear — so those arrive here as
+// fully validated SQL. Which of these matches is a real table is decided by
+// the name, against the scope's allowlist.
 const TABLE_REF = /(\b(?:FROM|JOIN)\s+)([`\w.]+)/gi
+
+// Backticks stripped and lower-cased, the two spellings the validator accepts
+// for one allowlisted name.
+const tableKey = (token: string): string =>
+  token.replaceAll('`', '').toLowerCase()
 
 // Rewrites only the parts of the statement that are not inside a string
 // literal. A city name of "FROM DOWNTOWN" would otherwise be rewritten into
@@ -357,24 +430,35 @@ const outsideLiterals = (
     .map((segment, index) => (index % 2 === 1 ? segment : rewrite(segment)))
     .join('')
 
-export const pinDeltaVersion = (sql: string, version: string): string => {
+export const pinDeltaVersion = (
+  sql: string,
+  version: string,
+  tables: readonly string[],
+): string => {
   assertDeltaVersion(version)
   if (/\bVERSION\s+AS\s+OF\b/i.test(sql)) return sql
+  const allowed = new Set(tables.map(tableKey))
   let pinned = 0
   // EVERY table reference, not just the first: the validator allowlists JOIN
   // targets rather than rejecting them, so a self-join arrives here fully
   // validated and a single-reference pin would leave its other side reading
   // whatever version the warehouse is at when that arm runs — the exact skew
-  // this function exists to prevent.
+  // this function exists to prevent. Pinned by table identity, not by the
+  // keyword in front of it: rewriting a `FROM` that was a function argument
+  // would splice VERSION AS OF into an expression and turn a validated query
+  // into a Spark parse error — one the trace would blame on the vendor, and
+  // only in whichever arm's model happened to write it.
   const out = outsideLiterals(sql, (segment) =>
-    segment.replace(TABLE_REF, (_match, keyword: string, table: string) => {
+    segment.replace(TABLE_REF, (match, keyword: string, table: string) => {
+      if (!allowed.has(tableKey(table))) return match
       pinned += 1
       return `${keyword}${table} VERSION AS OF ${version}`
     }),
   )
   if (pinned === 0) {
     throw new UnpinnableSqlError(
-      `cannot pin a Delta version: no table reference found in "${sql}"`,
+      'cannot pin a Delta version: no reference to an allowed table ' +
+        `(${tables.join(', ')}) found in "${sql}"`,
     )
   }
   return out
@@ -400,6 +484,13 @@ export interface InstrumentedProvider {
 // exists for. Patching the prototype makes which instance a handler holds
 // unable to matter.
 //
+// The prototype cannot tell which agent is running, so which table names a
+// pin may rewrite has to be handed in rather than read off the instrumented
+// provider: the caller resolves them from the same app-layer allowlist the
+// scope's handler injects into the tool and passes them in the `DeltaPin`.
+// Without that, `pinDeltaVersion` would be back to pinning on the `FROM`
+// keyword, which also introduces a function argument.
+//
 // It also means this records every Databricks query the PROCESS makes while
 // installed, not only the agent's. In a judge arm nothing else is querying,
 // and `assertTestProcess` is what keeps it out of a live one.
@@ -409,40 +500,48 @@ export interface InstrumentedProvider {
 // ever made, so `queries` stays empty. That is why `pinDeltaVersion` is
 // tested directly rather than through a live query.
 export const instrumentDatabricksProvider = (
-  pinnedVersion?: string,
+  pin?: DeltaPin,
 ): InstrumentedProvider => {
   assertTestProcess('instrumentDatabricksProvider')
-  // Checked before the claim as well as at splice time, so a bad version
-  // fails the run before the turn starts AND leaves the prototype unclaimed —
-  // a throw after claiming would lock the class for the life of the process.
-  if (pinnedVersion !== undefined) assertDeltaVersion(pinnedVersion)
+  // Ahead of the claim, not after it: a prototype recorded as patched by an
+  // install that then threw stays recorded, and every well-formed case behind
+  // the malformed one would die naming a concurrency bug that does not
+  // exist — and on the class, that entry outlives every instance.
+  if (pin !== undefined) assertDeltaPin(pin)
   const target = DatabricksSqlProvider.prototype
-  claim(target, 'instrumentDatabricksProvider')
-  const queries: string[] = []
-  const original = target.query
-  const patch = {
-    // Method shorthand rather than an arrow: a prototype method is called
-    // with the instance as `this`, and the original needs it back.
-    query(this: DatabricksSqlProvider, sql: string): Promise<DatabricksRowSet> {
-      queries.push(sql)
-      // Rebound per call: `this` is whichever provider the handler happens to
-      // hold, which is the whole reason the patch is on the class.
-      // .bind() returns any — TypeScript cannot infer the bound signature
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const unpatched: DatabricksSqlProvider['query'] = original.bind(this)
-      return unpatched(
-        pinnedVersion ? pinDeltaVersion(sql, pinnedVersion) : sql,
-      )
-    },
-  }
-  Object.assign(target, patch)
-  return {
-    queries,
-    restore: () => {
-      Object.assign(target, { query: original })
-      installedOn.delete(target)
-    },
-  }
+  return claim(target, 'instrumentDatabricksProvider', () => {
+    const queries: string[] = []
+    const original = target.query
+    const patch = {
+      // Method shorthand rather than an arrow: a prototype method is called
+      // with the instance as `this`, and the original needs it back.
+      query(
+        this: DatabricksSqlProvider,
+        sql: string,
+      ): Promise<DatabricksRowSet> {
+        queries.push(sql)
+        // Rebound per call: `this` is whichever provider the handler happens
+        // to hold, which is the whole reason the patch is on the class.
+        // .bind() returns any — TypeScript cannot infer the bound signature
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const unpatched: DatabricksSqlProvider['query'] = original.bind(this)
+        return unpatched(
+          pin ? pinDeltaVersion(sql, pin.version, pin.tables) : sql,
+        )
+      },
+    }
+    Object.assign(target, patch)
+    return {
+      queries,
+      // Puts the original prototype method back rather than deleting the
+      // property: deleting it would leave every provider in the process with
+      // no query method at all.
+      restore: () => {
+        Object.assign(target, { query: original })
+        installedOn.delete(target)
+      },
+    }
+  })
 }
 
 // What the agent actually read, hashed: the rendered system prompt plus the
