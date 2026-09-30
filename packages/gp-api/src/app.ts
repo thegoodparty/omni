@@ -89,7 +89,8 @@ export const bootstrap = async (
   // check in authentication.module.ts.
   if (!process.env.CORS_ORIGIN) {
     const msg =
-      'CORS_ORIGIN is required for application startup (wildcard origin is not allowed with credentials)'
+      'CORS_ORIGIN is required for application startup (wildcard origin ' +
+      'is not allowed with credentials) — run `npm run setup`'
     new NestLogger('bootstrap').error(msg)
     throw new Error(msg)
   }
