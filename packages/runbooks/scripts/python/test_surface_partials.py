@@ -82,3 +82,21 @@ def test_inline_refuses_an_unfilled_placeholder():
 
     with pytest.raises(SystemExit, match="__NOT_A_PARTIAL__"):
         inline("<style>/* __THEME_CSS__ */</style> __NOT_A_PARTIAL__ __DATA__")
+
+
+def test_the_map_is_the_explorer_page_with_its_tree(built):
+    # One template for both: the map carries the explorer's search and filters, and
+    # only the map carries the tree.
+    for page in ("explorer", "map"):
+        assert 'id="q"' in built[page] and "function narrow(list)" in built[page]
+    assert "var ProductMap" in built["map"] and "<title>Product map</title>" in built["map"]
+    assert "var ProductMap" not in built["explorer"]
+    assert "<title>Analytics Events Explorer</title>" in built["explorer"]
+
+
+def test_inline_refuses_an_unknown_page_part():
+    sys.path.insert(0, str(SURFACES / "shared"))
+    from partials import inline
+
+    with pytest.raises(SystemExit, match="__NOT_A_PART__"):
+        inline("<title>__PAGE_TITLE__</title>", {"__NOT_A_PART__": "x"})

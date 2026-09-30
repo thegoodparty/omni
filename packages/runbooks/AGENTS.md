@@ -61,8 +61,9 @@ elicitation half of that skill and none of the application half. Detail in
 A fourth, the product map in `surfaces/product-map/` (DATA-2547), shows the same events
 laid over the product's flows and pages, with the steps where nothing fires. It is the
 explorer's audience and the explorer's data, organised the way people remember using the
-site. Its node model is hand-authored in the template for now; its cards are lifted from
-the explorer snapshot.
+site. It is the explorer's own template rendered with the map's tree (`map.js`) in place
+of the events table, so both pages share search, filters and cards; the node model is
+hand-authored in `map.js` for now.
 
 `surfaces/` is where pages built from committed governance data live. The three published
 pages (explorer, map, console) are one epic, DATA-2580, and share `surfaces/shared/`: the
