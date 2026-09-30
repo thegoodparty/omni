@@ -24,6 +24,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _LAMBDA_DIR = Path(__file__).resolve().parent.parent / "lambda"
 
 
@@ -37,6 +39,7 @@ def _load(stem: str, module_name: str) -> None:
     spec.loader.exec_module(module)
 
 
+_load("ai_secrets", "autopilot_conductor_ai_secrets")
 _load("router", "autopilot_conductor_router")
 _load("dispatch", "autopilot_conductor_dispatch")
 _load("handler", "autopilot_conductor_handler")
@@ -48,3 +51,15 @@ _load("sweep", "autopilot_conductor_sweep")
 # Loaded by sweep.py itself as a side effect of the line above — registered
 # explicitly here too, same reasoning as supervisor/sweep above.
 _load("github_auth", "autopilot_conductor_github_auth")
+
+
+@pytest.fixture(autouse=True)
+def _no_secrets_manager(monkeypatch):
+    # Without AI_SECRETS_NAME, ai_secrets.secret() reads only env overrides,
+    # so a test that deletes a credential's env var sees "" instead of a call
+    # to AWS.
+    ai_secrets = sys.modules["autopilot_conductor_ai_secrets"]
+    monkeypatch.delenv(ai_secrets.SECRETS_NAME_ENV, raising=False)
+    ai_secrets.reset_for_tests()
+    yield
+    ai_secrets.reset_for_tests()

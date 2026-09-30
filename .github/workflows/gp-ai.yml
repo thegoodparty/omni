@@ -367,8 +367,8 @@ jobs:
       # `refs/pull/N/merge`, so every infra PR ran PR-authored Terraform with
       # admin. This role can read the dev state it plans against and little
       # else: no Pulumi state, no SSM parameters, and no secret value except
-      # AI_SECRETS_DEV, which `dev/shared-infra` and the `autopilot-bot`
-      # module read through a data source at plan time.
+      # AI_SECRETS_DEV, which `dev/shared-infra` reads through a data source at
+      # plan time.
       #
       # Step 5 of docs/deploy-role-trust.md in thegoodparty/ops.
       - name: Configure AWS Credentials

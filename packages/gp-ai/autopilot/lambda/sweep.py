@@ -120,6 +120,7 @@ def _load_sibling_module(stem: str) -> Any:
     return module
 
 
+ai_secrets = _load_sibling_module("ai_secrets")
 router = _load_sibling_module("router")
 dispatch = _load_sibling_module("dispatch")
 supervisor = _load_sibling_module("supervisor")
@@ -973,7 +974,7 @@ def _read_prod_flag_rollout(flag_key: str) -> dict | None:
     caller treats None identically to "skip this flag's ramp check this
     tick," never as "0% rolled out" — an Amplitude outage must never look
     like a rollback and clear a flag's ramp timer."""
-    api_key = os.environ.get("AMPLITUDE_MANAGEMENT_API_KEY", "")
+    api_key = ai_secrets.secret("AMPLITUDE_MANAGEMENT_API_KEY")
     project_id = os.environ.get("AMPLITUDE_PROD_PROJECT_ID", "")
     if not api_key or not project_id:
         print(
