@@ -181,10 +181,11 @@ fi
 
 if [ "$need_from" = true ]; then
   indent "copying untracked .env files from $FROM"
-  # Reused verbatim from scripts/worktree-setup.sh:36-52: untracked .env* only
+  # Mirrors scripts/worktree-setup.sh, one level deeper (e2e-tests/.env):
+  # untracked .env* only
   # (tracked ones — .env.test, .env.example — already arrived via git), and
   # never overwrites a file already present at the destination.
-  for dir in "$FROM" "$FROM"/packages/*; do
+  for dir in "$FROM" "$FROM"/packages/* "$FROM"/packages/*/*; do
     [ -d "$dir" ] || continue
     for src in "$dir"/.env "$dir"/.env.*; do
       [ -f "$src" ] || continue

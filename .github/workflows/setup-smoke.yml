@@ -92,7 +92,7 @@ jobs:
           ok=false
           deadline=$((SECONDS + 900))
           while [ "$SECONDS" -lt "$deadline" ]; do
-            if curl -fsS -o /dev/null http://localhost:3000/v1/version; then
+            if curl -fsS -o /dev/null http://localhost:3000/v1/health; then
               ok=true
               break
             fi
@@ -109,9 +109,9 @@ jobs:
             exit 1
           fi
 
-          status="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3000/v1/version)"
-          echo "GET /v1/version -> $status"
-          curl -fsS http://localhost:3000/v1/version
+          status="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3000/v1/health)"
+          echo "GET /v1/health -> $status"
+          curl -fsS http://localhost:3000/v1/health
           echo
           if [ "$status" != "200" ]; then
             echo "--- tail of setup.log ---" >&2

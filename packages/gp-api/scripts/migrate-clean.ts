@@ -131,8 +131,15 @@ const main = async () => {
 
   if (!SKIP_DB) {
     console.log('Deleting all local DB users...')
-    const { count } = await prisma.user.deleteMany()
-    console.log(`Deleted ${count} local DB user(s)`)
+    try {
+      const { count } = await prisma.user.deleteMany()
+      console.log(`Deleted ${count} local DB user(s)`)
+    } catch (err) {
+      // Same fresh-database case as the findMany guard above: before the
+      // first migration there is no User table to clean (P2021).
+      if (!isPrismaError(err, 'P2021')) throw err
+      console.log('No User table yet (fresh database) - nothing to delete')
+    }
   }
 
   console.log('Done.')
