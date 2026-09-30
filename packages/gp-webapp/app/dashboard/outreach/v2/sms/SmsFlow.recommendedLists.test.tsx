@@ -89,7 +89,14 @@ const acceptedCalls = () =>
 const openToAudience = async () => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
-  render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
+  render(
+    <SmsFlow
+      source="outreach_page"
+      open
+      onClose={onClose}
+      onScheduled={onScheduled}
+    />,
+  )
   await userEvent.click(screen.getByText('Introduce myself to voters'))
   expect(
     (await screen.findAllByText('Who do you want to reach?')).length,
@@ -134,6 +141,7 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
     })
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -248,6 +256,7 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
     })
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -286,6 +295,7 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
     })
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}

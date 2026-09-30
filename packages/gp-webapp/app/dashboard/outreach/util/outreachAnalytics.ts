@@ -3,6 +3,7 @@ import type {
   CampaignStrategyPhaseKey,
   TaskChannel,
 } from '@goodparty_org/contracts'
+import type { ComposeSource } from './composeOutreachHref.util'
 
 // The analytics channel vocabulary is the campaign tracker's `TaskChannel`,
 // not `OutreachType`, so an outreach event and a tracker task can be joined on
@@ -56,6 +57,26 @@ export interface OutreachTrackerOrigin {
   trackerTaskId: string
   phase: CampaignStrategyPhaseKey
 }
+
+// Where an outreach flow was opened from: a hub tile, a saved draft, or the
+// surface a compose link was pressed on. Carried on the flow's stage events
+// and, at the Pro gate, on `Pro Upgrade - Flow Started`.
+export type OutreachFlowSource =
+  | 'outreach_page'
+  | 'draft'
+  | 'campaign_plan'
+  | 'campaign_manager'
+  | 'voter_data'
+  | 'door_knocking_page'
+  | 'deep_link'
+
+// The compose link's own vocabulary predates this one and stays as it is on
+// `Outreach - Click Create`, so renaming it there would not split history.
+// Only the flow-level events read the tracker as the campaign plan.
+export const flowSourceFromCompose = (
+  source: ComposeSource | undefined,
+): OutreachFlowSource =>
+  source === 'campaign_tracker' ? 'campaign_plan' : (source ?? 'deep_link')
 
 export interface OutreachEventInput {
   channel: TaskChannel

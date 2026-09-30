@@ -22,6 +22,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   outreachProduct,
+  type OutreachFlowSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
@@ -33,6 +34,7 @@ import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
+import { EXPLAINER_COPY } from '../gate/gateCopy'
 import { OutreachGate } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { PurposeStep } from '../PurposeStep'
@@ -244,6 +246,8 @@ interface PhoneBankingFlowProps {
   // The tracker task this flow was launched from, carried onto the created
   // list so every call logged against it joins back to the task.
   tracker?: OutreachTrackerOrigin
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -258,6 +262,7 @@ export const PhoneBankingFlow = ({
   preselectedListId,
   preselectedRecommendedVariant,
   tracker,
+  source,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   // Milestone 2's in-flow gate. Phone banking saves no draft — the list is
@@ -272,6 +277,8 @@ export const PhoneBankingFlow = ({
   const [gateOrigin, setGateOrigin] = useState<'create' | 'explainer' | null>(
     null,
   )
+  // The label of the button that opened the gate, for Flow Started.
+  const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
@@ -414,6 +421,7 @@ export const PhoneBankingFlow = ({
     setCreateResponse(null)
     setGateOpen(false)
     setGateOrigin(null)
+    setGateCta(undefined)
     setExplainerOpen(false)
     resetDraftMutation()
     resetCreateMutation()
@@ -706,6 +714,7 @@ export const PhoneBankingFlow = ({
 
   const openGateFromExplainer = (): void => {
     setGateOrigin('explainer')
+    setGateCta(EXPLAINER_COPY.ctaJoin)
     setGateOpen(true)
   }
 
@@ -759,6 +768,7 @@ export const PhoneBankingFlow = ({
                   label: 'Continue',
                   onClick: () => {
                     setGateOrigin('create')
+                    setGateCta('Continue')
                     setGateOpen(true)
                   },
                 }
@@ -790,6 +800,11 @@ export const PhoneBankingFlow = ({
           />
         ) : undefined
       }
+      channel="phone-bank"
+      source={source}
+      locked={gate.requirement === 'pro'}
+      trackedStep={gateOpen || saved ? null : stepId}
+      settled={saved}
       dirty={dirty}
     >
       <GateExplainerModal
@@ -807,6 +822,9 @@ export const PhoneBankingFlow = ({
           state={gate}
           open
           showInterstitial={false}
+          source={source}
+          cta={gateCta}
+          tracker={tracker}
           onExit={() => {
             setGateOpen(false)
             setGateOrigin(null)
@@ -950,8 +968,9 @@ export const PhoneBankingFlow = ({
           }}
           audienceLabel={audienceLabel}
           isServe={surface.isServe}
-          onDownloadGated={() => {
+          onDownloadGated={(cta) => {
             setGateOrigin('create')
+            setGateCta(cta)
             setGateOpen(true)
           }}
         />

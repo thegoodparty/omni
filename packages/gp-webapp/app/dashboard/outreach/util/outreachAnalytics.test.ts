@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { outreachChannel, outreachEventProps } from './outreachAnalytics'
+import {
+  flowSourceFromCompose,
+  outreachChannel,
+  outreachEventProps,
+} from './outreachAnalytics'
 
 // The omission rules are the whole point of this module: an absent property
 // and a zero mean different things on every one of them, and a chart that
@@ -139,5 +143,20 @@ describe('outreachChannel', () => {
 
   it('leaves an unknown type as the catch-all rather than dropping the event', () => {
     expect(outreachChannel('something-new')).toBe('general')
+  })
+})
+
+describe('flowSourceFromCompose', () => {
+  it('reads the tracker as the campaign plan', () => {
+    expect(flowSourceFromCompose('campaign_tracker')).toBe('campaign_plan')
+  })
+
+  it('passes the other compose sources through', () => {
+    expect(flowSourceFromCompose('campaign_manager')).toBe('campaign_manager')
+    expect(flowSourceFromCompose('voter_data')).toBe('voter_data')
+  })
+
+  it('reads a link with no source as a deep link', () => {
+    expect(flowSourceFromCompose(undefined)).toBe('deep_link')
   })
 })

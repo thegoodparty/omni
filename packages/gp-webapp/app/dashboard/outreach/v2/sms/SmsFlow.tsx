@@ -25,6 +25,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
+  type OutreachFlowSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -281,6 +282,8 @@ interface SmsFlowProps {
   // link), carried onto the completion event so a completed task and the
   // outreach it produced are one funnel.
   tracker?: OutreachTrackerOrigin
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
   // A message the candidate is meant to send as written (Know Your
   // Opponent). It opens the flow on `custom`, the one purpose that never
   // AI-drafts, so the seeded words are what they edit rather than something
@@ -300,6 +303,8 @@ interface SmsFlowProps {
   // opens the wizard on its first step; a tile or deep-link resume shows the
   // pause screen first.
   resumeStartsOnWizard?: boolean
+  // The label of the button that resumed the draft, for the Pro gate.
+  resumeCta?: string
 }
 
 const successDate = (d: Date) =>
@@ -452,12 +457,14 @@ export const SmsFlow = ({
   surface = WIN_SMS_SURFACE,
   campaignPlanDueDate,
   tracker,
+  source,
   initialScript,
   preselectedListId,
   preselectedRecommendedVariant,
   resumeDraft = null,
   onDraftSaved,
   resumeStartsOnWizard = false,
+  resumeCta,
 }: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
@@ -516,6 +523,7 @@ export const SmsFlow = ({
     gate,
     open,
     resumeDraft,
+    resumeCta,
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
@@ -1247,6 +1255,8 @@ export const SmsFlow = ({
   // A saved draft is the opposite of unsaved work: closing loses nothing.
   const dirty = !scheduled && purpose !== null && savedDraft === null
 
+  const reviewGateCta =
+    gate.requirement !== null ? REVIEW_GATE_CTA[gate.requirement] : undefined
   const cta: FlowShellCta | null = scheduled
     ? null
     : // The gate screens carry their own buttons.
@@ -1318,7 +1328,7 @@ export const SmsFlow = ({
                   label: 'Continue',
                   onClick: () => {
                     if (gate.requirement === 'pro') {
-                      void draftGate.saveDraft()
+                      void draftGate.saveDraft('Continue')
                       return
                     }
                     setStepId('review')
@@ -1375,7 +1385,7 @@ export const SmsFlow = ({
                     ? {
                         label: REVIEW_GATE_CTA[gate.requirement],
                         onClick: () => {
-                          void draftGate.saveDraft()
+                          void draftGate.saveDraft(reviewGateCta)
                         },
                         disabled: !audience.selectedListId || image === null,
                         loading: draftGate.savingDraft,
@@ -1416,6 +1426,8 @@ export const SmsFlow = ({
         )
       }
       channel="sms"
+      source={source}
+      locked={gate.requirement === 'pro'}
       trackedStep={scheduled || showGateChrome ? null : stepId}
       settled={scheduled}
       currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
@@ -1494,6 +1506,9 @@ export const SmsFlow = ({
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
           onChromeChange={setGateChrome}
+          source={source}
+          cta={draftGate.gateCta}
+          tracker={tracker}
         />
       ) : stepId === 'purpose' ? (
         <SmsPurposeStep

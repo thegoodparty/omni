@@ -375,6 +375,15 @@ under the retired Complete events' name so their charts survive the cutover —
 build on `recipientCount`. Never hand-build these props: a 0 where a property
 should be absent reads as a real measurement.
 
+**Every channel flow knows where it was opened from.** The hub, and the door
+knocking page for its create flow, hand each flow an `OutreachFlowSource`
+(`util/outreachAnalytics.ts`). `OutreachFlowShell` puts it on the stage
+events beside `locked`, and each flow's `OutreachGate` passes it, with the
+label of the button that opened the gate, into `Pro Upgrade - Flow Started`.
+Every flow takes `source` as a required prop, so a new mount cannot forget
+it. A gate opened from a new button has to record that button's label, the
+way `useDraftGate.saveDraft(cta)` does.
+
 `medium` uses the campaign tracker's `TaskChannel` vocabulary, not
 `OutreachType`; `outreachChannel()` is the whole cross-walk, and it exists
 because the two disagree in four places (`p2p`, `nativeDoorKnocking`,

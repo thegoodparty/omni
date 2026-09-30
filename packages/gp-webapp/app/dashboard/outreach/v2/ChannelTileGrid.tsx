@@ -227,10 +227,10 @@ export const ChannelTileGrid = ({
       void queryClient.prefetchQuery(voterPackQueryOptions)
       router.push(
         preselect?.listId !== undefined
-          ? `/dashboard/door-knocking?create=1&listId=${preselect.listId}`
+          ? `/dashboard/door-knocking?create=1&source=outreach_page&listId=${preselect.listId}`
           : preselect?.recommendedVariant !== undefined
-            ? `/dashboard/door-knocking?create=1&recommended=${preselect.recommendedVariant}`
-            : '/dashboard/door-knocking?create=1',
+            ? `/dashboard/door-knocking?create=1&source=outreach_page&recommended=${preselect.recommendedVariant}`
+            : '/dashboard/door-knocking?create=1&source=outreach_page',
       )
       return
     }

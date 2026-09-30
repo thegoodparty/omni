@@ -376,3 +376,79 @@ describe('OutreachFlowShell settling without a success screen', () => {
     expect(trackEvent).not.toHaveBeenCalled()
   })
 })
+
+describe('OutreachFlowShell stage attribution', () => {
+  beforeEach(() => {
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  it('carries the source and the lock on each stage event', () => {
+    const { rerender } = render(
+      <OutreachFlowShell
+        {...baseProps}
+        channel="door"
+        source="campaign_plan"
+        locked
+        trackedStep="purpose"
+        currentStep={1}
+        totalSteps={4}
+        cta={null}
+      >
+        Body
+      </OutreachFlowShell>,
+    )
+    rerender(
+      <OutreachFlowShell
+        {...baseProps}
+        channel="door"
+        source="campaign_plan"
+        locked
+        trackedStep="who"
+        currentStep={2}
+        totalSteps={4}
+        cta={null}
+      >
+        Body
+      </OutreachFlowShell>,
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepCompleted,
+      {
+        channel: 'door',
+        medium: 'doorKnocking',
+        step: 'purpose',
+        source: 'campaign_plan',
+        locked: true,
+      },
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
+      channel: 'door',
+      medium: 'doorKnocking',
+      step: 'who',
+      source: 'campaign_plan',
+      locked: true,
+    })
+  })
+
+  it('does not re-fire a view when only the lock changes', () => {
+    const shell = (locked: boolean) => (
+      <OutreachFlowShell
+        {...baseProps}
+        channel="sms"
+        source="outreach_page"
+        locked={locked}
+        trackedStep="schedule"
+        currentStep={3}
+        totalSteps={4}
+        cta={null}
+      >
+        Body
+      </OutreachFlowShell>
+    )
+    const { rerender } = render(shell(true))
+    rerender(shell(false))
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+  })
+})

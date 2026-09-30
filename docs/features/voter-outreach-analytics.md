@@ -160,7 +160,8 @@ events that only had `channel`, so every existing chart keeps working:
 Dropping `channel` is a later pass, once nothing reads it.
 
 Each surface keeps its own prop type — the flow shell's is
-`'sms' | 'robocall' | 'social'`, the audience hook's is a `ReachabilityKey` —
+`'sms' | 'robocall' | 'social' | 'phone-bank' | 'door'`, the audience hook's is
+a `ReachabilityKey` —
 and `outreachChannel()` folds those spellings onto the one vocabulary, so a
 surface never has to rename its own prop to report a correct `medium`.
 
@@ -254,6 +255,30 @@ is, which is what makes a created → contacted → completed funnel countable.
 One door, one call. Both keep every property they had and gain `medium`,
 `fanout` and the parent `listId`. On a one-to-one channel these are the
 per-voter completion signal; the campaign event fires once for the whole list.
+
+### `Voter Outreach - Flow Step Viewed` / `Flow Step Completed` (extended)
+
+The per-stage funnel, now fired by every channel flow: phone banking and door
+knocking joined text, robocall and social. Both events add two properties.
+
+| Property | Values                                                                                                           |
+| -------- | ---------------------------------------------------------------------------------------------------------------- |
+| `source` | `outreach_page`, `draft`, `campaign_plan`, `campaign_manager`, `voter_data`, `door_knocking_page`, `deep_link` |
+| `locked` | `true` while the candidate is building behind the Pro wall, `false` on an unlocked channel                       |
+
+`source` is `OutreachFlowSource` in `outreachAnalytics.ts`, worked out once
+per open by whatever opened the flow: the hub for its tiles, draft rows and
+compose links, the door knocking page for its create flow. A compose link's
+`campaign_tracker` reads as `campaign_plan` here and only here;
+`Outreach - Click Create` keeps the old value so its history does not split.
+`locked` is read live, so the stages after an in-flow upgrade report
+unlocked.
+
+At the Pro wall the same `source` rides into `Pro Upgrade - Flow Started`,
+beside `channel`, the literal `cta` of the button that opened the gate, and
+`trackerTaskId` / `phase` when a task started the flow. Campaign manager task
+links now carry the tracker task the way campaign plan links do. The Pro side
+is documented in `packages/gp-webapp/app/dashboard/pro-upgrade/AGENTS.md`.
 
 ### `Dashboard - Campaign Task Status Updated` (revived)
 

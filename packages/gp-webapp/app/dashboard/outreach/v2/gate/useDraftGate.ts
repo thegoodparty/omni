@@ -5,7 +5,7 @@ import type { OutreachDetail } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import type { CreateOutreachDraftResult } from 'helpers/createOutreachDraft'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import type { GateChannel } from './gateCopy'
+import { EXPLAINER_COPY, type GateChannel } from './gateCopy'
 import type { OutreachGateState } from './useOutreachGate'
 
 // Only the two channels that save a row reach this hook; phone banking and
@@ -38,6 +38,9 @@ interface UseDraftGateParams {
   // it: only the flow knows its audience and its send date.
   onCampaignCreated?: (draft: OutreachDetail) => void
   onClose: () => void
+  // The label of the button that resumed the draft, when one did (the draft
+  // drawer's footer). A tile or deep link resume has none.
+  resumeCta?: string
 }
 
 export interface DraftGate {
@@ -45,11 +48,14 @@ export interface DraftGate {
   resumed: boolean
   gateOpen: boolean
   gateOrigin: GateOrigin
+  // The label of the button that opened the gate, for the Pro wizard's
+  // `Flow Started`.
+  gateCta: string | undefined
   explainerOpen: boolean
   setExplainerOpen: (open: boolean) => void
   savingDraft: boolean
   draftSaveError: boolean
-  saveDraft: () => Promise<void>
+  saveDraft: (cta?: string) => Promise<void>
   handleGateComplete: () => void
   handleGateExit: () => void
   openGateFromExplainer: () => void
@@ -70,6 +76,7 @@ export const useDraftGate = ({
   onDraftSaved,
   onCampaignCreated,
   onClose,
+  resumeCta,
 }: UseDraftGateParams): DraftGate => {
   // The saved draft row this flow is working against: the one the hub
   // resumed, the one a 409 says already exists, or the one just written.
@@ -83,6 +90,7 @@ export const useDraftGate = ({
   const [draftSaveError, setDraftSaveError] = useState(false)
   const [gateOpen, setGateOpen] = useState(false)
   const [gateOrigin, setGateOrigin] = useState<GateOrigin>(null)
+  const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [explainerOpen, setExplainerOpen] = useState(false)
 
   // Reopening starts fresh, exactly as the rest of the flow state does.
@@ -94,6 +102,7 @@ export const useDraftGate = ({
     setDraftSaveError(false)
     setGateOpen(false)
     setGateOrigin(null)
+    setGateCta(undefined)
     setExplainerOpen(false)
   }, [open, resumeDraft])
 
@@ -112,13 +121,14 @@ export const useDraftGate = ({
     if (open && resumed && gate.requirement !== null) {
       setGateOpen(true)
       setGateOrigin('resume')
+      setGateCta(resumeCta)
     }
-  }, [open, resumed, gate.requirement])
+  }, [open, resumed, gate.requirement, resumeCta])
 
   // Build mode's one write: the draft the candidate comes back to. A 409
   // means they already have one, so the flow switches to that row instead of
   // reporting a failure they can do nothing about.
-  const saveDraft = async (): Promise<void> => {
+  const saveDraft = async (cta?: string): Promise<void> => {
     if (savingDraft) return
     setSavingDraft(true)
     setDraftSaveError(false)
@@ -137,6 +147,7 @@ export const useDraftGate = ({
       onCampaignCreated?.(draft)
       setSavedDraft(draft)
       setGateOrigin('save')
+      setGateCta(cta)
       setGateOpen(true)
       setSavingDraft(false)
       // The row exists once the 201 lands; a failed history refetch here is
@@ -152,6 +163,7 @@ export const useDraftGate = ({
         setSavedDraft(data)
         setResumed(true)
         setGateOrigin('resume')
+        setGateCta(cta)
         // The existing row has no send date, so the flow has to land where
         // a resume starts. Leaving it on review would put it one enabled
         // button away from checkout the moment the gate steps aside.
@@ -195,8 +207,11 @@ export const useDraftGate = ({
     onClose()
   }
 
+  // Only a Pro explainer's CTA reaches the wizard, so its label is the one
+  // Flow Started can report.
   const openGateFromExplainer = useCallback((): void => {
     setGateOrigin('explainer')
+    setGateCta(EXPLAINER_COPY.ctaJoin)
     setGateOpen(true)
   }, [])
 
@@ -205,6 +220,7 @@ export const useDraftGate = ({
     resumed,
     gateOpen,
     gateOrigin,
+    gateCta,
     explainerOpen,
     setExplainerOpen,
     savingDraft,

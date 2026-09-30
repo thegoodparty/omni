@@ -17,7 +17,10 @@ import {
 } from '@styleguide'
 import { OutreachSheet } from './OutreachSheet'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { outreachChannel } from 'app/dashboard/outreach/util/outreachAnalytics'
+import {
+  outreachChannel,
+  type OutreachFlowSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 
 export interface FlowShellCta {
   label: string
@@ -63,11 +66,16 @@ interface OutreachFlowShellProps {
   // it is the only thing in it.
   banner?: ReactNode
   // Which channel wizard this is, carried as a property on the stage events
-  // so per-channel drop-off is a filter rather than three event families.
-  // Optional because door-knocking and phone banking borrow this chrome and
-  // are not instrumented here: omitting it fires nothing, so adopting stage
-  // tracking stays opt-in per flow.
-  channel?: 'sms' | 'robocall' | 'social'
+  // so per-channel drop-off is a filter rather than one event family per
+  // channel. Omitting it fires nothing, so adopting stage tracking stays
+  // opt-in per flow.
+  channel?: 'sms' | 'robocall' | 'social' | 'phone-bank' | 'door'
+  // Where the flow was opened from, carried on every stage event.
+  source?: OutreachFlowSource
+  // Whether the candidate is building behind the Pro wall (free) rather than
+  // on an unlocked channel. Read live, so the stages after an in-flow upgrade
+  // report unlocked.
+  locked?: boolean
   // The current stage's stable id, or null to fire nothing. Callers pass null
   // for the compliance-gate sub-flow and the success screen: both borrow this
   // chrome but are not stages of the channel funnel, and tracking them here
@@ -104,6 +112,8 @@ export const OutreachFlowShell = ({
   cta,
   banner,
   channel,
+  source,
+  locked,
   trackedStep = null,
   settled = false,
   dirty,
@@ -131,6 +141,10 @@ export const OutreachFlowShell = ({
     }
     if (!channel) return
     const previous = lastStage.current
+    const attribution = {
+      ...(source ? { source } : {}),
+      ...(locked !== undefined ? { locked } : {}),
+    }
 
     // Settling ends the funnel, so the stage we were on is the one that
     // completed. Checked before trackedStep so the caller's success-screen
@@ -143,6 +157,7 @@ export const OutreachFlowShell = ({
           channel,
           medium: outreachChannel(channel),
           step: previous.id,
+          ...attribution,
         })
         lastStage.current = null
       }
@@ -158,6 +173,7 @@ export const OutreachFlowShell = ({
         channel,
         medium: outreachChannel(channel),
         step: previous.id,
+        ...attribution,
       })
     }
     lastStage.current = { step: currentStep, id: trackedStep }
@@ -165,7 +181,11 @@ export const OutreachFlowShell = ({
       channel,
       medium: outreachChannel(channel),
       step: trackedStep,
+      ...attribution,
     })
+    // `source` and `locked` ride along but are not stage changes, so they
+    // must not re-fire a view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, channel, trackedStep, currentStep, settled])
 
   const requestClose = (nextOpen: boolean) => {

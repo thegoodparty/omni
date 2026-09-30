@@ -42,6 +42,11 @@ import { SmsFlow } from './sms/SmsFlow'
 import { fetchOutreachDetail, useSeedOutreachDetail } from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
 import type { AudiencePreselect } from './audiencePreselect'
+import { DRAFT_FOOTER_LABELS } from './listDetails/footerMode'
+import {
+  flowSourceFromCompose,
+  type OutreachFlowSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 
 // The two channels that can hold a saved draft, and the row types that
 // resume into each. A draft row is the campaign's way back into the flow
@@ -246,6 +251,19 @@ const OutreachHubContent = ({
     [draftsEnabled, historyRows],
   )
 
+  // Where the open flow was started from, for its stage events and its Pro
+  // gate. A compose link names its own surface; otherwise it was a tile.
+  const composeFlowSource: OutreachFlowSource = composeSeeds
+    ? flowSourceFromCompose(composeSeeds.source)
+    : 'outreach_page'
+  // Texting and robocall can also open off a saved draft's row. Read only
+  // for those two: `resumeSource` is not cleared on close, so another
+  // channel's tile would inherit a stale row.
+  const draftFlowSource: OutreachFlowSource =
+    !composeSeeds && resumeSource === 'row' ? 'draft' : composeFlowSource
+  // The drawer footer is the one resume with a button behind it.
+  const resumeCta = resumeSource === 'row' ? DRAFT_FOOTER_LABELS.pro : undefined
+
   // The save response is the created row: seed the detail cache (so the
   // drawer and the "N platforms" metric never refetch it) and prepend it to
   // the history without a list refetch.
@@ -374,6 +392,7 @@ const OutreachHubContent = ({
         }}
         onSaved={handleSocialSaved}
         tracker={composeSeeds?.tracker}
+        source={composeFlowSource}
       />
       <RobocallFlow
         open={robocallFlowOpen}
@@ -386,8 +405,10 @@ const OutreachHubContent = ({
         onScheduled={refetchOutreaches}
         resumeDraft={robocallResumeDraft}
         resumeStartsOnWizard={resumeSource === 'row'}
+        resumeCta={resumeCta}
         campaignPlanDueDate={composeSeeds?.due}
         tracker={composeSeeds?.tracker}
+        source={draftFlowSource}
         preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
         preselectedRecommendedVariant={
           composeSeeds?.recommendedVariant ?? tilePreselect?.recommendedVariant
@@ -402,6 +423,7 @@ const OutreachHubContent = ({
         }}
         onSaved={handlePhoneBankingSaved}
         tracker={composeSeeds?.tracker}
+        source={composeFlowSource}
         preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
         preselectedRecommendedVariant={
           composeSeeds?.recommendedVariant ?? tilePreselect?.recommendedVariant
@@ -418,9 +440,11 @@ const OutreachHubContent = ({
         onScheduled={refetchOutreaches}
         resumeDraft={resumeDraft}
         resumeStartsOnWizard={resumeSource === 'row'}
+        resumeCta={resumeCta}
         tcrCompliance={tcrCompliance}
         campaignPlanDueDate={composeSeeds?.due}
         tracker={composeSeeds?.tracker}
+        source={draftFlowSource}
         initialScript={composeSeeds?.script}
         preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
         preselectedRecommendedVariant={

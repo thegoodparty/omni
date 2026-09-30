@@ -18,7 +18,8 @@ interface DownloadStepProps {
   // Which product's event name the download reports under — the flow's own
   // `surface.isServe`, threaded rather than re-derived.
   isServe: boolean
-  onDownloadGated?: () => void
+  // Handed the button's own label, for the Pro gate's Flow Started.
+  onDownloadGated?: (cta: string) => void
 }
 
 // The "ready" screen (step 5): replaces the old naming-only download step and
@@ -34,6 +35,9 @@ export const DownloadStep = ({
   const sheetCount = response?.sheetCount ?? pending?.sheetCount ?? 1
   const personCount = response?.personCount ?? pending?.personCount ?? 0
   const isZip = sheetCount > 1
+  const downloadLabel = isZip
+    ? `Download ${sheetCount} call sheets (ZIP)`
+    : 'Download call sheet (PDF)'
   const href = response
     ? `/dashboard/outreach/phone-banking/print/${response.id}/pdf`
     : null
@@ -115,9 +119,7 @@ export const DownloadStep = ({
               anchor, same precedent as door-knocking's print link. */}
           <a href={href} target="_blank" rel="noreferrer">
             <DownloadIcon className="size-4" />
-            {isZip
-              ? `Download ${sheetCount} call sheets (ZIP)`
-              : 'Download call sheet (PDF)'}
+            {downloadLabel}
           </a>
         </Button>
       ) : (
@@ -125,12 +127,10 @@ export const DownloadStep = ({
           type="button"
           variant="outline"
           className="w-full"
-          onClick={onDownloadGated}
+          onClick={() => onDownloadGated?.(downloadLabel)}
         >
           <DownloadIcon className="size-4" />
-          {isZip
-            ? `Download ${sheetCount} call sheets (ZIP)`
-            : 'Download call sheet (PDF)'}
+          {downloadLabel}
         </Button>
       )}
     </div>

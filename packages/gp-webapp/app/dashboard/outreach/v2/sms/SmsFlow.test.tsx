@@ -197,6 +197,7 @@ const openFlow = () => {
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(
     <SmsFlow
+      source="outreach_page"
       open
       onClose={onClose}
       onScheduled={onScheduled}
@@ -537,6 +538,7 @@ describe('SmsFlow', () => {
     ) =>
       render(
         <SmsFlow
+          source="outreach_page"
           open
           onClose={vi.fn()}
           onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -1053,11 +1055,13 @@ describe('SmsFlow', () => {
         tcrCompliance: TCR_FIXTURE,
         resumeDraft: draftDetail(),
       }
-      const { rerender } = render(<SmsFlow open {...props} />)
+      const { rerender } = render(
+        <SmsFlow source="outreach_page" open {...props} />,
+      )
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
-      rerender(<SmsFlow open={false} {...props} />)
-      rerender(<SmsFlow open {...props} />)
+      rerender(<SmsFlow source="outreach_page" open={false} {...props} />)
+      rerender(<SmsFlow source="outreach_page" open {...props} />)
 
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
       expect(
@@ -1069,6 +1073,7 @@ describe('SmsFlow', () => {
       gateRef.set(CLEARED_GATE)
       render(
         <SmsFlow
+          source="outreach_page"
           open
           onClose={vi.fn()}
           onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -1113,6 +1118,7 @@ describe('SmsFlow', () => {
       api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
       render(
         <SmsFlow
+          source="outreach_page"
           open
           onClose={vi.fn()}
           onScheduled={vi.fn().mockResolvedValue(undefined)}
