@@ -592,6 +592,11 @@ export const buildDispatchMessage = (args: {
   }
 }
 
+// A send rejection aborts the case, because nothing has been produced yet and
+// a synthesized record would report an outcome no run ever had. An accepted
+// send whose response was lost is covered by the same two properties the retry
+// path leans on: the deduplication id collapses the second send, and the run
+// id is deterministic, so a re-run finds the first task's artifact.
 const dispatch = async (
   queue: DispatchQueue,
   message: DispatchMessage,
@@ -631,6 +636,12 @@ export type PollOutcome =
 // A store rejection aborts the case rather than being swallowed: retrying an
 // S3 GET belongs to the adapter, and treating a broken credential as "not there
 // yet" would burn the whole window and then report a timeout.
+//
+// Unlike the module's other aborts, by this point the task is running and the
+// money is committed — but there is still no artifact, no trace and no record
+// to keep, and nothing is lost permanently: the run id is deterministic, so a
+// re-run of the same attempt polls the same key and picks up whatever the
+// orphaned task eventually publishes.
 export const pollForObject = async (
   store: ObjectStore,
   clock: Clock,
@@ -1288,9 +1299,15 @@ export type CacheMissReason =
   | 'schemaSkew'
   | 'keyMismatch'
 
+// A fifth outcome, and deliberately NOT a fifth CacheMissReason: a miss is a
+// statement about the cache's CONTENTS, and this is a statement about our own
+// read. Folding the two together would report a transient bucket error as
+// 'absent', which reads as "no entry, go spend ~$13" when the honest answer is
+// "we do not know whether an entry exists".
 export type CacheRead =
   | { kind: 'entry'; entry: CachedBaseArm }
   | { kind: 'miss'; reason: CacheMissReason }
+  | { kind: 'unreadable'; error: string }
 
 // The key path asserts which agent, digest and case an entry is for; the record
 // inside it only claims to. Checking that the two agree is what makes "a cached
@@ -1325,10 +1342,26 @@ export const readCachedBaseArm = async (
   configDigest: string,
   caseId: string,
 ): Promise<CacheRead> => {
-  const body = await store.getText(
-    bucket,
-    baseArmCacheKey(agentId, configDigest, caseId),
-  )
+  // Built OUTSIDE the guard: baseArmCacheKey throws on a caseId that could
+  // escape the reserved prefix, and that is a bad input rather than a store
+  // error. Reporting it as unreadable would make the sweep spend on a case it
+  // should have refused.
+  const key = baseArmCacheKey(agentId, configDigest, caseId)
+  let body: string | undefined
+  try {
+    body = await store.getText(bucket, key)
+  } catch (err) {
+    // Guarded for the same reason readTraceBody is, one step earlier in the
+    // case. Unguarded, a `SlowDown` or an expired credential on this one GET
+    // aborted the whole case before any run was dispatched — a case thrown
+    // away over an error that may not outlive the next request. Proceeding
+    // cannot hide a genuinely broken bucket either: staging writes to this
+    // same bucket immediately afterwards and aborts there, with nothing spent.
+    return {
+      kind: 'unreadable',
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
   if (body === undefined) return { kind: 'miss', reason: 'absent' }
   const read = safeJson(CachedBaseArmSchema, body)
   if (!read.ok) return { kind: 'miss', reason: read.reason }
@@ -1339,9 +1372,18 @@ export const readCachedBaseArm = async (
 
 export interface BaseArmResult {
   record: RunRecord
-  cache: 'hit' | 'miss' | 'notCached'
-  // Why the cache did not serve this record. Absent on a hit.
+  // 'miss' and 'unknown' both mean this record was captured and stored; they
+  // differ in what the cache said first. 'miss' is "there was no usable
+  // entry", 'unknown' is "the read failed, so nothing is claimed either way".
+  // 'notCached' means the record was not stored, whichever of the two it was.
+  cache: 'hit' | 'miss' | 'notCached' | 'unknown'
+  // Why the cache did not serve this record. Absent on a hit, and absent when
+  // the read failed — there is no known reason in that case, which is the
+  // point of keeping the two fields apart.
   cacheMissReason?: CacheMissReason
+  // Set instead when the cache READ itself rejected, so a report can say the
+  // capture happened without knowing whether it had to.
+  cacheReadError?: string
   // When the returned record's run actually happened. On a hit this can predate
   // the candidate by weeks, which is the whole reason it is surfaced.
   capturedAt: string
@@ -1378,6 +1420,21 @@ export const runBackgroundBaseArm = async (
       capturedAt: cached.entry.capturedAt,
     }
   }
+  // Spread onto every return below, so a capture that happened because the
+  // cache could not be read never reports the same way as one that happened
+  // because the cache was empty.
+  const why =
+    cached.kind === 'unreadable'
+      ? { cacheReadError: cached.error }
+      : { cacheMissReason: cached.reason }
+  if (cached.kind === 'unreadable') {
+    console.error(
+      `judge: reading the cached base arm for ${input.agentId}/${caseId} ` +
+        'failed; capturing a fresh one rather than abandoning the case, and ' +
+        'reporting the cache state as unknown rather than as a miss',
+      cached.error,
+    )
+  }
 
   const record = await runBackgroundCase(deps, input)
   // Never cache a run that cannot be compared. A cached timeout, or a cached
@@ -1387,7 +1444,7 @@ export const runBackgroundBaseArm = async (
     return {
       record,
       cache: 'notCached',
-      cacheMissReason: cached.reason,
+      ...why,
       capturedAt: record.startedAt,
     }
   }
@@ -1418,14 +1475,14 @@ export const runBackgroundBaseArm = async (
     return {
       record,
       cache: 'notCached',
-      cacheMissReason: cached.reason,
+      ...why,
       capturedAt: entry.capturedAt,
     }
   }
   return {
     record,
-    cache: 'miss',
-    cacheMissReason: cached.reason,
+    cache: cached.kind === 'unreadable' ? 'unknown' : 'miss',
+    ...why,
     capturedAt: entry.capturedAt,
   }
 }

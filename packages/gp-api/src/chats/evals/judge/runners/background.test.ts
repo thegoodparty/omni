@@ -1944,3 +1944,103 @@ describe('cache miss reasons', () => {
     expect(await read(store, input)).toMatchObject({ kind: 'entry' })
   })
 })
+
+// --- a cache we could not read is not a cache that was empty -----------------
+//
+// The third instance of one class of bug: an unguarded store call whose
+// rejection destroys work that is already paid for, or aborts a case before it
+// needed to. The trace read and the cache write were guarded last round; this
+// GET was not, so a `SlowDown` on the cache bucket threw a case away before a
+// single run was dispatched.
+//
+// It is reported apart from the four miss reasons on purpose. A miss describes
+// the cache's contents; this describes our own read, and calling it 'absent'
+// would print "no entry, capture one" when nothing is known either way.
+describe('an unreadable base-arm cache', () => {
+  const digest = () => backgroundConfigDigest(config)
+
+  // The whole cache lives in METADATA_BUCKET, so failing only that bucket's
+  // gets leaves the artifact and trace reads working — which is what a
+  // transient per-object error actually looks like.
+  const cacheUnreadable = (
+    input: BackgroundRunInput,
+    message = 'SlowDown: please reduce your rate',
+  ) => {
+    const store = completedRun(input, idFor(input))
+    const cacheAt = path(
+      METADATA_BUCKET,
+      baseArmCacheKey(AGENT, digest(), input.agentCase.caseId),
+    )
+    const inner = store.getText
+    store.getText = async (bucket, key) => {
+      if (path(bucket, key) === cacheAt) throw new Error(message)
+      return inner(bucket, key)
+    }
+    return store
+  }
+
+  it('reports the read failure instead of rejecting', async () => {
+    const input = baseInput()
+
+    const result = await readCachedBaseArm(
+      cacheUnreadable(input),
+      METADATA_BUCKET,
+      AGENT,
+      digest(),
+      input.agentCase.caseId,
+    )
+
+    expect(result).toEqual({
+      kind: 'unreadable',
+      error: expect.stringContaining('SlowDown'),
+    })
+  })
+
+  // Spending here is defensible — the entry may not exist, and staging writes
+  // to this same bucket next, so a genuinely broken bucket still aborts with
+  // nothing spent. Reporting it as a miss is not.
+  it('captures the base arm rather than abandoning the case', async () => {
+    const input = baseInput()
+    const store = cacheUnreadable(input)
+    const queue = fakeQueue()
+
+    const result = await runBackgroundBaseArm(
+      deps(store, queue, fakeClock()),
+      input,
+      METADATA_BUCKET,
+    )
+
+    expect(result.record.status).toBe('produced')
+    expect(result.record.arm).toBe('base')
+    expect(queue.sent).toHaveLength(1)
+    // Stored, so the next sweep is a hit rather than another ~$13.
+    expect(store.puts.map((p) => p.key)).toContain(
+      baseArmCacheKey(AGENT, digest(), input.agentCase.caseId),
+    )
+  })
+
+  it('never calls an unreadable cache a miss', async () => {
+    const input = baseInput()
+
+    const result = await runBackgroundBaseArm(
+      deps(cacheUnreadable(input), fakeQueue(), fakeClock()),
+      input,
+      METADATA_BUCKET,
+    )
+
+    expect(result.cache).toBe('unknown')
+    expect(result.cacheReadError).toContain('SlowDown')
+    // 'absent' would read as a first capture, which is a claim about the
+    // cache that a failed read does not support.
+    expect(result.cacheMissReason).toBeUndefined()
+  })
+
+  // The guard is around the GET alone. baseArmCacheKey throws on a caseId that
+  // could escape the reserved prefix, and that is a refusal to be honoured,
+  // not a store error to be recovered from.
+  it('still refuses an unsafe case id outright', async () => {
+    await expect(
+      readCachedBaseArm(fakeStore(), METADATA_BUCKET, AGENT, digest(), 'a/b'),
+    ).rejects.toThrow(/unsafe caseId/)
+  })
+})
