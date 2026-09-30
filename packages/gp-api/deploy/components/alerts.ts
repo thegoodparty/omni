@@ -173,6 +173,11 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * by definition not ours; paging on it means paging for a broken test, which CI
  * already reports.
  *
+ * `dev-env` is `test-fixtures`' twin: it 404s outside dev, it vends local
+ * `.env` values to a contributor setting a laptop up, and a failure there
+ * stalls one person's `npm run setup` — they are looking at the error already.
+ * There is no product surface behind it to page for.
+ *
  * `version` echoes the build version and `queue` is a method literally named
  * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
  * a product route. Nothing downstream depends on either answering.
@@ -199,6 +204,7 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
 export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'health',
   'test-fixtures',
+  'dev-env',
   'version',
   'queue',
   'ecanvasser',

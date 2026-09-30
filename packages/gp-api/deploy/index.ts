@@ -433,6 +433,23 @@ export = async () => {
     ...staticQueueArns,
   ]
 
+  // The curated local-dev bundle POST /v1/dev-env/bundle vends. Dev only:
+  // preview and prod never get the id, so the endpoint stays dark there even
+  // though preview passes the IS_NON_PROD_DEPLOY gate. The ARN is built by
+  // hand rather than looked up (`-*` covers the suffix Secrets Manager adds)
+  // so the stack still deploys before the secret is created.
+  const localDevEnvSecretId = select({
+    preview: '',
+    dev: 'LOCAL_DEV_ENV',
+    prod: '',
+  })
+  const localDevEnvSecretArns =
+    localDevEnvSecretId === ''
+      ? []
+      : [
+          `arn:aws:secretsmanager:${region}:${accountId}:secret:${localDevEnvSecretId}-*`,
+        ]
+
   const service = createService({
     dependsOn: rdsInstance ? [rdsInstance] : [],
     environment,
@@ -532,6 +549,7 @@ export = async () => {
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
+      LOCAL_DEV_ENV_SECRET_ID: localDevEnvSecretId,
       DB_HOST: sharedPreviewCluster
         ? sharedPreviewCluster.endpoint
         : rdsCluster!.endpoint,
@@ -643,6 +661,15 @@ export = async () => {
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
       },
+      ...(localDevEnvSecretArns.length > 0
+        ? [
+            {
+              Effect: 'Allow' as const,
+              Action: ['secretsmanager:GetSecretValue'],
+              Resource: localDevEnvSecretArns,
+            },
+          ]
+        : []),
     ],
   })
 

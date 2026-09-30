@@ -163,6 +163,15 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   L2_DATA_KEY: { tier: 'degradable', feature: 'voter-file-l2' },
 
+  // Secrets Manager id of the curated local-dev bundle POST /v1/dev-env/
+  // bundle vends. Set on the dev deploy only; unset everywhere else, which
+  // is what keeps vending dark rather than failing boot before the secret
+  // exists.
+  LOCAL_DEV_ENV_SECRET_ID: {
+    tier: 'degradable',
+    feature: 'dev-env-vending',
+  },
+
   // The trio behind resolvePeopleDbxConfig(); PEOPLE_DATABRICKS_API_KEY is
   // the local personal-access-token alternative to the OAuth pair, same
   // feature. Read via a keyed-constant `process.env[WAREHOUSE_ID_ENV]`
