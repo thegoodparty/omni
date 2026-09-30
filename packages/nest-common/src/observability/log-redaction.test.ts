@@ -7,9 +7,9 @@ const loadRedactLine = async (
   vi.resetModules()
 
   if (secretNames) {
-    process.env.SECRET_NAMES = secretNames
+    process.env.SECRETS_MANAGER_KEYS = secretNames
   } else {
-    delete process.env.SECRET_NAMES
+    delete process.env.SECRETS_MANAGER_KEYS
   }
 
   if (envOverrides) {
