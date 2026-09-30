@@ -346,11 +346,15 @@ indent "postgres ready"
 
 # --- 6/8: migrate + seed ------------------------------------------------------
 log "[6/8] Migrate + seed"
+# Best-effort probe: right after the port opens, gpdb may not accept
+# queries yet (or not exist on a fresh volume — prisma creates it). Under
+# set -e a failing substitution would kill the whole script with no
+# output, so a failed probe must mean "treat as fresh", never death.
 table_count="$(
   cd "$ROOT/packages/gp-api" && docker compose exec -T postgres \
     psql -U postgres -d gpdb -tAc \
     "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" \
-    2>/dev/null | tr -d '[:space:]'
+    2>/dev/null | tr -d '[:space:]' || true
 )"
 skip_reset=false
 if [ -n "$table_count" ] && [ "$table_count" != "0" ]; then
