@@ -125,6 +125,8 @@ const fetchPath = async (
   return { geometry, legs }
 }
 
+const prisma = new PrismaClient()
+
 const main = async () => {
   const apply = process.argv.includes('--apply')
   const limitArg = process.argv.indexOf('--limit')
@@ -137,7 +139,6 @@ const main = async () => {
     throw new Error('GEOAPIFY_API_KEY is required with --apply')
 
   mkdirSync(OUTPUT_DIR, { recursive: true })
-  const prisma = new PrismaClient()
 
   const pending = await prisma.$queryRaw<Array<{ id: number }>>`
     SELECT id FROM door_knocking_route
@@ -199,6 +200,7 @@ const main = async () => {
       const { geometry, legs } = await fetchPath(route.mode, waypoints, apiKey!)
       const totalSeconds = legs.reduce((sum, leg) => sum + leg.seconds, 0)
       const totalMeters = legs.reduce((sum, leg) => sum + leg.meters, 0)
+      const billed = routingCredits(waypoints.length, totalMeters)
       await prisma.$transaction([
         ...stops.map((stop, position) =>
           prisma.doorKnockingStop.update({
@@ -215,7 +217,7 @@ const main = async () => {
             pathGeometry: geometry,
             totalSeconds,
             totalMeters,
-            credits: { increment: routeCredits },
+            credits: { increment: billed },
           },
         }),
         prisma.doorKnockingRoutePlannerSpend.create({
@@ -223,13 +225,17 @@ const main = async () => {
             organizationSlug,
             doorKnockingTurfId: route.doorKnockingTurfId,
             waypoints: 0,
-            credits: routeCredits,
+            credits: billed,
           },
         }),
       ])
       bought += 1
-      credits += routeCredits
-      const line = { ...detail, after: { totalSeconds, totalMeters } }
+      credits += billed
+      const line = {
+        ...detail,
+        credits: billed,
+        after: { totalSeconds, totalMeters },
+      }
       console.log(JSON.stringify(line))
       appendFileSync(DETAIL_PATH, JSON.stringify(line) + '\n')
     } catch (error) {
@@ -254,7 +260,11 @@ const main = async () => {
       credits,
     }),
   )
-  await prisma.$disconnect()
 }
 
 void main()
+  .catch((error: unknown) => {
+    console.error(error)
+    process.exitCode = 1
+  })
+  .finally(() => prisma.$disconnect())
