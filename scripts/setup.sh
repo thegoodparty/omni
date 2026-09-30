@@ -223,6 +223,12 @@ elif [ "$need_from" = true ]; then
     exit 1
   fi
   indent "no --from given; authorizing via the GitHub device flow for:$missing"
+  # The device-flow CLI validates the vending response against
+  # @goodparty_org/contracts, whose dist/ does not exist yet on a fresh
+  # clone (the main build step comes later). Idempotent and ~seconds when
+  # already built; only this branch needs it this early.
+  indent "building contracts (the device flow validates against its schema)"
+  npm run build -w packages/contracts >/dev/null
   # $missing is a bash word-split list of literal package names this script
   # built above ("gp-api gp-webapp"), never external input — safe unquoted.
   # shellcheck disable=SC2086

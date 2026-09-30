@@ -33,7 +33,11 @@ import {
   DeviceFlowExpiredError,
   requestDeviceCode,
 } from './deviceFlow'
-import { fetchDevEnvBundles } from './devEnvBundle'
+// devEnvBundle pulls in @goodparty_org/contracts, whose dist/ does not
+// exist yet when the secrets step runs on a fresh clone (contracts builds
+// later in setup.sh). Loaded lazily inside runDeviceFlow so the --from and
+// validation paths never touch it — same pattern as the runtime import()
+// below.
 import {
   buildMergedEnv,
   parseEnvFile,
@@ -215,6 +219,7 @@ export const runDeviceFlow = async (
   }
 
   try {
+    const { fetchDevEnvBundles } = await import('./devEnvBundle')
     const bundles = await fetchDevEnvBundles(apiUrl, token, packages)
 
     // Validate every bundle against what was actually requested BEFORE
