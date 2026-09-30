@@ -43,9 +43,12 @@ jobs:
     name: npm run setup --from fixture
     runs-on: ubuntu-latest
     # npm ci + docker pull postgres:16.8 + 258 migrations + seed + a cold
-    # Next.js compile, all on a shared 2-core runner. Generous on purpose —
-    # this job is advisory, so a slow pass beats a fast false failure.
-    timeout-minutes: 20
+    # Next.js compile, all on a shared 2-core runner, THEN setup.sh's own
+    # 15-minute health gate. Generous on purpose — this job is advisory, so
+    # a slow pass beats a fast false failure. This is the ONE deadline: the
+    # poll below runs as long as setup.sh is alive, so no second clock can
+    # expire while setup.sh is still legitimately waiting.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
@@ -83,8 +86,11 @@ jobs:
 
           api_ok=false
           webapp_ok=false
-          deadline=$((SECONDS + 900))
-          while [ "$SECONDS" -lt "$deadline" ]; do
+          # No deadline of its own: setup.sh's internal health gate and the
+          # job's timeout-minutes bound this loop; it exits when setup.sh
+          # does. A second clock here raced setup.sh's (outer started at
+          # launch, inner after the npm ci/docker/migrate preamble).
+          while true; do
             if [ "$api_ok" != true ] &&
               curl -fsS -o /dev/null http://localhost:3000/v1/health; then
               api_ok=true
