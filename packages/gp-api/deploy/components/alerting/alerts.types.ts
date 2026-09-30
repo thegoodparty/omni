@@ -234,6 +234,19 @@ export type Alert = {
   timeRangeSeconds?: number
 
   /**
+   * How far behind the evaluation the fetch window ends, in seconds. Defaults
+   * to 0. The window keeps its `timeRangeSeconds` width and is shifted back as
+   * a whole, so a rule whose window equals its interval still reads every log
+   * line exactly once.
+   *
+   * Set it on a rule that must count every line. Logs reach Loki a few seconds
+   * after the request, so a window ending at `now` misses the newest lines,
+   * and the next window starts after them. The cost is the same number of
+   * seconds of detection latency.
+   */
+  timeRangeOffsetSeconds?: number
+
+  /**
    * How often the alerting engine evaluates this rule, in seconds. Defaults to
    * 60.
    *
