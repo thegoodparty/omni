@@ -61,7 +61,7 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     -h | --help)
-      sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)

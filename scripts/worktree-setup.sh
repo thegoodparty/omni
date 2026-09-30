@@ -48,8 +48,13 @@ echo "==> npm ci --prefer-offline"
 npm ci --prefer-offline
 
 echo "==> Copying untracked .env files from $MAIN"
+# `found` counts every eligible untracked env file in main — copied fresh
+# OR already present here ("keep") — so a re-run against a provisioned
+# worktree does not trip the fallback. Two-level glob: real gitignored env
+# files live two deep (e.g. packages/gp-api/e2e-tests/.env).
 copied=0
-for dir in "$MAIN" "$MAIN"/packages/*; do
+found=0
+for dir in "$MAIN" "$MAIN"/packages/* "$MAIN"/packages/*/*; do
   [ -d "$dir" ] || continue
   for src in "$dir"/.env "$dir"/.env.*; do
     [ -f "$src" ] || continue
@@ -57,6 +62,7 @@ for dir in "$MAIN" "$MAIN"/packages/*; do
     if git -C "$MAIN" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
       continue
     fi
+    found=$((found + 1))
     if [ -e "$WT/$rel" ]; then
       echo "    keep  $rel (already present)"
     else
@@ -67,7 +73,7 @@ for dir in "$MAIN" "$MAIN"/packages/*; do
   done
 done
 
-# Nothing copied: the main checkout has no working .env of its own to
+# Nothing found at all: the main checkout has no working .env of its own to
 # inherit from (fresh machine, CI runner, cloud sandbox). Proceeding
 # silently would provision a worktree that reports "ready" and then can't
 # boot. Delegate to setup.sh's own secrets step instead — it either
@@ -76,7 +82,7 @@ done
 # message (e.g. "no --from given"), and either way this script must not
 # claim success it didn't earn. npm ci above guarantees the node_modules
 # that fallback's `npx tsx` needs to resolve `zod` through.
-if [ "$copied" -eq 0 ]; then
+if [ "$found" -eq 0 ]; then
   echo "==> No untracked .env files found in $MAIN; falling back to scripts/setup.sh --secrets-only"
   "$WT/scripts/setup.sh" --secrets-only
 fi
