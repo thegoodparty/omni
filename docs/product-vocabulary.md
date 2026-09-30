@@ -142,3 +142,12 @@ copy.
   `SERVE_SOCIAL_VOICE` is the pattern to copy there, by hand.
 - Serve words leaking into **Win** ("constituent" on a candidate's screen).
   Rarer, and the same table above is the rule.
+- **Analytics event names and their constants.** The gate reads user-facing
+  copy, not `helpers/analyticsHelper.ts`, so a component both products mount
+  can record an elected official's activity under Win nouns and pass clean.
+  This is not a gap to close by widening the parser, because the fix is the
+  opposite of the copy rule: copy is mode-keyed per surface, an analytics
+  event is **one** name for both surfaces carrying `product: 'win' | 'serve'`
+  as a property. Two names would make every cross-product total a union and
+  undercount silently when someone forgets one. See
+  `.claude/skills/instrument-analytics-event/SKILL.md`, "Name the event".

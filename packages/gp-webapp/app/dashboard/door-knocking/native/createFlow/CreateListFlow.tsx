@@ -8,11 +8,18 @@ import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  outreachProduct,
+  type OutreachFlowSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { GateBanner } from 'app/dashboard/outreach/v2/gate/GateBanner'
 import { GateExplainerModal } from 'app/dashboard/outreach/v2/gate/GateExplainerModal'
+import { EXPLAINER_COPY } from 'app/dashboard/outreach/v2/gate/gateCopy'
 import { OutreachGate } from 'app/dashboard/outreach/v2/gate/OutreachGate'
 import { useOutreachGate } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
+import { useLockedAtOpen } from 'app/dashboard/outreach/v2/gate/useLockedAtOpen'
 import { useTeamOptions } from '../useTeamOptions'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
@@ -28,10 +35,6 @@ import {
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import type { SupportStatusRollup } from 'app/dashboard/contacts/crm/shared/contacts-types'
-import {
-  unpreviewableDisclosureLabels,
-  unpreviewableDisclosureSentence,
-} from './voterFilterPreview'
 import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
 import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
@@ -155,6 +158,8 @@ interface CreateListFlowProps {
   precinctOptions: PrecinctOptionsResult
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
   // The pack's bounding box, framed by the draw step's static-map preview
   // card. Null while the pack decodes; the preview omits the image in that
   // window rather than rendering against no rect.
@@ -242,14 +247,18 @@ interface CreateListFlowProps {
   // Carries the created row because the page opens the walk on it directly.
   // One turf's Start knocking, from the success screen. This is the press
   // that will buy the route once the walk-or-drive prompt exists.
-  onStartKnocking: (turf: DoorKnockingTurf) => void
+  // The anchor rides along so the page can send the walk's exit to this
+  // campaign's details drawer rather than back to a success screen that is
+  // a one-time confirmation.
+  onStartKnocking: (
+    turf: DoorKnockingTurf,
+    anchorOutreachId: number | null,
+  ) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays a plain
   // presentational flow and its tests don't need an organization provider.
   isServeOrg: boolean
   // Selected filter option keys the map preview can't narrow by, so the drawn
-  // shape shows more people than the list will target.
-  unpreviewableKeys: string[]
   // The organization the recommendations are asked for, purely as a cache-key
   // segment. A prop rather than a `useOrganization()` read for the same
   // reason as `isServeOrg` above.
@@ -394,6 +403,7 @@ export default function CreateListFlow({
   precinctOptions,
   onStepChange,
   onClose,
+  source,
   districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
@@ -408,7 +418,6 @@ export default function CreateListFlow({
   onDrawFullScreenChange,
   onStartKnocking,
   isServeOrg,
-  unpreviewableKeys,
   orgSlug,
   preselectedListId,
   onPreselectApplied,
@@ -635,6 +644,7 @@ export default function CreateListFlow({
         trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
           variant: recommendation.variant,
           channel: 'doorKnocking',
+          medium: 'doorKnocking',
           intent: recommendation.intent,
           count: recommendation.count,
           voteGoalShare: recommendation.voteGoalShare,
@@ -749,6 +759,7 @@ export default function CreateListFlow({
   // where the candidate is told, not about what is enforced. Moving it onto
   // the knock press is the follow-up.
   const gate = useOutreachGate('door')
+  const lockedAtOpen = useLockedAtOpen(true, gate)
   const [gateOpen, setGateOpen] = useState(false)
   // WHICH gesture opened the gate. The banner rides every step but the draw,
   // so its explainer can open the gate from any of them, with Build route
@@ -757,10 +768,13 @@ export default function CreateListFlow({
   const [gateOrigin, setGateOrigin] = useState<'build' | 'explainer' | null>(
     null,
   )
+  // The label of the button that opened the gate, for Flow Started.
+  const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [explainerOpen, setExplainerOpen] = useState(false)
 
   const openGateFromExplainer = (): void => {
     setGateOrigin('explainer')
+    setGateCta(EXPLAINER_COPY.ctaJoin)
     setGateOpen(true)
   }
 
@@ -1223,6 +1237,7 @@ export default function CreateListFlow({
           trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
             variant: recommendedMeta.variant,
             channel: 'doorKnocking',
+            medium: 'doorKnocking',
             intent: recommendedMeta.intent,
             count: recommendedMeta.count,
             voteGoalShare: recommendedMeta.voteGoalShare,
@@ -1368,6 +1383,7 @@ export default function CreateListFlow({
       for (const row of created) {
         const stats = draftStats.get(row.draft.clientId)
         trackEvent(EVENTS.DoorKnocking.ListCreated, {
+          product: outreachProduct(serveMode),
           // This turf's own figures, not the campaign's: the event is about
           // a route, and a shared total would make every turf of a campaign
           // look the same size as the whole of it.
@@ -1377,6 +1393,31 @@ export default function CreateListFlow({
           // stay out of the analytics payload.
           filterCount: activeFilterCount,
         })
+        // The cross-channel sibling of the event above, fired per turf for
+        // the same reason. Door knocking is one-to-one, so a created list has
+        // reached nobody yet — completion is the turf being finished
+        // (`turfLifecycle.ts`). `ListCreated` carries this turf's own stops
+        // and people; this one carries only what every channel does, which is
+        // what makes a created → contacted → completed funnel countable
+        // across all of them.
+        trackEvent(
+          EVENTS.Dashboard.VoterContact.CampaignCreated,
+          outreachEventProps({
+            channel: 'doorKnocking',
+            isServe: serveMode,
+            campaignName: row.turf.name,
+            recipientCount: stats?.people ?? 0,
+            outreachCampaignId: row.turf.outreachId ?? undefined,
+            listId: row.turf.id,
+            // The other three channels read this off their audience step's
+            // own state; door knocking's equivalent is whether a
+            // recommendation was accepted on the who step. A saved list and a
+            // list built inline are both `savedList` here, matching them —
+            // an inline build persists as an ordinary saved filter.
+            audienceSource:
+              recommendedMeta !== null ? 'recommended' : 'savedList',
+          }),
+        )
       }
       // Dropped here rather than in the mutation body so a draft is only
       // ever forgotten once its route is real. What is left in the list is
@@ -1461,16 +1502,6 @@ export default function CreateListFlow({
     ? audienceEmptyMessage(filters, savedListId !== null)
     : null
 
-  const unpreviewableDisclosure = audienceEmptyDisclosure
-    ? // Suppressed under a proven-empty audience. This sentence hedges the
-      // count as too big; that one says the count is moot. Both at once reads
-      // as the step arguing with itself.
-      null
-    : unpreviewableDisclosureSentence(
-        unpreviewableDisclosureLabels(unpreviewableKeys),
-        savedListId !== null,
-      )
-
   // The drawing surface is the map with nothing over it. Every control it
   // used to float there — the hint, the instructions modal, Undo and the
   // stop count — is either deleted or in the turf panel now, and the panel
@@ -1505,6 +1536,11 @@ export default function CreateListFlow({
       }
       currentStep={currentStep}
       totalSteps={totalSteps}
+      channel="door"
+      source={source}
+      locked={lockedAtOpen}
+      trackedStep={gateOpen || stage === 'success' ? null : stage}
+      settled={stage === 'success'}
       onBack={
         previousStage(stage, asksQuestion) && !gateOpen ? back : undefined
       }
@@ -1634,6 +1670,7 @@ export default function CreateListFlow({
                           onClick: () => {
                             if (gate.requirement !== null) {
                               setGateOrigin('build')
+                              setGateCta('Create campaign')
                               setGateOpen(true)
                               return
                             }
@@ -1660,6 +1697,8 @@ export default function CreateListFlow({
           state={gate}
           open
           showInterstitial={false}
+          source={source}
+          cta={gateCta}
           onExit={() => {
             setGateOpen(false)
             setGateOrigin(null)
@@ -1800,18 +1839,6 @@ export default function CreateListFlow({
                   {audienceEmptyDisclosure}
                 </p>
               )}
-              {/* The count in the CTA is the pack's, and the pack cannot shade
-                every way a saved list narrows — a list cut by support status
-                or prior outreach previews as the whole district here. Without
-                this the gap would first appear on the draw step, two moves
-                after the number that provoked it, and a candidate starting
-                from a 256-person list would read the district figure as their
-                list being ignored. */}
-              {unpreviewableDisclosure && (
-                <p className="text-xs text-muted-foreground">
-                  {unpreviewableDisclosure}
-                </p>
-              )}
             </>
           )}
 
@@ -1892,8 +1919,31 @@ export default function CreateListFlow({
 
           {stage === 'success' && createdTurfs && (
             <CreateCampaignSuccess
+              isServe={serveMode}
               campaignName={name.trim()}
               turfs={createdTurfs}
+              // The CAMPAIGN's envelope, not each turf's own. Closing a
+              // walk started here reopens this campaign's details drawer,
+              // and that drawer is keyed on the anchor — `campaignOutreachId`
+              // when this flow was entered through "Draw more turfs", the
+              // first turf bought otherwise.
+              // Patch the snapshot the rows render from. `completed` is what
+              // `turfStage` reads, so the card goes muted and drops its
+              // footer rather than offering a walk on a finished turf.
+              onTurfCompleted={(turfId) =>
+                setCreatedTurfs(
+                  (earlier) =>
+                    earlier?.map((turf) =>
+                      turf.id === turfId ? { ...turf, completed: true } : turf,
+                    ) ?? earlier,
+                )
+              }
+              anchorOutreachId={
+                campaignOutreachId ??
+                createdAnchorRef.current ??
+                createdTurfs[0]?.outreachId ??
+                null
+              }
               onStartKnocking={onStartKnocking}
               onDone={onClose}
             />

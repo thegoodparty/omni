@@ -11,7 +11,7 @@ import { SmsFlow, SuccessScreen } from './SmsFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 import { gateRef } from '../gate/testing/mockReactiveGate'
 import {
-  SERVE_SMS_GREETING_PREVIEW,
+  SMS_GREETING_PREVIEW,
   SERVE_SMS_SAMPLE_FIRST_NAME,
   SMS_GREETING,
 } from './smsCompose.util'
@@ -197,6 +197,7 @@ const openFlow = () => {
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(
     <SmsFlow
+      source="outreach_page"
       open
       onClose={onClose}
       onScheduled={onScheduled}
@@ -250,6 +251,7 @@ describe('SmsFlow', () => {
     vi.setSystemTime(FROZEN_NOW)
     gateRef.set({
       enabled: false,
+      resolved: true,
       requirement: null,
       twoStep: true,
       membership: null,
@@ -360,9 +362,14 @@ describe('SmsFlow', () => {
       expect(screen.getByText('Scheduled!')).toBeInTheDocument(),
     )
     // The draft create carries the picked wall-clock time (default 10 AM
-    // slot) — approve opens Peerly's contact-local window at it.
+    // slot) in the CAMPAIGN's zone — Eastern here, no state on the mocked
+    // campaign — not the machine's: approve opens Peerly's window at it in
+    // that same zone, so the offset must be Eastern whatever TZ runs this.
     expect(vi.mocked(createOutreach)).toHaveBeenCalledWith(
-      expect.objectContaining({ scheduledLocalTime: '10:00' }),
+      expect.objectContaining({
+        scheduledLocalTime: '10:00',
+        date: expect.stringMatching(/T10:00:00-0[45]:00$/),
+      }),
       expect.anything(),
     )
     expect(completeFreePurchase).toHaveBeenCalledWith(
@@ -382,10 +389,12 @@ describe('SmsFlow', () => {
     expect(receiptCalls).toBe(0)
   })
 
-  // Win's greeting is Peerly's single-brace merge token, and both the
-  // compose chip and the preview bubble stay exactly as they were when
-  // Serve started showing a stand-in name in place of its own token.
-  it('keeps the merge-token chip and the verbatim preview bubble', async () => {
+  // The compose chip reads as the words that open the text ("Hello Sam,"),
+  // so a candidate writing their own body does not open it with a second
+  // greeting — CAS saw "Hello {first_name}, Hello! My name is…" reach the
+  // P2P queue while the chip named a variable. The review bubble stays
+  // verbatim: Win's greeting is Peerly's single-brace merge token.
+  it('shows the greeting as words above the body, verbatim in the bubble', async () => {
     mockDraft()
     api.mock('GET /v1/outreach/:id/receipt', {
       status: 404,
@@ -405,11 +414,11 @@ describe('SmsFlow', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(await screen.findByText('Greeting First Name')).toBeInTheDocument()
     expect(
-      screen.queryByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`),
-    ).toBeNull()
-    expect(screen.queryByText(SERVE_SMS_GREETING_PREVIEW.caption)).toBeNull()
+      await screen.findByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`),
+    ).toBeInTheDocument()
+    expect(screen.getByText(SMS_GREETING_PREVIEW.caption)).toBeInTheDocument()
+    expect(screen.queryByText('Greeting First Name')).toBeNull()
 
     await attachImage()
     await waitFor(() =>
@@ -423,7 +432,7 @@ describe('SmsFlow', () => {
     expect(
       await screen.findByText(SMS_GREETING, { exact: false }),
     ).toBeInTheDocument()
-    expect(screen.queryByText(SERVE_SMS_GREETING_PREVIEW.caption)).toBeNull()
+    expect(screen.queryByText(SMS_GREETING_PREVIEW.caption)).toBeNull()
   })
 
   it('identifies the campaign owner, not the composer, in the intro', async () => {
@@ -530,6 +539,7 @@ describe('SmsFlow', () => {
     ) =>
       render(
         <SmsFlow
+          source="outreach_page"
           open
           onClose={vi.fn()}
           onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -741,6 +751,7 @@ describe('SmsFlow', () => {
 
     const FREE_GATE: OutreachGateState = {
       enabled: true,
+      resolved: true,
       requirement: 'pro',
       twoStep: true,
       membership: {
@@ -754,6 +765,7 @@ describe('SmsFlow', () => {
 
     const CLEARED_GATE: OutreachGateState = {
       enabled: true,
+      resolved: true,
       requirement: null,
       twoStep: true,
       membership: {
@@ -1046,11 +1058,13 @@ describe('SmsFlow', () => {
         tcrCompliance: TCR_FIXTURE,
         resumeDraft: draftDetail(),
       }
-      const { rerender } = render(<SmsFlow open {...props} />)
+      const { rerender } = render(
+        <SmsFlow source="outreach_page" open {...props} />,
+      )
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
-      rerender(<SmsFlow open={false} {...props} />)
-      rerender(<SmsFlow open {...props} />)
+      rerender(<SmsFlow source="outreach_page" open={false} {...props} />)
+      rerender(<SmsFlow source="outreach_page" open {...props} />)
 
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
       expect(
@@ -1062,6 +1076,7 @@ describe('SmsFlow', () => {
       gateRef.set(CLEARED_GATE)
       render(
         <SmsFlow
+          source="outreach_page"
           open
           onClose={vi.fn()}
           onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -1106,6 +1121,7 @@ describe('SmsFlow', () => {
       api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
       render(
         <SmsFlow
+          source="outreach_page"
           open
           onClose={vi.fn()}
           onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -1152,6 +1168,7 @@ describe('SmsFlow', () => {
     it('keeps the builder for an ungated elected official', async () => {
       gateRef.set({
         enabled: true,
+        resolved: true,
         requirement: null,
         twoStep: true,
         membership: {

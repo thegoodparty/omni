@@ -28,10 +28,16 @@ const person = (id: string, cellPhone: string): Person =>
     address: { city: 'Springfield', state: 'CA', zip: '90210' },
   }) as Person
 
-// resolveFilterAudience only reads `people`; the rest of PeopleListResponse
-// is irrelevant to it.
-const peoplePage = (people: Person[]) =>
-  ({ people }) as unknown as PeopleListResponse
+// resolveFilterAudience reads `people`, and `pagination.totalResults` on the
+// first page (its pre-flight cap); the rest of PeopleListResponse is
+// irrelevant to it. The count defaults to the page's own length, which is what
+// people-db would report for a single-page audience — pass it explicitly to
+// describe a filter matching more rows than this page carries.
+const peoplePage = (people: Person[], totalResults?: number) =>
+  ({
+    people,
+    pagination: { totalResults: totalResults ?? people.length },
+  }) as unknown as PeopleListResponse
 
 /** A stand-in S3 that remembers what was written, so get-or-create is real. */
 const makeS3Stub = () => {

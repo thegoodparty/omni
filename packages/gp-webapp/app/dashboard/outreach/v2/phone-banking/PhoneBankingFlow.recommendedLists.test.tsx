@@ -42,7 +42,7 @@ beforeEach(() => {
 
 describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
   const openToWho = async () => {
-    render(<PhoneBankingFlow open onClose={vi.fn()} />)
+    render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
     await userEvent.click(screen.getByText('Introduce myself to voters'))
     expect(
       await screen.findByText(/Choose a voter list|View your lists here/),
@@ -102,6 +102,7 @@ describe('PhoneBankingFlow (Win surface) — a recommendation carried in, not sa
     })
     render(
       <PhoneBankingFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         preselectedRecommendedVariant="persuadeAffinity"
@@ -156,6 +157,7 @@ describe('PhoneBankingFlow (Serve surface) — recommended lists', () => {
     })
     render(
       <PhoneBankingFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         surface={SERVE_PHONE_BANKING_SURFACE}

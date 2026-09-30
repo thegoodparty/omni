@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { Badge, Button, Checkbox, Flex, Text } from '@radix-ui/themes'
 import { HiOutlineMail } from 'react-icons/hi'
 import {
@@ -11,6 +12,7 @@ import {
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { useToast } from '@/components/Toast'
+import { describeActionFailure } from '@/shared/util/actionFailure.util'
 import {
   getCampaignComplianceState,
   listCampaigns,
@@ -120,13 +122,18 @@ function CvPinStatusContent() {
   async function handleResend() {
     setResending(true)
     try {
-      await resendCvPin(campaignId)
-      setResent(true)
-      showToast('CV PIN resent')
+      const { error } = await resendCvPin(campaignId)
+      if (error) {
+        showToast(error)
+      } else {
+        setResent(true)
+        showToast('CV PIN resent')
+      }
     } catch (error) {
-      showToast(
-        error instanceof Error ? error.message : 'Failed to resend CV PIN'
-      )
+      // A rejection here never reached gp-api (deploy skew, expired session),
+      // so this catch is the failure's only trace anywhere — report it.
+      Sentry.captureException(error)
+      showToast(describeActionFailure(error, 'Failed to resend CV PIN'))
     }
     setResending(false)
   }
@@ -143,10 +150,12 @@ function CvPinStatusContent() {
           : 'Internal testing approval removed'
       )
     } catch (error) {
+      Sentry.captureException(error)
       showToast(
-        error instanceof Error
-          ? error.message
-          : 'Failed to update internal testing approval'
+        describeActionFailure(
+          error,
+          'Failed to update internal testing approval'
+        )
       )
     }
     setSavingApproval(false)

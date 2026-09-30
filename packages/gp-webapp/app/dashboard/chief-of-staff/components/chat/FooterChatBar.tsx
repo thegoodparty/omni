@@ -1,7 +1,11 @@
 'use client'
 
 import { IconButton } from '@styleguide'
-import { MicIcon, SparklesIcon } from '@styleguide/components/ui/icons'
+import {
+  MicIcon,
+  PaperclipIcon,
+  SparklesIcon,
+} from '@styleguide/components/ui/icons'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 
@@ -17,6 +21,8 @@ interface Props {
   historyKey?: readonly unknown[]
   /** aria-label for the open button. Defaults to Chief of Staff. */
   openLabel?: string
+  /** Show the paperclip (attachments-enabled scopes only). Opens the chat. */
+  showAttachIcon?: boolean
 }
 
 /**
@@ -33,6 +39,7 @@ export default function FooterChatBar({
   chatApi,
   historyKey,
   openLabel = 'Open Chief of Staff chat',
+  showAttachIcon = false,
 }: Props): React.JSX.Element {
   const placeholder = firstName
     ? `Hi, ${firstName}, how can I help?`
@@ -55,6 +62,18 @@ export default function FooterChatBar({
             >
               {placeholder}
             </button>
+            {showAttachIcon && (
+              <IconButton
+                type="button"
+                size="small"
+                variant="ghost"
+                aria-label="Attach a file"
+                className="size-10"
+                onClick={onOpen}
+              >
+                <PaperclipIcon className="size-5" aria-hidden />
+              </IconButton>
+            )}
             <IconButton
               type="button"
               size="small"

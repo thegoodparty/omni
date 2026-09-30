@@ -433,6 +433,62 @@ export = async () => {
     ...staticQueueArns,
   ]
 
+  // The curated local-dev bundle POST /v1/dev-env/bundle vends. Dev only:
+  // preview and prod never get the id, so the endpoint stays dark there even
+  // though preview passes the IS_NON_PROD_DEPLOY gate. The ARN is built by
+  // hand rather than looked up (`-*` covers the suffix Secrets Manager adds)
+  // so the stack still deploys before the secret is created.
+  const localDevEnvSecretId = select({
+    preview: '',
+    dev: 'LOCAL_DEV_ENV',
+    prod: '',
+  })
+  const localDevEnvSecretArns =
+    localDevEnvSecretId === ''
+      ? []
+      : [
+          `arn:aws:secretsmanager:${region}:${accountId}:secret:${localDevEnvSecretId}-*`,
+        ]
+
+  // Preview stacks seed the E2E test accounts from these and the preview E2E
+  // suite signs in with them. They sit in the shared GP_API_DEV blob under
+  // E2E_ names so dev tasks, which share that blob, never receive them.
+  const e2eCredentialKeys: Record<string, string> = {
+    ADMIN_EMAIL: 'E2E_ADMIN_EMAIL',
+    ADMIN_PASSWORD: 'E2E_ADMIN_PASSWORD',
+    CANDIDATE_EMAIL: 'E2E_CANDIDATE_EMAIL',
+    CANDIDATE_PASSWORD: 'E2E_CANDIDATE_PASSWORD',
+  }
+  const e2eCredentialSecretKeys = Object.values(e2eCredentialKeys)
+  const e2eCredentialsInSecret = e2eCredentialSecretKeys.every(
+    (key) => key in secret,
+  )
+  // Keeps preview deploys working until the four keys are added to the blob.
+  if (environment === 'preview' && !e2eCredentialsInSecret) {
+    console.warn(
+      `WARNING: ${secretName} is missing ${e2eCredentialSecretKeys.join(', ')}. ` +
+        'Preview E2E credentials fall back to plain environment values from ' +
+        'the deploy runner. Add those keys to the secret to reference them ' +
+        'via valueFrom instead.',
+    )
+  }
+
+  const containerSecrets: Record<string, pulumi.Output<string>> = {
+    ...Object.fromEntries(
+      Object.keys(secret)
+        .filter((key) => !e2eCredentialSecretKeys.includes(key))
+        .map((key) => [key, pulumi.interpolate`${secretInfo.arn}:${key}::`]),
+    ),
+    ...(environment === 'preview' && e2eCredentialsInSecret
+      ? Object.fromEntries(
+          Object.entries(e2eCredentialKeys).map(([name, key]) => [
+            name,
+            pulumi.interpolate`${secretInfo.arn}:${key}::`,
+          ]),
+        )
+      : {}),
+  }
+
   const service = createService({
     dependsOn: rdsInstance ? [rdsInstance] : [],
     environment,
@@ -450,12 +506,7 @@ export = async () => {
       dev: 'arn:aws:acm:us-west-2:333022194791:certificate/227d8028-477a-4d75-999f-60587a8a11e3',
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/e1969507-2514-4585-a225-917883d8ffef',
     }),
-    secrets: Object.fromEntries(
-      Object.keys(secret).map((key) => [
-        key,
-        pulumi.interpolate`${secretInfo.arn}:${key}::`,
-      ]),
-    ),
+    secrets: containerSecrets,
     environmentVariables: {
       PORT: '80',
       HOST: '0.0.0.0',
@@ -532,6 +583,7 @@ export = async () => {
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
+      LOCAL_DEV_ENV_SECRET_ID: localDevEnvSecretId,
       DB_HOST: sharedPreviewCluster
         ? sharedPreviewCluster.endpoint
         : rdsCluster!.endpoint,
@@ -541,10 +593,15 @@ export = async () => {
       DB_NAME: sharedPreviewCluster
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
-      SECRET_NAMES: Object.keys(secret).join(','),
-      ...(environment === 'preview'
+      SECRETS_MANAGER_KEYS: [
+        ...Object.keys(containerSecrets),
+        ...(environment === 'preview' && !e2eCredentialsInSecret
+          ? Object.keys(e2eCredentialKeys)
+          : []),
+      ].join(','),
+      ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
+      ...(environment === 'preview' && !e2eCredentialsInSecret
         ? {
-            IS_PREVIEW: 'true',
             ADMIN_EMAIL: process.env.ADMIN_EMAIL,
             ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
             CANDIDATE_EMAIL: process.env.CANDIDATE_EMAIL,
@@ -643,6 +700,15 @@ export = async () => {
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
       },
+      ...(localDevEnvSecretArns.length > 0
+        ? [
+            {
+              Effect: 'Allow' as const,
+              Action: ['secretsmanager:GetSecretValue'],
+              Resource: localDevEnvSecretArns,
+            },
+          ]
+        : []),
     ],
   })
 

@@ -197,7 +197,17 @@ const LIST_MAP_RULES = `LIST MAP RULES (apply whenever you call \`show_list_map\
 - Call it right after saving a list whose answer is partly about WHERE people are: a housing segment, a neighbourhood, anything the user would want to see placed. Skip it for a list they only asked you to count.
 - Pass the id crud_saved_filters returned and the name you gave the list. Never pass an id you were not handed; there is nothing to look one up from.
 - The card speaks for itself, so do not narrate the map. Say what the segment is and why, and let the map show where.
-- The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map.`
+- The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map. That is a privacy rule about WHO, not a statement that you cannot work with a drawn area.
+
+DRAWN AREA RULES (apply whenever the holder draws on a map):
+- The card carries a Draw area button and the holder can use it. A shape they draw is saved onto THAT list and narrows it in place: same list, same id, same name, fewer people. It is not a new list, not a sub-list, and it does not need one.
+- When a shape is saved from the transcript, you are told so in the conversation. Treat that as the list having changed under you.
+- Any count you quoted before the shape was drawn is now stale. Call \`crud_saved_filters\` with action 'get' and that id for the new one; \`count_contacts\` does not know about the shape and would quote the pre-boundary size.
+- \`hasBoundary\` on a list tells you a shape exists. It never tells you where, and you cannot read the geometry. You do not need to, because the list is already the shape.
+- Never tell the holder you cannot act on an area they drew. You can: report what the list now holds.
+- You cannot draw, move, or clear a shape yourself, and you cannot create a list that already carries one. Geometry only ever goes onto a list that exists.
+- So the order never changes, including when the request is about a specific area: build and save the list from its filters FIRST, then tell them they can draw the area on its map to narrow it. Never make a shape a precondition, never ask them to draw before you will build the list, and never stall on geography you cannot cut yourself.
+- Drawing is optional. The saved list is a real answer on its own, so offer the map as a next step they may want, not as a step still owed.`
 
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
 - Use it to fetch the full detail of the anchored issue or any issue the user asks about.
@@ -214,6 +224,44 @@ const COMPOSE_HANDOFF_RULES =
   'know.\n' +
   '- The result opens a prefilled drawer for the official to review before ' +
   'anything sends. Confirm you called it and let them take it from there.'
+
+const cardRulesBlock = (toolNames: string[]): string | null => {
+  const has = (name: string): boolean => toolNames.includes(name)
+  const lines = [
+    ...(has('ask_clarify_question')
+      ? [
+          '- When the user has to pick between real options, ask with `ask_clarify_question`, one question at a time, never as a list in prose. Put the question and options only in the call.',
+        ]
+      : []),
+    '- A card speaks for itself. Say in one line why it matters and never restate what is on it.',
+    ...(has('present_constituents') && has('present_outside_contact')
+      ? [
+          "- `present_constituents` is the user's OWN people, already in their contact records, by contact id. `present_outside_contact` is someone OUTSIDE their records, found by research, to call about a problem. Never swap them.",
+        ]
+      : has('present_outside_contact')
+        ? [
+            "- `present_outside_contact` is someone OUTSIDE the user's records, found by research, to call about a problem. Never use it for the user's own constituents.",
+          ]
+        : []),
+    ...(has('present_outreach_proposal')
+      ? [
+          '- Present outreach only when it is final: the list saved and the message written.' +
+            (has('read_past_outreach')
+              ? ' Call `read_past_outreach` first so you can say what came back last time.'
+              : ''),
+        ]
+      : []),
+  ]
+  const presents = toolNames.some(
+    (name) => name.startsWith('present_') || name === 'ask_clarify_question',
+  )
+  return presents
+    ? [
+        'CARDS AND QUESTIONS (apply whenever you call `ask_clarify_question` or a `present_` tool):',
+        ...lines,
+      ].join('\n')
+    : null
+}
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   crud_priorities:
@@ -238,6 +286,15 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   compose_handoff:
     'open a prefilled compose drawer for the official to post or share ' +
     'content (review before anything sends)',
+  ask_clarify_question: 'ask the user one multiple-choice question',
+  read_past_outreach:
+    'read the office’s recent sends, with reach and reply counts',
+  present_past_outreach: 'show past sends as a card',
+  present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
+  present_constituents:
+    'show people from the user’s own contact records as a card',
+  present_outside_contact:
+    'show one person or office outside the user’s records to call, with a script',
 }
 
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
@@ -331,8 +388,7 @@ const officeContextBlock = (ctx: ChiefOfStaffContext): string =>
 const formatPriority = (p: PriorityRecord): string => {
   const title = sanitizeUntrustedContent(p.title)
   const description = optional(p.description)
-  const target = p.targetDate ? ` (target: ${optional(p.targetDate)})` : ''
-  return `- ${title}${target}: ${description}`
+  return `- ${title}: ${description}`
 }
 
 const prioritiesBlock = (priorities: PriorityRecord[]): string => {
@@ -390,6 +446,9 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
     ...(toolNames.includes('show_list_map') ? [LIST_MAP_RULES] : []),
     ...(toolNames.includes('compose_handoff') ? [COMPOSE_HANDOFF_RULES] : []),
+    ...[cardRulesBlock(toolNames)].filter(
+      (block): block is string => block !== null,
+    ),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.
     //

@@ -151,6 +151,7 @@ export class OutreachSocialService extends createPrismaBase(
           EVENTS.Outreach.CampaignScheduled,
           {
             channel: 'social',
+            medium: 'socialMedia',
             outreachId: outreach.id,
             platformCount: input.assets.length,
           },

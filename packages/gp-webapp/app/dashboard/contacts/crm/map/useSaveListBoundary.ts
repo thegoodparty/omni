@@ -26,10 +26,19 @@ export type BoundarySaveSurface = 'listDetail' | 'chat'
 // the only actionable thing in it, and three caches describe a list whose
 // membership just changed. A second copy would drift on whichever of those
 // the copier did not happen to be thinking about.
+//
+// Two callbacks because closing and saving are not the same event, and the
+// chat surface is where that matters: a boundary the holder drew has to
+// reach the conversation as a turn, and `onClose` also fires on the 409 a
+// lock race throws — announcing a save that never happened. `onSaved` runs
+// only on a write that landed.
 export const useSaveListBoundary = (
   listId: number,
   surface: BoundarySaveSurface,
-  onSaved?: () => void,
+  callbacks?: {
+    onClose?: () => void
+    onSaved?: (result: { cleared: boolean }) => void
+  },
 ) => {
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
@@ -43,9 +52,10 @@ export const useSaveListBoundary = (
       }).then((res) => res.data),
     onSuccess: async (_data, rings) => {
       const drawn = drawnRings(rings)
+      const cleared = drawn.length === 0
       trackEvent(EVENTS.ConstituentData.ListBoundarySaved, {
         listId,
-        cleared: drawn.length === 0,
+        cleared,
         // How many parts the saved boundary has, so "do holders actually
         // draw more than one" is answerable without reading geometry back.
         shapeCount: drawn.length,
@@ -65,12 +75,13 @@ export const useSaveListBoundary = (
       await queryClient.invalidateQueries({
         queryKey: listPeopleQueryKey(orgSlug, String(listId)),
       })
+      callbacks?.onSaved?.({ cleared })
       // Last, for the reason the 409 branch below does the same: closing
       // hands the holder back a card that reads its ring and its lock out
       // of these caches, so closing first shows them the boundary they just
       // replaced. The mutation stays pending across these awaits, which is
       // honest — the save is not done until what everyone reads agrees.
-      onSaved?.()
+      callbacks?.onClose?.()
     },
     onError: async (error: unknown) => {
       // Outreach stamps firstUsedForOutreachAt atomically, so a list can lock
@@ -85,7 +96,7 @@ export const useSaveListBoundary = (
         await queryClient.invalidateQueries({
           queryKey: ['custom-segments', orgSlug],
         })
-        onSaved?.()
+        callbacks?.onClose?.()
         return
       }
       // The cap refusal reaches this surface too — a saved list's boundary

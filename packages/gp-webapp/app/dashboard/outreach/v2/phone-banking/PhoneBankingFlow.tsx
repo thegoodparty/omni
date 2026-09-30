@@ -20,6 +20,12 @@ import {
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  outreachProduct,
+  type OutreachFlowSource,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import {
   OUTREACH_OPTIONS,
@@ -29,8 +35,10 @@ import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
+import { EXPLAINER_COPY } from '../gate/gateCopy'
 import { OutreachGate } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
+import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { PurposeStep } from '../PurposeStep'
 // Intro is a channel-generic v2 component that currently lives under
 // social/; reused read-only here (same precedent as RobocallPurposeStep).
@@ -254,6 +262,11 @@ interface PhoneBankingFlowProps {
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the who step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
+  // The tracker task this flow was launched from, carried onto the created
+  // list so every call logged against it joins back to the task.
+  tracker?: OutreachTrackerOrigin
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -267,12 +280,15 @@ export const PhoneBankingFlow = ({
   surface = WIN_PHONE_BANKING_SURFACE,
   preselectedListId,
   preselectedRecommendedVariant,
+  tracker,
+  source,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   // Milestone 2's in-flow gate. Phone banking saves no draft — the list is
   // the deliverable and nothing exists until create — so the gate stands in
   // front of the one write instead of behind a saved row.
   const gate = useOutreachGate('phone-bank')
+  const lockedAtOpen = useLockedAtOpen(open, gate)
   const [gateOpen, setGateOpen] = useState(false)
   // WHICH gesture opened the gate. The banner rides every step, so its
   // explainer can open the gate long before the candidate has reached the
@@ -281,6 +297,8 @@ export const PhoneBankingFlow = ({
   const [gateOrigin, setGateOrigin] = useState<'create' | 'explainer' | null>(
     null,
   )
+  // The label of the button that opened the gate, for Flow Started.
+  const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
@@ -367,12 +385,33 @@ export const PhoneBankingFlow = ({
       setSaved(true)
       setStepId('download')
       trackEvent(EVENTS.Outreach.PhoneBanking.ListCreated, {
-        product: 'phoneBanking',
+        product: outreachProduct(surface.isServe),
         // Always true now: every audience is a saved VoterFileFilter (picked
         // or just built) — even an all-voters list built with no criteria
         // (ENG-10960) persists as one. Kept for analytics-schema continuity.
         filtersApplied: true,
         listSize: response.personCount,
+      })
+      // The cross-channel sibling of the event above. Phone banking is
+      // one-to-one, so creating the list is NOT reaching anyone — completion
+      // is every entry being called. This event is what a created →
+      // contacted → completed funnel counts, and it is uniform across
+      // channels where `ListCreated`'s batch-sizing fields are not.
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
+        ...outreachEventProps({
+          channel: 'phoneBanking',
+          isServe: surface.isServe,
+          campaignName: name.trim(),
+          recipientCount: response.personCount,
+          ...(response.outreachId != null
+            ? { outreachCampaignId: response.outreachId }
+            : {}),
+          listId: response.id,
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+        }),
       })
       if (response.outreachId != null) {
         onSaved?.(response.outreachId, response.name)
@@ -409,6 +448,7 @@ export const PhoneBankingFlow = ({
     setCreateResponse(null)
     setGateOpen(false)
     setGateOrigin(null)
+    setGateCta(undefined)
     setExplainerOpen(false)
     resetDraftMutation()
     resetCreateMutation()
@@ -719,6 +759,7 @@ export const PhoneBankingFlow = ({
 
   const openGateFromExplainer = (): void => {
     setGateOrigin('explainer')
+    setGateCta(EXPLAINER_COPY.ctaJoin)
     setGateOpen(true)
   }
 
@@ -790,6 +831,7 @@ export const PhoneBankingFlow = ({
                     label: 'Continue',
                     onClick: () => {
                       setGateOrigin('create')
+                      setGateCta('Continue')
                       setGateOpen(true)
                     },
                   }
@@ -821,6 +863,11 @@ export const PhoneBankingFlow = ({
           />
         ) : undefined
       }
+      channel="phone-bank"
+      source={source}
+      locked={lockedAtOpen}
+      trackedStep={gateOpen || saved ? null : stepId}
+      settled={saved}
       dirty={dirty}
     >
       <GateExplainerModal
@@ -838,6 +885,9 @@ export const PhoneBankingFlow = ({
           state={gate}
           open
           showInterstitial={false}
+          source={source}
+          cta={gateCta}
+          tracker={tracker}
           onExit={() => {
             setGateOpen(false)
             setGateOrigin(null)
@@ -886,6 +936,14 @@ export const PhoneBankingFlow = ({
             listsLoading={audience.listsLoading}
             selectedId={audience.selectedListId}
             onSelect={audience.onSelect}
+            universeName={audience.universeName}
+            universeListId={audience.universeListId}
+            universeCount={audience.universeCount}
+            universeLoading={audience.universeLoading}
+            onSelectUniverse={audience.selectUniverse}
+            universePending={audience.universePending}
+            universeError={audience.universeError}
+            onPickerOpenChange={audience.onPickerOpenChange}
             onStartBuilder={audience.startBuilder}
             recommendations={audience.recommendations}
             recommendationsLoading={audience.recommendationsLoading}
@@ -967,7 +1025,11 @@ export const PhoneBankingFlow = ({
           reachableCount={audience.reachableCount}
         />
       ) : saved && createResponse ? (
-        <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
+        <DownloadStep
+          response={createResponse}
+          audienceLabel={audienceLabel}
+          isServe={surface.isServe}
+        />
       ) : stepId === 'download' ? (
         // The gated preview: what the list will be, priced off the picked
         // audience, with nothing written yet.
@@ -980,8 +1042,10 @@ export const PhoneBankingFlow = ({
             sheetCount,
           }}
           audienceLabel={audienceLabel}
-          onDownloadGated={() => {
+          isServe={surface.isServe}
+          onDownloadGated={(cta) => {
             setGateOrigin('create')
+            setGateCta(cta)
             setGateOpen(true)
           }}
         />

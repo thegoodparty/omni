@@ -15,6 +15,7 @@ import PersonalizeStoryCard from './PersonalizeStoryCard'
 import StoryReadyCard from './StoryReadyCard'
 import {
   composeOutreachHref,
+  parseTrackerOrigin,
   type ComposeFlowType,
 } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import CountModal from '../components/tasks/CountModal'
@@ -45,15 +46,24 @@ const composeFlowType = (task: {
 // Compose (text/robocall) tasks link into the outreach hub, which opens the
 // channel's flow behind its own gate.
 const taskHref = (task: {
+  id: string
   link: string | null
   flowType: string | null
   date: string | null
+  phase: string | null
 }): string | undefined => {
   const own = taskLink(task)
   if (own) return own
   const composeType = composeFlowType(task)
   return composeType
-    ? composeOutreachHref(composeType, 'campaign_manager', task.date)
+    ? composeOutreachHref(
+        composeType,
+        'campaign_manager',
+        task.date,
+        // The same tracker task the campaign plan links, so an arrival from
+        // either surface joins its outreach and Pro upgrade events to it.
+        parseTrackerOrigin(task.id, task.phase),
+      )
     : TRACKER_HREF
 }
 

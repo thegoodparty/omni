@@ -58,6 +58,7 @@ const baseProps = {
   },
   onStepChange: vi.fn(),
   onClose: vi.fn(),
+  source: 'outreach_page' as const,
   districtBounds: null as [[number, number], [number, number]] | null,
   districtHouseholds: 1500,
   savedLists: [],
@@ -493,6 +494,7 @@ describe('CreateListFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'introNeverIded',
       channel: 'doorKnocking',
+      medium: 'doorKnocking',
       intent: 'introduce',
       count: 4200,
       voteGoalShare: 0.28,
@@ -576,6 +578,7 @@ describe('CreateListFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeAffinity',
       channel: 'doorKnocking',
+      medium: 'doorKnocking',
       intent: 'persuade',
       count: 4200,
       voteGoalShare: 0.28,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
@@ -220,6 +221,8 @@ export interface CreateListSurfaceProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
   // The pack's bounding box, threaded to the draw step's static-map
   // preview card. Null while the pack decodes; the preview omits the image
   // in that window rather than rendering against no rect.
@@ -268,7 +271,13 @@ export interface CreateListSurfaceProps {
   onRestartDrawing: () => void
   // The drawn shape's stops as [lng, lat], for the route step's walk-vs-drive
   // suggestion. From the pack, which is the orchestrator's.
-  onStartKnocking: (turf: DoorKnockingTurf) => void
+  // The anchor rides along so the page can send the walk's exit to this
+  // campaign's details drawer rather than back to a success screen that is
+  // a one-time confirmation.
+  onStartKnocking: (
+    turf: DoorKnockingTurf,
+    anchorOutreachId: number | null,
+  ) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.
@@ -286,7 +295,6 @@ export interface CreateListSurfaceProps {
   precinctOptions: PrecinctOptionsResult
   // Draft selections the pack can't shade, computed by the orchestrator
   // because it owns the pack's manifest for the map's sake.
-  unpreviewableKeys: string[]
   // The organization the recommendations are asked for, threaded down purely
   // as a cache-key segment.
   orgSlug: string | undefined
@@ -337,6 +345,7 @@ export default function CreateListSurface({
   onFiltersChange,
   onStepChange,
   onClose,
+  source,
   districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
@@ -353,7 +362,6 @@ export default function CreateListSurface({
   onPrecinctsChange,
   onEffectivePrecinctsChange,
   precinctOptions,
-  unpreviewableKeys,
   orgSlug,
   preselectedListId,
   onPreselectApplied,
@@ -531,6 +539,7 @@ export default function CreateListSurface({
         onStepChange(next)
       }}
       onClose={onClose}
+      source={source}
       districtBounds={districtBounds}
       districtHouseholds={districtHouseholds}
       districtHouseholdsPending={districtHouseholdsPending}
@@ -559,7 +568,6 @@ export default function CreateListSurface({
       onRestartDrawing={onRestartDrawing}
       onStartKnocking={onStartKnocking}
       isServeOrg={isServeOrg}
-      unpreviewableKeys={unpreviewableKeys}
       orgSlug={orgSlug}
       preselectedListId={preselectedListId}
       onPreselectApplied={onPreselectApplied}

@@ -265,6 +265,9 @@ export class GeneralChatsController {
               kind: s.kind,
               text: s.text,
               toolName: s.toolName,
+              // A card derives its identity from this id, so a reload has to
+              // hand back the same value the live stream carried.
+              ...(s.toolCallId != null && { toolCallId: s.toolCallId }),
               ...(s.payload != null && { payload: s.payload }),
             })),
           }),

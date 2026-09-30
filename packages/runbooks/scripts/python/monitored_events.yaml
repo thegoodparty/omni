@@ -111,6 +111,8 @@ events:
   - {event: "Onboarding V2 - Signup Goal Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Voter Outreach - Campaign Approved", product: win, family: win_voter_outreach, floor: null, owner: TBD}
   - {event: "Voter Outreach - Recommended List Accepted", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  # ---- Promoted from the proposal queue, /triage-instrumentation-gaps 2026-09-29 ----
+  - {event: "Onboarding V2 - Manual Office Viewed", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Voter Outreach - Phone Banking Call Sheet Downloaded", product: win, family: win_voter_outreach, floor: null, owner: TBD}
   - {event: "Voter Data - Contact Status Changed", product: win, family: win_voter_data, floor: null, owner: TBD}
   - {event: "Voter Data - Note Added", product: win, family: win_voter_data, floor: null, owner: TBD}

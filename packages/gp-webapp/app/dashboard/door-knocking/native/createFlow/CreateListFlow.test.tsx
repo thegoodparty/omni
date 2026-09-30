@@ -14,6 +14,17 @@ import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutrea
 import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
 
+// The success screen's turf cards carry the assignee menu, which reads the
+// viewer's organization; these tests render without an OrganizationProvider,
+// whose absence throws.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => undefined,
+  useOrganizationRole: () => undefined,
+}))
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
+}))
+
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
@@ -55,6 +66,7 @@ vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
 
 const FREE_GATE: OutreachGateState = {
   enabled: true,
+  resolved: true,
   requirement: 'pro',
   twoStep: false,
   membership: {
@@ -68,6 +80,7 @@ const FREE_GATE: OutreachGateState = {
 
 const PRO_GATE: OutreachGateState = {
   enabled: true,
+  resolved: true,
   requirement: null,
   twoStep: false,
   membership: {
@@ -122,6 +135,7 @@ const baseProps = {
   },
   onStepChange: vi.fn(),
   onClose: vi.fn(),
+  source: 'outreach_page' as const,
   districtBounds: null as [[number, number], [number, number]] | null,
   districtHouseholds: 1500,
   districtHouseholdsPending: false,
@@ -141,7 +155,6 @@ const baseProps = {
   drawnStops: null,
   onStartKnocking: vi.fn(),
   isServeOrg: false,
-  unpreviewableKeys: [],
   orgSlug: 'campaign-9',
   addressPreview: null,
   previewPending: false,
@@ -390,6 +403,7 @@ describe('CreateListFlow', () => {
     // it: nothing here chooses one any more, and a default reported as a
     // choice is worse than a silence.
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
+      product: 'win',
       stops: 14,
       people: 22,
       filterCount: 1,
@@ -1265,67 +1279,6 @@ describe('CreateListFlow steps', () => {
     expect(screen.getByRole('option', { name: 'All contacts' })).toBeTruthy()
   })
 
-  // The reported defect, at the step it was reported from. A persuasion list
-  // is narrowed by support status, and the pack has no plane for it — so
-  // starting from a 256-person list put the whole district in the Continue
-  // button and said nothing about why. The count itself cannot be fixed here
-  // (the map genuinely cannot shade that clause), so the step has to say so:
-  // an undisclosed superset is what made this read as the list being ignored.
-  it('discloses, on the who step, a picked list’s unshadeable clauses', async () => {
-    const { rerender } = await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      unpreviewableKeys: [],
-    })
-    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
-
-    // Pick the row for real rather than posting the lifted draft in as props:
-    // the sentence names the picked list, so a test that never picks one is
-    // asserting wording the flow cannot actually reach.
-    await pickList(/Precinct 2 homeowners/)
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="filters"
-        savedLists={savedLists}
-        districtHouseholds={12_000}
-        filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
-      />,
-    )
-
-    // The CTA's count is still the whole district here, which is the thing the
-    // sentence below discloses.
-    expect(
-      screen.getByRole('button', { name: 'Continue (12,000)' }),
-    ).toBeEnabled()
-    expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
-      'The map can’t yet shade by Support status, so these counts include ' +
-        'people that filter will exclude. Your saved list still applies it ' +
-        'when you knock.',
-    )
-  })
-
-  // The same sentence, one step earlier in the decision: a candidate who
-  // builds a list from scratch and picks 65+ has an unshadeable selection and
-  // no list to attribute it to. Citing "your saved list" there describes
-  // something that does not exist; dropping the promise instead would end the
-  // sentence on "that filter will exclude", which reads as the filter being
-  // ignored. Both halves are checked because fixing either one alone is a
-  // regression in the other.
-  it('does not cite a saved list on the who step when none is picked', async () => {
-    await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      filters: { age65Plus: true },
-      unpreviewableKeys: ['age65Plus'],
-    })
-
-    const disclosure = screen.getByText(/The map can’t yet shade by/)
-    expect(disclosure).toHaveTextContent('Your list still applies it when you')
-    expect(disclosure).not.toHaveTextContent('saved list')
-  })
-
   // Derek's dead end, as reported: a list cut by support status shades as the
   // whole district, so every count on the way to the boundary looked healthy
   // and the create refused at the end — with a message about widening the
@@ -1348,7 +1301,6 @@ describe('CreateListFlow steps', () => {
         savedLists={savedLists}
         districtHouseholds={12_000}
         filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
         audienceEmpty
       />,
     )
@@ -1359,22 +1311,6 @@ describe('CreateListFlow steps', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'No contacts match this list’s support status filters',
     )
-  })
-
-  // Two sentences about the same gap, one hedging the count and one saying the
-  // count is moot, read as the step arguing with itself. The stronger claim
-  // wins: there is no point explaining that a number is too big once it is
-  // established that the right number is zero.
-  it('drops the shading disclosure once the audience is proven empty', async () => {
-    await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      filters: { supportStatus: true },
-      unpreviewableKeys: ['supportStatus'],
-      audienceEmpty: true,
-    })
-
-    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
   })
 
   // The same sentence from the pill-builder face, which has no list to cite.
@@ -1407,7 +1343,6 @@ describe('CreateListFlow steps', () => {
         savedLists={savedLists}
         districtHouseholds={12_000}
         filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
         audienceEmpty={false}
       />,
     )
@@ -2367,5 +2302,56 @@ describe('CreateListFlow multi-turf save', () => {
     // Both are siblings, and neither renames the campaign they are joining
     // — the server reads the anchor's own name over anything on the wire.
     expect(turfs.map((body) => body.campaignOutreachId)).toEqual([555, 555])
+  })
+
+  // Closing a walk started here reopens the campaign's details drawer, and
+  // that drawer is keyed on the anchor. Handing over a sibling's own envelope
+  // would open a drawer for a campaign of one, or none.
+  it('starts a walk carrying the anchor, whichever turf is pressed', async () => {
+    mockBatch()
+    const props = { ...twoTurfs }
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
+
+    await screen.findByText('Turf 2')
+    const starts = screen.getAllByRole('button', { name: 'Start knocking' })
+    expect(starts).toHaveLength(2)
+    fireEvent.click(starts[1]!)
+
+    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Turf 2', outreachId: 902 }),
+      901,
+    )
+  })
+
+  it('starts a walk carrying the campaign it joined', async () => {
+    mockBatch()
+    const props = { ...twoTurfs, campaignOutreachId: 555 }
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
+
+    await screen.findByText('Turf 1')
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Start knocking' })[0]!,
+    )
+
+    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Turf 1', outreachId: 901 }),
+      555,
+    )
   })
 })

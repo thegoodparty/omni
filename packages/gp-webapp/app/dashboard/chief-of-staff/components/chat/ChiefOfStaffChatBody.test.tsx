@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS } from 'helpers/analyticsHelper'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
@@ -707,6 +707,127 @@ describe('<ChiefOfStaffChatBody>', () => {
     )
     // The kickoff message is hidden, no user bubble for it in the transcript.
     expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
+  })
+
+  // The contacts assistant bar takes the user's first message before this
+  // surface is open, so it arrives as a prop rather than through the composer.
+  it('sends a pendingMessage as a VISIBLE first turn', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_p' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Here is your list.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'young supporters'),
+      msg('assistant', 'Here is your list.', { id: 'a1' }),
+    ])
+
+    render(<ChiefOfStaffChatBody active pendingMessage="young supporters" />)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: 'young supporters' }),
+      ),
+    )
+    // Unlike a kickoff, the user's own request stays on screen.
+    await waitFor(() =>
+      expect(screen.getByText('young supporters')).toBeInTheDocument(),
+    )
+  })
+
+  it('does not re-send the pendingMessage on a re-render that keeps it set', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_p' })
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'a1' }]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    const { rerender } = render(
+      <ChiefOfStaffChatBody active pendingMessage="young supporters" />,
+    )
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+    rerender(<ChiefOfStaffChatBody active pendingMessage="young supporters" />)
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+  })
+
+  it('reports every visible send through onMessageSent, and no hidden one', async () => {
+    const onMessageSent = vi.fn()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_m' })
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'a1' }]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingMessage="young supporters"
+        onMessageSent={onMessageSent}
+      />,
+    )
+
+    await waitFor(() => expect(onMessageSent).toHaveBeenCalledTimes(1))
+  })
+
+  // The funnel event has to mean "delivered", not "attempted": the callback
+  // exists to measure open-to-send, so a send that never reached a
+  // conversation must not inflate it.
+  it('does not report a send whose conversation create failed', async () => {
+    const onMessageSent = vi.fn()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockRejectedValue(new Error('network down'))
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingMessage="young supporters"
+        onMessageSent={onMessageSent}
+      />,
+    )
+
+    // The create is attempted and fails, so the turn never streams.
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(
+        screen.getByText('Could not start chat. Try again.'),
+      ).toBeInTheDocument(),
+    )
+    expect(streamMessageMock).not.toHaveBeenCalled()
+    expect(onMessageSent).not.toHaveBeenCalled()
+  })
+
+  it('does not report a hidden kickoff through onMessageSent', async () => {
+    const onMessageSent = vi.fn()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_h' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Canned kickoff reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingKickoff="__kickoff__"
+        onMessageSent={onMessageSent}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '__kickoff__' }),
+      ),
+    )
+    expect(onMessageSent).not.toHaveBeenCalled()
   })
 
   it('fires the kickoff into an override conversation without minting a new one', async () => {
@@ -1448,6 +1569,163 @@ describe('<ChiefOfStaffChatBody>', () => {
       ).toHaveLength(0)
     })
 
+    // The whole point of the drawer being here. The write goes browser ->
+    // API and touches nothing the model can see, so before this the
+    // transcript gained no turn and the next question was answered against
+    // the list as it stood before the shape — the assistant telling holders
+    // it could not read an area they had just drawn.
+    it('sends a hidden turn naming the list when a boundary saves', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      // A ring already on the row, around the mocked people, so Save is live
+      // the moment the overlay mounts: the drawing gesture itself needs a
+      // real canvas, and what this pins is what happens after the write.
+      mockSavedList({
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-86, 44],
+              [-85, 44],
+              [-85, 45],
+              [-86, 45],
+              [-86, 44],
+            ],
+          ],
+        },
+      })
+      api.mock('PUT /v1/voters/voter-file/filter/:id', {
+        status: 200,
+        data: { id: LIST.listId } as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          { type: 'text', delta: 'That leaves 412 constituents.' },
+          { type: 'done', assistantMessageId: 'a_after' },
+        ]),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_map',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_saved" />)
+
+      await user.click(
+        await screen.findByRole('button', { name: /edit area/i }),
+      )
+      await user.click(
+        await within(await screen.findByTestId('boundary-overlay')).findByRole(
+          'button',
+          { name: /^save$/i },
+        ),
+      )
+
+      // Named and id'd, because `crud_saved_filters` get takes an id and
+      // that is where the post-boundary count comes from.
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: `I drew an area on the map and saved it to my list "${LIST.name}" (list ${LIST.listId}). Where does that leave the list?`,
+          }),
+        ),
+      )
+      // Hidden: the holder drew, they did not type.
+      expect(screen.queryByText(/I drew an area on the map/)).toBeNull()
+      await screen.findByText('That leaves 412 constituents.')
+    })
+
+    // The drawer is mounted by the body so it survives a turn committing
+    // (see the test below), which means a save can land mid-stream — and
+    // `deliver` refuses a send with one in flight. Dropped there, the model
+    // never learns the shape exists and answers the pre-boundary list back.
+    it('holds the boundary turn until an in-flight stream finishes', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList({
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-86, 44],
+              [-85, 44],
+              [-85, 45],
+              [-86, 45],
+              [-86, 44],
+            ],
+          ],
+        },
+      })
+      api.mock('PUT /v1/voters/voter-file/filter/:id', {
+        status: 200,
+        data: { id: LIST.listId } as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_mid' })
+      let endTurn: () => void
+      const turnEnded = new Promise<void>((resolve) => {
+        endTurn = resolve
+      })
+      streamMessageMock.mockReturnValueOnce(
+        (async function* () {
+          yield { type: 'tool_call', toolName: 'show_list_map', args: LIST }
+          await turnEnded
+          yield { type: 'done', assistantMessageId: 'a_mid' }
+        })(),
+      )
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          { type: 'text', delta: 'That leaves 412 constituents.' },
+          { type: 'done', assistantMessageId: 'a_after' },
+        ]),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_mid',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active />)
+      await user.type(screen.getByLabelText(/ask a question/i), 'map it')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      // Draw and save while the first turn is still streaming.
+      await user.click(
+        await screen.findByRole('button', { name: /edit area/i }),
+      )
+      await user.click(
+        await within(await screen.findByTestId('boundary-overlay')).findByRole(
+          'button',
+          { name: /^save$/i },
+        ),
+      )
+
+      // Nothing sent yet: the stream still holds the send path.
+      expect(streamMessageMock).toHaveBeenCalledTimes(1)
+
+      endTurn!()
+
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: expect.stringContaining('I drew an area on the map'),
+          }),
+        ),
+      )
+    })
+
     // An absent row reads as unlocked, so gating on the lock alone showed
     // the button while the list was still in flight — and the overlay seeds
     // its ring into useState once, at mount. Opened in that window it came
@@ -1739,5 +2017,296 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
       EVENTS.ChiefOfStaff.UploadGuardShown,
       {},
     )
+  })
+})
+
+// Ported from the deleted AssistantDrawer.test.tsx: the contacts assistant used
+// to own this invalidation, and it moved here with the surface consolidation
+// because the agent can cut a list from any surface that mounts this body.
+describe('<ChiefOfStaffChatBody> saved-list invalidation', () => {
+  const streamSavedFilters = (): void => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_sf' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        {
+          type: 'tool_call',
+          toolName: 'crud_saved_filters',
+          args: { action: 'create' },
+        },
+        {
+          type: 'tool_result',
+          toolName: 'crud_saved_filters',
+          result: { id: 5 },
+        },
+        { type: 'text', delta: 'Saved your list.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([])
+  }
+
+  // `testQueryClient` is a shared singleton, and `vi.spyOn` on an
+  // already-spied method hands back the SAME mock with its accumulated call
+  // history. Both directions need the clear, not just the negative one: an
+  // uncleared positive assertion can be satisfied by a prior test's calls
+  // instead of its own render, which passes for the wrong reason and would
+  // keep passing if this behavior broke.
+  const spyOnInvalidate = () =>
+    vi.spyOn(testQueryClient, 'invalidateQueries').mockClear()
+
+  it('drops the contacts queries when a saved-filter call finishes', async () => {
+    const invalidate = spyOnInvalidate()
+    streamSavedFilters()
+
+    render(<ChiefOfStaffChatBody active pendingMessage="save that list" />)
+
+    // The lists index.
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ['custom-segments', 'eo-test-org'],
+      }),
+    )
+    // The per-list detail sheet.
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['list-detail', 'eo-test-org'],
+    })
+    // The members, not just the summary: the agent can rewrite a list's
+    // filters, and the map in this very transcript draws who is in it.
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['list-people', 'eo-test-org'],
+    })
+  })
+
+  it('leaves them alone for an unrelated tool', async () => {
+    const invalidate = spyOnInvalidate()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_sf' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'tool_call', toolName: 'count_contacts', args: {} },
+        {
+          type: 'tool_result',
+          toolName: 'count_contacts',
+          result: { count: 3 },
+        },
+        { type: 'text', delta: 'About 3.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(<ChiefOfStaffChatBody active pendingMessage="how many?" />)
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(screen.getByText('About 3.')).toBeInTheDocument(),
+    )
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ['custom-segments', 'eo-test-org'],
+    })
+  })
+})
+describe('<ChiefOfStaffChatBody> widgets', () => {
+  const CONTACT = {
+    name: "Dale County Attorney's Office",
+    role: 'County attorney',
+    why: 'They own the nuisance ordinance the complaints fall under.',
+    askFor: 'The code enforcement division',
+    script: 'Calling about 14 Mill St.',
+  }
+  const QUESTION = {
+    questionId: 'q1',
+    question: 'Which blocks do you want repaired first?',
+    options: [{ label: 'The two by the school' }, { label: 'Main Street' }],
+  }
+  const HANDOFF = {
+    channel: 'serve_social' as const,
+    draftText: 'The bridge reopens Monday.',
+  }
+
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+  })
+
+  it('replays a card from its persisted tool call, with no pill for it', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Start here.', {
+        segments: [
+          { kind: 'text', text: 'Start here.' },
+          {
+            kind: 'tool',
+            toolName: 'present_outside_contact',
+            toolCallId: 'tc1',
+            payload: CONTACT,
+          },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(await screen.findByText(CONTACT.name)).toBeInTheDocument()
+    expect(screen.getByText('Start here.')).toBeInTheDocument()
+    expect(
+      screen.queryByText('present_outside_contact'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders a card from the live tool call, and once after the commit', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({ conversationId: 'conv_live' })
+    let endTurn: () => void
+    const turnEnded = new Promise<void>((resolve) => {
+      endTurn = resolve
+    })
+    streamMessageMock.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'tool_call',
+          toolName: 'present_outside_contact',
+          toolCallId: 'tc1',
+          args: CONTACT,
+        }
+        await turnEnded
+        yield { type: 'text', delta: 'Call them first.' }
+        yield { type: 'done' }
+      })(),
+    )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'who do I call?'),
+      msg('assistant', 'Call them first.', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'present_outside_contact',
+            toolCallId: 'tc1',
+            payload: CONTACT,
+          },
+          { kind: 'text', text: 'Call them first.' },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active />)
+    await user.type(screen.getByLabelText(/ask a question/i), 'who do I call?')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    expect(await screen.findByText(CONTACT.name)).toBeInTheDocument()
+    expect(
+      screen.queryByText('present_outside_contact'),
+    ).not.toBeInTheDocument()
+
+    endTurn!()
+
+    // Re-query on every attempt. When the turn commits, the streaming row is
+    // rebuilt under its history key, so a node found a moment earlier can be
+    // detached by the time it is asserted on — which is what made this flaky.
+    // What matters is the settled state: the text and the card, once each.
+    await waitFor(
+      () => {
+        expect(screen.getAllByText('Call them first.')).toHaveLength(1)
+        expect(screen.getAllByText(CONTACT.name)).toHaveLength(1)
+      },
+      { timeout: 5000 },
+    )
+  })
+
+  it('keeps an unparsed read_past_outreach as a labelled pill', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Nothing yet.', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'read_past_outreach',
+            payload: { channel: 'text' },
+          },
+          { kind: 'text', text: 'Nothing yet.' },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(
+      await screen.findByText("Checking what you've sent"),
+    ).toBeInTheDocument()
+  })
+
+  it('renders compose_handoff as its card and never as a pill', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Here is a draft.', {
+        segments: [
+          { kind: 'text', text: 'Here is a draft.' },
+          { kind: 'tool', toolName: 'compose_handoff', payload: HANDOFF },
+          {
+            kind: 'tool',
+            toolName: 'compose_handoff',
+            payload: { channel: 'unknown', draftText: 'x' },
+          },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Continue in compose' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('button', { name: 'Continue in compose' }),
+    ).toHaveLength(1)
+    expect(screen.queryByText('compose_handoff')).not.toBeInTheDocument()
+  })
+
+  it('reloads an answered question with its answer checked', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', '', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            payload: QUESTION,
+          },
+        ],
+      }),
+      msg('user', 'The two by the school'),
+      msg('assistant', 'Got it.'),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const choice = await screen.findByRole('radio', {
+      name: 'The two by the school',
+    })
+    expect(choice).toBeChecked()
+    expect(choice).toBeDisabled()
+    expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
+  })
+
+  it('sends an option on the open question as a visible turn', async () => {
+    const user = userEvent.setup()
+    streamMessageMock.mockReturnValue(makeStream([{ type: 'done' }]))
+    listMessagesMock.mockResolvedValueOnce([
+      msg('assistant', '', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            payload: QUESTION,
+          },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    await user.click(await screen.findByRole('radio', { name: 'Main Street' }))
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalled())
+    expect(streamMessageMock.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: 'conv',
+      content: 'Main Street',
+    })
   })
 })

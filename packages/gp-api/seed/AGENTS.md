@@ -24,7 +24,7 @@ Entry point is `seed/seed.ts`. `npm run migrate:reset` invokes it after wiping t
 | `factories/`            | Per-model factories (`campaign.factory.ts`, `user.factory.ts`, etc.)           |
 | `factories/generate.ts` | Faker wrapper / per-factory shared helpers                                     |
 | `data/`                 | CSV reference data (MTFCC, election types, geo entities)                       |
-| `util/`                 | Helpers (e.g. `seedEcanvasserDemoAccount.util.ts`)                             |
+| `util/`                 | Helpers (e.g. `resyncSequences.util.ts`, `csv.util.ts`)                        |
 
 ## Patterns
 

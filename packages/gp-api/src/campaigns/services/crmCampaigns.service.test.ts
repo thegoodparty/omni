@@ -20,7 +20,6 @@ describe('CrmCampaignsService.trackCampaign', () => {
       {} as never,
       {} as never,
       { errorMessage } as unknown as SlackService,
-      {} as never,
       createMockLogger(),
     )
 
@@ -87,7 +86,6 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
       { count: vi.fn().mockResolvedValue(0) } as never,
       { canDownload: vi.fn().mockReturnValue(false) } as never,
       { errorMessage: vi.fn() } as unknown as SlackService,
-      { findByCampaignId: vi.fn().mockResolvedValue(null) } as never,
       createMockLogger(),
     )
 
@@ -199,7 +197,6 @@ describe('CrmCampaignsService association labels (ENG-11031)', () => {
       {} as never,
       {} as never,
       {} as unknown as SlackService,
-      {} as never,
       logger,
     )
 
@@ -310,7 +307,6 @@ describe('CrmCampaignsService.trackCampaign test-user guard', () => {
       {} as never,
       {} as never,
       { errorMessage } as unknown as SlackService,
-      {} as never,
       createMockLogger(),
     )
 

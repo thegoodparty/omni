@@ -401,7 +401,7 @@ export const OutreachDetailsDrawer = ({
   // now, so the guard is gone and a solo campaign takes the same path — a
   // campaign of one is still a campaign, and one code path is what keeps the
   // two from drifting.
-  const campaignLifecycle = useCampaignLifecycle(anchorOutreachId)
+  const campaignLifecycle = useCampaignLifecycle(anchorOutreachId, isServe)
   // The CAMPAIGN's shelf, not the anchor turf's. `collapseDoorKnockingCampaigns`
   // says a campaign is archived only once every turf is, so reading the
   // anchor's own flag here would contradict the history row two inches away:
@@ -1040,11 +1040,10 @@ export const OutreachDetailsDrawer = ({
               </p>
             )}
 
-            {/* Manager assign/unassign for a self-run list (ENG-11056),
-                flag-gated inside the section itself so this renders nothing
-                extra when win-team-accounts is off. Volunteers never open
-                this drawer (their whole surface is /volunteer's own
-                assignments page), so there's no second gate for them.
+            {/* Manager assign/unassign for a self-run list (ENG-11056).
+                Volunteers never open this drawer (their whole surface is
+                /volunteer's own assignments page), so there's no second gate
+                for them.
                 Serve is excluded outright: team accounts are a Win feature
                 (the roles are campaign roles), so an elected official is
                 offered no assignment rather than one labelled in Win's
@@ -1227,71 +1226,24 @@ export const OutreachDetailsDrawer = ({
                 to this campaign. Rendered for every door-knocking row rather
                 than only for `turfCount > 1`, so the add-turf path is
                 reachable from a solo campaign — otherwise a candidate with
-                one turf can never grow it, chicken-and-egg. On a solo
-                campaign the section reads as one row, which duplicates some
-                of what the Progress card below shows; the two-row overlap
-                is the price of keeping the affordance reachable. */}
+                one turf can never grow it, chicken-and-egg.
+
+                **This is the only place a door-knocking campaign's progress
+                is drawn.** There was a drawer-level Progress card below,
+                shown only on a solo campaign because its figures are the
+                ANCHOR turf's and would misreport a multi-turf one. Now that
+                every turf card carries its own bar, that card was the same
+                numbers a second time on the one campaign shape it appeared
+                for. A campaign-wide rollup would need a real total rather
+                than the anchor's, and nothing computes one yet. */}
             {isDoorKnocking && row && (
               <CampaignTurfList
+                isServe={isServe}
                 anchorOutreachId={anchorOutreachId}
                 outreachId={row.id}
                 onOverlayOpenChange={setTurfOverlay}
                 onTurfCompleted={handleTurfCompleted}
               />
-            )}
-
-            {isDoorKnocking && doorKnocking && (row?.turfCount ?? 1) === 1 && (
-              // Solo-campaign only, same argument as the Overview cells
-              // above: `doorKnocking.loggedCount` / `peopleCount` are the
-              // ANCHOR turf's, so on a multi-turf campaign this bar would
-              // report one turf's progress as if it were the whole
-              // campaign's. Per-turf progress lives on the sibling section;
-              // the drawer-level aggregate is hidden until a rollup exists.
-              <DetailsSection title="Progress">
-                <Card className="gap-3 rounded-lg p-3">
-                  <div className="flex items-center justify-between">
-                    {/* "Logged" and never "reached", the same word the walk
-                        and the list's own drawer use: not-home, inaccessible
-                        and refused all count here and none is a conversation.
-                        Both halves are the knockable people — the flagged
-                        residents are out of both — so the ratio never mixes
-                        two populations. */}
-                    <span className="text-sm text-muted-foreground">
-                      {doorKnocking.loggedCount.toLocaleString()} of{' '}
-                      {doorKnocking.peopleCount.toLocaleString()} people logged
-                    </span>
-                    <span className="text-sm font-medium text-foreground">
-                      {percentLabel(
-                        doorKnocking.loggedCount,
-                        doorKnocking.peopleCount,
-                      )}
-                    </span>
-                  </div>
-                  <Progress
-                    value={
-                      doorKnocking.peopleCount > 0
-                        ? (doorKnocking.loggedCount /
-                            doorKnocking.peopleCount) *
-                          100
-                        : 0
-                    }
-                  />
-                  <MetricGrid>
-                    <Metric
-                      icon={<CheckCircleIcon />}
-                      label="Logged"
-                      value={doorKnocking.loggedCount.toLocaleString()}
-                    />
-                    <Metric
-                      icon={<ClockIcon />}
-                      label="Remaining"
-                      value={(
-                        doorKnocking.peopleCount - doorKnocking.loggedCount
-                      ).toLocaleString()}
-                    />
-                  </MetricGrid>
-                </Card>
-              </DetailsSection>
             )}
 
             {isPhoneBanking && phoneBanking && !isCompleted && (

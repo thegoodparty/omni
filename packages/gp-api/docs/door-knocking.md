@@ -148,7 +148,7 @@ follow the `ContactInteraction*` convention (`occurredAt`, idempotency
 unique, feed branch) rather than the shape this doc previously sketched.
 
 Shared-table touches: `OutreachType.nativeDoorKnocking` (new value — legacy
-`doorKnocking` rows are the old CSV/eCanvasser drafts, 1,076 eternally
+`doorKnocking` rows are the old CSV-import drafts, 1,076 eternally
 `pending` in prod; never mix them) and two nullable unique pointers on
 `Outreach` — the per-channel pointer idiom, like `phoneListId`.
 `doorKnockingTurfId` is the authoritative one and the one the `CHECK`
@@ -937,6 +937,8 @@ server excludes, and the candidate drew over dots that really are there.
 One user hit this six times in 62 seconds — redrawing the boundary, which
 is what the message asks for and what cannot help.
 
+**The knock-time exclusions are fixed too**, and without a format bump: do-not-knock (ADR 0007) and not-a-voter (ADR 0008) ride in as `excludedPersonIds` on the pack request and become the `knockable` plane, a third per-organization dim beside `canvassStatus` and `contactsMade`. It is a MASK and not a filter — `runFilter` and `polygonStats` drop byte-0 people unconditionally, nothing selects it, and it needs no filter-catalog entry, which is the review ADR 0007 deferred. Absent means do not suppress: a plane of yeses would claim every door is open, which is the wrong way to be wrong about somebody who asked not to be knocked.
+
 **Precinct is fixed** (format revision 6): the pack carries a `precinct`
 dim keyed on `encodePrecinctPair`'s `county|precinct`, the same strings
 `VoterFileFilter.precincts` stores. It is the format's first non-u8 plane,
@@ -1459,8 +1461,8 @@ time evaluates the real ranges, so a bucket that is a near-miss for a key gives
 a map whose count disagrees with the list it is previewing — the
 two-denominator failure [ADR 0010](adr/0010-draw-time-address-preview.md)
 forbids. The old buckets did this twice: `age50_64` shaded `50_plus` (every 65+
-door the list would skip) and `age65Plus` had nowhere to map at all, which is
-what the disclosure sentence used to name.
+door the list would skip) and `age65Plus` had nowhere to map at all, so
+neither key narrowed the preview at all.
 
 So contracts' `PackAgeBuckets.ts` **cuts at every boundary either generation
 uses**, and derives the buckets from `AGE_FILTER_KEY_RANGES` rather than
@@ -1600,9 +1602,8 @@ resolving a contacts-made filter for a real query gives up: above it the
 filter cannot be applied at knock time either. Truncating would read the
 dropped people as "0 prior contacts", which is the bucket candidates select
 most and the one answer that must never be invented. Absent, the dim never
-reaches the manifest, and the webapp's existing unpreviewable-filter
-disclosure names the filter it cannot shade — the same path any missing dim
-takes. **An empty array is not the same thing**: it is an organization that
+reaches the manifest and the selection simply does not narrow — the same
+path any missing dim takes. **An empty array is not the same thing**: it is an organization that
 has contacted nobody, whose map genuinely can shade "0 prior contacts" as
 everyone.
 
@@ -1932,10 +1933,9 @@ URLs**: the deep links that exist (`?listId=`, `?walkTurfId=`,
 `/volunteer/door-knocking/[turfId]`) are authenticated in-app routes, not
 tokens. No **tagging**, and no **arbitrary questions at a native knock** —
 `RecordDoorKnockInteractionSchema` is `.strict()` over a closed outcome and
-answer vocabulary, and the question designer under `door-knocking/surveys/`
-belongs to the eCanvasser arm, which the flag-on arm redirects away from. No
-**UI turf-splitting**: the schema has supported N turfs per audience since the
-start (`voterFileFilterId` is deliberately not unique), but nothing divides a
+answer vocabulary. No **UI turf-splitting**: the schema has supported N turfs
+per audience since the start (`voterFileFilterId` is deliberately not unique),
+but nothing divides a
 polygon, and an over-cap shape is refused rather than split.
 
 **Since shipped**, and listed here rather than deleted because their absence was
@@ -1951,15 +1951,13 @@ an assigned volunteer knocks six `@AllowVolunteer()` routes scoped to their own
 knocked. See § Volunteer access to the walk (ENG-11051), which this line used to
 contradict.
 
-**The flag line has drifted on both halves.** `native-door-knocking` still gates
-the dashboard surfaces and still demands the variant be literally `on`, but it
-does not gate _all_ of them: the volunteer walk is gated on `win-team-accounts`
-instead (`activeOrgVolunteer.server.ts`), so the two arms of this feature sit
-behind two different flags and can be turned on independently. And the backend
-no longer lands dark — gp-api checks no flag anywhere, `DoorKnockingModule` is
-registered unconditionally, and the routes are held by the Pro gate
-(`assertProAccess`) and by role. The figures in § Spend visibility are
-production measurements, not projections.
+**The flag line has drifted.** `native-door-knocking` still gates the
+dashboard surfaces and still demands the variant be literally `on`, but it
+does not gate _all_ of them: the volunteer walk (`activeOrgVolunteer.server.ts`)
+carries no flag of its own. And the backend no longer lands dark — gp-api
+checks no flag anywhere, `DoorKnockingModule` is registered unconditionally,
+and the routes are held by the Pro gate (`assertProAccess`) and by role. The
+figures in § Spend visibility are production measurements, not projections.
 
 ## Phones at the door
 
@@ -2010,11 +2008,6 @@ change: `deploy/index.ts` maps `Object.keys(secret)` into the task definition,
 so any key added to the `GP_API_<ENV>` secret JSON is injected on the next
 deploy. A missing server key is the gentlest failure of the four — the client
 validates lazily, so the environment boots and only the knock endpoint 502s.
-
-**The flag variant must be the literal string `on`.** `useFlagOn` tests
-`v?.value === 'on'`, so a variant named anything else — `true`, `enabled`,
-`treatment` — reads as off and silently serves the legacy eCanvasser dashboard
-instead. That is the failure most likely to be mistaken for a broken deploy.
 
 **Pro and a resolvable district.** Pilot campaigns need `isPro` (admin-settable)
 or an elected-office org, per the Pro gate below, and the district must have
@@ -2074,28 +2067,22 @@ load-bearing for us, so it should be on file rather than inferred.
 
 ## Access and eligibility
 
-Two products live at `/dashboard/door-knocking`. `DoorKnockingPageGate` picks
-between them: the native voter map when `native-door-knocking` is on, the
-legacy eCanvasser dashboard when it is off or unsettled. The sidebar entry in
-`DashboardMenu` mirrors that same branch, so the link and the landing page
-always agree — flag on requires a resolvable district (every pack and turf read
-resolves one server-side and 400s without it) **and Pro**, flag off requires an
-eCanvasser integration record, which is the only thing the legacy dashboard can
-render.
+`/dashboard/door-knocking` serves the native voter map, behind
+`DoorKnockingPageGate`. The sidebar entry in `DashboardMenu` mirrors that same
+gate, so the link and the landing page always agree: both require a resolvable
+district (every pack and turf read resolves one server-side and 400s without
+it) **and Pro**.
 
 Both sides read the CRM's `canUseProFeatures` (`isPro || electedOffice`), which
 is the frontend spelling of the `assertProAccess` predicate below, so the nav is
-never stricter than the API. A flag-on non-Pro candidate who reaches the URL
-anyway — a stale tab, a bookmark — gets `DoorKnockingPageGate`'s locked upgrade
+never stricter than the API. A non-Pro candidate who reaches the URL anyway —
+a stale tab, a bookmark — gets `DoorKnockingPageGate`'s locked upgrade
 card rather than a map that draws and then 400s. Unlike Know Your Opponent,
 whose nav entry is deliberately shown to non-Pro candidates as an upsell, this
 entry is hidden: creating a list spends vendor routing credits, so the pitch
 does not belong in a nav row. That makes the locked card a safety net rather than a
 funnel step, which is why it is deliberately shorter than
 `OpponentProLockedView` and fires no exposure event.
-
-**Control is untouched.** The flag-off eCanvasser dashboard was never Pro-gated
-and still isn't, on either the nav or the page.
 
 ## The Pro gate (ENG-10888)
 
@@ -2114,7 +2101,7 @@ it is across Contacts. Refusal is that method's `ForbiddenException`, 403 with
 for the same reason every other pro gate is: the request is well formed and the
 org simply isn't entitled. The original push for it was alerting — the
 per-route error-count rules counted 400 and excluded 403 — and those rules
-(`deploy/components/alerting/controller-alerts.ts`) now exclude 400 as well, so
+(`deploy/components/alerting/route-alerts.ts`) now exclude 400 as well, so
 either status would stay quiet and the convention rests on the semantics.
 
 | Route                   | Gated  |

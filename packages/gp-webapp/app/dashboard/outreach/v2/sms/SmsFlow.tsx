@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { format } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   OutreachDetail,
@@ -22,6 +22,12 @@ import {
 import { Button, Card } from '@styleguide'
 import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  type OutreachFlowSource,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
@@ -44,6 +50,10 @@ import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/vote
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
+  combineScheduledAt,
+  resolveCampaignTimeZone,
+} from '../robocall/scheduleTimeZone'
+import {
   OutreachAudienceStep,
   type OutreachAudienceCopy,
 } from '../audience/OutreachAudienceStep'
@@ -53,6 +63,7 @@ import {
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { REVIEW_GATE_CTA } from '../gate/gateCopy'
+import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
@@ -268,6 +279,12 @@ interface SmsFlowProps {
   // A tracker task's due date, persisted on the outreach row and forwarded
   // into the CAS Slack notification — the flow never derives it.
   campaignPlanDueDate?: string
+  // The tracker task this flow was launched from (the hub's `?compose=` deep
+  // link), carried onto the completion event so a completed task and the
+  // outreach it produced are one funnel.
+  tracker?: OutreachTrackerOrigin
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
   // A message the candidate is meant to send as written (Know Your
   // Opponent). It opens the flow on `custom`, the one purpose that never
   // AI-drafts, so the seeded words are what they edit rather than something
@@ -287,6 +304,8 @@ interface SmsFlowProps {
   // opens the wizard on its first step; a tile or deep-link resume shows the
   // pause screen first.
   resumeStartsOnWizard?: boolean
+  // The label of the button that resumed the draft, for the Pro gate.
+  resumeCta?: string
 }
 
 const successDate = (d: Date) =>
@@ -300,6 +319,13 @@ const successDate = (d: Date) =>
 const successTime = (d: Date) =>
   d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 
+// A Win send is an instant in the campaign's zone, so it is read back in
+// that zone; Serve's fixed-hour stamp is browser-local and takes no zone.
+const sendDateLabel = (d: Date, timeZone?: string) =>
+  timeZone ? formatInTimeZone(d, timeZone, 'EEE, MMM d, yyyy') : successDate(d)
+const sendTimeLabel = (d: Date, timeZone?: string) =>
+  timeZone ? formatInTimeZone(d, timeZone, 'h:mm a') : successTime(d)
+
 // "visa" → "Visa" — Stripe reports card brands lowercase.
 const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
@@ -309,12 +335,14 @@ const cardBrandLabel = (brand: string) =>
 export const SuccessScreen = ({
   contactCount,
   sendAt,
+  timeZone,
   outreachId,
   paid,
   onDone,
 }: {
   contactCount: number
   sendAt: Date | null
+  timeZone?: string
   outreachId: number | null
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
@@ -349,7 +377,7 @@ export const SuccessScreen = ({
           Your sms campaign will reach {contactCount.toLocaleString()}{' '}
           recipients
           {sendAt
-            ? ` starting ${successDate(sendAt)} at ${successTime(sendAt)}.`
+            ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
             : ' soon.'}
         </p>
       </div>
@@ -429,16 +457,24 @@ export const SmsFlow = ({
   tcrCompliance,
   surface = WIN_SMS_SURFACE,
   campaignPlanDueDate,
+  tracker,
+  source,
   initialScript,
   preselectedListId,
   preselectedRecommendedVariant,
   resumeDraft = null,
   onDraftSaved,
   resumeStartsOnWizard = false,
+  resumeCta,
 }: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
+  const lockedAtOpen = useLockedAtOpen(open, gate)
+  // gp-api reads the picked wall-clock window in the campaign state's zone
+  // (Peerly `requested_timezone`), so the step captions that zone rather
+  // than the browser's.
+  const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
 
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsFlowPurpose | null>(null)
@@ -489,9 +525,30 @@ export const SmsFlow = ({
     gate,
     open,
     resumeDraft,
+    resumeCta,
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
+    // A gated candidate's campaign is created by the draft save, not by the
+    // pending_payment row the review step writes — which they never reach.
+    onCampaignCreated: (draft) =>
+      trackEvent(
+        EVENTS.Dashboard.VoterContact.CampaignCreated,
+        outreachEventProps({
+          channel: 'text',
+          isServe: surface.isServe,
+          campaignName: name.trim(),
+          recipientCount: audience.reachableCount ?? 0,
+          outreachCampaignId: draft.id,
+          ...(audience.selectedListId !== null
+            ? { listId: audience.selectedListId }
+            : {}),
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+        }),
+      ),
     onClose,
   })
   const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
@@ -680,18 +737,18 @@ export const SmsFlow = ({
   // onto the day it hands back, so the picked date IS the scheduled moment.
   const fixedMorningSchedule = surface.scheduleMode === 'serveFixedMorning'
 
+  // The picked wall-clock time is read in the campaign's zone, not the
+  // browser's: gp-api hands Peerly that same zone, so a candidate scheduling
+  // from another timezone still gets the hour they picked where their voters
+  // are. Serve stamps its fixed hour onto the day itself (browser-local).
   const scheduledAt = useMemo(() => {
     if (!date) return null
     if (fixedMorningSchedule) return date
     const slot = TIME_OPTIONS.find((t) => t.id === timeSlot)
     const timeStr = timeSlot === 'custom' ? customTime : slot?.time
-    if (!timeStr) return null
-    const [hh, mm] = timeStr.split(':').map(Number)
-    if (hh === undefined || mm === undefined || Number.isNaN(hh)) return null
-    const d = new Date(date)
-    d.setHours(hh, mm, 0, 0)
-    return d
-  }, [date, timeSlot, customTime, fixedMorningSchedule])
+    if (!timeStr || !/^\d{2}:\d{2}$/.test(timeStr)) return null
+    return combineScheduledAt(date, timeStr, timeZone)
+  }, [date, timeSlot, customTime, fixedMorningSchedule, timeZone])
 
   // Both windows are Peerly's, so both are Win-only. Serve's calendar
   // disables every date it will not accept (2 business days out, 30-day
@@ -703,11 +760,15 @@ export const SmsFlow = ({
   // 8 PM cap, not the 9 PM compliance cutoff: the chosen time opens Peerly's
   // send window and the window always closes at 9 PM, so a later start
   // would leave a zero-width window (server clamps too).
+  const scheduledHour =
+    scheduledAt && Number(formatInTimeZone(scheduledAt, timeZone, 'HH'))
+  const scheduledMinute =
+    scheduledAt && Number(formatInTimeZone(scheduledAt, timeZone, 'mm'))
   const outsideWindow =
-    !fixedMorningSchedule && scheduledAt
-      ? scheduledAt.getHours() < 9 ||
-        scheduledAt.getHours() > 20 ||
-        (scheduledAt.getHours() === 20 && scheduledAt.getMinutes() > 0)
+    !fixedMorningSchedule && scheduledHour !== null && scheduledMinute !== null
+      ? scheduledHour < 9 ||
+        scheduledHour > 20 ||
+        (scheduledHour === 20 && scheduledMinute > 0)
       : false
 
   // Serve's entire send sequence: no Peerly phone list, one org-scoped
@@ -727,6 +788,7 @@ export const SmsFlow = ({
     image,
     draftOutreachId,
     audience,
+    tracker,
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,
@@ -1038,14 +1100,22 @@ export const SmsFlow = ({
             message: composedMessage,
             script: composedMessage,
             title: `P2P Outreach - Campaign ${campaign.id}`,
-            // Offset-annotated local time, not toISOString(): the server
-            // slices the first 10 chars as the user's send DAY for Peerly,
-            // and the UTC rendering puts evening sends on the next day.
-            date: format(scheduledAt, "yyyy-MM-dd'T'HH:mm:ssXXX"),
-            // The wall-clock time as picked — approve opens Peerly's
-            // contact-local send window at it ("6 PM" means 6 PM wherever
-            // the contact lives).
-            scheduledLocalTime: format(scheduledAt, 'HH:mm'),
+            // Offset-annotated time in the campaign's zone, not
+            // toISOString(): the server slices the first 10 chars as the
+            // send DAY for Peerly, and the UTC rendering puts evening sends
+            // on the next day.
+            date: formatInTimeZone(
+              scheduledAt,
+              timeZone,
+              "yyyy-MM-dd'T'HH:mm:ssXXX",
+            ),
+            // The wall-clock time as picked — approve opens Peerly's send
+            // window at it, read in the same campaign zone.
+            scheduledLocalTime: formatInTimeZone(
+              scheduledAt,
+              timeZone,
+              'HH:mm',
+            ),
             ...(audience.selectedListId
               ? { voterFileFilterId: audience.selectedListId }
               : {}),
@@ -1065,6 +1135,33 @@ export const SmsFlow = ({
         if (generation !== draftGenerationRef.current) return
         if (outreach?.id) {
           setDraftOutreachId(outreach.id)
+          // The draft row IS the campaign: it exists, it is scheduled, and it
+          // has an audience — everything except the payment that completes it.
+          // Fired per draft, so going Back to change the audience and coming
+          // forward again reports the second campaign it really creates.
+          //
+          // NOT on a resume: this create converts a saved `draft` row in
+          // place, and that row already reported itself created when the
+          // gate saved it.
+          if (!resumed)
+            trackEvent(
+              EVENTS.Dashboard.VoterContact.CampaignCreated,
+              outreachEventProps({
+                channel: 'text',
+                isServe: surface.isServe,
+                campaignName: name.trim(),
+                recipientCount: phoneList.leadsLoaded,
+                sendDate: scheduledAt,
+                outreachCampaignId: outreach.id,
+                ...(audience.selectedListId !== null
+                  ? { listId: audience.selectedListId }
+                  : {}),
+                audienceSource: audience.selectedRecommendation
+                  ? 'recommended'
+                  : 'savedList',
+                ...(tracker ? { tracker } : {}),
+              }),
+            )
         } else {
           setDraftCreateError(true)
         }
@@ -1094,6 +1191,37 @@ export const SmsFlow = ({
   const handleScheduled = async (paid: boolean) => {
     setPaidSend(paid)
     setScheduled(true)
+    // A text campaign completes when it is bought and scheduled, not when
+    // Peerly sends it — the send is hours or days later and nothing on the
+    // client is alive to see it. `sendDate` carries that gap: it is the
+    // scheduled day, never the event's own timestamp.
+    const discount = campaign?.hasFreeTextsOffer
+      ? Math.min(phoneList?.leadsLoaded ?? 0, FREE_TEXTS_OFFER.COUNT)
+      : 0
+    const billable = Math.max((phoneList?.leadsLoaded ?? 0) - discount, 0)
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+      ...outreachEventProps({
+        channel: 'text',
+        isServe: surface.isServe,
+        campaignName: name.trim(),
+        recipientCount: phoneList?.leadsLoaded ?? 0,
+        sendDate: scheduledAt,
+        // Always present on a paid channel, 0 included: a send fully covered
+        // by the free-texts offer is a zero-cost text campaign, not a channel
+        // without a price.
+        price: paid ? billable * PRICE_PER_MESSAGE : 0,
+        ...(draftOutreachId !== null
+          ? { outreachCampaignId: draftOutreachId }
+          : {}),
+        ...(audience.selectedListId !== null
+          ? { listId: audience.selectedListId }
+          : {}),
+        audienceSource: audience.selectedRecommendation
+          ? 'recommended'
+          : 'savedList',
+        ...(tracker ? { tracker } : {}),
+      }),
+    })
     await onScheduled()
   }
 
@@ -1129,6 +1257,8 @@ export const SmsFlow = ({
   // A saved draft is the opposite of unsaved work: closing loses nothing.
   const dirty = !scheduled && purpose !== null && savedDraft === null
 
+  const reviewGateCta =
+    gate.requirement !== null ? REVIEW_GATE_CTA[gate.requirement] : undefined
   const cta: FlowShellCta | null = scheduled
     ? null
     : // The gate screens carry their own buttons.
@@ -1200,7 +1330,7 @@ export const SmsFlow = ({
                   label: 'Continue',
                   onClick: () => {
                     if (gate.requirement === 'pro') {
-                      void draftGate.saveDraft()
+                      void draftGate.saveDraft('Continue')
                       return
                     }
                     setStepId('review')
@@ -1257,7 +1387,7 @@ export const SmsFlow = ({
                     ? {
                         label: REVIEW_GATE_CTA[gate.requirement],
                         onClick: () => {
-                          void draftGate.saveDraft()
+                          void draftGate.saveDraft(reviewGateCta)
                         },
                         disabled: !audience.selectedListId || image === null,
                         loading: draftGate.savingDraft,
@@ -1298,6 +1428,8 @@ export const SmsFlow = ({
         )
       }
       channel="sms"
+      source={source}
+      locked={lockedAtOpen}
       trackedStep={scheduled || showGateChrome ? null : stepId}
       settled={scheduled}
       currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
@@ -1359,6 +1491,7 @@ export const SmsFlow = ({
         <SuccessScreen
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
           sendAt={scheduledAt}
+          timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
           onDone={onClose}
@@ -1375,6 +1508,9 @@ export const SmsFlow = ({
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
           onChromeChange={setGateChrome}
+          source={source}
+          cta={draftGate.gateCta}
+          tracker={tracker}
         />
       ) : stepId === 'purpose' ? (
         <SmsPurposeStep
@@ -1401,6 +1537,14 @@ export const SmsFlow = ({
               setStopPolling(false)
               setPhoneListError(false)
             }}
+            universeName={audience.universeName}
+            universeListId={audience.universeListId}
+            universeCount={audience.universeCount}
+            universeLoading={audience.universeLoading}
+            onSelectUniverse={audience.selectUniverse}
+            universePending={audience.universePending}
+            universeError={audience.universeError}
+            onPickerOpenChange={audience.onPickerOpenChange}
             onStartBuilder={() => {
               setPhoneListError(false)
               audience.startBuilder()
@@ -1482,6 +1626,7 @@ export const SmsFlow = ({
               onTimeSlotChange={setTimeSlot}
               customTime={customTime}
               onCustomTimeChange={setCustomTime}
+              timeZone={timeZone}
               earliestSend={earliestSend}
               calendarFloor={earliestSend}
               violates48h={violates48h}
@@ -1554,6 +1699,7 @@ export const SmsFlow = ({
             name={name}
             audienceName={selectedList?.name ?? 'Saved list'}
             sendAt={scheduledAt ?? new Date()}
+            timeZone={fixedMorningSchedule ? undefined : timeZone}
             composedMessage={composedMessage}
             imagePreviewUrl={previewUrl}
             contactCount={

@@ -45,13 +45,13 @@ While the flag is loading, the guard renders a centered spinner. While the flag 
 
 ## Per-flag wrapper hooks
 
-When a flag is read in many places, wrap it once and export a named hook so the key is centralized. Example: `app/shared/experiments/nativeDoorKnockingFlag.ts`:
+When a flag is read in many places, wrap it once and export a named hook so the key is centralized. Example: `app/shared/experiments/outreachProGatingV2Flag.ts`:
 
 ```ts
-export const NATIVE_DOOR_KNOCKING_FLAG_KEY = 'native-door-knocking'
+export const OUTREACH_PRO_GATING_V2_FLAG_KEY = 'outreach-pro-gating-v2'
 
-export const useNativeDoorKnockingFlag = (trackExposure = true) => {
-  const { ready, on } = useFlagOn(NATIVE_DOOR_KNOCKING_FLAG_KEY, {
+export const useOutreachProGatingV2Flag = (trackExposure = true) => {
+  const { ready, on } = useFlagOn(OUTREACH_PRO_GATING_V2_FLAG_KEY, {
     trackExposure,
   })
   return { ready, enabled: on }
@@ -68,7 +68,7 @@ The SSR seed is resolved for the authenticated user by gp-api. Client-side, the 
 
 ## E2E overrides
 
-Because the browser never fetches Amplitude, an e2e test can't stub a variant. Instead `getFlagVariants` merges an `e2e-flag-overrides` cookie over gp-api's result (`app/shared/experiments/flagOverrides.ts`), so a test can force a flag deterministically. The Playwright helper sets it via `setFlagOverrides(page, { 'native-door-knocking': 'on' })` (`e2e-tests/src/helpers/campaignStory.helper.ts`).
+Because the browser never fetches Amplitude, an e2e test can't stub a variant. Instead `getFlagVariants` merges an `e2e-flag-overrides` cookie over gp-api's result (`app/shared/experiments/flagOverrides.ts`), so a test can force a flag deterministically. The Playwright helper sets it via `setFlagOverrides(page, { 'outreach-pro-gating-v2': 'off' })` (`e2e-tests/src/helpers/campaignStory.helper.ts`).
 
 It's honored on every environment **except production** (`process.env.VERCEL_ENV === 'production'` — Vercel's reserved runtime var, not the unreliable `NEXT_PUBLIC_VERCEL_TARGET_ENV`), read only from a cookie, and schema-validated. Flags gate UX, not authz, so the off-prod blast radius is the requester's own gated UI.
 
@@ -84,7 +84,7 @@ if (variants?.[MY_FLAG_KEY]?.value === 'on') {
 }
 ```
 
-Reach for this when the gated surface must not render or fetch — `door-knocking/surveys/layout.tsx` redirects pilot users away from the legacy eCanvasser survey designer before its eCanvasser reads run. It costs one extra gp-api call per request, and it emits no `$exposure` (exposure is a client-side analytics event), which is correct for a surface that isn't the experiment's treatment. For the ordinary case — flag off means "don't show this route" — the client `FeatureFlagGuard` is still simpler and free.
+Reach for this when the gated surface must not render or fetch — `dashboard/priorities/layout.tsx` redirects a flag-off user away before the priorities and community-issues reads under it run. It costs one extra gp-api call per request, and it emits no `$exposure` (exposure is a client-side analytics event), which is correct for a surface that isn't the experiment's treatment. For the ordinary case — flag off means "don't show this route" — the client `FeatureFlagGuard` is still simpler and free.
 
 ## Adding a new flag
 

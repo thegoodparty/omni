@@ -45,6 +45,33 @@ The one exception is the sheet's `README` tab: a hand-maintained column dictiona
 
 There is a second consumer surface beside the sheet: the analytics-event explorer, a browsable page over the same data (DATA-2506). `scripts/python/event_explorer_snapshot.py` builds its one JSON from `event_state_assembler.assemble()` rather than from the sheet, so the page and the sheet cannot disagree and no Google identity is needed. The scheduled workflow runs it and commits the result; a scheduled cloud routine rebuilds the standalone page from that commit and republishes the shared artifact, which is the only thing that makes the live page move. Page detail, including its own tracking and feedback, is in `packages/prototypes/app/p/analytics-event-explorer/README.md`.
 
+A third surface sits beside those two, for the operator rather than the consumer: the
+event health console in `surfaces/governance-console/` (DATA-2546). It shows the catalog
+rollup, what changed since the previous run, and every open decision from all four
+governance queues in one ranked list, with the flagged set grouped by cause rather than
+by event. `scripts/python/governance_console_snapshot.py` builds its one JSON from the
+health report, `instrumentation_gaps.json` and the explorer snapshot, which is why it
+has to run inside the governance job after the health step: the report is gitignored and
+exists only during a run. The page is where the reviewer looks at the evidence and picks
+a verb per row; it writes nothing itself, and leaves as a plain-text handoff pasted into
+`/triage-instrumentation-gaps`, which still owns every write. So the console replaced the
+elicitation half of that skill and none of the application half. Detail in
+`surfaces/governance-console/README.md`.
+
+A fourth, the product map in `surfaces/product-map/` (DATA-2547), shows the same events
+laid over the product's flows and pages, with the steps where nothing fires. It is the
+explorer's audience and the explorer's data, organised the way people remember using the
+site. Its node model is hand-authored in the template for now; its cards are lifted from
+the explorer snapshot.
+
+`surfaces/` is where pages built from committed governance data live. The three published
+pages (explorer, map, console) are one epic, DATA-2580, and share `surfaces/shared/`: the
+palette, the event card, the page-to-page nav bar and the usage/feedback script, inlined
+by each page's `build.py` through `shared/partials.py`. Change the card there and rebuild all three; never restyle
+it in one template. Every `build.py` must stay dependency-free because the republish
+routines run them with a bare interpreter, and `partials.py` fails a build that leaves a
+placeholder unfilled.
+
 Questions are not intaken from the spreadsheet. The source of truth is the ClickUp Analytics Questions list: `scripts/python/question_intake.py` reads accepted questions into `scripts/python/monitored_events.yaml`, and `event_state_gsheet.py writeback-questions` pushes each question's answer state and last-checked date back onto its ClickUp task. See `books/refresh-event-state-surface.md`.
 
 ## Used by the delegate worker
@@ -124,6 +151,22 @@ Subagent definitions in `agents/` are Claude Code `.md` files (YAML frontmatter 
   - `scripts/shell/` — plain bash, list required tools at the top of each script
 - Add new Python dependencies to `scripts/python/pyproject.toml`
 - Never install packages globally — always use the language-specific manager
+
+### Tests
+
+- **Test the call site, not just the function.** A test that calls a helper with the right
+  argument proves the helper works; it proves nothing about whether the real path passes
+  that argument. Wire a new parameter through and assert it at the entry point the
+  scheduled run actually uses — `run_sweep`/`run_seed`/`run_triage`, not only the batching
+  helper underneath. DATA-2575 shipped this bug four times in one PR: each round the
+  feature was broken on one path while every test stayed green.
+- **Assert a guard fails when you break the thing it guards.** Delete the line the test
+  exists to protect, watch that exact test go red, restore it. A test that passes both ways
+  is decoration. This costs one minute and is the only thing that distinguishes a guard
+  from a test that happens to pass.
+- For a parameter every call site must pass, prefer one structural test over a test per
+  site — walk the module's AST and fail on any call that omits it, so a path added later
+  fails too (`test_every_judge_prompt_call_site_passes_gotchas` is the worked example).
 
 ### Environment Variables
 

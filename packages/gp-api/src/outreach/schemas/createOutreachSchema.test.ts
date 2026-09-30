@@ -8,6 +8,7 @@ const base = {
   outreachType: OutreachType.p2p,
   phoneListId: 10,
   date: '2026-08-02T04:00:00.000Z',
+  draft: true,
 }
 
 describe('CreateOutreachSchema script newline normalization', () => {

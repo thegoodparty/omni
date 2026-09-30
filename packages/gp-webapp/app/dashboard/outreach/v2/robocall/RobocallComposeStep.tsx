@@ -219,7 +219,8 @@ export const RobocallComposeStep = ({
                 placeholder="Write your script…"
                 aria-label="Robocall script"
                 maxLength={ROBOCALL_SCRIPT_MAX_LENGTH}
-                className="min-h-[120px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
+                variant="seamless"
+                className="min-h-[120px] resize-none [field-sizing:content]"
               />
             ) : isDrafting && !draft.trim() ? (
               <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">

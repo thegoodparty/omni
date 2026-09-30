@@ -76,6 +76,7 @@ const renderForm = (onRecorded = vi.fn()) => {
     <DoorKnockingSurfaceProvider value={true}>
       <RecordKnockForm
         target={target}
+        turfId={1}
         clientKey="6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90"
         onRecorded={onRecorded}
       />

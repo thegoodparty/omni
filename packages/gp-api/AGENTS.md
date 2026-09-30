@@ -185,14 +185,14 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | One-off / build scripts                                  | `scripts/AGENTS.md`                                  |
 | Seed data / factories / scenarios                        | `seed/AGENTS.md`                                     |
 | QA test-user fixtures (dev/preview only)                 | `src/testFixtures/AGENTS.md`                         |
+| Local `.env` vending (dev only, GitHub-gated)            | `src/devEnv/AGENTS.md`                               |
 
 `VoterOutreachActivity` is deprecated: new per-person interaction write paths
 target the `ContactInteraction*` models via `ContactInteractionModule` (see
 `src/contactInteraction/contactInteraction.types.ts` for the add-a-channel
 convention). Segment-derived send-attribution writes were retired in feature 5
-of the CRM epic (ENG-10731) — the model is read-only now except for the
-deprecated eCanvasser door-knock writer (`EcanvasserAttributionService.recordActivityIdempotent`),
-which is its own removal workstream. Reads (the person activity feed's
+of the CRM epic (ENG-10731) and the last remaining write path has since been
+deleted, so the model is read-only. Reads (the person activity feed's
 legacy-row branch) keep working until the sunset ends and the table/model are
 dropped.
 

@@ -8,6 +8,8 @@ import {
   DoorKnockingPackManifest,
   DoorKnockingPackRequest,
   INCOME_RANGE_MAPPING,
+  KNOCKABLE_DIM_KEY,
+  KNOCKABLE_VALUES,
   MAX_PRECINCT_FILTER_VALUES,
   PACK_DIM_WIDTHS,
   PEOPLE_FILTER_VALUE_ENUMS,
@@ -235,6 +237,17 @@ export const contactsMadeToBytes = (
     ? null
     : new Map(entries.map(({ personId, bucket }) => [personId, bucket]))
 
+// The people every server-side evaluation removes before it counts anything.
+// `null` is "gp-api did not answer" and omits the plane; an empty set is an
+// organization that has flagged nobody, which is a real fact the map can
+// shade. Same two-state convention as `contactsMadeToBytes`, and for a
+// sharper reason: a plane of yeses claims every door is open, which is the
+// wrong way to be wrong about somebody who said don't come back.
+export type PackExcluded = Set<string> | null
+
+export const excludedToSet = (personIds: string[] | undefined): PackExcluded =>
+  personIds === undefined ? null : new Set(personIds)
+
 export class PackEncoder {
   // Keyed lat -> lng -> dot rather than on a `${lat}|${lng}` string. Building
   // that string was 261ms of a 628k-row build — the single most expensive
@@ -260,6 +273,7 @@ export class PackEncoder {
   constructor(
     statusByPersonId: PackStatuses,
     contactsMadeByPersonId: PackContactsMade = null,
+    excludedPersonIds: PackExcluded = null,
   ) {
     const mapped: DimPlane[] = MAPPED_DIMS.map(([key, mapperKey, column]) => {
       const { values, rawToByte } = invertMapper(
@@ -422,6 +436,25 @@ export class PackEncoder {
         key: CONTACTS_MADE_DIM_KEY,
         values: [...CONTACTS_MADE_BUCKETS],
         encode: (row) => contactsMadeByPersonId.get(row.id) ?? 0,
+        bytes: new GrowableU8(),
+      })
+    }
+
+    // The third per-organization plane, and the only one that is not a
+    // filter. Nothing selects it: `runFilter` and `polygonStats` read it as
+    // an unconditional mask, because do-not-knock and not-a-voter are
+    // suppression rather than criteria and every server-side evaluation
+    // already applies them. That is also what keeps this out of the filter
+    // catalog, which is the review ADR 0007 deferred.
+    //
+    // Note the encode is the inverse of the other planes' `?? 0`: the
+    // DEFAULT here is knockable, and byte 0 is reserved for the people who
+    // are not.
+    if (excludedPersonIds) {
+      this.dims.push({
+        key: KNOCKABLE_DIM_KEY,
+        values: [...KNOCKABLE_VALUES],
+        encode: (row) => (excludedPersonIds.has(row.id) ? 0 : 1),
         bytes: new GrowableU8(),
       })
     }

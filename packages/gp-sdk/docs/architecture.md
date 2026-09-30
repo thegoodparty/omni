@@ -27,7 +27,6 @@ src/
 │   ├── BaseResource.ts             # abstract — getRequest / postRequest / put / patch / delete
 │   ├── UsersResource.ts            # canonical reference — copy this shape for new resources
 │   ├── CampaignsResource.ts
-│   ├── EcanvasserResource.ts
 │   ├── ElectedOfficesResource.ts
 │   ├── ElectionsResource.ts
 │   ├── OrganizationsResource.ts
@@ -52,7 +51,7 @@ src/
 
 - **Class export:** `GoodPartyClient`
 - **Class export:** `SdkError`
-- **Type-only re-exports** from `@goodparty_org/contracts` (campaigns, users, ecanvasser, etc.)
+- **Type-only re-exports** from `@goodparty_org/contracts` (campaigns, users, etc.)
 - **Value re-exports** of `*_VALUES` arrays + their types from `contracts`
 - **Local enum objects:** `UserRole`, `WhyBrowsing`, `CampaignTier` (constructed from `_VALUES` so consumers can use them like classic enums)
 - **Local-only types** for resources where contracts don't yet have a schema

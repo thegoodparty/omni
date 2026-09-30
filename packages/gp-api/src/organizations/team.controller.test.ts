@@ -1,5 +1,4 @@
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EmailService } from '@/email/email.service'
 import { ClerkInvitationsService } from '@/vendors/clerk/services/clerkInvitations.service'
@@ -99,7 +98,6 @@ const mockInviteState = (
     metadata,
     verifiedEmails,
   })
-const stubFeatures = () => service.app.get(FeaturesService)
 const stubEmail = () => service.app.get(EmailService)
 const stubAnalytics = () => service.app.get(AnalyticsService)
 const stubCrmTeamMembers = () => service.app.get(CrmTeamMembersService)
@@ -222,19 +220,6 @@ describe('GET /v1/organizations/team', () => {
 describe('POST /v1/organizations/team/invites', () => {
   const INVITES_PATH = `${TEAM_PATH}/invites`
 
-  it('404s when the flag is disabled, even for the owner', async () => {
-    await createOrg()
-    vi.spyOn(stubFeatures(), 'isFeatureEnabled').mockResolvedValueOnce(false)
-
-    const result = await service.client.post(
-      INVITES_PATH,
-      { email: 'new@example.com', name: 'New Person', role: 'campaignAdmin' },
-      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
-    )
-
-    expect(result.status).toBe(404)
-  })
-
   // ENG-11058: a general volunteer invite (no outreach) is legal — the
   // outreach drawer's list-scoped invite (ENG-11049) is a second, optional
   // entry point, not a requirement.
@@ -297,25 +282,6 @@ describe('POST /v1/organizations/team/invites', () => {
     )
 
     expect(result.status).toBe(400)
-  })
-
-  it('404s when the flag is disabled for a volunteer invite too', async () => {
-    await createOrg()
-    const outreach = await createOutreachForOrg()
-    vi.spyOn(stubFeatures(), 'isFeatureEnabled').mockResolvedValueOnce(false)
-
-    const result = await service.client.post(
-      INVITES_PATH,
-      {
-        email: 'new@example.com',
-        name: 'New Person',
-        role: 'volunteer',
-        outreachId: outreach.id,
-      },
-      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
-    )
-
-    expect(result.status).toBe(404)
   })
 
   it("rejects a volunteer invite pointing at another org's outreach, persisting nothing and never reaching Clerk", async () => {

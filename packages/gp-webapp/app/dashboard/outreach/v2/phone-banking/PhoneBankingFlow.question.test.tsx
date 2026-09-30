@@ -29,6 +29,7 @@ vi.mock('@shared/organization-picker', () => ({
 const renderFlow = () =>
   render(
     <PhoneBankingFlow
+      source="outreach_page"
       open
       onClose={vi.fn()}
       surface={SERVE_PHONE_BANKING_SURFACE}
@@ -39,6 +40,7 @@ beforeEach(() => {
   gateRef.set({
     enabled: false,
     requirement: null,
+    resolved: true,
     twoStep: true,
     membership: null,
     tcrCompliance: null,

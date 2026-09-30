@@ -410,14 +410,14 @@
   },
   "packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx#wizard_stage": {
     "dashboard_question": "Where do users drop off across the Pro upgrade wizard steps when embedded in the outreach sheet?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-09-28",
     "id": "packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx#wizard_stage",
     "judge_reason": "Embeddable multi-step wizard with position tracking but no per-stage Viewed/Completed event firing evident.",
     "last_seen": "2026-09-28",
     "location": "packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx",
     "rank": 0,
-    "reason": "",
+    "reason": "Pro upgrade wizard embedded in the outreach sheet has no per-stage events, so drop-off inside the paywall is unmeasurable. Accepted for instrumentation.",
     "rubric_rule": "multi-step flow: Viewed/Completed per stage",
     "surface_type": "wizard_stage"
   },

@@ -42,13 +42,38 @@ export class PeerlyErrorHandlingService {
     const genericMessage = 'Peerly API ERROR'
     const recoverySuffix = this.formatRecoverySuffix(context?.recoveryInfo)
 
-    logger?.error(
-      {
-        data: !formattedError ? error : '',
-        ...context?.recoveryInfo,
-      },
-      `${genericMessage}: ${formattedError ? JSON.stringify(formattedError) : ''}${recoverySuffix}`,
-    )
+    // Parsed before logging, not after, because it is one of the two things
+    // that decide the severity of the line below. The throw path further down
+    // reuses the same result rather than parsing twice.
+    const templateMessages = this.templateRejectionMessages(error, context)
+
+    // `win-peerly-warnings` counts error-level lines carrying this message, so
+    // the level is what decides whether a firing pages win-bugs. Two shapes of
+    // failure reach here having already been answered to the caller as a 4xx
+    // they can act on, and neither is an incident:
+    //
+    //   - context.expectedRejection: the caller classified it, e.g. a wrong CV
+    //     PIN (isPeerlyCvPinRejection). verifyCampaignVerifyPin already logs
+    //     its own `warn` for exactly this, and this line used to override it.
+    //   - templateMessages: a content rejection (banned word, URL shortener)
+    //     surfaced below as a 400 carrying Peerly's own wording.
+    //
+    // Everything else — nested 5xx, transport errors, anything unclassified —
+    // stays at `error` and keeps paging. Over the 14 days to 2026-09-27 all 21
+    // lines this alert matched were one of the two cases above, so it fired 18
+    // times on non-incidents; the vendor being down was never among them.
+    const expected = context?.expectedRejection === true || !!templateMessages
+    const logPayload = {
+      data: !formattedError ? error : '',
+      ...context?.recoveryInfo,
+    }
+    const logMessage = `${genericMessage}: ${formattedError ? JSON.stringify(formattedError) : ''}${recoverySuffix}`
+
+    if (expected) {
+      logger?.warn(logPayload, logMessage)
+    } else {
+      logger?.error(logPayload, logMessage)
+    }
 
     if (error instanceof HttpException) {
       if (context?.customMessage) {
@@ -66,26 +91,24 @@ export class PeerlyErrorHandlingService {
     ) {
       const responseData = error.response.data
 
-      logger?.error(
-        { data: JSON.stringify(responseData, null, 2) },
-        'Peerly API error response:',
-      )
+      // Same reasoning as the line above: the detail line must not be the one
+      // thing that keeps an expected rejection at error level.
+      const detailPayload = { data: JSON.stringify(responseData, null, 2) }
+      const detailMessage = 'Peerly API error response:'
+      if (expected) {
+        logger?.warn(detailPayload, detailMessage)
+      } else {
+        logger?.error(detailPayload, detailMessage)
+      }
 
       // Content rejections are user-fixable — surface Peerly's own message
       // as a 400 so candidates can self-serve instead of hitting CS with an
       // opaque 502. Callers passing customMessage (e.g. list assignment)
       // keep their framing: downstream recovery matches on that message.
-      if (!context?.customMessage && (error.response?.status ?? 0) < 500) {
-        const templateErrors =
-          peerlyTemplateErrorsSchema.safeParse(responseData)
-        if (templateErrors.success) {
-          const messages = templateErrors.data.Errors.templates.flatMap(
-            (template) => Object.values(template).flat(),
-          )
-          if (messages.length > 0) {
-            throw new BadRequestException(messages.join(' '), { cause: error })
-          }
-        }
+      if (templateMessages) {
+        throw new BadRequestException(templateMessages.join(' '), {
+          cause: error,
+        })
       }
 
       const { error: errorField, message, Error: errorCapital } = responseData
@@ -101,6 +124,36 @@ export class PeerlyErrorHandlingService {
     const ExceptionClass = context?.httpExceptionClass ?? BadGatewayException
     const baseMessage = context?.customMessage ?? genericMessage
     throw new ExceptionClass(baseMessage + recoverySuffix, { cause: error })
+  }
+
+  /**
+   * Peerly's own wording for a content rejection, or null if this error is not
+   * one.
+   *
+   * Pure, so it can be called before the log line decides its severity and
+   * again on the throw path without parsing twice. Returns null — rather than
+   * an empty array — for every case that must not be treated as a rejection:
+   * a 5xx wearing a template-shaped body, an `Errors.templates` that carries no
+   * messages, and a caller whose `customMessage` framing wins.
+   */
+  private templateRejectionMessages(
+    error: unknown,
+    context?: PeerlyApiErrorContext,
+  ): string[] | null {
+    if (context?.customMessage) return null
+    if (!isAxiosError<PeerlyApiErrorResponseData>(error)) return null
+    if (!error.response?.data) return null
+    if ((error.response.status ?? 0) >= 500) return null
+
+    const templateErrors = peerlyTemplateErrorsSchema.safeParse(
+      error.response.data,
+    )
+    if (!templateErrors.success) return null
+
+    const messages = templateErrors.data.Errors.templates.flatMap((template) =>
+      Object.values(template).flat(),
+    )
+    return messages.length > 0 ? messages : null
   }
 
   private formatRecoverySuffix(

@@ -18,7 +18,7 @@ import {
   UsersIcon,
 } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { PRO_UPGRADE_ENTRY_PATH } from 'app/shared/experiments/proUpgrade3Flag'
+import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { MEMBERSHIP_COPY } from './membershipCopy'
 
 const TILE_ICONS = [UsersIcon, MessageSquareIcon, DoorOpenIcon, ShieldCheckIcon]
@@ -53,7 +53,13 @@ export const ProPitchDialog = ({
   const handleJoin = () => {
     trackEvent(EVENTS.ProUpgrade.Membership.PitchJoin)
     onOpenChange(false)
-    router.push(PRO_UPGRADE_ENTRY_PATH)
+    router.push(
+      proUpgradeHref({
+        source: 'navigation',
+        channel: 'generic',
+        cta: MEMBERSHIP_COPY.pitch.join,
+      }),
+    )
   }
 
   // Every other way out of the dialog — the X, escape, the overlay — is a

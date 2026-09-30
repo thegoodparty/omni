@@ -21,6 +21,11 @@ vi.mock('@/components/Toast', () => ({
   useToast: () => ({ showToast: mockShowToast }),
 }))
 
+const mockCaptureException = vi.fn()
+vi.mock('@sentry/nextjs', () => ({
+  captureException: (...args: unknown[]) => mockCaptureException(...args),
+}))
+
 const mockListCampaigns = vi.fn()
 const mockGetCampaignComplianceState = vi.fn()
 const mockResendCvPin = vi.fn()
@@ -94,7 +99,7 @@ describe('CvPinStatus', () => {
       meta: { total: 1, offset: 0, limit: 10 },
     })
     mockGetCampaignComplianceState.mockResolvedValue(awaitingPinState)
-    mockResendCvPin.mockResolvedValue(undefined)
+    mockResendCvPin.mockResolvedValue({ error: null })
   })
 
   it('renders nothing when the user has no pro campaign', async () => {
@@ -230,7 +235,9 @@ describe('CvPinStatus', () => {
   })
 
   it('surfaces a resend failure via toast and keeps the button enabled', async () => {
-    mockResendCvPin.mockRejectedValue(new Error('Peerly is down'))
+    mockResendCvPin.mockResolvedValue({
+      error: 'The PIN has already been entered and verified for this campaign.',
+    })
     const user = userEvent.setup()
     renderWidget()
 
@@ -240,8 +247,34 @@ describe('CvPinStatus', () => {
     await user.click(button)
 
     await waitFor(() =>
-      expect(mockShowToast).toHaveBeenCalledWith('Peerly is down')
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'The PIN has already been entered and verified for this campaign.'
+      )
     )
+    expect(screen.getByRole('button', { name: /resend cv pin/i })).toBeEnabled()
+  })
+
+  it('reports a resend that never reached the API and suggests a refresh', async () => {
+    mockResendCvPin.mockRejectedValue(
+      new Error(
+        'Failed to find Server Action "abc123". This request might be from ' +
+          'an older or newer deployment.'
+      )
+    )
+    const user = userEvent.setup()
+    renderWidget()
+
+    const button = await screen.findByRole('button', {
+      name: /resend cv pin/i,
+    })
+    await user.click(button)
+
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.stringContaining('refresh the page')
+      )
+    )
+    expect(mockCaptureException).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: /resend cv pin/i })).toBeEnabled()
   })
 
@@ -638,6 +671,27 @@ describe('CvPinStatus', () => {
 
       expect(await screen.findByRole('checkbox')).toBeDisabled()
       expect(mockSetInternalTestingApproval).not.toHaveBeenCalled()
+    })
+
+    it('reports a toggle that never reached the API and suggests a refresh', async () => {
+      mockSetInternalTestingApproval.mockRejectedValue(
+        new Error(
+          'Failed to find Server Action "def456". This request might be ' +
+            'from an older or newer deployment.'
+        )
+      )
+      const user = userEvent.setup()
+      renderWidget(internalUser)
+
+      await user.click(await screen.findByRole('checkbox'))
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          expect.stringContaining('refresh the page')
+        )
+      )
+      expect(mockCaptureException).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('checkbox')).not.toBeChecked()
     })
 
     it('surfaces a grant failure via toast and stays unchecked', async () => {

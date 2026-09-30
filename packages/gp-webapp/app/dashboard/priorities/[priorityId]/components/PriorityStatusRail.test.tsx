@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import {
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
+  PRIORITY_STEP_PURPOSE,
   emptyPriorityStatus,
   type PriorityStatus,
   type PriorityStepId,
@@ -57,9 +58,9 @@ describe('PriorityStatusRail', () => {
     const staleRow = screen.getByRole('button', {
       name: new RegExp(PRIORITY_STEP_LABELS.evidence, 'i'),
     })
-    expect(within(settledRow).getByText('Settled')).toBeInTheDocument()
-    expect(within(staleRow).getByText('Needs a look')).toBeInTheDocument()
-    expect(within(staleRow).queryByText('Settled')).not.toBeInTheDocument()
+    expect(within(settledRow).getByText('Done')).toBeInTheDocument()
+    expect(within(staleRow).getByText('Needs another look')).toBeInTheDocument()
+    expect(within(staleRow).queryByText('Done')).not.toBeInTheDocument()
   })
 
   it('counts only settled steps', () => {
@@ -69,7 +70,7 @@ describe('PriorityStatusRail', () => {
         nextAction={null}
       />,
     )
-    expect(screen.getByText('1 of 7 settled')).toBeInTheDocument()
+    expect(screen.getByText('1 of 7 done')).toBeInTheDocument()
   })
 
   it('opens a step to show its summary and its caveat', async () => {
@@ -90,6 +91,7 @@ describe('PriorityStatusRail', () => {
       }),
     )
     expect(screen.getByText('Three of eight blocks flood.')).toBeInTheDocument()
+    expect(screen.getByText(PRIORITY_STEP_PURPOSE.evidence)).toBeInTheDocument()
     expect(
       screen.getByText('The drainage report contradicts the count.'),
     ).toBeInTheDocument()
@@ -100,6 +102,23 @@ describe('PriorityStatusRail', () => {
         name: new RegExp(PRIORITY_STEP_LABELS.plan, 'i'),
       }),
     ).toBeInTheDocument()
+  })
+
+  it('says why a step exists only once it is open', async () => {
+    const user = userEvent.setup()
+    render(
+      <PriorityStatusRail status={emptyPriorityStatus()} nextAction={null} />,
+    )
+    expect(
+      screen.queryByText(PRIORITY_STEP_PURPOSE.define),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', {
+        name: new RegExp(PRIORITY_STEP_LABELS.define, 'i'),
+      }),
+    )
+    expect(screen.getByText(PRIORITY_STEP_PURPOSE.define)).toBeInTheDocument()
   })
 
   it('shows the next action when there is one', () => {

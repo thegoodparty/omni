@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { api } from 'helpers/test-utils/api-mocking'
 import {
   createP2pPhoneList,
@@ -11,7 +12,7 @@ import { createOutreach } from 'helpers/createOutreach'
 import type { TcrCompliance } from 'helpers/types'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
-  SERVE_SMS_GREETING_PREVIEW,
+  SMS_GREETING_PREVIEW,
   SERVE_SMS_SAMPLE_FIRST_NAME,
 } from './smsCompose.util'
 
@@ -137,7 +138,9 @@ const attachImage = async () => {
   await userEvent.upload(input, file)
 }
 
-const openServeFlow = () => {
+const openServeFlow = (
+  extra: Partial<React.ComponentProps<typeof SmsFlow>> = {},
+) => {
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(
     <SmsFlow
@@ -145,6 +148,8 @@ const openServeFlow = () => {
       onClose={vi.fn()}
       onScheduled={onScheduled}
       surface={SERVE_SMS_SURFACE}
+      source="outreach_page"
+      {...extra}
     />,
   )
   return { onScheduled }
@@ -380,12 +385,54 @@ describe('SmsFlow serve send path', () => {
       }),
     ).toBeInTheDocument()
     expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
-    expect(
-      screen.getByText(SERVE_SMS_GREETING_PREVIEW.caption),
-    ).toBeInTheDocument()
+    expect(screen.getByText(SMS_GREETING_PREVIEW.caption)).toBeInTheDocument()
 
     // Display-only: nothing re-sent, and the payload above is unchanged.
     expect(bodies).toHaveLength(1)
+  })
+
+  // The tracker origin is the join key between a campaign-tracker task and
+  // the outreach it produced. Serve has no tracker deep link into SMS yet, so
+  // nothing exercises this in the app — which is exactly why it needs a test:
+  // the prop existed on SmsFlow and simply was not threaded into the Serve
+  // hook, and that is invisible until the hub wires one up.
+  it('carries a tracker origin onto the Serve campaign created event', async () => {
+    api.mock('POST /v1/outreach/serve/sms', {
+      status: 200,
+      data: {
+        outreachId: 91,
+        recipientCount: 1180,
+        excludedOptedOutCount: 0,
+        excludedDuplicateCount: 0,
+      },
+    })
+    // The module-level mock accumulates across this file's tests.
+    vi.mocked(trackEvent).mockClear()
+    openServeFlow({ tracker: { trackerTaskId: 'task_42', phase: 'gotv' } })
+    await runServeToReview()
+
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(
+            ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCreated,
+          ),
+      ).toHaveLength(1),
+    )
+    const [, props] = vi
+      .mocked(trackEvent)
+      .mock.calls.find(
+        ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCreated,
+      )!
+    // Both halves or neither — a phase with no task names nothing joinable.
+    expect(props).toMatchObject({
+      medium: 'text',
+      product: 'serve',
+      trackerTaskId: 'task_42',
+      phase: 'gotv',
+      audienceSource: 'savedList',
+    })
   })
 
   it('checks out as SERVE_TEXT', async () => {
@@ -526,6 +573,7 @@ describe('SmsFlow win send path (unchanged)', () => {
   it('still derives a phone list, creates via createOutreach, and checks out as TEXT', async () => {
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}

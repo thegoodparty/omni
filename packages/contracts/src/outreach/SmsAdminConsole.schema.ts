@@ -11,12 +11,15 @@ import { P2P_SCRIPT_MAX_LENGTH } from './OutreachScript.const'
 // until an edit (usually CAS's own) re-queues it or the campaign is
 // canceled; `canvass_requested` means the send is booked with the vendor;
 // `peerly_approved` means the vendor's own review confirmed it; `canceled`
-// rows stay visible for the audit trail (who ended the send, and when).
+// rows stay visible for the audit trail (who ended the send, and when);
+// `sent` is a booked send whose send day has passed (the spine's
+// `completed`) — a record of what went out, not a delivery confirmation.
 export const SMS_APPROVAL_STATUS_VALUES = [
   'awaiting_review',
   'denied',
   'canvass_requested',
   'peerly_approved',
+  'sent',
   'canceled',
 ] as const
 export const SmsApprovalStatusSchema = z.enum(SMS_APPROVAL_STATUS_VALUES)

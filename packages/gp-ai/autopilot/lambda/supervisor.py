@@ -59,10 +59,8 @@ SLACK_CONVERSATIONS_REPLIES_URL = "https://slack.com/api/conversations.replies"
 SLACK_UPDATE_MESSAGE_URL = "https://slack.com/api/chat.update"
 SLACK_PINS_ADD_URL = "https://slack.com/api/pins.add"
 
-# Plain env var, not Secrets Manager — same posture as
-# AUTOPILOT_CLICKUP_WEBHOOK_SECRET (see handler.py's module docstring): this
-# Lambda has no secrets-outage degrade mode to reproduce, so there is no
-# reason to add the extra dependency and failure mode.
+# Runtime names read through ai_secrets.secret() (env override, else the
+# AI_SECRETS_<ENV> bundle).
 CLICKUP_API_KEY_ENV = "AUTOPILOT_CLICKUP_API_KEY"
 SLACK_BOT_TOKEN_ENV = "SLACK_BOT_TOKEN"
 SLACK_CHANNEL_ENV = "AUTOPILOT_SLACK_CHANNEL"
@@ -100,6 +98,7 @@ def _load_sibling_module(stem: str) -> Any:
     return module
 
 
+ai_secrets = _load_sibling_module("ai_secrets")
 router = _load_sibling_module("router")
 dispatch = _load_sibling_module("dispatch")
 # Only for _normalize_ts / _status_label — safe to load back even though
@@ -117,7 +116,7 @@ handler = _load_sibling_module("handler")
 def clickup_request(method: str, endpoint: str, data: dict | None = None) -> dict:
     url = f"{CLICKUP_BASE_URL}{endpoint}"
     headers = {
-        "Authorization": os.environ.get(CLICKUP_API_KEY_ENV, ""),
+        "Authorization": ai_secrets.secret(CLICKUP_API_KEY_ENV),
         "Content-Type": "application/json",
     }
     body = json.dumps(data).encode() if data is not None else None
@@ -172,7 +171,7 @@ def slack_conversations_replies(channel: str, thread_ts: str | None) -> list[dic
     landed on one of our own park/notify pings (see router.slack_ping_task_id).
     Needs the bot's channels:history scope; chat:write (already granted for
     park/notify) does NOT imply it — see autopilot/README.md's ops note."""
-    token = os.environ.get(SLACK_BOT_TOKEN_ENV, "")
+    token = ai_secrets.secret(SLACK_BOT_TOKEN_ENV)
     if not token:
         raise RuntimeError("SLACK_BOT_TOKEN not configured; cannot read Slack thread")
     if not thread_ts:
@@ -607,7 +606,7 @@ def _seconds_in_current_status(task_id: str) -> float | None:
 
 
 def _post_slack_message_raw(channel: str, text: str) -> dict | None:
-    token = os.environ.get(SLACK_BOT_TOKEN_ENV, "")
+    token = ai_secrets.secret(SLACK_BOT_TOKEN_ENV)
     if not token or not channel:
         print("ERROR: SLACK_BOT_TOKEN or channel not configured; dropping Slack message")
         return None
@@ -651,7 +650,7 @@ def update_slack_message(channel: str, ts: str, text: str) -> bool:
     card's own message was deleted out from under it — so the caller can fall
     back to posting a fresh message rather than treating a stale ts as fatal.
     """
-    token = os.environ.get(SLACK_BOT_TOKEN_ENV, "")
+    token = ai_secrets.secret(SLACK_BOT_TOKEN_ENV)
     if not token:
         print("ERROR: SLACK_BOT_TOKEN not configured; cannot update Slack message")
         return False
@@ -679,7 +678,7 @@ def pin_slack_message(channel: str, ts: str) -> bool:
     """Pins the status card message. Best-effort and never fatal — the pin is
     cosmetic (sweep.py finds its own message by the ts stored in DynamoDB,
     not by scanning pins), so a failure here must never fail the sweep tick."""
-    token = os.environ.get(SLACK_BOT_TOKEN_ENV, "")
+    token = ai_secrets.secret(SLACK_BOT_TOKEN_ENV)
     if not token:
         print("ERROR: SLACK_BOT_TOKEN not configured; cannot pin status card message")
         return False

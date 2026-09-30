@@ -226,12 +226,11 @@ const stubVendors = (
     (overrides.residents ?? { addresses: [] }) as never,
   )
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
-    // A net, not a fixture. Creating a list stopped buying path geometry when
-    // the vendor moved to ordering block faces, so nothing should reach this —
-    // it is here so a regression that re-enables the second billed call hits a
-    // stub instead of Geoapify, and gets caught by the routing-call count
-    // asserted in the create test rather than by a surprise invoice.
+    // The street path through the final door order: one leg per consecutive
+    // pair of waypoints, the shape the Routing API answers with.
     if (String(url).includes('/v1/routing')) {
+      const waypoints =
+        new URL(String(url)).searchParams.get('waypoints')?.split('|') ?? []
       return new Response(
         JSON.stringify({
           features: [
@@ -246,7 +245,11 @@ const stubVendors = (
                   ],
                 ],
               },
-              properties: {},
+              properties: {
+                legs: waypoints
+                  .slice(1)
+                  .map((_, i) => ({ time: 30 + i, distance: 40 + i })),
+              },
             },
           ],
         }),
@@ -797,15 +800,13 @@ describe('door-knocking routes', () => {
       const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
         where: { doorKnockingTurfId: res.data.id },
       })
-      // The vendor ordered block faces, so its polyline threads those faces'
-      // representatives rather than the doors — not worth a second billed
-      // call. Consumers draw straight legs instead, which under a serpentine
-      // order run between next-door neighbours.
-      expect(route.pathGeometry).toBeNull()
+      // The path is bought through the doors in walk order, so the map draws
+      // streets rather than straight lines across blocks.
+      expect(route.pathGeometry).toMatchObject({ type: 'MultiLineString' })
       // Two faces (odd and even W Elm St) and an end anchor is three billed
       // Route Planner locations, under the crossover so squared rather than
-      // multiplied. Nothing for Routing: it was never called.
-      expect(route.credits).toBe(9)
+      // multiplied: 9. Routing through three doors is two pairs: 2.
+      expect(route.credits).toBe(11)
 
       const stops = await service.prisma.doorKnockingStop.findMany({
         where: { doorKnockingTurfId: route.doorKnockingTurfId },
@@ -814,9 +815,10 @@ describe('door-knocking routes', () => {
       })
       expect(stops).toHaveLength(3)
       // Free-start open route: the first visited stop has no incoming leg;
-      // the vendor's first inter-face leg belongs to the second stop.
+      // the Routing API's first leg belongs to the second stop.
       expect(stops[0]?.legSeconds).toBe(0)
-      expect(stops[1]?.legSeconds).toBe(60)
+      expect(stops[1]?.legSeconds).toBe(30)
+      expect(stops[2]?.legSeconds).toBe(31)
       // Totals are re-derived from the legs actually written, so the per-leg
       // minutes on the walk sheet add up to the total printed above them.
       const legTotal = stops.reduce(
@@ -852,11 +854,9 @@ describe('door-knocking routes', () => {
       expect(
         spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
       ).toHaveLength(1)
-      // The second billed call is not made at all any more. Pinned because
-      // re-enabling it is one boolean, and the money is the reason not to.
       expect(
         spy.mock.calls.filter(([url]) => String(url).includes('/v1/routing')),
-      ).toHaveLength(0)
+      ).toHaveLength(1)
     })
 
     // The bug QA filmed: 3620 -> 3629 -> 3630 NE 64th Ave, two even-side
@@ -962,9 +962,9 @@ describe('door-knocking routes', () => {
       })
 
       // A call that was never made is not owed for, and the ledger is what the
-      // budget alerts read — so a zero here is the difference between a saving
-      // and a silent over-report.
-      it('bills nothing for the call it did not make', async () => {
+      // budget alerts read. The planner is skipped, so the only charge is the
+      // street path through three doors: two waypoint pairs.
+      it('bills only the street path for the call it did not make', async () => {
         stubVendors({ people: oneSideOfOneStreet })
 
         const res = await postTurf()
@@ -973,12 +973,12 @@ describe('door-knocking routes', () => {
         const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
           where: { doorKnockingTurfId: res.data.id },
         })
-        expect(route.credits).toBe(0)
+        expect(route.credits).toBe(2)
         const spend =
           await service.prisma.doorKnockingRoutePlannerSpend.findFirstOrThrow({
             where: { organizationSlug: orgSlug },
           })
-        expect(spend.credits).toBe(0)
+        expect(spend.credits).toBe(2)
         // Stops measure the route rather than the bill, so this still counts
         // every door that was frozen.
         expect(spend.waypoints).toBe(3)
@@ -1257,10 +1257,12 @@ describe('door-knocking routes', () => {
         where: { doorKnockingTurfId: route.doorKnockingTurfId },
         orderBy: { seq: 'asc' },
       })
-      // With a start anchor, every stop (including the first) has an
-      // incoming leg.
-      expect(stops[0]?.legSeconds).toBe(60)
-      expect(stops[1]?.legSeconds).toBe(61)
+      // The street path starts at the first door, so it has no incoming leg;
+      // the trip home belongs to no door and is counted only in the total.
+      expect(stops[0]?.legSeconds).toBe(0)
+      expect(stops[1]?.legSeconds).toBe(30)
+      expect(stops[2]?.legSeconds).toBe(31)
+      expect(route.totalSeconds).toBe(30 + 31 + 32)
     })
 
     // The draw step's preview reports this same limit and blocks Build route on
@@ -1515,14 +1517,14 @@ describe('door-knocking routes', () => {
           organizationSlug: orgSlug,
           turfId: res.data.id,
           waypoints: 3,
-          credits: 9,
+          credits: 11,
         })
       })
 
       // The ledger's `credits` is where the bill is totalled. Pinned against
       // the rate card: two block faces plus an end anchor is three Route
-      // Planner locations, squared because that is under the crossover. The
-      // Routing API contributes nothing because it is not called.
+      // Planner locations, squared because that is under the crossover: 9.
+      // The street path through three doors adds two waypoint pairs: 2.
       it('bills the vendor call to the ledger', async () => {
         stubVendors()
 
@@ -1533,17 +1535,17 @@ describe('door-knocking routes', () => {
           await service.prisma.doorKnockingRoutePlannerSpend.findFirstOrThrow({
             where: { organizationSlug: orgSlug },
           })
-        expect(spend.credits).toBe(9)
+        expect(spend.credits).toBe(11)
         // Stops, not credits, and stops rather than the faces the vendor was
         // billed for: this column says how big the route is, so it must not
         // move when the pricing beside it does.
         expect(spend.waypoints).toBe(3)
       })
 
-      // Grouping the doors into faces before the vendor sees them cut both
-      // halves of the bill: fewer billed locations, and no second call at all.
-      // The saving is the reason the polyline was given up, so a silent
-      // regression would spend it back.
+      // Grouping the doors into faces before the vendor sees them cuts the
+      // planner's half of the bill, which is ten credits a location against
+      // the street path's one a door, so a silent regression would spend it
+      // back.
       //
       // The job count is the exact figure here; the credits line is a
       // comparison against what this same turf used to cost, which is the

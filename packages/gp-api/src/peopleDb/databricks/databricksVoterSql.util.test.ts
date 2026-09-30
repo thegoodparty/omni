@@ -816,6 +816,20 @@ describe('buildCsvSql', () => {
     expect(sql).not.toContain('`Registered Party`')
     expect(sql).toContain('`First Name`')
   })
+
+  // The exclusion is the only thing keeping the L2 id out of a Serve CSV, and
+  // the header is a prefix of `State Voter ID` — so assert the delimited form,
+  // or a projection still carrying the id would read as absent.
+  it('omits the L2 voter id column when excluded', () => {
+    const { sql } = buildCsvSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      excludeColumns: ['LALVOTERID'],
+    })
+
+    expect(sql).not.toContain('`Voter ID`')
+    expect(sql).toContain('`State Voter ID`')
+  })
 })
 
 describe('household grouping', () => {

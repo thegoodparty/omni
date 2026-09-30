@@ -1,6 +1,7 @@
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { VercelService } from './vercel.service'
 
 const { getDomainAuthCode } = vi.hoisted(() => ({
@@ -50,4 +51,31 @@ describe('VercelService.getDomainAuthCode', () => {
       ).rejects.toBeInstanceOf(BadGatewayException)
     },
   )
+})
+
+describe('VercelService when not configured', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  })
+
+  it('logs once on construction and throws on every public method', async () => {
+    vi.stubEnv('VERCEL_TOKEN', '')
+    vi.stubEnv('VERCEL_PROJECT_ID', '')
+    vi.resetModules()
+    const { VercelService: VS } = await import('./vercel.service.js')
+    const logger = createMockLogger()
+
+    const service = new VS(logger)
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Candidate domains are disabled'),
+    )
+    await expect(
+      service.getProjectDomain('test-domain.com'),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    await expect(service.listDomains()).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+  })
 })
