@@ -12,6 +12,7 @@ from claude_agent_sdk import ResultMessage
 from pmf_engine.runner.harness.base import AgentHarness, HarnessResult
 from pmf_engine.runner.harness.claude_sdk import (
     ALLOWED_TOOLS,
+    USAGE_SCHEMA_VERSION,
     ClaudeSdkHarness,
     build_system_prompt,
     collect_output_artifact,
@@ -2299,52 +2300,81 @@ async def test_result_line_carries_the_four_billed_token_classes():
     assert line["total_cost_usd"] == 0.42
     assert line["num_turns"] == 4
     assert line["session_id"] == "sess-usage"
+    # The stamp rides on every result line, including this one. Without it a
+    # base arm from a checkout that predates the counts is indistinguishable
+    # from a run whose usage never arrived.
+    assert line["usage_schema"] == USAGE_SCHEMA_VERSION
 
 
 @pytest.mark.asyncio
-async def test_cache_counts_are_present_at_zero_when_caching_is_off():
-    """Prompt caching is off, so a real run's usage carries cache keys at zero
-    (or the CLI omits them). They must still reach the line as explicit zeros.
+async def test_cache_counts_reported_as_zero_reach_the_line_as_zero():
+    """Prompt caching is off, so a real run's usage reports its cache keys at
+    zero. A reported zero is an observation and must survive as one.
 
     This is the whole reason to carry them now rather than later: the judge's
     pricing table has no cache-read rate and throws rather than pricing a cache
     read at the full input rate, roughly a tenfold overstatement. That guard
-    reads a count. A line where the key was merely absent reads as an uncached
-    run forever, and every stored comparison goes quietly wrong the day caching
-    is switched on.
+    reads a count, so a run the CLI says used no cache has to say so.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
-        await _run_with_usage({"input_tokens": 1_000, "output_tokens": 50}, tmpdir)
+        await _run_with_usage(
+            {
+                "input_tokens": 1_000,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            },
+            tmpdir,
+        )
         line = _read_result_line(tmpdir)
 
-    assert "cache_read_input_tokens" in line["usage"]
-    assert "cache_creation_input_tokens" in line["usage"]
     assert line["usage"]["cache_read_input_tokens"] == 0
     assert line["usage"]["cache_creation_input_tokens"] == 0
     assert line["usage"]["input_tokens"] == 1_000
 
 
 @pytest.mark.asyncio
-async def test_result_line_carries_zeros_when_the_sdk_reports_no_usage():
-    """`ResultMessage.usage` is Optional in the SDK. A missing usage object must
-    still produce all four keys — a record the judge's schema accepts, showing
-    zero, rather than a record it rejects outright."""
+async def test_a_key_the_usage_dict_never_carried_is_not_invented_as_zero():
+    """The inverse of the test above, and the distinction the whole projection
+    turns on. An absent key is not an observation of zero: writing it as zero
+    tells the judge the run used no cache, which prices a cache read out of the
+    total entirely and understates the run with nothing to detect it. A key
+    that is merely missing fails the record schema instead, which is loud.
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
-        await _run_with_usage(None, tmpdir)
+        await _run_with_usage({"input_tokens": 1_000, "output_tokens": 50}, tmpdir)
         line = _read_result_line(tmpdir)
 
-    assert line["usage"] == {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "cache_creation_input_tokens": 0,
-    }
+    assert line["usage"] == {"input_tokens": 1_000, "output_tokens": 50}
 
 
-def test_usage_counts_clamps_values_the_judge_schema_would_reject():
-    """The judge's TokenUsage fields are `int().nonnegative()`, so a negative or
-    non-numeric count doesn't degrade one field — it fails validation and drops
-    the whole record. Coerce here instead."""
+@pytest.mark.asyncio
+async def test_result_line_omits_usage_when_the_sdk_reports_none():
+    """`ResultMessage.usage` is Optional in the SDK. An unobserved count must be
+    absent from the line, never written as zero.
+
+    Zero is a legal count: `priceUsd` returns 0 for it without complaint, so a
+    run that cost $4.17 would enter the comparison at $0.00 and be printed
+    beside a verdict as evidence. A record the judge rejects is recoverable; a
+    record that silently prices at $0 is not. The run must still keep its
+    artifact and its billed figure, which is what the rest of this asserts.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = await _run_with_usage(None, tmpdir, total_cost_usd=4.17)
+        line = _read_result_line(tmpdir)
+
+    assert "usage" not in line
+    # The stamp is still there, which is what separates this from a line
+    # written by a harness that never logged counts.
+    assert line["usage_schema"] == USAGE_SCHEMA_VERSION
+    assert line["total_cost_usd"] == 4.17
+    assert result.cost_usd == 4.17
+
+
+def test_usage_counts_omits_a_garbled_count_rather_than_zeroing_it():
+    """One garbled field zeroed is the worst shape available: the other three
+    stay real, so the total is plausible and carries no marker. Dropping the
+    key makes the record fail the judge's schema, which is recoverable."""
     from pmf_engine.runner.harness.claude_sdk import _usage_counts
 
     counts = _usage_counts(
@@ -2355,9 +2385,9 @@ def test_usage_counts_clamps_values_the_judge_schema_would_reject():
             "cache_creation_input_tokens": 7.9,
         }
     )
-    assert counts["input_tokens"] == 0
-    assert counts["output_tokens"] == 0
-    assert counts["cache_read_input_tokens"] == 0
+    assert "input_tokens" not in counts
+    assert "output_tokens" not in counts
+    assert "cache_read_input_tokens" not in counts
     # A float truncates to an int rather than being discarded: the count is
     # real, only its type is unexpected.
     assert counts["cache_creation_input_tokens"] == 7
@@ -2394,32 +2424,27 @@ def test_usage_counts_cannot_raise_on_a_usage_that_is_not_a_dict():
     """It is evaluated while BUILDING the record handed to `_log_jsonl`, which
     is outside that function's try/except. A raise here would escape the harness
     after the agent had already produced a valid artifact and discard it, so an
-    off-the-wire shape we did not expect has to degrade to zeros instead."""
+    off-the-wire shape we did not expect degrades to "nothing observed" — which
+    is None, not zeros: a wire shape we cannot read is not a run that used no
+    tokens."""
     from pmf_engine.runner.harness.claude_sdk import _usage_counts
 
-    zeros = dict.fromkeys(
-        (
-            "input_tokens",
-            "output_tokens",
-            "cache_read_input_tokens",
-            "cache_creation_input_tokens",
-        ),
-        0,
-    )
-    for hostile in ([], "usage", 7, object()):
-        assert _usage_counts(hostile) == zeros, hostile
+    for hostile in ([], "usage", 7, object(), None):
+        assert _usage_counts(hostile) is None, hostile
 
 
 @pytest.mark.asyncio
 async def test_a_hostile_usage_shape_still_produces_a_usable_run():
     """The end-to-end form of the assertion above: a ResultMessage whose usage
-    is the wrong type must not cost the run its artifact."""
+    is the wrong type must not cost the run its artifact, and must not turn
+    into a confident zero on the way out."""
     with tempfile.TemporaryDirectory() as tmpdir:
         result = await _run_with_usage(["not", "a", "dict"], tmpdir, total_cost_usd=0.11)
         line = _read_result_line(tmpdir)
 
     assert result.cost_usd == 0.11
-    assert line["usage"]["input_tokens"] == 0
+    assert "usage" not in line
+    assert line["usage_schema"] == USAGE_SCHEMA_VERSION
 
 
 def test_usage_counts_survives_the_json_infinity_literal():
@@ -2434,22 +2459,21 @@ def test_usage_counts_survives_the_json_infinity_literal():
     parsed = json.loads('{"input_tokens": Infinity, "output_tokens": -Infinity, "cache_read_input_tokens": NaN}')
     counts = _usage_counts(parsed)
 
-    assert counts["input_tokens"] == 0
-    assert counts["output_tokens"] == 0
-    assert counts["cache_read_input_tokens"] == 0
+    assert counts == {}
 
 
-def test_usage_counts_clamps_a_count_past_javascript_integer_precision():
-    """The judge reads these counts in TypeScript. A value past
-    Number.MAX_SAFE_INTEGER satisfies `z.number().int()` and is still wrong,
-    which is worse than being clamped, and a bignum also has no bound in a
-    durable log line."""
+def test_usage_counts_omits_a_count_past_javascript_integer_precision():
+    """The judge reads these counts in TypeScript, where a value past
+    Number.MAX_SAFE_INTEGER satisfies `z.number().int()` and is still wrong. It
+    is dropped rather than clamped: a clamped count is a number the judge would
+    price, and a wrong one, which is the same defect as writing an unobserved
+    count as zero."""
     from pmf_engine.runner.harness.claude_sdk import _MAX_LOGGED_TOKEN_COUNT, _usage_counts
 
-    counts = _usage_counts({"input_tokens": 10**400, "output_tokens": _MAX_LOGGED_TOKEN_COUNT - 1})
+    counts = _usage_counts({"input_tokens": 2**53, "output_tokens": _MAX_LOGGED_TOKEN_COUNT - 1})
 
-    assert counts["input_tokens"] == _MAX_LOGGED_TOKEN_COUNT
+    assert "input_tokens" not in counts
     assert _MAX_LOGGED_TOKEN_COUNT == 2**53 - 1
-    # A real count just under the ceiling is untouched — the clamp must not be
-    # quietly rewriting ordinary values.
+    # A real count just under the ceiling is untouched — the bound must not be
+    # rejecting ordinary values.
     assert counts["output_tokens"] == _MAX_LOGGED_TOKEN_COUNT - 1

@@ -68,6 +68,19 @@ DEFAULT_PERMISSION_MODE = "bypassPermissions"
 # ResultMessage) we overwrite the estimate with the authoritative figure.
 _accumulated_cost_usd = 0.0
 
+# The four token classes a run is billed on, mapping the CLI's own key names
+# (verified against the bundled CLI's zero-usage literal) to the rate names in
+# _PRICE_PER_MTOK. One mapping, two readers: `_price_turn` bills a timed-out
+# run from it and `_usage_counts` logs the counts the judge re-derives from. A
+# second copy of these names would let a CLI rename silently read 0 on one side
+# and leave the two costs disagreeing with nothing to detect it.
+_USAGE_TOKEN_KEYS = {
+    "input_tokens": "input",
+    "output_tokens": "output",
+    "cache_read_input_tokens": "cache_read",
+    "cache_creation_input_tokens": "cache_write",
+}
+
 # $ per million tokens, keyed by substring of the AssistantMessage.model string
 # (matches bare "claude-sonnet-..." and Bedrock "anthropic.claude-sonnet-...").
 # cache_read ≈ 0.1x input, cache_write (5m) ≈ 1.25x input. Only used to price
@@ -78,8 +91,18 @@ _PRICE_PER_MTOK = {
     "haiku": {"input": 1.0, "output": 5.0, "cache_read": 0.1, "cache_write": 1.25},
 }
 
+# Number.MAX_SAFE_INTEGER. The judge reads these counts in TypeScript, so a
+# larger value would satisfy `z.number().int()` and still be wrong.
+_MAX_LOGGED_TOKEN_COUNT = 2**53 - 1
 
-def _price_turn(model: str, usage: dict) -> float:
+# Stamped on every result line so a reader can tell a harness that did not log
+# counts from a run that genuinely used none. The judge's two arms are two
+# checkouts at two commits: without this, a base arm predating the counts and a
+# run whose usage never arrived both look like a line with no `usage` key.
+USAGE_SCHEMA_VERSION = 1
+
+
+def _price_turn(model: str, usage: object) -> float:
     """Dollar cost of one turn from its per-call token usage. Each token class
     is priced at its own rate and summed — never sum raw input tokens across
     turns, since prompt caching re-bills the growing context as cheap
@@ -87,90 +110,51 @@ def _price_turn(model: str, usage: dict) -> float:
     rates = next((v for k, v in _PRICE_PER_MTOK.items() if k in (model or "").lower()), None)
     if rates is None:
         return 0.0
-    tokens = usage or {}
-    return (
-        tokens.get("input_tokens", 0) * rates["input"]
-        + tokens.get("output_tokens", 0) * rates["output"]
-        + tokens.get("cache_read_input_tokens", 0) * rates["cache_read"]
-        + tokens.get("cache_creation_input_tokens", 0) * rates["cache_write"]
-    ) / 1_000_000
+    counts = _usage_counts(usage) or {}
+    return sum(count * rates[_USAGE_TOKEN_KEYS[key]] for key, count in counts.items()) / 1_000_000
 
 
-# The four token classes a run is billed on, under the CLI's own key names
-# (verified against the bundled CLI's zero-usage literal, which is
-# `{input_tokens, cache_creation_input_tokens, cache_read_input_tokens,
-# output_tokens, server_tool_use, service_tier, cache_creation, ...}`).
-#
-# `_price_turn` above consumes AssistantMessage.usage in-process, so before
-# these were logged the only token-derived number that ever reached
-# conversation.jsonl was a dollar figure. A dollar figure is a snapshot of one
-# price list. The Universal Judge re-derives its cost delta from raw counts
-# precisely so a price change cannot masquerade as a branch difference, and
-# with no counts on the line it re-derived 0 against 0 for every background
-# agent — the stored snapshot right, the comparison meaningless.
-_USAGE_TOKEN_KEYS = (
-    "input_tokens",
-    "output_tokens",
-    "cache_read_input_tokens",
-    "cache_creation_input_tokens",
-)
+def _usage_counts(usage: object) -> dict[str, int] | None:
+    """The billed token counts a ResultMessage actually reported, or None.
 
-# Ceiling on a logged count. Not a guess at a plausible token total — it is
-# JavaScript's Number.MAX_SAFE_INTEGER, the point past which the judge, which
-# reads these counts in TypeScript, silently loses integer precision. A value
-# beyond it would satisfy `z.number().int()` and still be wrong, which is worse
-# than being clamped. Also keeps a bignum out of a durable log line.
-_MAX_LOGGED_TOKEN_COUNT = 2**53 - 1
+    Only what the dict reports is returned; an unobserved count is left out,
+    never written as 0. Zero is a legal count — the judge prices it without
+    complaint — so a zeroed count turns a $4 run into $0.00 printed beside a
+    verdict as evidence, while a missing one fails the judge's record schema,
+    which is loud and recoverable. A reported zero is an observation and
+    survives as one.
 
+    Projected onto the four billed classes rather than dumped verbatim, because
+    the CLI's usage object also carries `server_tool_use`, `service_tier`,
+    `speed` and `iterations`, and this log is durable and parsed by other tools.
 
-def _usage_counts(usage: object) -> dict[str, int]:
-    """The four billed token classes out of a ResultMessage usage dict.
-
-    Projected onto a fixed four keys rather than dumped verbatim: the CLI's
-    usage object also carries `server_tool_use`, `service_tier`, `speed`,
-    `iterations` and friends, and pinning the shape keeps a vendor field out of
-    a durable log that other tools parse. Every key is always present, even at
-    zero: prompt caching is off today, and a consumer that saw a cache key
-    merely absent would read the run as uncached forever — the judge's pricing
-    table deliberately throws rather than pricing a cache read at the full
-    input rate (roughly a tenfold overstatement), and that guard only fires if
-    the count arrives. Counts are clamped non-negative because that is what the
-    judge's record schema admits; a negative would be rejected at ingest and
-    take the whole record with it.
-
-    NOTE: this is the aggregate the CLI reports as the session's usage
-    (`this.totalUsage`). Whether it includes subagent API calls cannot be
-    settled without a paid fan-out run, and nothing here detects it: every test
-    injects a synthetic usage dict, so if this were last-turn-only rather than
-    the session total, a re-derived cost would be understated by orders of
-    magnitude and no assertion would notice. `total_cost_usd` sits on the same
-    line, which makes the comparison *available* to whoever first runs a real
-    fan-out agent — it is not an automatic signal, and treating it as one is
-    the mistake to avoid. `ResultMessage.model_usage` carries the per-model
-    split with its own costUSD if it comes to that.
+    Unsettled: whether the CLI's `this.totalUsage` includes subagent API calls.
+    It needs a paid fan-out run to answer, and `ResultMessage.model_usage`
+    carries the per-model split if it comes to that.
 
     This cannot raise. It is evaluated while building the record passed to
-    `_log_jsonl`, which is OUTSIDE that function's try/except, so an
-    AttributeError on an unexpected usage type would propagate out of the
-    harness after the agent had already finished and throw away a real
-    artifact. The parameter is `object` rather than `dict | None` because that
-    is the real contract: it arrives straight off the wire, so the type is
-    checked here rather than trusted from an annotation.
+    `_log_jsonl`, OUTSIDE that function's try/except, so a raise would escape
+    the harness after the agent had already finished and discard a real
+    artifact.
     """
-    counts = usage if isinstance(usage, dict) else {}
+    if not isinstance(usage, dict):
+        return None
     out: dict[str, int] = {}
     for key in _USAGE_TOKEN_KEYS:
+        if key not in usage:
+            continue
         try:
-            value = int(counts.get(key))
+            value = int(usage[key])
         except Exception:
-            # Deliberately not a narrow tuple. `int()` fails differently per
-            # input type and the surprises aren't all ValueError/TypeError:
-            # `json.loads` accepts the non-standard `Infinity` literal by
-            # default, and `int(float("inf"))` raises OverflowError, which is
-            # an ArithmeticError. The guarantee above is "cannot raise", so the
-            # catch has to be the same width as the guarantee.
-            value = 0
-        out[key] = min(max(value, 0), _MAX_LOGGED_TOKEN_COUNT)
+            # Deliberately not a narrow tuple: `json.loads` accepts the
+            # non-standard `Infinity` literal, and `int(float("inf"))` raises
+            # OverflowError, an ArithmeticError. The catch has to be as wide as
+            # the "cannot raise" guarantee above.
+            continue
+        # A count past Number.MAX_SAFE_INTEGER is dropped rather than clamped:
+        # a clamped value is a number the judge would price, and wrong.
+        if 0 <= value <= _MAX_LOGGED_TOKEN_COUNT:
+            out[key] = value
     return out
 
 
@@ -561,7 +545,7 @@ async def run_agent(
     async for message in query(prompt=prompt, options=options):
         if isinstance(message, AssistantMessage):
             message_count += 1
-            _accumulated_cost_usd += _price_turn(message.model, message.usage or {})
+            _accumulated_cost_usd += _price_turn(message.model, message.usage)
             content_blocks = []
             for block in message.content:
                 if isinstance(block, TextBlock):
@@ -615,18 +599,31 @@ async def run_agent(
             # raised just below (which the runner's generic kill handler bills).
             _accumulated_cost_usd = total_cost
 
-            _log_jsonl(
-                {
-                    "type": "result",
-                    "total_cost_usd": total_cost,
-                    "num_turns": num_turns,
-                    "session_id": session_id,
-                    # Added beside the cost, never in place of it: the cost is
-                    # what the run was billed under the price list of the day,
-                    # the counts are what a later comparison re-derives from.
-                    "usage": _usage_counts(message.usage),
-                }
-            )
+            usage_counts = _usage_counts(message.usage)
+            if usage_counts is None or len(usage_counts) < len(_USAGE_TOKEN_KEYS):
+                # The line itself cannot say why a count is missing, and a
+                # consumer that rejects the record will not know either.
+                logger.warning(
+                    f"ResultMessage usage incomplete (session={session_id}): logged "
+                    f"{sorted(usage_counts) if usage_counts else []} of {sorted(_USAGE_TOKEN_KEYS)} "
+                    f"from {type(message.usage).__name__}"
+                )
+            result_record = {
+                "type": "result",
+                "total_cost_usd": total_cost,
+                "num_turns": num_turns,
+                "session_id": session_id,
+                "usage_schema": USAGE_SCHEMA_VERSION,
+            }
+            # Added beside the cost, never in place of it: the cost is what the
+            # run was billed under the price list of the day, the counts are
+            # what a later comparison re-derives from. Omitted entirely when
+            # nothing was observed — `usage_schema` is what tells a reader this
+            # harness logs counts at all, so an absent `usage` beside it means
+            # unobserved rather than zero.
+            if usage_counts:
+                result_record["usage"] = usage_counts
+            _log_jsonl(result_record)
 
             if message.is_error:
                 if message.subtype == _MAX_TURNS_SUBTYPE:

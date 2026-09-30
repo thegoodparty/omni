@@ -82,39 +82,28 @@ def handler(event: dict, context) -> None:
     reason = detail.get("stoppedReason", "")
 
     # A judge dispatch has no `experiment_run` row in gp-api, so a reconciling
-    # callback would only log `Experiment run not found`. Suppress the
-    # NOTIFICATION, and only the notification: a judge run now reaches the same
-    # liveness verdict off the same fields as a product one, and stops short of
-    # the send. The earlier top-of-handler skip collapsed the two, so an
-    # OOM-killed judge task logged a single line carrying no exit code, no
-    # stopCode and no stoppedReason — indistinguishable from a clean finish,
-    # which is the one thing this reaper exists to tell apart.
+    # callback would only log `Experiment run not found`. The suppression sits
+    # here, at the send, and not at the top of the handler: the abnormal-stop
+    # diagnosis above is why the reaper exists, and a top-of-handler skip threw
+    # it away, leaving an OOM-killed judge task indistinguishable from a clean
+    # finish.
     #
-    # No TTL is involved, in either direction, and none is wanted: this Lambda
-    # is an EventBridge target on ECS Task State Change with lastStatus=STOPPED
-    # (see infrastructure/modules/pmf-engine-control-plane/main.tf), so it only
-    # ever sees tasks that have ALREADY stopped, and its role is granted
-    # sqs:SendMessage and nothing else. It cannot stop a live task — not a judge
-    # one, not a product one. What bounds a runaway task is the runner's own
-    # `asyncio.wait_for(timeout=config.timeout_seconds)` plus `_hard_exit(1)`
-    # in runner/main.py, which is identical for both, so a judge run needs no
-    # timeout of its own here.
+    # This reaper stops nothing. It is an EventBridge target on ECS Task State
+    # Change with lastStatus=STOPPED (packages/gp-ai/infrastructure/modules/
+    # pmf-engine-control-plane/main.tf) and its role holds sqs:SendMessage and
+    # nothing else, so it only ever sees tasks that have already stopped. A
+    # runaway task is bounded by the runner's own
+    # `asyncio.wait_for(timeout=config.timeout_seconds)` plus `_hard_exit(1)`.
     if run_id.startswith(JUDGE_RUN_ID_PREFIX):
         # `stoppedReason` is the one field here an outside caller writes freely
-        # — `ecs:StopTask --reason` takes 255 characters of arbitrary text — so
-        # it is the one field bounded and `!r`-quoted, which is what stops a
-        # newline in it from forging a second log line. `run_id` and `stop_code`
-        # go in raw, exactly as the two product lines below interpolate them:
-        # ECS caps `startedBy` at 36 characters on write and `stopCode` is a
-        # closed enum, so there is nothing to bound, and guarding them here but
-        # not there would only make the difference look meaningful. `str()`
-        # first because slicing a non-string would raise in a handler that has
-        # no outer guard.
+        # (`ecs:StopTask --reason` takes 255 characters of arbitrary text), so
+        # it is bounded and `!r`-quoted: that is what stops a newline in it from
+        # forging a second log line. `str()` first because slicing a non-string
+        # would raise in a handler with no outer guard.
         #
-        # `reason=` is the suppression reason and matches the other two
-        # suppression sites (`scheduler_handler._send_callback`, the broker's
-        # `run_status`) so one query spans all three; the ECS field is spelled
-        # `stoppedReason` so the two cannot be confused during an incident.
+        # `reason=eval_run` matches the four other suppression sites
+        # (`scheduler_handler`, `dispatch_handler`, the broker's `run_status`
+        # and `artifact_publish`) so one query spans all five.
         logger.info(
             f"results_callback_suppressed reason=eval_run run_id={run_id} "
             f"stopCode={stop_code} exit={exit_code} stoppedReason={str(reason)[:200]!r}"

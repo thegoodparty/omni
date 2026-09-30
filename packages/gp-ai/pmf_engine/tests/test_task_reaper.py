@@ -133,6 +133,11 @@ def test_judge_run_is_diagnosed_even_though_no_callback_is_sent(mock_sqs):
 
     Asserted on the specific values from this event rather than on the shape of
     the line, so a log that merely mentioned "exit" would not pass.
+
+    `reason=eval_run` is asserted too. It is the key the four other suppression
+    sites use (`scheduler_handler`, `dispatch_handler`, the broker's
+    `run_status` and `artifact_publish`), and one query over all five during an
+    incident is the only reason they are spelled alike.
     """
     with _captured_logs() as records:
         reaper.handler(
@@ -153,6 +158,7 @@ def test_judge_run_is_diagnosed_even_though_no_callback_is_sent(mock_sqs):
     assert "exit=137" in text, text
     assert "stopCode=OutOfMemory" in text, text
     assert "Essential container in task exited" in text, text
+    assert "results_callback_suppressed reason=eval_run" in text, text
 
 
 @patch("pmf_engine.control_plane.task_reaper.get_sqs_client")

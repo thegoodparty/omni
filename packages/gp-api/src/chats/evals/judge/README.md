@@ -81,6 +81,29 @@ The harness prices its turns in-process, so before those were logged the only
 token-derived figure on the line was a dollar amount and `priceUsd()` over a
 background record re-derived 0 on both arms.
 
+**An unobserved count is absent, never zero.** The harness logs only the
+counts the SDK actually reported: a `ResultMessage` with no usage object
+produces a line with no `usage` key at all, and a single garbled field drops
+that one key rather than writing it as 0. A reported zero is an observation
+and does reach the line, which is what the cache-read guard above needs. So a
+`usage` missing a key is a record to reject, not a record to price — zero is
+legal to `priceUsd` and would turn a $4 run into $0.00 beside a verdict.
+
+Every result line carries `usage_schema: 1`. A sweep's two arms are two
+checkouts at two commits, so a base arm predating the counts writes a line
+with no `usage` key for a reason that has nothing to do with the run. The
+stamp is how a normalizer tells "this harness did not log counts" from "this
+run's counts were not observed".
+
+**Follow-up, not done here: `TokenUsageSchema` cannot express "unknown".** Its
+four fields are non-optional ints, so a normalizer reading a partial or absent
+`usage` has no way to record that the count is unknown — its only options are
+to reject the record or to invent a zero. Until that is resolved, a
+cross-commit sweep whose base arm predates the counts would report the
+candidate's entire spend as a cost regression against a $0 base. `record.ts`
+is the frozen cross-track contract with other branches in flight against it,
+so the change goes through review rather than a drive-by.
+
 An unknown model throws too. The cost delta is printed beside a verdict as
 evidence, and a guessed or zero rate makes that evidence fiction.
 
