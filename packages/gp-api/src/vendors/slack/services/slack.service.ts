@@ -13,12 +13,19 @@ import {
 import { Block, WebClient } from '@slack/web-api'
 import { serializeError } from 'serialize-error'
 import { PinoLogger } from 'nestjs-pino'
+import { resolveEnvVar } from '../../../shared/env/env'
 
-const { WEBAPP_ROOT_URL, SLACK_APP_ID } = process.env
+const { WEBAPP_ROOT_URL } = process.env
 
-if (!SLACK_APP_ID) {
-  throw new Error('Missing SLACK_APP_ID config')
-}
+const SLACK_NOT_CONFIGURED_MESSAGE =
+  'Slack notifications are disabled: set SLACK_APP_ID and SLACK_APP_BOT_TOKEN'
+
+const slackAppId = resolveEnvVar('SLACK_APP_ID')
+const slackBotToken = resolveEnvVar('SLACK_APP_BOT_TOKEN')
+const slackConfigured = slackAppId.configured && slackBotToken.configured
+// Only ever read once slackConfigured is true — the ternary just gives the
+// WebClient constructor a string in the disabled case, where it's never used.
+const slackAppIdValue = slackAppId.configured ? slackAppId.value : ''
 
 // TODO: Replace w/ this: https://tools.slack.dev/node-slack-sdk/web-api 🤦‍♂️
 //  or better yet, this: https://www.npmjs.com/package/nestjs-slack
@@ -31,11 +38,12 @@ export class SlackService {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(SlackService.name)
-    const slackBotToken = process.env.SLACK_APP_BOT_TOKEN
-    if (!slackBotToken) {
-      throw new Error('Missing SLACK_APP_BOT_TOKEN environment variable')
+    this.client = new WebClient(
+      slackBotToken.configured ? slackBotToken.value : '',
+    )
+    if (!slackConfigured) {
+      this.logger.warn(SLACK_NOT_CONFIGURED_MESSAGE)
     }
-    this.client = new WebClient(slackBotToken)
   }
 
   private getChannelConfig(channel: SlackChannel) {
@@ -55,6 +63,13 @@ export class SlackService {
   }
 
   async message(message: SlackMessage, channel: SlackChannel) {
+    // Matches the existing missing-apiChannelId contract below: resolve
+    // undefined and warn rather than throw, so callers' once-only claims
+    // (e.g. the nightly report's vendor escalations) roll back and retry.
+    if (!slackConfigured) {
+      this.logger.warn({ msg: SLACK_NOT_CONFIGURED_MESSAGE, channel })
+      return undefined
+    }
     const channelConfig = this.getChannelConfig(channel)
     if ('apiChannelId' in channelConfig) {
       return this.postViaWebApi(message, channelConfig.apiChannelId, channel)
@@ -64,7 +79,7 @@ export class SlackService {
     try {
       const { data } = (await lastValueFrom(
         this.httpService.post(
-          `https://hooks.slack.com/services/${SLACK_APP_ID}/${channelId}/${channelToken}`,
+          `https://hooks.slack.com/services/${slackAppIdValue}/${channelId}/${channelToken}`,
           message,
           {
             headers: {
