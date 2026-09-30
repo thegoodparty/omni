@@ -920,6 +920,9 @@ var ProductMap = (function () {
       tags.push(['drift', 'legacy'])
     const A = ANCHOR[e[10]]
     if (A) tags.push([A[0], A[1]])
+    const card = (DATA.event_cards || {})[name]
+    if (card && (card.okr_metrics || []).some((m) => !m.historical))
+      tags.push(['okr', 'OKR'])
     if (st !== 'active') tags.push(['mute', st.replace(/_/g, ' ')])
     const clean =
       !forceUnclean &&

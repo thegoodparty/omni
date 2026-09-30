@@ -35,6 +35,13 @@ this page knows (caveats, resolved lineage, browser-or-server, product) through 
 `opts`; the row badges take their words from `EventCard.verdictFor` too, so a row and its
 card cannot disagree.
 
+**OKR tags come from the semantic layer.** `okr_metrics` on each event lists every
+governed metric it feeds, read from the `anchored_on` legs in gp-data-platform's
+`sem_analytics__users_*.yml`, with the leg's qualifier and whether it is historical;
+`okr_labels` carries each metric's label. It is deliberately not the assembler's `okr`
+column, which serves the dormancy watch and so keeps one current, unqualified metric per
+event.
+
 **`standalone/template.html` is also the product map's template.** The map build
 (`packages/runbooks/surfaces/product-map/build.py`) renders it with `DATA.page = 'map'`,
 which puts the map's tree (`ProductMap`, from `map.js` there) where the events table sits
