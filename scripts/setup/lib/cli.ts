@@ -15,6 +15,22 @@
 //     precedence), validate the result, and write it to outPath. Exits 1
 //     with missing var NAMES on stderr and writes nothing if the merged env
 //     still doesn't validate.
+//
+//   npx tsx scripts/setup/lib/cli.ts get-var <envFilePath> <varName>
+//     Print <varName>'s parsed value from <envFilePath> (empty line if the
+//     file or the var is absent). Reuses parseEnvFile so bash never
+//     re-implements dotenv quoting for the one var (machine secrets) it
+//     needs to read back out of a written env file.
+//
+//   npx tsx scripts/setup/lib/cli.ts seed-login <machineSecret> <userState>
+//     Mint a per-run Clerk M2M token with <machineSecret> (pass '' to force
+//     the skip path) and use it to mint a QA fixture user in <userState> via
+//     gp-api's test-fixtures endpoint. Prints exactly one tab-separated
+//     result line to stdout — 'OK\t<email>\t<password>',
+//     'FAILED\t<reason>', or 'SKIPPED\t<reason>' — and always exits 0; the
+//     caller (setup.sh) decides how to react. Never writes anything else to
+//     stdout/stderr, so a credential can only ever reach the one line a
+//     caller explicitly captures.
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
@@ -24,6 +40,7 @@ import {
   serializeEnvFile,
   type EnvMap,
 } from './env'
+import { runSeedLogin } from './seedLogin'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
@@ -142,6 +159,25 @@ const runBuild = async (
   process.exit(0)
 }
 
+// get-var's varName arg reuses the destructured `a` name below; both
+// arguments are always non-secret path/name strings, never values.
+const runGetVar = (envFilePath: string, varName: string) => {
+  const parsed = readEnvFile(envFilePath)
+  process.stdout.write(`${parsed[varName] ?? ''}\n`)
+}
+
+const runSeedLoginCommand = async (
+  machineSecret: string,
+  userState: string,
+) => {
+  const result = await runSeedLogin(machineSecret, userState)
+  if (result.kind === 'minted') {
+    process.stdout.write(`OK\t${result.email}\t${result.password}\n`)
+  } else {
+    process.stdout.write(`${result.kind.toUpperCase()}\t${result.reason}\n`)
+  }
+}
+
 const main = async () => {
   const [command, pkgName, a, b] = process.argv.slice(2)
 
@@ -153,12 +189,24 @@ const main = async () => {
     await runBuild(pkgName, a, b)
     return
   }
+  if (command === 'get-var' && pkgName && a) {
+    runGetVar(pkgName, a)
+    return
+  }
+  // machineSecret (pkgName here) may legitimately be '' — the skip path —
+  // so only userState (a) needs to be present to accept the command.
+  if (command === 'seed-login' && a !== undefined) {
+    await runSeedLoginCommand(pkgName ?? '', a)
+    return
+  }
 
   fail(
     [
       'Usage:',
       '  cli.ts check <pkg> <envFilePath>',
       '  cli.ts build <pkg> <copiedEnvPath|-> <outPath>',
+      '  cli.ts get-var <envFilePath> <varName>',
+      '  cli.ts seed-login <machineSecret> <userState>',
     ].join('\n'),
   )
 }
