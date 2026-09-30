@@ -15,6 +15,15 @@ except (ImportError, OSError):
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
+# The judge run-id prefix is defined once, beside the rest of the judge
+# dispatch contract, and imported by both this reaper and dispatch_handler.
+# Both layouts are real: the Lambda zip is flat (handler = `task_reaper.handler`)
+# while the test suite imports the package.
+try:
+    from .manifest_loader import JUDGE_RUN_ID_PREFIX
+except ImportError:
+    from manifest_loader import JUDGE_RUN_ID_PREFIX  # type: ignore[no-redef]
+
 RESULTS_QUEUE_URL = os.environ.get("RESULTS_QUEUE_URL", "")
 CONTAINER_NAME = os.environ.get("CONTAINER_NAME", "pmf-engine")
 
@@ -58,6 +67,14 @@ def handler(event: dict, context) -> None:
     run_id = detail.get("startedBy")
     if not run_id:
         # Not a scheduler-launched agent task (we tag those with startedBy=run_id).
+        return
+
+    if run_id.startswith(JUDGE_RUN_ID_PREFIX):
+        # A judge dispatch has no `experiment_run` row in gp-api, so a
+        # reconciling callback would only log `Experiment run not found`. The
+        # cost of staying out is that the judge's own poll timeout becomes the
+        # sole detector of a silently dead task, not a backstop.
+        logger.info(f"skipping reap for judge run {run_id} (no gp-api run row to reconcile)")
         return
 
     exit_code = _container_exit_code(detail.get("containers", []))

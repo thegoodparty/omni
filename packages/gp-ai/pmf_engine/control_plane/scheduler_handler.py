@@ -19,9 +19,11 @@ except (ImportError, OSError):
 try:
     from .dispatch_handler import emit_dispatch_metric, get_sqs_client, launch_run
     from .job_store import JobClaimConflict, JobStore
+    from .manifest_loader import JUDGE_RUN_ID_PREFIX
 except ImportError:  # Lambda flat-package import
     from dispatch_handler import emit_dispatch_metric, get_sqs_client, launch_run  # type: ignore[no-redef]
     from job_store import JobClaimConflict, JobStore  # type: ignore[no-redef]
+    from manifest_loader import JUDGE_RUN_ID_PREFIX  # type: ignore[no-redef]
 
 # The live cap is the SSM parameter named by MAX_CONCURRENT_AGENTS_PARAM, read
 # each tick. When the parameter isn't configured or the read fails we fall back
@@ -102,7 +104,16 @@ def _send_callback(
     """Best-effort SQS callback to gp-api's results queue. Never raises —
     returns True on a successful send, False otherwise. The launch path keys
     its `mark_dispatched` decision on this so a failed `started` send leaves
-    the job LAUNCHING for the stuck-LAUNCHING sweep rather than orphaning it."""
+    the job LAUNCHING for the stuck-LAUNCHING sweep rather than orphaning it.
+
+    A judge run has no gp-api `experiment_run` row, so there is nothing for a
+    callback to land on and one would only log `Experiment run not found`. That
+    counts as sent: the return value drives job-state bookkeeping, and there is
+    no row to orphan by advancing it.
+    """
+    if run_id.startswith(JUDGE_RUN_ID_PREFIX):
+        logger.info(f"results_callback_suppressed reason=eval_run run_id={run_id} status={status}")
+        return True
     body = {
         "type": "agentExperimentResult",
         "data": {
