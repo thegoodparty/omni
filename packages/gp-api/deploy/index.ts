@@ -450,6 +450,45 @@ export = async () => {
           `arn:aws:secretsmanager:${region}:${accountId}:secret:${localDevEnvSecretId}-*`,
         ]
 
+  // Preview stacks seed the E2E test accounts from these and the preview E2E
+  // suite signs in with them. They sit in the shared GP_API_DEV blob under
+  // E2E_ names so dev tasks, which share that blob, never receive them.
+  const e2eCredentialKeys: Record<string, string> = {
+    ADMIN_EMAIL: 'E2E_ADMIN_EMAIL',
+    ADMIN_PASSWORD: 'E2E_ADMIN_PASSWORD',
+    CANDIDATE_EMAIL: 'E2E_CANDIDATE_EMAIL',
+    CANDIDATE_PASSWORD: 'E2E_CANDIDATE_PASSWORD',
+  }
+  const e2eCredentialSecretKeys = Object.values(e2eCredentialKeys)
+  const e2eCredentialsInSecret = e2eCredentialSecretKeys.every(
+    (key) => key in secret,
+  )
+  // Keeps preview deploys working until the four keys are added to the blob.
+  if (environment === 'preview' && !e2eCredentialsInSecret) {
+    console.warn(
+      `WARNING: ${secretName} is missing ${e2eCredentialSecretKeys.join(', ')}. ` +
+        'Preview E2E credentials fall back to plain environment values from ' +
+        'the deploy runner. Add those keys to the secret to reference them ' +
+        'via valueFrom instead.',
+    )
+  }
+
+  const containerSecrets: Record<string, pulumi.Output<string>> = {
+    ...Object.fromEntries(
+      Object.keys(secret)
+        .filter((key) => !e2eCredentialSecretKeys.includes(key))
+        .map((key) => [key, pulumi.interpolate`${secretInfo.arn}:${key}::`]),
+    ),
+    ...(environment === 'preview' && e2eCredentialsInSecret
+      ? Object.fromEntries(
+          Object.entries(e2eCredentialKeys).map(([name, key]) => [
+            name,
+            pulumi.interpolate`${secretInfo.arn}:${key}::`,
+          ]),
+        )
+      : {}),
+  }
+
   const service = createService({
     dependsOn: rdsInstance ? [rdsInstance] : [],
     environment,
@@ -467,12 +506,7 @@ export = async () => {
       dev: 'arn:aws:acm:us-west-2:333022194791:certificate/227d8028-477a-4d75-999f-60587a8a11e3',
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/e1969507-2514-4585-a225-917883d8ffef',
     }),
-    secrets: Object.fromEntries(
-      Object.keys(secret).map((key) => [
-        key,
-        pulumi.interpolate`${secretInfo.arn}:${key}::`,
-      ]),
-    ),
+    secrets: containerSecrets,
     environmentVariables: {
       PORT: '80',
       HOST: '0.0.0.0',
@@ -559,10 +593,15 @@ export = async () => {
       DB_NAME: sharedPreviewCluster
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
-      SECRET_NAMES: Object.keys(secret).join(','),
-      ...(environment === 'preview'
+      SECRETS_MANAGER_KEYS: [
+        ...Object.keys(containerSecrets),
+        ...(environment === 'preview' && !e2eCredentialsInSecret
+          ? Object.keys(e2eCredentialKeys)
+          : []),
+      ].join(','),
+      ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
+      ...(environment === 'preview' && !e2eCredentialsInSecret
         ? {
-            IS_PREVIEW: 'true',
             ADMIN_EMAIL: process.env.ADMIN_EMAIL,
             ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
             CANDIDATE_EMAIL: process.env.CANDIDATE_EMAIL,
