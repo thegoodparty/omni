@@ -295,7 +295,9 @@ fi
 
 # --- 7/8: launch + wait healthy ----------------------------------------------
 log "[7/8] Launching dev stack"
-DEV_LOG="$(mktemp -t omni-dev-log)"
+# Portable across BSD and GNU mktemp: -t <prefix> is macOS-only; GNU
+# requires an explicit XXXXXX template.
+DEV_LOG="$(mktemp "${TMPDIR:-/tmp}/omni-dev-log.XXXXXX")"
 indent "scripts/dev.sh started; combined output -> $DEV_LOG"
 "$ROOT/scripts/dev.sh" >"$DEV_LOG" 2>&1 &
 DEV_PID=$!
