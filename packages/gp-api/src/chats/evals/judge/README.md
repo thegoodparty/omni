@@ -146,6 +146,14 @@ CAN'T SAY and leaves the delta.
 judgeable, because whether declining was correct is exactly what a verdict
 should capture. Only `infraError` has no output.
 
+**`record.toolQueries` is always empty for a background agent.** Not a bug, and
+not worth debugging when you see it. A background agent reaches the warehouse
+by curling the broker from Bash, so its SQL is buried inside a shell command
+string rather than in a structured `sql` tool argument, and only a structured
+one is collected — regexing SQL back out of a shell string would put something
+that is not the agent's verbatim query into a field whose entire value is being
+verbatim. The chat agents, which call a real SQL tool, do populate it.
+
 ## Verify
 
 ```bash
