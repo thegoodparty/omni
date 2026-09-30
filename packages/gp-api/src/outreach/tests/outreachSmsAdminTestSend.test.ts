@@ -1,5 +1,5 @@
 import { BadGatewayException, HttpStatus } from '@nestjs/common'
-import { addDays, format } from 'date-fns'
+import { addDays, format, subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
@@ -59,6 +59,8 @@ const seedOutreach = (
   overrides: Partial<{
     status: OutreachStatus
     projectId: string | null
+    canvassRequestedAt: Date | null
+    date: Date
   }> = {},
 ) =>
   service.prisma.outreach.create({
@@ -115,6 +117,23 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
     expect(createTestJob).not.toHaveBeenCalled()
     expect(sendTestMessage).toHaveBeenCalledTimes(2)
     expect(sendTestMessage).toHaveBeenCalledWith('test-job-9', '5551234567')
+  })
+
+  it('400s a sent row without touching the vendor', async () => {
+    const row = await seedOutreach({
+      status: OutreachStatus.completed,
+      canvassRequestedAt: subDays(new Date(), 3),
+      date: subDays(new Date(), 2),
+    })
+
+    const res = await service.client.post(
+      `/v1/outreach/admin/sms/${row.id}/test`,
+      { phone: '5551234567' },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(createTestJob).not.toHaveBeenCalled()
+    expect(sendTestMessage).not.toHaveBeenCalled()
   })
 
   it('rejects a non-US phone without touching the vendor', async () => {
