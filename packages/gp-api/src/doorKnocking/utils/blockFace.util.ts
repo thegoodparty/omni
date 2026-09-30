@@ -260,6 +260,9 @@ export type SequencedRoute = {
   // The leg INTO each stop of `stopIndexes`, aligned with it.
   legSeconds: number[]
   legMeters: number[]
+  // True where the stop continues the previous stop's face, so the leg into
+  // it is the straight walk along one side of one street.
+  continuesFace: boolean[]
   totalSeconds: number
   totalMeters: number
 }
@@ -357,6 +360,7 @@ export const sequenceBlockFaces = (args: {
   const stopIndexes: number[] = []
   const legSeconds: number[] = []
   const legMeters: number[] = []
+  const continuesFace: boolean[] = []
 
   faceOrder.forEach((faceIndex, position) => {
     const members = faces[faceIndex]?.stopIndexes ?? []
@@ -387,6 +391,7 @@ export const sequenceBlockFaces = (args: {
         legMeters.push(leg.meters)
       }
       stopIndexes.push(stopIndex)
+      continuesFace.push(withinFace > 0)
     })
   })
 
@@ -404,5 +409,12 @@ export const sequenceBlockFaces = (args: {
     totalMeters += home.meters
   }
 
-  return { stopIndexes, legSeconds, legMeters, totalSeconds, totalMeters }
+  return {
+    stopIndexes,
+    legSeconds,
+    legMeters,
+    continuesFace,
+    totalSeconds,
+    totalMeters,
+  }
 }

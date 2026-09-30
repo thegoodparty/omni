@@ -16,6 +16,7 @@ import {
 } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type {
   LngLat,
+  RoutePathGeometry,
   RoutePlannerPlan,
 } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type { GeoapifyApi } from '@/vendors/geoapify/observability/geoapify.metrics'
@@ -847,12 +848,46 @@ export class DoorKnockingCreateService extends createPrismaBase(
       throw error
     }
 
+    // An open walk is planned as a closed one (see orderFaces) and opened at
+    // its longest leg, so it starts and ends at the turf's edges rather than
+    // being pinned to finish in the middle. The vendor reports the leg into
+    // each face; the leg that closes the tour is what its total has left over.
+    let faceOrder = plan.orderedJobIds.map(Number)
+    let faceLegSeconds = plan.legSeconds
+    let faceLegMeters = plan.legMeters
+    if (!request.loop && faceOrder.length > 1) {
+      const sum = (values: number[]) =>
+        values.reduce((total, value) => total + value, 0)
+      const closing = (legs: number[], total: number) =>
+        total - sum(legs) + (legs[0] ?? 0)
+      const cycleMeters = [
+        closing(plan.legMeters, plan.totalMeters),
+        ...plan.legMeters.slice(1),
+      ]
+      const cycleSeconds = [
+        closing(plan.legSeconds, plan.totalSeconds),
+        ...plan.legSeconds.slice(1),
+      ]
+      const cut = cycleMeters.reduce(
+        (longest, meters, position) =>
+          meters > cycleMeters[longest]! ? position : longest,
+        0,
+      )
+      const rotate = <Value>(values: Value[]) => [
+        ...values.slice(cut),
+        ...values.slice(0, cut),
+      ]
+      faceOrder = rotate(faceOrder)
+      faceLegSeconds = [0, ...rotate(cycleSeconds).slice(1)]
+      faceLegMeters = [0, ...rotate(cycleMeters).slice(1)]
+    }
+
     const sequenced = sequenceBlockFaces({
       stops,
       faces,
-      faceOrder: plan.orderedJobIds.map(Number),
-      faceLegSeconds: plan.legSeconds,
-      faceLegMeters: plan.legMeters,
+      faceOrder,
+      faceLegSeconds,
+      faceLegMeters,
       mode: request.mode,
       loop: request.loop,
     })
@@ -887,7 +922,30 @@ export class DoorKnockingCreateService extends createPrismaBase(
         pathGeometry: path.geometry,
       }
     }
-    const legs = path.legs
+    // Next-door neighbours on one side of one street keep the straight
+    // sidewalk leg. Routing snaps each door to its nearest road, and a house
+    // whose point sits nearer the street behind it would otherwise be reached
+    // by walking around the block.
+    const legs = path.legs.map((leg, index) =>
+      sequenced.continuesFace[index + 1]
+        ? {
+            seconds: sequenced.legSeconds[index + 1]!,
+            meters: sequenced.legMeters[index + 1]!,
+          }
+        : leg,
+    )
+    const geometry: RoutePathGeometry | null =
+      path.geometry?.type === 'MultiLineString' &&
+      path.geometry.coordinates.length === legs.length
+        ? {
+            type: 'MultiLineString',
+            coordinates: path.geometry.coordinates.map((line, index) =>
+              sequenced.continuesFace[index + 1]
+                ? [walked[index]!, walked[index + 1]!]
+                : line,
+            ),
+          }
+        : path.geometry
     return {
       ...plan,
       orderedJobIds: sequenced.stopIndexes.map(String),
@@ -900,7 +958,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
       totalSeconds: legs.reduce((sum, leg) => sum + leg.seconds, 0),
       totalMeters: legs.reduce((sum, leg) => sum + leg.meters, 0),
       routingWaypoints: path.billedWaypoints,
-      pathGeometry: path.geometry,
+      pathGeometry: geometry,
     }
   }
 
@@ -970,8 +1028,11 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // Anchors are deterministic, never random, and are placed on face
     // representatives for the same reasons they were placed on stops. Loop:
     // start = end at the first by address (a closed tour is the same cycle
-    // from anywhere, so the anchor is cost-free). Open: end-only anchor,
-    // letting the vendor pick the best start.
+    // from anywhere, so the anchor is cost-free). Open: start = end on the
+    // face nearest the centroid, and planStops opens that closed tour at its
+    // longest leg. An end-only anchor there pinned every open walk to finish
+    // in the middle of the turf: 1,400m against a best of 968m on a six-door
+    // Cheyenne turf, where the closed-then-opened tour walks 1,066m.
     //
     // The open anchor sits on the face NEAREST the centroid, and the one thing
     // it must not be is the farthest — which is what it used to be, chosen so
@@ -984,10 +1045,8 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // answer it marks EVERY job unassigned, so the one broken address is
     // indistinguishable from a turf that cannot be walked at all.
     //
-    // Anchoring at the centre costs almost nothing and buys the diagnosis. On
-    // an 8-face Lincoln Park turf: 2366s/2658m from the far edge against
-    // 2403s/2698m from the centre, 1.6% slower. With one unroutable stop added,
-    // the far-edge anchor returns no plan and all 9 jobs unassigned, while the
+    // Anchoring at the centre buys the diagnosis. On an 8-face Lincoln Park
+    // turf with one unroutable stop added, the far-edge anchor returns no plan and all 9 jobs unassigned, while the
     // central anchor returns the other 8 planned and `unassigned_jobs: [8]` —
     // the single address to name, which is what makes the 400 below possible.
     const anchorStops = representatives.map((stopIndex) => stops[stopIndex]!)
@@ -1015,7 +1074,8 @@ export class DoorKnockingCreateService extends createPrismaBase(
           (s.lat - centroidLat) ** 2 + (s.lng - centroidLng) ** 2
         return d(stop) < d(anchorStops[best]!) ? index : best
       }, 0)
-      agent = { end_location: jobs[anchorIndex]!.location }
+      const anchor = jobs[anchorIndex]!.location
+      agent = { start_location: anchor, end_location: anchor }
     }
 
     // Checked here rather than on the stop list, because these are the

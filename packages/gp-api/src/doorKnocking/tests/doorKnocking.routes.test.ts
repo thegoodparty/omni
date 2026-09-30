@@ -238,12 +238,13 @@ const stubVendors = (
               type: 'Feature',
               geometry: {
                 type: 'MultiLineString',
-                coordinates: [
-                  [
-                    [-87.65, 41.9],
-                    [-87.651, 41.901],
-                  ],
-                ],
+                // One line per leg, as the Routing API answers. The bend in
+                // each is what tells a routed leg from a straight one.
+                coordinates: waypoints.slice(1).map(() => [
+                  [-87.65, 41.9],
+                  [-87.6505, 41.9002],
+                  [-87.651, 41.901],
+                ]),
               },
               properties: {
                 legs: waypoints
@@ -802,11 +803,27 @@ describe('door-knocking routes', () => {
       })
       // The path is bought through the doors in walk order, so the map draws
       // streets rather than straight lines across blocks.
-      expect(route.pathGeometry).toMatchObject({ type: 'MultiLineString' })
-      // Two faces (odd and even W Elm St) and an end anchor is three billed
-      // Route Planner locations, under the crossover so squared rather than
-      // multiplied: 9. Routing through three doors is two pairs: 2.
-      expect(route.credits).toBe(11)
+      // The crossing keeps the routed street path; the neighbour hop from 3
+      // to 1 W Elm St is drawn straight from door to door.
+      expect(route.pathGeometry).toEqual({
+        type: 'MultiLineString',
+        coordinates: [
+          [
+            [-87.65, 41.9],
+            [-87.6505, 41.9002],
+            [-87.651, 41.901],
+          ],
+          [
+            [-87.651, 41.901],
+            [-87.65, 41.9],
+          ],
+        ],
+      })
+      // Two faces (odd and even W Elm St) and a start and an end anchor is
+      // four billed Route Planner locations, under the crossover so squared
+      // rather than multiplied: 16. Routing through three doors is two
+      // pairs: 2.
+      expect(route.credits).toBe(18)
 
       const stops = await service.prisma.doorKnockingStop.findMany({
         where: { doorKnockingTurfId: route.doorKnockingTurfId },
@@ -814,11 +831,15 @@ describe('door-knocking routes', () => {
         include: { targets: true },
       })
       expect(stops).toHaveLength(3)
-      // Free-start open route: the first visited stop has no incoming leg;
-      // the Routing API's first leg belongs to the second stop.
-      expect(stops[0]?.legSeconds).toBe(0)
-      expect(stops[1]?.legSeconds).toBe(30)
-      expect(stops[2]?.legSeconds).toBe(31)
+      // The first stop has no incoming leg. Crossing W Elm St takes the
+      // Routing API's leg; 3 to 1 is one side of one street, so it keeps the
+      // straight sidewalk leg (~180m on foot) rather than a routed detour.
+      expect(stops.map((stop) => stop.displayAddress)).toEqual([
+        '4 W Elm St',
+        '3 W Elm St',
+        '1 W Elm St',
+      ])
+      expect(stops.map((stop) => stop.legSeconds)).toEqual([0, 30, 130])
       // Totals are re-derived from the legs actually written, so the per-leg
       // minutes on the walk sheet add up to the total printed above them.
       const legTotal = stops.reduce(
@@ -1259,10 +1280,90 @@ describe('door-knocking routes', () => {
       })
       // The street path starts at the first door, so it has no incoming leg;
       // the trip home belongs to no door and is counted only in the total.
-      expect(stops[0]?.legSeconds).toBe(0)
-      expect(stops[1]?.legSeconds).toBe(30)
-      expect(stops[2]?.legSeconds).toBe(31)
-      expect(route.totalSeconds).toBe(30 + 31 + 32)
+      expect(stops.map((stop) => stop.legSeconds)).toEqual([0, 30, 130])
+      expect(route.totalSeconds).toBe(30 + 130 + 32)
+    })
+
+    // An open walk is planned as a closed tour anchored in the middle and then
+    // opened at its longest leg. Anchoring only the end there pinned every
+    // open walk to finish mid-turf, 45% longer than it needed to be on a
+    // six-door turf.
+    it('opens an open route at its longest leg', async () => {
+      let agentSent: Record<string, unknown> | undefined
+      let jobsSent: PostBody['jobs'] = []
+      const door = (
+        houseNumber: number,
+        lat: number,
+        lng: number,
+        street: string,
+      ) => ({
+        ...person(houseNumber, lat, lng, `${houseNumber} ${street}`),
+        displayAddress: `${houseNumber} ${street}`,
+      })
+      stubVendors({
+        people: [
+          door(10, 41.9, -87.65, 'A St'),
+          door(20, 41.901, -87.651, 'B St'),
+          door(30, 41.902, -87.652, 'C St'),
+        ],
+        geoapify: (body) => {
+          agentSent = body.agents?.[0]
+          jobsSent = body.jobs
+          return {
+            type: 'FeatureCollection',
+            properties: {
+              mode: 'walk',
+              params: {
+                mode: 'walk',
+                agents: body.agents ?? [{}],
+                jobs: body.jobs,
+                shipments: [],
+                locations: [],
+              },
+            },
+            features: [
+              {
+                type: 'Feature',
+                properties: {
+                  agent_index: 0,
+                  time: 1200,
+                  distance: 1200,
+                  mode: 'walk',
+                  actions: body.jobs.map((job) => ({
+                    type: 'job',
+                    job_id: job.id,
+                  })),
+                  // Anchor to the first job, then the tour. The leg into the
+                  // second job is the longest, so the walk starts there.
+                  legs: [0, 900, 200, 100].map((meters) => ({
+                    time: meters,
+                    distance: meters,
+                  })),
+                  waypoints: body.jobs.map((job) => ({
+                    original_location: job.location ?? [0, 0],
+                    location: job.location ?? [0, 0],
+                    actions: [],
+                  })),
+                },
+              },
+            ],
+          }
+        },
+      })
+
+      const res = await postTurf({ loop: false })
+
+      expect(res.status).toBe(201)
+      expect(agentSent?.start_location).toEqual(agentSent?.end_location)
+      const stops = await service.prisma.doorKnockingStop.findMany({
+        where: { doorKnockingTurfId: res.data.id },
+        orderBy: { seq: 'asc' },
+      })
+      expect(stops.map((stop) => [stop.lng, stop.lat])).toEqual([
+        jobsSent[1]?.location,
+        jobsSent[2]?.location,
+        jobsSent[0]?.location,
+      ])
     })
 
     // The draw step's preview reports this same limit and blocks Build route on
@@ -1517,13 +1618,13 @@ describe('door-knocking routes', () => {
           organizationSlug: orgSlug,
           turfId: res.data.id,
           waypoints: 3,
-          credits: 11,
+          credits: 18,
         })
       })
 
       // The ledger's `credits` is where the bill is totalled. Pinned against
-      // the rate card: two block faces plus an end anchor is three Route
-      // Planner locations, squared because that is under the crossover: 9.
+      // the rate card: two block faces plus a start and an end anchor is four
+      // Route Planner locations, squared because that is under the crossover: 16.
       // The street path through three doors adds two waypoint pairs: 2.
       it('bills the vendor call to the ledger', async () => {
         stubVendors()
@@ -1535,7 +1636,7 @@ describe('door-knocking routes', () => {
           await service.prisma.doorKnockingRoutePlannerSpend.findFirstOrThrow({
             where: { organizationSlug: orgSlug },
           })
-        expect(spend.credits).toBe(11)
+        expect(spend.credits).toBe(18)
         // Stops, not credits, and stops rather than the faces the vendor was
         // billed for: this column says how big the route is, so it must not
         // move when the pricing beside it does.
@@ -1569,9 +1670,9 @@ describe('door-knocking routes', () => {
           where: { doorKnockingTurfId: res.data.id },
         })
         expect(route.credits).toBeLessThan(
-          // What the same turf cost when the vendor ordered doors: three jobs
-          // and an anchor, squared, plus a credit per waypoint pair.
-          18,
+          // What the same turf would cost if the vendor ordered doors: three
+          // jobs and two anchors, squared, plus a credit per waypoint pair.
+          27,
         )
       })
     })
