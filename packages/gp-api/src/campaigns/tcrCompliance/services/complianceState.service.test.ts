@@ -447,7 +447,6 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     expect(mockRetrieveCv).toHaveBeenCalledWith(
       PEERLY_IDENTITY_ID,
       expect.anything(),
-      expect.anything(),
     )
   })
 
@@ -537,27 +536,6 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     // The delivery channel only exists in the live payload, and guessing one
     // would tell the candidate their PIN went somewhere we never read.
     expect(result.pinDelivery).toBeNull()
-  })
-
-  // This read is polled by the FE and the compliance agent, so a vendor outage
-  // would page win-bugs and message the 10DLC channel once per poll, per
-  // candidate at the PIN step, for as long as it lasted. The fallback above is
-  // what makes that failure not worth telling anybody about individually.
-  it('marks the read as one the caller has already handled', async () => {
-    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-    mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
-    mockRetrieveCv.mockResolvedValue({
-      status: PeerlyCvVerificationStatus.APPROVED,
-      pinDelivery: null,
-    })
-
-    await service.findStateForCampaign(42)
-
-    expect(mockRetrieveCv).toHaveBeenCalledWith(
-      PEERLY_IDENTITY_ID,
-      expect.anything(),
-      { suppressSlackAlert: true, handledByCaller: true },
-    )
   })
 
   it('does not resurrect an unrecognized stored status on a failed read', async () => {

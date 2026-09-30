@@ -3815,6 +3815,68 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
     })
   })
 
+  // The incident: Peerly refused this read at 17:02:59Z, the staff click came
+  // back a 502, and the resend was never attempted — while the record held an
+  // APPROVED status the sweep had observed less than half an hour earlier.
+  it('resends on the stored status when the live read is refused', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+      peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockRejectedValueOnce(
+      new BadGatewayException('Peerly API error: Campaign Verify Retrieve'),
+    )
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.resendCampaignVerifyPin(campaign),
+      ).resolves.toBeUndefined()
+      expect(mockPeerly.resendCampaignVerifyPin).toHaveBeenCalledWith(
+        'peerly-1',
+        campaign,
+      )
+    })
+  })
+
+  it('still refuses a resend on a stored VERIFIED when the read is refused', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+      peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockRejectedValueOnce(
+      new BadGatewayException('Peerly API error: Campaign Verify Retrieve'),
+    )
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        ConflictException,
+      )
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  // Resending a PIN Campaign Verify has not issued would be refused by the
+  // vendor anyway, and "try again" is the honest answer when we could not read.
+  it('surfaces the read failure when the stored status proves nothing', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+      peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockRejectedValueOnce(
+      new BadGatewayException('Peerly API error: Campaign Verify Retrieve'),
+    )
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
   it('sends to the campaign account email once configured', async () => {
     vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
     mockModel.findUnique.mockResolvedValueOnce({

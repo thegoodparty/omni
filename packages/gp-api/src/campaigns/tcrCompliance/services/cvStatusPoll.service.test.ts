@@ -255,10 +255,7 @@ describe('CvStatusPollService', () => {
       expect(cvCall.orderBy).toEqual({ updatedAt: 'asc' })
     })
 
-    // handledByCaller is the other half of not alerting per record: it keeps
-    // the vendor line at warn, so a Campaign Verify outage during a 300-record
-    // scan is one alert off the per-record failure lines rather than 300.
-    it('reads retrieve_cv once per record, alerting on neither surface', async () => {
+    it('reads retrieve_cv once per record with Slack alerts suppressed', async () => {
       const a = scanRecord('tcr-a', 1)
       const b = scanRecord('tcr-b', 2)
       mockModel.findMany.mockResolvedValueOnce([a, b])
@@ -269,7 +266,7 @@ describe('CvStatusPollService', () => {
       expect(mockPeerly.retrieveCampaignVerifyDetails).toHaveBeenCalledWith(
         'ident-1',
         a.campaign,
-        { suppressSlackAlert: true, handledByCaller: true },
+        { suppressSlackAlert: true },
       )
     })
 
@@ -381,7 +378,7 @@ describe('CvStatusPollService', () => {
       expect(mockPeerly.getIdentityProfile).toHaveBeenCalledWith(
         'ident-1',
         record.campaign,
-        { suppressSlackAlert: true, handledByCaller: true },
+        { suppressSlackAlert: true },
       )
       expect(mockModel.update).toHaveBeenCalledWith({
         where: { id: 'tcr-a' },

@@ -157,16 +157,9 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
       >
     >
     try {
-      // Both flags say the same thing about this read: the catch below answers
-      // it from the stored mirror and the caller polls again in seconds, so a
-      // failure here is not one to tell anybody about individually. Without
-      // them a vendor outage pages, and messages the 10DLC channel, once per
-      // compliance screen anyone has open — for every candidate at the PIN
-      // step, for as long as it lasts.
       details = await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
         peerlyIdentityId,
         campaign,
-        { suppressSlackAlert: true, handledByCaller: true },
       )
     } catch (e) {
       // A non-404 Peerly error (5xx / auth / timeout) makes retrieve throw a

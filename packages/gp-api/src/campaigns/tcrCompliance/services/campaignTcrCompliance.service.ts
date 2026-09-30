@@ -2454,11 +2454,45 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // CV only resends once the request is APPROVED (PIN issued) and rejects a
     // resend after VERIFIED (PIN already consumed); pre-checking the live
     // status turns those into actionable 4xxs instead of an opaque 502.
-    const { status, pinDelivery } =
-      await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
-        tcrCompliance.peerlyIdentityId,
-        campaign,
-      )
+    const { peerlyIdentityId } = tcrCompliance
+    const { status, pinDelivery } = await this.peerlyIdentityService
+      .retrieveCampaignVerifyDetails(peerlyIdentityId, campaign)
+      .catch((err: unknown) => {
+        // The read is a courtesy — it exists so staff get "already verified" or
+        // "no PIN issued yet" instead of an opaque failure — so it must not be
+        // the thing that fails the resend. On 2026-09-30 it was: Peerly refused
+        // 12 of 104 Campaign Verify reads in bursts across 3.5 hours, one of
+        // them landed on a staff resend at 17:02:59Z, and the click came back a
+        // 502 having never attempted the resend. The same click worked 95
+        // seconds later.
+        //
+        // The stored status answers the same two questions and is at most 30
+        // minutes old (the status sweep writes it). Only from APPROVED or
+        // VERIFIED, which are the two the checks below actually turn on; from
+        // anything else the read failure stands, because a resend Campaign
+        // Verify will refuse is worse than an error that says try again.
+        const lastObserved = PeerlyCvVerificationStatusSchema.safeParse(
+          tcrCompliance.peerlyCvStatus,
+        )
+        if (!lastObserved.success) {
+          throw err
+        }
+        const observed = lastObserved.data
+        if (
+          observed !== PeerlyCvVerificationStatus.APPROVED &&
+          observed !== PeerlyCvVerificationStatus.VERIFIED
+        ) {
+          throw err
+        }
+        this.logger.warn(
+          { err, tcrComplianceId: tcrCompliance.id, peerlyIdentityId },
+          '[TCR Compliance] Campaign Verify status read failed during PIN ' +
+            `resend; proceeding on the last observed status ${observed}`,
+        )
+        // No delivery channel to report: the read that carries it is the one
+        // that failed, and the resend notification handles its absence.
+        return { status: observed, pinDelivery: null }
+      })
     if (status === PeerlyCvVerificationStatus.VERIFIED) {
       throw new ConflictException(
         'The PIN has already been entered and verified for this campaign.',
@@ -2473,14 +2507,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
 
     await this.peerlyIdentityService.resendCampaignVerifyPin(
-      tcrCompliance.peerlyIdentityId,
+      peerlyIdentityId,
       campaign,
     )
-    this.trackCompliancePinResent(
-      campaign,
-      tcrCompliance.peerlyIdentityId,
-      pinDelivery,
-    )
+    this.trackCompliancePinResent(campaign, peerlyIdentityId, pinDelivery)
   }
 
   // Segment event: telemetry only (HubSpot surfaces staff resend activity on
@@ -2650,11 +2680,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // we already were. Only on that path — a successful read carrying no
       // delivery yet is the normal pre-PIN state and must not buy a second call
       // against an endpoint Peerly rate-limits to one a minute.
+      // Slack is suppressed only because the refused read above already
+      // announced this same vendor failure for this same candidate. The log
+      // line still writes at error, so what pages is unchanged.
       const observed = statusReadFailed
         ? await this.peerlyIdentityService
             .retrieveCampaignVerifyDetails(peerlyIdentityId, campaign, {
               suppressSlackAlert: true,
-              handledByCaller: true,
             })
             .catch(() => details)
         : details

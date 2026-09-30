@@ -170,48 +170,6 @@ describe('PeerlyErrorHandlingService', () => {
       expect(logger.warn).not.toHaveBeenCalled()
     })
 
-    // The second incident on this alert: Campaign Verify began refusing every
-    // status read, and the poll that re-reads each record every 30 minutes
-    // paged once per failed read. The sweep's own per-record error line is what
-    // carries that signal now.
-    it('logs a swept read the caller will retry at warn', async () => {
-      const { logger, asPino } = fakeLogger()
-
-      await expect(
-        service.handleApiError({
-          error: axiosError({
-            Error: 'Campaign Verify Retrieve API request failed.',
-            status_code: 403,
-          }),
-          context: { handledByCaller: true },
-          logger: asPino,
-        }),
-      ).rejects.toThrow(BadGatewayException)
-
-      expect(logger.warn).toHaveBeenCalledTimes(2)
-      expect(logger.error).not.toHaveBeenCalled()
-    })
-
-    // The same vendor refusal on a read a candidate is waiting on is a fault
-    // somebody must see now, so only the caller that retries may downgrade it.
-    it('keeps the same failure at error when nobody will retry it', async () => {
-      const { logger, asPino } = fakeLogger()
-
-      await expect(
-        service.handleApiError({
-          error: axiosError({
-            Error: 'Campaign Verify Retrieve API request failed.',
-            status_code: 403,
-          }),
-          context: { suppressSlackAlert: true },
-          logger: asPino,
-        }),
-      ).rejects.toThrow(BadGatewayException)
-
-      expect(logger.error).toHaveBeenCalled()
-      expect(logger.warn).not.toHaveBeenCalled()
-    })
-
     // A content rejection is surfaced to the user as a 400 carrying Peerly's
     // own wording, so it is self-service, not an incident. Nothing has to be
     // passed for this one — the body is enough to recognize it.

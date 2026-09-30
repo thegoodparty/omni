@@ -422,52 +422,6 @@ export const GLOBAL_ALERTS: Alert[] = [
     notify: 'win-bugs',
   },
   {
-    slug: 'win-cv-status-reads-failing',
-    name: '[Win] Campaign Verify status reads failing',
-    type: 'log',
-    // The scheduled Campaign Verify status reads, counted where the sweep
-    // records its own failures rather than where the vendor error is logged.
-    // Both the twice-daily scan and the 30-minute fresh poll write this line
-    // once per record they cannot read, so one literal covers both prefixes.
-    //
-    // WHY IT IS NOT `win-peerly-warnings` DOING THIS. That rule counts
-    // error-level vendor lines with a threshold of zero, which is right for a
-    // read a person is waiting on and wrong for a swept one: on 2026-09-30
-    // Campaign Verify began answering 403 to every status read, and the poll
-    // paged every thirty minutes for the single registration it was polling,
-    // with nothing in the message naming it. The same failure during a full
-    // scan is 60+ pages. The swept read now logs at `warn`
-    // (`handledByCaller` on the Peerly error context), and persistence is what
-    // this rule measures instead.
-    //
-    // The threshold is what makes it mean "still failing". The fresh poll reads
-    // twice an hour, so one failure is a blip the next pass corrects and two is
-    // a registration whose status we have been unable to read for half an hour;
-    // a broad vendor failure clears it immediately, from several records at
-    // once. A record only the twice-daily scan touches cannot reach 2 in an
-    // hour by itself and is covered by the nightly 10DLC report's stalled-
-    // registration sections instead.
-    expr: [
-      'sum(count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "CV poll failed for record"',
-      '[1h]))',
-    ].join(' '),
-    threshold: 1,
-    for: '0m',
-    // The [1h] vector needs a matching fetch window, and an hour re-read every
-    // minute would be 60x ingest on its own. At 30 minutes it is 2x, and `for`
-    // is zero so the rule still fires on the first evaluation past the
-    // threshold — within half an hour of the second failed read.
-    timeRangeSeconds: 3600,
-    evaluationIntervalSeconds: 1800,
-    message: [
-      "Two or more scheduled reads of a candidate's Campaign Verify status have failed in the last hour, so at least one 10DLC registration cannot progress: no PIN-sent notice, no rejection detection, and the PIN screen falls back to the last status we managed to observe.",
-      'Click *View in Grafana* and read the matching `CV poll failed for record` lines: each carries the `tcrComplianceId` and the Peerly response. A body of `{"Error":"Campaign Verify ... request failed.","status_code":403}` is Campaign Verify refusing us rather than anything gp-api did, and needs raising with Peerly.',
-    ].join('\n\n'),
-    notify: 'win-bugs',
-  },
-  {
     slug: 'win-outreach-paid-not-scheduled-warning',
     name: '[Win] P2P outreach paid but not scheduled',
     type: 'log',
