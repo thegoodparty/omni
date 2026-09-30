@@ -72,6 +72,9 @@ describe('checkSmsStandards link_shortener', () => {
       'https://bit.lyric.example.org',
       'mybit.ly/x',
       'my-bit.ly-thing',
+      // A shortener's name is also the start of longer, legitimate domains.
+      'https://t.co.uk/donate',
+      'https://is.gd.example.com/page',
     ]) {
       const verdict = checkSmsStandards(
         compliant.replace('https://janedoe.com/plan', link),

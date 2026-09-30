@@ -65,8 +65,10 @@ export type SmsStandardsVerdict = z.infer<typeof SmsStandardsVerdictSchema>
 //
 // The host has to sit on its own: any non-word character may precede it (a
 // space, but also `link:bit.ly/x`, `here,bit.ly/x`, `end.bit.ly/x`) and a word
-// character may not follow it. So `t.co` does not match inside `t.com`, and
-// `bit.ly` does not match inside `mybit.ly` or `rabbit.lyric`.
+// character may not follow it, nor a dot that starts a longer suffix. So `t.co`
+// does not match inside `t.com`, `t.co.uk` or `is.gd.example.com`, and `bit.ly`
+// does not match inside `mybit.ly` or `rabbit.lyric`. A sentence-ending period
+// is still caught, because what follows it is a space, not a letter.
 const LINK_SHORTENER_HOSTS = [
   'bit.ly',
   'bitly.com',
@@ -90,7 +92,7 @@ const LINK_SHORTENER_HOSTS = [
 const LINK_SHORTENER_PATTERN = new RegExp(
   `(?:^|[^\\w-])(?:https?://)?(?:www\\.)?(?:${LINK_SHORTENER_HOSTS.map((host) =>
     host.replace(/\./g, '\\.'),
-  ).join('|')})(?![\\w-])`,
+  ).join('|')})(?![\\w-])(?!\\.[a-z])`,
   'i',
 )
 
