@@ -933,20 +933,8 @@ def test_run_backfill_writes_csv_and_state(monkeypatch, tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def test_pick_introducing_merge_takes_oldest_merge_on_ancestry_path():
-    # rev-list emits newest-first; the merge that *introduced* a commit is the oldest
-    # on the ancestry path to the deploy ref, i.e. the last line.
-    rev_list = "newmerge111\noldmerge222\n"
-    assert bf._pick_introducing_merge(rev_list) == "oldmerge222"
-
-
-def test_pick_introducing_merge_none_when_no_merge():
-    assert bf._pick_introducing_merge("") is None
-    assert bf._pick_introducing_merge("\n") is None
-
-
 def test_make_merge_walk_resolver_delegates_to_git_merge_pr(monkeypatch):
-    monkeypatch.setattr(bf, "git_merge_pr", lambda root, sha, ref: f"{root}:{sha}:{ref}")
+    monkeypatch.setattr(bf, "git_merge_pr", lambda root, sha, ref, grafted=False: f"{root}:{sha}:{ref}")
     resolver = bf.make_merge_walk_resolver("/omni", "origin/develop")
     assert resolver("abc123") == "/omni:abc123:origin/develop"
 
@@ -2280,3 +2268,38 @@ def test_augment_call_site_columns_warns_only_when_every_registry_is_empty(monke
     bf.augment_call_site_columns(rows, "/root", "origin/main")
     assert rows[0]["call_site_count"] == "5"  # untouched
     assert "returned empty" in capsys.readouterr().err
+
+
+def test_compute_call_site_fields_names_the_removing_commit():
+    events_map = {"Dash Viewed": ["EVENTS.Dashboard.Viewed"]}
+    commit = {"commit": "abc123", "date": "2026-09-01", "pr": "1640"}
+    fields = compute_call_site_fields(events_map, [], lambda p: "2026-09-01", lambda p: commit)
+    assert fields["Dash Viewed"]["call_site_retired_commit"] == "abc123"
+    assert fields["Dash Viewed"]["call_site_retired_pr"] == "1640"
+
+
+def test_compute_call_site_fields_live_event_names_no_removing_commit():
+    events_map = {"Dash Viewed": ["EVENTS.Dashboard.Viewed"]}
+    file_texts = ["trackEvent(EVENTS.Dashboard.Viewed)"]
+    fields = compute_call_site_fields(
+        events_map, file_texts, lambda p: "2026-09-01", lambda p: {"commit": "x", "pr": "1"}
+    )
+    assert fields["Dash Viewed"]["call_site_retired_pr"] is None
+
+
+def test_call_site_removal_pr_is_a_graft_aware_pr_field():
+    assert ("call_site_retired_commit", "call_site_retired_pr") in bf._PR_FIELDS
+    assert "call_site_retired_pr" in bf.PROVENANCE_COLUMNS
+
+
+def test_introducing_pr_skips_a_branch_merging_main_into_itself():
+    subjects = "\n".join([
+        "Merge pull request #1638 from thegoodparty/worktree-eng-11018",
+        "Merge pull request #1636 from thegoodparty/eng-11007-outreach-flags",
+        "Merge remote-tracking branch 'origin/main' into eng-11007-outreach-flags",
+    ])
+    assert bf._pick_introducing_pr(subjects) == "1636"
+    assert bf._pick_introducing_pr("Merge branch 'main' into x") is None
+    assert bf._pick_introducing_pr("") is None
+    # Grafted history keeps the strict rule: the oldest merge or nothing.
+    assert bf._pick_introducing_pr(subjects, oldest_only=True) is None

@@ -1274,6 +1274,7 @@
     'okr',
     'elevated',
     'instrumented_pr',
+    'removed_by_pr',
     'location',
     'surface_type',
     'rubric_rule',
@@ -1294,6 +1295,7 @@
     last_seen_date: 'Last seen',
     divergence: 'Divergence',
     instrumented_pr: 'PR',
+    removed_by_pr: 'Removed by',
     okr: 'OKR',
     elevated: 'Elevated',
     location: 'File',
@@ -1323,7 +1325,7 @@
       add(td, chip)
       return td
     }
-    if (key === 'instrumented_pr' && value) {
+    if ((key === 'instrumented_pr' || key === 'removed_by_pr') && value) {
       const td = el('td', 'mono')
       const link = el('a', null, String(value).split('/').pop())
       link.href = value
@@ -1623,7 +1625,11 @@
     proof.type = 'text'
     proof.id = 'proof-' + key.replace(/[^A-Za-z0-9_-]/g, '-')
     proof.placeholder = PROOF_PLACEHOLDER
-    proof.value = (judgments[key] && judgments[key].proof) || ''
+    // Pre-filled with the PRs that deleted this cause's call sites, when the provenance
+    // walk found them, so the proof is shown rather than searched for. Still an input:
+    // the reviewer reads it and it records only when they pick the verb.
+    proof.value =
+      (judgments[key] && judgments[key].proof) || item.proof_hint || ''
     proof.hidden = true
 
     // A verdict chosen but not yet recorded, because a precondition is unmet. Held
@@ -1816,6 +1822,9 @@
     proof.id = 'picked-proof-' + item.id.replace(/[^A-Za-z0-9_-]/g, '-')
     proof.placeholder = PROOF_PLACEHOLDER
     proof.hidden = true
+    proof.addEventListener('input', () => {
+      proof.dataset.typed = proof.value ? '1' : ''
+    })
 
     const chip = el('span', 'chip verdict picked-chip')
     chip.hidden = true
@@ -1918,6 +1927,19 @@
         bar.hidden = !n
         reason.hidden = !n
         if (!n) proof.hidden = true
+        // The PRs that removed just these events, shown in the box as it opens. Only
+        // while the box holds nothing typed by hand, so a reviewer's own proof stands.
+        if (!proof.dataset.typed) {
+          const refs = []
+          ;(item.evidence || []).forEach((row) => {
+            if (events.indexOf(row.event_type) < 0 || !row.removed_by_pr) return
+            const m = /github\.com\/thegoodparty\/omni\/pull\/(\d+)/.exec(row.removed_by_pr)
+            const ref = m ? '#' + m[1] : row.removed_by_pr
+            if (refs.indexOf(ref) < 0) refs.push(ref)
+          })
+          proof.value = refs.join(', ')
+          if (refs.length) proof.hidden = false
+        }
       },
     }
   }

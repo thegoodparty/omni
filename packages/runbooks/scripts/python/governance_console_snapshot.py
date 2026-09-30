@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timezone
@@ -657,7 +658,30 @@ def _flag_evidence(record: Mapping, code: Mapping, run_date: str | None) -> dict
     row["instrumented_date"] = instrumented
     row["days_since_instrumented"] = _days_between(instrumented, run_date)
     row["provenance"] = provenance_state(provenance)
+    row["removed_by_pr"] = (provenance or {}).get("call_site_retired_pr") or None
     return row
+
+
+_OMNI_PR = re.compile(r"github\.com/thegoodparty/omni/pull/(\d+)")
+
+
+def removal_proof(evidence: list[dict]) -> str:
+    """The PRs that deleted a cause's call sites, as the console's proof box accepts them.
+
+    Only ever a suggestion the reviewer sees and can edit: a Govern write still carries
+    whatever they leave in the box. Empty when no event names its removing commit, so an
+    unattributed removal is never dressed up as an evidenced one.
+    """
+    refs: list[str] = []
+    for row in evidence:
+        url = row.get("removed_by_pr")
+        if not url:
+            continue
+        m = _OMNI_PR.search(url)
+        ref = f"#{m.group(1)}" if m else url
+        if ref not in refs:
+            refs.append(ref)
+    return ", ".join(refs)
 
 
 def _sorted_evidence(rows: list[dict]) -> list[dict]:
@@ -704,6 +728,9 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
         reason = dismissed.get(cause)
         verdict, why = recommend_flag(cause)
         dismissable = cause.partition("@")[0] not in aeh.UNDISMISSABLE_CAUSES
+        evidence = _sorted_evidence(
+            [_flag_evidence(record, code, run_date) for record in by_cause.get(cause, [])]
+        )
         items.append({
             "id": cause,
             "queue": "flags",
@@ -721,10 +748,8 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
             "elevated_note": _elevated_note(
                 by_cause.get(cause, []), group["elevated"]
             ),
-            "evidence": _sorted_evidence(
-                [_flag_evidence(record, code, run_date)
-                 for record in by_cause.get(cause, [])]
-            ),
+            "evidence": evidence,
+            "proof_hint": removal_proof(evidence),
         })
     return items
 

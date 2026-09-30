@@ -140,8 +140,21 @@ def test_build_flag_queue_evidence_carries_what_a_ruling_needs():
         "divergence": "declared not-in-use but still firing",
         "instrumented_pr": "", "okr": None, "elevated": False,
         "instrumented_date": None, "days_since_instrumented": None,
-        "provenance": "not found in code",
+        "provenance": "not found in code", "removed_by_pr": None,
     }]
+    assert item["proof_hint"] == ""
+
+
+def test_proof_hint_names_each_removing_pr_once():
+    omni = "https://github.com/thegoodparty/omni/pull/"
+    evidence = [
+        {"removed_by_pr": omni + "1640"}, {"removed_by_pr": omni + "1636"},
+        {"removed_by_pr": omni + "1640"}, {"removed_by_pr": None},
+        {"removed_by_pr": "https://github.com/thegoodparty/gp-webapp/pull/88"},
+    ]
+    assert gcs.removal_proof(evidence) == (
+        "#1640, #1636, https://github.com/thegoodparty/gp-webapp/pull/88"
+    )
 
 
 # --- recommendations ----------------------------------------------------------
