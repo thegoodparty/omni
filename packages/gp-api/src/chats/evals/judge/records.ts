@@ -3,8 +3,10 @@ import path from 'node:path'
 import {
   GetObjectCommand,
   ListObjectsV2Command,
+  NoSuchKey,
   PutObjectCommand,
   S3Client,
+  type GetObjectCommandOutput,
 } from '@aws-sdk/client-s3'
 import { MimeTypes } from 'http-constants-ts'
 import { z } from 'zod'
@@ -44,6 +46,11 @@ import {
 const SEGMENT = /^[A-Za-z0-9_-]+$/
 
 export class RecordStoreError extends Error {}
+
+// S3's ENOENT, and the only failure a store may read as "nothing was written
+// here". The port raises it because recognising an absent object is the
+// adapter's job: the store is deliberately free of the SDK's types.
+export class RecordNotFoundError extends RecordStoreError {}
 
 // ENOENT, and nothing else. Every other errno is a real failure that must not
 // be read as "there is nothing here".
@@ -328,8 +335,9 @@ export const createLocalRecordStore = (root: string): RecordStore => {
 // deliberately.
 export interface S3RecordPort {
   putObject: (key: string, body: string) => Promise<void>
-  // Rejects when the object is absent, which is how a missing arm manifest is
-  // told from an empty one.
+  // Rejects with RecordNotFoundError when the object is absent, which is how
+  // a missing arm manifest is told from an empty one, and with whatever went
+  // wrong for every other failure.
   getObject: (key: string) => Promise<string>
   listKeys: (prefix: string) => Promise<string[]>
 }
@@ -383,7 +391,12 @@ export const createS3RecordStore = (
       let text: string
       try {
         text = await port.getObject(key)
-      } catch {
+      } catch (err) {
+        // Absent only, the way the local store checks for ENOENT. A denied
+        // read, a dropped connection or an object with no body is a real
+        // failure, and calling it a manifest the arm never wrote sends the
+        // reader hunting for a self-skipped vitest suite.
+        if (!(err instanceof RecordNotFoundError)) throw err
         throw new RecordStoreError(
           `the ${arm} arm of sweep ${sweepId} wrote no manifest ` +
             `(s3://${bucket}/${key}), so it never reported a capture; a ` +
@@ -415,9 +428,15 @@ export const s3PortFromClient = (
   },
 
   getObject: async (key) => {
-    const output = await client.send(
-      new GetObjectCommand({ Bucket: bucket, Key: key }),
-    )
+    let output: GetObjectCommandOutput
+    try {
+      output = await client.send(
+        new GetObjectCommand({ Bucket: bucket, Key: key }),
+      )
+    } catch (err) {
+      if (!(err instanceof NoSuchKey)) throw err
+      throw new RecordNotFoundError(`s3://${bucket}/${key} is not there`)
+    }
     if (output.Body === undefined) {
       throw new RecordStoreError(`s3://${bucket}/${key} returned no body`)
     }

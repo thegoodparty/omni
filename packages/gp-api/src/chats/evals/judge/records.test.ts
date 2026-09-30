@@ -6,6 +6,7 @@ import { CHAT_PAIR } from './fixtures/records'
 import type { RunRecord } from './record'
 import {
   ArmManifestSchema,
+  RecordNotFoundError,
   RecordStoreError,
   createLocalRecordStore,
   createS3RecordStore,
@@ -226,7 +227,9 @@ describe('the S3 store', () => {
       },
       getObject: async (key) => {
         const body = objects.get(key)
-        if (body === undefined) throw new Error(`no such key ${key}`)
+        if (body === undefined) {
+          throw new RecordNotFoundError(`no such key ${key}`)
+        }
         return body
       },
       listKeys: async (prefix) =>
@@ -268,6 +271,21 @@ describe('the S3 store', () => {
     await expect(store.getManifest('swp_absent', 'base')).rejects.toThrow(
       /never reported a capture/,
     )
+  })
+
+  // Absent is the only read failure that means the arm never reported.
+  // Anything else announced as a missing manifest sends the reader looking
+  // for a suite that self-skipped when the answer is an S3 problem.
+  it.each<[string, Error]>([
+    ['a denied read', new Error('AccessDenied: the judge role cannot read')],
+    ['a dropped connection', new Error('socket hang up')],
+    ['an object with no body', new RecordStoreError('returned no body')],
+  ])('surfaces %s as itself', async (_name, failure) => {
+    const store = createS3RecordStore(
+      { ...fakePort(), getObject: () => Promise.reject(failure) },
+      'bucket',
+    )
+    await expect(store.getManifest(BASE.sweepId, 'base')).rejects.toBe(failure)
   })
 })
 
