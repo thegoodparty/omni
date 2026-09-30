@@ -10,6 +10,7 @@ import {
   UserBubble,
 } from '../../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../../shared/agent-chat/streaming'
+import { COMPOSE_HANDOFF_TOOL } from '../../../shared/agent-chat/composeHandoffWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { newClientMessageId } from '../../../shared/agent-chat/chatHelpers'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
@@ -164,8 +165,11 @@ export default function AskAiChatBody({
     [],
   )
 
+  // compose_handoff is a widget this surface does not register, and the label
+  // fallback would otherwise put its internal name on a pill.
   const toolLabel = useCallback(
-    (name: string): string => toolDisplayName(name),
+    (name: string): string | null =>
+      name === COMPOSE_HANDOFF_TOOL ? null : toolDisplayName(name),
     [],
   )
 

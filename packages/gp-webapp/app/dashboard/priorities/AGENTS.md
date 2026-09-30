@@ -47,7 +47,9 @@ it is, what to do next, and where it has got to.
   the seven names. `currentStep` arrives as a plain string, so it is narrowed
   against `PRIORITY_STEP_IDS` rather than indexed blind: an id this build does
   not know reads as nothing. `currentStep: null` means every step is settled,
-  and the badge says so.
+  and the badge reads **Plan ready**. The last of the seven steps is "The
+  plan", so that is what finishing means, and "Settled" is already the name of
+  a per-step state in the rail.
 - **Archive is per row and takes one click.** gp-api soft-archives, so the
   record survives; the row leaves the list.
 

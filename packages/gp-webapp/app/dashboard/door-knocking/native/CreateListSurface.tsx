@@ -268,7 +268,13 @@ export interface CreateListSurfaceProps {
   onRestartDrawing: () => void
   // The drawn shape's stops as [lng, lat], for the route step's walk-vs-drive
   // suggestion. From the pack, which is the orchestrator's.
-  onStartKnocking: (turf: DoorKnockingTurf) => void
+  // The anchor rides along so the page can send the walk's exit to this
+  // campaign's details drawer rather than back to a success screen that is
+  // a one-time confirmation.
+  onStartKnocking: (
+    turf: DoorKnockingTurf,
+    anchorOutreachId: number | null,
+  ) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.

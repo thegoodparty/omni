@@ -1187,7 +1187,7 @@ export type APIEndpoints = {
   }
 
   'PUT /v1/outreach/by-proposal-key/:proposalKey': {
-    Request: Omit<OutreachProposal, 'proposalKey'> & { priorityId: string }
+    Request: Omit<OutreachProposal, 'proposalKey'> & { priorityId?: string }
     Response: OutreachDetail
   }
 

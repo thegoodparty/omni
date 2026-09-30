@@ -40,17 +40,16 @@ import {
 } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
+import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
+import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import {
   PriorityFlowContext,
   PriorityFlowContextService,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
-import {
-  buildPresentContactsTool,
-  buildPresentOutreachProposalTool,
-  buildPresentPastOutreachTool,
-  buildReadPastOutreachTool,
-} from './tools/priorityFlowTools'
 import { buildPriorityFlowSystemPrompt } from './priorityFlow.prompt'
 
 // Sensitive scope: the priority, its status, constituent counts and past
@@ -173,8 +172,12 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   private assembleTools(ctx: PriorityFlowContext): Record<string, LlmTool> {
     const tools: Record<string, LlmTool> = {
       ...this.priorityStatus.buildStatusTool(ctx.priorityId),
+      // The answer comes back as an ordinary user turn, so this presents a
+      // decision without touching the seven-step status. The agent still
+      // decides on its own when a step settles.
+      ask_clarify_question: buildAskClarifyQuestionTool(),
       present_outreach_proposal: buildPresentOutreachProposalTool(),
-      present_contacts: buildPresentContactsTool(),
+      present_outside_contact: buildPresentOutsideContactTool(),
       present_past_outreach: buildPresentPastOutreachTool(),
       read_past_outreach: buildReadPastOutreachTool({
         outreach: this.outreach,

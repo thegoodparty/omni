@@ -1,15 +1,16 @@
-const PEERLY_API_BASE_URL = process.env.PEERLY_API_BASE_URL
-const PEERLY_ACCOUNT_NUMBER = process.env.PEERLY_ACCOUNT_NUMBER
+import { BadRequestException } from '@nestjs/common'
+import { resolveEnvVar } from '../../../shared/env/env'
 
-if (!PEERLY_API_BASE_URL) {
-  throw new Error('Please set PEERLY_API_BASE_URL in your .env')
-}
-
-if (!PEERLY_ACCOUNT_NUMBER) {
-  throw new Error('Please set PEERLY_ACCOUNT_NUMBER in your .env')
-}
+const PEERLY_NOT_CONFIGURED_MESSAGE =
+  'Peerly texting is disabled: set PEERLY_API_BASE_URL and ' +
+  'PEERLY_ACCOUNT_NUMBER'
 
 export function getPeerlyJobUrl(jobId: string): string {
-  const peerlyWebUrl = PEERLY_API_BASE_URL!.replace('/api', '')
-  return `${peerlyWebUrl}/${PEERLY_ACCOUNT_NUMBER}/p2p/${jobId}`
+  const baseUrl = resolveEnvVar('PEERLY_API_BASE_URL')
+  const accountNumber = resolveEnvVar('PEERLY_ACCOUNT_NUMBER')
+  if (!baseUrl.configured || !accountNumber.configured) {
+    throw new BadRequestException(PEERLY_NOT_CONFIGURED_MESSAGE)
+  }
+  const peerlyWebUrl = baseUrl.value.replace('/api', '')
+  return `${peerlyWebUrl}/${accountNumber.value}/p2p/${jobId}`
 }

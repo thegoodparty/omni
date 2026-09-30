@@ -3,7 +3,7 @@ import type { ChatCard, Person } from '@goodparty_org/contracts'
 import { CardLoading, CardNote, CardShell } from './cardShell'
 import { cardContactQueryOptions } from './cardQueries'
 
-export const SERVE_CONTACTS_CARD_COPY = {
+export const SERVE_CONSTITUENTS_CARD_COPY = {
   unnamed: 'Unnamed contact',
 }
 
@@ -11,7 +11,7 @@ const contactName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
     .filter(Boolean)
     .map((part) => part?.trim())
-    .join(' ') || SERVE_CONTACTS_CARD_COPY.unnamed
+    .join(' ') || SERVE_CONSTITUENTS_CARD_COPY.unnamed
 
 const contactWhere = (person: Person) =>
   [person.address.line1, person.address.city].filter(Boolean).join(', ')
@@ -33,10 +33,10 @@ const ContactRow = ({ person }: { person: Person }) => {
   )
 }
 
-export const ContactsCard = ({
+export const ConstituentsCard = ({
   card,
 }: {
-  card: Extract<ChatCard, { kind: 'contacts' }>
+  card: Extract<ChatCard, { kind: 'constituents' }>
 }) => {
   const results = useQueries({
     queries: card.contactIds.map((id) => cardContactQueryOptions(id)),

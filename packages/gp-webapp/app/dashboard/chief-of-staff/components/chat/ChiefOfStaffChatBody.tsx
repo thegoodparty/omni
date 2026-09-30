@@ -16,12 +16,31 @@ import {
   AssistantMarkdown,
   AssistantRow,
   ChatComposer,
-  InlineSegments,
   ThinkingRow,
   UserBubble,
 } from '../../../shared/agent-chat/chatUI'
 import MessageActionBar from '../../../shared/agent-chat/MessageActionBar'
-import { segmentsToLive } from '../../../shared/agent-chat/streaming'
+import { segmentsTextLength } from '../../../shared/agent-chat/streaming'
+import {
+  TurnBlocks,
+  liveTurnBlocks,
+  persistedTurnBlocks,
+  type PositionedWidget,
+} from '../../../shared/agent-chat/turnBlocks'
+import { createWidgetRegistry } from '../../../shared/agent-chat/widgetRegistry'
+import {
+  cardWidgetTools,
+  type CardWidgetContext,
+} from '../../../shared/agent-chat/cards/cardWidgets'
+import {
+  CLARIFY_TOOL,
+  clarifyWidgetTool,
+  type ClarifyWidgetContext,
+} from '../../../shared/agent-chat/clarifyWidget'
+import {
+  composeHandoffWidgetTool,
+  type ComposeHandoffWidgetContext,
+} from '../../../shared/agent-chat/composeHandoffWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
@@ -196,6 +215,18 @@ const CHAT_SUGGESTIONS = [
  */
 const LIST_MAP_TOOL = 'show_list_map'
 
+type CosWidgetContext = CardWidgetContext &
+  ClarifyWidgetContext &
+  ComposeHandoffWidgetContext
+
+// show_list_map is deliberately not here: its map renders after the turn's
+// prose, once per turn, and moving it would change where it appears.
+const cosWidgets = createWidgetRegistry<CosWidgetContext>([
+  ...cardWidgetTools,
+  clarifyWidgetTool,
+  composeHandoffWidgetTool,
+])
+
 // Pulls the widget payload back out of a persisted turn. Returns null for
 // every turn without one, which is nearly all of them.
 const listMapFromSegments = (
@@ -247,6 +278,9 @@ export default function ChiefOfStaffChatBody({
     retryable: boolean
   } | null>(null)
   const [liveListMap, setLiveListMap] = useState<ShowListMap | null>(null)
+  const [liveWidgets, setLiveWidgets] = useState<
+    PositionedWidget<CosWidgetContext>[]
+  >([])
   // Which list the holder is drawing on, if any. Owned HERE rather than by
   // the map card that opens it: a streaming turn's row is rebuilt under a
   // new key the moment it commits, so an overlay mounted inside the card
@@ -347,15 +381,19 @@ export default function ChiefOfStaffChatBody({
       onTurnStart: () => {
         setStreamError(null)
         setLiveListMap(null)
+        setLiveWidgets([])
       },
       // Cleared on settle as well as on start. The commit empties
       // liveSegments and swaps in the persisted transcript, whose segment
       // carries this same payload — so holding the live copy any longer
       // renders the card twice, once in the streaming row and once in
       // history, until the next message happens to clear it.
-      onTurnSettle: () => setLiveListMap(null),
+      onTurnSettle: () => {
+        setLiveListMap(null)
+        setLiveWidgets([])
+      },
       onError: (message, retryable) => setStreamError({ message, retryable }),
-      onEvent: (event) => {
+      onEvent: (event, { textLength, conversationId: turnConversationId }) => {
         // The ARGS carry the payload, which is why this reads tool_call and
         // not tool_result: args are what the segment persists, so the same
         // payload replays on reload.
@@ -365,6 +403,30 @@ export default function ChiefOfStaffChatBody({
           // Consumed either way: a payload we cannot parse is still not a
           // pill the user should see.
           return true
+        }
+        if (event.type === 'tool_call' && cosWidgets.has(event.toolName)) {
+          const instance = cosWidgets.resolve(
+            {
+              toolName: event.toolName,
+              conversationId: turnConversationId,
+              toolCallId: event.toolCallId ?? null,
+            },
+            event.args,
+          )
+          if (instance) {
+            const at = textLength()
+            setLiveWidgets((prev) => [
+              ...prev,
+              {
+                key: `${event.toolName}-${event.toolCallId ?? prev.length}`,
+                instance,
+                appearAfter: at,
+              },
+            ])
+            return true
+          }
+          // read_past_outreach is only sometimes a card; unparsed, it is a pill.
+          return cosWidgets.entry(event.toolName)?.onParseFailure !== 'inline'
         }
         // A finished crud_saved_filters call may have written a saved list.
         // This lives here rather than on the contacts page because the agent
@@ -1110,13 +1172,53 @@ export default function ChiefOfStaffChatBody({
     // message until it settles. Without this the card renders below the fold
     // and the follow-scroll has nothing to react to.
     liveListMap,
+    liveWidgets,
   ])
 
   // `liveListMap` counts as something on screen. onEvent consumes the
   // show_list_map call, so a turn that draws a map and says nothing pushes no
   // segment at all — without this the thinking row would sit under a rendered
   // map until the commit poll landed.
-  const working = sending && visibleSegments.length === 0 && !liveListMap
+  const working =
+    sending &&
+    visibleSegments.length === 0 &&
+    liveWidgets.length === 0 &&
+    !liveListMap
+  const liveBlocks = liveTurnBlocks(
+    visibleSegments,
+    liveWidgets,
+    segmentsTextLength(visibleSegments),
+  )
+
+  // The question still waiting on an answer: the last assistant turn that
+  // asked one, and only while nothing has been said since.
+  const activeClarifyId = useMemo(() => {
+    for (let i = visibleMessages.length - 1; i >= 0; i--) {
+      const message = visibleMessages[i]
+      if (!message) continue
+      if (message.role === 'user') return null
+      if ((message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return message.id
+      }
+    }
+    return null
+  }, [visibleMessages])
+  // An answer is the next thing the user said, so an answered question
+  // reloads with that answer showing.
+  const clarifyAnswerById = useMemo(() => {
+    const answers: Record<string, string> = {}
+    visibleMessages.forEach((message, index) => {
+      if (message.role === 'user') return
+      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return
+      }
+      const reply = visibleMessages
+        .slice(index + 1)
+        .find((later) => later.role === 'user')
+      if (reply) answers[message.id] = reply.content
+    })
+    return answers
+  }, [visibleMessages])
 
   const history = useMemo(
     () =>
@@ -1136,15 +1238,20 @@ export default function ChiefOfStaffChatBody({
         // project to a status pill reading `show_list_map` above the card it
         // already drew. The ordinance flow splits its present_* segments out
         // for the same reason.
-        live:
+        blocks:
           m.role === 'user'
             ? null
-            : segmentsToLive(
-                (m.segments ?? []).filter((s) => s.toolName !== LIST_MAP_TOOL),
-                m.content,
-              ),
+            : persistedTurnBlocks({
+                registry: cosWidgets,
+                segments: (m.segments ?? []).filter(
+                  (s) => s.toolName !== LIST_MAP_TOOL,
+                ),
+                content: m.content,
+                messageId: m.id,
+                conversationId,
+              }),
       })),
-    [visibleMessages],
+    [visibleMessages, conversationId],
   )
 
   // Starter chips: the caller's list, or the CoS defaults that send the chip's
@@ -1241,19 +1348,29 @@ export default function ChiefOfStaffChatBody({
         ))}
 
         {history.map((m) =>
-          m.live === null ? (
+          m.blocks === null ? (
             <UserBubble key={m.id}>{m.content}</UserBubble>
           ) : (
-            <AssistantRow key={m.id} fullWidth={Boolean(m.listMap)}>
-              <InlineSegments
-                segments={m.live}
+            <AssistantRow
+              key={m.id}
+              fullWidth={
+                Boolean(m.listMap) || m.blocks.some((b) => b.kind === 'widget')
+              }
+            >
+              <TurnBlocks
+                blocks={m.blocks}
                 toolLabel={toolLabel}
+                context={{
+                  clarifyInteractive: m.id === activeClarifyId && !busy,
+                  clarifyAnswer: clarifyAnswerById[m.id],
+                  onClarifyAnswer: sendContent,
+                  onComposeHandoff: handleComposeHandoff,
+                }}
                 onCitationClick={
                   attachmentsEnabled.enabled && conversationId
                     ? handleCitationClick
                     : undefined
                 }
-                onComposeHandoff={handleComposeHandoff}
               />
               {m.listMap ? (
                 <ChatListMap
@@ -1278,17 +1395,23 @@ export default function ChiefOfStaffChatBody({
             of nothing but the show_list_map call, and onEvent consumes that
             event rather than pushing a segment, so gating the row on
             segments alone hid the map until the transcript reloaded. */}
-        {visibleSegments.length > 0 || liveListMap ? (
-          <AssistantRow fullWidth={Boolean(liveListMap)}>
-            <InlineSegments
-              segments={visibleSegments}
+        {visibleSegments.length > 0 || liveWidgets.length > 0 || liveListMap ? (
+          <AssistantRow
+            fullWidth={Boolean(liveListMap) || liveWidgets.length > 0}
+          >
+            <TurnBlocks
+              blocks={liveBlocks}
               toolLabel={toolLabel}
+              context={{
+                clarifyInteractive: false,
+                onClarifyAnswer: sendContent,
+                onComposeHandoff: handleComposeHandoff,
+              }}
               onCitationClick={
                 attachmentsEnabled.enabled && conversationId
                   ? handleCitationClick
                   : undefined
               }
-              onComposeHandoff={handleComposeHandoff}
             />
             {liveListMap ? (
               <ChatListMap

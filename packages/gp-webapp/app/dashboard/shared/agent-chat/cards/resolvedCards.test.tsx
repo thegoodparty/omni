@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import type { ChatCard, OutreachDetail, Person } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { toChatCard } from './toChatCard'
 import { ChatCardRenderer } from './ChatCardRenderer'
 
 const renderCard = (card: ChatCard) =>
@@ -121,7 +122,7 @@ describe('PastOutreachCard', () => {
   })
 })
 
-describe('ContactsCard', () => {
+describe('ConstituentsCard', () => {
   it('renders a row per contact that resolves, and links each one', async () => {
     api.mock('GET /v1/contacts/:id', ({ params }) => ({
       status: 200,
@@ -129,7 +130,7 @@ describe('ContactsCard', () => {
     }))
 
     renderCard({
-      kind: 'contacts',
+      kind: 'constituents',
       contactIds: ['p1', 'p2'],
       note: 'Both chair neighborhood groups on the west side.',
     })
@@ -143,6 +144,30 @@ describe('ContactsCard', () => {
     ).toBeInTheDocument()
   })
 
+  it.each(['present_constituents', 'present_contacts'])(
+    'renders from a %s tool call, so a thread written before the rename still shows the card',
+    async (toolName) => {
+      api.mock('GET /v1/contacts/:id', ({ params }) => ({
+        status: 200,
+        data: person(params.id, 'Ada'),
+      }))
+
+      const card = toChatCard({
+        toolName,
+        args: { contactIds: ['p1'], note: 'She chairs the west side group.' },
+        toolCallId: 'toolu_01xyz',
+        conversationId: 'conversation-1',
+      })
+      expect(card?.kind).toBe('constituents')
+      if (!card) throw new Error('expected a card')
+      renderCard(card)
+
+      expect(
+        await screen.findByRole('link', { name: /Ada Okafor/ }),
+      ).toHaveAttribute('href', '/dashboard/contacts/p1')
+    },
+  )
+
   it('renders nothing when every contact fails to resolve', async () => {
     api.mock('GET /v1/contacts/:id', {
       status: 404,
@@ -150,7 +175,7 @@ describe('ContactsCard', () => {
     })
 
     const { container } = renderCard({
-      kind: 'contacts',
+      kind: 'constituents',
       contactIds: ['p1'],
       note: 'Both chair neighborhood groups on the west side.',
     })

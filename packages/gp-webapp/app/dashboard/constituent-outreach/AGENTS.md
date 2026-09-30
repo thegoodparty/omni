@@ -110,6 +110,16 @@ generation services, the spine scoping — are in
   after the money has moved. A stale list beats a false payment error.
   `ConstituentOutreachPage.smsRefetch.test.tsx` pins both guards.
 
+- **That same read also fires once on mount, and door knocking is why.**
+  The rows are seeded from `page.tsx` into `useState`, so they are only as
+  fresh as the last time this route's RSC ran — and door knocking is the one
+  channel here that leaves the page to do its work, so returning from it can
+  be served from the client router cache with the campaign the flow just
+  created missing from the table. Win's hub carries the same refetch for the
+  same reason (`OutreachHubPage`). Win additionally gates its `?outreachId=`
+  deep link on the refetch settling; this page consumes no such param, so
+  there is nothing here to gate.
+
 - **The phone banking caller page and call-sheet PDF are one surface for
   both products.** Both hubs navigate to
   `/dashboard/outreach/phone-banking/[listId]` — deliberately shared, already

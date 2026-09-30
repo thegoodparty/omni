@@ -8,6 +8,10 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { CHANNEL_META } from 'app/dashboard/outreach/v2/channelMeta'
+import {
+  formatOutreachCost,
+  outreachCostCents,
+} from 'app/dashboard/outreach/util/outreachPricing'
 import { getContactsLabels } from '../../../../shared/contactsLabels'
 import { useContactsTable } from '../../ContactsTableProvider'
 import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
@@ -52,16 +56,8 @@ const pricePerContact = (channel: ChannelPickerChannel): number =>
   OUTREACH_OPTIONS.find((option) => option.type === OUTREACH_TYPES[channel])
     ?.cost ?? 0
 
-// Integer tenth-cents, rounded to the cent, so the figure here is the figure
-// gp-api's pricing utils produce for the flow's own card — float math on
-// 16,449 x 0.035 lands a cent short of what checkout charges.
-const costLabel = (reach: number, price: number): string => {
-  const cents = Math.round((reach * Math.round(price * 1000)) / 10)
-  return `$${(cents / 100).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`
-}
+const costLabel = (reach: number, price: number): string =>
+  formatOutreachCost(outreachCostCents(reach, price))
 
 // The prototype's "Choose a channel" drawer: the list name and size in the
 // header, one row per channel with how many of the list it can reach and

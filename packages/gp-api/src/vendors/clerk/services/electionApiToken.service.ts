@@ -69,7 +69,8 @@ export class ElectionApiTokenService {
   private async createAndCacheToken(): Promise<string> {
     if (!GP_API_MACHINE_SECRET) {
       throw new Error(
-        'GP_API_MACHINE_SECRET must be set to mint an election-api M2M token',
+        'GP_API_MACHINE_SECRET must be set to mint an election-api M2M ' +
+          'token — run `npm run setup`',
       )
     }
     const minted = await this.clerkClient.m2m.createToken({
