@@ -1049,6 +1049,8 @@ export {
   SmsStandardsVerdictSchema,
   type SmsStandardsVerdict,
   checkSmsStandards,
+  LINK_SHORTENER_DOMAINS,
+  findLinkShortener,
   SmsApprovalQueueItemSchema,
   type SmsApprovalQueueItem,
   SmsApprovalQueueResponseSchema,

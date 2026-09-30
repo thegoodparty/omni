@@ -30,12 +30,23 @@ export type SmsApprovalStatus = z.infer<typeof SmsApprovalStatusSchema>
 // 2026-09-02: opt-out text, recipient name, candidate name, and the
 // "Paid for by <committee>" disclaimer. Rule ids are stable identifiers
 // the UI maps to copy.
+//
+// `link_shortener` is the one rule that is not a CAS preference but a hard
+// vendor/carrier refusal, and it lives here because this checker is the only
+// thing that runs BEFORE checkout. Peerly rejects a job whose template
+// carries a public shortener with a 400 naming the domain ("Message cannot
+// contain bit.ly links."), and it only sees the template at job creation —
+// which on the draft-first flow happens after Stripe has captured payment.
+// A candidate paid $634.10 for a send that could never be created that way
+// (campaign 325980, 2026-09-30); refusing the draft is the only place the
+// answer is free.
 export const SMS_STANDARDS_RULE_VALUES = [
   'opt_out_line',
   'first_name_token',
   'candidate_name',
   'paid_for_by',
   'length',
+  'link_shortener',
 ] as const
 export const SmsStandardsRuleSchema = z.enum(SMS_STANDARDS_RULE_VALUES)
 export type SmsStandardsRule = z.infer<typeof SmsStandardsRuleSchema>
@@ -60,6 +71,53 @@ const nameTokensOf = (names: (string | null | undefined)[]): string[] =>
     .flatMap((name) => name.split(/\s+/))
     .map((token) => token.trim().toLowerCase())
     .filter((token) => token.length >= 3)
+
+// Public URL shorteners 10DLC carriers refuse to deliver, and with them
+// Peerly. Deliberately only well-known shortening services: a domain missing
+// from this list fails the way it does today (at the vendor, after payment),
+// while a domain wrongly on it would block a message Peerly would have
+// accepted. Extend it when Peerly names a domain we do not carry.
+export const LINK_SHORTENER_DOMAINS = [
+  'bit.ly',
+  'bitly.com',
+  'tinyurl.com',
+  'goo.gl',
+  't.co',
+  'ow.ly',
+  'is.gd',
+  'buff.ly',
+  'rebrand.ly',
+  'cutt.ly',
+  'shorturl.at',
+  'tiny.cc',
+  'rb.gy',
+  'lnkd.in',
+  't.ly',
+  'v.gd',
+  'bl.ink',
+  'trib.al',
+  'snip.ly',
+  's.id',
+] as const
+
+// The leading boundary excludes a label that merely ends in the domain
+// ("orbit.ly") while still matching a subdomain form ("www.bit.ly"); the
+// trailing one excludes a longer label ("bit.lyrics") while allowing a path,
+// a trailing slash, or a sentence-ending period.
+const LINK_SHORTENER_PATTERN = new RegExp(
+  `(?:^|[^a-z0-9-])(?:${LINK_SHORTENER_DOMAINS.map((domain) =>
+    domain.replace(/\./g, '\\.'),
+  ).join('|')})(?![a-z0-9-])`,
+  'i',
+)
+
+// Which shortener a message carries, or null. Exported so a caller can name
+// the domain back to the candidate instead of describing the rule.
+export const findLinkShortener = (script: string): string | null => {
+  const match = LINK_SHORTENER_PATTERN.exec(script)
+  if (!match) return null
+  return match[0].replace(/^[^a-z0-9]+/i, '').toLowerCase()
+}
 
 export const checkSmsStandards = (
   script: string,
@@ -91,6 +149,9 @@ export const checkSmsStandards = (
   }
   if (script.length > P2P_SCRIPT_MAX_LENGTH) {
     failures.push('length')
+  }
+  if (findLinkShortener(script)) {
+    failures.push('link_shortener')
   }
 
   return { passed: failures.length === 0, failures }

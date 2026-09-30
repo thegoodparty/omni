@@ -429,10 +429,17 @@ export const GLOBAL_ALERTS: Alert[] = [
     // draft before checkout and finalized (Peerly + Slack) by the post-purchase
     // handler after payment. This fires when that finalize fails AFTER money
     // was taken — the row reverts to pending_payment and Stripe's webhook
-    // retries. Successor to the campaign 318735 incident alert (2026-07-01),
-    // which keyed off webhook-path free-texts redemption; that signal is
-    // healthy behavior under draft-first (async payments and recovered
-    // client drops finalize via webhook by design).
+    // retries, EXCEPT on a message-content rejection, which the webhook acks
+    // because redelivery can never succeed. Successor to the campaign 318735
+    // incident alert (2026-07-01), which keyed off webhook-path free-texts
+    // redemption; that signal is healthy behavior under draft-first (async
+    // payments and recovered client drops finalize via webhook by design).
+    //
+    // The message used to promise an automatic Stripe retry unconditionally.
+    // That is true of a transport or vendor 5xx and false of the case that
+    // actually fired it (campaign 325980, 2026-09-30): Peerly refused a bit.ly
+    // link with a 400, the webhook acked, and a $634.10 charge sat captured
+    // with no send. The responder needs to know which of the two they have.
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
@@ -453,9 +460,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     // a human reading a log line.
     evaluationIntervalSeconds: 300,
     message: [
-      'A paid P2P outreach draft failed to submit to Peerly in the last hour. Money was taken; the draft reverted to pending_payment and the Stripe webhook will retry automatically.',
+      'A paid P2P outreach draft failed to submit to Peerly in the last hour. Money was taken and nothing is scheduled; the draft reverted to pending_payment.',
       'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId/campaignId and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
-      'If it keeps firing for the same outreach, retries are not self-healing — the draft row holds everything needed for manual submission (script, image URL, phone list, identity).',
+      'Read the Peerly error before assuming recovery. A message-content rejection (banned word, link shortener) is permanent: the webhook acknowledges it, nothing retries, and the charge stays captured until someone refunds it or CAS fixes the script and submits the job by hand — the draft row holds everything needed (script, image URL, phone list, identity). Any other failure leaves the Stripe webhook retrying on its own, and if this keeps firing for the same outreach those retries are not self-healing either.',
     ].join('\n\n'),
     notify: 'win-bugs',
   },

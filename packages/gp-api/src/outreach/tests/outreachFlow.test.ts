@@ -339,6 +339,29 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(outreachRows.length).toBe(0)
     })
 
+    // Peerly refuses a template carrying a public link shortener, and it only
+    // sees the template after checkout — so a draft that reaches payment with
+    // one is a charge that can never produce a send (campaign 325980,
+    // 2026-09-30). The refusal has to happen here, before the money.
+    it('a script carrying a link shortener is rejected before payment', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Donations here: ' +
+          'https://bit.ly/47ri12e. Paid for by Friends of Johnny. Reply STOP to opt out.',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+      })
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain('bit.ly')
+
+      const outreachRows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(outreachRows.length).toBe(0)
+    })
+
     it('invalid image MIME (HEIC) → 400, no DB row, FAILURE Slack with step=validation', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,

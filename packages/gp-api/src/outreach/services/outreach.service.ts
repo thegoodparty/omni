@@ -24,6 +24,7 @@ import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/servic
 import { isBefore } from 'date-fns'
 import {
   checkSmsStandards,
+  findLinkShortener,
   type SmsOutreachResults,
   type SmsStandardsRule,
 } from '@goodparty_org/contracts'
@@ -89,6 +90,20 @@ const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
   candidate_name: "include the candidate's name",
   paid_for_by: 'include "Paid for by <your committee name>"',
   length: 'shorten the message to fit the length limit',
+  link_shortener:
+    'replace the shortened link with the full web address — mobile ' +
+    'carriers block texts containing link shorteners such as bit.ly',
+}
+
+// The shortener fix is the only one worth naming the offending text back: a
+// candidate reading "replace the bit.ly link" knows which line to edit.
+const standardsFix = (rule: SmsStandardsRule, script: string): string => {
+  if (rule !== 'link_shortener') return SMS_STANDARDS_FIXES[rule]
+  const domain = findLinkShortener(script)
+  return domain
+    ? `replace the ${domain} link with the full web address — mobile ` +
+        'carriers block texts containing link shorteners'
+    : SMS_STANDARDS_FIXES[rule]
 }
 
 @Injectable()
@@ -154,7 +169,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     })
     if (verdict.passed) return
     const fixes = verdict.failures
-      .map((rule) => SMS_STANDARDS_FIXES[rule])
+      .map((rule) => standardsFix(rule, script))
       .filter((fix): fix is string => !!fix)
     throw new BadRequestException(
       `The message does not meet texting compliance standards: ${fixes.join(
