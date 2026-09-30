@@ -287,6 +287,96 @@ export class GeoapifyRoutePlannerService {
     }
   }
 
+  // The street path through waypoints in an order we already chose, for a
+  // caller whose planner jobs are not the points it walks (door knocking
+  // plans block faces, then sequences the doors itself). Same Routing API
+  // and the same best-effort contract as fetchPathGeometry: null legs mean
+  // the call failed or came back unreadable, and the caller keeps its own.
+  async routeThrough(args: {
+    mode: 'walk' | 'drive'
+    waypoints: LngLat[]
+  }): Promise<{
+    geometry: RoutePathGeometry | null
+    legs: Array<{ seconds: number; meters: number }> | null
+    billedWaypoints: number
+  }> {
+    if (args.waypoints.length < 2) {
+      return { geometry: null, legs: null, billedWaypoints: 0 }
+    }
+    const url = new URL('https://api.geoapify.com/v1/routing')
+    url.searchParams.set(
+      'waypoints',
+      args.waypoints.map(([lng, lat]) => `${lat},${lng}`).join('|'),
+    )
+    url.searchParams.set('mode', args.mode)
+    url.searchParams.set('apiKey', this.apiKey())
+
+    let body: unknown
+    try {
+      body = await raceWithDeadline<unknown>(
+        fetch(url).then((response) => {
+          if (!response.ok) {
+            throw new Error(`Routing API answered ${response.status}`)
+          }
+          return response.json()
+        }),
+        'Routing request timed out',
+      )
+    } catch (error) {
+      recordGeoapifyCall('routing', 'failed')
+      this.logger.warn(
+        { message: error instanceof Error ? error.message : String(error) },
+        'Geoapify door-order routing failed; route ships without a path',
+      )
+      return { geometry: null, legs: null, billedWaypoints: 0 }
+    }
+    recordGeoapifyCall('routing', 'success')
+    const billedWaypoints = args.waypoints.length
+
+    const feature =
+      typeof body === 'object' &&
+      body !== null &&
+      'features' in body &&
+      Array.isArray(body.features)
+        ? (body.features[0] as unknown)
+        : undefined
+    if (typeof feature !== 'object' || feature === null) {
+      return { geometry: null, legs: null, billedWaypoints }
+    }
+    const geometry =
+      'geometry' in feature && isRoutePathGeometry(feature.geometry)
+        ? feature.geometry
+        : null
+    const rawLegs =
+      'properties' in feature &&
+      typeof feature.properties === 'object' &&
+      feature.properties !== null &&
+      'legs' in feature.properties &&
+      Array.isArray(feature.properties.legs)
+        ? (feature.properties.legs as unknown[])
+        : []
+    const legs = rawLegs.map((leg) => ({
+      seconds:
+        typeof leg === 'object' &&
+        leg !== null &&
+        'time' in leg &&
+        typeof leg.time === 'number'
+          ? Math.round(leg.time)
+          : NaN,
+      meters:
+        typeof leg === 'object' &&
+        leg !== null &&
+        'distance' in leg &&
+        typeof leg.distance === 'number'
+          ? Math.round(leg.distance)
+          : NaN,
+    }))
+    const legsUsable =
+      legs.length === args.waypoints.length - 1 &&
+      legs.every((leg) => Number.isFinite(leg.seconds + leg.meters))
+    return { geometry, legs: legsUsable ? legs : null, billedWaypoints }
+  }
+
   // Best-effort: the ordered plan is the critical artifact; a geometry
   // failure must not fail the knock. It is still a second billed vendor call
   // per knock, so it reports what it was charged for alongside what it found.

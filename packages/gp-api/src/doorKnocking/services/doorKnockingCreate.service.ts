@@ -857,17 +857,50 @@ export class DoorKnockingCreateService extends createPrismaBase(
       loop: request.loop,
     })
 
+    // Straight legs between consecutive doors only hold along one side of one
+    // street. A sparse list has a face per door, so every leg crosses the
+    // neighbourhood, and drawn straight they cut through blocks and water. The
+    // Routing API walks the final door order on the real streets and measures
+    // each leg between the doors actually left and entered, at 1 credit per
+    // door beside the planner's 10 per face.
+    const walked = sequenced.stopIndexes.map(
+      (stopIndex) => [stops[stopIndex]!.lng, stops[stopIndex]!.lat] as LngLat,
+    )
+    if (request.loop && walked.length > 1) walked.push(walked[0]!)
+    const path = await this.geoapify.routeThrough({
+      mode: request.mode,
+      waypoints: walked,
+    })
+
     // Totals are re-derived rather than passed through: the vendor's are for
     // its own tour of representatives, and the per-leg numbers on the walk
     // sheet should add up to the total printed above them.
+    if (!path.legs) {
+      return {
+        ...plan,
+        orderedJobIds: sequenced.stopIndexes.map(String),
+        legSeconds: sequenced.legSeconds,
+        legMeters: sequenced.legMeters,
+        totalSeconds: sequenced.totalSeconds,
+        totalMeters: sequenced.totalMeters,
+        routingWaypoints: path.billedWaypoints,
+        pathGeometry: path.geometry,
+      }
+    }
+    const legs = path.legs
     return {
       ...plan,
       orderedJobIds: sequenced.stopIndexes.map(String),
-      legSeconds: sequenced.legSeconds,
-      legMeters: sequenced.legMeters,
-      totalSeconds: sequenced.totalSeconds,
-      totalMeters: sequenced.totalMeters,
-      pathGeometry: null,
+      legSeconds: sequenced.stopIndexes.map((_, position) =>
+        position === 0 ? 0 : legs[position - 1]!.seconds,
+      ),
+      legMeters: sequenced.stopIndexes.map((_, position) =>
+        position === 0 ? 0 : legs[position - 1]!.meters,
+      ),
+      totalSeconds: legs.reduce((sum, leg) => sum + leg.seconds, 0),
+      totalMeters: legs.reduce((sum, leg) => sum + leg.meters, 0),
+      routingWaypoints: path.billedWaypoints,
+      pathGeometry: path.geometry,
     }
   }
 
@@ -1005,10 +1038,8 @@ export class DoorKnockingCreateService extends createPrismaBase(
       agent,
       jobs,
       // The plan's polyline would thread the face representatives, not the
-      // doors, so it is not worth a second billed call. Consumers fall back to
-      // straight legs between consecutive stops — and under a serpentine order
-      // those consecutive stops are next-door neighbours, so the straight line
-      // IS the sidewalk.
+      // doors. planStops buys the path through the doors instead, once their
+      // order is known.
       fetchGeometry: false,
     })
   }
