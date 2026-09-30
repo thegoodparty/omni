@@ -88,8 +88,8 @@ const LINK_SHORTENER_HOSTS = [
 ] as const
 
 const LINK_SHORTENER_PATTERN = new RegExp(
-  `(?:^|[^\\w-])(?:https?://)?(?:www\\.)?(?:${LINK_SHORTENER_HOSTS.map(
-    (host) => host.replace(/\./g, '\\.'),
+  `(?:^|[^\\w-])(?:https?://)?(?:www\\.)?(?:${LINK_SHORTENER_HOSTS.map((host) =>
+    host.replace(/\./g, '\\.'),
   ).join('|')})(?![\\w-])`,
   'i',
 )
