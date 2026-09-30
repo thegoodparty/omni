@@ -379,10 +379,6 @@ export const EVENTS = {
   },
   ProUpgrade: {
     ClickExit: 'Pro Upgrade: Click exit top nav',
-    Banner: {
-      ClickUpgrade:
-        'Pro Upgrade - Level Up Your Campaign Banner: Click upgrade',
-    },
     Modal: {
       Shown: 'Pro Upgrade - Modal: Modal Shown',
       Exit: 'Pro Upgrade - Modal: Exit',
@@ -397,8 +393,8 @@ export const EVENTS = {
     // from the legacy Modal / SplashPage / CommitteeCheck events above, which
     // belong to the older upgrade UX. The funnel's submit/checkout-start signals
     // already exist and are reused (Profile.CandidateProfile.SubmitSuccess,
-    // Outreach.DlcCompliance.RegistrationSubmitted / PinVerificationCompleted,
-    // ProUpgrade.ClickGoToStripe); the "viewed" steps below were the gap.
+    // Outreach.DlcCompliance.RegistrationSubmitted / PinVerificationCompleted);
+    // the "viewed" steps below were the gap.
     Compliance: {
       BannerViewed: 'Pro Upgrade - Banner Viewed',
       BannerGetPro: 'Pro Upgrade - Banner: Click Get Pro',
@@ -406,6 +402,8 @@ export const EVENTS = {
       TextingSetupBannerStart:
         'Pro Upgrade - Texting Setup Banner: Click Start',
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
+      // The funnel's first step: carries `source`, `channel` and `cta`.
+      FlowStarted: 'Pro Upgrade - Flow Started',
       ValuePropViewed: 'Pro Upgrade - Value Prop Viewed',
       ValuePropGetPro: 'Pro Upgrade - Value Prop: Click Get Pro',
       ValuePropMaybeLater: 'Pro Upgrade - Value Prop: Click Maybe later',
@@ -854,9 +852,8 @@ export const EVENTS = {
     DraftChatMessageSent: 'Ordinances - Draft Chat Message Sent',
   },
   // ENG-10626: the native door-knocking surface (voter map, turf cutting,
-  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above,
-  // which belongs to the legacy eCanvasser/script surface — different funnel,
-  // don't merge them.
+  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above —
+  // different funnel, don't merge them.
   //
   // The walk is the session: Started when the walk view opens, then exactly
   // one of Completed (left having logged at least one door) or Abandoned

@@ -160,13 +160,13 @@ Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 | Compliance              | `/campaigns/tcr-compliance`                                                                                                                                                | 10DLC TCR compliance verification (Peerly)                                                                                                                                        |
 | P2P                     | `/p2p`                                                                                                                                                                     | Peerly SMS/calling — identity, phone lists, media, P2P jobs                                                                                                                       |
 | Annotations / Artifacts | `/annotations`, `/artifact-feedback`, `/artifact-review`, `/speech`                                                                                                        | Newer modules backing admin/agent workflows                                                                                                                                       |
-| Other                   | `/health`, `/v1/version`, `/jobs`, `/queue`, `/error-logger`, `/subscribe`, `/declare`, `/ecanvasser`, `/top-issues`, `/positions`, `/community-issues`, `/elected-office` | Utilities, integrations. `GET /v1/version` returns `{ commit }` for deploy verification                                                                                           |
+| Other                   | `/health`, `/v1/version`, `/jobs`, `/queue`, `/error-logger`, `/subscribe`, `/declare`, `/top-issues`, `/positions`, `/community-issues`, `/elected-office` | Utilities, integrations. `GET /v1/version` returns `{ commit }` for deploy verification                                                                                           |
 
-**Prisma schema** (modular `prisma/schema/*.prisma`, 20+ models): Campaign, User, PathToVictory, AiChat, Website, Domain, Poll, PollIssue, PollIndividualMessage, Outreach, ScheduledMessage, CampaignPosition, CampaignPlanVersion, CampaignUpdateHistory, TcrCompliance, VoterFileFilter, ElectedOffice, TopIssue, Position, CommunityIssue, Content, BlogArticleMeta, WebsiteContact, WebsiteView, CensusEntity, Ecanvasser. See `gp-api/prisma/CLAUDE.md`.
+**Prisma schema** (modular `prisma/schema/*.prisma`, 20+ models): Campaign, User, PathToVictory, AiChat, Website, Domain, Poll, PollIssue, PollIndividualMessage, Outreach, ScheduledMessage, CampaignPosition, CampaignPlanVersion, CampaignUpdateHistory, TcrCompliance, VoterFileFilter, ElectedOffice, TopIssue, Position, CommunityIssue, Content, BlogArticleMeta, WebsiteContact, WebsiteView, CensusEntity. See `gp-api/prisma/CLAUDE.md`.
 
 **Services**: Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`.
 
-**Vendor services** in `src/vendors/`: aws (S3, SQS), braintrust, contentful, ecanvasserIntegration, forwardEmail, google, peerly (5 sub-services), segment, slack, stripe, vercel
+**Vendor services** in `src/vendors/`: aws (S3, SQS), braintrust, contentful, forwardEmail, google, peerly (5 sub-services), segment, slack, stripe, vercel
 
 **Observability**: emits OpenTelemetry (OTLP) to Grafana Cloud. Dashboards + alert rules defined as code in `gp-api/deploy/components/grafana.ts` and `components/alerting/`.
 
@@ -810,7 +810,6 @@ aws ec2 describe-security-groups --filters "Name=vpc-id,Values=<vpc-id>" --query
 | Slack           | gp-api (multiple channels), gp-ai-projects (Tevyn poll delivery, thread reading)                 | `SLACK_BOT_*_TOKEN` vars in gp-api .env                                    |
 | ClickUp         | gp-ai-projects/engineer_agent (task management), agent MCP (design docs, read-only)              | `CLICKUP_API_KEY`                                                          |
 | ForwardEmail    | gp-api (email forwarding for purchased domains)                                                  | Via domains service                                                        |
-| eCanvasser      | gp-api (door knocking/canvassing integration)                                                    | Via ecanvasserIntegration module                                           |
 | Segment         | gp-api (analytics tracking), gp-webapp (analytics-next)                                          | Via segment module                                                         |
 | Google OAuth    | gp-webapp (social login)                                                                         | `@react-oauth/google`                                                      |
 | Google Maps     | gp-webapp (candidate directory map)                                                              | `@react-google-maps/api`                                                   |

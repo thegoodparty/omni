@@ -74,6 +74,12 @@ const REVIEWABLE_STATUSES: OutreachStatus[] = [
   OutreachStatus.in_progress,
 ]
 
+// The Sent tab is an after-the-fact record (CAS request, 2026-09-30), not
+// an archive: every queue row costs a registration and HubSpot owner read,
+// so completed sends fall off after this window rather than accumulating
+// forever behind the tab nobody works from.
+const SMS_ADMIN_SENT_LOOKBACK_DAYS = 90
+
 // Peerly flagged (2026-09-04) that our detail reads were rapidly piling
 // duplicate long-running requests — a slow read gets abandoned client-side
 // by the timebox above, but the request keeps computing at Peerly, and the
@@ -181,15 +187,34 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   private queueWhere(): Prisma.OutreachWhereInput {
     return {
       outreachType: OutreachType.p2p,
-      // Canceled rows stay visible (the Canceled tab's audit trail); only
-      // reviewable rows are actionable.
-      status: { in: [...REVIEWABLE_STATUSES, OutreachStatus.canceled] },
       projectId: { not: null },
-      // The pre-console backlog is noise, not work: rows stranded pending
-      // from before the console existed are hidden behind a fixed cutoff
-      // (CAS request, 2026-09-09). Dateless rows stay visible — a pending
-      // row with no send date is an anomaly worth seeing, not backlog.
-      OR: [{ date: null }, { date: { gte: SMS_ADMIN_QUEUE_CUTOFF } }],
+      AND: [
+        {
+          // Canceled rows stay visible (the Canceled tab's audit trail);
+          // only reviewable rows are actionable. A completed row is the
+          // Sent tab's record — but only a BOOKED one: the completion
+          // sweep flips every row on its send day whether or not CAS ever
+          // approved it, and an unbooked row that aged out sent nothing.
+          OR: [
+            {
+              status: { in: [...REVIEWABLE_STATUSES, OutreachStatus.canceled] },
+            },
+            {
+              status: OutreachStatus.completed,
+              canvassRequestedAt: { not: null },
+              date: { gte: subDays(new Date(), SMS_ADMIN_SENT_LOOKBACK_DAYS) },
+            },
+          ],
+        },
+        {
+          // The pre-console backlog is noise, not work: rows stranded
+          // pending from before the console existed are hidden behind a
+          // fixed cutoff (CAS request, 2026-09-09). Dateless rows stay
+          // visible — a pending row with no send date is an anomaly worth
+          // seeing, not backlog.
+          OR: [{ date: null }, { date: { gte: SMS_ADMIN_QUEUE_CUTOFF } }],
+        },
+      ],
     }
   }
 
@@ -373,6 +398,18 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         'Only scheduled SMS campaigns can be approved',
       )
     }
+    // Approval is what books canvassers, which is the vendor spend. A
+    // scheduled p2p row reaches this console only through a settled
+    // purchase: a paid checkout stamps stripeCheckoutSessionId, a
+    // zero-amount redemption stamps freePurchaseSessionId. Neither present
+    // means nothing funded the send, so it is refused rather than read as
+    // "free" — which is what the absence of a Stripe session used to mean
+    // on its own.
+    if (!row.stripeCheckoutSessionId && !row.freePurchaseSessionId) {
+      throw new BadRequestException(
+        'This campaign has no completed purchase on record',
+      )
+    }
 
     const claimed = await this.model.updateMany({
       where: {
@@ -543,6 +580,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (row.status === OutreachStatus.canceled) {
       throw new BadRequestException('Only scheduled campaigns can be edited')
     }
+    // A sent row is in scope for the Sent tab's record; its texts are gone.
+    if (row.status === OutreachStatus.completed) {
+      throw new BadRequestException('This campaign has already sent')
+    }
     // Once the send day has begun AND canvassers are booked, Peerly may be
     // mid-send: a template overwrite would change copy under live agents.
     if (
@@ -649,6 +690,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // job is deleted — there is no send left to move.
     if (row.status === OutreachStatus.canceled) {
       throw new ConflictException('A canceled campaign cannot be rescheduled')
+    }
+    // A sent row is in scope for the Sent tab's record; its texts are gone.
+    if (row.status === OutreachStatus.completed) {
+      throw new ConflictException('A sent campaign cannot be rescheduled')
     }
     // Once the send day has begun AND canvassers are booked, Peerly may be
     // mid-send: moving the window under live agents is not recoverable.
@@ -802,6 +847,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       throw new BadRequestException(
         'This campaign was canceled and its vendor job deleted',
       )
+    }
+    // A sent row is in scope for the Sent tab's record; there is nothing
+    // left to preview.
+    if (row.status === OutreachStatus.completed) {
+      throw new BadRequestException('This campaign has already sent')
     }
 
     // Claim BEFORE the vendor calls so a double-click's second request is
@@ -1164,6 +1214,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     job: PeerlyJob | null,
   ): SmsApprovalStatus {
     if (row.status === OutreachStatus.canceled) return 'canceled'
+    if (row.status === OutreachStatus.completed) return 'sent'
     if (row.deniedAt) return 'denied'
     if (job?.canvassers_schedule?.approved) return 'peerly_approved'
     if (row.canvassRequestedAt) return 'canvass_requested'

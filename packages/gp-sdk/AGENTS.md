@@ -68,7 +68,6 @@ src/
 │   ├── BaseResource.ts             # abstract: getRequest / postRequest / put / patch / delete
 │   ├── UsersResource.ts            # canonical reference — shortest, simplest
 │   ├── CampaignsResource.ts
-│   ├── EcanvasserResource.ts
 │   ├── ElectedOfficesResource.ts
 │   ├── ElectionsResource.ts
 │   ├── OrganizationsResource.ts

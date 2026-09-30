@@ -184,13 +184,10 @@ export namespace HubSpot {
     calls_made = 'calls_made',
     direct_mail_sent = 'direct_mail_sent',
     event_impressions = 'event_impressions',
-    knocked_doors = 'knocked_doors',
     doors_knocked = 'doors_knocked',
     online_impressions = 'online_impressions',
     yard_signs_impressions = 'yard_signs_impressions',
     // p2p_texts = 'p2p_texts', TODO: we need a new field in HS for sms text contact numbers
-    ecanvasser_contacts_count = 'ecanvasser_contacts_count',
-    ecanvasser_houses_count = 'ecanvasser_houses_count',
 
     // candidate details
     candidate_district = 'candidate_district',

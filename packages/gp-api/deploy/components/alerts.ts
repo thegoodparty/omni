@@ -182,16 +182,6 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
  * a product route. Nothing downstream depends on either answering.
  *
- * `ecanvasser` is the one entry here that is not a claim about the routes being
- * unimportant — it is a claim about the system being over. It mirrors a
- * third-party canvassing tool into our Postgres for the control arm of the
- * `native-door-knocking` experiment, and 114 of its 137 prod integrations are
- * already failing to sync against expired or revoked per-candidate API keys.
- * Nobody is going to fix those keys: the whole module is deleted the moment the
- * flag reaches 100%. Until then its 5xx are a known, accepted, un-actioned
- * state, and paging win-bugs for them trains the rotation to ignore it.
- * This entry goes away with the module.
- *
  * Every entry is now a claim of that kind, which was not true until 2026-09-17.
  * `mcp` sat here because it had no ROUTE_MAP entries at all — its only handler
  * is `@All()`, which generate-route-types.ts did not recognise — so
@@ -207,7 +197,6 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'dev-env',
   'version',
   'queue',
-  'ecanvasser',
 ]
 
 /**
@@ -305,59 +294,6 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'contacts',
   'campaigns/tcr-compliance',
 ]
-
-/**
- * Controllers whose generated route alert needs a burst rather than a single
- * error, keyed to the count a 10-minute window must EXCEED.
- *
- * AN ENTRY HERE ALSO BUYS THE 10-MINUTE WINDOW, which is not a separate knob:
- * `routeWindow` in alerting/route-alerts.ts derives the window from the
- * threshold, because a threshold is an accumulation and there is nothing to
- * accumulate at 0. Every other group judges a single minute and pages that
- * much sooner. So setting a threshold costs that controller nine minutes of
- * detection latency on top of the errors it stops paging for — both halves of
- * the trade are argued where the window is chosen.
- *
- * The default of 0 pages on one qualifying error, and that is right nearly
- * everywhere: on a controller that errors a handful of times a month, the
- * first error IS the incident and waiting for a second only delays the page.
- *
- * It is wrong for a high-volume public route whose failure mode includes a
- * transient upstream. `GET /v1/public-person-profiles/voter-density` serves
- * ~150k requests a day and resolves the person's district through
- * election-api on every one of them; an isolated 502 there costs one visitor
- * one heat map, on a card that is progressive enhancement to begin with, and
- * the next request succeeds. Paging on it spends attention at a rate the
- * failure does not justify, and the estate has already lost one alert that
- * way — see the `contacts` note in SERVER_ERRORS_ONLY.
- *
- * MEASURED before being set, over the 30 days to 2026-09-18, counting the
- * errors this rule actually fires on per 10-minute window:
- *
- *   - Outside a real incident, EVERY window held 1 or 2 errors. There were 18
- *     of them, spread across the month, each a single transient 502.
- *   - The 2026-08-24 outage opened with 83 in its first window and then ran
- *     2,000-4,800 per window for four days.
- *   - The 2026-09-14 burst was 52 errors split across two windows, 5 then 47.
- *
- * So `> 2` drops all 18 noise windows and keeps both incidents, and it keeps
- * them at the same evaluation they would have fired on before — the nearest
- * real window is 5, comfortably clear, and nothing measured lands on 3 or 4.
- *
- * THE COST, stated plainly: a fault that produces one or two errors per 10
- * minutes and never more will no longer page here. On this route that is a
- * fault affecting under 0.01% of requests, which is below what the ratio rule
- * would call broken anyway, and it still lands in the logs and on the
- * dashboard. A fault that grows past it pages on the window it grows in.
- *
- * This does not touch `public-person-profiles-error-ratio`, which asks the
- * other question — whether the route is substantially broken — and is
- * unchanged. The pair still separates "something failed" from "this is down";
- * this only moves where the first of those starts counting.
- */
-export const ROUTE_ERROR_THRESHOLDS: Partial<Record<ControllerName, number>> = {
-  'public-person-profiles': 2,
-}
 
 /**
  * Log-query spend as a fraction of what the plan includes.
@@ -1162,19 +1098,6 @@ export const GLOBAL_ALERTS: Alert[] = [
     // 2026-09-17 the errors the generated rule fires on fell in 2 hours out of
     // 168: a 52-error burst and one stray. So it pages about twice a week at
     // worst, and the muting risk was theoretical.
-    //
-    // THE STRAYS TURNED OUT TO BE THE PROBLEM, which is why the generated rule
-    // now needs more than 2 errors in its window (ROUTE_ERROR_THRESHOLDS). The
-    // 2 hours in 168 were counted as hours, and an hour holding one transient
-    // 502 pages exactly as loudly as an hour holding fifty — so what the
-    // measurement read as "twice a week" was mostly single failed requests on
-    // a route serving ~150k a day. Re-measured per 10-minute window over the
-    // 30 days to 2026-09-18, 18 windows held 1-2 errors and the only windows
-    // above that were the two real incidents. THIS rule is what makes raising
-    // that safe: it is unchanged, it is what catches the outage the generated
-    // rule now sleeps through the first minutes of, and against the August
-    // failure it reads 100%. Do not delete it to "simplify" the pair — a test
-    // in route-alerts.test.ts fails if you do, and says why.
     //
     // `sum by (request_endpoint)` rather than one ratio for the controller:
     // Grafana turns each returned series into its own alert instance, so a

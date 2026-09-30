@@ -1,47 +1,12 @@
 import { expect, type Locator, type Page } from '@playwright/test'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { NavigationHelper } from 'src/helpers/navigation.helper'
 
-// Helpers for the native door-knocking surface
-// (app/dashboard/door-knocking/native/ + print/). The legacy eCanvasser
-// dashboard behind the same route needs no helpers — it is only ever asserted
-// as the control arm of the flag gate.
+// Helpers for the door-knocking surface (app/dashboard/door-knocking/).
 
 export const DOOR_KNOCKING_PATH = '/dashboard/door-knocking'
 
 export const printWalkListPath = (turfId: number | string): string =>
   `${DOOR_KNOCKING_PATH}/print/${turfId}`
-
-// Name of the override cookie setFlagOverrides writes. Duplicated from
-// campaignStory.helper.ts (which doesn't export it) so the variant can be
-// cleared before it is re-set; keep the two in lockstep.
-const FLAG_OVERRIDE_COOKIE = 'e2e-flag-overrides'
-
-// Pin `native-door-knocking` to one variant through the off-prod override
-// cookie. Call BEFORE auth/navigation so the first SSR render already resolves
-// it — resolution is server-side and this cookie is the only deterministic lever
-// (e2e-tests/AGENTS.md "Flag-gated surfaces").
-//
-// The cookie is cleared by name first so the flag-gate spec can flip the variant
-// mid-test and know exactly one value is in flight. addCookies is documented to
-// replace a cookie matching name+domain+path, but "the browser sent two
-// overrides and the server picked one" is precisely the kind of ambiguity that
-// turns into an unreproducible flake, so this doesn't rely on it.
-const setNativeDoorKnockingFlag = async (
-  page: Page,
-  variant: 'on' | 'off',
-): Promise<void> => {
-  await page.context().clearCookies({ name: FLAG_OVERRIDE_COOKIE })
-  await setFlagOverrides(page, { 'native-door-knocking': variant })
-}
-
-export const enableNativeDoorKnockingFlag = (page: Page): Promise<void> =>
-  setNativeDoorKnockingFlag(page, 'on')
-
-// Pin the legacy eCanvasser dashboard, so the control arm keeps testing the old
-// surface deterministically even once the flag ramps in Amplitude.
-export const disableNativeDoorKnockingFlag = (page: Page): Promise<void> =>
-  setNativeDoorKnockingFlag(page, 'off')
 
 export const gotoDoorKnocking = async (page: Page): Promise<void> => {
   await page.goto(DOOR_KNOCKING_PATH, { waitUntil: 'domcontentloaded' })
@@ -65,17 +30,6 @@ export const gotoDoorKnocking = async (page: Page): Promise<void> => {
 // cross-service half that no mock can confirm has its own gp-api suite in
 // src/doorKnocking/tests/doorKnocking.routes.test.ts.
 
-// The native shell's page name — present as soon as NativeDoorKnockingPage
-// mounts, independent of the voter pack and of whether the WebGL canvas came up.
-//
-// It is the route's `sr-only` `h1` since 3.0 drew the map edge to edge and took
-// the visible header with it. Nothing here relies on that being invisible:
-// Playwright counts `sr-only` (a 1px box, clipped) as visible, and the point of
-// the anchor is unchanged — it commits with the gate's native branch, before
-// anything WebGL.
-export const nativeShellHeading = (page: Page): Locator =>
-  page.getByRole('heading', { name: 'Door knocking', exact: true })
-
 // A create-flow step, by the title a canvasser reads at the top of it.
 //
 // `OutreachFlowShell` draws that title twice: once as the `sr-only`
@@ -87,6 +41,3 @@ export const nativeShellHeading = (page: Page): Locator =>
 // as the dialog's name.
 export const createFlowStepHeading = (page: Page, name: string): Locator =>
   page.getByRole('heading', { name, exact: true, level: 3 })
-
-export const legacyDashboardHeading = (page: Page): Locator =>
-  page.getByRole('heading', { name: 'Interactions', exact: true })

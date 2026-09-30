@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
     "lint:fix": "eslint . --fix",
     "format": "prettier -c .",
     "format:fix": "prettier --write ."
@@ -43,6 +44,7 @@
     "postcss": "^8.5.11",
     "prettier": "^3.8.3",
     "tailwindcss": "^3.2.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }

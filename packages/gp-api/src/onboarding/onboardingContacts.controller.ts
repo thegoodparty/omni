@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Query,
+  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
@@ -16,6 +17,7 @@ import { AllowVolunteer } from '@/organizations/decorators/AllowVolunteer.decora
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { Organization } from '../generated/prisma'
+import { OnboardingStatsRateLimitGuard } from './guards/onboardingStatsRateLimit.guard'
 import {
   GetOnboardingStatsQueryDTO,
   onboardingStatsResponseSchema,
@@ -37,6 +39,10 @@ export class OnboardingContactsController {
   // 403'd by the role guard on an endpoint anonymous callers can reach.
   @AllowVolunteer()
   @ResponseSchema(onboardingStatsResponseSchema)
+  // Public, but every call is a Databricks read of the voter mart, so it is
+  // metered per IP. Applied last so it lands first in the guard list and
+  // refuses before the org lookup above runs.
+  @UseGuards(OnboardingStatsRateLimitGuard)
   async getOnboardingStats(
     @Query() query: GetOnboardingStatsQueryDTO,
     @ReqOrganization() organization?: Organization,

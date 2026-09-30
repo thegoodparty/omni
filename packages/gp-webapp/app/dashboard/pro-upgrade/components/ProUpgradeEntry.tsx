@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@styleguide'
 import H2 from '@shared/typography/H2'
@@ -28,6 +28,8 @@ import { ELIGIBILITY_QUERY_KEY } from '@shared/organization-picker'
 import { clientRequest } from 'gpApi/typed-request'
 import type { Eligibility } from 'gpApi/api-endpoints'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { parseProUpgradeAttribution } from '../proUpgradeAttribution'
 import {
   deriveProUpgradeStep,
   filingStatusFromDetails,
@@ -39,6 +41,10 @@ import {
 // re-derives, landing a returning candidate on the first incomplete step.
 const ProUpgradeEntry = (): React.JSX.Element | null => {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // The redirect effect re-runs whenever a query refetches, and the funnel
+  // needs one start per entry.
+  const flowStartedRef = useRef(false)
 
   // Not the treatment surface (the sidebar banner is), so this read doesn't
   // track exposure. purchaseOnly picks the derivation branch and, with it,
@@ -142,6 +148,15 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
       { purchaseOnly },
     )
 
+    // An already-Pro candidate is routed to success, not into a purchase.
+    if (!campaign?.isPro && !flowStartedRef.current) {
+      flowStartedRef.current = true
+      trackEvent(
+        EVENTS.ProUpgrade.Compliance.FlowStarted,
+        parseProUpgradeAttribution(searchParams),
+      )
+    }
+
     router.replace(proUpgradeStepPath(step))
   }, [
     ready,
@@ -152,6 +167,7 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
     website,
     tcrCompliance,
     router,
+    searchParams,
   ])
 
   // Spinner only while the canonical-state queries are pending.
