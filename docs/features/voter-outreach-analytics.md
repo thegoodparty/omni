@@ -108,15 +108,16 @@ Amplitude's Govern rename changes an event's DISPLAY name; it does not remap an
 event type. So when the code starts firing the new literal, the new name is a
 NEW event type and the old one keeps its history under its own name. Every
 rename below is therefore recorded as a supersession rather than a rename, and
-a chart spanning the cutover has to union the old name with the new:
+a chart spanning the cutover has to union the old name with the new, unless
+the pair has been joined with Govern's merge (UI only):
 
 | Old name                                               | New name                                         | History                                               |
 | ------------------------------------------------------ | ------------------------------------------------ | ----------------------------------------------------- |
-| `Voter Outreach - Campaign Completed`                  | `Outreach - Campaign Completed`                  | live since 2025-06-26; 9.1k query volume              |
+| `Voter Outreach - Campaign Completed`                  | `Outreach - Campaign Completed`                  | live since 2025-06-26; merged 2026-09-30              |
 | `Voter Outreach - Phone Banking Call List Created`     | `Outreach - Phone Banking Call List Created`     | live since 2026-08-27                                 |
 | `Voter Outreach - Phone Banking Call Sheet Downloaded` | `Outreach - Phone Banking Call Sheet Downloaded` | live since 2026-08-29                                 |
 | `Outreach - Phone Banking: Call Logged`                | `Outreach - Phone Banking Call Logged`           | 365 events from 2026-09-01 stay on the old name       |
-| `Outreach - Phone Banking: Contact Viewed`             | `Outreach - Phone Banking Contact Viewed`        | 1,675 events stay on the old name                     |
+| `Outreach - Phone Banking: Contact Viewed`             | `Outreach - Phone Banking Contact Viewed`        | 1,675 events; merged 2026-09-30                       |
 | `Door Knocking - Door Logged`                          | `Outreach - Door Knocking Door Logged`           | 300 events from 2026-08-19 stay on the old name       |
 | the rest of `Door Knocking - *`                        | `Outreach - Door Knocking <Thing>`               | low volume; stays on the old names                    |
 | `Dashboard - Campaign Task Status Updated`             | `Dashboard - Campaign Task Completed`            | already dark since 2026-09-01, so nothing is stranded |
@@ -348,21 +349,20 @@ walk session, which fired every time a canvasser stopped for the evening, onto
 the turf being finished. A fifty-door list walked over three evenings used to
 report three campaigns and now reports one.
 
-**Cutover date: TBD — stamp it here and on the event's `gp-meta` block when
-this reaches prod.** Prod is reached only by the release train, so the date is
-not knowable at merge.
+**Cutover date: 2026-09-29.** The release carrying this change reached prod at
+22:09 UTC; the old names last fired before it. Every renamed event's `gp-meta`
+block carries the same date.
 
 ## Monitoring
 
-Not yet built — the new events have no data to alert on until this ships. What
-to create at cutover:
+Not yet built. What to create now that the new events are firing:
 
 - A volume anomaly monitor on `Outreach - Campaign Completed` **grouped
   by `medium`**, so one channel dropping to zero alerts instead of hiding
   inside a flat total. This is the check that would have caught the August
   break in a day rather than a month.
-- Volume monitors on `Door Knocking - Door Logged` and
-  `Outreach - Phone Banking: Call Logged`.
+- Volume monitors on `Outreach - Door Knocking Door Logged` and
+  `Outreach - Phone Banking Call Logged`.
 - A CI check that fails a PR removing an event literal a live Amplitude custom
   event, cohort or saved chart depends on.
 
