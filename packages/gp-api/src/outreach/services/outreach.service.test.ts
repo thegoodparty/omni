@@ -616,6 +616,21 @@ describe('OutreachService', () => {
         expect(mockRefundPaymentIntent).not.toHaveBeenCalled()
       })
 
+      // The one stranded charge we must not give back automatically: a missing
+      // draft also covers "this id belongs to another campaign", where a send
+      // may have gone out under that campaign.
+      it('does not refund when the paid draft is not this campaign\u2019s', async () => {
+        mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+        mockOutreachFindFirst.mockResolvedValue(undefined)
+
+        await expect(
+          service.finalizeOutreachPurchase(46, 1, 'cs_live_4'),
+        ).rejects.toThrow(/no draft with this id belongs to campaign 1/)
+
+        expect(mockStrandedChargeUpsert).not.toHaveBeenCalled()
+        expect(mockRefundPaymentIntent).not.toHaveBeenCalled()
+      })
+
       it('still raises the refusal when the refund itself fails', async () => {
         mockOutreachUpdateMany
           .mockResolvedValueOnce({ count: 0 })

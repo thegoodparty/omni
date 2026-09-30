@@ -622,6 +622,23 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         { outreachId, campaignId, observed, chargeRef },
         'P2P outreach finalize failed after payment',
       )
+      // A captured payment naming a draft this campaign does not own is money
+      // we are holding for a send that cannot be scheduled, and no retry will
+      // change that — but it is the one stranded charge we must NOT refund
+      // automatically. `missing` also covers "the id belongs to another
+      // campaign", where that draft may well have been finalized and sent, and
+      // it cannot be recorded in outreach_stranded_charge either: that row
+      // references the draft, and there is no draft here. So it gets its own
+      // line, loud, and a person decides.
+      if (observed === 'missing' && chargeRef?.startsWith('cs_')) {
+        this.logger.error(
+          { outreachId, campaignId, chargeRef },
+          'CRITICAL P2P stranded charge needs review: a captured payment ' +
+            'names a draft this campaign does not own, so no send can be ' +
+            'scheduled and an automatic refund is not safe. Refund the ' +
+            'session by hand, or correct the draft it should have paid for.',
+        )
+      }
       throw new OutreachStepError(
         'peerlyJobCreation',
         new Error(
