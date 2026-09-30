@@ -93,7 +93,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `pricing.ts`                                           | Versioned token rates. Re-derive cost from here; never compare stored dollars. |
 | `runners/chat.ts`                                      | Drives one real chat turn through the HTTP routes and emits one record.        |
 | `cases.ts`                                             | Loads and validates one agent's case list.                                     |
-| `cases/*.json`                                         | The case lists themselves. One per agent.                                      |
+| `cases/*.json`                                         | The case lists themselves. One per agent — see below.                          |
 | `records.ts`                                           | The record store: local directory or S3, behind one narrow interface.          |
 | `sweepArm.ts`                                          | Walks a case list for **one** arm. The runner is injected.                     |
 | `sweep.eval.test.ts`                                   | Steps 1 and 2: the vitest shell that wires `sweepArm` to the real app.         |
@@ -101,6 +101,55 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `armGap.ts`                                            | The distance between the two captures.                                         |
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                     |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                             |
+
+## Case lists: ten of twenty agents, and all ten are placeholders
+
+An agent's inputs are one JSON file in `cases/`, named by its registry entry
+in `agents.ts` and validated by `cases.ts`. Adding the twenty-first agent is a
+file here plus a registry line, and no code.
+
+Ten of the twenty judgeable agents have one: `chief_of_staff` (chat) and nine
+background experiments — `district_issue_pulse`, `district_issue_snapshot`,
+`meeting_briefing`, `meeting_schedule`, `opponent_research`,
+`race_opponent_actions`, `race_opponent_collection`, `race_opponent_summary`,
+`self_research`. The other ten entries carry `cases: null`, which is the gap
+staying visible rather than being rounded off.
+
+**Every one of them is `placeholder: true`.** Each is schema-valid against its
+experiment manifest's `input_schema` and each value is plausible, but nobody
+has dispatched one, so a verdict drawn from any of them is a statement about
+the pipeline and not about the agent. `coverage()` counts `wired`, which means
+_has produced a real verdict at least once_, so all ten stay `pending` and
+`wired` is still 0. A case list is not a verdict.
+
+**Eight cases each, and `gates.minCases` is 20.** So a corpus verdict over one
+of these lists resolves CAN'T SAY however the judge voted — the floor was set
+from measured agent non-determinism (three identical Chief of Staff turns gave
+6, 4 and 2 tool steps) and eight runs measure that rather than the branch.
+Eight is one clean baseline plus seven single-axis variations, which is what
+one change can author honestly across nine agents. **Whether to grow every
+list to 20 or to lower the floor is still open.** Do not read the shortfall as
+a decision either way.
+
+A background case's `params` is what the dispatch Lambda is called with, and
+every manifest sets `additionalProperties: false`, so a wrong key is refused
+before a Fargate task launches — nothing is spent and nothing runs. That makes
+validating a list against its manifest the cheapest check here, and it needs
+no AWS access:
+
+```bash
+uv run --with jsonschema --with referencing python   # Draft7Validator
+```
+
+`$ref`s into the meta-schema's `$defs` have to be inlined first, the way
+`publish_experiments.py` inlines them for the published manifest —
+`district_issue_pulse`'s whole `input_schema` is one such `$ref`, and it
+resolves to four required properties rather than none.
+
+People in these files are fictional placeholders in the house style
+(`gp-webapp/e2e-tests/tests/app/briefings/briefings.spec.ts` uses
+`Test Official`), because this repo is public. States, cities, office titles
+and L2 voter file column names are real.
 
 ## Two refusals, and they are not the same one
 

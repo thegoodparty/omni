@@ -1,0 +1,170 @@
+{
+  "agentId": "race_opponent_collection",
+  "shape": "background",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Every params object here validates against the published race_opponent_collection manifest input_schema (additionalProperties: false, $refs inlined the way publish_experiments.py inlines them), and every value is plausible, but nobody has dispatched one. So a verdict drawn from this list is a claim about the pipeline, not about the agent. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20. A corpus verdict over this list therefore resolves CAN'T SAY however the judge voted, because the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is deliberate and not a rounding error: one clean baseline plus seven single-axis variations is what one change can author honestly across nine agents. Whether to grow every list to 20 or to lower the floor is still open \u2014 do not read the shortfall as a decision. Varied along: field size, from one opponent to a five-way race, which is what scales the fan-out; hint coverage per opponent \u2014 both URLs, one of the two, explicit nulls, or nothing \u2014 since the schema lets an absent hint and a null hint both mean discover it, and an agent may not treat them the same; how much race_context is hydrated, down to a case where every field is null and the office cannot disambiguate anyone; and a big-city race against a rural county and a small-town selectboard, where Ballotpedia coverage thins out and the campaign website may not exist. People are fictional placeholders in the house style (gp-webapp e2e-tests briefings.spec.ts uses 'Test Official'); this file is public, so no real person is named. States, cities, office titles and L2 voter file column names are real.",
+  "cases": [
+    {
+      "caseId": "baseline-two-opponents-both-hints",
+      "params": {
+        "opponents": [
+          {
+            "full_name": "Test Incumbent",
+            "ballotpedia_url": "https://ballotpedia.org/Test_Incumbent",
+            "website_url": "https://example.org/test-incumbent"
+          },
+          {
+            "full_name": "Test Challenger",
+            "ballotpedia_url": null,
+            "website_url": "https://example.org/test-challenger"
+          }
+        ],
+        "race_context": {
+          "office_name": "Minneapolis City Council",
+          "state": "MN",
+          "city": "Minneapolis",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "single-opponent-no-hints",
+      "params": {
+        "opponents": [
+          {
+            "full_name": "Test Sole Opponent"
+          }
+        ],
+        "race_context": {
+          "office_name": "Hendersonville City Council",
+          "state": "NC",
+          "city": "Hendersonville",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "five-way-race-no-hints",
+      "params": {
+        "opponents": [
+          {
+            "full_name": "Test Opponent One"
+          },
+          {
+            "full_name": "Test Opponent Two"
+          },
+          {
+            "full_name": "Test Opponent Three"
+          },
+          {
+            "full_name": "Test Opponent Four"
+          },
+          {
+            "full_name": "Test Opponent Five"
+          }
+        ],
+        "race_context": {
+          "office_name": "Mayor of Phoenix",
+          "state": "AZ",
+          "city": "Phoenix",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "hints-explicit-null",
+      "params": {
+        "opponents": [
+          {
+            "full_name": "Test Ward Opponent",
+            "ballotpedia_url": null,
+            "website_url": null
+          },
+          {
+            "full_name": "Test Ward Opponent Two",
+            "ballotpedia_url": null,
+            "website_url": null
+          }
+        ],
+        "race_context": {
+          "office_name": "Dover City Council",
+          "state": "NH",
+          "city": "Dover",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "mixed-hints-one-each",
+      "params": {
+        "opponents": [
+          {
+            "full_name": "Test County Opponent",
+            "ballotpedia_url": "https://ballotpedia.org/Test_County_Opponent"
+          },
+          {
+            "full_name": "Test County Opponent Two",
+            "website_url": "https://example.org/test-county-opponent-two"
+          }
+        ],
+        "race_context": {
+          "office_name": "Flathead County Commission",
+          "state": "MT",
+          "city": "Kalispell",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "race-context-all-null",
+      "params": {
+        "opponents": [
+          {
+            "full_name": "Test Unplaced Opponent"
+          }
+        ],
+        "race_context": {
+          "office_name": null,
+          "state": null,
+          "city": null,
+          "election_date": null
+        }
+      }
+    },
+    {
+      "caseId": "lone-incumbent-full-hints",
+      "params": {
+        "opponents": [
+          {
+            "full_name": "Test Board Incumbent",
+            "ballotpedia_url": "https://ballotpedia.org/Test_Board_Incumbent",
+            "website_url": "https://example.org/test-board-incumbent"
+          }
+        ],
+        "race_context": {
+          "office_name": "Seattle School Board",
+          "state": "WA",
+          "city": "Seattle",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "rural-thin-context",
+      "params": {
+        "opponents": [
+          {
+            "full_name": "Test Selectboard Opponent"
+          },
+          {
+            "full_name": "Test Selectboard Opponent Two"
+          }
+        ],
+        "race_context": {
+          "office_name": "Middlebury Selectboard",
+          "state": "VT"
+        }
+      }
+    }
+  ]
+}

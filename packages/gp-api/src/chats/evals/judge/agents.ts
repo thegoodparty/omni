@@ -95,10 +95,31 @@ const BACKGROUND_AGENT_IDS = [
   'trending_issues',
 ] as const
 
+type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
+
+// The background agents that have an authored case list. Keyed by the id
+// union, so a typo here is a typecheck failure rather than a registry entry
+// pointing at a file nobody wrote.
+//
+// All nine are placeholder lists — see the `note` in each file — so status
+// stays `pending`. `wired` means an agent has produced a real verdict at
+// least once, and none of these has been dispatched.
+const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
+  district_issue_pulse: 'district_issue_pulse.json',
+  district_issue_snapshot: 'district_issue_snapshot.json',
+  meeting_briefing: 'meeting_briefing.json',
+  meeting_schedule: 'meeting_schedule.json',
+  opponent_research: 'opponent_research.json',
+  race_opponent_actions: 'race_opponent_actions.json',
+  race_opponent_collection: 'race_opponent_collection.json',
+  race_opponent_summary: 'race_opponent_summary.json',
+  self_research: 'self_research.json',
+}
+
 const BACKGROUND_AGENTS: AgentEntry[] = BACKGROUND_AGENT_IDS.map((agentId) => ({
   agentId,
   shape: 'background' as const,
-  cases: null,
+  cases: BACKGROUND_CASE_LISTS[agentId] ?? null,
   status: 'pending' as const,
 }))
 

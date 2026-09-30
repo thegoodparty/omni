@@ -1,0 +1,115 @@
+{
+  "agentId": "self_research",
+  "shape": "background",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Every params object here validates against the published self_research manifest input_schema (additionalProperties: false, $refs inlined the way publish_experiments.py inlines them), and every value is plausible, but nobody has dispatched one. So a verdict drawn from this list is a claim about the pipeline, not about the agent. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20. A corpus verdict over this list therefore resolves CAN'T SAY however the judge voted, because the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is deliberate and not a rounding error: one clean baseline plus seven single-axis variations is what one change can author honestly across nine agents. Whether to grow every list to 20 or to lower the floor is still open \u2014 do not read the shortfall as a decision. Varied along: hint richness, from a case carrying website, socials, coverage URLs and prior roles down to one carrying only the three required fields \u2014 this is the agent that has to find its own subject, so how much of the footprint is handed to it is the main axis; whether the candidate has a public record to research (multi-term incumbent with prior roles) or none at all (first-time candidate, empty prior_roles); city supplied, explicitly null, or omitted, which is what separates a same-named person in another jurisdiction; and a large city where news coverage is dense against a rural county and a small borough where there may be one weekly paper and no archive. People are fictional placeholders in the house style (gp-webapp e2e-tests briefings.spec.ts uses 'Test Official'); this file is public, so no real person is named. States, cities, office titles and L2 voter file column names are real.",
+  "cases": [
+    {
+      "caseId": "baseline-rich-hints",
+      "params": {
+        "full_name": "Test Candidate",
+        "state": "MN",
+        "city": "Minneapolis",
+        "office_name": "Minneapolis City Council",
+        "prior_roles": [
+          "Neighborhood Association Board Member 2020-2024",
+          "City Pedestrian Advisory Committee Member 2022-2024"
+        ],
+        "website_url": "https://example.org/test-candidate",
+        "social_urls": [
+          "https://example.org/test-candidate/updates",
+          "https://example.org/test-candidate/video"
+        ],
+        "coverage_urls": ["https://example.org/press/ward-3-forum-recap"]
+      }
+    },
+    {
+      "caseId": "required-only-first-time-candidate",
+      "params": {
+        "full_name": "Test First Time Candidate",
+        "state": "NC",
+        "office_name": "Hendersonville City Council"
+      }
+    },
+    {
+      "caseId": "city-explicitly-null",
+      "params": {
+        "full_name": "Test Mayoral Candidate",
+        "state": "AZ",
+        "city": null,
+        "office_name": "Mayor of Phoenix",
+        "website_url": null
+      }
+    },
+    {
+      "caseId": "long-public-record",
+      "params": {
+        "full_name": "Test Incumbent Candidate",
+        "state": "WA",
+        "city": "Seattle",
+        "office_name": "Seattle School Board",
+        "prior_roles": [
+          "School Board Director 2018-2022",
+          "School Board Director 2022-2026",
+          "District Facilities Committee Chair 2019-2024"
+        ],
+        "website_url": "https://example.org/test-incumbent-candidate",
+        "coverage_urls": [
+          "https://example.org/press/bond-vote-coverage",
+          "https://example.org/press/boundary-map-hearing",
+          "https://example.org/press/board-candidate-forum"
+        ]
+      }
+    },
+    {
+      "caseId": "empty-prior-roles-rural",
+      "params": {
+        "full_name": "Test Selectboard Candidate",
+        "state": "VT",
+        "city": "Middlebury",
+        "office_name": "Middlebury Selectboard",
+        "prior_roles": [],
+        "social_urls": [],
+        "coverage_urls": []
+      }
+    },
+    {
+      "caseId": "website-hint-only",
+      "params": {
+        "full_name": "Test Council Candidate",
+        "state": "NH",
+        "city": "Dover",
+        "office_name": "Dover City Council",
+        "website_url": "https://example.org/test-council-candidate"
+      }
+    },
+    {
+      "caseId": "no-hints-rural-county",
+      "params": {
+        "full_name": "Test County Candidate",
+        "state": "MT",
+        "city": "Kalispell",
+        "office_name": "Flathead County Commission",
+        "website_url": null,
+        "social_urls": [],
+        "coverage_urls": []
+      }
+    },
+    {
+      "caseId": "small-borough-many-hints",
+      "params": {
+        "full_name": "Test Borough Candidate",
+        "state": "PA",
+        "city": "Bellefonte",
+        "office_name": "Bellefonte Borough Council",
+        "prior_roles": ["Borough Planning Commission Member 2019-2023"],
+        "website_url": "https://example.org/test-borough-candidate",
+        "social_urls": ["https://example.org/test-borough-candidate/updates"],
+        "coverage_urls": [
+          "https://example.org/press/borough-council-forum",
+          "https://example.org/press/water-authority-vote"
+        ]
+      }
+    }
+  ]
+}
