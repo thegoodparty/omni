@@ -32,6 +32,7 @@ import {
   cn,
 } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import PhoneBankingNotes from './PhoneBankingNotes'
 import PhoneBankingOutcomeForm from './PhoneBankingOutcomeForm'
 import {
@@ -122,6 +123,7 @@ export default function PhoneBankingEntryPanel({
   useEffect(() => {
     if (!open || !viewedPersonId) return
     trackEvent(EVENTS.Outreach.PhoneBanking.ContactViewed, {
+      product: outreachProduct(isServe),
       listId,
       contactId: viewedPersonId,
       listRank: entry.seq,

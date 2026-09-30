@@ -694,7 +694,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       await this.analytics.track(
         userId,
         EVENTS.Outreach.CampaignScheduled,
-        { channel: 'robocall', outreachId, recipientCount },
+        { channel: 'robocall', medium: 'robocall', outreachId, recipientCount },
         undefined,
         `${outreachId}:campaign_scheduled`,
       )

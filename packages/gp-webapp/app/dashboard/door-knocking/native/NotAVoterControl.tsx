@@ -9,6 +9,8 @@ import {
 import { Button } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
+import { useDoorKnockingServeMode } from './doorKnockingSurface'
 
 interface NotAVoterControlProps {
   target: RoutePayloadTarget
@@ -45,6 +47,7 @@ export default function NotAVoterControl({
   target,
   onChanged,
 }: NotAVoterControlProps) {
+  const serveMode = useDoorKnockingServeMode()
   const set = useMutation({
     mutationFn: (value: NotAVoterReason | 'cleared') =>
       clientRequest('POST /v1/door-knocking/not-a-voter', {
@@ -57,10 +60,13 @@ export default function NotAVoterControl({
       // resident was flagged — or un-flagged — when they weren't.
       if (data.notAVoterReason) {
         trackEvent(EVENTS.DoorKnocking.NotAVoterReasonSet, {
+          product: outreachProduct(serveMode),
           reason: data.notAVoterReason,
         })
       } else {
-        trackEvent(EVENTS.DoorKnocking.NotAVoterReasonCleared)
+        trackEvent(EVENTS.DoorKnocking.NotAVoterReasonCleared, {
+          product: outreachProduct(serveMode),
+        })
       }
       onChanged(data.personId, data.notAVoterReason)
     },

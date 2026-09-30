@@ -389,6 +389,7 @@ describe('CreateListFlow', () => {
     // it: nothing here chooses one any more, and a default reported as a
     // choice is worse than a silence.
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
+      product: 'win',
       stops: 14,
       people: 22,
       filterCount: 1,

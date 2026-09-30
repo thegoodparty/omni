@@ -1621,6 +1621,144 @@ def test_write_provenance_renders_pr_as_full_url(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Grafted history: which repo a PR number belongs to (DATA-2576)
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_sync_repo_names_the_predecessor_repo():
+    assert bf.parse_sync_repo("sync(gp-webapp): merge develop into develop") == "gp-webapp"
+    assert bf.parse_sync_repo("sync(gp-sdk): merge master into cutover-phase") == "gp-sdk"
+
+
+def test_parse_sync_repo_none_for_an_ordinary_merge():
+    assert bf.parse_sync_repo("Merge pull request #1892 from thegoodparty/feat/briefings") is None
+    assert bf.parse_sync_repo("feat: add events (#1234)") is None
+    assert bf.parse_sync_repo(None) is None
+
+
+def test_pr_url_renders_number_under_the_named_repo():
+    assert bf.pr_url("708", "gp-webapp") == "https://github.com/thegoodparty/gp-webapp/pull/708"
+
+
+def test_pr_url_rerenders_our_own_link_under_the_named_repo():
+    # The repair path: a row written before the graft was accounted for carries an omni link
+    # whose number is really the source repo's, so a write that knows better must move it.
+    assert (
+        bf.pr_url("https://github.com/thegoodparty/omni/pull/708", "gp-webapp")
+        == "https://github.com/thegoodparty/gp-webapp/pull/708"
+    )
+    assert (
+        bf.pr_url("https://github.com/thegoodparty/gp-webapp/pull/708/", "gp-webapp")
+        == "https://github.com/thegoodparty/gp-webapp/pull/708"
+    )
+
+
+def test_pr_url_leaves_an_existing_link_alone_when_the_repo_is_unknown():
+    # repo=None is "I don't know", not "it's omni" -- reassigning on a don't-know would undo
+    # a correct cross-repo link every time the skill rewrites the file.
+    link = "https://github.com/thegoodparty/gp-webapp/pull/708"
+    assert bf.pr_url(link) == link
+
+
+def test_pr_url_passes_a_foreign_url_through_untouched():
+    link = "https://example.com/some/other/place"
+    assert bf.pr_url(link, "gp-webapp") == link
+
+
+def test_write_provenance_points_a_grafted_row_at_its_source_repo(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.write_provenance(
+        [_row("E", instrumented_commit="abc", instrumented_pr="708")],
+        csv,
+        {"abc": "gp-webapp"},
+    )
+    assert bf.read_provenance_rows(csv)["E"]["instrumented_pr"] == (
+        "https://github.com/thegoodparty/gp-webapp/pull/708"
+    )
+
+
+def test_write_provenance_repairs_a_grafted_link_stored_under_omni(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.write_provenance(
+        [
+            _row(
+                "E",
+                instrumented_commit="abc",
+                instrumented_pr="https://github.com/thegoodparty/omni/pull/708",
+                retired_commit="def",
+                retired_pr="https://github.com/thegoodparty/omni/pull/1970",
+            )
+        ],
+        csv,
+        {"abc": "gp-webapp", "def": "gp-webapp"},
+    )
+    row = bf.read_provenance_rows(csv)["E"]
+    assert row["instrumented_pr"] == "https://github.com/thegoodparty/gp-webapp/pull/708"
+    assert row["retired_pr"] == "https://github.com/thegoodparty/gp-webapp/pull/1970"
+
+
+def test_write_provenance_leaves_an_omni_native_row_under_omni(tmp_path):
+    # A sha absent from the map is omni's own history; the map must not drag it anywhere.
+    csv = str(tmp_path / "p.csv")
+    bf.write_provenance(
+        [_row("E", instrumented_commit="zzz", instrumented_pr="2110")],
+        csv,
+        {"abc": "gp-webapp"},
+    )
+    assert bf.read_provenance_rows(csv)["E"]["instrumented_pr"] == (
+        "https://github.com/thegoodparty/omni/pull/2110"
+    )
+
+
+def test_write_provenance_without_a_map_keeps_cross_repo_links(tmp_path):
+    # The skill's upsert rewrites the whole file with no git history to consult. It must not
+    # flatten every repaired link back onto omni on its way past.
+    csv = str(tmp_path / "p.csv")
+    bf.write_provenance(
+        [_row("E", instrumented_commit="abc", instrumented_pr="https://github.com/thegoodparty/gp-api/pull/1774")],
+        csv,
+    )
+    assert bf.read_provenance_rows(csv)["E"]["instrumented_pr"] == (
+        "https://github.com/thegoodparty/gp-api/pull/1774"
+    )
+
+
+def test_build_pr_origin_map_partitions_grafted_commits_by_repo(monkeypatch):
+    sep = bf._FIELD_SEP
+    log = "\n".join(
+        [
+            # omni's own merges carry no sync() subject and contribute nothing.
+            f"m1 p1{sep}Merge pull request #2110 from thegoodparty/feat/okr",
+            f"m2 w1{sep}sync(gp-webapp): merge develop into develop",
+            f"m3 a1{sep}sync(gp-api): merge develop into develop",
+        ]
+    )
+    rev_lists = {("w1",): "w1 w2 w3", ("a1",): "a1 a2"}
+
+    def fake_run(argv, **kwargs):
+        if argv[3] == "log":
+            return subprocess.CompletedProcess(argv, 0, stdout=log, stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout=rev_lists[tuple(argv[4:])], stderr="")
+
+    monkeypatch.setattr(bf.subprocess, "run", fake_run)
+    assert bf.build_pr_origin_map("/root", "origin/main") == {
+        "w1": "gp-webapp",
+        "w2": "gp-webapp",
+        "w3": "gp-webapp",
+        "a1": "gp-api",
+        "a2": "gp-api",
+    }
+
+
+def test_build_pr_origin_map_empty_when_git_errors(monkeypatch):
+    # Degrade to the everything-is-omni rendering rather than failing the whole walk.
+    monkeypatch.setattr(
+        bf.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, 128, stdout="", stderr="boom")
+    )
+    assert bf.build_pr_origin_map("/root", "origin/main") == {}
+
+
+# --------------------------------------------------------------------------- #
 # upsert_provenance_row (skill write path)
 # --------------------------------------------------------------------------- #
 

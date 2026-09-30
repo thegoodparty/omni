@@ -19,6 +19,11 @@ import {
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  outreachProduct,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import {
   OUTREACH_OPTIONS,
@@ -236,6 +241,9 @@ interface PhoneBankingFlowProps {
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the who step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
+  // The tracker task this flow was launched from, carried onto the created
+  // list so every call logged against it joins back to the task.
+  tracker?: OutreachTrackerOrigin
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -249,6 +257,7 @@ export const PhoneBankingFlow = ({
   surface = WIN_PHONE_BANKING_SURFACE,
   preselectedListId,
   preselectedRecommendedVariant,
+  tracker,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   // Milestone 2's in-flow gate. Phone banking saves no draft — the list is
@@ -342,12 +351,33 @@ export const PhoneBankingFlow = ({
       setSaved(true)
       setStepId('download')
       trackEvent(EVENTS.Outreach.PhoneBanking.ListCreated, {
-        product: 'phoneBanking',
+        product: outreachProduct(surface.isServe),
         // Always true now: every audience is a saved VoterFileFilter (picked
         // or just built) — even an all-voters list built with no criteria
         // (ENG-10960) persists as one. Kept for analytics-schema continuity.
         filtersApplied: true,
         listSize: response.personCount,
+      })
+      // The cross-channel sibling of the event above. Phone banking is
+      // one-to-one, so creating the list is NOT reaching anyone — completion
+      // is every entry being called. This event is what a created →
+      // contacted → completed funnel counts, and it is uniform across
+      // channels where `ListCreated`'s batch-sizing fields are not.
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
+        ...outreachEventProps({
+          channel: 'phoneBanking',
+          isServe: surface.isServe,
+          campaignName: name.trim(),
+          recipientCount: response.personCount,
+          ...(response.outreachId != null
+            ? { outreachCampaignId: response.outreachId }
+            : {}),
+          listId: response.id,
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+        }),
       })
       if (response.outreachId != null) {
         onSaved?.(response.outreachId, response.name)
@@ -902,7 +932,11 @@ export const PhoneBankingFlow = ({
           reachableCount={audience.reachableCount}
         />
       ) : saved && createResponse ? (
-        <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
+        <DownloadStep
+          response={createResponse}
+          audienceLabel={audienceLabel}
+          isServe={surface.isServe}
+        />
       ) : stepId === 'download' ? (
         // The gated preview: what the list will be, priced off the picked
         // audience, with nothing written yet.
@@ -915,6 +949,7 @@ export const PhoneBankingFlow = ({
             sheetCount,
           }}
           audienceLabel={audienceLabel}
+          isServe={surface.isServe}
           onDownloadGated={() => {
             setGateOrigin('create')
             setGateOpen(true)

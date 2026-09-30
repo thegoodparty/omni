@@ -8,6 +8,10 @@ import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  outreachProduct,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { GateBanner } from 'app/dashboard/outreach/v2/gate/GateBanner'
 import { GateExplainerModal } from 'app/dashboard/outreach/v2/gate/GateExplainerModal'
@@ -618,6 +622,7 @@ export default function CreateListFlow({
         trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
           variant: recommendation.variant,
           channel: 'doorKnocking',
+          medium: 'doorKnocking',
           intent: recommendation.intent,
           count: recommendation.count,
           voteGoalShare: recommendation.voteGoalShare,
@@ -1188,6 +1193,7 @@ export default function CreateListFlow({
           trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
             variant: recommendedMeta.variant,
             channel: 'doorKnocking',
+            medium: 'doorKnocking',
             intent: recommendedMeta.intent,
             count: recommendedMeta.count,
             voteGoalShare: recommendedMeta.voteGoalShare,
@@ -1332,6 +1338,7 @@ export default function CreateListFlow({
       for (const row of created) {
         const stats = draftStats.get(row.draft.clientId)
         trackEvent(EVENTS.DoorKnocking.ListCreated, {
+          product: outreachProduct(serveMode),
           // This turf's own figures, not the campaign's: the event is about
           // a route, and a shared total would make every turf of a campaign
           // look the same size as the whole of it.
@@ -1341,6 +1348,31 @@ export default function CreateListFlow({
           // stay out of the analytics payload.
           filterCount: activeFilterCount,
         })
+        // The cross-channel sibling of the event above, fired per turf for
+        // the same reason. Door knocking is one-to-one, so a created list has
+        // reached nobody yet — completion is the turf being finished
+        // (`turfLifecycle.ts`). `ListCreated` carries this turf's own stops
+        // and people; this one carries only what every channel does, which is
+        // what makes a created → contacted → completed funnel countable
+        // across all of them.
+        trackEvent(
+          EVENTS.Dashboard.VoterContact.CampaignCreated,
+          outreachEventProps({
+            channel: 'doorKnocking',
+            isServe: serveMode,
+            campaignName: row.turf.name,
+            recipientCount: stats?.people ?? 0,
+            outreachCampaignId: row.turf.outreachId ?? undefined,
+            listId: row.turf.id,
+            // The other three channels read this off their audience step's
+            // own state; door knocking's equivalent is whether a
+            // recommendation was accepted on the who step. A saved list and a
+            // list built inline are both `savedList` here, matching them —
+            // an inline build persists as an ordinary saved filter.
+            audienceSource:
+              recommendedMeta !== null ? 'recommended' : 'savedList',
+          }),
+        )
       }
       // Dropped here rather than in the mutation body so a draft is only
       // ever forgotten once its route is real. What is left in the list is
