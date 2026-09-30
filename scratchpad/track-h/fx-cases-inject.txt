@@ -1,0 +1,6 @@
+Universal Judge — plan (2 agents)
+
+  chief_of_staff  [chat]  cases: x.json | evil | [click](https://evil.example) <img src=x onerror=alert(1)> `code`
+  meeting_briefing  [background]  cases: ok.json
+
+coverage: 0 of 20 agents wired (1 blocked)

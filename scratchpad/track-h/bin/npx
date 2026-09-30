@@ -1,0 +1,7 @@
+#!/bin/bash
+if [ -n "${JUDGE_FIXTURE:-}" ]; then
+  cat "$JUDGE_FIXTURE"
+  exit "${JUDGE_FIXTURE_EXIT:-0}"
+fi
+cd /Users/stephentanguis/Documents/GitHub/omni/.worktrees/judge-wave0/packages/gp-api || exit 1
+exec "/Users/stephentanguis/.nvm/versions/node/v22.12.0/bin/npx" "$@"

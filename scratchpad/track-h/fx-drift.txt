@@ -1,0 +1,6 @@
+Universal Judge — plan (2 agents)
+
+  chief_of_staff  [chat]  cases: cases/chief-of-staff.json
+  ordinance-flow [CHAT] cases=cases/ordinance-flow.json
+
+coverage: 0 of 20 agents wired (1 blocked)
