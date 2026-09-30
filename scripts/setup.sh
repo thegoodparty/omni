@@ -8,13 +8,28 @@
 #
 # Usage:
 #   scripts/setup.sh [--from <path>] [--api-url <url>] [--force]
+#                    [--secrets-only] [--user-state <state>]
 #
-#   --from <path>  A working omni checkout to copy real .env values from,
-#                  instead of the GitHub device flow.
-#   --api-url <url>  Dev gp-api base URL the device flow vends bundles from.
-#                  Defaults to https://gp-api-dev.goodparty.org.
-#   --force        Overwrite an existing-but-invalid .env, and skip the
-#                  confirmation prompt before wiping a non-empty local DB.
+#   --from <path>     A working omni checkout to copy real .env values from,
+#                     instead of the GitHub device flow (takes precedence).
+#   --api-url <url>   Dev gp-api base URL the device flow vends bundles
+#                     from. Defaults to https://gp-api-dev.goodparty.org.
+#   --force           Overwrite an existing-but-invalid .env, and skip the
+#                     confirmation prompt before wiping a non-empty local DB.
+#   --secrets-only    Run only the secrets step (plan/copy-or-vend/merge/
+#                     validate/write .env files), then exit 0 — no npm ci,
+#                     no docker, no migrate, no dev.sh. Lets another script
+#                     (e.g. scripts/worktree-setup.sh) reuse this step
+#                     without re-implementing it. Assumes node_modules
+#                     already exists (the caller's own install step, not
+#                     this one, provides it) since the secrets step shells
+#                     out via `npx tsx`.
+#   --user-state <state>
+#                     Product state for the login this script seeds at the
+#                     end (default free-win; see
+#                     packages/gp-api/src/testFixtures/AGENTS.md for the
+#                     full list). No effect if
+#                     LOCAL_SETUP_CLERK_MACHINE_SECRET isn't set.
 #
 # What "idempotent" means here: re-running with everything already in place
 # should be fast and should not touch anything that's already correct (see
@@ -43,6 +58,8 @@ GP_WEBAPP_ENV="$ROOT/packages/gp-webapp/.env.local"
 FROM=""
 API_URL="https://gp-api-dev.goodparty.org"
 FORCE=false
+SECRETS_ONLY=false
+USER_STATE="free-win"
 while [ $# -gt 0 ]; do
   case "$1" in
     --from)
@@ -57,8 +74,16 @@ while [ $# -gt 0 ]; do
       FORCE=true
       shift
       ;;
+    --secrets-only)
+      SECRETS_ONLY=true
+      shift
+      ;;
+    --user-state)
+      USER_STATE="$2"
+      shift 2
+      ;;
     -h | --help)
-      sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -98,46 +123,52 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # --- 1/8: preflight ----------------------------------------------------------
-log "[1/8] Preflight"
+# Skipped entirely in --secrets-only mode: that mode exists for a caller
+# (scripts/worktree-setup.sh) that already owns its own install step, and it
+# needs node_modules to already be in place for exactly the reason the npm ci
+# comment below explains.
+if [ "$SECRETS_ONLY" != true ]; then
+  log "[1/8] Preflight"
 
-pinned_node="$(tr -d '[:space:]' <"$ROOT/.nvmrc")"
-have_node="$(node -v | tr -d 'v')"
-# MAJOR only, deliberately — see contracts/scripts/assert-node-version.ts's
-# reasoning. .nvmrc pins a patch version nobody's local nvm actually matches.
-if [ "${pinned_node%%.*}" != "${have_node%%.*}" ]; then
-  echo "ERROR: Node ${have_node} is running; this repo pins ${pinned_node} (.nvmrc)." >&2
-  echo "Fix: nvm use" >&2
-  exit 1
-fi
-indent "node ${have_node} OK (pinned ${pinned_node})"
+  pinned_node="$(tr -d '[:space:]' <"$ROOT/.nvmrc")"
+  have_node="$(node -v | tr -d 'v')"
+  # MAJOR only, deliberately — see contracts/scripts/assert-node-version.ts's
+  # reasoning. .nvmrc pins a patch version nobody's local nvm actually matches.
+  if [ "${pinned_node%%.*}" != "${have_node%%.*}" ]; then
+    echo "ERROR: Node ${have_node} is running; this repo pins ${pinned_node} (.nvmrc)." >&2
+    echo "Fix: nvm use" >&2
+    exit 1
+  fi
+  indent "node ${have_node} OK (pinned ${pinned_node})"
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: docker not found on PATH." >&2
-  exit 1
-fi
-if ! docker info >/dev/null 2>&1; then
-  echo "ERROR: docker daemon not reachable." >&2
-  echo "Hint: colima users need DOCKER_HOST exported (colima status --json | grep docker_host)," >&2
-  echo "and colima itself needs to be running (colima start)." >&2
-  exit 1
-fi
-indent "docker OK"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "ERROR: docker not found on PATH." >&2
+    exit 1
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: docker daemon not reachable." >&2
+    echo "Hint: colima users need DOCKER_HOST exported (colima status --json | grep docker_host)," >&2
+    echo "and colima itself needs to be running (colima start)." >&2
+    exit 1
+  fi
+  indent "docker OK"
 
-if [ -z "$(ls -A "$ROOT/ai-rules" 2>/dev/null)" ]; then
-  indent "ai-rules/ submodule empty; initializing"
-  git -C "$ROOT" submodule update --init --recursive
-fi
-indent "ai-rules/ OK"
+  if [ -z "$(ls -A "$ROOT/ai-rules" 2>/dev/null)" ]; then
+    indent "ai-rules/ submodule empty; initializing"
+    git -C "$ROOT" submodule update --init --recursive
+  fi
+  indent "ai-rules/ OK"
 
-# `npm ci` runs here rather than with the rest of step 4's build commands: the
-# secrets step below shells out to `npx tsx` against a schema module that
-# imports zod, and on a genuinely fresh clone there is no node_modules yet for
-# that import to resolve. Prisma generation later in step 4 still needs the
-# env files step 3 writes first (its schema declares `url = env("DATABASE_URL")`,
-# and `prisma generate` fails fast if that resolves to nothing) — so only this
-# one command moves, not the whole step.
-log "[dependencies] npm ci"
-npm ci --prefer-offline
+  # `npm ci` runs here rather than with the rest of step 4's build commands: the
+  # secrets step below shells out to `npx tsx` against a schema module that
+  # imports zod, and on a genuinely fresh clone there is no node_modules yet for
+  # that import to resolve. Prisma generation later in step 4 still needs the
+  # env files step 3 writes first (its schema declares `url = env("DATABASE_URL")`,
+  # and `prisma generate` fails fast if that resolves to nothing) — so only this
+  # one command moves, not the whole step.
+  log "[dependencies] npm ci"
+  npm ci --prefer-offline
+fi
 
 # --- 2/8 + 3/8: secrets + env files ------------------------------------------
 # Plan every package's action before writing anything ("no partial writes"):
@@ -282,6 +313,11 @@ fi
 rm -rf "$TMP_ENV_DIR"
 TMP_ENV_DIR=""
 
+if [ "$SECRETS_ONLY" = true ]; then
+  indent "--secrets-only: env files ready; skipping install/build/postgres/migrate/launch"
+  exit 0
+fi
+
 # --- 4/8: build workspace-internal packages -----------------------------------
 log "[4/8] Build"
 npm run build -w packages/contracts
@@ -381,7 +417,7 @@ if [ "$api_ok" != true ] || [ "$webapp_ok" != true ]; then
   exit 1
 fi
 
-# --- 8/8: summary --------------------------------------------------------------
+# --- 8/8: summary (+ seed a login) -------------------------------------------
 log "[8/8] Summary"
 secrets_summary="already present"
 if [ "$need_from" = true ]; then
@@ -391,6 +427,64 @@ if [ "$need_from" = true ]; then
     secrets_summary="vended via GitHub device flow"
   fi
 fi
+
+# Best-effort finishing touch: mint a QA fixture user via gp-api's
+# AdminOrM2MGuard-gated test-fixtures endpoint, so bootstrap ends with a
+# working browser login instead of just a healthy stack (ENG-11191). Reads
+# the machine secret back out of the .env file step 3 just wrote/validated
+# (not straight off the shell env) because that's the one place --from's
+# copy and .env.example's placeholder both flow through. Every step here is
+# best-effort on purpose: `set -euo pipefail` means an unguarded non-zero
+# exit would kill an otherwise-successful bootstrap over a step that is, by
+# design, expected to be unavailable on most machines today (the Clerk
+# machine ENG-11191 depends on is an ops prerequisite, not yet provisioned).
+SEED_LOGIN_SUMMARY="skipped (LOCAL_SETUP_CLERK_MACHINE_SECRET not set)"
+LOCAL_SETUP_SECRET="$(
+  npx tsx "$ROOT/scripts/setup/lib/cli.ts" get-var "$GP_API_ENV" \
+    LOCAL_SETUP_CLERK_MACHINE_SECRET
+)" || LOCAL_SETUP_SECRET=""
+
+if [ -n "$LOCAL_SETUP_SECRET" ]; then
+  # Secret travels via the environment, never argv (argv is visible in ps).
+  seed_result="$(
+    LOCAL_SETUP_CLERK_MACHINE_SECRET="$LOCAL_SETUP_SECRET" \
+      npx tsx "$ROOT/scripts/setup/lib/cli.ts" seed-login "$USER_STATE"
+  )" || seed_result=""
+  seed_status="${seed_result%%$'\t'*}"
+  case "$seed_status" in
+    OK)
+      # Credentials print ONCE, to the terminal only, and only when this
+      # script's own stdout IS a terminal — never into a file or a log. CI's
+      # setup-smoke job backgrounds this script with `>setup.log 2>&1`, so
+      # [ -t 1 ] is false there and the credential-bearing branch never runs.
+      if [ -t 1 ]; then
+        seed_email="$(printf '%s' "$seed_result" | cut -f2)"
+        seed_password="$(printf '%s' "$seed_result" | cut -f3)"
+        SEED_LOGIN_SUMMARY="ok
+    url       http://localhost:4000
+    email     ${seed_email}
+    password  ${seed_password}"
+      else
+        SEED_LOGIN_SUMMARY="minted (credentials suppressed, non-interactive)"
+      fi
+      ;;
+    FAILED)
+      SEED_LOGIN_SUMMARY="failed (${seed_result#*$'\t'})"
+      ;;
+    SKIPPED)
+      # Unreachable today — this block only runs when LOCAL_SETUP_SECRET is
+      # non-empty, and that's the only input that makes runSeedLogin return
+      # 'skipped' — but cli.ts's seed-login command accepts an empty secret
+      # as a legitimate input on its own, so handle it explicitly rather
+      # than falling into the generic default below and losing the reason.
+      SEED_LOGIN_SUMMARY="skipped (${seed_result#*$'\t'})"
+      ;;
+    *)
+      SEED_LOGIN_SUMMARY="skipped (unexpected seed-login output)"
+      ;;
+  esac
+fi
+
 cat <<SUMMARY
 
 ==================== omni bootstrap: ready ====================
@@ -402,6 +496,7 @@ cat <<SUMMARY
   migrate/seed         ok
   gp-api               ok   http://localhost:3000   (GET /v1/health -> 200)
   gp-webapp            ok   http://localhost:4000
+  login                ${SEED_LOGIN_SUMMARY}
 =================================================================
 
 Press Ctrl+C to stop the stack.

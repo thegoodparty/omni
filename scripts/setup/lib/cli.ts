@@ -22,6 +22,24 @@
 //     resulting token for a dev-env bundle for each <pkg>, writing
 //     <outDir>/device-<pkg>.env for each. Exits 1, writes nothing, and never
 //     prints the token or any vended value if any step fails.
+//
+//   npx tsx scripts/setup/lib/cli.ts get-var <envFilePath> <varName>
+//     Print <varName>'s parsed value from <envFilePath> (empty line if the
+//     file or the var is absent). Reuses parseEnvFile so bash never
+//     re-implements dotenv quoting for the one var (machine secrets) it
+//     needs to read back out of a written env file.
+//
+//   npx tsx scripts/setup/lib/cli.ts seed-login <userState>
+//     Mint a per-run Clerk M2M token with the secret read from the
+//     LOCAL_SETUP_CLERK_MACHINE_SECRET env var (never argv — argv is
+//     visible in ps; empty/unset takes the skip path) and use it to
+//     mint a QA fixture user in <userState> via
+//     gp-api's test-fixtures endpoint. Prints exactly one tab-separated
+//     result line to stdout — 'OK\t<email>\t<password>',
+//     'FAILED\t<reason>', or 'SKIPPED\t<reason>' — and always exits 0; the
+//     caller (setup.sh) decides how to react. Never writes anything else to
+//     stdout/stderr, so a credential can only ever reach the one line a
+//     caller explicitly captures.
 import { execFileSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
@@ -44,6 +62,7 @@ import {
   serializeEnvFile,
   type EnvMap,
 } from './env'
+import { runSeedLogin } from './seedLogin'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
@@ -164,6 +183,25 @@ const runBuild = async (
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
+
+// get-var's varName arg is always a non-secret path/name string, never a
+// value.
+const runGetVar = (envFilePath: string, varName: string) => {
+  const parsed = readEnvFile(envFilePath)
+  process.stdout.write(`${parsed[varName] ?? ''}\n`)
+}
+
+const runSeedLoginCommand = async (
+  machineSecret: string,
+  userState: string,
+) => {
+  const result = await runSeedLogin(machineSecret, userState)
+  if (result.kind === 'minted') {
+    process.stdout.write(`OK\t${result.email}\t${result.password}\n`)
+  } else {
+    process.stdout.write(`${result.kind.toUpperCase()}\t${result.reason}\n`)
+  }
+}
 
 // Best-effort only: a headless runner, a Linux box, or a sandboxed `open`
 // must never fail the flow — the human can still follow the printed URL.
@@ -286,6 +324,20 @@ const main = async () => {
     await runDeviceFlow(argv[1], argv[2], argv[3], argv.slice(4))
     return
   }
+  if (command === 'get-var' && argv[1] && argv[2]) {
+    runGetVar(argv[1], argv[2])
+    return
+  }
+  // The machine secret arrives via the environment, never argv — argv is
+  // world-readable on shared machines (ps / /proc/PID/cmdline). Empty or
+  // unset is the legitimate skip path.
+  if (command === 'seed-login' && argv[1] !== undefined) {
+    await runSeedLoginCommand(
+      process.env.LOCAL_SETUP_CLERK_MACHINE_SECRET ?? '',
+      argv[1],
+    )
+    return
+  }
 
   fail(
     [
@@ -293,6 +345,9 @@ const main = async () => {
       '  cli.ts check <pkg> <envFilePath>',
       '  cli.ts build <pkg> <copiedEnvPath|-> <outPath>',
       '  cli.ts device-flow <clientId> <apiUrl> <outDir> <pkg...>',
+      '  cli.ts get-var <envFilePath> <varName>',
+      '  cli.ts seed-login <userState>   (secret via env var',
+      '    LOCAL_SETUP_CLERK_MACHINE_SECRET; empty/unset = skip)',
     ].join('\n'),
   )
 }

@@ -174,8 +174,9 @@ console for `GP Autopilot`, autopilot's own dedicated app; the shared
 - Enable Event Subscriptions on the app, pointed at this environment's
   `https://<ai ALB host>/autopilot/slack`. Do this only AFTER the app's
   signing secret is in `AI_SECRETS_<ENV>` as `AUTOPILOT_SLACK_SIGNING_SECRET`
-  and an apply has baked it — Slack's URL save sends a SIGNED
-  `url_verification` challenge the Lambda must verify.
+  and the Lambda has picked it up (see "Environment variables" below) —
+  Slack's URL save sends a SIGNED `url_verification` challenge the Lambda
+  must verify.
 - Subscribe to the `message.channels` bot event.
 - Confirm the bot's OAuth scopes include `channels:history` — needed for the
   `conversations.replies` thread-root read; `chat:write` (granted for
@@ -184,10 +185,11 @@ console for `GP Autopilot`, autopilot's own dedicated app; the shared
   Events API delivery does not require membership, but
   `conversations.replies` does.
 - The app's bot token goes in `AI_SECRETS_<ENV>` as
-  `AUTOPILOT_SLACK_BOT_TOKEN` (Terraform maps it onto the runtime
-  `SLACK_BOT_TOKEN` env var for the Lambda and the agent task definitions;
-  the Lambda falls back to the shared `SLACK_BOT_TOKEN` key until the
-  dedicated one exists, the agent task defs REQUIRE it).
+  `AUTOPILOT_SLACK_BOT_TOKEN` (the Lambda's `lambda/ai_secrets.py` and the
+  agent task definitions' Terraform both map it onto the runtime
+  `SLACK_BOT_TOKEN` name; the Lambda falls back to the shared
+  `SLACK_BOT_TOKEN` key until the dedicated one exists, the agent task defs
+  REQUIRE it).
 - Confirm the bot's OAuth scopes include `pins:write` — needed to pin the
   status card message below. The pin itself is cosmetic (a failed pin never
   blocks the card from updating), so a missing scope degrades to an
@@ -251,22 +253,36 @@ dashboard (that's phase 3):
 
 ### Environment variables
 
+**Credentials are not env vars in the deployed Lambda.** Terraform sets only
+`AI_SECRETS_NAME` (the `AI_SECRETS_<ENV>` bundle's name) and grants the
+function `secretsmanager:GetSecretValue` on it; `lambda/ai_secrets.py` fetches
+the bundle once per container on first use. A credential marked *(secret)*
+below is read through `ai_secrets.secret(<name>)`: an env var of that name
+wins (how tests and local runs supply one without AWS), otherwise the bundle
+key of the same name. A key the bundle lacks reads as empty and fails closed.
+
+A new or rotated value in `AI_SECRETS_<ENV>` needs no apply, but a warm
+container keeps the value it loaded; it takes effect as containers recycle, or
+immediately after any function update (a deploy, or a config change) starts
+fresh ones.
+
 Beyond the routing/dispatch set (`AUTOPILOT_LIST_IDS`,
-`AUTOPILOT_BOT_USER_ID`, `AUTOPILOT_DEDUP_TABLE`, `AUTOPILOT_CLICKUP_WEBHOOK_SECRET`,
-`ECS_CLUSTER_ARN`, `ECS_TASK_DEFINITION`, `ECS_TASK_DEFINITION_PLAYWRIGHT`,
-`SUBNET_IDS`, `SECURITY_GROUP_ID`), the supervisor and sweep need:
+`AUTOPILOT_BOT_USER_ID`, `AUTOPILOT_DEDUP_TABLE`,
+`AUTOPILOT_CLICKUP_WEBHOOK_SECRET` *(secret)*, `ECS_CLUSTER_ARN`,
+`ECS_TASK_DEFINITION`, `ECS_TASK_DEFINITION_PLAYWRIGHT`, `SUBNET_IDS`,
+`SECURITY_GROUP_ID`), the supervisor and sweep need:
 
 | Var | Purpose |
 | --- | --- |
-| `AUTOPILOT_CLICKUP_API_KEY` | Plain env var (not Secrets Manager — see `handler.py`'s module docstring for why this Lambda stays that way) for the ClickUp reads/writes `supervisor.py` and `sweep.py` make. |
-| `SLACK_BOT_TOKEN` | Bot token for the supervisor's `chat.postMessage` calls (stall alerts, close-out summaries) and the Slack ingress's `conversations.replies` thread-root read. Sourced from the `AUTOPILOT_SLACK_BOT_TOKEN` key in `AI_SECRETS_<ENV>` (the dedicated "GP Autopilot" app), falling back to the shared `SLACK_BOT_TOKEN` key until that exists — see `modules/autopilot-bot/main.tf`. |
+| `AUTOPILOT_CLICKUP_API_KEY` *(secret)* | The ClickUp reads/writes `supervisor.py` and `sweep.py` make. |
+| `SLACK_BOT_TOKEN` *(secret)* | Bot token for the supervisor's `chat.postMessage` calls (stall alerts, close-out summaries) and the Slack ingress's `conversations.replies` thread-root read. Read from the `AUTOPILOT_SLACK_BOT_TOKEN` bundle key (the dedicated "GP Autopilot" app), falling back to the shared `SLACK_BOT_TOKEN` key until that exists — see `ai_secrets.SOURCE_KEYS`. |
 | `AUTOPILOT_SLACK_CHANNEL` | Channel id those messages post to, and the channel the Slack ingress requires a reply to be in. |
-| `AUTOPILOT_SLACK_SIGNING_SECRET` | Verifies `POST /autopilot/slack` requests really came from Slack (v0 HMAC over the raw body). Missing/empty fails closed (every request 401s). |
+| `AUTOPILOT_SLACK_SIGNING_SECRET` *(secret)* | Verifies `POST /autopilot/slack` requests really came from Slack (v0 HMAC over the raw body). Missing/empty fails closed (every request 401s). |
 | `SWEEP_LOOKBACK_MINUTES` | How far back the sweep scans for missed transitions (default 45). |
 | `SWEEP_MAX_TRIGGERS` | Cap on real dispatches per sweep pass, logged loudly when hit (default 10). Does not bound the unconditional per-executing-card supervisor tick, which is bounded by `AUTOPILOT_MAX_CONCURRENT_STORIES` instead — nor the merge-pending resolution pass, bounded the same way. |
 | `AUTOPILOT_MAX_CONCURRENT_STORIES` | How many stories the supervisor will run in flight at once per epic (default **2**). Read fresh at tick time, not at Lambda cold start, so raising or lowering it takes effect on the very next tick with no redeploy. A story with an unmet ClickUp dependency link never launches regardless of this cap. |
-| `GITHUB_APP_PRIVATE_KEY` | Same Delegate App key `agent/github_auth.py` uses, from `AI_SECRETS_<ENV>`. `lambda/github_auth.py` mints its own short-lived installation token from it (stdlib-only RS256 signing — no pyjwt/cryptography in this Lambda's zip) to read a story's PR state for merge-pending resolution. |
-| `AMPLITUDE_MANAGEMENT_API_KEY` | Same key `agent/amplitude_flags.py` uses, from `AI_SECRETS_<ENV>`. The sweep's flag-cleanup ramp pass (`lambda/sweep.py`'s own stdlib `_read_prod_flag_rollout` — not a shared import) uses it as a Bearer header to read a flag's prod rollout. |
+| `GITHUB_APP_PRIVATE_KEY` *(secret)* | Same Delegate App key `agent/github_auth.py` uses. `lambda/github_auth.py` mints its own short-lived installation token from it (stdlib-only RS256 signing — no pyjwt/cryptography in this Lambda's zip) to read a story's PR state for merge-pending resolution. |
+| `AMPLITUDE_MANAGEMENT_API_KEY` *(secret)* | Same key `agent/amplitude_flags.py` uses. The sweep's flag-cleanup ramp pass (`lambda/sweep.py`'s own stdlib `_read_prod_flag_rollout` — not a shared import) uses it as a Bearer header to read a flag's prod rollout. |
 | `AMPLITUDE_PROD_PROJECT_ID` | Which Amplitude project the ramp pass reads from — always prod, since only a prod rollout drives the promote decision. Plain value (not a secret), hardcoded the same way `autopilot-agent-fargate`'s `agent_environment` carries it. |
 | `FLAG_CLEANUP_RAMP_DAYS` | How long a prod flag must sit at 100% (all users, no partial targeting) before its flag-cleanup ticket (see below) is promoted to the story queue. Default 7 days; lower it to accelerate the first real use. |
 

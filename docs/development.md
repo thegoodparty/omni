@@ -26,6 +26,14 @@ election-api and
 gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
 election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.
 
+Once the stack is healthy, it finishes by seeding a login: a QA fixture user
+(`packages/gp-api/src/testFixtures/`) in product state `--user-state`
+(default `free-win`), minted via a per-run Clerk M2M token and printed once
+to the terminal (URL, email, password — never written to a file or log).
+This needs `LOCAL_SETUP_CLERK_MACHINE_SECRET` set in `packages/gp-api/.env`
+(a dedicated local-setup Clerk machine, vended in the LOCAL_DEV_ENV bundle);
+absent, that step just prints a skip note and the run still exits 0.
+
 If you'd rather set up by hand: `nvm use`, `npm install` (runs a `postinstall`
 that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, run
 `git submodule update --init --recursive ai-rules`), then copy each app's
