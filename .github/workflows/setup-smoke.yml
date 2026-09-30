@@ -89,31 +89,41 @@ jobs:
           scripts/setup.sh --from /tmp/setup-fixture >setup.log 2>&1 &
           setup_pid=$!
 
-          ok=false
+          api_ok=false
+          webapp_ok=false
           deadline=$((SECONDS + 900))
           while [ "$SECONDS" -lt "$deadline" ]; do
-            if curl -fsS -o /dev/null http://localhost:3000/v1/health; then
-              ok=true
+            if [ "$api_ok" != true ] &&
+              curl -fsS -o /dev/null http://localhost:3000/v1/health; then
+              api_ok=true
+            fi
+            if [ "$webapp_ok" != true ] &&
+              curl -fsS -o /dev/null http://localhost:4000; then
+              webapp_ok=true
+            fi
+            if [ "$api_ok" = true ] && [ "$webapp_ok" = true ]; then
               break
             fi
             if ! kill -0 "$setup_pid" 2>/dev/null; then
-              echo "scripts/setup.sh exited before gp-api became healthy." >&2
+              echo "scripts/setup.sh exited before both services became healthy." >&2
               break
             fi
             sleep 3
           done
 
-          if [ "$ok" != true ]; then
+          if [ "$api_ok" != true ] || [ "$webapp_ok" != true ]; then
+            echo "api_ok=$api_ok webapp_ok=$webapp_ok" >&2
             echo "--- tail of setup.log ---" >&2
             tail -n 200 setup.log >&2
             exit 1
           fi
 
-          status="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3000/v1/health)"
-          echo "GET /v1/health -> $status"
+          api_code="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3000/v1/health)"
+          webapp_code="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:4000)"
+          echo "GET /v1/health -> $api_code ; GET :4000 -> $webapp_code"
           curl -fsS http://localhost:3000/v1/health
           echo
-          if [ "$status" != "200" ]; then
+          if [ "$api_code" != "200" ] || [ "$webapp_code" != "200" ]; then
             echo "--- tail of setup.log ---" >&2
             tail -n 200 setup.log >&2
             exit 1
