@@ -45,6 +45,24 @@ describe('fetchDevEnvBundles', () => {
     expect(init.body).toBe(JSON.stringify({ packages: ['gp-api'] }))
   })
 
+  it('rejects a package name outside the known enum (path-traversal guard)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        bundles: [
+          { package: '../../../../etc/passwd', variables: { FOO: 'bar' } },
+        ],
+      }),
+    )
+    await expect(
+      fetchDevEnvBundles(
+        'https://gp-api-dev.goodparty.org',
+        'gho_abc',
+        ['gp-api'],
+        fetchImpl,
+      ),
+    ).rejects.toBeInstanceOf(DevEnvBundleFetchError)
+  })
+
   it('fails closed before returning anything on a malformed response', async () => {
     const fetchImpl = vi
       .fn()

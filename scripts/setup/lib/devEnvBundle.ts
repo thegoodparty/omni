@@ -12,8 +12,15 @@ import { z } from 'zod'
 
 const FETCH_TIMEOUT_MS = 10_000
 
+// Mirrors DEV_ENV_PACKAGE_VALUES. `package` feeds a file path in cli.ts
+// (`device-${bundle.package}.env`) — an enum here, not z.string(), is load
+// bearing: it is what stops a malformed/unexpected response value from
+// becoming a path-traversal write. cli.ts also cross-checks each bundle's
+// package against what was actually requested before writing anything.
+const DevEnvPackageSchema = z.enum(['gp-api', 'gp-webapp'])
+
 const DevEnvPackageBundleSchema = z.object({
-  package: z.string(),
+  package: DevEnvPackageSchema,
   variables: z.record(z.string(), z.string()),
 })
 

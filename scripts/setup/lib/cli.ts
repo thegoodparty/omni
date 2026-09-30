@@ -172,7 +172,7 @@ const tryOpen = (uri: string): void => {
   }
 }
 
-const runDeviceFlow = async (
+export const runDeviceFlow = async (
   clientId: string,
   apiUrl: string,
   outDir: string,
@@ -216,6 +216,20 @@ const runDeviceFlow = async (
 
   try {
     const bundles = await fetchDevEnvBundles(apiUrl, token, packages)
+
+    // Validate every bundle against what was actually requested BEFORE
+    // writing any of them ("no partial writes", same invariant setup.sh's
+    // own build_one keeps). The schema already constrains `package` to a
+    // known enum; this additionally refuses a schema-valid package the
+    // caller never asked for.
+    const unexpected = bundles.filter((b) => !packages.includes(b.package))
+    if (unexpected.length > 0) {
+      return fail(
+        `${apiUrl} returned bundle(s) for unrequested package(s): ` +
+          `${unexpected.map((b) => b.package).join(', ')}.`,
+      )
+    }
+
     for (const bundle of bundles) {
       writeFileSync(
         join(outDir, `device-${bundle.package}.env`),
@@ -267,7 +281,14 @@ const main = async () => {
   )
 }
 
-main().catch((error: Error) => {
-  console.error(error.message)
-  process.exit(1)
-})
+// Guarded so importing this module (cli.test.ts, testing runDeviceFlow)
+// never also runs main() against the test runner's own argv/exit.
+if (
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === resolve(process.argv[1])
+) {
+  main().catch((error: Error) => {
+    console.error(error.message)
+    process.exit(1)
+  })
+}
