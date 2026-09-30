@@ -306,9 +306,12 @@ export const runChatCase = async (
   }
   const endedAt = new Date()
 
+  // Absent when the turn ended before usage resolved, which is not the same
+  // as a turn that used nothing.
+  const observed = llm.capture.tokens
   const tokens: TokenUsage = {
-    input: llm.capture.tokens?.input ?? 0,
-    output: llm.capture.tokens?.output ?? 0,
+    input: observed?.input ?? 0,
+    output: observed?.output ?? 0,
     // Zero because prompt caching is not enabled. Carried rather than
     // omitted so the day it is switched on, pricing fails loudly instead of
     // costing a cache read at the full input rate.
@@ -316,7 +319,22 @@ export const runChatCase = async (
     cacheWrite: 0,
   }
   const model = llm.capture.model || request.variant.model
-  const priced = priceRun(tokens, model)
+  // Price only what was measured. When usage never resolved those counts are
+  // defaults, not observations, and pricing them produces a confident $0 for
+  // a run whose cost is genuinely unknown — the "this run was free" reading
+  // the schema's absent-rather-than-zero rule exists to prevent. An
+  // infraError turn is the usual way to get here, but the rule is about
+  // whether the tokens were seen, not about the status: a turn that really
+  // did use nothing reports a true zero, and one that died before reporting
+  // reports nothing at all.
+  const priced =
+    observed === undefined
+      ? {
+          unpriceable:
+            'usage never resolved: the turn ended before the model ' +
+            'reported it, so its cost is unknown rather than zero',
+        }
+      : priceRun(tokens, model)
   const status = classifyChatStatus(
     outcome.output,
     outcome.streamErrored,
@@ -329,9 +347,15 @@ export const runChatCase = async (
         'and the record schema disagree',
     )
   }
-  const finalTrace = priced.unpriceable
-    ? errorStep(trace, priced.unpriceable)
-    : trace
+  // An unpriceable reason earns a trace step only when the run otherwise
+  // succeeded — "no price on record for model X" is a fact the trace does not
+  // otherwise carry. On an infraError run the trace already says why the turn
+  // ended, and "usage never resolved" is that same failure restated, so
+  // appending it would put a second error step behind every first one.
+  const finalTrace =
+    priced.unpriceable !== undefined && status !== 'infraError'
+      ? errorStep(trace, priced.unpriceable)
+      : trace
   const toolSteps = finalTrace.filter((step) => step.kind === 'tool')
 
   return RunRecordSchema.parse({

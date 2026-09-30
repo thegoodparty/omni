@@ -293,6 +293,17 @@ describe('runChatCase', () => {
       expect(record.status).toBe('infraError')
       expect(record.output).toBeNull()
       expect(record.variant.configDigest).toBe('unobserved')
+      // The turn never reached the model, so its token counts are defaults
+      // rather than observations. Pricing them would state $0 for a run
+      // whose cost is unknown, which is the "free" reading the schema's
+      // absent-rather-than-zero rule exists to prevent.
+      expect(record.telemetry.cost).toBeUndefined()
+      expect(record.telemetry.tokens).toEqual({
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      })
       expect(record.trace).toEqual([
         {
           index: 0,
