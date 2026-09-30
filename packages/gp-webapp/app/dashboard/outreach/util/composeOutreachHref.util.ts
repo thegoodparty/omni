@@ -1,5 +1,8 @@
 import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
-import type { OutreachTrackerOrigin } from './outreachAnalytics'
+import type {
+  OutreachFlowSource,
+  OutreachTrackerOrigin,
+} from './outreachAnalytics'
 
 // The outreach types a campaign-plan task can start.
 export type ComposeFlowType = 'text' | 'robocall'
@@ -13,6 +16,14 @@ export type ComposeSource =
   | 'campaign_tracker'
   // The voter data page's "Choose a channel" picker.
   | 'voter_data'
+
+// The compose link's own vocabulary predates this one and stays as it is on
+// `Outreach - Click Create`, so renaming it there would not split history.
+// Only the flow-level events read the tracker as the campaign plan.
+export const flowSourceFromCompose = (
+  source: ComposeSource | undefined,
+): OutreachFlowSource =>
+  source === 'campaign_tracker' ? 'campaign_plan' : (source ?? 'deep_link')
 
 // A task CTA links into the hub rather than mounting a flow in place: the hub
 // owns the one instance of each channel flow (and the gates in front of them),

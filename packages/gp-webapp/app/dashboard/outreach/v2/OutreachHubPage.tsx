@@ -43,10 +43,8 @@ import { fetchOutreachDetail, useSeedOutreachDetail } from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
 import type { AudiencePreselect } from './audiencePreselect'
 import { DRAFT_FOOTER_LABELS } from './listDetails/footerMode'
-import {
-  flowSourceFromCompose,
-  type OutreachFlowSource,
-} from 'app/dashboard/outreach/util/outreachAnalytics'
+import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
+import { flowSourceFromCompose } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 
 // The two channels that can hold a saved draft, and the row types that
 // resume into each. A draft row is the campaign's way back into the flow
