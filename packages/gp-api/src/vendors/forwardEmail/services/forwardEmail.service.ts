@@ -1,5 +1,10 @@
 import { HttpService } from '@nestjs/axios'
-import { BadGatewayException, HttpStatus, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  HttpStatus,
+  Injectable,
+} from '@nestjs/common'
 import { AxiosResponse, isAxiosError } from 'axios'
 import { lastValueFrom } from 'rxjs'
 import { format } from '@redtea/format-axios-error'
@@ -10,6 +15,7 @@ import {
   ForwardEmailDomainResponse,
 } from '../forwardEmail.types'
 import { PinoLogger } from 'nestjs-pino'
+import { resolveEnvVar } from '../../../shared/env/env'
 
 const FORWARDEMAIL_TIMEOUT_MS = 10000
 enum ForwardEmailPlan {
@@ -18,23 +24,32 @@ enum ForwardEmailPlan {
   Team = 'team',
 }
 
-const { FORWARDEMAIL_API_TOKEN, FORWARDEMAIL_BASE_URL } = process.env
+const FORWARDEMAIL_NOT_CONFIGURED_MESSAGE =
+  'Campaign email forwarding is disabled: set FORWARDEMAIL_API_TOKEN and ' +
+  'FORWARDEMAIL_BASE_URL'
 
-if (!FORWARDEMAIL_BASE_URL) {
-  throw new Error('Missing FORWARDEMAIL_BASE_URL config')
+type ForwardEmailConfig = {
+  baseUrl: string
+  // MUST have the trailing `:` for HTTP basic auth.
+  tokenBase64: string
 }
 
-if (!FORWARDEMAIL_API_TOKEN) {
-  throw new Error('Missing FORWARDEMAIL_API_TOKEN config')
+const resolveForwardEmailConfig = (): ForwardEmailConfig | null => {
+  const apiToken = resolveEnvVar('FORWARDEMAIL_API_TOKEN')
+  const baseUrl = resolveEnvVar('FORWARDEMAIL_BASE_URL')
+  if (!apiToken.configured || !baseUrl.configured) {
+    return null
+  }
+  return {
+    baseUrl: baseUrl.value,
+    tokenBase64: Buffer.from(`${apiToken.value}:`).toString('base64'),
+  }
 }
 
-const forwardEmailApiTokenBase64Encoded: string = Buffer.from(
-  `${FORWARDEMAIL_API_TOKEN}:`, // MUST have `:` for basic auth
-).toString('base64')
+const forwardEmailConfig = resolveForwardEmailConfig()
 
 @Injectable()
 export class ForwardEmailService {
-  private readonly baseUrl = FORWARDEMAIL_BASE_URL!
   private readonly httpTimeoutMs = FORWARDEMAIL_TIMEOUT_MS
 
   constructor(
@@ -42,6 +57,16 @@ export class ForwardEmailService {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ForwardEmailService.name)
+    if (!forwardEmailConfig) {
+      this.logger.warn(FORWARDEMAIL_NOT_CONFIGURED_MESSAGE)
+    }
+  }
+
+  private requireConfig(): ForwardEmailConfig {
+    if (!forwardEmailConfig) {
+      throw new BadRequestException(FORWARDEMAIL_NOT_CONFIGURED_MESSAGE)
+    }
+    return forwardEmailConfig
   }
 
   private handleApiError(error: unknown): never {
@@ -59,7 +84,9 @@ export class ForwardEmailService {
     timeout: number
   } {
     return {
-      headers: { Authorization: `Basic ${forwardEmailApiTokenBase64Encoded}` },
+      headers: {
+        Authorization: `Basic ${this.requireConfig().tokenBase64}`,
+      },
       timeout: this.httpTimeoutMs,
     }
   }
@@ -123,11 +150,12 @@ export class ForwardEmailService {
   }
 
   private async listDomains(): Promise<ForwardEmailDomainResponse[]> {
+    const { baseUrl } = this.requireConfig()
     const domains = await this.paginateWithBackoff<ForwardEmailDomainResponse>(
       (p, l) =>
         lastValueFrom(
           this.httpService.get<ForwardEmailDomainResponse[]>(
-            `${this.baseUrl}/domains`,
+            `${baseUrl}/domains`,
             {
               ...this.getBaseHttpHeaders(),
               params: { page: p, limit: l, paginate: true, pagination: true },
@@ -149,11 +177,12 @@ export class ForwardEmailService {
   }
 
   async addDomain(domain: Domain): Promise<ForwardEmailDomainResponse> {
+    const { baseUrl } = this.requireConfig()
     try {
       const response: AxiosResponse<ForwardEmailDomainResponse> =
         await lastValueFrom(
           this.httpService.post<ForwardEmailDomainResponse>(
-            `${this.baseUrl}/domains`,
+            `${baseUrl}/domains`,
             { domain: domain.name, plan: ForwardEmailPlan.EnhancedProtection },
             this.getBaseHttpHeaders(),
           ),
@@ -169,11 +198,12 @@ export class ForwardEmailService {
   async getCatchAllDomainAliases(
     domainName: string,
   ): Promise<ForwardEmailAliasResponse[]> {
+    const { baseUrl } = this.requireConfig()
     const aliases = await this.paginateWithBackoff<ForwardEmailAliasResponse>(
       (p, l) =>
         lastValueFrom(
           this.httpService.get<ForwardEmailAliasResponse[]>(
-            `${this.baseUrl}/domains/${encodeURIComponent(domainName)}/aliases`,
+            `${baseUrl}/domains/${encodeURIComponent(domainName)}/aliases`,
             {
               ...this.getBaseHttpHeaders(),
               params: {
@@ -198,11 +228,12 @@ export class ForwardEmailService {
     forwardToEmail: string,
     forwardingDomainResponse: ForwardEmailDomainResponse,
   ): Promise<ForwardEmailAliasResponse> {
+    const { baseUrl } = this.requireConfig()
     try {
       const response: AxiosResponse<ForwardEmailAliasResponse> =
         await lastValueFrom(
           this.httpService.post<ForwardEmailAliasResponse>(
-            `${this.baseUrl}/domains/${encodeURIComponent(forwardingDomainResponse.id)}/aliases`,
+            `${baseUrl}/domains/${encodeURIComponent(forwardingDomainResponse.id)}/aliases`,
             { name: '*', recipients: forwardToEmail },
             this.getBaseHttpHeaders(),
           ),
@@ -223,11 +254,12 @@ export class ForwardEmailService {
     forwardToEmail: string,
     forwardingDomainResponse: ForwardEmailDomainResponse,
   ): Promise<ForwardEmailAliasResponse> {
+    const { baseUrl } = this.requireConfig()
     try {
       const response: AxiosResponse<ForwardEmailAliasResponse> =
         await lastValueFrom(
           this.httpService.put<ForwardEmailAliasResponse>(
-            `${this.baseUrl}/domains/${encodeURIComponent(forwardingDomainResponse.id)}/aliases/${encodeURIComponent(aliasId)}`,
+            `${baseUrl}/domains/${encodeURIComponent(forwardingDomainResponse.id)}/aliases/${encodeURIComponent(aliasId)}`,
             { recipients: forwardToEmail },
             this.getBaseHttpHeaders(),
           ),
