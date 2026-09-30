@@ -1,7 +1,8 @@
 # Message composer and outreach disclaimers
 
-Owner: Justin. Status: planned. Wave 0 is in progress; nothing past it is
-built.
+Owner: Justin. Status: waves 0 and 1 built (`Textarea` seamless variant;
+`TokenField`, `TokenPill` and `MERGE_TAGS`, with no call sites yet). Nothing
+past wave 1 is built.
 
 A plan for two things that turn out to be one thing: editable-but-protected
 disclaimers in the SMS and robocall flows, and a reusable composer to hold them.
@@ -89,6 +90,10 @@ deletable part, preserve the protected spans in place, shake them.** Select-all
 plus type then leaves a message containing the disclaimers and the new text,
 which is the right outcome and matches what the prototype does for required
 pills.
+
+As built: the free text between two locked parts collapses to one space
+rather than nothing, and a line break between them is kept, so what survives
+reads as separate phrases on the lines they were on.
 
 This is the one place `filterTransaction` alone is not enough. A plain predicate
 can only accept or reject; preserving spans inside a rejected range needs
