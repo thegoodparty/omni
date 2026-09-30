@@ -8,6 +8,7 @@ import {
   ciContextFromEnv,
   classifyChatStatus,
   priceRun,
+  tracesUnpriceable,
 } from './chat'
 
 const env = (vars: Record<string, string>): NodeJS.ProcessEnv => vars
@@ -163,6 +164,40 @@ describe('ciContextFromEnv', () => {
     expect(ci?.workflowRunAttempt).toBe(3)
     expect(ci?.workflowRunUrl).toBe(
       'https://github.com/thegoodparty/omni/actions/runs/7/attempts/3',
+    )
+  })
+})
+
+// This guard has shipped wrong in both directions: once storing a confident $0
+// for a run whose cost was unknown, and once stacking a generic "usage never
+// resolved" step behind the specific rejection message that had already been
+// traced.
+describe('the unpriceable trace step', () => {
+  it('records an unpriceable model on a run that otherwise succeeded', () => {
+    expect(tracesUnpriceable('no rate for X', 'produced', false)).toBe(true)
+  })
+
+  it('records it on a blocked run too, which is an agent result', () => {
+    expect(tracesUnpriceable('no rate for X', 'blocked', false)).toBe(true)
+  })
+
+  it('stays silent when there is nothing unpriceable to say', () => {
+    expect(tracesUnpriceable(undefined, 'produced', false)).toBe(false)
+  })
+
+  // The trace already says why the turn ended.
+  it('does not restate an infraError the trace already carries', () => {
+    expect(tracesUnpriceable('usage never resolved', 'infraError', false)).toBe(
+      false,
+    )
+  })
+
+  // The inner catch already put the rejection's own message in the trace, and
+  // that message names the actual failure where this one only says usage did
+  // not resolve.
+  it('does not stack behind a usage error already traced', () => {
+    expect(tracesUnpriceable('usage never resolved', 'produced', true)).toBe(
+      false,
     )
   })
 })

@@ -250,6 +250,24 @@ const driveTurn = async (
   }
 }
 
+// Extracted against the WET default on purpose: this guard has been wrong
+// twice, in both directions, and it cannot be reached from a test without a
+// real turn while it lives inside runChatCase.
+//
+// An unpriceable reason earns a trace step only when the trace does not
+// already carry that reason. "No price on record for model X" is a fact
+// nothing else records, so it belongs in the trace. But two cases already
+// carry it: an infraError run's trace says why the turn ended, and a rejected
+// usage promise put its own specific message there. In both, "usage never
+// resolved" is the same failure restated, and appending it would stack a
+// generic error step behind a specific one.
+export const tracesUnpriceable = (
+  unpriceable: string | undefined,
+  status: RunRecord['status'],
+  usageErrorTraced: boolean,
+): boolean =>
+  unpriceable !== undefined && status !== 'infraError' && !usageErrorTraced
+
 export const runChatCase = async (
   ports: ChatRunnerPorts,
   request: ChatRunRequest,
@@ -283,6 +301,10 @@ export const runChatCase = async (
   const startedAt = new Date()
   let outcome: TurnOutcome
   let trace: TraceStep[]
+  // A rejected usage promise is already in the trace by its own message. The
+  // pricing guard below would otherwise restate the same failure generically,
+  // one step behind it.
+  let usageErrorTraced = false
   try {
     outcome = await driveTurn(ports, request)
     trace = buildTrace(outcome.events, llm.capture.outcomes)
@@ -293,6 +315,7 @@ export const runChatCase = async (
       // counts at zero and says so in the trace rather than discarding an
       // answer that is already persisted and judgeable.
       trace = errorStep(trace, traceErrorText(usageErr))
+      usageErrorTraced = true
     }
   } catch (err) {
     // A throw here is the harness or the route failing, never an agent
@@ -347,15 +370,13 @@ export const runChatCase = async (
         'and the record schema disagree',
     )
   }
-  // An unpriceable reason earns a trace step only when the run otherwise
-  // succeeded — "no price on record for model X" is a fact the trace does not
-  // otherwise carry. On an infraError run the trace already says why the turn
-  // ended, and "usage never resolved" is that same failure restated, so
-  // appending it would put a second error step behind every first one.
-  const finalTrace =
-    priced.unpriceable !== undefined && status !== 'infraError'
-      ? errorStep(trace, priced.unpriceable)
-      : trace
+  const finalTrace = tracesUnpriceable(
+    priced.unpriceable,
+    status,
+    usageErrorTraced,
+  )
+    ? errorStep(trace, priced.unpriceable ?? '')
+    : trace
   const toolSteps = finalTrace.filter((step) => step.kind === 'tool')
 
   return RunRecordSchema.parse({
