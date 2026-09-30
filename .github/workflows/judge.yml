@@ -876,16 +876,16 @@ jobs:
             echo ''
             echo "| | |"
             echo "| --- | --- |"
-            echo "| agents | \`$AGENTS\` |"
-            # The set that will actually be swept, whenever it is narrower
-            # than the selection. This table exists to make an accidental
-            # `all` visible; a row naming a WIDER list than the run will use is
-            # the same failure pointing the other way, and the sweep job's own
-            # summary prints the narrow list, so without this "agents" would
-            # name two different sets in two summaries of one run.
-            if [ "$sweep_agents" != "$AGENTS" ]; then
-              echo "| to sweep | \`${sweep_agents:-nothing}\` |"
-            fi
+            # `plan.outputs.agents` is already the narrowed, priced set — it
+            # IS the plan job's `sweep_agents` — so this row names exactly
+            # what ran and needs no comparison. An earlier revision carried
+            # the plan summary's requested-vs-priced conditional down here,
+            # where `sweep_agents` is a shell local of a different job and a
+            # different shell: unbound under `set -u`, so the step that
+            # reports the outcome crashed before printing it. The comparison
+            # is only meaningful in the plan summary, and that is where it
+            # stays.
+            echo "| swept | \`$AGENTS\` |"
             echo "| candidate | \`$CANDIDATE_SHA\` |"
             echo "| base | \`$BASE_REF\` |"
             echo "| estimated before the run | ~\$$ESTIMATE_USD |"
