@@ -92,6 +92,10 @@ env:
   # Pure functions living in a vitest file cannot be, and a "test" that is
   # really a program is how a job goes green having done nothing.
   JUDGING_ENTRY: src/chats/evals/judge/sweep.ts
+  # Resolves the one Delta version both arms read. Under tsx for the same
+  # reason the judging entry is: it needs no `useTestService()`, so a workflow
+  # step can invoke it as a command and capture its stdout.
+  DATA_VERSION_ENTRY: src/chats/evals/judge/dataVersion.ts
 
 jobs:
   # GUARD 2 of 3, second layer. Both callers declare a workflow-level group on
@@ -1337,6 +1341,63 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
 
+      # ONE VERSION FOR BOTH ARMS, resolved here because here is the only place
+      # that can be. `pinDeltaVersion` rewrites the agent's SQL to
+      # `VERSION AS OF <n>` so a verdict cannot be an artifact of the voter
+      # data moving between the captures — and the captures are two processes
+      # in two checkouts, run one after the other, which on a full sweep is an
+      # hour or more apart. An arm that resolved "current" itself would
+      # therefore resolve a different version, which is worse than no pin: the
+      # arms would each report a version and they would not be the same one.
+      # So it is resolved once, outside both arm processes, published as a step
+      # output, and read by both.
+      #
+      # Before the base worktree and its second `npm ci`, so an unresolvable
+      # mart is annotated in the first two minutes of the job rather than
+      # twenty in.
+      #
+      # IT DOES NOT FAIL THE SWEEP. Most agents never touch the mart, so
+      # killing a live sweep over an unpinnable table would be the wrong
+      # trade — but proceeding silently as though pinned would be worse. The
+      # resolver exits 0 with an empty stdout when it cannot resolve, this step
+      # turns that into a warning annotation and an empty output, the arms read
+      # an empty `JUDGE_DATA_VERSION` as "not pinned", and the report names
+      # every run that then queried the mart anyway.
+      - name: Resolve the voter mart's Delta version
+        id: mart
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          # gp-api reads DATABRICKS_SERVER_HOSTNAME; the repository variable is
+          # DATABRICKS_HOST, which is what the Python side reads. Same mapping
+          # the arm steps below make.
+          DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/mart-version"
+          # Created empty first, so the read below works whether or not the
+          # resolver got far enough to write it.
+          : > "$out"
+          # THE VERSION COMES BACK IN A FILE, not on stdout: @databricks/sql
+          # logs "Created DBSQLClient" to stdout on every connect, so a
+          # `$(npx tsx ...)` here captured four lines of driver chatter as the
+          # version. Checked on the resolver's OWN exit code rather than a
+          # pipeline's, and a non-zero one is annotated instead of propagated:
+          # this is the one step whose whole contract is that it does not fail
+          # the job.
+          if ! npx tsx "$DATA_VERSION_ENTRY" "$out"; then
+            echo "::warning::The voter mart's Delta version resolver failed to run at all, so this sweep is NOT pinned to one snapshot of the mart. The sweep continues: most agents never query it. Any verdict that turns on constituent numbers is unprotected against the data moving between the two captures, and the report names the runs that queried the mart anyway."
+          fi
+          version="$(cat "$out")"
+          echo "data_version=$version" >> "$GITHUB_OUTPUT"
+          if [ -z "$version" ]; then
+            echo "::warning::The voter mart is NOT pinned for this sweep — see the resolver's own message above for why. The sweep continues unpinned: most agents never query the mart. Any verdict that turns on constituent numbers is unprotected against the data moving between the two sequential captures, and the report names every run that queried the mart anyway."
+          else
+            echo "both arms will read the voter mart at Delta version $version"
+          fi
+
       # THE SECOND CHECKOUT, and the reason the sweep is three processes
       # rather than one. An arm is a worktree, and two worktrees are two
       # module graphs — a single Node process cannot import both, so all of
@@ -1440,16 +1501,14 @@ jobs:
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
-          # JUDGE_DATA_VERSION IS DELIBERATELY UNSET IN WAVE 1, and this is
-          # what that costs. It is the Delta table version both arms would be
-          # pinned to; with it absent both arms read the live mart. The arms
-          # are sequential and can be an hour apart, so a verdict that turned
-          # on constituent numbers is not protected from the data moving
-          # between the two captures — which is the one input a comparison
-          # cannot hold still by re-running. Choosing a version needs a
-          # Databricks query against the mart and is its own change; the
-          # reading code (sweepEnv.ts, the provider seam in chatSeam.ts) is
-          # already here and waiting for it.
+          # THE SAME VALUE ON BOTH ARMS, from the one step that resolved it.
+          # Read from a step output rather than resolved here: two arms that
+          # each looked up "current" would be two lookups an hour apart, and
+          # a pin the arms disagree on is worse than none. Empty when the mart
+          # could not be reached, which `parseArmEnv` reads as "not pinned" —
+          # the sweep then runs against the live mart and the report says so,
+          # rather than a whole paid sweep dying over an unpinnable table.
+          JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
           # existing eval suites self-skip on, and the sweep suite is not one
           # of them: it skips on JUDGE_ARM being absent, which is the value
@@ -1484,9 +1543,10 @@ jobs:
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
-          # JUDGE_DATA_VERSION is deliberately unset on this arm too, and it
-          # has to be the same on both or the pin is worse than none — see the
-          # base arm above for what leaving it unset costs.
+          # The same step output the base arm read, and it HAS to be the same
+          # expression: two arms on different versions is worse than two arms
+          # on none, because each would report a pin nothing held.
+          JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"

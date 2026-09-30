@@ -29,6 +29,16 @@ export const CONSTITUENT_TABLES: ConstituentTableConfig[] = [
   },
 ]
 
+// WHERE the approved surface lives, beside WHAT it is. Two modules build a
+// provider against this pair (chief-of-staff and priority-flow) and the
+// judge's data-version resolver has to query the very table the tool reads,
+// so a third and fourth copy of the literals is how one of them ends up
+// pointing at a different table than the one under test. The catalog is the
+// same one peopleDb/databricks/peopleDbx.config.ts names; only the schema
+// differs, because this mart is curated for the Serve agents.
+export const CONSTITUENT_CATALOG = 'goodparty_data_catalog'
+export const CONSTITUENT_SCHEMA = 'mart_serve_agents'
+
 // Hard legal line: these columns must NEVER appear in any clause. App-side
 // defensive backstop layered on top of the warehouse credential's column
 // denies. These are best-effort guesses at the names.

@@ -165,6 +165,29 @@ export const VOTER_QUERY_PAIR: [RunRecord, RunRecord] = pair(
   }),
 )
 
+// THE SAME PAIR WITH NOTHING HOLDING THE MART STILL. `dataVersion` is stamped
+// only when a version was pinned AND a query actually ran against it, so
+// queries with no version is what a run that read the live mart looks like on
+// record — and it is the one case the report's unpinned warning is about.
+export const UNPINNED_VOTER_QUERY_PAIR: [RunRecord, RunRecord] = pair(
+  record('cos-housing-support', 'base', {
+    toolCalls: 2,
+    toolQueries: [
+      'SELECT COUNT(*) AS count FROM serve_agent_voters ' +
+        "WHERE state_postal_code = 'WA' AND City = 'SPOKANE'",
+    ],
+  }),
+  record('cos-housing-support', 'candidate', {
+    toolCalls: 2,
+    toolQueries: [
+      'SELECT hs_affordable_housing_support, COUNT(*) AS count ' +
+        'FROM serve_agent_voters ' +
+        "WHERE state_postal_code = 'WA' AND City = 'SPOKANE' " +
+        'GROUP BY hs_affordable_housing_support',
+    ],
+  }),
+)
+
 // A background run. Input is a params fixture and output is an artifact
 // object, both opaque above the runner — the same record schema carries them
 // with no special case anywhere downstream.
