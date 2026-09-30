@@ -36,6 +36,23 @@ describe('checkSmsStandards link_shortener', () => {
     expect(verdict.failures).toEqual(['link_shortener'])
   })
 
+  // A shortener does not always arrive after a space. These are the shapes a
+  // real script produces: a label, a comma, the end of a sentence.
+  it('catches a shortener behind any punctuation', () => {
+    for (const link of [
+      'link:bit.ly/abc',
+      'donate,bit.ly/abc',
+      'here.bit.ly/abc',
+      '(bit.ly/abc)',
+    ]) {
+      const verdict = checkSmsStandards(
+        compliant.replace('https://janedoe.com/plan', link),
+        context,
+      )
+      expect(verdict.failures, link).toContain('link_shortener')
+    }
+  })
+
   it('catches a shortener written without a scheme or a path', () => {
     for (const link of ['bit.ly/abc', 'www.tinyurl.com/abc', 'is.gd']) {
       const verdict = checkSmsStandards(
@@ -53,6 +70,8 @@ describe('checkSmsStandards link_shortener', () => {
       'https://rabbit.lyrics.example.com/x',
       'https://t.community/x',
       'https://bit.lyric.example.org',
+      'mybit.ly/x',
+      'my-bit.ly-thing',
     ]) {
       const verdict = checkSmsStandards(
         compliant.replace('https://janedoe.com/plan', link),

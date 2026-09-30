@@ -63,9 +63,10 @@ export type SmsStandardsVerdict = z.infer<typeof SmsStandardsVerdictSchema>
 // vendor's, so it will drift: it covers the shorteners in wide use, and the
 // vendor stays the backstop for anything newer.
 //
-// Anchored on a URL-ish boundary before the host and a non-word character
-// after, so `t.co` does not match inside `t.com` and `bit.ly` does not match
-// inside `rabbit.lyric`.
+// The host has to sit on its own: any non-word character may precede it (a
+// space, but also `link:bit.ly/x`, `here,bit.ly/x`, `end.bit.ly/x`) and a word
+// character may not follow it. So `t.co` does not match inside `t.com`, and
+// `bit.ly` does not match inside `mybit.ly` or `rabbit.lyric`.
 const LINK_SHORTENER_HOSTS = [
   'bit.ly',
   'bitly.com',
@@ -87,7 +88,7 @@ const LINK_SHORTENER_HOSTS = [
 ] as const
 
 const LINK_SHORTENER_PATTERN = new RegExp(
-  `(?:^|[\\s/@(<\\["'])(?:https?://)?(?:www\\.)?(?:${LINK_SHORTENER_HOSTS.map(
+  `(?:^|[^\\w-])(?:https?://)?(?:www\\.)?(?:${LINK_SHORTENER_HOSTS.map(
     (host) => host.replace(/\./g, '\\.'),
   ).join('|')})(?![\\w-])`,
   'i',
