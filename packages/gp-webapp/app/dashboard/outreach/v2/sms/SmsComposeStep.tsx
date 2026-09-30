@@ -107,6 +107,9 @@ const standardsFailureCopy = (
     return 'keep the {first_name} greeting token'
   }
   if (rule === 'paid_for_by') return 'keep the "Paid for by" line'
+  if (rule === 'link_shortener') {
+    return 'links must not use a shortener like bit.ly — paste the full web address instead'
+  }
   return 'shorten the message to fit the length limit'
 }
 

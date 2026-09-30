@@ -89,6 +89,9 @@ const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
   candidate_name: "include the candidate's name",
   paid_for_by: 'include "Paid for by <your committee name>"',
   length: 'shorten the message to fit the length limit',
+  link_shortener:
+    'use the full link instead of a shortener like bit.ly — our texting ' +
+    'provider rejects shortened links',
 }
 
 @Injectable()

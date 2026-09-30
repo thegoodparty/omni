@@ -36,6 +36,7 @@ export const SMS_STANDARDS_RULE_VALUES = [
   'candidate_name',
   'paid_for_by',
   'length',
+  'link_shortener',
 ] as const
 export const SmsStandardsRuleSchema = z.enum(SMS_STANDARDS_RULE_VALUES)
 export type SmsStandardsRule = z.infer<typeof SmsStandardsRuleSchema>
@@ -54,6 +55,44 @@ export type SmsStandardsVerdict = z.infer<typeof SmsStandardsVerdictSchema>
 // committee token when the committee name is known (every campaign that
 // can schedule an SMS has one, per the 10DLC requirement). Advisory in
 // the staff queue: the human approval stays the gate.
+// Hosts the texting vendor refuses outright: a message carrying one comes back
+// as "Message cannot contain bit.ly links. Please correct your message." from
+// job creation, which happens AFTER the candidate has been charged — so a
+// shortener the vendor was always going to reject cost one candidate $634 and a
+// second payment to get the send out (2026-09-30). This list is ours, not the
+// vendor's, so it will drift: it covers the shorteners in wide use, and the
+// vendor stays the backstop for anything newer.
+//
+// Anchored on a URL-ish boundary before the host and a non-word character
+// after, so `t.co` does not match inside `t.com` and `bit.ly` does not match
+// inside `rabbit.lyric`.
+const LINK_SHORTENER_HOSTS = [
+  'bit.ly',
+  'bitly.com',
+  'tinyurl.com',
+  't.co',
+  'goo.gl',
+  'ow.ly',
+  'buff.ly',
+  'rebrand.ly',
+  'is.gd',
+  'cutt.ly',
+  'shorturl.at',
+  'tiny.cc',
+  'rb.gy',
+  't.ly',
+  'snip.ly',
+  'tr.im',
+  'clck.ru',
+] as const
+
+const LINK_SHORTENER_PATTERN = new RegExp(
+  `(?:^|[\\s/@(<\\["'])(?:https?://)?(?:www\\.)?(?:${LINK_SHORTENER_HOSTS.map(
+    (host) => host.replace(/\./g, '\\.'),
+  ).join('|')})(?![\\w-])`,
+  'i',
+)
+
 const nameTokensOf = (names: (string | null | undefined)[]): string[] =>
   names
     .filter((name): name is string => !!name)
@@ -91,6 +130,9 @@ export const checkSmsStandards = (
   }
   if (script.length > P2P_SCRIPT_MAX_LENGTH) {
     failures.push('length')
+  }
+  if (LINK_SHORTENER_PATTERN.test(script)) {
+    failures.push('link_shortener')
   }
 
   return { passed: failures.length === 0, failures }
