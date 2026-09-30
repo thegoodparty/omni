@@ -148,7 +148,9 @@ Both stages call the same composite deploy action, only with different env input
   exists and skip the build/push if so — this is what makes re-running a deploy
   job possible after the image was pushed (same SHA, same source, same image).
 - Per-PR **preview stacks** are ephemeral; stale ones are cleaned up
-  (`gp-api-cleanup-preview.yml`).
+  (`gp-api-cleanup-preview.yml`). Stale means the PR is closed or has been idle
+  for `PREVIEW_IDLE_DAYS` days (repo variable, default 21); pushing a commit to
+  an open PR brings its preview back.
 - `gp-api-infrastructure-diffs.yml` posts a Pulumi diff on infra-touching PRs.
 - CI must run `prisma generate` before the Docker build or the image fails at
   runtime with missing native engines.
