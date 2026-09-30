@@ -127,6 +127,26 @@ jobs:
             exit 1
           fi
 
+          # ENG-11191: setup.sh's own final step (after these same health
+          # checks, inside the script) seeds a login and prints a skip note
+          # when no machine secret is configured — which is every machine in
+          # this job. Poll for that note rather than killing setup_pid as
+          # soon as health passes: that step still has a couple of `npx tsx`
+          # calls left to run, and killing too early would race them.
+          login_skip_seen=false
+          for _ in $(seq 1 30); do
+            if grep -q 'LOCAL_SETUP_CLERK_MACHINE_SECRET not set' setup.log; then
+              login_skip_seen=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$login_skip_seen" != true ]; then
+            echo "setup.sh never printed the login-seeding skip note." >&2
+            tail -n 200 setup.log >&2
+            exit 1
+          fi
+
           kill -TERM "$setup_pid" 2>/dev/null || true
           wait "$setup_pid" 2>/dev/null || true
 
