@@ -29,6 +29,12 @@ describe('selectStaleStacks', () => {
     ])
   })
 
+  it('never selects a stack whose name is not gp-api-pr-<n>', () => {
+    expect(
+      selectStaleStacks(['gp-api-pr-7-extra', 'gp-api-pr-'], [], now, 21),
+    ).toEqual([])
+  })
+
   it('keeps a PR exactly at the threshold and retires one past it', () => {
     const threshold = subDays(now, 21)
     const prs: OpenPr[] = [

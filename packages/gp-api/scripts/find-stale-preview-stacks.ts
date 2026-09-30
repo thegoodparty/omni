@@ -30,10 +30,7 @@ const getPreviewPulumiStacks = () => {
 
 const extractPrNumber = (stackName: string) => {
   const match = stackName.match(/^gp-api-pr-(\d+)$/)
-  if (!match?.[1]) {
-    throw new Error(`Could not extract PR number from stack name: ${stackName}`)
-  }
-  return parseInt(match[1])
+  return match?.[1] ? parseInt(match[1]) : null
 }
 
 export const parseIdleDays = (raw: string | undefined) => {
@@ -55,8 +52,12 @@ export const selectStaleStacks = (
     openPrs.map((pr) => [pr.number, parseISO(pr.updated_at)]),
   )
   const cutoff = subDays(now, idleDays)
+  // A name that is not gp-api-pr-<n> is not a preview this sweep owns, so it
+  // is never selected for destroy.
   return stackNames.filter((stack) => {
-    const updatedAt = lastActivity.get(extractPrNumber(stack))
+    const prNumber = extractPrNumber(stack)
+    if (prNumber === null) return false
+    const updatedAt = lastActivity.get(prNumber)
     return updatedAt === undefined || isBefore(updatedAt, cutoff)
   })
 }
