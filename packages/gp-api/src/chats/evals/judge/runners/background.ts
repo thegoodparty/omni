@@ -8,6 +8,7 @@ import { createHash } from 'crypto'
 import { differenceInMilliseconds } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
+import { assertNoPlaceholders } from '../caseParams'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
 import {
   isComparable,
@@ -503,6 +504,12 @@ export const buildDispatchMessage = (args: {
         `"${args.organizationSlug}"`,
     )
   }
+  // The backstop for the sweep-wide check in substituteBackgroundCases. That
+  // one is what makes a missing fixture value cost nothing; this one is what
+  // makes a caller who skipped it unable to send a literal `{judgeOrgSlug}`
+  // to the broker, where `additionalProperties: false` would refuse it as a
+  // poll timeout with no stated cause.
+  assertNoPlaceholders(args.agentCase.caseId, args.agentCase.params)
   // The handler rejects any `_`-prefixed params key it does not reserve, and
   // it pops the one it does, so a case that hand-rolls its own envelope key
   // would either be refused at the Lambda or silently outrank `inputFiles`.

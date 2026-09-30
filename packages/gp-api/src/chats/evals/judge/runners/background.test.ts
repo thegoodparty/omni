@@ -5,6 +5,10 @@ import {
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import {
+  substituteBackgroundCases,
+  UnsubstitutedPlaceholderError,
+} from '../caseParams'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
 import { RunRecordSchema, type Arm, type RunRecord } from '../record'
 import {
@@ -2042,5 +2046,62 @@ describe('an unreadable base-arm cache', () => {
     await expect(
       readCachedBaseArm(fakeStore(), METADATA_BUCKET, AGENT, digest(), 'a/b'),
     ).rejects.toThrow(/unsafe caseId/)
+  })
+})
+
+// --- the pre-dispatch placeholder guard -------------------------------------
+//
+// The sweep-wide check in substituteBackgroundCases is what a sweep is meant
+// to hit. This asserts the backstop: a caller that skipped it cannot get a
+// literal token past the runner, and the refusal happens before the first
+// write and the first send rather than at the Lambda, which would refuse it
+// as a poll timeout after the sweep had committed to a $13 run.
+describe('an unsubstituted placeholder in a case', () => {
+  const withPlaceholder = () =>
+    runInput({
+      agentCase: {
+        caseId: 'baseline-city-council',
+        params: { organization_slug: '{judgeOrgSlug}', state: 'MN' },
+      },
+    })
+
+  it('is refused by buildDispatchMessage', () => {
+    const input = withPlaceholder()
+    expect(() =>
+      buildDispatchMessage({
+        runId: idFor(input),
+        agentId: input.agentId,
+        organizationSlug: input.organizationSlug,
+        agentCase: input.agentCase,
+        override: JudgeOverrideSchema.parse({
+          manifest_key: '_judge/x/d/manifest.json',
+          instruction_key: '_judge/x/d/instruction.md',
+        }),
+      }),
+    ).toThrow(UnsubstitutedPlaceholderError)
+  })
+
+  it('stages nothing and sends nothing', async () => {
+    const store = fakeStore()
+    const queue = fakeQueue()
+    await expect(
+      runBackgroundCase(deps(store, queue, fakeClock()), withPlaceholder()),
+    ).rejects.toThrow(UnsubstitutedPlaceholderError)
+    expect(store.puts).toEqual([])
+    expect(queue.sent).toEqual([])
+  })
+
+  it('is not refused once the sweep has substituted it', async () => {
+    const input = withPlaceholder()
+    const substituted = substituteBackgroundCases([input.agentCase], {
+      orgSlug: 'eo-0192e4a0-1f00-7000-8000-0000000c0de1',
+    })
+    const ready = runInput({ agentCase: substituted[0] })
+    const store = completedRun(ready, idFor(ready))
+    const record = await runBackgroundCase(
+      deps(store, fakeQueue(), fakeClock()),
+      ready,
+    )
+    expect(record.status).toBe('produced')
   })
 })

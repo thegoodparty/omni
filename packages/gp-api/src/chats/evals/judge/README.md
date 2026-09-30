@@ -94,6 +94,8 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `runners/chat.ts`                                      | Drives one real chat turn through the HTTP routes and emits one record.        |
 | `cases.ts`                                             | Loads and validates one agent's case list.                                     |
 | `cases/*.json`                                         | The case lists themselves. One per agent — see below.                          |
+| `caseParams.ts`                                        | The placeholder vocabulary, its substitution, and the pre-dispatch guard.      |
+| `sweepFixture.ts`                                      | Mints one dev fixture per sweep, for the six agents that need a real id.       |
 | `records.ts`                                           | The record store: local directory or S3, behind one narrow interface.          |
 | `sweepArm.ts`                                          | Walks a case list for **one** arm. The runner is injected.                     |
 | `sweep.eval.test.ts`                                   | Steps 1 and 2: the vitest shell that wires `sweepArm` to the real app.         |
@@ -102,22 +104,29 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                     |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                             |
 
-## Case lists: thirteen of twenty agents, and all thirteen are placeholders
+## Case lists: nineteen of twenty agents, and all nineteen are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-first agent is a
 file here plus a registry line, and no code.
 
-Thirteen of the twenty judgeable agents have one. All four chat scopes that
+Nineteen of the twenty judgeable agents have one. All four chat scopes that
 have a `ChatScopeHandler` — `chief_of_staff`, `campaign_assistant`,
-`ordinance_flow`, `priority_flow` — and nine background experiments:
-`district_issue_pulse`, `district_issue_snapshot`, `meeting_briefing`,
-`meeting_schedule`, `opponent_research`, `race_opponent_actions`,
-`race_opponent_collection`, `race_opponent_summary`, `self_research`. The
-other seven entries carry `cases: null`, which is the gap staying visible
-rather than being rounded off. `briefing_annotation` is not among them: it is
-`blocked`, has no handler, and is out of the denominator on purpose, so
-inputs for it would be inputs for a runner that cannot drive it.
+`ordinance_flow`, `priority_flow` — and fifteen background experiments. Nine
+of those take plain data: `district_issue_pulse`, `district_issue_snapshot`,
+`meeting_briefing`, `meeting_schedule`, `opponent_research`,
+`race_opponent_actions`, `race_opponent_collection`, `race_opponent_summary`,
+`self_research`. Six need an identifier that has to resolve against a real
+organization, and carry placeholders for it instead:
+`campaign_tracker_tasks`, `find_existing_ordinances`,
+`opportunities_and_challenges`, `opposition_research`, `top_community_issues`,
+`trending_issues` — see the next section.
+
+One entry is left: `compliance_setup` carries `cases: null`, which is the gap
+staying visible rather than being rounded off. It is a pending decision about
+what its inputs should be, not an unwritten file. `briefing_annotation` is not
+that gap: it is `blocked`, has no handler, and is out of the denominator on
+purpose, so inputs for it would be inputs for a runner that cannot drive it.
 
 **Every one of them is `placeholder: true`.** Each background list is
 schema-valid against its experiment manifest's `input_schema` and each value
@@ -125,7 +134,7 @@ is plausible; each chat list asks a question the seeded fixture org can
 actually be asked. But nobody has dispatched or driven one, so a verdict drawn
 from any of them is a statement about the pipeline and not about the agent.
 `coverage()` counts `wired`, which means _has produced a real verdict at least
-once_, so all thirteen stay `pending` and `wired` is still 0. A case list is
+once_, so all nineteen stay `pending` and `wired` is still 0. A case list is
 not a verdict.
 
 **A chat question has to be answerable against the state the harness seeds,
@@ -159,7 +168,7 @@ of these lists resolves CAN'T SAY however the judge voted — the floor was set
 from measured agent non-determinism (three identical Chief of Staff turns gave
 6, 4 and 2 tool steps) and eight runs measure that rather than the branch.
 Eight is one clean baseline plus seven single-axis variations, which is what
-one change can author honestly across thirteen agents. **Whether to grow every
+one change can author honestly across nineteen agents. **Whether to grow every
 list to 20 or to lower the floor is still open.** Do not read the shortfall as
 a decision either way.
 
@@ -198,6 +207,67 @@ People in these files are fictional placeholders in the house style
 (`gp-webapp/e2e-tests/tests/app/briefings/briefings.spec.ts` uses
 `Test Official`), because this repo is public. States, cities, office titles
 and L2 voter file column names are real.
+
+## Six background agents need a real identifier, and it cannot be a literal
+
+Nine of the fifteen authored background lists carry plain data. Six do not:
+`campaign_tracker_tasks`, `opportunities_and_challenges` and
+`opposition_research` require a `race_id`; `find_existing_ordinances`,
+`top_community_issues` and `trending_issues` require an `organization_slug`;
+the two research agents also require a `user_email`.
+
+The mechanism for a dev org in a known state already exists — `POST
+/v1/test-fixtures/users` — but **its users are swept after about 24 hours**.
+So a case list that hardcoded a slug from one would be right for a day and
+would then dispatch every later sweep against an organization that no longer
+exists, which arrives as an agent failure rather than as a stale fixture.
+
+Instead a case list carries a token and the sweep carries the value:
+`{judgeOrgSlug}`, `{judgeRaceId}`, `{judgeUserEmail}`. `sweepFixture.ts` mints
+ONE fixture per sweep in state `serve-won-race` — the only state that produces
+both an `eo-` organization and a launched campaign bound to a real BallotReady
+race — and `caseParams.ts` substitutes the tokens at dispatch time,
+recursively, because `user_email` also has to land inside
+`campaign_strategy_context.candidates[]` for `is_user` to match.
+
+**Both arms get the same values, and that is the whole point.** The two arms
+are two processes in two worktrees, so the identifiers travel exactly the way
+`JUDGE_DATA_VERSION` does: resolved once outside the arms, exported into each
+one's environment, read back through `parseArmEnv`. An arm that minted its own
+would compare two organizations, and every verdict would be an artifact of the
+fixture rather than of the branch. A variable nobody set arrives from Actions
+as an **empty string, not as an absent one**, and reads here as "not
+supplied" — the same rule `JUDGE_DATA_VERSION` needed, and for a harder
+reason: `''` would substitute cleanly and dispatch a params object the agent's
+own `minLength` refuses.
+
+**An unsubstituted token fails before the first dispatch.**
+`substituteBackgroundCases` checks the WHOLE list and returns none of it if
+any case is short a value, and `buildDispatchMessage` refuses one as a
+backstop. Both matter because the dispatch Lambda enforces
+`additionalProperties: false` on params it has already accepted the message
+for: a literal `{judgeOrgSlug}` would be refused per case, after a roughly
+\$13 sweep had committed to running, and would surface only as a poll timeout.
+
+Only `organization_slug` is a real lookup. All three manifests call `race_id`
+a trace and idempotency identifier the agent does not reason over, and
+`user_email` is matched only against the roster inside the same params object.
+They still come from the fixture: a field documented as a BallotReady brHashId
+should carry one, and a public case list should carry no email address.
+
+**The fixture's organization is fresh, so its community-issues feed is
+empty.** `top_community_issues` and `trending_issues` read that feed, and on a
+minutes-old `eo-` org there is nothing in it. That is identical on both arms,
+so the comparison is still valid — but it means the carry-forward-existing-
+issues branch of those two agents is not exercised by this harness, and a
+verdict from them speaks only to the cold-start path.
+
+**Nothing derived from a fixture response is ever logged.** The response
+carries the user's password, a session token and a single-use Clerk sign-in
+ticket by contract (`src/testFixtures/AGENTS.md`). `mintJudgeFixture` returns
+the three identifiers and the user id it needs to delete again, and drops the
+rest; the one network adapter reports a failure as its method, route and
+status, never its body.
 
 ## Two refusals, and they are not the same one
 
