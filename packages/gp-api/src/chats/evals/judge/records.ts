@@ -230,11 +230,33 @@ const parseRecord = (where: string, text: string): RunRecord => {
 // no `.default(false)` on purpose: defaulting it would claim a paid arm was
 // canned and satisfy the judging step's spend-agreement check the wrong way
 // round, which is worse than refusing.
-const ManifestVersionSchema = z.object({ schemaVersion: z.number() })
+// `schemaVersion` optional on PURPOSE. A manifest written before the field
+// existed has none at all, and that is the commonest skew rather than an
+// exotic one: the base arm runs from the base ref's checkout, so any base
+// older than the field produces exactly this shape. Requiring it here would
+// make `safeParse` fail and drop the absent case through to the generic
+// "not a valid arm manifest" error, which reads as corruption and buries the
+// one sentence that says what to do.
+const ManifestVersionSchema = z.object({
+  schemaVersion: z.number().optional(),
+})
+
+const SKEW_ADVICE =
+  'The two arms are two checkouts, so the one that wrote it is on a ' +
+  'different build of the judge — nothing is corrupt; the base ref and the ' +
+  'candidate disagree about the manifest. Bring the base ref up to a commit ' +
+  'that carries this version.'
 
 const parseManifest = (where: string, text: string): ArmManifest => {
   const json = readJson(where, text)
   const version = ManifestVersionSchema.safeParse(json)
+  if (version.success && version.data.schemaVersion === undefined) {
+    throw new RecordStoreError(
+      `${where}: this manifest carries no schemaVersion at all, so it was ` +
+        'written before the field existed, and this checkout reads ' +
+        `${MANIFEST_SCHEMA_VERSION}. ${SKEW_ADVICE}`,
+    )
+  }
   if (
     version.success &&
     version.data.schemaVersion !== MANIFEST_SCHEMA_VERSION
@@ -242,11 +264,7 @@ const parseManifest = (where: string, text: string): ArmManifest => {
     throw new RecordStoreError(
       `${where}: this manifest is schemaVersion ` +
         `${version.data.schemaVersion} and this checkout reads ` +
-        `${MANIFEST_SCHEMA_VERSION}. The two arms are two checkouts, so the ` +
-        'one that wrote it is on a different build of the judge — nothing ' +
-        'is corrupt; the base ref and the candidate disagree about the ' +
-        'manifest. Bring the base ref up to a commit that carries this ' +
-        'version.',
+        `${MANIFEST_SCHEMA_VERSION}. ${SKEW_ADVICE}`,
     )
   }
   const parsed = ArmManifestSchema.safeParse(json)

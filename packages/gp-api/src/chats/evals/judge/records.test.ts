@@ -31,6 +31,15 @@ const [BASE, CANDIDATE] = CHAT_PAIR
 const root = async (): Promise<string> =>
   mkdtemp(path.join(tmpdir(), 'judge-records-'))
 
+// `expect(promise).rejects.not.toThrow(/x/)` passes vacuously — it let a
+// genuinely wrong message through here — so a "must not say X" assertion
+// captures the error and reads its message instead.
+const rejectionOf = async (run: Promise<unknown>): Promise<Error> => {
+  const caught = await run.then(() => undefined).catch((err: Error) => err)
+  if (caught === undefined) throw new Error('expected a rejection')
+  return caught
+}
+
 const manifest = (over: Partial<ArmManifest> = {}): ArmManifest => ({
   schemaVersion: MANIFEST_SCHEMA_VERSION,
   spent: true,
@@ -235,9 +244,9 @@ describe('the local store', () => {
     await expect(store.getManifest(BASE.sweepId, 'base')).rejects.toThrow(
       /not valid JSON/,
     )
-    await expect(store.getManifest(BASE.sweepId, 'base')).rejects.not.toThrow(
-      /never reported a capture/,
-    )
+    expect(
+      (await rejectionOf(store.getManifest(BASE.sweepId, 'base'))).message,
+    ).not.toMatch(/never reported a capture/)
   })
 
   it('names the file when a stored record is corrupt', async () => {
@@ -415,6 +424,37 @@ describe('a manifest from another checkout', () => {
     return dir
   }
 
+  // Older still: a base ref from before `schemaVersion` existed writes no
+  // version field at all. That is the commonest skew rather than an exotic
+  // one, and it used to fall through to the generic "not a valid arm
+  // manifest" error, which reads as a truncated file and buries the sentence
+  // that says what to do about it.
+  const unversioned = async (): Promise<string> => {
+    const dir = await root()
+    const key = manifestKey(BASE.sweepId, 'base')
+    const file = path.join(dir, key)
+    await mkdir(path.dirname(file), { recursive: true })
+    const { schemaVersion, spent, ...rest } = manifest()
+    expect(schemaVersion).toBe(MANIFEST_SCHEMA_VERSION)
+    expect(spent).toBe(true)
+    await writeFile(file, JSON.stringify(rest, null, 2), 'utf8')
+    return dir
+  }
+
+  it('names the skew when there is no version field at all', async () => {
+    const store = createLocalRecordStore(await unversioned())
+    await expect(store.getManifest(BASE.sweepId, 'base')).rejects.toThrow(
+      /carries no schemaVersion at all/,
+    )
+  })
+
+  it('does not read an unversioned manifest as corruption', async () => {
+    const store = createLocalRecordStore(await unversioned())
+    expect(
+      (await rejectionOf(store.getManifest(BASE.sweepId, 'base'))).message,
+    ).not.toMatch(/not a valid arm manifest/)
+  })
+
   it('names the version skew rather than the missing field', async () => {
     const store = createLocalRecordStore(await v1())
     await expect(store.getManifest(BASE.sweepId, 'base')).rejects.toThrow(
@@ -427,9 +467,9 @@ describe('a manifest from another checkout', () => {
   // good manifest.
   it('does not report it as a corrupt manifest', async () => {
     const store = createLocalRecordStore(await v1())
-    await expect(store.getManifest(BASE.sweepId, 'base')).rejects.not.toThrow(
-      /not a valid arm manifest/,
-    )
+    expect(
+      (await rejectionOf(store.getManifest(BASE.sweepId, 'base'))).message,
+    ).not.toMatch(/not a valid arm manifest/)
   })
 })
 
