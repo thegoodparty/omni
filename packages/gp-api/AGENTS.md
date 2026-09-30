@@ -103,7 +103,7 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 | Writing or fixing a test                     | `docs/writing-tests.md`                                          |
 | Adding/debugging an alert                    | `docs/observability.md`                                          |
 | Reproducing a reported bug                   | `docs/debugging.md`                                              |
-| First-time setup                             | `docs/getting-started.md` + `docs/team-setup.md`                 |
+| First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
 | Why a thing is the way it is                 | `docs/adr/`                                                      |
 | AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                      |
 

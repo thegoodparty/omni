@@ -34,14 +34,25 @@ string keys. There is no per-key secret and no SSM parameter for app secrets.
 
 preview stacks share the `*_DEV` secrets — there is no preview secret.
 
-`LOCAL_DEV_ENV` is the one blob that leaves the account by design: the dev-only
-vending endpoint hands its contents to a verified `thegoodparty` GitHub org
-member setting up a local checkout, so it holds only dev-grade values and only
-the keys a laptop needs. It is keyed by package
-(`{ "gp-api": { … }, "gp-webapp": { … } }`), and adding a key is a reviewed
-edit to the secret like any other. **A key that lives in both `GP_API_DEV` and
-`LOCAL_DEV_ENV` rotates in both places** — accepted tech debt, deliberately
-traded for having no code path that could leak a non-vendable key.
+### `LOCAL_DEV_ENV`
+
+The one blob that leaves the account by design. `npm run setup`'s GitHub
+device-flow default (`docs/development.md`) calls the dev-only vending
+endpoint, `POST /v1/dev-env/bundle` (`packages/gp-api/src/devEnv/AGENTS.md`),
+which hands a verified `thegoodparty` GitHub org member the values for a
+fresh laptop checkout — dev-grade only, never a prod credential. It is keyed
+by package (`{ "gp-api": { … }, "gp-webapp": { … } }`).
+
+It is vendable **by construction**, not by a filter that could get it wrong:
+the endpoint reads only this one secret, and `DECLARED_ENV_VARS` rejects any
+key the blob holds that isn't declared in that package's env contract
+(`ENV_VAR_CONTRACT` in `env.schema.ts`) — there is no code path that can leak
+a key nobody meant to vend. Adding a vendable key is a reviewed edit to both
+the secret and the receiving package's env contract, like any other secret
+change.
+
+**A key that lives in both `GP_API_DEV` and `LOCAL_DEV_ENV` rotates in both
+places** — accepted tech debt, deliberately traded for that guarantee.
 
 ## How a secret reaches running code
 

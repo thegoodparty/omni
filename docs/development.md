@@ -32,12 +32,20 @@ Once the stack is healthy, it finishes by seeding a login: a QA fixture user
 to the terminal (URL, email, password — never written to a file or log).
 This needs `LOCAL_SETUP_CLERK_MACHINE_SECRET` set in `packages/gp-api/.env`
 (a dedicated local-setup Clerk machine, vended in the LOCAL_DEV_ENV bundle);
-absent, that step just prints a skip note and the run still exits 0.
+absent, that step just prints a skip note and the run still exits 0. Secret
+mechanics (what `LOCAL_DEV_ENV` is, what it's allowed to vend, and the
+two-place rotation rule) are in `docs/secrets.md`.
 
 If you'd rather set up by hand: `nvm use`, `npm install` (runs a `postinstall`
 that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, run
 `git submodule update --init --recursive ai-rules`), then copy each app's
 `.env.example` / `.env.local` template before starting it.
+
+**Fast tier — UI-only work.** If the change doesn't touch gp-api or real data,
+skip this whole stack: `npm run dev -w packages/prototypes` boots
+`packages/prototypes` on `:4002` with zero env by design (no backend, no DB,
+no secrets). Use it for UI/UX iteration and hand off to the full stack only
+once the change needs real data or an endpoint.
 
 ## Run the core loop
 
