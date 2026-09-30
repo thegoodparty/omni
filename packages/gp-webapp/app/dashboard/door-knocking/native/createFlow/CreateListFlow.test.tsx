@@ -2267,4 +2267,55 @@ describe('CreateListFlow multi-turf save', () => {
     // — the server reads the anchor's own name over anything on the wire.
     expect(turfs.map((body) => body.campaignOutreachId)).toEqual([555, 555])
   })
+
+  // Closing a walk started here reopens the campaign's details drawer, and
+  // that drawer is keyed on the anchor. Handing over a sibling's own envelope
+  // would open a drawer for a campaign of one, or none.
+  it('starts a walk carrying the anchor, whichever turf is pressed', async () => {
+    mockBatch()
+    const props = { ...twoTurfs }
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
+
+    await screen.findByText('Turf 2')
+    const starts = screen.getAllByRole('button', { name: 'Start knocking' })
+    expect(starts).toHaveLength(2)
+    fireEvent.click(starts[1]!)
+
+    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Turf 2', outreachId: 902 }),
+      901,
+    )
+  })
+
+  it('starts a walk carrying the campaign it joined', async () => {
+    mockBatch()
+    const props = { ...twoTurfs, campaignOutreachId: 555 }
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
+
+    await screen.findByText('Turf 1')
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Start knocking' })[0]!,
+    )
+
+    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Turf 1', outreachId: 901 }),
+      555,
+    )
+  })
 })
