@@ -134,6 +134,9 @@ const main = async () => {
     limitArg >= 0
       ? Number(process.argv[limitArg + 1])
       : Number.POSITIVE_INFINITY
+  if (!(limit > 0) || (limitArg >= 0 && !Number.isInteger(limit))) {
+    throw new Error('--limit needs a positive whole number')
+  }
   const apiKey = process.env.GEOAPIFY_API_KEY
   if (apply && !apiKey)
     throw new Error('GEOAPIFY_API_KEY is required with --apply')
