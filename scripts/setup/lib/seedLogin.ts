@@ -20,6 +20,10 @@ const TOKEN_TTL_SECONDS = 3600
 
 export type FetchImpl = typeof fetch
 
+// Mirrors deviceFlow.ts: a stalled Clerk or localhost connection must not
+// hang the terminal at the final step of an otherwise-finished bootstrap.
+const FETCH_TIMEOUT_MS = 10_000
+
 export type SeedLoginResult =
   | { kind: 'skipped'; reason: string }
   | { kind: 'minted'; email: string; password: string }
@@ -36,6 +40,7 @@ const mintM2MToken = async (
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ seconds_until_expiration: TOKEN_TTL_SECONDS }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   // 201, not 200 — see testFixtures/AGENTS.md-adjacent gotchas in the ticket.
   if (res.status !== 201) {
@@ -60,6 +65,7 @@ const mintFixtureUser = async (
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ state: userState }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (res.status !== 201) {
     throw new Error(`test-fixtures/users failed: HTTP ${res.status}`)
