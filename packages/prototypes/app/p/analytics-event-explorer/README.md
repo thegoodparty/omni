@@ -4,7 +4,10 @@ A browsable surface over the analytics event governance data that otherwise only
 exists in the event-state Google Sheet. Answers three questions: do we have an event
 for that, is it working, and how are we measuring X.
 
-Tickets: DATA-2506 (the explorer), DATA-2509 (consumer links, intake, usage trial).
+Tickets: DATA-2506 (the explorer), DATA-2509 (consumer links, intake, usage trial), under
+the DATA-2580 epic with the product map and the event health console. The bar at the top
+is the same three buttons on all three pages (`surfaces/shared/nav.js`); the console
+button shows for the page's owner only. The What's next section also offers the map.
 Design doc: `docs/superpowers/specs/2026-09-22-analytics-event-explorer-design.md`
 (gitignored, local only).
 
@@ -18,10 +21,19 @@ Design doc: `docs/superpowers/specs/2026-09-22-analytics-event-explorer-design.m
 Declaring `db` makes the published artifact organization-internal, so every viewer is
 a signed-in GoodParty account — which is what lets a visit be attributed at all.
 
-**Every page change has to land in both.** They render the same snapshot but share no
-code: the prototype is React against the styleguide, the standalone is vanilla JS with
-its own CSS. That duplication is deliberate and temporary — it goes away when the page
-moves into gp-admin (DATA-2506 phase 3) and the standalone copy is retired.
+**Every page change has to land in both** (`lib/copy-parity.test.ts` holds the
+sentences to it). They render the same snapshot but share no code: the prototype is React
+against the styleguide, the standalone is vanilla JS. That duplication is deliberate and
+temporary — it goes away when the page moves into gp-admin (DATA-2506 phase 3).
+
+The standalone is the canonical copy. Its palette, event card, nav bar and usage script are the
+shared partials in `packages/runbooks/surfaces/shared/`, inlined by `standalone/build.py`,
+so they are the same on the product map and the event health console; the React copy
+cannot inline them and keeps its own. A change to the card or the theme goes in the
+partials, not here. The standalone's `detail()` calls `EventCard.render` with what only
+this page knows (caveats, resolved lineage, browser-or-server, product) through the card's
+`opts`; the row badges take their words from `EventCard.verdictFor` too, so a row and its
+card cannot disagree.
 
 ## How it stays current (nothing here is manual)
 
@@ -52,6 +64,9 @@ uv run event_explorer_snapshot.py --series \
 
 cd ../../../prototypes/app/p/analytics-event-explorer/standalone && python3 build.py
 ```
+
+`build.py` inlines the shared partials from `packages/runbooks/surfaces/shared/` and
+fails if any placeholder is left unfilled.
 
 `--series` adds the 9-week sparkline data; without it the rest still builds and the
 sparklines read "no data". The builder reads `event_state_assembler.assemble()`, the
