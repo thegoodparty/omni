@@ -22,9 +22,11 @@
 //     re-implements dotenv quoting for the one var (machine secrets) it
 //     needs to read back out of a written env file.
 //
-//   npx tsx scripts/setup/lib/cli.ts seed-login <machineSecret> <userState>
-//     Mint a per-run Clerk M2M token with <machineSecret> (pass '' to force
-//     the skip path) and use it to mint a QA fixture user in <userState> via
+//   npx tsx scripts/setup/lib/cli.ts seed-login <userState>
+//     Mint a per-run Clerk M2M token with the secret read from the
+//     LOCAL_SETUP_CLERK_MACHINE_SECRET env var (never argv — argv is
+//     visible in ps; empty/unset takes the skip path) and use it to
+//     mint a QA fixture user in <userState> via
 //     gp-api's test-fixtures endpoint. Prints exactly one tab-separated
 //     result line to stdout — 'OK\t<email>\t<password>',
 //     'FAILED\t<reason>', or 'SKIPPED\t<reason>' — and always exits 0; the
@@ -193,10 +195,14 @@ const main = async () => {
     runGetVar(pkgName, a)
     return
   }
-  // machineSecret (pkgName here) may legitimately be '' — the skip path —
-  // so only userState (a) needs to be present to accept the command.
-  if (command === 'seed-login' && a !== undefined) {
-    await runSeedLoginCommand(pkgName ?? '', a)
+  // The machine secret arrives via the environment, never argv — argv is
+  // world-readable on shared machines (ps / /proc/PID/cmdline). Empty or
+  // unset is the legitimate skip path.
+  if (command === 'seed-login' && pkgName !== undefined) {
+    await runSeedLoginCommand(
+      process.env.LOCAL_SETUP_CLERK_MACHINE_SECRET ?? '',
+      pkgName,
+    )
     return
   }
 
@@ -206,7 +212,8 @@ const main = async () => {
       '  cli.ts check <pkg> <envFilePath>',
       '  cli.ts build <pkg> <copiedEnvPath|-> <outPath>',
       '  cli.ts get-var <envFilePath> <varName>',
-      '  cli.ts seed-login <machineSecret> <userState>',
+      '  cli.ts seed-login <userState>   (secret via env var',
+      '    LOCAL_SETUP_CLERK_MACHINE_SECRET; empty/unset = skip)',
     ].join('\n'),
   )
 }

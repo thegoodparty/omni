@@ -366,9 +366,10 @@ LOCAL_SETUP_SECRET="$(
 )" || LOCAL_SETUP_SECRET=""
 
 if [ -n "$LOCAL_SETUP_SECRET" ]; then
+  # Secret travels via the environment, never argv (argv is visible in ps).
   seed_result="$(
-    npx tsx "$ROOT/scripts/setup/lib/cli.ts" seed-login \
-      "$LOCAL_SETUP_SECRET" "$USER_STATE"
+    LOCAL_SETUP_CLERK_MACHINE_SECRET="$LOCAL_SETUP_SECRET" \
+      npx tsx "$ROOT/scripts/setup/lib/cli.ts" seed-login "$USER_STATE"
   )" || seed_result=""
   seed_status="${seed_result%%$'\t'*}"
   case "$seed_status" in
