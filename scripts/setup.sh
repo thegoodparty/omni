@@ -302,7 +302,10 @@ DEV_PID=$!
 
 api_ok=false
 webapp_ok=false
-timeout_iters=120 # 120 * 2s = 4min: first boot compiles gp-webapp + gp-api
+# 450 * 2s = 15min, matching the setup-smoke job's outer poll budget: a cold
+# first boot compiles gp-webapp + gp-api on a 2-core CI runner, and this
+# inner gate must never give up before the workflow's own deadline does.
+timeout_iters=450
 for _ in $(seq 1 "$timeout_iters"); do
   if [ "$api_ok" != true ] && curl -fsS "http://localhost:3000/v1/health" >/dev/null 2>&1; then
     api_ok=true

@@ -14,6 +14,8 @@ describe('parseEnvFile', () => {
         'INLINE=false # prod only',
         'QUOTED_INLINE="debug" # levels: https://x#y',
         'HASH_IN_QUOTES="a#b"',
+        "SINGLE='2024'",
+        "SINGLE_INLINE='a b' # comment",
       ].join('\n'),
     )
     expect(parsed).toEqual({
@@ -24,6 +26,8 @@ describe('parseEnvFile', () => {
       INLINE: 'false',
       QUOTED_INLINE: 'debug',
       HASH_IN_QUOTES: 'a#b',
+      SINGLE: '2024',
+      SINGLE_INLINE: 'a b',
     })
   })
 })

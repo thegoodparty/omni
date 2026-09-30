@@ -21,11 +21,14 @@ export const parseEnvFile = (contents: string): EnvMap => {
     const rawValue = match?.[2]
     if (!key || rawValue === undefined) continue
 
-    // dotenv semantics: quotes preserve everything inside (# included);
-    // an unquoted value ends at the first whitespace-preceded # (inline
-    // comment), e.g. `TRACK_MAILGUN_EMAILS=false # prod only` -> "false".
+    // dotenv semantics: quotes (single or double) preserve everything
+    // inside (# included); an unquoted value ends at the first
+    // whitespace-preceded # (inline comment), e.g.
+    // `TRACK_MAILGUN_EMAILS=false # prod only` -> "false".
     const quoted = /^"(.*)"(?:\s+#.*)?$/.exec(rawValue)
-    result[key] = quoted?.[1] ?? rawValue.replace(/\s+#.*$/, '').trim()
+    const singleQuoted = /^'(.*)'(?:\s+#.*)?$/.exec(rawValue)
+    result[key] =
+      quoted?.[1] ?? singleQuoted?.[1] ?? rawValue.replace(/\s+#.*$/, '').trim()
   }
   return result
 }
