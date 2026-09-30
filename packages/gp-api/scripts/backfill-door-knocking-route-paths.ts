@@ -7,7 +7,8 @@
  * once and never re-bought, so the fix only reaches new lists. This buys the
  * path through each old route's stored door order, the same request
  * planStops now makes, and overwrites the leg estimates with the measured
- * ones. The door order itself is not touched.
+ * ones. Hops between doors on one side of one street stay straight, as they
+ * do for new lists. The door order itself is not touched.
  *
  * ─── Deployment behavior ─────────────────────────────────────────────
  * One-shot. Shipping it does not run it. A human runs it once, then it can
@@ -35,6 +36,11 @@ import { appendFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { PrismaClient } from '../src/generated/prisma'
 import { routingCredits } from '../src/doorKnocking/utils/geoapifyCost.util'
+import {
+  groupIntoBlockFaces,
+  legFromMeters,
+  metersBetween,
+} from '../src/doorKnocking/utils/blockFace.util'
 
 const OUTPUT_DIR = join(__dirname, 'output')
 const DETAIL_PATH = join(
@@ -155,7 +161,11 @@ const main = async () => {
       turf: {
         include: {
           voterFileFilter: { select: { organizationSlug: true } },
-          stops: { where: { seq: { not: null } }, orderBy: { seq: 'asc' } },
+          stops: {
+            where: { seq: { not: null } },
+            orderBy: { seq: 'asc' },
+            include: { targets: { select: { addressKey: true } } },
+          },
         },
       },
     },
@@ -200,10 +210,52 @@ const main = async () => {
     }
 
     try {
-      const { geometry, legs } = await fetchPath(route.mode, waypoints, apiKey!)
+      const path = await fetchPath(route.mode, waypoints, apiKey!)
+      const billed = routingCredits(
+        waypoints.length,
+        path.legs.reduce((sum, leg) => sum + leg.meters, 0),
+      )
+      // Same rule list creation follows: a hop between doors on one side of
+      // one street keeps the straight sidewalk leg, because Routing snaps a
+      // house to its nearest road and can walk around the block to reach it.
+      const faceOfStop = new Map<number, number>()
+      groupIntoBlockFaces(
+        stops.map((stop) => ({
+          lat: stop.lat,
+          lng: stop.lng,
+          displayAddress: stop.displayAddress,
+          people: stop.targets,
+        })),
+      ).forEach((face, faceIndex) =>
+        face.stopIndexes.forEach((stopIndex) =>
+          faceOfStop.set(stopIndex, faceIndex),
+        ),
+      )
+      const neighbourHop = (leg: number) =>
+        leg + 1 < stops.length &&
+        faceOfStop.get(leg) === faceOfStop.get(leg + 1)
+      const legs = path.legs.map((leg, index) =>
+        neighbourHop(index)
+          ? legFromMeters(
+              metersBetween(stops[index]!, stops[index + 1]!),
+              route.mode,
+            )
+          : leg,
+      )
+      const geometry: PathGeometry =
+        path.geometry.type === 'MultiLineString' &&
+        path.geometry.coordinates.length === legs.length
+          ? {
+              type: 'MultiLineString',
+              coordinates: path.geometry.coordinates.map((line, index) =>
+                neighbourHop(index)
+                  ? [waypoints[index]!, waypoints[index + 1]!]
+                  : line,
+              ),
+            }
+          : path.geometry
       const totalSeconds = legs.reduce((sum, leg) => sum + leg.seconds, 0)
       const totalMeters = legs.reduce((sum, leg) => sum + leg.meters, 0)
-      const billed = routingCredits(waypoints.length, totalMeters)
       try {
         await prisma.doorKnockingRoutePlannerSpend.create({
           data: {
