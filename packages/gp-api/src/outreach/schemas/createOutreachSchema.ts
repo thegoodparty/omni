@@ -114,6 +114,23 @@ export class CreateOutreachSchema extends createZodDto(
           message: 'Draft creation is only supported for P2P outreach',
         })
       }
+      // P2P is draft-first end to end: a row is written unpaid and only
+      // handed to Peerly once the purchase settles. A create that is
+      // neither a new draft nor a resume has no purchase behind it, so it
+      // is refused here rather than reaching the service.
+      if (
+        data.outreachType === OutreachType.p2p &&
+        data.draft !== true &&
+        !data.draftOutreachId
+      ) {
+        ctx.addIssue({
+          path: ['draft'],
+          code: z.ZodIssueCode.custom,
+          message:
+            'P2P outreach must be created with draft: true, or resumed ' +
+            'with draftOutreachId',
+        })
+      }
       if (data.status === OutreachStatus.pending_payment) {
         ctx.addIssue({
           path: ['status'],
