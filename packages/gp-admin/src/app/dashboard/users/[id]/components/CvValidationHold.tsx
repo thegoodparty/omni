@@ -20,7 +20,13 @@ export function CvValidationHold({
   onResolved,
 }: CvValidationHoldProps) {
   const [confirmed, setConfirmed] = useState(false)
-  const { override, overriding } = useCvHoldOverride(campaignId, onResolved)
+  // overridden keeps the button dead between a successful override and the
+  // onResolved refresh unmounting this widget — a second click in that gap
+  // would queue (and bill) another agent run.
+  const { override, overriding, overridden } = useCvHoldOverride(
+    campaignId,
+    onResolved
+  )
 
   return (
     <Flex direction="column" gap="2">
@@ -46,7 +52,7 @@ export function CvValidationHold({
           <Flex align="center" gap="2">
             <Checkbox
               checked={confirmed}
-              disabled={overriding}
+              disabled={overriding || overridden}
               onCheckedChange={(checked) => setConfirmed(checked === true)}
             />
             <Text size="2" color="gray">
@@ -55,12 +61,14 @@ export function CvValidationHold({
           </Flex>
           <Button
             variant="outline"
-            disabled={!confirmed || overriding}
+            disabled={!confirmed || overriding || overridden}
             onClick={override}
           >
-            {overriding
-              ? 'Resubmitting...'
-              : 'Override validation and resubmit'}
+            {overridden
+              ? 'Hold cleared'
+              : overriding
+                ? 'Resubmitting...'
+                : 'Override validation and resubmit'}
           </Button>
         </Flex>
       </ProtectedContent>
