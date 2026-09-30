@@ -23,8 +23,9 @@ const SLACK_NOT_CONFIGURED_MESSAGE =
 const slackAppId = resolveEnvVar('SLACK_APP_ID')
 const slackBotToken = resolveEnvVar('SLACK_APP_BOT_TOKEN')
 const slackConfigured = slackAppId.configured && slackBotToken.configured
-// Only ever read once slackConfigured is true — the ternary just gives the
-// WebClient constructor a string in the disabled case, where it's never used.
+// In the disabled case the empty strings only keep these always-assigned;
+// callers touching `client` directly must check `isConfigured` first, since
+// an empty-token WebClient fires real requests that fail with invalid_auth.
 const slackAppIdValue = slackAppId.configured ? slackAppId.value : ''
 
 // TODO: Replace w/ this: https://tools.slack.dev/node-slack-sdk/web-api 🤦‍♂️
@@ -32,6 +33,7 @@ const slackAppIdValue = slackAppId.configured ? slackAppId.value : ''
 @Injectable()
 export class SlackService {
   public client: WebClient
+  public readonly isConfigured = slackConfigured
 
   constructor(
     private readonly httpService: HttpService,
