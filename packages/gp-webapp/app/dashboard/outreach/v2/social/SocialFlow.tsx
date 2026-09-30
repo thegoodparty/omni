@@ -23,6 +23,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
+  type OutreachFlowSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { ChannelBadge } from '../channelMeta'
@@ -179,6 +180,8 @@ interface SocialFlowProps {
   // The tracker task this flow was launched from, carried onto the completion
   // event so a completed task and the post it produced are one funnel.
   tracker?: OutreachTrackerOrigin
+  // Where the flow was opened from, for its stage events.
+  source: OutreachFlowSource
 }
 
 const SuccessScreen = ({
@@ -219,6 +222,7 @@ export const SocialFlow = ({
   surface = WIN_SOCIAL_SURFACE,
   prefill,
   tracker,
+  source,
 }: SocialFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SocialFlowPurpose | null>(null)
@@ -555,6 +559,7 @@ export const SocialFlow = ({
       title={saved ? 'Done' : STEP_TITLES[stepId]}
       headerBadge={<ChannelBadge type={OUTREACH_TYPES.socialMedia} />}
       channel="social"
+      source={source}
       trackedStep={saved ? null : stepId}
       settled={saved}
       currentStep={stepIndex + 1}

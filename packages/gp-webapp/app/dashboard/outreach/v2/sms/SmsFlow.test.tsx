@@ -197,6 +197,7 @@ const openFlow = () => {
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(
     <SmsFlow
+      source="outreach_page"
       open
       onClose={onClose}
       onScheduled={onScheduled}
@@ -250,6 +251,7 @@ describe('SmsFlow', () => {
     vi.setSystemTime(FROZEN_NOW)
     gateRef.set({
       enabled: false,
+      resolved: true,
       requirement: null,
       twoStep: true,
       membership: null,
@@ -537,6 +539,7 @@ describe('SmsFlow', () => {
     ) =>
       render(
         <SmsFlow
+          source="outreach_page"
           open
           onClose={vi.fn()}
           onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -748,6 +751,7 @@ describe('SmsFlow', () => {
 
     const FREE_GATE: OutreachGateState = {
       enabled: true,
+      resolved: true,
       requirement: 'pro',
       twoStep: true,
       membership: {
@@ -761,6 +765,7 @@ describe('SmsFlow', () => {
 
     const CLEARED_GATE: OutreachGateState = {
       enabled: true,
+      resolved: true,
       requirement: null,
       twoStep: true,
       membership: {
@@ -1053,11 +1058,13 @@ describe('SmsFlow', () => {
         tcrCompliance: TCR_FIXTURE,
         resumeDraft: draftDetail(),
       }
-      const { rerender } = render(<SmsFlow open {...props} />)
+      const { rerender } = render(
+        <SmsFlow source="outreach_page" open {...props} />,
+      )
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
-      rerender(<SmsFlow open={false} {...props} />)
-      rerender(<SmsFlow open {...props} />)
+      rerender(<SmsFlow source="outreach_page" open={false} {...props} />)
+      rerender(<SmsFlow source="outreach_page" open {...props} />)
 
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
       expect(
@@ -1069,6 +1076,7 @@ describe('SmsFlow', () => {
       gateRef.set(CLEARED_GATE)
       render(
         <SmsFlow
+          source="outreach_page"
           open
           onClose={vi.fn()}
           onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -1113,6 +1121,7 @@ describe('SmsFlow', () => {
       api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
       render(
         <SmsFlow
+          source="outreach_page"
           open
           onClose={vi.fn()}
           onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -1159,6 +1168,7 @@ describe('SmsFlow', () => {
     it('keeps the builder for an ungated elected official', async () => {
       gateRef.set({
         enabled: true,
+        resolved: true,
         requirement: null,
         twoStep: true,
         membership: {

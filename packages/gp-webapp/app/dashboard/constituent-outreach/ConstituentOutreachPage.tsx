@@ -220,7 +220,7 @@ const ConstituentOutreachContent = () => {
         // the wizard like the other two cards open theirs, rather than landing
         // on the rail and asking for one more press.
         onDoorKnockingClick={() =>
-          router.push('/dashboard/door-knocking?create=1')
+          router.push('/dashboard/door-knocking?create=1&source=outreach_page')
         }
       />
       <SocialFlow
@@ -232,6 +232,7 @@ const ConstituentOutreachContent = () => {
         onSaved={handleSocialSaved}
         surface={SERVE_SOCIAL_SURFACE}
         prefill={socialPrefill ?? undefined}
+        source="outreach_page"
       />
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
@@ -244,6 +245,7 @@ const ConstituentOutreachContent = () => {
         onSaved={handlePhoneBankingSaved}
         surface={SERVE_PHONE_BANKING_SURFACE}
         preselectedListId={followUpListId}
+        source="outreach_page"
       />
       {/* Mounted only behind the flag, not merely rendered closed: with the
           flag off there is no flow in the tree at all, so no Serve SMS
@@ -257,6 +259,7 @@ const ConstituentOutreachContent = () => {
           onClose={() => setSmsFlowOpen(false)}
           onScheduled={refetchOutreaches}
           surface={SERVE_SMS_SURFACE}
+          source="outreach_page"
         />
       )}
       <OutreachHistoryTable

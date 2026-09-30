@@ -73,6 +73,7 @@ const openServeFlow = () => {
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(
     <SmsFlow
+      source="outreach_page"
       open
       onClose={onClose}
       onScheduled={onScheduled}

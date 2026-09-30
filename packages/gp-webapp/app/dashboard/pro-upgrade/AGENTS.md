@@ -285,6 +285,13 @@ this, and neither does the server-side `Account - Pro Subscription Confirmed`.
   routed to success does not fire it.
 - `ProUpgradeModal` takes a `source` prop from whichever surface opens it
   (`auto_modal` from `ProUpgradePrompt`, `contacts` from the CRM).
+- The embedded `ProUpgradeFlow` fires the same event once on mount, from the
+  `attribution` prop `OutreachGate` builds: the outreach flow's own source, the
+  gate channel, the label of the button that opened the gate, and the tracker
+  task when there is one. See `app/dashboard/outreach/AGENTS.md`'s Analytics
+  section.
+- `InterstitialStep` reports its own view and both choices
+  (`Interstitial Viewed` / `Click join` / `Click maybe later`) with `channel`.
 
 ## Gotchas
 

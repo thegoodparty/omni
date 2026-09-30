@@ -11,12 +11,15 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   outreachProduct,
+  type OutreachFlowSource,
 } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { GateBanner } from 'app/dashboard/outreach/v2/gate/GateBanner'
 import { GateExplainerModal } from 'app/dashboard/outreach/v2/gate/GateExplainerModal'
+import { EXPLAINER_COPY } from 'app/dashboard/outreach/v2/gate/gateCopy'
 import { OutreachGate } from 'app/dashboard/outreach/v2/gate/OutreachGate'
 import { useOutreachGate } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
+import { useLockedAtOpen } from 'app/dashboard/outreach/v2/gate/useLockedAtOpen'
 import { useTeamOptions } from '../useTeamOptions'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
@@ -153,6 +156,8 @@ interface CreateListFlowProps {
   precinctOptions: PrecinctOptionsResult
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
   // The pack's bounding box, framed by the draw step's static-map preview
   // card. Null while the pack decodes; the preview omits the image in that
   // window rather than rendering against no rect.
@@ -389,6 +394,7 @@ export default function CreateListFlow({
   precinctOptions,
   onStepChange,
   onClose,
+  source,
   districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
@@ -740,6 +746,7 @@ export default function CreateListFlow({
   // where the candidate is told, not about what is enforced. Moving it onto
   // the knock press is the follow-up.
   const gate = useOutreachGate('door')
+  const lockedAtOpen = useLockedAtOpen(true, gate)
   const [gateOpen, setGateOpen] = useState(false)
   // WHICH gesture opened the gate. The banner rides every step but the draw,
   // so its explainer can open the gate from any of them, with Build route
@@ -748,10 +755,13 @@ export default function CreateListFlow({
   const [gateOrigin, setGateOrigin] = useState<'build' | 'explainer' | null>(
     null,
   )
+  // The label of the button that opened the gate, for Flow Started.
+  const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [explainerOpen, setExplainerOpen] = useState(false)
 
   const openGateFromExplainer = (): void => {
     setGateOrigin('explainer')
+    setGateCta(EXPLAINER_COPY.ctaJoin)
     setGateOpen(true)
   }
 
@@ -1497,6 +1507,11 @@ export default function CreateListFlow({
       }
       currentStep={currentStep}
       totalSteps={totalSteps}
+      channel="door"
+      source={source}
+      locked={lockedAtOpen}
+      trackedStep={gateOpen || stage === 'success' ? null : stage}
+      settled={stage === 'success'}
       onBack={previousStage(stage) && !gateOpen ? back : undefined}
       dirty={dirty}
       // A React element is truthy even when it renders null, so the caller
@@ -1619,6 +1634,7 @@ export default function CreateListFlow({
                         onClick: () => {
                           if (gate.requirement !== null) {
                             setGateOrigin('build')
+                            setGateCta('Create campaign')
                             setGateOpen(true)
                             return
                           }
@@ -1645,6 +1661,8 @@ export default function CreateListFlow({
           state={gate}
           open
           showInterstitial={false}
+          source={source}
+          cta={gateCta}
           onExit={() => {
             setGateOpen(false)
             setGateOrigin(null)

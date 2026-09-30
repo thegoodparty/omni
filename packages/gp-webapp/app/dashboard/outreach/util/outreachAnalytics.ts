@@ -57,6 +57,18 @@ export interface OutreachTrackerOrigin {
   phase: CampaignStrategyPhaseKey
 }
 
+// Where an outreach flow was opened from: a hub tile, a saved draft, or the
+// surface a compose link was pressed on. Carried on the flow's stage events
+// and, at the Pro gate, on `Pro Upgrade - Flow Started`.
+export type OutreachFlowSource =
+  | 'outreach_page'
+  | 'draft'
+  | 'campaign_plan'
+  | 'campaign_manager'
+  | 'voter_data'
+  | 'door_knocking_page'
+  | 'deep_link'
+
 export interface OutreachEventInput {
   channel: TaskChannel
   // Which product the event happened in. Required rather than defaulted: a

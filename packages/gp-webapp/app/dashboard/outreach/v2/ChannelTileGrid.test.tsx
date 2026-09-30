@@ -265,7 +265,7 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
     await userEvent.click(screen.getByText('Door knocking'))
 
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1&listId=42',
+      '/dashboard/door-knocking?create=1&source=outreach_page&listId=42',
     )
   })
 
@@ -275,7 +275,7 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
     await userEvent.click(screen.getByText('Door knocking'))
 
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1',
+      '/dashboard/door-knocking?create=1&source=outreach_page',
     )
   })
 
@@ -299,7 +299,7 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
 
     await userEvent.click(screen.getByText('Door knocking'))
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1&listId=42',
+      '/dashboard/door-knocking?create=1&source=outreach_page&listId=42',
     )
 
     // Phone banking is the one remaining tile that APPLIES a preselect, so
@@ -447,7 +447,7 @@ describe('ChannelTileGrid — the preselect reaches every audience-taking tile',
     await userEvent.click(screen.getByText('Door knocking'))
 
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1&recommended=persuadeAffinity',
+      '/dashboard/door-knocking?create=1&source=outreach_page&recommended=persuadeAffinity',
     )
   })
 })
@@ -539,7 +539,7 @@ describe('ChannelTileGrid — flag on: the tiles open the gated flows', () => {
     await userEvent.click(screen.getByText('Door knocking'))
 
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1',
+      '/dashboard/door-knocking?create=1&source=outreach_page',
     )
     expect(
       screen.queryByText('Get Pro voter data and tools'),

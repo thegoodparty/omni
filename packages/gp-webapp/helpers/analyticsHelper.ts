@@ -404,6 +404,10 @@ export const EVENTS = {
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
       // The funnel's first step: carries `source`, `channel` and `cta`.
       FlowStarted: 'Pro Upgrade - Flow Started',
+      // The outreach gate's "Join Pro to send this campaign" pause screen.
+      InterstitialViewed: 'Pro Upgrade - Interstitial Viewed',
+      InterstitialJoin: 'Pro Upgrade - Interstitial: Click join',
+      InterstitialMaybeLater: 'Pro Upgrade - Interstitial: Click maybe later',
       ValuePropViewed: 'Pro Upgrade - Value Prop Viewed',
       ValuePropGetPro: 'Pro Upgrade - Value Prop: Click Get Pro',
       ValuePropMaybeLater: 'Pro Upgrade - Value Prop: Click Maybe later',
