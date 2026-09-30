@@ -170,12 +170,20 @@ jobs:
           set -euo pipefail
 
           # Newlines out of the reason before it is echoed. `::notice::` is a
-          # line-oriented protocol and $GITHUB_STEP_SUMMARY is markdown, so a
-          # value carrying a newline could forge a second workflow command or a
-          # heading. Only `pr_number` reaches this from outside, and only from
-          # someone who already has write access, so this closes the class
-          # rather than a live hole.
-          skip() {
+          # line-oriented protocol, $GITHUB_STEP_SUMMARY is markdown and the PR
+          # comment is markdown under the bot's name, so a value carrying a
+          # newline could forge a second workflow command or a heading. Only
+          # `pr_number` reaches this from outside, and only from someone who
+          # already has write access, so this closes the class rather than a
+          # live hole.
+          #
+          # QUIETLY IS THE EXCEPTION AND HAS TO BE ASKED FOR BY NAME. A skip
+          # that ends green and says nothing on the thread `/judge` was typed
+          # on is the bug this file has now been fixed for three times; the
+          # default is `skip` below, which answers on the PR. The two callers
+          # of this one are the two cases where a comment is the wrong thing,
+          # and both are recorded at the upsert step.
+          skip_quietly() {
             local msg="${1//$'\n'/ }"
             msg="${msg//$'\r'/ }"
             echo "::notice::skipped: $msg"
@@ -185,8 +193,41 @@ jobs:
             exit 0
           }
 
+          # AND IT SAYS SO ON THE PR, by the same mechanism as `nothing()` and
+          # the `empty` step further down: write the comment file, publish the
+          # path, and let the one upsert step post whichever producer ran. Its
+          # own file name rather than a shared `comment.md`, so the `||` order
+          # at the poster decides which comment wins rather than whichever
+          # step wrote that name last.
+          #
+          # Same marker as the plan comment, so a PR judged twice carries one
+          # current comment whichever path each run took.
+          #
+          # The reason is the whole body, with no refs table and no credit. Not
+          # brevity: this function is defined before anything has been resolved,
+          # so `$sha`, `$base` and the rest are unset at some of its call sites,
+          # and a comment that interpolates them would be one new call site away
+          # from failing under `set -u` — in the one function whose job is to
+          # make sure the thread is answered.
+          skip() {
+            local msg="${1//$'\n'/ }"
+            msg="${msg//$'\r'/ }"
+            {
+              echo '<!-- universal-judge-plan -->'
+              echo '## Universal Judge'
+              echo ''
+              echo "**Not judged — nothing will be spent.** $msg"
+            } > "$RUNNER_TEMP/skip-comment.md"
+            echo "comment_path=$RUNNER_TEMP/skip-comment.md" >> "$GITHUB_OUTPUT"
+            skip_quietly "$msg"
+          }
+
+          # Quietly: there is no thread to answer on. The poster writes to
+          # `inputs.pr_number`, so with a value that is not a PR number there
+          # is nothing to post to, and attempting it would fail the run for a
+          # reason that has nothing to do with the request.
           case "$PR_NUMBER" in
-            ''|*[!0-9]*) skip "pr_number '$PR_NUMBER' is not a number" ;;
+            ''|*[!0-9]*) skip_quietly "pr_number '$PR_NUMBER' is not a number" ;;
           esac
 
           pr="$(gh pr view "$PR_NUMBER" \
@@ -197,7 +238,12 @@ jobs:
           sha="$(jq -r '.headRefOid' <<<"$pr")"
           base="$(jq -r '.baseRefName' <<<"$pr")"
 
-          [ "$state" = "OPEN" ] || skip "PR #$PR_NUMBER is $state, not open"
+          # Answered on the PR. A `/judge` on a PR that has since been closed or
+          # merged is a request someone really made and can see the thread for,
+          # and a green check with no reply is exactly the silence this file
+          # keeps being fixed for. `$state` is one of GitHub's own enum values,
+          # and the reason has already been through `skip`'s newline scrub.
+          [ "$state" = "OPEN" ] || skip "PR #$PR_NUMBER is $state, not open, so there is nothing to judge. Reopen it, or ask on an open PR for the branch."
 
           # AFFIRMATIVE, like the spend switch at the top of this file and for
           # the sharper version of the same reason. `= "true"` fails OPEN: a
@@ -209,8 +255,15 @@ jobs:
           # `issue_comment` carries no PR payload, so judge-comment.yml has no
           # head-repo check of its own to fall back on. Written as "skip unless
           # it is exactly false" instead, so a garbled value reads as "stop".
+          #
+          # QUIETLY, and this is the one silence in the file that is about
+          # judgement rather than mechanism: on the `issue_comment` path this
+          # job does hold a write token, so it COULD comment. Posting under an
+          # outside contributor's PR to tell them we will not run their code
+          # with our credentials is worse than saying nothing; the run log has
+          # the reason for whoever asked.
           if [ "$fork" != "false" ]; then
-            skip "isCrossRepository is '$fork', and only an explicit 'false' means this PR is on the repository itself. omni is public, so a fork event carries no secrets and the judge will not check out or run fork code with ours; a value that is neither 'true' nor 'false' means the lookup did not answer, and an unanswered question here is a no. Push the branch to this repository to judge it."
+            skip_quietly "isCrossRepository is '$fork', and only an explicit 'false' means this PR is on the repository itself. omni is public, so a fork event carries no secrets and the judge will not check out or run fork code with ours; a value that is neither 'true' nor 'false' means the lookup did not answer, and an unanswered question here is a no. Push the branch to this repository to judge it."
           fi
 
           # Both refs are re-validated even though they came from the GitHub API,
@@ -385,6 +438,15 @@ jobs:
         id: cli
         if: steps.gate.outputs.skip != 'true' && steps.select.outputs.agents != ''
         working-directory: ${{ env.WORKSPACE }}
+        # Only the absent branch reads these, and only to say on the PR what it
+        # was asked to judge and against what. `$RUNNER_TEMP` is absolute, so
+        # `working-directory` above does not reach the comment file.
+        env:
+          AGENTS: ${{ steps.select.outputs.agents }}
+          REQUESTED: ${{ inputs.agents }}
+          REQUESTED_BY: ${{ inputs.requested_by }}
+          CANDIDATE_SHA: ${{ steps.gate.outputs.candidate_sha }}
+          BASE_REF: ${{ steps.gate.outputs.base_ref }}
         run: |
           set -euo pipefail
           if [ -f "$CLI" ]; then
@@ -422,6 +484,59 @@ jobs:
             echo 'wave-0 PR. Everything this job does before invoking it — the fork'
             echo 'check, the ref resolution, the agent selection — ran and is in the log.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # AND IT SAYS SO ON THE PR. This branch ends the step green with
+          # `present=false`, which skips `estimate` — and `empty` does not
+          # cover it either, because that one is gated on an EMPTY selection
+          # and this path is reached only with a non-empty one. So nothing
+          # downstream published a `comment_path` and the upsert never fired:
+          # `/judge` on a branch without the CLI got a green check, a job
+          # summary nobody opens, and no reply on the thread it was typed on.
+          # Third instance of the same bug, same fix as `nothing()` and the
+          # `empty` step.
+          #
+          # Same shape check on `requested_by` as those two, and for the same
+          # reason: a newline in it would forge a heading in a comment the bot
+          # signs. Duplicated rather than shared because these are three
+          # separate shells.
+          credit=""
+          if [[ "$REQUESTED_BY" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]]; then
+            credit="$REQUESTED_BY"
+          elif [ -n "$REQUESTED_BY" ]; then
+            echo "::warning::requested_by is not a GitHub login, so the comment credits nobody"
+          fi
+
+          # No `<details>` block: nothing was invoked, so there is no plan to
+          # quote and promising one would be worse than omitting it. `$AGENTS`
+          # and `$REQUESTED` are both held to the snake-case selector shape by
+          # the step above, and `$WORKSPACE`/`$CLI` are literals from this
+          # file's own `env`, so every code span below is safe.
+          {
+            echo '<!-- universal-judge-plan -->'
+            echo '## Universal Judge'
+            echo ''
+            echo '**Nothing to judge — nothing will be spent.** The judge CLI is not on'
+            echo 'this branch, so there is no plan to price and no sweep to run. It lands'
+            echo 'in the wave-0 PR (#2198). The fork check, the ref resolution and the'
+            echo 'agent selection all ran; they are in the run log.'
+            echo ''
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| missing | \`$WORKSPACE/$CLI\` |"
+            if [ "$REQUESTED" = "$AGENTS" ]; then
+              echo "| agents | \`$AGENTS\` |"
+            else
+              echo "| agents | \`$AGENTS\` (asked for: \`$REQUESTED\`) |"
+            fi
+            echo "| candidate | \`$CANDIDATE_SHA\` |"
+            echo "| base | \`$BASE_REF\` |"
+            if [ -n "$credit" ]; then
+              echo ''
+              echo "Requested by @$credit."
+            fi
+          } > "$RUNNER_TEMP/cli-comment.md"
+
+          echo "comment_path=$RUNNER_TEMP/cli-comment.md" >> "$GITHUB_OUTPUT"
 
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
@@ -540,9 +655,9 @@ jobs:
                 echo ''
                 echo "Requested by @$credit."
               fi
-            } > "$RUNNER_TEMP/comment.md"
+            } > "$RUNNER_TEMP/plan-comment.md"
 
-            echo "comment_path=$RUNNER_TEMP/comment.md" >> "$GITHUB_OUTPUT"
+            echo "comment_path=$RUNNER_TEMP/plan-comment.md" >> "$GITHUB_OUTPUT"
           }
 
           # THE CLI'S EXIT CODE IS THE CONTRACT, not its prose. Since #2198 it
@@ -721,9 +836,9 @@ jobs:
               echo ''
               echo "Requested by @$credit."
             fi
-          } > "$RUNNER_TEMP/comment.md"
+          } > "$RUNNER_TEMP/plan-comment.md"
 
-          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/plan-comment.md" >> "$GITHUB_STEP_SUMMARY"
 
           # Published only now that the file exists, so the step that posts the
           # comment can be gated on this one output and nothing else. It is
@@ -731,7 +846,7 @@ jobs:
           # `$RUNNER_TEMP` and a `${{ runner.temp }}` in the next step's `env`
           # would be the same directory spelled a second way, which is one
           # rename away from being two different directories.
-          echo "comment_path=$RUNNER_TEMP/comment.md" >> "$GITHUB_OUTPUT"
+          echo "comment_path=$RUNNER_TEMP/plan-comment.md" >> "$GITHUB_OUTPUT"
 
           if [ -z "$sweep_agents" ]; then
             echo "::notice::nothing to sweep: no agent in this plan has a case list yet, so no sweep will run"
@@ -750,7 +865,8 @@ jobs:
       # ABOVE THE UPSERT, not below it, because a step cannot post a file a
       # later step has not written yet. It is mutually exclusive with the
       # estimate step — that one is gated on a non-empty selection and this one
-      # on an empty one — so the shared `comment.md` name cannot collide.
+      # on an empty one — and it writes its own file name rather than a shared
+      # `comment.md`, so exclusivity is no longer what keeps the two apart.
       #
       # There is no plan to quote: nothing was checked out and the CLI never
       # ran. So this carries the refs and what was asked for, and no
@@ -803,27 +919,73 @@ jobs:
               echo ''
               echo "Requested by @$credit."
             fi
-          } > "$RUNNER_TEMP/comment.md"
+          } > "$RUNNER_TEMP/empty-comment.md"
 
-          echo "comment_path=$RUNNER_TEMP/comment.md" >> "$GITHUB_OUTPUT"
+          echo "comment_path=$RUNNER_TEMP/empty-comment.md" >> "$GITHUB_OUTPUT"
 
       # Upserted on a marker, following pr-preview-comment.yml, so a PR that is
       # judged several times carries one current estimate rather than a column
       # of stale ones. Every value the script reads comes from `env` and
       # `context`; nothing untrusted is interpolated into the JavaScript.
       #
-      # Two producers, one poster. `estimate` and `empty` are mutually
-      # exclusive and both write `comment_path`; `||` takes whichever is
-      # non-empty, and an empty string is falsy in a GitHub expression.
+      # FOUR PRODUCERS, ONE POSTER. `gate`, `cli`, `estimate` and `empty` each
+      # write a comment file and publish `comment_path`; `||` takes whichever
+      # is non-empty, and an empty string is falsy in a GitHub expression. They
+      # are mutually exclusive by their `if:`s — a `gate` skip stops all three
+      # others, a missing CLI skips `estimate`, and `estimate` and `empty` are
+      # gated on opposite sides of an empty selection — and they no longer
+      # share a file name, so the `||` order decides which comment is posted
+      # rather than whichever step happened to write `comment.md` last. That
+      # matters for the producer added fifth, not for these four.
+      #
+      # THE INVARIANT THIS STEP EXISTS TO HOLD: every terminal path in `plan`
+      # that ends GREEN publishes a `comment_path`, so `/judge` is answered on
+      # the thread it was typed on. Three rounds of this PR each fixed one
+      # instance of the same bug — a path that wrote `$GITHUB_STEP_SUMMARY`,
+      # went green, and left the thread silent. A new terminal path has to
+      # either publish a path here or appear in the list below.
+      #
+      # THE RECORDED SILENCES. None of these is an oversight, and the reason is
+      # different in each group:
+      #
+      #   * `gate`'s FORK skip. The only one that is a judgement call rather
+      #     than a mechanism: on the `issue_comment` path this job does hold a
+      #     write token, so it could comment. Posting under an outside
+      #     contributor's PR to tell them we will not run their code with our
+      #     credentials is worse than the silence.
+      #   * `gate`'s NON-NUMERIC `pr_number`, and a `gh pr view` that does not
+      #     resolve to a PR (which fails the step under `set -e`). There is no
+      #     thread: this step posts to `inputs.pr_number`, and with a value
+      #     that is not a PR number there is nothing to post to.
+      #   * every `::error::` + `exit 1` in `select` and `estimate` — an agent
+      #     id that is not in the registry, an experiment directory named after
+      #     a reserved selector, a derived id that is not snake_case, a plan
+      #     header that cannot be parsed, priced rows that do not add up to the
+      #     planned count. These are REFUSALS, not outcomes: the exit code is
+      #     the contract and the red X is the report, and a second, softer
+      #     account of a hard failure on the PR would invite someone to read
+      #     the comment and not the failure. The residual, which is worth
+      #     knowing rather than hiding: a `/judge` run is an `issue_comment`
+      #     run, and GitHub does not attach its check to the PR's head commit,
+      #     so that red X is visible in Actions and not on the thread. If the
+      #     judge ever needs refusals answered in-thread, this is the one list
+      #     to work from.
+      #   * the whole `sweep` job, which holds `contents: read` and no
+      #     `pull-requests` write on purpose — see the note on its summary
+      #     step, which owns that decision.
       - name: Upsert the plan comment
         if: >-
-          steps.estimate.outputs.comment_path != ''
+          steps.gate.outputs.comment_path != ''
+          || steps.cli.outputs.comment_path != ''
+          || steps.estimate.outputs.comment_path != ''
           || steps.empty.outputs.comment_path != ''
         uses: actions/github-script@v8
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
           COMMENT_PATH: >-
-            ${{ steps.estimate.outputs.comment_path
+            ${{ steps.gate.outputs.comment_path
+            || steps.cli.outputs.comment_path
+            || steps.estimate.outputs.comment_path
             || steps.empty.outputs.comment_path }}
         with:
           script: |
@@ -848,18 +1010,38 @@ jobs:
               (c) =>
                 c.user?.login === 'github-actions[bot]' && c.body?.includes(marker),
             )
+            // A CLOSED PR IS NOW A TARGET, and a LOCKED one cannot be
+            // commented on by anybody. The `gate` skip comment is the producer
+            // that made that reachable: before it, every path that got here
+            // was on an open PR. GitHub answers a locked conversation with
+            // 403, and failing the run for that would put a red X on a PR
+            // whose author did nothing wrong — this file's own rule for why
+            // the fork check skips instead of failing.
+            //
+            // ONLY 403, and only around the write. Swallowing anything else
+            // would recreate the exact silence this step exists to prevent,
+            // with no failure to show for it: a 404, a rate limit or a
+            // permissions misconfiguration has to stay fatal.
+            const post = async (call, args) => {
+              try {
+                await call({ ...context.repo, ...args })
+              } catch (err) {
+                if (err.status !== 403) throw err
+                core.warning(
+                  `the judge could not comment on #${issue_number} (HTTP 403 — ` +
+                    'the conversation is most likely locked). The reason it had ' +
+                    'to give is in this job summary.',
+                )
+              }
+            }
+
             if (mine) {
-              await github.rest.issues.updateComment({
-                ...context.repo,
+              await post(github.rest.issues.updateComment, {
                 comment_id: mine.id,
                 body,
               })
             } else {
-              await github.rest.issues.createComment({
-                ...context.repo,
-                issue_number,
-                body,
-              })
+              await post(github.rest.issues.createComment, { issue_number, body })
             }
 
   # The only job that can spend. Everything it needs was decided and published
@@ -990,6 +1172,24 @@ jobs:
       # it from the judge's own records rather than from whatever the run
       # happened to print. Two writers on one PR would race, and the trigger is
       # the one with less to say.
+      #
+      # A RECORDED SILENCE, AND THE ONE WITH A DEBT ATTACHED. This step writes
+      # only to `$GITHUB_STEP_SUMMARY`, which is the shape of the bug the plan
+      # job has now been fixed for three times — so it is spelled out here
+      # rather than left to be rediscovered. It stays silent because this job
+      # holds `contents: read` and no `pull-requests` write on purpose: it is
+      # the job that runs the branch's own code with the Anthropic key, and
+      # widening its token to post a comment is a worse trade than the silence.
+      # The plan comment has already told the thread "this is a live sweep, it
+      # starts now", and the three ways this job can end — a missing key, a
+      # missing orchestrator suite, a failing sweep — all end red.
+      #
+      # THE DEBT: on a live run the thread is told the sweep started and is
+      # never told how it ended, because the outcome is the report track's to
+      # publish. That is the boundary, not an accident — but it only holds if
+      # the report track posts on failure as well as on a verdict. A report
+      # that speaks only when the judge produced records would leave a crashed
+      # sweep exactly as silent as the paths above were.
       - name: Summarise the sweep
         if: always()
         env:
