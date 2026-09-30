@@ -30,6 +30,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   list_briefings: 'Reading your briefings',
   get_briefing: 'Reading your briefings',
   read_community_issues: 'Reading your community issues',
+  read_past_outreach: "Checking what you've sent",
   describe_filter_dimensions: 'Checking available filters',
   count_contacts: 'Counting matches',
   list_precincts: 'Looking up precincts',

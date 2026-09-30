@@ -225,6 +225,44 @@ const COMPOSE_HANDOFF_RULES =
   '- The result opens a prefilled drawer for the official to review before ' +
   'anything sends. Confirm you called it and let them take it from there.'
 
+const cardRulesBlock = (toolNames: string[]): string | null => {
+  const has = (name: string): boolean => toolNames.includes(name)
+  const lines = [
+    ...(has('ask_clarify_question')
+      ? [
+          '- When the user has to pick between real options, ask with `ask_clarify_question`, one question at a time, never as a list in prose. Put the question and options only in the call.',
+        ]
+      : []),
+    '- A card speaks for itself. Say in one line why it matters and never restate what is on it.',
+    ...(has('present_constituents') && has('present_outside_contact')
+      ? [
+          "- `present_constituents` is the user's OWN people, already in their contact records, by contact id. `present_outside_contact` is someone OUTSIDE their records, found by research, to call about a problem. Never swap them.",
+        ]
+      : has('present_outside_contact')
+        ? [
+            "- `present_outside_contact` is someone OUTSIDE the user's records, found by research, to call about a problem. Never use it for the user's own constituents.",
+          ]
+        : []),
+    ...(has('present_outreach_proposal')
+      ? [
+          '- Present outreach only when it is final: the list saved and the message written.' +
+            (has('read_past_outreach')
+              ? ' Call `read_past_outreach` first so you can say what came back last time.'
+              : ''),
+        ]
+      : []),
+  ]
+  const presents = toolNames.some(
+    (name) => name.startsWith('present_') || name === 'ask_clarify_question',
+  )
+  return presents
+    ? [
+        'CARDS AND QUESTIONS (apply whenever you call `ask_clarify_question` or a `present_` tool):',
+        ...lines,
+      ].join('\n')
+    : null
+}
+
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   crud_priorities:
     'manage the user’s durable priorities (list/create/update/archive)',
@@ -248,6 +286,15 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   compose_handoff:
     'open a prefilled compose drawer for the official to post or share ' +
     'content (review before anything sends)',
+  ask_clarify_question: 'ask the user one multiple-choice question',
+  read_past_outreach:
+    'read the office’s recent sends, with reach and reply counts',
+  present_past_outreach: 'show past sends as a card',
+  present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
+  present_constituents:
+    'show people from the user’s own contact records as a card',
+  present_outside_contact:
+    'show one person or office outside the user’s records to call, with a script',
 }
 
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
@@ -399,6 +446,9 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
     ...(toolNames.includes('show_list_map') ? [LIST_MAP_RULES] : []),
     ...(toolNames.includes('compose_handoff') ? [COMPOSE_HANDOFF_RULES] : []),
+    ...[cardRulesBlock(toolNames)].filter(
+      (block): block is string => block !== null,
+    ),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.
     //

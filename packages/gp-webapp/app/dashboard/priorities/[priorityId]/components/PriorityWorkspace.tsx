@@ -25,28 +25,41 @@ import {
   UserBubble,
 } from '../../../shared/agent-chat/chatUI'
 import { segmentsTextLength } from '../../../shared/agent-chat/streaming'
+import {
+  TurnBlocks,
+  liveTurnBlocks,
+  persistedTurnBlocks,
+  type PositionedWidget,
+} from '../../../shared/agent-chat/turnBlocks'
+import {
+  createWidgetRegistry,
+  type WidgetInstance,
+} from '../../../shared/agent-chat/widgetRegistry'
+import {
+  cardWidgetTools,
+  type CardWidgetContext,
+} from '../../../shared/agent-chat/cards/cardWidgets'
+import {
+  CLARIFY_TOOL,
+  clarifyWidgetTool,
+  type ClarifyWidgetContext,
+} from '../../../shared/agent-chat/clarifyWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
 import { priorityFlowChatApi } from '../data/chat-api'
-import { toChatCard } from '../data/cards'
-import { CLARIFY_TOOL, parseClarifyQuestion } from '../data/clarify'
 import { fetchPriorityStatus } from '../data/priority-api'
-import { replayStatusMarkers } from '../data/statusReplay'
+import { replayStatusMarkers, segmentKey } from '../data/statusReplay'
 import {
   STATUS_TOOL,
   applyStatusUpdate,
   parseStatusToolResult,
   parseStatusUpdate,
+  type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
 import { PriorityStatusRail } from './PriorityStatusRail'
-import {
-  TurnBlocks,
-  liveTurnBlocks,
-  persistedTurnBlocks,
-  type PositionedExtra,
-} from './turnBlocks'
+import { StatusChangeMarker } from './StatusChangeMarker'
 
 // Hidden opener for a brand-new conversation, so the official arrives at a
 // thread that has already started rather than an empty box. Filtered out of
@@ -55,6 +68,22 @@ const KICKOFF =
   "Let's begin. Tell me where this stands and what we should work on first."
 
 type Phase = 'loading' | 'ready' | 'error'
+
+type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
+
+const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
+  ...cardWidgetTools,
+  clarifyWidgetTool,
+])
+
+// A status move is not a registry widget: what it shows is the change the
+// rail went through, which lives in the surface's replay, not in the tool args.
+const statusMarker = (
+  changes: StepChange[],
+): WidgetInstance<PriorityWidgetContext> => ({
+  toolName: STATUS_TOOL,
+  render: () => <StatusChangeMarker changes={changes} />,
+})
 
 export const PriorityWorkspace = ({
   priorityId,
@@ -89,7 +118,9 @@ export const PriorityWorkspace = ({
     },
     [],
   )
-  const [liveExtras, setLiveExtras] = useState<PositionedExtra[]>([])
+  const [liveWidgets, setLiveWidgets] = useState<
+    PositionedWidget<PriorityWidgetContext>[]
+  >([])
   const [composer, setComposer] = useState('')
   const [streamError, setStreamError] = useState<string | null>(null)
   const dictation = useDictationAppend({
@@ -108,11 +139,6 @@ export const PriorityWorkspace = ({
     commitStatus(persisted.status, persisted.nextAction)
   }, [priorityId, commitStatus])
 
-  const conversationIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    conversationIdRef.current = conversationId
-  }, [conversationId])
-
   const {
     messages,
     setMessages,
@@ -123,14 +149,14 @@ export const PriorityWorkspace = ({
     toolLabel: priorityToolLabel,
     onTurnStart: () => {
       setStreamError(null)
-      setLiveExtras([])
+      setLiveWidgets([])
     },
     onTurnSettle: () => {
-      setLiveExtras([])
+      setLiveWidgets([])
       void reconcile()
     },
     onError: (message) => setStreamError(message),
-    onEvent: (event, { textLength }) => {
+    onEvent: (event, { textLength, conversationId: turnConversationId }) => {
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
         const update = parseStatusUpdate(event.args)
         if (!update) return true
@@ -140,11 +166,11 @@ export const PriorityWorkspace = ({
         commitStatus(applied.status, applied.nextAction)
         if (applied.changes.length > 0) {
           const at = textLength()
-          setLiveExtras((prev) => [
+          setLiveWidgets((prev) => [
             ...prev,
             {
               key: `status-${event.toolCallId ?? prev.length}`,
-              extra: { kind: 'status', changes: applied.changes },
+              instance: statusMarker(applied.changes),
               appearAfter: at,
             },
           ])
@@ -156,40 +182,31 @@ export const PriorityWorkspace = ({
         if (settled) commitStatus(settled.status, settled.nextAction)
         return true
       }
-      if (event.type === 'tool_call' && event.toolName === CLARIFY_TOOL) {
-        const question = parseClarifyQuestion(event.args)
-        if (question) {
+      if (event.type === 'tool_call' && priorityWidgets.has(event.toolName)) {
+        const instance = priorityWidgets.resolve(
+          {
+            toolName: event.toolName,
+            conversationId: turnConversationId,
+            toolCallId: event.toolCallId ?? null,
+          },
+          event.args,
+        )
+        if (instance) {
           const at = textLength()
-          setLiveExtras((prev) => [
+          setLiveWidgets((prev) => [
             ...prev,
             {
-              key: `clarify-${event.toolCallId ?? prev.length}`,
-              extra: { kind: 'clarify', question },
-              appearAfter: at,
-            },
-          ])
-        }
-        return true
-      }
-      if (event.type === 'tool_call') {
-        const card = toChatCard({
-          toolName: event.toolName,
-          args: event.args,
-          toolCallId: event.toolCallId,
-          conversationId: conversationIdRef.current ?? '',
-        })
-        if (card) {
-          const at = textLength()
-          setLiveExtras((prev) => [
-            ...prev,
-            {
-              key: `card-${event.toolCallId ?? prev.length}`,
-              extra: { kind: 'card', card },
+              key: `${event.toolName}-${event.toolCallId ?? prev.length}`,
+              instance,
               appearAfter: at,
             },
           ])
           return true
         }
+        // read_past_outreach is only sometimes a card; unparsed, it is a pill.
+        return (
+          priorityWidgets.entry(event.toolName)?.onParseFailure !== 'inline'
+        )
       }
       // Everything else — counts, saved lists, web search — falls through to
       // the shared pill treatment the other chats use.
@@ -231,7 +248,6 @@ export const PriorityWorkspace = ({
           await priorityFlowChatApi.createConversation(anchor)
         const history = await priorityFlowChatApi.listMessages(id)
         if (cancelled) return
-        conversationIdRef.current = id
         setConversationId(id)
         setMessages(history)
         setPhase('ready')
@@ -288,11 +304,15 @@ export const PriorityWorkspace = ({
   const { scrollRef, onScroll } = usePinnedAutoScroll([
     messages,
     visibleSegments,
-    liveExtras,
+    liveWidgets,
   ])
 
   const revealedTextLength = segmentsTextLength(visibleSegments)
-  const blocks = liveTurnBlocks(visibleSegments, liveExtras, revealedTextLength)
+  const blocks = liveTurnBlocks(
+    visibleSegments,
+    liveWidgets,
+    revealedTextLength,
+  )
   // Hold the shimmer until something has actually painted, so there is no
   // empty flash between "Thinking..." and the first word.
   const working = sending && blocks.length === 0
@@ -385,19 +405,29 @@ export const PriorityWorkspace = ({
                     <AssistantRow key={message.id} fullWidth>
                       <TurnBlocks
                         blocks={persistedTurnBlocks({
+                          registry: priorityWidgets,
                           messageId: message.id,
                           segments: message.segments ?? [],
                           content: message.content,
                           conversationId: conversationId ?? '',
-                          markers,
+                          surfaceWidget: (segment, index) => {
+                            if (segment.toolName !== STATUS_TOOL) return null
+                            const changes = markers.get(
+                              segmentKey(message.id, index),
+                            )
+                            return changes && changes.length > 0
+                              ? statusMarker(changes)
+                              : null
+                          },
                         })}
-                        priorityId={priorityId}
-                        conversationId={conversationId ?? ''}
-                        clarifyInteractive={
-                          message.id === activeClarifyId && !sending
-                        }
-                        clarifyAnswer={clarifyAnswerById[message.id]}
-                        onClarifyAnswer={answerClarify}
+                        toolLabel={priorityToolLabel}
+                        context={{
+                          priorityId,
+                          clarifyInteractive:
+                            message.id === activeClarifyId && !sending,
+                          clarifyAnswer: clarifyAnswerById[message.id],
+                          onClarifyAnswer: answerClarify,
+                        }}
                       />
                     </AssistantRow>
                   ),
@@ -407,10 +437,12 @@ export const PriorityWorkspace = ({
                   <AssistantRow fullWidth>
                     <TurnBlocks
                       blocks={blocks}
-                      priorityId={priorityId}
-                      conversationId={conversationId ?? ''}
-                      clarifyInteractive={false}
-                      onClarifyAnswer={answerClarify}
+                      toolLabel={priorityToolLabel}
+                      context={{
+                        priorityId,
+                        clarifyInteractive: false,
+                        onClarifyAnswer: answerClarify,
+                      }}
                     />
                     {working ? <ThinkingRow /> : null}
                   </AssistantRow>

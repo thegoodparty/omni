@@ -14,14 +14,10 @@ they see the whole path rather than only the step they are on.
 | `components/PriorityWorkspace.tsx`  | The client orchestrator: conversation, rail, live status, cards                           |
 | `components/PriorityStatusRail.tsx` | The seven steps, their states, and a step's detail view                                   |
 | `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                            |
-| `components/turnBlocks.tsx`         | Interleaving prose, tool pills, cards and markers in stream order                         |
 | `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy        |
 | `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers         |
-| `data/clarify.ts`                   | `ask_clarify_question` tool call -> `ChatClarifyQuestion`                                 |
-| `data/cards.ts`                     | Tool call -> `ChatCard`, including the derived `proposalKey` and `deepLinkOnly`           |
 | `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                             |
 | `data/toolLabels.ts`                | Which tools show a pill, and what it says                                                 |
-| `cards/`                            | The card components themselves. Owned separately; reached only through `ChatCardRenderer` |
 
 ## It is the shared chat kit, not a new one
 
@@ -29,6 +25,14 @@ Everything streaming comes from `app/dashboard/shared/agent-chat` — read its
 `AGENTS.md` first. This surface is a wrapper: a client, a `toolLabel` map, the
 conversation bootstrap, and an `onEvent` handler. `useStreamingTurn` owns the
 loop, the reveal, the idle watchdog and the commit poll.
+
+The cards and the clarify question are widget registry entries from the shared
+kit (`shared/agent-chat/cards/cardWidgets.tsx`, `shared/agent-chat/clarifyWidget.tsx`),
+because Chief of Staff renders the same ones. `PriorityWorkspace` builds its
+registry from them and renders through the shared `TurnBlocks`. The status
+marker is the one block that is not a registry entry: what it shows comes from
+the replay in state, not from the tool args, so it goes in through
+`persistedTurnBlocks`' `surfaceWidget` and a hand-built live instance.
 
 The conversation is anchored, not scoped-per-step: `createConversation` gets a
 `priority` anchor and the server returns the one thread for that priority. A
@@ -66,9 +70,9 @@ same as it did live.
 
 ## Cards are keyed, not trusted
 
-A card is a tool call rendered inline through `cards/ChatCardRenderer`. Two
-values in an outreach proposal are **derived in `data/cards.ts`, never read off
-the model's args**:
+A card is a tool call rendered inline through `shared/agent-chat/cards/ChatCardRenderer`.
+Two values in an outreach proposal are **derived in
+`shared/agent-chat/cards/toChatCard.ts`, never read off the model's args**:
 
 - `proposalKey` — `mintProposalKey(conversationId, toolCallId)` from
   `@goodparty_org/contracts`. Deterministic uuidv5, so the browser and the
@@ -84,8 +88,20 @@ the model's args**:
 
 Args that fail to parse drop the card and leave the turn's prose alone.
 `read_past_outreach` is a data read whose args are `{ channel? }`, so it always
-takes that path and shows an ordinary pill; `present_past_outreach` is the
-presenter that actually carries a card.
+takes that path and shows an ordinary pill (its registry entry is
+`onParseFailure: 'inline'`); `present_past_outreach` is the presenter that
+actually carries a card.
+
+Two cards are about people, and they are not interchangeable:
+
+- `constituents` (`present_constituents`) — contact ids from the office's own
+  CRM, resolved live. `present_contacts` is the name it shipped under; the
+  tool name is persisted on `chat_message_segment.tool_name`, so
+  `cardWidgets.tsx` registers both, forever. The card `kind` is derived client-side
+  and never stored, so it can be renamed freely.
+- `outside_contact` (`present_outside_contact`) — one person or office outside our data, built
+  from what the agent researched. Nothing resolves, so it is a snapshot. The
+  mailto carries the script as its body, so the email opens written.
 
 ## A clarify question is input, not a status write
 
@@ -99,7 +115,10 @@ steps.
 
 Only the question still waiting on an answer takes input. `activeClarifyId`
 walks the transcript backwards and stops at the first user turn, so anything
-said after a question locks it. The widget always adds its own "Or write your
+said after a question locks it. There is no separate answer record: the next
+thing the official said is the answer (`clarifyAnswerById`), so a question
+answered in an earlier session reloads with that choice checked, or with a
+written-in answer shown as written. The widget always adds its own "Or write your
 own..." option, which is the bail-out back to free chat, so the agent never
 writes one.
 

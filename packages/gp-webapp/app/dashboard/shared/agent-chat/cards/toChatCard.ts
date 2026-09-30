@@ -1,22 +1,11 @@
 import {
-  ContactRefSchema,
+  ConstituentRefSchema,
+  OutsideContactSchema,
   OutreachProposalSchema,
   PastOutreachRefSchema,
   mintProposalKey,
   type ChatCard,
 } from '@goodparty_org/contracts'
-
-// The tools whose call IS a card. They do no work server-side; the whole
-// point of the call is what it leaves in the conversation.
-export const CARD_TOOLS = [
-  'present_outreach_proposal',
-  'present_contacts',
-  'present_past_outreach',
-  'read_past_outreach',
-] as const
-
-export const isCardTool = (toolName: string): boolean =>
-  (CARD_TOOLS as readonly string[]).includes(toolName)
 
 // The model never writes proposalKey, so the card's args carry everything but.
 const OutreachProposalArgsSchema = OutreachProposalSchema.omit({
@@ -61,9 +50,14 @@ export const toChatCard = ({
         proposalKey: mintProposalKey(conversationId, toolCallId),
       }
     }
+    case 'present_constituents':
     case 'present_contacts': {
-      const parsed = ContactRefSchema.safeParse(args)
-      return parsed.success ? { kind: 'contacts', ...parsed.data } : null
+      const parsed = ConstituentRefSchema.safeParse(args)
+      return parsed.success ? { kind: 'constituents', ...parsed.data } : null
+    }
+    case 'present_outside_contact': {
+      const parsed = OutsideContactSchema.safeParse(args)
+      return parsed.success ? { kind: 'outside_contact', ...parsed.data } : null
     }
     case 'present_past_outreach':
     case 'read_past_outreach': {

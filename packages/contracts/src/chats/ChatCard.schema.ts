@@ -15,7 +15,8 @@ import { z } from 'zod'
 export const CHAT_CARD_KINDS = [
   'outreach_proposal',
   'past_outreach',
-  'contacts',
+  'constituents',
+  'outside_contact',
 ] as const
 
 export const ChatCardKindSchema = z.enum(CHAT_CARD_KINDS)
@@ -63,22 +64,58 @@ export const PastOutreachRefSchema = z.object({
 export type PastOutreachRef = z.infer<typeof PastOutreachRefSchema>
 
 /**
- * Organizations and community leaders worth connecting with on this issue.
- * Modelled on the person contact panel, but for groups a contact file does not
- * hold. Persisted so the card can resolve live and so the official can act on
- * them later.
+ * People already in the office's own CRM: the neighbour who raised the issue,
+ * the group that already runs the program. Ids only, so the card resolves live
+ * against whatever the record says today.
  */
-export const ContactRefSchema = z.object({
+export const ConstituentRefSchema = z.object({
   contactIds: z.array(z.string()).min(1).max(5),
   note: z.string().min(1),
 })
-export type ContactRef = z.infer<typeof ContactRefSchema>
+export type ConstituentRef = z.infer<typeof ConstituentRefSchema>
+
+/**
+ * The name this schema shipped under. Kept exported because the tool name it
+ * backs (`present_contacts`) is persisted on segments that already exist.
+ */
+export const ContactRefSchema = ConstituentRefSchema
+export type ContactRef = ConstituentRef
+
+/**
+ * Somebody to reach who is NOT in our data: an attorney's office, a county
+ * engineer, an agency desk, a community organization the agent found while
+ * researching. Nothing here resolves, because there is nothing to resolve
+ * against, so unlike every other card this one is a snapshot of what the
+ * agent found.
+ *
+ * At least one of `email`, `phone` and `url` is what makes it a card rather
+ * than a sentence, and the tool that carries it says so. A card that arrives
+ * with none of them still renders its script to copy.
+ */
+export const OutsideContactSchema = z.object({
+  name: z.string().min(1),
+  /** Their role, or the organization they are part of. */
+  role: z.string().min(1),
+  /** One line on why this is the person to reach. */
+  why: z.string().min(1),
+  /** Who to ask for once the official gets through. */
+  askFor: z.string().min(1),
+  /** What to say, ready to read down the phone or send as-is. */
+  script: z.string().min(1),
+  email: z.string().email().nullish(),
+  phone: z.string().min(1).nullish(),
+  // Rejects `javascript:`, which a bare URL check accepts and which reaches
+  // an href.
+  url: z.url({ protocol: /^https?$/ }).nullish(),
+})
+export type OutsideContact = z.infer<typeof OutsideContactSchema>
 
 export const ChatCardSchema = z.discriminatedUnion('kind', [
   z
     .object({ kind: z.literal('outreach_proposal') })
     .merge(OutreachProposalSchema),
   z.object({ kind: z.literal('past_outreach') }).merge(PastOutreachRefSchema),
-  z.object({ kind: z.literal('contacts') }).merge(ContactRefSchema),
+  z.object({ kind: z.literal('constituents') }).merge(ConstituentRefSchema),
+  z.object({ kind: z.literal('outside_contact') }).merge(OutsideContactSchema),
 ])
 export type ChatCard = z.infer<typeof ChatCardSchema>

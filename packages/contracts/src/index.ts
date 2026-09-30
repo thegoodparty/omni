@@ -703,13 +703,17 @@ export {
   ProposalChannelSchema,
   OutreachProposalSchema,
   PastOutreachRefSchema,
+  ConstituentRefSchema,
   ContactRefSchema,
+  OutsideContactSchema,
   ChatCardSchema,
   type ChatCardKind,
   type ProposalChannel,
   type OutreachProposal,
   type PastOutreachRef,
+  type ConstituentRef,
   type ContactRef,
+  type OutsideContact,
   type ChatCard,
 } from './chats/ChatCard.schema'
 

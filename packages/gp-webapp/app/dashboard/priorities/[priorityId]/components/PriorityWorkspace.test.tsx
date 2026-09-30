@@ -47,7 +47,7 @@ vi.mock('../../../shared/dictation/useDictationAppend', () => ({
 
 // The card components are another surface's concern; this asserts only that a
 // card tool call reaches the renderer, and with which key.
-vi.mock('../cards/ChatCardRenderer', () => ({
+vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', () => ({
   ChatCardRenderer: ({
     card,
     conversationId,

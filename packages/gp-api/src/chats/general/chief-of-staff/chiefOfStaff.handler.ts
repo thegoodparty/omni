@@ -43,6 +43,12 @@ import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
+import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
+import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
+import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
@@ -88,6 +94,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly voterFileFilters?: VoterFileFilterService,
     @Optional()
     private readonly helpCenter?: HelpCenterSearchService,
+    @Optional()
+    private readonly pastOutreach?: PriorityFlowOutreachService,
   ) {}
 
   async loadContext(
@@ -148,12 +156,18 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     })
     tools.get_briefing = buildGetBriefingTool({ provider: briefingProvider })
 
+    tools.ask_clarify_question = buildAskClarifyQuestionTool()
+
     // Web search runs through Anthropic's native tool (the chat is Claude-only)
     // so queries stay within the enterprise agreement rather than going to a
     // third party. Gated on the key here too (not just in the LLM layer) so the
     // system prompt never advertises a tool that wasn't registered.
     if (process.env.ANTHROPIC_API_KEY) {
       tools.web_search = { kind: 'native_web_search', maxUses: 5 }
+      // An outside contact is built only from what research found, and the
+      // tool forbids inventing a route, so it has nothing to stand on without
+      // the search.
+      tools.present_outside_contact = buildPresentOutsideContactTool()
     }
 
     // Aggregate-only constituent data. Registers ONLY when all of: the provider
@@ -186,6 +200,16 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       tools.search_help_center = buildSearchHelpCenterTool({
         helpCenter: this.helpCenter,
       })
+    }
+
+    // No priority here, so the read returns the office's recent sends only.
+    if (this.pastOutreach) {
+      tools.read_past_outreach = buildReadPastOutreachTool({
+        outreach: this.pastOutreach,
+        priorityId: null,
+        organizationSlug: ctx.organizationSlug,
+      })
+      tools.present_past_outreach = buildPresentPastOutreachTool()
     }
 
     if (this.communityIssueRead) {
@@ -239,6 +263,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         filterConsumers: registeredFilterConsumers(crmTools),
       })
       Object.assign(tools, crmTools)
+      // A proposal is sent against a saved list, so it is offered only where
+      // the list behind it can be built.
+      if (this.voterFileFilters) {
+        tools.present_outreach_proposal = buildPresentOutreachProposalTool()
+      }
     }
 
     if (ctx.attachmentsEnabled) {

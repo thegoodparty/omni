@@ -272,6 +272,44 @@ describe('outreach proposal routes', () => {
       expect(await service.prisma.phoneBankingList.count()).toBe(0)
     })
 
+    it('rejects an archived priority', async () => {
+      await service.prisma.priority.update({
+        where: { id: priority.id },
+        data: { archivedAt: new Date() },
+      })
+
+      const res = await service.client.put(
+        `/v1/outreach/by-proposal-key/${proposalKey}`,
+        proposal(),
+        allowFailure(),
+      )
+
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+      expect(await service.prisma.phoneBankingList.count()).toBe(0)
+    })
+
+    // A card the Chief of Staff left has no priority to hang the send off.
+    // JSON drops an undefined key, so `undefined` sends no priorityId at all.
+    it.each([
+      { label: 'omitted', priorityId: undefined },
+      { label: 'null', priorityId: null },
+    ])('sends with priorityId $label, writing none', async ({ priorityId }) => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075660004' })])
+
+      const res = await service.client.put(
+        `/v1/outreach/by-proposal-key/${proposalKey}`,
+        proposal({ priorityId }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      const persisted = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(persisted.proposalKey).toBe(proposalKey)
+      expect(persisted.priorityId).toBeNull()
+    })
+
     it.each(['social', 'text'])(
       'refuses to send a %s proposal from the card',
       async (channel) => {

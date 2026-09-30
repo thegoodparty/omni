@@ -14,6 +14,7 @@ import {
   UserBubble,
 } from '../agent-chat/chatUI'
 import { segmentsToLive } from '../agent-chat/streaming'
+import { COMPOSE_HANDOFF_TOOL } from '../agent-chat/composeHandoffWidget'
 import { useStreamingTurn } from '../agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
@@ -95,9 +96,13 @@ export default function AiChatBody({
   const loadRequestedRef = useRef(false)
   const lastSentRef = useRef('')
 
+  // compose_handoff is a widget this surface does not register, and the label
+  // fallback would otherwise put its internal name on a pill.
   const toolLabel = useCallback(
-    (toolName: string): string =>
-      config.toolDisplayNames?.[toolName] ?? toolName,
+    (toolName: string): string | null =>
+      toolName === COMPOSE_HANDOFF_TOOL
+        ? null
+        : (config.toolDisplayNames?.[toolName] ?? toolName),
     [config.toolDisplayNames],
   )
 
