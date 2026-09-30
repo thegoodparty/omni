@@ -100,6 +100,34 @@ const blockedDecorations = (
       ),
   )
 
+// The drag preview for a pill. Left to the browser, it is a snapshot of the
+// selection, which Chrome paints on an opaque white box, and it is anchored
+// where the pill was grabbed, so it sits on top of the drop cursor that is
+// meant to show where it will land. A clone of just the pill, on a transparent
+// wrapper whose padding offsets it below and right of the pointer, keeps the
+// pill recognisable and the drop cursor in view.
+const DRAG_PREVIEW_OFFSET_PX = 14
+
+const setPillDragImage = (event: DragEvent): void => {
+  const target = event.target instanceof Element ? event.target : null
+  const pill = target?.closest('[data-token-id]')
+  if (!pill || !event.dataTransfer) return
+  const preview = document.createElement('div')
+  preview.style.cssText = [
+    'position: fixed',
+    'top: -1000px',
+    'left: -1000px',
+    'background: transparent',
+    `padding: ${DRAG_PREVIEW_OFFSET_PX}px 0 0 ${DRAG_PREVIEW_OFFSET_PX}px`,
+    'pointer-events: none',
+  ].join(';')
+  preview.appendChild(pill.cloneNode(true))
+  document.body.appendChild(preview)
+  event.dataTransfer.setDragImage(preview, 0, 0)
+  // The browser snapshots the preview during dragstart; it can go after.
+  setTimeout(() => preview.remove(), 0)
+}
+
 interface GuardOptions {
   // Called once per blocked edit with the id of what it ran into.
   onBlocked: (id: string) => void
@@ -125,6 +153,14 @@ export const TokenFieldGuard = Extension.create<GuardOptions>({
         },
         props: {
           transformPasted: (slice) => stripProtected(slice),
+          handleDOMEvents: {
+            dragstart: (_view, event) => {
+              setPillDragImage(event)
+              // ProseMirror still runs its own dragstart, which carries the
+              // node; this only replaces what the pointer shows.
+              return false
+            },
+          },
         },
         // A filter can only accept or reject, so the part of a blocked edit
         // that may go ahead is dispatched after it, from the state it was
