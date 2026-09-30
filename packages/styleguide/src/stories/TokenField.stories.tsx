@@ -26,8 +26,8 @@ const FIRST_NAME: TokenSpec = {
 }
 
 // The SMS spans from the plan (docs/features/message-composer.md): the name,
-// "Paid for by" and the committee as two spans so a candidate can write
-// between them, and the opt-out line whole.
+// the paid-for-by disclaimer as one unit, and the opt-out line whole.
+// Anything a state adds to the disclaimer goes after it, never inside.
 const SMS_SPANS: ProtectedSpec[] = [
   {
     id: 'candidate_name',
@@ -36,13 +36,7 @@ const SMS_SPANS: ProtectedSpec[] = [
   },
   {
     id: 'paid_for_by',
-    text: 'Paid for by',
-    reason:
-      'Campaign finance rules require this line. You can write around it.',
-  },
-  {
-    id: 'committee_name',
-    text: 'Friends of Sarah Chen',
+    text: 'Paid for by Friends of Sarah Chen',
     reason:
       'Campaign finance rules require this line. You can write around it.',
   },
@@ -55,6 +49,7 @@ const SMS_SPANS: ProtectedSpec[] = [
 ]
 
 const SMS_MESSAGE = `Hello {first_name}, it's Sarah Chen, running for city council. Can I count on your vote on November 3?
+
 Paid for by Friends of Sarah Chen. Reply STOP to opt out.`
 
 const ROBOCALL_SPANS: ProtectedSpec[] = [
@@ -72,13 +67,7 @@ const ROBOCALL_SPANS: ProtectedSpec[] = [
   },
   {
     id: 'paid_for_by',
-    text: 'Paid for by',
-    reason:
-      'Campaign finance rules require this line. You can write around it.',
-  },
-  {
-    id: 'sponsor',
-    text: 'Friends of Sarah Chen',
+    text: 'Paid for by Friends of Sarah Chen',
     reason:
       'Campaign finance rules require this line. You can write around it.',
   },
@@ -91,6 +80,7 @@ const ROBOCALL_SPANS: ProtectedSpec[] = [
 ]
 
 const ROBOCALL_SCRIPT = `Hi, this is Sarah Chen, candidate for city council. I'm calling to ask for your vote on November 3.
+
 Paid for by Friends of Sarah Chen. Call us back at (555) 010-2030.`
 
 // The composer's own arrangement: the field seamless inside a card, and the
@@ -220,8 +210,8 @@ export const SmsMessage: Story = {
 
 // No tokens at all: a recording is one audio file played to everyone, so
 // there is nothing to merge. Everything the recording checks listen for is a
-// span, broken up so a candidate can add their state's own wording inside
-// the disclosure.
+// span of its own, so a candidate can add their state's own wording between
+// the pieces of the disclosure.
 export const RobocallScript: Story = {
   parameters: { controls: { disable: true } },
   render: () => (

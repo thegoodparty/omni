@@ -25,9 +25,11 @@ const FIRST_NAME: TokenSpec = {
   text: '{first_name}',
   required: true,
 }
+// One unit, phrase and committee together: a gap between them would let a
+// candidate write "Paid for by no one at Sarah Chen for Council".
 const PAID_FOR_BY: ProtectedSpec = {
   id: 'paid_for_by',
-  text: 'Paid for by',
+  text: 'Paid for by Sarah Chen for Council',
   reason: 'Campaign finance rules require this line.',
 }
 const OPT_OUT: ProtectedSpec = {
@@ -89,7 +91,11 @@ describe('valueToContent and docToValue', () => {
   })
 
   it('protects only the first occurrence of a span', () => {
-    const state = stateFor('Paid for by A. Paid for by B.', [], [PAID_FOR_BY])
+    const state = stateFor(
+      'Reply STOP to opt out. Reply STOP to opt out.',
+      [],
+      [OPT_OUT],
+    )
     const ranges = lockedRanges(state.doc)
     expect(ranges).toHaveLength(1)
     expect(ranges[0]?.from).toBe(1)
@@ -175,7 +181,7 @@ describe('guardTransaction', () => {
 
   it('blocks a backspace into a span with nothing to salvage', () => {
     const state = stateFor()
-    const end = posOf(state, 'Paid for by') + 'Paid for by'.length
+    const end = posOf(state, 'Paid for by') + PAID_FOR_BY.text.length
     const blocked = guardTransaction(state, state.tr.delete(end - 1, end))
     expect(blocked).toEqual({ id: 'paid_for_by', replacement: null })
   })
@@ -186,22 +192,32 @@ describe('guardTransaction', () => {
       .setSelection(new AllSelection(state.doc))
       .insertText('New text.')
     expect(apply(state, tr)).toBe(
-      'New text. {first_name}\nPaid for by Reply STOP to opt out.',
+      'New text. {first_name}\nPaid for by Sarah Chen for Council Reply STOP to opt out.',
     )
   })
 
-  it('deletes the free part of a selection that straddles a span', () => {
+  it('keeps a space between two locked parts when the text between them goes', () => {
     const state = stateFor()
-    const from = posOf(state, 'Council.')
+    const from = posOf(state, 'Council') + 2
     const to = posOf(state, 'STOP')
-    const value = apply(state, state.tr.delete(from, to))
-    expect(value).toContain('Paid for by Sarah Chen for Reply STOP to opt out.')
+    expect(apply(state, state.tr.delete(from, to))).toContain(
+      'Paid for by Sarah Chen for Council Reply STOP to opt out.',
+    )
+  })
+
+  it('deletes only the free part of a selection that runs into a span, keeping the line break', () => {
+    const state = stateFor()
+    const from = posOf(state, 'Nov 3.')
+    const to = posOf(state, 'Paid') + 4
+    expect(apply(state, state.tr.delete(from, to))).toBe(
+      'Hello {first_name}, vote on \nPaid for by Sarah Chen for Council. Reply STOP to opt out.',
+    )
   })
 
   it('never carries protection in with pasted content', () => {
     const state = stateFor()
     const start = posOf(state, 'Paid for by')
-    const copied = state.doc.slice(start, start + 'Paid for by'.length)
+    const copied = state.doc.slice(start, start + PAID_FOR_BY.text.length)
     const stripped = stripProtected(copied)
     const tr = state.tr.replace(
       posOf(state, 'vote'),
@@ -217,7 +233,10 @@ describe('guardTransaction', () => {
   it('blocks a paste that still carries a copied span', () => {
     const state = stateFor()
     const start = posOf(state, 'Paid for by')
-    const copied: Slice = state.doc.slice(start, start + 'Paid for by'.length)
+    const copied: Slice = state.doc.slice(
+      start,
+      start + PAID_FOR_BY.text.length,
+    )
     const tr = state.tr.replace(
       posOf(state, 'vote'),
       posOf(state, 'vote'),

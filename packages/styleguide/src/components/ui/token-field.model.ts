@@ -380,20 +380,23 @@ export const guardTransaction = (
   const isLockedStart = (pos: number) => locked.some((r) => r.from === pos)
   const isLockedEnd = (pos: number) => locked.some((r) => r.to === pos)
 
+  // Opened as far as it goes, so a slice that arrives wrapped in a whole
+  // paragraph (select-all replaces the document's content) merges into the
+  // line it lands on instead of splitting it.
+  const slice = Slice.maxOpen(stripProtected(step.slice).content)
   const replacement = state.tr
   // Last to first, so each deletion leaves the positions before it valid.
   for (const range of [...free].reverse()) {
     clearRange(replacement, range, {
       // Two locked parts the edit swept the text from between keep a space,
-      // or they read as one word ("Paid for byFriends of Sarah").
+      // or they read as one word ("Friends of Sarah ChenReply STOP"). The
+      // first range is exempt only when the edit's own text goes there.
       keepSpace:
-        range !== first && isLockedEnd(range.from) && isLockedStart(range.to),
+        (range !== first || slice.size === 0) &&
+        isLockedEnd(range.from) &&
+        isLockedStart(range.to),
     })
   }
-  // Opened as far as it goes, so a slice that arrives wrapped in a whole
-  // paragraph (select-all replaces the document's content) merges into the
-  // line it lands on instead of splitting it.
-  const slice = Slice.maxOpen(stripProtected(step.slice).content)
   if (slice.size > 0) {
     const before = replacement.steps.length
     replacement.replace(first.from, first.from, slice)

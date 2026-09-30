@@ -1,5 +1,5 @@
 import { Extension, Mark, Node } from '@tiptap/core'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
@@ -108,9 +108,33 @@ const blockedDecorations = (
 // pill recognisable and the drop cursor in view.
 const DRAG_PREVIEW_OFFSET_PX = 14
 
-const setPillDragImage = (event: DragEvent): void => {
-  const target = event.target instanceof Element ? event.target : null
-  const pill = target?.closest('[data-token-id]')
+// A drag that starts on an already-selected pill (the one just dropped, say)
+// is a selection drag, and Chrome then reports the pill's TEXT node as the
+// target rather than the pill. So the pill is found from the target's parent,
+// and failing that from the selection ProseMirror is about to drag.
+const draggedPill = (view: EditorView, event: DragEvent): Element | null => {
+  const target = event.target
+  const element =
+    target instanceof Element
+      ? target
+      : target instanceof globalThis.Node
+        ? target.parentElement
+        : null
+  const fromTarget = element?.closest('[data-token-id]')
+  if (fromTarget) return fromTarget
+  const { selection } = view.state
+  if (
+    selection instanceof NodeSelection &&
+    selection.node.type.name === TOKEN_NODE
+  ) {
+    const dom = view.nodeDOM(selection.from)
+    return dom instanceof Element ? dom : null
+  }
+  return null
+}
+
+const setPillDragImage = (view: EditorView, event: DragEvent): void => {
+  const pill = draggedPill(view, event)
   if (!pill || !event.dataTransfer) return
   const preview = document.createElement('div')
   preview.style.cssText = [
@@ -121,7 +145,12 @@ const setPillDragImage = (event: DragEvent): void => {
     `padding: ${DRAG_PREVIEW_OFFSET_PX}px 0 0 ${DRAG_PREVIEW_OFFSET_PX}px`,
     'pointer-events: none',
   ].join(';')
-  preview.appendChild(pill.cloneNode(true))
+  const clone = pill.cloneNode(true)
+  // A selected pill carries ProseMirror's selection class; the preview should
+  // look like the pill at rest, not like the selection it came from.
+  if (clone instanceof Element)
+    clone.classList.remove('ProseMirror-selectednode')
+  preview.appendChild(clone)
   document.body.appendChild(preview)
   event.dataTransfer.setDragImage(preview, 0, 0)
   // The browser snapshots the preview during dragstart; it can go after.
@@ -154,8 +183,8 @@ export const TokenFieldGuard = Extension.create<GuardOptions>({
         props: {
           transformPasted: (slice) => stripProtected(slice),
           handleDOMEvents: {
-            dragstart: (_view, event) => {
-              setPillDragImage(event)
+            dragstart: (view, event) => {
+              setPillDragImage(view, event)
               // ProseMirror still runs its own dragstart, which carries the
               // node; this only replaces what the pointer shows.
               return false
