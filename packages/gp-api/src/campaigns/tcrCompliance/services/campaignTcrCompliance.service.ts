@@ -2688,7 +2688,19 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             .retrieveCampaignVerifyDetails(peerlyIdentityId, campaign, {
               suppressSlackAlert: true,
             })
-            .catch(() => details)
+            .catch((retryErr: unknown) => {
+              // Say so. The VERIFIED stamp has taken this record out of every
+              // poll set, so this is where the PIN Sent event and the delivery
+              // channel are lost for good, and a silent catch would leave no
+              // trace of which candidate that happened to.
+              this.logger.warn(
+                { retryErr, tcrComplianceId: record.id, peerlyIdentityId },
+                '[TCR Compliance] Could not re-read the Campaign Verify ' +
+                  'delivery channel after PIN entry; the PIN Sent event will ' +
+                  'not fire for this record and the channel stays unrecorded',
+              )
+              return details
+            })
         : details
       await this.applyCvDetection(record, campaign, {
         status: PeerlyCvVerificationStatus.VERIFIED,
