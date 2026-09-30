@@ -353,7 +353,9 @@ describe('the panel', () => {
     expect(result.seats).toHaveLength(2)
     expect(result.dimensions[OVERALL]?.verdict).toBe('X')
     // A degraded panel has to be visible rather than silent.
-    expect(result.seatFailures).toEqual(['c: rate limited'])
+    expect(result.seatFailures).toEqual([
+      { model: 'c', message: 'rate limited' },
+    ])
   })
 
   it('cannot determine when three seats say three things', async () => {

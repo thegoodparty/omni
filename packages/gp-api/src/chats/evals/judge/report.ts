@@ -392,6 +392,38 @@ export const unpinnedMartLines = (
   ),
 ]
 
+// Takes the whole agent list and filters inside, rather than taking the
+// already-degraded ones: "print nothing when the panel was whole" is the
+// property most likely to be lost, so it lives in one place instead of at
+// every call site.
+//
+// One line per agent, never per judgment. A verdict is reported per agent,
+// so that is the grain at which "this rests on fewer opinions than it looks
+// like" is something a reader can act on.
+export const degradedPanelLines = (scores: readonly AgentScore[]): string[] => {
+  const degraded = scores.flatMap((score) =>
+    score.degradedPanel === null
+      ? []
+      : [{ agentId: score.agentId, panel: score.degradedPanel }],
+  )
+  if (degraded.length === 0) return []
+  return [
+    '> **Some verdicts came from a reduced judge panel.** A seat that throws ' +
+      'is dropped rather than retried, so for the agents below the verdict ' +
+      'was combined from the seats that answered and not from every seat the ' +
+      'config asked for. Fewer opinions agree with each other more easily, ' +
+      'so read the panel-disagreement rate for these agents as a floor and ' +
+      'not as a measurement. Every other verdict in this report was reached ' +
+      'by the whole panel.',
+    '>',
+    ...degraded.map(
+      ({ agentId, panel }) =>
+        `> - ${agentId}: ${panel.judgments} judgment(s) ran without ` +
+        `seat(s) ${panel.seats.join(', ')}`,
+    ),
+  ]
+}
+
 export const placeholderLines = (agentIds: readonly string[]): string[] => [
   `> **Placeholder inputs:** ${agentIds.join(', ')}. These case lists exist ` +
     'to exercise the pipeline, not to test the agent, so treat the verdict ' +
@@ -426,6 +458,16 @@ export const renderReport = (
   const unpinned = report.unpinnedMart ?? []
   if (unpinned.length > 0) {
     lines.push(...unpinnedMartLines(unpinned))
+    lines.push('')
+  }
+
+  // In the same block as the two above, and ahead of the refusals, the
+  // identical-outputs table and the arm-gap footer: all three qualify how
+  // the verdicts can be read, so they belong with each other rather than
+  // among the report's reference sections.
+  const degraded = degradedPanelLines(report.agents)
+  if (degraded.length > 0) {
+    lines.push(...degraded)
     lines.push('')
   }
 

@@ -421,6 +421,7 @@ describe('provenance', () => {
       flags: [],
       floorFailures: [],
       floorUnclear: [],
+      degradedPanel: null,
       evidence: {
         costUsd: null,
         unpriceableReason: null,
@@ -638,5 +639,96 @@ describe('an unpinned voter mart', () => {
     // -1, which is "before" everything and would pass a bare comparison.
     expect(at).toBeGreaterThan(0)
     expect(at).toBeLessThan(report.indexOf('### Arm capture windows'))
+  })
+})
+
+// The panel reduction judge.ts records is only a defect if a reader can see
+// it. These pin both halves: that it prints, and that it does NOT print when
+// the panel was whole — a warning that always appears is a warning readers
+// learn to skip past.
+describe('a reduced judge panel', () => {
+  it('says nothing when every judgment had every seat', async () => {
+    const score = await pipeline(sweepRecords(3))
+    expect(score.degradedPanel).toBeNull()
+    const report = renderReport({ agents: [score] })
+    expect(report).not.toContain('reduced judge panel')
+  })
+
+  it('names the agent, the judgments and the seats, once', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          degradedPanel: { judgments: 2, seats: ['claude-opus-4-8'] },
+        },
+      ],
+    })
+    expect(report).toContain('Some verdicts came from a reduced judge panel')
+    expect(report).toContain(
+      '> - chief_of_staff: 2 judgment(s) ran without seat(s) ' +
+        'claude-opus-4-8',
+    )
+    // Once per agent, not once per judgment: two degraded judgments here.
+    expect(report.split('chief_of_staff: 2 judgment(s)')).toHaveLength(2)
+  })
+
+  it('warns for the degraded agent, not its whole-panel sibling', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        { ...score, degradedPanel: { judgments: 1, seats: ['seat-two'] } },
+        { ...score, agentId: 'meeting_briefing' },
+      ],
+    })
+    expect(report).toContain('> - chief_of_staff: 1 judgment(s)')
+    expect(report).not.toContain('> - meeting_briefing:')
+  })
+
+  // The reduction makes the seats agree more easily, so the rate printed in
+  // each agent section is a floor. That makes this a verdict qualifier, which
+  // is a different thing from the report's reference sections: it belongs
+  // beside the other two qualifiers and ahead of the tables a reader consults
+  // rather than reads. Pinned against both neighbours, because "somewhere
+  // before the footer" is satisfied by every position in the report.
+  it('sits with the qualifiers, above the reference tables', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          degradedPanel: { judgments: 1, seats: ['seat-two'] },
+        },
+      ],
+      unpinnedMart: unpinnedMartReads([...UNPINNED_VOTER_QUERY_PAIR]),
+      identicalOutputs: [
+        {
+          agentId: 'chief_of_staff',
+          identical: 1,
+          of: 3,
+          allIdentical: false,
+          caseIds: ['cos-case-0'],
+        },
+      ],
+      armGap: armGap(
+        { startedAt: EARLY, endedAt: EARLY },
+        { startedAt: LATE, endedAt: LATE },
+        hoursToMilliseconds(6),
+      ),
+    })
+    const at = {
+      unpinned: report.indexOf('The voter mart was not pinned'),
+      degraded: report.indexOf('reduced judge panel'),
+      identical: report.indexOf('### Identical outputs'),
+      footer: report.indexOf('### Arm capture windows'),
+    }
+    // Every one found first: a block that vanished would index at -1, which
+    // sorts before everything and passes a bare comparison.
+    for (const [name, index] of Object.entries(at)) {
+      expect(index, name).toBeGreaterThan(0)
+    }
+    expect(at.unpinned).toBeLessThan(at.degraded)
+    expect(at.degraded).toBeLessThan(at.identical)
+    expect(at.identical).toBeLessThan(at.footer)
   })
 })

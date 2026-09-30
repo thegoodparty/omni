@@ -215,6 +215,23 @@ genuinely inert change costs a re-read, and a false SAME costs a wrong
 decision. The per-pair count is reported either way, because a few matching
 pairs are ordinary and the count is what makes a dropped candidate obvious.
 
+## A panel that loses a seat says so
+
+`judgeCase` runs every seat in `panel.seats` and collects the ones that threw
+instead of abandoning the verdicts it already paid for. A panel reduced to its
+survivors still returns a comparison, and that comparison reads identically to
+one the whole panel agreed on — so `score.ts` aggregates the losses onto
+`AgentScore.degradedPanel` and `report.ts` prints one line per agent naming how
+many judgments ran short and which seats were lost. `null` when the panel was
+whole, and the report prints nothing at all in that case; a warning that always
+appears is a warning readers learn to skip.
+
+It cannot fire on today's single-seat default, where one failing seat leaves no
+seats and the judgment comes back `ungraded` instead. It starts mattering the
+moment the second seat `config.ts` anticipates is added. Read the
+panel-disagreement rate for a listed agent as a floor: fewer opinions agree
+with each other more easily.
+
 ## Records outlive the run, but not in S3 yet
 
 The design puts records at
@@ -325,6 +342,29 @@ so the change goes through review rather than a drive-by.
 
 An unknown model throws too. The cost delta is printed beside a verdict as
 evidence, and a guessed or zero rate makes that evidence fiction.
+
+The same rule now holds on the harness side. `_price_turn` returns `None` for
+a model absent from `_PRICE_PER_MTOK`, and `get_accumulated_cost()` withholds
+the whole running total once any part of it went unobserved, so a
+**timed-out** run reports no cost instead of $0.00 — the accumulator is
+precisely the figure the expensive failure is billed at. `main.py`'s
+`_accumulated_agent_cost` already omitted `cost_usd` from the failed envelope
+on `None`, so a reported 0.0 means genuinely zero and an absent figure means
+unknown.
+
+There are two doors onto that defect and the accumulator holds a reason for
+each. A turn on an unlisted model is one. The other is a terminal
+`ResultMessage` whose `total_cost_usd` is absent, which the SDK allows: the
+authoritative figure then supersedes nothing, so it neither overwrites the
+per-turn estimate nor forgives an unpriced turn inside it. Only a
+`ResultMessage` that actually carries a cost does both.
+
+**Follow-up, not done here: the caveat only reaches a log.** Nothing between
+the envelope and a report says _why_ a run has no cost — the reason lives only
+in the harness WARNING. A reader of the run row sees a blank, which is honest
+but not diagnosable. And `pricing.ts` still has no Opus rates; adding them
+needs the published figures rather than a plausible guess, which is the one
+thing that file exists to prevent.
 
 ## Where a record came from
 

@@ -115,6 +115,23 @@ export interface FloorFailure {
   caseId: string
 }
 
+// A panel that lost a seat still produced a comparison, but it produced it
+// on fewer opinions than the config asked for, and the verdict above reads
+// identically either way.
+//
+// Null, not a zeroed record, when every judgment ran on the whole panel:
+// the report has to be able to print nothing at all, because a reassuring
+// "0 seats failed" line is a line readers learn to skip.
+export interface DegradedPanel {
+  // Judgments that ran a seat short, counted once each rather than once per
+  // lost seat, because that is the number of verdicts the reduction touched.
+  judgments: number
+  // Distinct seats that failed at least once, sorted. Which seat is the
+  // actionable half: one rate-limited family is a retry, a seat that fails
+  // on every judgment is a broken config.
+  seats: readonly string[]
+}
+
 export interface AgentScore {
   agentId: string
   shape: AgentShape
@@ -137,6 +154,8 @@ export interface AgentScore {
   // from floorFailures rather than counted as one, and like a failure it never
   // changes the label.
   floorUnclear: readonly FloorFailure[]
+  // Null when every judgment behind this verdict ran on the full panel.
+  degradedPanel: DegradedPanel | null
   evidence: MeasuredEvidence
   ci: CiContext | null
 }
@@ -548,6 +567,26 @@ const floorVerdicts = (
   }
 }
 
+// Graded judgments only. A judgment whose every seat failed came back
+// `ungraded`, which is already counted in `exclusions.ungraded` and named in
+// the report; counting it here as well would report one failure twice and
+// bury the case this exists for — a panel that lost SOME seats and returned
+// a verdict anyway.
+const degradedPanel = (
+  judgments: readonly GradedJudgment[],
+): DegradedPanel | null => {
+  const seats = new Set<string>()
+  let affected = 0
+  for (const judgment of judgments) {
+    if (judgment.seatFailures.length === 0) continue
+    affected += 1
+    for (const failure of judgment.seatFailures) seats.add(failure.model)
+  }
+  return affected === 0
+    ? null
+    : { judgments: affected, seats: [...seats].sort() }
+}
+
 export interface ScoreInput {
   normalized: NormalizedAgent
   judgments: readonly Judgment[]
@@ -637,6 +676,7 @@ export const scoreAgent = (
     flags: orientFlags(gradedJudgments),
     floorFailures: floor.failed,
     floorUnclear: floor.unclear,
+    degradedPanel: degradedPanel(gradedJudgments),
     evidence: measure(allPairs),
     ci: candidateWithCi?.candidate.ci ?? null,
   }
