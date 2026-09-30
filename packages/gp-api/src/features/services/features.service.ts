@@ -4,6 +4,7 @@ import { Experiment } from '@amplitude/experiment-node-server'
 import { User } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import type { ExperimentVariants } from '@goodparty_org/contracts'
+import { resolveEnvVar } from '../../shared/env/env'
 
 // User attributes sent to Amplitude for segment targeting. Mirrors the fields
 // gp-webapp's buildUserTraits sends so server and client evaluations match.
@@ -15,19 +16,26 @@ type ExperimentUserProperties = {
   zip?: string
 }
 
-const AMPLITUDE_PROJECT_API_KEY = process.env.AMPLITUDE_PROJECT_API_KEY
-if (!AMPLITUDE_PROJECT_API_KEY) {
-  throw new Error('AMPLITUDE_PROJECT_API_KEY is not set')
+// The .env.example default (ENV_VAR_CONTRACT's documented placeholder). Local
+// dev runs with this placeholder and no real Amplitude, so every remote flag
+// evaluation 401s. We treat that as "local box" and default gated features ON
+// so they stay developable; a real key fails closed instead (see
+// isFeatureEnabled).
+const amplitudeKey = resolveEnvVar('AMPLITUDE_PROJECT_API_KEY')
+
+// Deferred to first real use rather than created at import time — it's only
+// ever reached once amplitudeKey.configured is true (see the placeholder
+// short-circuits below), so importing this module never talks to Amplitude.
+let amplitudeClient: ReturnType<typeof Experiment.initializeRemote> | null =
+  null
+const getAmplitudeClient = () => {
+  if (!amplitudeClient) {
+    amplitudeClient = Experiment.initializeRemote(
+      amplitudeKey.configured ? amplitudeKey.value : '',
+    )
+  }
+  return amplitudeClient
 }
-
-// The .env.example default. Local dev runs with this placeholder and no real
-// Amplitude, so every remote flag evaluation 401s. We treat that as "local box"
-// and default gated features ON so they stay developable; a real key fails
-// closed instead (see isFeatureEnabled).
-const PLACEHOLDER_API_KEY = 'some_key'
-const usingPlaceholderKey = AMPLITUDE_PROJECT_API_KEY === PLACEHOLDER_API_KEY
-
-const amplitude = Experiment.initializeRemote(AMPLITUDE_PROJECT_API_KEY)
 
 @Injectable()
 export class FeaturesService {
@@ -55,7 +63,7 @@ export class FeaturesService {
     // tests into their timeout) and go straight to the local-box default.
     // Before the user lookup: the answer doesn't depend on the user, so the
     // DB read would be wasted too.
-    if (usingPlaceholderKey) {
+    if (!amplitudeKey.configured) {
       return true
     }
 
@@ -67,7 +75,7 @@ export class FeaturesService {
         : params.user
 
     try {
-      const variants = await amplitude.fetchV2({
+      const variants = await getAmplitudeClient().fetchV2({
         user_id: user.id.toString(),
         user_properties: {
           email: user.email,
@@ -107,12 +115,12 @@ export class FeaturesService {
   async getAllVariants(user: User): Promise<ExperimentVariants> {
     // Same placeholder short-circuit as isFeatureEnabled: the fetch can only
     // 401, and the client falls back to its own SDK evaluation regardless.
-    if (usingPlaceholderKey) {
+    if (!amplitudeKey.configured) {
       return {}
     }
 
     try {
-      const variants = await amplitude.fetchV2({
+      const variants = await getAmplitudeClient().fetchV2({
         user_id: user.id.toString(),
         user_properties: this.buildUserProperties(user),
       })
