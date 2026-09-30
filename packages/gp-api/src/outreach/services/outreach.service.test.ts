@@ -502,6 +502,20 @@ describe('OutreachService', () => {
           BadRequestException,
         )
         expect(mockPeerlyCreateJob).toHaveBeenCalledTimes(1)
+        // The revert must fire: pending -> pending_payment hands the draft
+        // back so the candidate can edit and schedule again. Call 1 = the
+        // claim we lost, call 2 = the takeover claim we won, call 3 = the
+        // revert. Without the third the draft would be stranded at pending
+        // with no Peerly job and nothing able to claim it.
+        expect(mockOutreachUpdateMany).toHaveBeenCalledTimes(3)
+        expect(mockOutreachUpdateMany).toHaveBeenNthCalledWith(3, {
+          where: {
+            id: 46,
+            status: OutreachStatus.pending,
+            projectId: null,
+          },
+          data: { status: OutreachStatus.pending_payment },
+        })
       })
 
       it('takes the draft over once, then defers to a redelivery', async () => {
