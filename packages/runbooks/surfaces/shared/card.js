@@ -5,6 +5,14 @@
 // to the same people, and a second, differently-worded description of one event is
 // a way for them to disagree. Expects `DATA.event_cards` ({event_type: card}) and
 // `DATA.series_weeks` in the page that inlines it.
+//
+// A page may pass what only it knows, through `opts`:
+//   successor   the resolved replacement's name, for the retired verdict
+//   before      nodes to place under the verdict (the explorer's caveats)
+//   lineage     a node to show instead of the raw supersession prose, or null for none
+//   firesPrefix text before "where it fires" ("Browser · ")
+//   extraFields [[label, value]] appended to the second grid
+//   usedBy      a node to show instead of the default "Used by" list
 const EventCard = (() => {
   const el = (tag, className, text) => {
     const node = document.createElement(tag)
@@ -47,10 +55,9 @@ const EventCard = (() => {
         })
   }
 
-  // The explorer's verdicts, word for word. The evidence table shows the raw status
-  // because it is a scanning surface with a STATUS header; the card is a reading
-  // surface, and there it says what the status means.
-  const verdictFor = (card) => {
+  // A status enum tells the reader nothing. The card owes them a sentence, and for
+  // the untrustworthy states it owes them a warning. Tones: good, warn, crit, low.
+  const verdictFor = (card, successor) => {
     const p = card.provenance || {}
     switch (card.status) {
       case 'active':
@@ -64,16 +71,13 @@ const EventCard = (() => {
             '.',
         ]
       case 'dormant':
-        // One word off the explorer's sentence, deliberately. "The code is still
-        // there" is the exact ambiguity the fields below resolve: on a rank-2 row the
-        // NAME is still there and the caller is gone, and this card is the only place
-        // that shows both. The explorer carries no call-site data, so it cannot
-        // contradict itself the same way -- but its copy has the same looseness.
+        // "The name is still in the code", not "the code is still there": on a row
+        // whose call sites are gone, the NAME survives and nothing calls it, and the
+        // "In the code" field below is where that is resolved.
         return [
           'warn',
           'Silent',
-          'The name is still in the code but nothing has fired for 30 days. Either ' +
-            'nobody uses this feature or the instrument broke.',
+          'The name is still in the code but nothing has fired for 30 days. Either nobody uses this feature or the instrument broke.',
         ]
       case 'deprecating':
         return [
@@ -91,29 +95,32 @@ const EventCard = (() => {
             shortDate(p.retired_date) +
             ' but events are still arriving. Something is firing that we no longer control.',
         ]
-      case 'retired':
+      case 'retired': {
+        // `supersession` is prose, not a name, so it is never interpolated raw. A page
+        // that has resolved it passes the successor; otherwise the sentence stays
+        // quiet rather than guessing.
+        const removed = 'Removed ' + shortDate(p.retired_date)
         return [
           'low',
           'Retired',
-          'Removed ' +
-            shortDate(p.retired_date) +
-            (card.supersession
-              ? '.'
-              : ' and quiet since. Nothing replaced it.'),
+          successor
+            ? removed + ' and replaced by ' + successor + '.'
+            : card.supersession
+              ? removed + '.'
+              : removed + ' and quiet since. Nothing replaced it.',
         ]
+      }
       case 'instrumented_never_observed':
         return [
           'crit',
           'Never seen',
-          'Recorded as being in the code, but Amplitude has never received it. Either ' +
-            'the instrumentation is broken or the code axis is wrong.',
+          'Recorded as being in the code, but Amplitude has never received it. Either the instrumentation is broken or the code axis is wrong.',
         ]
       case 'code_unknown':
         return [
           'low',
           'Unknown',
-          'We cannot tell whether this is still in the code. Usually auto-tracked, or ' +
-            'too new to have a provenance record.',
+          'We cannot tell whether this is still in the code. Usually auto-tracked, or too new to have a provenance record.',
         ]
       case 'system':
         return [
@@ -194,11 +201,20 @@ const EventCard = (() => {
   // deleting the name leaves nothing to count and the column goes null. Measured over
   // 664 events: 372 called, 39 declared-but-uncalled, 162 fully removed, 91 with no
   // resolvable key path.
+  //
+  // A card with no `call_site_count` key at all comes from a page that never joined
+  // the code axis (the explorer, the map). That is "we did not look", not "we looked
+  // and found nothing", so it falls back to the registry's own removal date.
   const inTheCode = (card) => {
     const n = card.call_site_count
     const retired = (card.provenance || {}).retired_date
 
-    if (n === null || n === undefined) {
+    if (n === undefined) {
+      return retired
+        ? 'removed on ' + retired
+        : el('span', 'muted', 'still in the code, as far as the registry knows')
+    }
+    if (n === null) {
       if (retired) return 'removed on ' + retired
       return el(
         'span',
@@ -225,11 +241,50 @@ const EventCard = (() => {
     return a
   }
 
-  const renderEventCard = (eventType) => {
+  // "Where it fires", with how much to trust it. A drafted anchor is a judge's guess,
+  // and a low-confidence one says why.
+  const firesOn = (card, prefix) => {
+    if (!card.fires_on) return null
+    const node = el('span')
+    if (prefix) add(node, el('span', 'muted', prefix))
+    add(node, document.createTextNode(card.fires_on))
+    if (card.fires_on_source === 'anchor') {
+      let note = ' drafted'
+      if (card.anchor_confidence === 'low') {
+        note += ', low confidence'
+        if (card.anchor_flag_reason) note += ': ' + card.anchor_flag_reason
+      }
+      add(node, el('span', 'muted', note))
+    }
+    return node
+  }
+
+  const usedByList = (card) => {
+    const items = (card.questions || [])
+      .map((q) => [q, null])
+      .concat((card.used_by || []).map((u) => [u.label, u.url]))
+    if (!items.length) return null
+    const list = el('ul', 'usedby')
+    items.forEach(([label, url]) => {
+      const li = el('li')
+      if (url) {
+        const a = el('a', null, label)
+        a.href = url
+        a.target = '_blank'
+        a.rel = 'noreferrer'
+        add(li, a)
+      } else li.textContent = label
+      add(list, li)
+    })
+    return list
+  }
+
+  const renderEventCard = (eventType, opts) => {
+    opts = opts || {}
     const card = EVENT_CARDS[eventType]
     const box = el('div', 'eventcard')
 
-    // No explorer row is the normal state for anything declared in Govern and never
+    // No catalog row is the normal state for anything declared in Govern and never
     // observed, which is a third of the flagged set. Say so, and still offer the link
     // out: Amplitude is where a taxonomy-only event actually lives.
     if (!card) {
@@ -252,10 +307,11 @@ const EventCard = (() => {
       return box
     }
 
-    const [tone, label, sentence] = verdictFor(card)
+    const [tone, label, sentence] = verdictFor(card, opts.successor)
     const head = el('div', 'verdictrow')
     add(head, el('span', 'chip ' + tone, label), el('span', null, sentence))
     add(box, head)
+    ;(opts.before || []).forEach((node) => add(box, node))
 
     // Both names, always. The display name is a label and can change; the type is
     // the identifier every chart and model filters on and cannot. They differ for
@@ -277,9 +333,11 @@ const EventCard = (() => {
     )
     add(box, names)
 
-    // Directly under the verdict, because it is the field that decides whether a
+    // Directly under the names, because it is the field that decides whether a
     // retirement is safe: the caveats send you here to check a declared successor.
-    if (card.supersession) {
+    if ('lineage' in opts) {
+      if (opts.lineage) add(box, opts.lineage)
+    } else if (card.supersession) {
       const lineage = el('div', 'lineage')
       add(lineage, el('div', 'fieldlbl', 'Lineage'))
       add(lineage, el('p', null, card.supersession))
@@ -288,7 +346,7 @@ const EventCard = (() => {
 
     const top = el('div', 'fields')
     add(top, cardField('What it is', card.description))
-    add(top, cardField('Where it fires', card.fires_on))
+    add(top, cardField('Where it fires', firesOn(card, opts.firesPrefix)))
     const vol = el('span', 'volume')
     add(vol, sparkline(card.series))
     add(vol, el('span', 'muted-mono', num(card.count_30d) + ' / 30d'))
@@ -301,18 +359,13 @@ const EventCard = (() => {
     add(mid, cardField('In the code', inTheCode(card)))
     add(mid, cardField('Last fired', card.last_seen))
     add(mid, cardField('First fired', card.first_seen))
+    ;(opts.extraFields || []).forEach(([k, v]) => add(mid, cardField(k, v)))
     add(box, mid)
 
-    const used = (card.questions || []).concat(
-      (card.used_by || []).map((u) => u.label),
-    )
-    if (used.length) {
-      const list = el('ul', 'usedby')
-      used.forEach((u) => add(list, el('li', null, u)))
-      // Retiring something a report still reads is a different decision from retiring
-      // something nothing reads, and that was not visible anywhere on this page.
-      add(box, cardField('Used by', list))
-    }
+    // Retiring something a report still reads is a different decision from retiring
+    // something nothing reads, and that was not visible anywhere on this page.
+    const used = 'usedBy' in opts ? opts.usedBy : usedByList(card)
+    if (used) add(box, cardField('Used by', used))
 
     const links = el('div', 'links')
     add(links, cardLink('Open in Amplitude', amplitudeUrl(eventType)))
@@ -332,10 +385,13 @@ const EventCard = (() => {
     add(ids, cardField('Declared intent', card.declared_intent))
     add(ids, cardField('Watchlist', card.watchlist_status))
     add(ids, cardField('All-time count', num(card.count_total)))
+    add(ids, cardField('Instrumented by', p.instrumented_author_email))
+    add(ids, cardField('Removed by', p.retired_author_email))
     add(box, ids)
 
     return box
   }
+
   return {
     render: renderEventCard,
     amplitudeUrl,

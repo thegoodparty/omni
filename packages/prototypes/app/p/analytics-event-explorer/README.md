@@ -29,7 +29,10 @@ The standalone is the canonical copy. Its palette, event card and usage script a
 shared partials in `packages/runbooks/surfaces/shared/`, inlined by `standalone/build.py`,
 so they are the same on the product map and the event health console; the React copy
 cannot inline them and keeps its own. A change to the card or the theme goes in the
-partials, not here.
+partials, not here. The standalone's `detail()` calls `EventCard.render` with what only
+this page knows (caveats, resolved lineage, browser-or-server, product) through the card's
+`opts`; the row badges take their words from `EventCard.verdictFor` too, so a row and its
+card cannot disagree.
 
 ## How it stays current (nothing here is manual)
 

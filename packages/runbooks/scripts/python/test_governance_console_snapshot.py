@@ -846,3 +846,51 @@ def test_inline_payload_round_trips_through_the_browser_unescape():
     payload = console_build.inline_payload(doc)
 
     assert json.loads(payload.replace("<\\/", "</")) == doc
+
+
+# --- main() -------------------------------------------------------------------
+#
+# The scheduled workflow calls main(), not build_snapshot(). Every other test here
+# reaches under it, so the --code wiring could be dropped from main() and stay green.
+
+
+def _write(path: Path, doc) -> Path:
+    path.write_text(json.dumps(doc) if not isinstance(doc, str) else doc)
+    return path
+
+
+def test_main_wires_the_code_axis_into_the_written_snapshot(tmp_path):
+    report = _write(tmp_path / "report.json", {
+        "run_date": "2026-09-28", "total_events": 1,
+        "status_counts": {"dormant": 1},
+        "metadata_coverage": {"scored": 1, "with_description": 1,
+                              "elevated_missing": [], "other_missing_count": 0},
+        "flagged": [_record(event_type="E", rank=2, status="dormant",
+                            call_site_count=0, call_site_retired_date="2026-09-01")],
+        "records": [], "proposals": [], "anchor_alignment": [], "dismissed_causes": {},
+    })
+    gaps = _write(tmp_path / "gaps.json", {})
+    explorer = _write(tmp_path / "explorer.json", {
+        "series_weeks": ["2026-09-14"], "areas": [],
+        "events": [{"event_type": "E", "display_name": "E", "status": "dormant",
+                    "count_30d": 0, "series": [0], "provenance": {}}],
+    })
+    code = _write(tmp_path / "code.csv",
+                  "event_type,call_site_count,call_site_retired_date\nE,0,2026-09-01\n")
+    out = tmp_path / "out" / "governance-console.json"
+
+    rc = gcs.main(["--report", str(report), "--gaps", str(gaps), "--explorer", str(explorer),
+                   "--code", str(code), "-o", str(out)])
+
+    assert rc == 0
+    snapshot = json.loads(out.read_text())
+    assert snapshot["event_cards"]["E"]["call_site_count"] == 0
+    assert snapshot["event_cards"]["E"]["call_site_retired_date"] == "2026-09-01"
+    assert snapshot["series_weeks"] == ["2026-09-14"]
+
+
+def test_main_refuses_a_missing_input(tmp_path, capsys):
+    rc = gcs.main(["--report", str(tmp_path / "nope.json"), "-o", str(tmp_path / "o.json")])
+
+    assert rc == 1
+    assert "missing input" in capsys.readouterr().err

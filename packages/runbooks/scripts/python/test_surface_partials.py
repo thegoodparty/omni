@@ -54,7 +54,7 @@ def test_every_placeholder_is_filled(built, name):
     assert not re.findall(r"__[A-Z][A-Z_]+__", built[name])
 
 
-@pytest.mark.parametrize("name", ["console", "map"])
+@pytest.mark.parametrize("name", list(BUILDS))
 def test_the_shared_card_is_on_the_page(built, name):
     for sentence in CARD_SENTENCES:
         assert sentence in built[name], f"{name} is missing: {sentence}"

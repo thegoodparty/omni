@@ -898,7 +898,7 @@ def build_snapshot(
         # Once at the top, not on every item: the same four sentences on 25 rows is
         # 20 KB of the same four sentences.
         "verb_effects": VERB_EFFECTS,
-        "series_weeks": explorer.get("series_weeks") or 0,
+        "series_weeks": explorer.get("series_weeks") or [],
         "event_cards": cards,
         "queues": queues,
         "settled": _settled_gaps(gaps),
