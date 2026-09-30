@@ -7,7 +7,7 @@ import type {
 import { useTestService } from '@/test-service'
 import { PRICING_VERSION } from '../pricing'
 import { isComparable, type RunRecord } from '../record'
-import type { ChatTurnScript } from './chatSeam'
+import { instrumentDatabricksProvider, type ChatTurnScript } from './chatSeam'
 import {
   TOOL_BUDGET_FALLBACK_REPLY,
   runChatCase,
@@ -165,7 +165,7 @@ describe('runChatCase', () => {
       })
 
       expect(record.status).toBe('produced')
-      expect(record.output?.value).toBeTruthy()
+      expect(record.output).toEqual({ kind: 'text', value: ANSWER })
       // Absent, not zero: a stored 0 under a real pricing version reads as
       // "this run was free".
       expect(record.telemetry.cost).toBeUndefined()
@@ -345,6 +345,36 @@ describe('runChatCase', () => {
           /^sha256:[0-9a-f]{64}$/,
         )
       }
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'leaves no patch behind when the LLM seam refuses to install',
+    async () => {
+      // Both patches are process-global and there is no restore handle
+      // outside runChatCase, so a first install left standing would rewrite
+      // the SQL of every later request in the process — and, being recorded
+      // as installed, would fail every later arm with a concurrency error.
+      const provider: DatabricksProvider = {
+        query: (): Promise<DatabricksRowSet> =>
+          Promise.resolve({ columns: [], rows: [] }),
+      }
+
+      await expect(
+        runChatCase(
+          { service, constituentProvider: provider },
+          request({
+            agentId: 'chief_of_staff',
+            organizationSlug: 'judge-unused',
+            script: undefined,
+          }),
+        ),
+      ).rejects.toThrow('was given no script')
+
+      // Claimable again, which it would not be if the refusal had left the
+      // first install recorded.
+      instrumentDatabricksProvider(provider).restore()
     },
     TURN_TIMEOUT_MS,
   )

@@ -97,6 +97,22 @@ const drain = async (stream: AsyncIterable<string>): Promise<string> => {
   return parts.join('')
 }
 
+// The scope allowlist a real pin is built from.
+const TABLES = ['serve_agent_voters']
+
+// Enables the paid path for one call. Nothing here reaches Anthropic: the
+// stubbed streamTextFn stands in for the model.
+const withSpendEnabled = <T>(fn: () => T): T => {
+  const previous = process.env.JUDGE_SPEND
+  process.env.JUDGE_SPEND = '1'
+  try {
+    return fn()
+  } finally {
+    if (previous === undefined) delete process.env.JUDGE_SPEND
+    else process.env.JUDGE_SPEND = previous
+  }
+}
+
 describe('assertTestProcess', () => {
   it('refuses to patch a live singleton outside a test process', () => {
     const vitestFlag = process.env.VITEST
@@ -171,15 +187,15 @@ describe('pinDeltaVersion', () => {
     "WHERE state_postal_code = 'WA'"
 
   it('pins the table the query reads', () => {
-    expect(pinDeltaVersion(sql, '3237')).toBe(
+    expect(pinDeltaVersion(sql, '3237', TABLES)).toBe(
       'SELECT COUNT(*) AS count FROM serve_agent_voters VERSION AS OF 3237 ' +
         "WHERE state_postal_code = 'WA'",
     )
   })
 
   it('leaves an already-pinned query alone', () => {
-    const pinned = pinDeltaVersion(sql, '3237')
-    expect(pinDeltaVersion(pinned, '9999')).toBe(pinned)
+    const pinned = pinDeltaVersion(sql, '3237', TABLES)
+    expect(pinDeltaVersion(pinned, '9999', TABLES)).toBe(pinned)
   })
 
   it('pins every table reference a joined query reads', () => {
@@ -187,10 +203,18 @@ describe('pinDeltaVersion', () => {
       'SELECT COUNT(*) AS count FROM serve_agent_voters a ' +
       'JOIN serve_agent_voters b ON a.id = b.household_id'
 
-    expect(pinDeltaVersion(joined, '3237')).toBe(
+    expect(pinDeltaVersion(joined, '3237', TABLES)).toBe(
       'SELECT COUNT(*) AS count FROM serve_agent_voters VERSION AS OF 3237 ' +
         'a JOIN serve_agent_voters VERSION AS OF 3237 b ' +
         'ON a.id = b.household_id',
+    )
+  })
+
+  it('pins a backticked reference to the same allowed table', () => {
+    const quoted = 'SELECT COUNT(*) AS count FROM `serve_agent_voters`'
+
+    expect(pinDeltaVersion(quoted, '3237', TABLES)).toBe(
+      'SELECT COUNT(*) AS count FROM `serve_agent_voters` VERSION AS OF 3237',
     )
   })
 
@@ -199,35 +223,80 @@ describe('pinDeltaVersion', () => {
       'SELECT COUNT(*) AS count FROM serve_agent_voters ' +
       "WHERE City = 'FROM DOWNTOWN'"
 
-    expect(pinDeltaVersion(literal, '3237')).toBe(
+    expect(pinDeltaVersion(literal, '3237', TABLES)).toBe(
       'SELECT COUNT(*) AS count FROM serve_agent_voters VERSION AS OF 3237 ' +
         "WHERE City = 'FROM DOWNTOWN'",
     )
   })
 
+  // `FROM` is also SQL's argument separator. The validator restricts which
+  // COLUMNS a function may read, not which functions may appear, so all three
+  // of these reach the pin as fully validated SQL — and splicing VERSION AS OF
+  // into one produces a Spark parse error the trace blames on the vendor, in
+  // whichever single arm's model happened to write it.
+  it('leaves the FROM inside EXTRACT alone', () => {
+    const extract =
+      'SELECT SUM(CASE WHEN EXTRACT(YEAR FROM registration_date) > 2020 ' +
+      'THEN 1 ELSE 0 END) AS recent, COUNT(*) AS count ' +
+      "FROM serve_agent_voters WHERE district_name = 'D1'"
+
+    expect(pinDeltaVersion(extract, '3237', TABLES)).toBe(
+      'SELECT SUM(CASE WHEN EXTRACT(YEAR FROM registration_date) > 2020 ' +
+        'THEN 1 ELSE 0 END) AS recent, COUNT(*) AS count ' +
+        'FROM serve_agent_voters VERSION AS OF 3237 ' +
+        "WHERE district_name = 'D1'",
+    )
+  })
+
+  it('leaves the FROM inside SUBSTRING alone', () => {
+    const substring =
+      'SELECT COUNT(*) AS count FROM serve_agent_voters ' +
+      "WHERE SUBSTRING(district_name FROM 1 FOR 2) = 'D1'"
+
+    expect(pinDeltaVersion(substring, '3237', TABLES)).toBe(
+      'SELECT COUNT(*) AS count FROM serve_agent_voters VERSION AS OF 3237 ' +
+        "WHERE SUBSTRING(district_name FROM 1 FOR 2) = 'D1'",
+    )
+  })
+
+  it('leaves the FROM inside TRIM alone', () => {
+    const trim =
+      'SELECT COUNT(*) AS count FROM serve_agent_voters ' +
+      "WHERE TRIM(LEADING '0' FROM district_name) = 'D1'"
+
+    expect(pinDeltaVersion(trim, '3237', TABLES)).toBe(
+      'SELECT COUNT(*) AS count FROM serve_agent_voters VERSION AS OF 3237 ' +
+        "WHERE TRIM(LEADING '0' FROM district_name) = 'D1'",
+    )
+  })
+
   it('refuses to pass an unpinnable query through unpinned', () => {
-    expect(() => pinDeltaVersion('SELECT 1', '3237')).toThrow(
+    expect(() => pinDeltaVersion('SELECT 1', '3237', TABLES)).toThrow(
       UnpinnableSqlError,
     )
   })
 
+  // Nothing but a function argument to rewrite, so nothing was pinned. A
+  // query this shape cannot happen — the validator demands a table — but
+  // passing it through unpinned is the one outcome that must not.
+  it('refuses a query whose only FROM is a function argument', () => {
+    expect(() =>
+      pinDeltaVersion(
+        'SELECT EXTRACT(YEAR FROM registration_date)',
+        '3237',
+        TABLES,
+      ),
+    ).toThrow(UnpinnableSqlError)
+  })
+
   it('refuses a version that is not a whole number', () => {
     expect(() =>
-      pinDeltaVersion(sql, '1 WHERE 1=1 UNION SELECT Voters_FirstName'),
+      pinDeltaVersion(sql, '1 WHERE 1=1 UNION SELECT Voters_FirstName', TABLES),
     ).toThrow(UnpinnableSqlError)
   })
 })
 
 describe('instrumentDatabricksProvider', () => {
-  it('rejects a bad pinned version before the turn starts', () => {
-    const provider: DatabricksProvider = {
-      query: () => Promise.resolve({ columns: [], rows: [] }),
-    }
-    expect(() => instrumentDatabricksProvider(provider, 'latest')).toThrow(
-      UnpinnableSqlError,
-    )
-  })
-
   const buildProvider = (): {
     provider: DatabricksProvider
     seen: string[]
@@ -243,10 +312,46 @@ describe('instrumentDatabricksProvider', () => {
   }
 
   const sql = 'SELECT COUNT(*) AS count FROM serve_agent_voters'
+  const pin = { version: '3237', tables: TABLES }
+
+  it('rejects a bad pinned version before the turn starts', () => {
+    const { provider } = buildProvider()
+    expect(() =>
+      instrumentDatabricksProvider(provider, { ...pin, version: 'latest' }),
+    ).toThrow(UnpinnableSqlError)
+  })
+
+  it('rejects a pin with no table to apply it to', () => {
+    const { provider } = buildProvider()
+    expect(() =>
+      instrumentDatabricksProvider(provider, { version: '3237', tables: [] }),
+    ).toThrow(UnpinnableSqlError)
+  })
+
+  // A rejected install patched nothing, so it must not record the provider as
+  // patched: one malformed case would otherwise kill every well-formed case
+  // behind it in the sweep, with an error naming a concurrency bug that never
+  // happened — sending the operator after the wrong thing entirely.
+  it('leaves the provider claimable after a rejected install', async () => {
+    const { provider, seen } = buildProvider()
+    expect(() =>
+      instrumentDatabricksProvider(provider, {
+        version: 'latest',
+        tables: TABLES,
+      }),
+    ).toThrow(UnpinnableSqlError)
+
+    const instrumented = instrumentDatabricksProvider(provider, pin)
+    await provider.query(sql)
+    instrumented.restore()
+
+    expect(instrumented.queries).toEqual([sql])
+    expect(seen).toEqual([`${sql} VERSION AS OF 3237`])
+  })
 
   it('records the agent SQL verbatim and runs the pinned form', async () => {
     const { provider, seen } = buildProvider()
-    const instrumented = instrumentDatabricksProvider(provider, '3237')
+    const instrumented = instrumentDatabricksProvider(provider, pin)
 
     await provider.query(sql)
 
@@ -266,7 +371,7 @@ describe('instrumentDatabricksProvider', () => {
 
   it('stops recording once restored', async () => {
     const { provider, seen } = buildProvider()
-    const instrumented = instrumentDatabricksProvider(provider, '3237')
+    const instrumented = instrumentDatabricksProvider(provider, pin)
     instrumented.restore()
 
     await provider.query(sql)
@@ -285,7 +390,7 @@ describe('instrumentDatabricksProvider', () => {
       }
     }
     const provider = new FakeProvider()
-    const instrumented = instrumentDatabricksProvider(provider, '3237')
+    const instrumented = instrumentDatabricksProvider(provider, pin)
     instrumented.restore()
 
     await provider.query(sql)
@@ -394,7 +499,7 @@ describe('buildTrace', () => {
 describe('installLlmCapture', () => {
   it('captures the rendered prompt and the sorted tool names', async () => {
     const { llm } = buildLlm()
-    const installed = installLlmCapture(llm, scriptWithToolSteps(1))
+    const installed = installLlmCapture(llm, { script: scriptWithToolSteps(1) })
 
     const result = await llm.streamChatCompletion(
       optionsWith({ ok_tool: okTool, a_tool: okTool }),
@@ -410,8 +515,10 @@ describe('installLlmCapture', () => {
   it('maps input and output tokens onto the record fields in order', async () => {
     const { llm } = buildLlm()
     const installed = installLlmCapture(llm, {
-      steps: [{ kind: 'text', text: 'hi' }],
-      usage: { inputTokens: 31_213, outputTokens: 227 },
+      script: {
+        steps: [{ kind: 'text', text: 'hi' }],
+        usage: { inputTokens: 31_213, outputTokens: 227 },
+      },
     })
 
     const result = await llm.streamChatCompletion(optionsWith({}))
@@ -424,19 +531,48 @@ describe('installLlmCapture', () => {
 
   it('refuses a second install on the same instance', async () => {
     const { llm } = buildLlm()
-    const installed = installLlmCapture(llm, scriptWithToolSteps(0))
+    const script = scriptWithToolSteps(0)
+    const installed = installLlmCapture(llm, { script })
 
-    expect(() => installLlmCapture(llm)).toThrow('already installed')
+    expect(() => installLlmCapture(llm, { script })).toThrow(
+      'already installed',
+    )
 
     installed.restore()
     // Restored, so the next arm may claim it again.
-    installLlmCapture(llm).restore()
+    installLlmCapture(llm, { script }).restore()
     await Promise.resolve()
+  })
+
+  // The real path bills Anthropic for every turn of a sweep, and a forgotten
+  // `script` field type-checks cleanly, so it takes two deliberate acts to
+  // reach. Nothing below spends anything: streamTextFn stands in for the
+  // model.
+  it('refuses to reach the paid model when no script was given', () => {
+    const { llm } = buildLlm()
+    expect(() => installLlmCapture(llm)).toThrow('was given no script')
+  })
+
+  it('refuses the paid model unless the spend flag is set', () => {
+    const { llm } = buildLlm()
+    expect(() => installLlmCapture(llm, { realModel: true })).toThrow(
+      'JUDGE_SPEND',
+    )
+  })
+
+  it('leaves the service claimable after a refused install', () => {
+    const { llm } = buildLlm()
+    expect(() => installLlmCapture(llm)).toThrow('was given no script')
+
+    const installed = installLlmCapture(llm, {
+      script: scriptWithToolSteps(0),
+    })
+    installed.restore()
   })
 
   it('reports the scripted tool calls it made', async () => {
     const { llm } = buildLlm()
-    const installed = installLlmCapture(llm, scriptWithToolSteps(2))
+    const installed = installLlmCapture(llm, { script: scriptWithToolSteps(2) })
 
     const result = await llm.streamChatCompletion(
       optionsWith({ ok_tool: okTool }),
@@ -459,8 +595,10 @@ describe('installLlmCapture', () => {
       execute: () => 'ok',
     } satisfies LlmTool
     const installed = installLlmCapture(llm, {
-      steps: [{ kind: 'tool', tool: 'strict_tool', input: { id: 7 } }],
-      usage: { inputTokens: 1, outputTokens: 1 },
+      script: {
+        steps: [{ kind: 'tool', tool: 'strict_tool', input: { id: 7 } }],
+        usage: { inputTokens: 1, outputTokens: 1 },
+      },
     })
 
     const result = await llm.streamChatCompletion(
@@ -474,7 +612,7 @@ describe('installLlmCapture', () => {
 
   it('resolves finalText before the stream is drained', async () => {
     const { llm } = buildLlm()
-    const installed = installLlmCapture(llm, scriptWithToolSteps(1))
+    const installed = installLlmCapture(llm, { script: scriptWithToolSteps(1) })
 
     const result = await llm.streamChatCompletion(
       optionsWith({ ok_tool: okTool }),
@@ -490,10 +628,9 @@ describe('installLlmCapture', () => {
 
   it('records a failed tool step and still finishes the turn', async () => {
     const { llm } = buildLlm()
-    const installed = installLlmCapture(
-      llm,
-      scriptWithToolSteps(1, 'fail_tool'),
-    )
+    const installed = installLlmCapture(llm, {
+      script: scriptWithToolSteps(1, 'fail_tool'),
+    })
 
     const result = await llm.streamChatCompletion(
       optionsWith({ fail_tool: failTool }),
@@ -509,7 +646,7 @@ describe('installLlmCapture', () => {
 
   it('drives the scope tool hooks the real stream service listens on', async () => {
     const { llm } = buildLlm()
-    const installed = installLlmCapture(llm, scriptWithToolSteps(2))
+    const installed = installLlmCapture(llm, { script: scriptWithToolSteps(2) })
     const started: string[] = []
     const ended: string[] = []
 
@@ -528,7 +665,9 @@ describe('installLlmCapture', () => {
 
   it('refuses a script that calls a tool the turn never registered', async () => {
     const { llm } = buildLlm()
-    const installed = installLlmCapture(llm, scriptWithToolSteps(1, 'nope'))
+    const installed = installLlmCapture(llm, {
+      script: scriptWithToolSteps(1, 'nope'),
+    })
 
     const result = await llm.streamChatCompletion(optionsWith({}))
     await expect(drain(result.textStream)).rejects.toThrow(
@@ -558,7 +697,9 @@ describe('installLlmCapture', () => {
       }),
       toolCalls: Promise.resolve([]),
     })
-    const installed = installLlmCapture(llm)
+    const installed = withSpendEnabled(() =>
+      installLlmCapture(llm, { realModel: true }),
+    )
 
     const result = await llm.streamChatCompletion(optionsWith({}))
     await drain(result.textStream)
@@ -570,7 +711,7 @@ describe('installLlmCapture', () => {
 
   it('puts the real method back when restored', async () => {
     const { llm, streamTextFn } = buildLlm()
-    const installed = installLlmCapture(llm, scriptWithToolSteps(0))
+    const installed = installLlmCapture(llm, { script: scriptWithToolSteps(0) })
     installed.restore()
     streamTextFn.mockReturnValue({
       textStream: (async function* () {

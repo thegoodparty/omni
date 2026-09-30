@@ -5,10 +5,12 @@ import { toolBudgetExhaustedNote } from '@/llm/services/llm.service'
 import { CiContextSchema } from '../record'
 import {
   TOOL_BUDGET_FALLBACK_REPLY,
+  buildFallbackReplies,
   ciContextFromEnv,
   classifyChatStatus,
   priceRun,
   tracesUnpriceable,
+  unpriceableStep,
 } from './chat'
 
 const env = (vars: Record<string, string>): NodeJS.ProcessEnv => vars
@@ -48,6 +50,29 @@ describe('TOOL_BUDGET_FALLBACK_REPLY', () => {
     expect(String(toolBudgetExhaustedNote.content)).toContain(
       TOOL_BUDGET_FALLBACK_REPLY,
     )
+  })
+})
+
+describe('buildFallbackReplies', () => {
+  it('always treats the tool-budget fallback as one', () => {
+    expect(buildFallbackReplies()).toEqual([TOOL_BUDGET_FALLBACK_REPLY])
+  })
+
+  it('keeps what the case list declared', () => {
+    const declined = 'I cannot break constituents down by political party.'
+    expect(buildFallbackReplies([declined])).toContain(declined)
+  })
+
+  // `includes('')` is true of every string, so one blank entry in a case list
+  // would mark every run in the sweep blocked.
+  it('does not let a blank case entry mark every run blocked', () => {
+    expect(
+      classifyChatStatus(
+        'Three priorities.',
+        false,
+        buildFallbackReplies(['', '   ']),
+      ),
+    ).toBe('produced')
   })
 })
 
@@ -199,5 +224,20 @@ describe('the unpriceable trace step', () => {
     expect(tracesUnpriceable('usage never resolved', 'produced', true)).toBe(
       false,
     )
+  })
+
+  // The step carries the reason itself, never a stand-in for it: the trace
+  // step schema requires a non-empty string, so an empty one would make
+  // RunRecordSchema.parse throw away a completed, judgeable run.
+  it('carries the reason the run could not be priced', () => {
+    expect(
+      unpriceableStep({ unpriceable: 'no rate for X' }, 'produced', false),
+    ).toBe('no rate for X')
+  })
+
+  it('carries nothing when there is nothing unpriceable to say', () => {
+    expect(
+      unpriceableStep({ cost: undefined }, 'produced', false),
+    ).toBeUndefined()
   })
 })

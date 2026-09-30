@@ -54,6 +54,12 @@ prevent.
 **Never call a real agent.** No track in this build spends money; real runs
 come after the merge. `RUN_LLM_EVALS=1` is not for this code.
 
+That is enforced, not just asked for. A run with no `script` would be
+answered by the real, paid model, and a forgotten field type-checks cleanly —
+so the paid path takes two deliberate acts: `realModel: true` on the request
+**and** `JUDGE_SPEND=1` in the process. Omit either and the run throws before
+anything is patched.
+
 ## Cost is re-derived, never compared as stored
 
 A record carries raw token counts, the model and a `pricingVersion`, plus

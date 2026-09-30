@@ -22,6 +22,8 @@ import {
   type TokenUsage,
   type TraceStep,
 } from '../record'
+import { WIN_CONSTITUENT_TABLES } from '@/chats/general/campaign-manager/services/constituentDataScope'
+import { CONSTITUENT_TABLES } from '@/chats/general/chief-of-staff/services/constituentDataScope'
 import {
   buildTrace,
   configDigest,
@@ -31,6 +33,8 @@ import {
   readTurnTokens,
   traceErrorText,
   type ChatTurnScript,
+  type DeltaPin,
+  type InstalledLlmCapture,
   type StreamEvent,
 } from './chatSeam'
 import { chatScopeFor } from './seedChatOrg'
@@ -47,9 +51,11 @@ import { chatScopeFor } from './seedChatOrg'
 
 // The model's own words when its tool budget ran out without an answer — see
 // `toolBudgetExhaustedNote` in llm/services/llm.service.ts, which instructs
-// this string verbatim. Duplicated because it is not exported; if the note
-// changes, a run that hit it silently reads as `produced` instead of
-// `blocked`, so the string is exported here for a case list to pin.
+// this string verbatim. Duplicated rather than derived because the note is a
+// longer instruction and this reply is only a substring of it, which is why
+// chat.test.ts pins the two together with `toContain`. If the note is
+// reworded and this copy is not, a run that hit it silently reads as
+// `produced` instead of `blocked`.
 export const TOOL_BUDGET_FALLBACK_REPLY =
   "I wasn't able to find what I needed to answer that question. You can " +
   'try again, rephrase your question, or ask me about something else.'
@@ -94,9 +100,11 @@ export interface ChatRunRequest {
   variant: { ref: string; commit: string; model: string }
   organizationSlug: string
   anchor?: ChatAnchor
-  // The canned model. Omit it only for a real, paid run — no track in this
-  // build does that.
+  // The canned model. Omitting it means the real, paid model answers, which
+  // no track in this build does: that needs `realModel` and JUDGE_SPEND=1,
+  // and omitting both throws rather than quietly dialling Anthropic.
   script?: ChatTurnScript
+  realModel?: boolean
   // The Delta table version BOTH arms must read. Pins every generated query
   // at the provider seam and is recorded on the run.
   dataVersion?: string
@@ -104,6 +112,27 @@ export interface ChatRunRequest {
   // fallback is always treated as one.
   fallbackReplies?: string[]
   ci?: CiContext
+}
+
+// The tables a pin may rewrite, per agent: the same app-layer allowlists the
+// scope handlers inject into the constituent tool, so a pin can only touch a
+// reference the validator would have accepted as a table. Everything else a
+// `FROM` introduces — EXTRACT(... FROM col) and its siblings — is left alone.
+const PINNABLE_TABLES: Record<string, string[]> = {
+  chief_of_staff: CONSTITUENT_TABLES.map((config) => config.table),
+  priority_flow: CONSTITUENT_TABLES.map((config) => config.table),
+  campaign_assistant: WIN_CONSTITUENT_TABLES.map((config) => config.table),
+}
+
+const pinnableTablesFor = (agentId: string): string[] => {
+  const tables = PINNABLE_TABLES[agentId]
+  if (!tables || tables.length === 0) {
+    throw new Error(
+      `"${agentId}" reads no version-pinnable table, so a dataVersion for ` +
+        'it could only ever be recorded and never applied',
+    )
+  }
+  return tables
 }
 
 // GitHub provenance, so a stored record leads back to the change it judged.
@@ -129,6 +158,14 @@ export const ciContextFromEnv = (
       (attempt > 1 ? `/attempts/${attempt}` : ''),
   }
 }
+
+// The tool-budget fallback plus whatever the case list declared. Blank
+// entries are dropped: `includes('')` is true of every string, so one empty
+// reply in a case list would mark every run in the sweep `blocked`.
+export const buildFallbackReplies = (declared?: string[]): string[] =>
+  [TOOL_BUDGET_FALLBACK_REPLY, ...(declared ?? [])]
+    .map((reply) => reply.trim())
+    .filter((reply) => reply.length > 0)
 
 export const classifyChatStatus = (
   output: string | null,
@@ -160,7 +197,7 @@ const errorStep = (trace: TraceStep[], error: string): TraceStep[] => [
   { index: trace.length, kind: 'error', error },
 ]
 
-interface PricedRun {
+export interface PricedRun {
   // Omitted when the model has no rates on record. pricing.ts throws rather
   // than guessing, because the cost delta is printed beside a verdict as
   // evidence and a guessed rate makes that evidence fiction.
@@ -268,6 +305,20 @@ export const tracesUnpriceable = (
 ): boolean =>
   unpriceable !== undefined && status !== 'infraError' && !usageErrorTraced
 
+// The reason to trace, or nothing. Returns the string itself rather than a
+// boolean the caller then has to re-derive the string behind: a `?? ''`
+// fallback there would put an empty error on a trace step, and the schema
+// requires a non-empty one — so RunRecordSchema.parse would throw away a
+// completed, judgeable run over the bookkeeping line beside it.
+export const unpriceableStep = (
+  priced: PricedRun,
+  status: RunRecord['status'],
+  usageErrorTraced: boolean,
+): string | undefined =>
+  tracesUnpriceable(priced.unpriceable, status, usageErrorTraced)
+    ? priced.unpriceable
+    : undefined
+
 export const runChatCase = async (
   ports: ChatRunnerPorts,
   request: ChatRunRequest,
@@ -279,24 +330,36 @@ export const runChatCase = async (
 
   const attempt = request.attempt ?? 1
   const runId = `${request.sweepId}:${request.case.caseId}:${request.arm}:${attempt}`
-  const fallbackReplies = [
-    TOOL_BUDGET_FALLBACK_REPLY,
-    ...(request.fallbackReplies ?? []),
-  ]
+  const fallbackReplies = buildFallbackReplies(request.fallbackReplies)
 
-  // Ordered so that nothing is patched until everything that can throw has
-  // already thrown: resolving the service and validating the pinned version
-  // both happen first, and installLlmCapture — the one global patch with no
-  // failure mode — goes last. A patch installed and then abandoned would
-  // answer every later request in the process from the canned script.
+  // Both patches are process-global for as long as they are installed, and
+  // BOTH installs can throw — installLlmCapture on a non-test process, on a
+  // second install against the same instance, or on a request that would
+  // spend real money. So the second one failing has to unwind the first by
+  // hand: there is no restore handle to hand back out of here, and a patch
+  // installed and then abandoned would rewrite the SQL of, and answer from a
+  // canned script, every later request in the process.
+  const pin: DeltaPin | undefined =
+    request.dataVersion === undefined
+      ? undefined
+      : {
+          version: request.dataVersion,
+          tables: pinnableTablesFor(request.agentId),
+        }
   const llmService = ports.service.app.get(LlmService)
   const databricks = ports.constituentProvider
-    ? instrumentDatabricksProvider(
-        ports.constituentProvider,
-        request.dataVersion,
-      )
+    ? instrumentDatabricksProvider(ports.constituentProvider, pin)
     : undefined
-  const llm = installLlmCapture(llmService, request.script)
+  let llm: InstalledLlmCapture
+  try {
+    llm = installLlmCapture(llmService, {
+      ...(request.script && { script: request.script }),
+      ...(request.realModel === true && { realModel: true }),
+    })
+  } catch (err) {
+    databricks?.restore()
+    throw err
+  }
 
   const startedAt = new Date()
   let outcome: TurnOutcome
@@ -370,13 +433,9 @@ export const runChatCase = async (
         'and the record schema disagree',
     )
   }
-  const finalTrace = tracesUnpriceable(
-    priced.unpriceable,
-    status,
-    usageErrorTraced,
-  )
-    ? errorStep(trace, priced.unpriceable ?? '')
-    : trace
+  const unpriceable = unpriceableStep(priced, status, usageErrorTraced)
+  const finalTrace =
+    unpriceable === undefined ? trace : errorStep(trace, unpriceable)
   const toolSteps = finalTrace.filter((step) => step.kind === 'tool')
 
   return RunRecordSchema.parse({
