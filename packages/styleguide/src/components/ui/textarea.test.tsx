@@ -37,6 +37,20 @@ afterEach(() => {
 })
 
 describe('Textarea', () => {
+  it('drops the border and padding but keeps the focus ring when seamless', () => {
+    render(<Textarea aria-label="Message" variant="seamless" />)
+    const el = screen.getByLabelText('Message')
+    expect(el).toHaveClass('border-0', 'p-0', 'focus-visible:ring-[3px]')
+    expect(el).not.toHaveClass('px-3', 'py-2')
+  })
+
+  it('keeps the bordered, padded field by default', () => {
+    render(<Textarea aria-label="Message" />)
+    const el = screen.getByLabelText('Message')
+    expect(el).toHaveClass('border', 'px-3', 'py-2')
+    expect(el).not.toHaveClass('border-0')
+  })
+
   it('keeps the fixed min height and sets no inline height without autoGrow', () => {
     scrollHeight = 200
     render(<Textarea aria-label="Message" />)
