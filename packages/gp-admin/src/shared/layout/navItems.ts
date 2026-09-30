@@ -7,6 +7,7 @@ import {
   HiChatAlt2,
   HiEyeOff,
   HiKey,
+  HiStatusOnline,
 } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
@@ -60,6 +61,12 @@ export const navItems: NavItem[] = [
     href: '/dashboard/domains',
     icon: HiKey,
     permission: PERMISSIONS.WRITE_CAMPAIGNS,
+  },
+  {
+    title: '10DLC Status',
+    href: '/dashboard/ten-dlc-status',
+    icon: HiStatusOnline,
+    permission: PERMISSIONS.READ_CAMPAIGNS,
   },
   {
     title: 'Settings',

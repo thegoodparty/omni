@@ -4,8 +4,7 @@ import { useState } from 'react'
 import { Button, Checkbox, Flex, Link, Text } from '@radix-ui/themes'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
-import { useToast } from '@/components/Toast'
-import { overrideCvValidationAndResubmit } from '@/app/dashboard/campaigns/actions'
+import { useCvHoldOverride } from '@/app/dashboard/campaigns/components/useCvHoldOverride'
 
 interface CvValidationHoldProps {
   campaignId: number
@@ -20,32 +19,8 @@ export function CvValidationHold({
   failureReasons,
   onResolved,
 }: CvValidationHoldProps) {
-  const { showToast } = useToast()
   const [confirmed, setConfirmed] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-
-  async function handleOverride() {
-    setSubmitting(true)
-    try {
-      const { retriedRunId, retryError } =
-        await overrideCvValidationAndResubmit(campaignId)
-      showToast(
-        retryError
-          ? `Hold cleared, but resubmitting failed: ${retryError}`
-          : retriedRunId
-            ? 'Hold cleared — registration resubmitted'
-            : 'Hold cleared — the next sweep will resubmit'
-      )
-      await onResolved()
-    } catch (error) {
-      showToast(
-        error instanceof Error
-          ? error.message
-          : 'Failed to override CV validation'
-      )
-    }
-    setSubmitting(false)
-  }
+  const { override, overriding } = useCvHoldOverride(campaignId, onResolved)
 
   return (
     <Flex direction="column" gap="2">
@@ -71,7 +46,7 @@ export function CvValidationHold({
           <Flex align="center" gap="2">
             <Checkbox
               checked={confirmed}
-              disabled={submitting}
+              disabled={overriding}
               onCheckedChange={(checked) => setConfirmed(checked === true)}
             />
             <Text size="2" color="gray">
@@ -80,10 +55,10 @@ export function CvValidationHold({
           </Flex>
           <Button
             variant="outline"
-            disabled={!confirmed || submitting}
-            onClick={handleOverride}
+            disabled={!confirmed || overriding}
+            onClick={override}
           >
-            {submitting
+            {overriding
               ? 'Resubmitting...'
               : 'Override validation and resubmit'}
           </Button>
