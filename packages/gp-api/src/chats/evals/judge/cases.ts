@@ -220,3 +220,27 @@ export const loadCaseList = (
     shape: agent.shape,
   })
 }
+
+// A background agent's cases, narrowed. `parseCaseList` already discriminated
+// on `shape` when it built these, so re-deriving the narrowing structurally in
+// each reader was both duplicated and weaker than what the loader knows.
+export const loadBackgroundCases = (
+  agent: AgentEntry,
+  dir: string = CASES_DIR,
+): BackgroundCase[] => {
+  const list = loadCaseList(agent, dir)
+  if (list.shape !== 'background') {
+    throw new CaseListError(
+      `${list.source}: ${agent.agentId} is a ${list.shape} agent, so its ` +
+        'cases have no params to read',
+    )
+  }
+  return list.cases.map((one) => {
+    if (!('params' in one)) {
+      throw new CaseListError(
+        `${list.source}: ${agent.agentId}/${one.caseId} carries no params`,
+      )
+    }
+    return one
+  })
+}

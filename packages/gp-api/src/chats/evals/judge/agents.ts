@@ -121,19 +121,37 @@ type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
 // filename compiles and is caught by the directory check in
 // chatCaseLists.test.ts instead.
 //
-// All nine are placeholder lists — see the `note` in each file — so status
+// Two groups, authored in two passes and deliberately indistinguishable here:
+// nine take plain data, and six — campaign_tracker_tasks,
+// find_existing_ordinances, opportunities_and_challenges, opposition_research,
+// top_community_issues, trending_issues — have an input_schema naming an
+// identifier no file can carry (an org slug, a race id, the candidate's own
+// address), so their params hold the placeholders sweepFixture.ts substitutes
+// per sweep. A registry entry is the same either way on purpose: the
+// difference belongs to the case list and the sweep, not to the denominator.
+//
+// compliance_setup is the one background agent still without a list. That is
+// a pending decision about what its inputs should be, not an unwritten file.
+//
+// All fifteen are placeholder lists — see the `note` in each file — so status
 // stays `pending`. `wired` means an agent has produced a real verdict at
 // least once, and none of these has been dispatched.
 const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
+  campaign_tracker_tasks: 'campaign_tracker_tasks.json',
   district_issue_pulse: 'district_issue_pulse.json',
   district_issue_snapshot: 'district_issue_snapshot.json',
+  find_existing_ordinances: 'find_existing_ordinances.json',
   meeting_briefing: 'meeting_briefing.json',
   meeting_schedule: 'meeting_schedule.json',
   opponent_research: 'opponent_research.json',
+  opportunities_and_challenges: 'opportunities_and_challenges.json',
+  opposition_research: 'opposition_research.json',
   race_opponent_actions: 'race_opponent_actions.json',
   race_opponent_collection: 'race_opponent_collection.json',
   race_opponent_summary: 'race_opponent_summary.json',
   self_research: 'self_research.json',
+  top_community_issues: 'top_community_issues.json',
+  trending_issues: 'trending_issues.json',
 }
 
 const BACKGROUND_AGENTS: AgentEntry[] = BACKGROUND_AGENT_IDS.map((agentId) => ({
@@ -169,3 +187,14 @@ export const coverage = (agents: readonly AgentEntry[] = AGENTS): Coverage => {
 
 export const findAgent = (agentId: string): AgentEntry | undefined =>
   AGENTS.find((a) => a.agentId === agentId)
+
+// The narrowing every caller of `loadCaseList` needs, since that takes an
+// entry and `findAgent` returns an optional. Here rather than inline in each
+// reader, which was four copies of the same sentence.
+export const requireAgent = (agentId: string): AgentEntry => {
+  const agent = findAgent(agentId)
+  if (agent === undefined) {
+    throw new Error(`${agentId} is not in the agent registry`)
+  }
+  return agent
+}

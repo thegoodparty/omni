@@ -6,19 +6,8 @@ import {
   variantFor,
 } from './sweepEnv'
 import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from './config'
-
-const SHA = 'a'.repeat(40)
-
-const armEnv = (over: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
-  JUDGE_ARM: 'candidate',
-  JUDGE_SWEEP_ID: 'swp_1',
-  JUDGE_AGENTS: 'chief_of_staff',
-  JUDGE_BASE_REF: 'universal-judge',
-  JUDGE_CANDIDATE_SHA: SHA,
-  JUDGE_ARM_COMMIT: SHA,
-  JUDGE_RECORDS_DIR: '/tmp/judge',
-  ...over,
-})
+import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
+import { armEnvFor as armEnv } from './fixtures/sweep'
 
 describe('parseArmEnv', () => {
   it('reads a complete arm environment', () => {
@@ -170,6 +159,59 @@ describe('parseArmEnv', () => {
     expect(
       parseArmEnv(armEnv({ JUDGE_DATA_VERSION: '  ' })).dataVersion,
     ).toBeUndefined()
+  })
+
+  // The fixture identifiers a background case's `{judge…}` tokens are
+  // substituted with. Same thread as the Delta version, keyed off the same
+  // constant the exporting half builds from, so a rename cannot leave an arm
+  // reading a variable nobody sets.
+  it('carries the fixture identifiers through', () => {
+    expect(
+      parseArmEnv(
+        armEnv({
+          [JUDGE_FIXTURE_ENV_NAMES.orgSlug]: 'eo-abc',
+          [JUDGE_FIXTURE_ENV_NAMES.raceId]: 'race-1',
+          [JUDGE_FIXTURE_ENV_NAMES.userEmail]: 'qa-1@goodparty.org',
+        }),
+      ).fixtureValues,
+    ).toEqual({
+      orgSlug: 'eo-abc',
+      raceId: 'race-1',
+      userEmail: 'qa-1@goodparty.org',
+    })
+  })
+
+  // Most sweeps mint no fixture: nine of the fifteen background lists carry
+  // plain data and every chat list does. An empty object, not a refusal.
+  it('reads an unminted fixture as no values at all', () => {
+    expect(parseArmEnv(armEnv()).fixtureValues).toEqual({})
+  })
+
+  // THE SAME EMPTY-STRING TRAP the Delta version has, with a sharper edge:
+  // Actions exports an `env:` entry built from an empty step output, and `''`
+  // would not merely be accepted here — it would SUBSTITUTE, dispatching
+  // `organization_slug: ''`, which the agent's own minLength refuses twenty
+  // minutes in. Read as not supplied, `assertNoPlaceholders` names the token
+  // before anything is sent.
+  it.each(['', '   '])(
+    'reads a blank fixture identifier as not supplied (%j)',
+    (blank) => {
+      expect(
+        parseArmEnv(
+          armEnv({
+            [JUDGE_FIXTURE_ENV_NAMES.orgSlug]: blank,
+            [JUDGE_FIXTURE_ENV_NAMES.raceId]: 'race-1',
+          }),
+        ).fixtureValues,
+      ).toEqual({ raceId: 'race-1' })
+    },
+  )
+
+  it('trims a fixture identifier rather than carrying the padding', () => {
+    expect(
+      parseArmEnv(armEnv({ [JUDGE_FIXTURE_ENV_NAMES.orgSlug]: '  eo-abc  ' }))
+        .fixtureValues,
+    ).toEqual({ orgSlug: 'eo-abc' })
   })
 
   it('reads a PR number when there is one', () => {

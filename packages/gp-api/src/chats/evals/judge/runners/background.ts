@@ -8,6 +8,7 @@ import { createHash } from 'crypto'
 import { differenceInMilliseconds } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
+import { assertNoPlaceholders } from '../caseParams'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
 import {
   isComparable,
@@ -503,6 +504,24 @@ export const buildDispatchMessage = (args: {
         `"${args.organizationSlug}"`,
     )
   }
+  // The backstop for the sweep-wide check in substituteBackgroundCases. That
+  // one is what makes a missing fixture value cost nothing; this one is what
+  // makes a caller who skipped it unable to send a literal `{judgeOrgSlug}`
+  // to the broker — which would ACCEPT it, since these params are plain
+  // strings with at most a minLength, launch a task, and bill a run against
+  // an organization that does not exist. See assertNoPlaceholders.
+  //
+  // `inputFiles` is covered too, not just `params`. Its bucket, key and dest
+  // are strings that reach S3 and the Lambda, so a token in one would be
+  // exactly the failure the guard's comment claims nothing downstream catches.
+  // No authored list uses inputFiles yet, which is why it has to be checked
+  // now rather than when the first one does.
+  assertNoPlaceholders(args.agentCase.caseId, {
+    ...args.agentCase.params,
+    ...(args.agentCase.inputFiles !== undefined && {
+      inputFiles: args.agentCase.inputFiles.map((file) => ({ ...file })),
+    }),
+  })
   // The handler rejects any `_`-prefixed params key it does not reserve, and
   // it pops the one it does, so a case that hand-rolls its own envelope key
   // would either be refused at the Lambda or silently outrank `inputFiles`.

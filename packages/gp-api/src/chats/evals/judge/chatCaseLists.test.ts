@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { AGENTS, findAgent } from './agents'
+import { AGENTS, findAgent, requireAgent } from './agents'
 import { CASES_DIR, caseListPath, loadCaseList } from './cases'
 
 // The four chat lists. Named here rather than derived from the registry,
@@ -14,11 +14,12 @@ const AUTHORED = [
   'priority_flow',
 ] as const
 
-// The nine background lists contribute to the registry count below, but they
-// are NOT named again here. backgroundCaseLists.test.ts names them and
-// asserts their contents; a second copy of the same nine strings would add no
-// independent check, only a second place to edit when a tenth is authored.
-const AUTHORED_BACKGROUND_COUNT = 9
+// The fifteen background lists contribute to the registry count below, but
+// they are NOT named again here. backgroundCaseLists.test.ts names them and
+// asserts their contents; a second copy of the same fifteen strings would add
+// no independent check, only a second place to edit when a sixteenth is
+// authored.
+const AUTHORED_BACKGROUND_COUNT = 15
 
 // One baseline plus seven single-axis variations. Well under gates.minCases,
 // which is deliberate and recorded in every list's `note`.
@@ -49,10 +50,7 @@ describe('the authored chat case lists', () => {
   })
 
   it.each(AUTHORED)('%s parses through the real loader', (agentId) => {
-    const agent = findAgent(agentId)
-    if (agent === undefined) throw new Error(`${agentId} left the registry`)
-
-    const list = loadCaseList(agent)
+    const list = loadCaseList(requireAgent(agentId))
     expect(list.shape).toBe('chat')
     // A verdict from a list nobody has driven a turn against is a claim about
     // the pipeline, not about the agent, and this flag is what carries that.
@@ -89,7 +87,7 @@ describe('the case-list directory', () => {
   // Without a floor, a directory that stopped matching would leave every
   // assertion below in a loop that never runs, and the suite would pass
   // having checked nothing.
-  it('holds every list the registry names, and the registry names all 13', () => {
+  it('holds every named list, and the registry names all 19', () => {
     expect(NAMED.length).toBeGreaterThan(0)
     expect(files.length).toBeGreaterThan(0)
     expect(NAMED.length).toBe(AUTHORED.length + AUTHORED_BACKGROUND_COUNT)
