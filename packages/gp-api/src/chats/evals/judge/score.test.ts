@@ -65,6 +65,7 @@ interface JudgmentSpec {
   magnitude?: Magnitude | null
   flags?: GradedJudgment['flags']
   floor?: GradedJudgment['absoluteFloor']
+  seatFailures?: GradedJudgment['seatFailures']
 }
 
 const judgment = (spec: JudgmentSpec): GradedJudgment => ({
@@ -77,7 +78,7 @@ const judgment = (spec: JudgmentSpec): GradedJudgment => ({
   slotMap: spec.slotMap,
   dimensions: dims(spec.verdict, spec.magnitude ?? 'clear'),
   seats: [],
-  seatFailures: [],
+  seatFailures: spec.seatFailures ?? [],
   flags: spec.flags ?? [],
   absoluteFloor: spec.floor ?? null,
 })
@@ -941,5 +942,81 @@ describe('slot vocabulary', () => {
   // local copy of it, which would assert nothing.
   it('is exactly X and Y', () => {
     expect(SLOTS).toEqual(['X', 'Y'])
+  })
+})
+
+// judge.ts has always collected which seats threw. For most of this
+// feature's life nothing read it, so a 429 on one seat of a multi-seat panel
+// quietly reduced the panel to the survivors and the verdict was reported as
+// though every seat had agreed.
+describe('a panel that lost a seat', () => {
+  const lost = (caseId: string, models: readonly string[]): JudgmentSpec => ({
+    caseId,
+    slotMap: X_IS_CANDIDATE,
+    verdict: 'X',
+    seatFailures: models.map((model) => ({
+      model,
+      message: 'rate limited',
+    })),
+  })
+
+  it('reports nothing at all when every judgment had every seat', () => {
+    const result = score(
+      [
+        judgment({ caseId: 'a', slotMap: X_IS_CANDIDATE, verdict: 'X' }),
+        judgment({ caseId: 'b', slotMap: X_IS_CANDIDATE, verdict: 'X' }),
+      ],
+      noFloor(),
+    )
+    expect(result.degradedPanel).toBeNull()
+  })
+
+  it('counts the judgments it touched and names the seats it lost', () => {
+    const result = score(
+      [
+        judgment(lost('a', ['seat-two'])),
+        judgment({ caseId: 'b', slotMap: X_IS_CANDIDATE, verdict: 'X' }),
+        judgment(lost('c', ['seat-two'])),
+      ],
+      noFloor(),
+    )
+    expect(result.degradedPanel).toEqual({
+      judgments: 2,
+      seats: ['seat-two'],
+    })
+  })
+
+  // The count is verdicts affected, not seats lost. Two seats failing on one
+  // judgment is one degraded verdict, and a reader who saw "2" would go
+  // looking for a second case that does not exist.
+  it('counts a judgment once however many of its seats threw', () => {
+    const result = score([judgment(lost('a', ['b', 'c']))], noFloor())
+    expect(result.degradedPanel?.judgments).toBe(1)
+  })
+
+  it('names each seat once, sorted, across every judgment', () => {
+    const result = score(
+      [judgment(lost('a', ['zeta', 'alpha'])), judgment(lost('b', ['zeta']))],
+      noFloor(),
+    )
+    expect(result.degradedPanel?.seats).toEqual(['alpha', 'zeta'])
+  })
+
+  // A judgment whose every seat failed came back `ungraded`, which the
+  // report already surfaces through exclusions. Counting it here too would
+  // report one failure twice and hide the case this exists for.
+  it('is not raised by a judgment that lost its whole panel', () => {
+    const result = score(
+      [
+        {
+          kind: 'ungraded',
+          key: { caseId: 'a', attempt: 1, order: 'primary' },
+          reason: 'b: rate limited',
+        },
+      ],
+      noFloor(),
+    )
+    expect(result.degradedPanel).toBeNull()
+    expect(result.exclusions.ungraded).toBe(1)
   })
 })

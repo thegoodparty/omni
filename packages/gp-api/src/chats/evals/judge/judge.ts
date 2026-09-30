@@ -101,6 +101,15 @@ export interface SeatVerdict {
   verdict: CaseVerdict
 }
 
+// One seat that threw. Held as its two parts rather than a preformatted
+// line because the report names WHICH seat a panel lost, and recovering a
+// model name out of `model: message` breaks the first time a message
+// contains a colon of its own.
+export interface SeatFailure {
+  model: string
+  message: string
+}
+
 export interface CombinedDimension {
   verdict: SlotVerdict
   magnitude: Magnitude | null
@@ -125,7 +134,7 @@ export interface GradedJudgment {
   // Seats that threw, one entry each. A panel that lost a seat still
   // produced a comparison, but it produced it on fewer opinions than the
   // config asked for, and that has to be visible rather than silent.
-  seatFailures: readonly string[]
+  seatFailures: readonly SeatFailure[]
   flags: readonly Flag[]
   absoluteFloor: AbsoluteFloor | null
 }
@@ -417,7 +426,7 @@ export const judgeCase = async (
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
 ): Promise<Judgment> => {
   const seats: SeatVerdict[] = []
-  const seatFailures: string[] = []
+  const seatFailures: SeatFailure[] = []
   for (const model of config.panel.seats) {
     try {
       seats.push(await runSeat(llm, planned.payload, model, config))
@@ -426,9 +435,10 @@ export const judgeCase = async (
       // away every seat already collected and paid for, so one 429 on the
       // last of three seats binned two clean verdicts and left `modal`
       // without the majority the panel exists to produce.
-      seatFailures.push(
-        `${model}: ${err instanceof Error ? err.message : String(err)}`,
-      )
+      seatFailures.push({
+        model,
+        message: err instanceof Error ? err.message : String(err),
+      })
     }
   }
   if (seats.length === 0) {
@@ -441,7 +451,7 @@ export const judgeCase = async (
       reason:
         seatFailures.length === 0
           ? 'no judge seats configured'
-          : seatFailures.join('; '),
+          : seatFailures.map((f) => `${f.model}: ${f.message}`).join('; '),
     }
   }
   return {

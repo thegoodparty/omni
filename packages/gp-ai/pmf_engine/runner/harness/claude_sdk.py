@@ -68,6 +68,13 @@ DEFAULT_PERMISSION_MODE = "bypassPermissions"
 # ResultMessage) we overwrite the estimate with the authoritative figure.
 _accumulated_cost_usd = 0.0
 
+# Why the running total is not the run's cost, one entry per reason: a turn on
+# a model _PRICE_PER_MTOK has no rate for, or a terminal ResultMessage that
+# carried no cost at all. Held beside the total because a sum with a term
+# missing is not a smaller cost, it is an unknown one, and the total on its own
+# cannot say which.
+_unobserved_cost_reasons: set[str] = set()
+
 # The four token classes a run is billed on, mapping the CLI's own key names
 # (verified against the bundled CLI's zero-usage literal) to the rate names in
 # _PRICE_PER_MTOK. One mapping, two readers: `_price_turn` bills a timed-out
@@ -102,14 +109,27 @@ _MAX_LOGGED_TOKEN_COUNT = 2**53 - 1
 USAGE_SCHEMA_VERSION = 1
 
 
-def _price_turn(model: str, usage: object) -> float:
-    """Dollar cost of one turn from its per-call token usage. Each token class
-    is priced at its own rate and summed — never sum raw input tokens across
-    turns, since prompt caching re-bills the growing context as cheap
-    cache-reads each turn."""
+def _price_turn(model: str, usage: object) -> float | None:
+    """Dollar cost of one turn from its per-call token usage, or None when the
+    model has no rate on record.
+
+    Each token class is priced at its own rate and summed — never sum raw
+    input tokens across turns, since prompt caching re-bills the growing
+    context as cheap cache-reads each turn.
+
+    None rather than 0.0 for an unknown model, because this figure is what a
+    timed-out run is billed at and zero is a legal cost: a run on an unlisted
+    model would otherwise print "$0.00" for the most expensive failure there
+    is. Same reasoning as `_usage_counts` applied to a rate instead of a count
+    — omit the unobserved thing, never substitute zero for it. The other way
+    to be wrong is to borrow a neighbouring model's rate, which is what the
+    judge's pricing.ts exists to forbid.
+
+    Cannot raise, for the same reason `_usage_counts` cannot.
+    """
     rates = next((v for k, v in _PRICE_PER_MTOK.items() if k in (model or "").lower()), None)
     if rates is None:
-        return 0.0
+        return None
     counts = _usage_counts(usage) or {}
     return sum(count * rates[_USAGE_TOKEN_KEYS[key]] for key, count in counts.items()) / 1_000_000
 
@@ -161,11 +181,28 @@ def _usage_counts(usage: object) -> dict[str, int] | None:
 def reset_accumulated_cost() -> None:
     global _accumulated_cost_usd
     _accumulated_cost_usd = 0.0
+    _unobserved_cost_reasons.clear()
 
 
-def get_accumulated_cost() -> float:
-    """Real cost spent so far in the primary loop. Read by main.py's kill
-    handlers to bill timed-out/cancelled runs instead of reporting 0.0."""
+def get_accumulated_cost() -> float | None:
+    """Real cost spent so far in the primary loop, or None if any part of it
+    was never observed. Read by main.py's kill handlers to bill
+    timed-out/cancelled runs instead of reporting 0.0.
+
+    None rather than the partial sum: the caller reports one scalar as the
+    run's cost, and a sum missing a term is understated while looking whole.
+    `_accumulated_agent_cost` already treats None as "report no cost", which
+    omits cost_usd from the envelope — so a reported 0.0 means genuinely zero
+    and an absent figure means unknown.
+    """
+    if _unobserved_cost_reasons:
+        logger.warning(
+            "accumulated cost withheld "
+            f"({'; '.join(sorted(_unobserved_cost_reasons))}); the running "
+            f"total (${_accumulated_cost_usd:.4f}) is understated by an "
+            "unknown amount, so no cost is reported"
+        )
+        return None
     return _accumulated_cost_usd
 
 
@@ -545,7 +582,19 @@ async def run_agent(
     async for message in query(prompt=prompt, options=options):
         if isinstance(message, AssistantMessage):
             message_count += 1
-            _accumulated_cost_usd += _price_turn(message.model, message.usage)
+            turn_cost = _price_turn(message.model, message.usage)
+            if turn_cost is None:
+                # Named here because this is the only place the model string
+                # exists; the accumulator downstream only knows that some turn
+                # went unpriced.
+                logger.warning(
+                    f"no rate on record for model {message.model!r} (session={session_id}); "
+                    "turn omitted from the running cost estimate rather than billed at $0 — "
+                    "add it to _PRICE_PER_MTOK"
+                )
+                _unobserved_cost_reasons.add(f"no rate on record for model {message.model or 'unknown'!r}")
+            else:
+                _accumulated_cost_usd += turn_cost
             content_blocks = []
             for block in message.content:
                 if isinstance(block, TextBlock):
@@ -594,10 +643,26 @@ async def run_agent(
             num_turns = message.num_turns
             session_id = message.session_id
 
-            # Authoritative figure — supersedes the per-turn estimate for every
-            # path that reaches a ResultMessage, including the max_turns error
-            # raised just below (which the runner's generic kill handler bills).
-            _accumulated_cost_usd = total_cost
+            if message.total_cost_usd is None:
+                # `total_cost`'s `or 0.0` is fine for the logged line and the
+                # returned dict — both are snapshots of what the SDK said. The
+                # accumulator is different: it is the number a kill handler
+                # BILLS, so it takes the same omit-rather-than-substitute rule
+                # as an unpriced model. Assigning 0.0 here would hand out a
+                # measured-looking free run, which is the defect this whole
+                # marker exists to prevent, reached by the other door. The
+                # per-turn estimate is left standing because it was at least
+                # observed, and it makes the withholding warning concrete.
+                _unobserved_cost_reasons.add("the terminal ResultMessage carried no cost")
+            else:
+                # Authoritative figure — supersedes the per-turn estimate for
+                # every path that reaches a ResultMessage with a cost,
+                # including the max_turns error raised just below (which the
+                # runner's generic kill handler bills). The estimate is
+                # discarded, so an unpriced turn inside it no longer qualifies
+                # anything.
+                _accumulated_cost_usd = message.total_cost_usd
+                _unobserved_cost_reasons.clear()
 
             usage_counts = _usage_counts(message.usage)
             if usage_counts is None or len(usage_counts) < len(_USAGE_TOKEN_KEYS):

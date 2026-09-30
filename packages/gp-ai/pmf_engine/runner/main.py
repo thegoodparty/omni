@@ -216,8 +216,10 @@ def _send_failed_to_sqs_directly(
 def _accumulated_agent_cost() -> float | None:
     """Real cost the primary agent loop spent before it was killed, so a
     timed-out / cancelled run bills its actual spend instead of 0.0. Returns
-    None (report no cost, today's behavior) if the harness never ran or the
-    accumulator can't be read."""
+    None (report no cost, today's behavior) if the harness never ran, the
+    accumulator can't be read, or a turn ran on a model the harness has no
+    rate for — an understated total presented as the whole figure is the
+    same defect as reporting 0.0, so the accumulator withholds it."""
     try:
         from .harness.claude_sdk import get_accumulated_cost
 
