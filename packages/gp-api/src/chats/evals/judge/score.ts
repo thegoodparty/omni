@@ -43,12 +43,21 @@ export interface DimensionScore {
   // does not yield a percentage improvement.
   delta: number | null
   interval: Interval | null
+  // Distinct cases with at least one scored pair.
   cases: number
+  // Raw judge calls. Never below the pair count, and above it by however
+  // many pairs the order-swap subsample judged in both orders.
   judgments: number
+  // Per reconciled pair, not per judgment, because the report prints these
+  // in the same table row as `cases`.
   wins: number
   losses: number
   ties: number
   cannotDetermine: number
+  // The same refusals counted per raw judgment. The ceiling gate is a
+  // statement about how often the judge declines, so it needs a numerator
+  // in the same unit as its `judgments` denominator.
+  cannotDetermineJudgments: number
   magnitudes: Readonly<Record<Magnitude, number>>
 }
 
@@ -214,30 +223,26 @@ const scoreDimension = (
   seed: number,
 ): { score: DimensionScore; pairs: PairScore[] } => {
   const magnitudes = emptyMagnitudes()
-  let wins = 0
-  let losses = 0
-  let ties = 0
-  let cannotDetermine = 0
+  let judgmentCount = 0
+  let cannotDetermineJudgments = 0
 
   const primary = new Map<string, number | null>()
   const swapped = new Map<string, number | null>()
   const identities = new Map<string, { caseId: string; attempt: number }>()
   // Held per pair rather than counted per judgment, for the same reason
-  // orientFlags and floorVerdicts dedupe: the order-swap subsample judges
-  // the same pair twice, so a per-judgment count inflates the distribution
-  // on exactly the 20% of pairs that got the second look — and the report
-  // prints that total two lines below the case count it is meant to
-  // describe.
+  // orientFlags, floorVerdicts and the W/T/L tally below dedupe: the
+  // order-swap subsample judges the same pair twice, so a per-judgment
+  // count inflates the distribution on exactly the 20% of pairs that got
+  // the second look — and the report prints that total two lines below the
+  // case count it is meant to describe.
   const magnitudeOfPair = new Map<string, Magnitude>()
 
   for (const judgment of judgments) {
     const combined = judgment.dimensions[dimension]
     if (combined === undefined) continue
     const value = orient(combined.verdict, judgment.slotMap)
-    if (value === null) cannotDetermine += 1
-    else if (value > 0) wins += 1
-    else if (value < 0) losses += 1
-    else ties += 1
+    judgmentCount += 1
+    if (value === null) cannotDetermineJudgments += 1
 
     const key = pairKey(judgment.key.caseId, judgment.key.attempt)
     if (combined.magnitude !== null && !magnitudeOfPair.has(key)) {
@@ -265,6 +270,21 @@ const scoreDimension = (
     pairs.push({ ...identity, ...resolved })
   }
 
+  // Off the reconciled pairs, because the report prints this beside the
+  // case count. A per-judgment tally reads ~20% high against that count,
+  // and it also reports a pair whose two orders split as both a win and a
+  // tie instead of the one half-win the delta was actually scored from.
+  let wins = 0
+  let losses = 0
+  let ties = 0
+  let cannotDetermine = 0
+  for (const pair of pairs) {
+    if (pair.score === null) cannotDetermine += 1
+    else if (pair.score > 0) wins += 1
+    else if (pair.score < 0) losses += 1
+    else ties += 1
+  }
+
   // Each case carries equal weight regardless of how many attempts produced
   // a verdict, so one noisy case cannot dominate the corpus.
   const byCase = new Map<string, number[]>()
@@ -283,11 +303,12 @@ const scoreDimension = (
         streamFor(seed, dimension),
       ),
       cases: caseScores.length,
-      judgments: wins + losses + ties + cannotDetermine,
+      judgments: judgmentCount,
       wins,
       losses,
       ties,
       cannotDetermine,
+      cannotDetermineJudgments,
       magnitudes,
     },
     pairs,
@@ -375,8 +396,12 @@ const gates = (
         'branch',
     }
   }
+  // Both ends in judgments. `cannotDetermine` is per pair, so using it
+  // here would divide pairs by judgments and read the ceiling ~20% low.
   const cdRate =
-    overall.judgments === 0 ? 0 : overall.cannotDetermine / overall.judgments
+    overall.judgments === 0
+      ? 0
+      : overall.cannotDetermineJudgments / overall.judgments
   if (cdRate > g.cannotDetermineCeiling) {
     return {
       failed: true,

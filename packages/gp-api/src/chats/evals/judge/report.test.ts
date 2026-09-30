@@ -208,7 +208,7 @@ describe('the magnitude distribution and the flag counts', () => {
     // subsample judged one pair twice — and the pair it looked at twice
     // still counts once, or the total would contradict the case count
     // printed two lines above it.
-    expect(report).toContain('Overall magnitudes: 5 clear.')
+    expect(report).toContain('Overall magnitudes (per pair): 5 clear.')
   })
 
   it('counts flags by arm and type', async () => {
@@ -244,13 +244,73 @@ describe('the magnitude distribution and the flag counts', () => {
       ],
     })
     expect(report).toContain(
-      'Flags: 2 on candidate restricted_data, 1 on base restricted_data.',
+      'Flags (cases affected): 2 on candidate restricted_data, ' +
+        '1 on base restricted_data.',
     )
   })
 
   it('prints no flag line when there are none', async () => {
     const score = await pipeline(sweepRecords(3))
-    expect(renderReport({ agents: [score] })).not.toContain('Flags:')
+    expect(renderReport({ agents: [score] })).not.toContain('Flags (')
+  })
+})
+
+// Three counters in score.ts have already had to be deduped per pair
+// because the report prints them beside a per-case number. A line that
+// leaves its unit to inference is how the next one hides, so the units are
+// asserted here.
+describe('the unit of every printed count', () => {
+  it('labels the W/T/L and can-not-tell columns as per pair', async () => {
+    const score = await pipeline(sweepRecords(5))
+    const report = renderReport({ agents: [score] })
+    expect(report).toContain(
+      "| dimension | Δ (95% CI) | cases | W/T/L (pairs) | can't tell " +
+        '(pairs) |',
+    )
+  })
+
+  it('names the unit of the measured, floor and rate lines', async () => {
+    const score = await pipeline(sweepRecords(5))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          panelDisagreementRate: 0.2,
+          floorFailures: [{ arm: 'candidate', caseId: 'cos-case-0' }],
+          floorUnclear: [{ arm: 'base', caseId: 'cos-case-1' }],
+        },
+      ],
+    })
+    expect(report).toContain('- measured over 5 run pair(s)')
+    expect(report).toContain('Position consistency across order-swapped pairs:')
+    expect(report).toContain(
+      'Panel disagreement on direction, per judgment: 20%',
+    )
+    expect(report).toContain('Absolute floor failed on 1 run(s), one per arm')
+    expect(report).toContain('Absolute floor unclear on 1 run(s), one per arm')
+  })
+
+  it('says a candidate-only flag is counted once per case', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          flags: [
+            {
+              arm: 'candidate',
+              type: 'restricted_data',
+              explanation: 'x',
+              loc: undefined,
+              caseId: 'cos-case-0',
+            },
+          ],
+        },
+      ],
+    })
+    expect(report).toContain(
+      '1 flag(s) raised on the candidate only (counted once per case):',
+    )
   })
 })
 
@@ -293,8 +353,9 @@ describe('exclusions', () => {
     const score = await pipeline(records)
     const report = renderReport({ agents: [score] })
     expect(report).toContain(
-      'Excluded: 1 tool error, 0 infra error, 1 identical config, ' +
-        '0 unpaired. Separately, 0 ungraded',
+      'Excluded pairs: 1 tool error, 0 infra error, 1 identical ' +
+        'config. Plus 0 unpaired record(s). Separately, 0 ungraded ' +
+        'judgment(s)',
     )
     expect(report).toContain("which is not a CAN'T SAY verdict")
   })
@@ -325,6 +386,7 @@ describe('provenance', () => {
         losses: 0,
         ties: 0,
         cannotDetermine: 0,
+        cannotDetermineJudgments: 0,
         magnitudes: { slight: 0, clear: 0, strong: 0 },
       },
       dimensions: {},
@@ -452,8 +514,8 @@ describe('a whole report', () => {
       '### chief_of_staff \u2014 BETTER',
       '| dimension |',
       'Measured, beside the verdict and never part of it',
-      'Excluded: 1 tool error',
-      'Position consistency:',
+      'Excluded pairs: 1 tool error',
+      'Position consistency across order-swapped pairs:',
       'Change under test:',
       '**Coverage:',
     ]

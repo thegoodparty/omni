@@ -314,6 +314,82 @@ describe('the magnitude distribution', () => {
   })
 })
 
+describe('the win/tie/loss counts', () => {
+  const bothOrders = (
+    caseId: string,
+    primary: SlotVerdict,
+    swapped: SlotVerdict,
+  ): GradedJudgment[] => [
+    judgment({ caseId, slotMap: X_IS_CANDIDATE, verdict: primary }),
+    judgment({
+      caseId,
+      order: 'swapped',
+      slotMap: X_IS_BASE,
+      verdict: swapped,
+    }),
+  ]
+
+  // Same failure the magnitude distribution had: the order-swap subsample
+  // judges one pair twice, so a per-judgment tally reads high against the
+  // case count the report prints in the very same table row.
+  it('counts one win per pair, not once per order', () => {
+    const result = score(bothOrders('a', 'X', 'Y'), noFloor())
+    expect(result.overall.cases).toBe(1)
+    expect(result.overall.wins).toBe(1)
+    expect(result.overall.ties).toBe(0)
+    expect(result.overall.losses).toBe(0)
+    expect(result.overall.judgments).toBe(2)
+  })
+
+  it('counts one loss per pair, not once per order', () => {
+    const result = score(bothOrders('a', 'Y', 'X'), noFloor())
+    expect(result.overall.losses).toBe(1)
+    expect(result.overall.wins).toBe(0)
+  })
+
+  // The delta scored this pair as a single half-win. Tallying the raw
+  // judgments would print it as a win AND a tie, so the row would claim
+  // two outcomes for one comparison.
+  it('reports a reconciled half-win as one win, not a win and a tie', () => {
+    const result = score(bothOrders('a', 'X', 'tie'), noFloor())
+    expect(result.overall.delta).toBe(0.5)
+    expect(result.overall.wins).toBe(1)
+    expect(result.overall.ties).toBe(0)
+  })
+
+  // An order-unstable pair contributes a zero to the delta, so the row has
+  // to show it as a tie rather than as one win and one loss.
+  it('reports an order-unstable pair as one tie', () => {
+    const result = score(bothOrders('a', 'X', 'X'), noFloor())
+    expect(result.orderUnstablePairs).toEqual(['a#1'])
+    expect(result.overall.ties).toBe(1)
+    expect(result.overall.wins).toBe(0)
+    expect(result.overall.losses).toBe(0)
+  })
+
+  // Every pair lands in exactly one bucket, so the four columns sum to the
+  // pair count and a reader can recover the denominator from the row.
+  it('puts every pair in exactly one bucket', () => {
+    const result = score(
+      [
+        ...bothOrders('a', 'X', 'Y'),
+        ...bothOrders('b', 'X', 'tie'),
+        ...bothOrders('c', 'X', 'X'),
+        judgment({ caseId: 'd', slotMap: X_IS_CANDIDATE, verdict: 'Y' }),
+        judgment({
+          caseId: 'e',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'cannot_determine',
+        }),
+      ],
+      noFloor(),
+    )
+    const { wins, ties, losses, cannotDetermine, judgments } = result.overall
+    expect(wins + ties + losses + cannotDetermine).toBe(5)
+    expect(judgments).toBe(8)
+  })
+})
+
 describe("cannot_determine and CAN'T SAY", () => {
   it('leaves cannot_determine out of the delta but counts it', () => {
     const result = score(
@@ -330,6 +406,59 @@ describe("cannot_determine and CAN'T SAY", () => {
     expect(result.overall.delta).toBe(1)
     expect(result.overall.cases).toBe(1)
     expect(result.overall.cannotDetermine).toBe(1)
+  })
+
+  // The column beside the case count is per pair. The rate the ceiling
+  // gate reads is per judgment, because "how often does the judge decline"
+  // is a fact about judge calls.
+  it('counts one refusal per pair and keeps a per-judgment rate', () => {
+    const result = score(
+      [
+        judgment({
+          caseId: 'a',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'cannot_determine',
+        }),
+        judgment({
+          caseId: 'a',
+          order: 'swapped',
+          slotMap: X_IS_BASE,
+          verdict: 'cannot_determine',
+        }),
+      ],
+      noFloor(),
+    )
+    expect(result.overall.cannotDetermine).toBe(1)
+    expect(result.overall.cannotDetermineJudgments).toBe(2)
+    expect(result.overall.judgments).toBe(2)
+  })
+
+  // Guards the unit of the gate's ratio, not just its numerator. Four of
+  // twenty pairs were declined in both orders: 8 of 24 judgments is over
+  // the 25% ceiling, while 4 pairs against 24 judgments is not.
+  it('reads the ceiling in judgments, not pairs over judgments', () => {
+    const declined = Array.from({ length: 4 }, (_, i) => [
+      judgment({
+        caseId: `no-${i}`,
+        slotMap: X_IS_CANDIDATE,
+        verdict: 'cannot_determine',
+      }),
+      judgment({
+        caseId: `no-${i}`,
+        order: 'swapped',
+        slotMap: X_IS_BASE,
+        verdict: 'cannot_determine',
+      }),
+    ]).flat()
+    const decided = Array.from({ length: 16 }, (_, i) =>
+      judgment({ caseId: `yes-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'X' }),
+    )
+    const result = score([...declined, ...decided], noFloor())
+    expect(result.overall.cannotDetermine).toBe(4)
+    expect(result.overall.cannotDetermineJudgments).toBe(8)
+    expect(result.overall.judgments).toBe(24)
+    expect(result.label).toBe("CAN'T SAY")
+    expect(result.labelNote).toMatch(/could not tell on 33%/)
   })
 
   it('gates when the judge could not tell too often', () => {
