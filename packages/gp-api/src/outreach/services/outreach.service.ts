@@ -421,8 +421,19 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   async finalizeOutreachPurchase(
     outreachId: number,
     campaignId: number,
+    // What paid for this send: the Stripe checkout session on the paid path, a
+    // free-purchase marker on the zero-amount one. Carried only so the failure
+    // line below names it. Whoever answers the paid-but-not-scheduled alert has
+    // to decide whether to refund, and the draft row does not record a charge
+    // that never produced a send.
+    chargeRef?: string,
   ): Promise<void> {
-    if (!(await this.claimDraftForFinalize(outreachId, campaignId))) return
+    const claimed = await this.claimDraftForFinalize(
+      outreachId,
+      campaignId,
+      chargeRef,
+    )
+    if (!claimed) return
 
     const outreach = await this.model.findUniqueOrThrow({
       where: { id: outreachId },
@@ -449,7 +460,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         data: { status: OutreachStatus.pending_payment },
       })
       this.logger.error(
-        { err, outreachId, campaignId: campaign.id },
+        { err, outreachId, campaignId: campaign.id, chargeRef },
         'P2P outreach finalize failed after payment',
       )
       if (user) {
@@ -579,6 +590,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   private async claimDraftForFinalize(
     outreachId: number,
     campaignId: number,
+    chargeRef?: string,
   ): Promise<boolean> {
     // One takeover only. A second lost claim means something else is racing
     // us, and a redelivery is a better place to resolve that than a loop.
@@ -601,7 +613,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       if (observed === 'rearmed' && takeovers === 0) continue
 
       this.logger.error(
-        { outreachId, campaignId, observed },
+        { outreachId, campaignId, observed, chargeRef },
         'P2P outreach finalize failed after payment',
       )
       throw new OutreachStepError(
