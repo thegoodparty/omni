@@ -72,6 +72,7 @@ import { loggerModule } from './observability/logging/logger-module'
 // circular-dependency "undefined at runtime" error in CampaignsService.
 import { GeneralChatsModule } from '@/chats/general/general-chats.module'
 import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
+import { DevEnvModule } from '@/devEnv/devEnv.module'
 
 @Module({
   imports: [
@@ -137,6 +138,7 @@ import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
     BriefingChatsModule,
     GeneralChatsModule,
     TestFixturesModule,
+    DevEnvModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,
     // because it needs a real SQS queue to work.
