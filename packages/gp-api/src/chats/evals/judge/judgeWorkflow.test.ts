@@ -42,6 +42,12 @@ const ENV_ENTRY = 10
 const setsEnv = (body: string, name: string): boolean =>
   new RegExp(`^ {${ENV_ENTRY}}${name}:`, 'm').test(body)
 
+// The VALUE of a step's env entry, not just whether it is there. Two arms that
+// each set a data version from a different expression would satisfy `setsEnv`
+// and still read two different snapshots of the mart.
+const envValue = (body: string, name: string): string | null =>
+  new RegExp(`^ {${ENV_ENTRY}}${name}: (.*)$`, 'm').exec(body)?.[1] ?? null
+
 const spendsLive = (body: string): boolean =>
   new RegExp(`^ {${ENV_ENTRY}}JUDGE_SPEND: 'true'$`, 'm').test(body)
 
@@ -136,5 +142,62 @@ describe('judge.yml judges what the arms managed to capture', () => {
     for (const arm of arms) {
       expect(arm.body).not.toMatch(/^ {8}if:/m)
     }
+  })
+})
+
+// THE SAME CLASS OF GUARD AS THE SPEND SWITCH. Both arms are meant to read one
+// snapshot of the voter mart, which only holds if they read one value — and
+// two arms that each resolved "current" themselves would resolve it an hour
+// apart and get two answers. A pin the arms disagree on is worse than none,
+// because each one would then report a version nothing held.
+describe('judge.yml pins both arms to one voter-mart version', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const arms = steps.filter((step) => step.name.startsWith('Capture the '))
+  const resolvedAt = steps.findIndex((step) =>
+    step.body.includes('npx tsx "$DATA_VERSION_ENTRY" "$out"'),
+  )
+
+  it('resolves the version once, in a step of its own', () => {
+    expect(resolvedAt).toBeGreaterThanOrEqual(0)
+    expect(
+      steps.filter((step) =>
+        step.body.includes('npx tsx "$DATA_VERSION_ENTRY" "$out"'),
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('resolves it before either arm runs', () => {
+    expect(arms).toHaveLength(2)
+    for (const arm of arms) {
+      expect(steps.indexOf(arm)).toBeGreaterThan(resolvedAt)
+    }
+  })
+
+  it('has both arms read the same step output', () => {
+    const values = arms.map((arm) => envValue(arm.body, 'JUDGE_DATA_VERSION'))
+    expect(values).toHaveLength(2)
+    for (const value of values) {
+      // A step output, which is the only shape resolved outside the arms. A
+      // literal or a `vars.` reference here would mean nobody looked the
+      // version up for this sweep.
+      expect(value).toMatch(/^\$\{\{ steps\.\w+\.outputs\.\w+ \}\}$/)
+    }
+    expect(new Set(values).size).toBe(1)
+  })
+
+  it('does not let the resolver fail the sweep', () => {
+    const resolver = steps[resolvedAt]
+    // Guarded on the resolver's OWN exit code rather than on a pipeline's, and
+    // the failure branch annotates instead of exiting: most agents never query
+    // the mart, so an unpinnable table must not kill a live sweep.
+    expect(resolver?.body).toContain(
+      'if ! npx tsx "$DATA_VERSION_ENTRY" "$out"',
+    )
+    expect(resolver?.body).toContain('::warning::')
+    // The file, never stdout: the Databricks driver logs to stdout on every
+    // connect, so a `$(npx tsx ...)` here reads driver chatter as the version.
+    expect(resolver?.body).toContain('version="$(cat "$out")"')
+    expect(resolver?.body).not.toMatch(/^\s*exit 1$/m)
   })
 })

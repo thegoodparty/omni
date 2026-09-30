@@ -22,7 +22,12 @@ import {
 } from './normalize'
 import type { RunRecord } from './record'
 import { RecordStoreError, type ArmManifest, type RecordStore } from './records'
-import { renderReport, type Refusal, type SweepReport } from './report'
+import {
+  renderReport,
+  unpinnedMartReads,
+  type Refusal,
+  type SweepReport,
+} from './report'
 import { scoreAgent, type AgentScore } from './score'
 import {
   parseSweepEnv,
@@ -210,6 +215,8 @@ export const judgeSweep = async (
     }
   }
 
+  const unpinned = unpinnedMartReads(records)
+
   const report: SweepReport = {
     agents: scores,
     ...(refusals.length > 0 && { refusals }),
@@ -224,6 +231,10 @@ export const judgeSweep = async (
     // evidence beside a verdict and it is the number that makes a dropped
     // candidate obvious.
     ...(identical.length > 0 && { identicalOutputs: identical }),
+    // Over EVERY record, not only the judgeable pairs. A run that was
+    // excluded still read the live mart, and the point of the warning is to
+    // say which reads the missing pin was free to move.
+    ...(unpinned.length > 0 && { unpinnedMart: unpinned }),
   }
 
   return {

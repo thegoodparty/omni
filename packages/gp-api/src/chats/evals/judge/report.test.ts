@@ -1,3 +1,4 @@
+import { hoursToMilliseconds } from 'date-fns'
 import { describe, expect, it } from 'vitest'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
@@ -8,10 +9,13 @@ import {
   CHAT_PAIR,
   IDENTICAL_DIGEST_PAIR,
   TOOL_ERROR_PAIR,
+  UNPINNED_VOTER_QUERY_PAIR,
+  VOTER_QUERY_PAIR,
 } from './fixtures/records'
 import { judgeAll, OVERALL } from './judge'
 import { normalizeAgent, type NormalizedAgent } from './normalize'
-import { coverageLines, renderReport } from './report'
+import { armGap } from './armGap'
+import { coverageLines, renderReport, unpinnedMartReads } from './report'
 import type { Cost, JsonValue, RunRecord } from './record'
 import { scoreAgent, type AgentScore } from './score'
 
@@ -38,6 +42,9 @@ const REGISTRY: readonly AgentEntry[] = [
     blockedReason: 'no ChatScopeHandler yet',
   },
 ]
+
+const EARLY = '2026-09-30T10:00:00.000Z'
+const LATE = '2026-09-30T10:30:00.000Z'
 
 const SHORT = 'Three priorities are on file.'
 const LONG =
@@ -535,5 +542,101 @@ describe('a whole report', () => {
       expect(at, `missing section: ${marker}`).toBeGreaterThan(cursor)
       cursor = at
     }
+  })
+})
+
+// THE WARNING THAT REPLACES A PIN NOBODY GOT.
+//
+// `JUDGE_DATA_VERSION` may be unset for an ordinary reason, and the sweep
+// proceeds rather than refusing — most agents never touch the mart. What it
+// must not do is proceed as though pinned. A record with `toolQueries` and no
+// `dataVersion` is a run that read the live mart with nothing holding it
+// still, and it is the only kind of run the missing pin can have moved.
+describe('an unpinned voter mart', () => {
+  it('names the runs that queried the mart with no version pinned', () => {
+    const reads = unpinnedMartReads([...UNPINNED_VOTER_QUERY_PAIR])
+    expect(reads).toEqual([
+      {
+        agentId: 'chief_of_staff',
+        caseIds: ['cos-housing-support'],
+        runs: 2,
+      },
+    ])
+    const report = renderReport({ agents: [], unpinnedMart: reads })
+    expect(report).toContain('The voter mart was not pinned to one version.')
+    expect(report).toContain(
+      'chief_of_staff: 2 run(s) queried the mart unpinned',
+    )
+    expect(report).toContain('may belong to the data moving')
+  })
+
+  // A pinned run carries the version it read, so there is nothing to warn
+  // about and a warning printed anyway would train readers to ignore it.
+  it('says nothing when the runs that queried the mart were pinned', () => {
+    expect(unpinnedMartReads([...VOTER_QUERY_PAIR])).toEqual([])
+    expect(renderReport({ agents: [] })).not.toContain(
+      'The voter mart was not pinned',
+    )
+  })
+
+  // The distinction the whole warning turns on: an unpinned sweep whose runs
+  // never queried a versioned table lost nothing, and CHAT_PAIR is that run.
+  it('ignores a run that queried nothing versioned', () => {
+    expect(unpinnedMartReads([...CHAT_PAIR])).toEqual([])
+  })
+
+  it('counts every run but lists each case once', () => {
+    const [base, candidate] = UNPINNED_VOTER_QUERY_PAIR
+    const reads = unpinnedMartReads([
+      base,
+      candidate,
+      { ...base, runId: 'run_retry_base', attempt: 2 },
+      { ...candidate, caseId: 'cos-turnout', runId: 'run_turnout_cand' },
+    ])
+    expect(reads).toEqual([
+      {
+        agentId: 'chief_of_staff',
+        caseIds: ['cos-housing-support', 'cos-turnout'],
+        runs: 4,
+      },
+    ])
+  })
+
+  it('reports each agent separately, since a verdict is per agent', () => {
+    const [base] = UNPINNED_VOTER_QUERY_PAIR
+    const reads = unpinnedMartReads([
+      base,
+      { ...base, agentId: 'priority_flow', runId: 'run_pf' },
+    ])
+    expect(reads.map((read) => read.agentId)).toEqual([
+      'chief_of_staff',
+      'priority_flow',
+    ])
+    const report = renderReport({ agents: [], unpinnedMart: reads })
+    expect(report).toContain('priority_flow: 1 run(s)')
+    // Said ONCE, however many agents it qualifies.
+    expect(
+      report.split('The voter mart was not pinned to one version.'),
+    ).toHaveLength(2)
+  })
+
+  // Ahead of the per-agent sections a reader may stop after, and beside the
+  // placeholder warning rather than at the foot with the arm gap.
+  it('lands before the arm-capture windows', async () => {
+    const score = await pipeline(sweepRecords(6))
+    const report = renderReport({
+      agents: [score],
+      unpinnedMart: unpinnedMartReads([...UNPINNED_VOTER_QUERY_PAIR]),
+      armGap: armGap(
+        { startedAt: EARLY, endedAt: EARLY },
+        { startedAt: LATE, endedAt: LATE },
+        hoursToMilliseconds(6),
+      ),
+    })
+    const at = report.indexOf('The voter mart was not pinned')
+    // Both found, then ordered: a block that vanished would have an index of
+    // -1, which is "before" everything and would pass a bare comparison.
+    expect(at).toBeGreaterThan(0)
+    expect(at).toBeLessThan(report.indexOf('### Arm capture windows'))
   })
 })

@@ -5,7 +5,7 @@ import type { Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { PRICING_VERSION } from './pricing'
 import type { AgentScore, DimensionScore } from './score'
-import type { CiContext } from './record'
+import type { CiContext, RunRecord } from './record'
 
 // The PR comment.
 //
@@ -43,6 +43,9 @@ export interface SweepReport {
   // How many of each agent's pairs came back byte-identical. Evidence, not a
   // verdict: the refusal for an all-identical sweep arrives as a Refusal.
   identicalOutputs?: readonly IdenticalOutputs[]
+  // Runs that queried the voter mart with no Delta version pinned. Empty or
+  // absent on a sweep that either pinned the mart or never read it.
+  unpinnedMart?: readonly UnpinnedMartReads[]
 }
 
 const signed = (value: number, digits: number): string =>
@@ -313,6 +316,82 @@ export const identicalOutputLines = (
   ),
 ]
 
+// WHICH RUNS THE MISSING PIN ACTUALLY COST SOMETHING.
+//
+// `JUDGE_DATA_VERSION` may be unset for an ordinary reason — no Databricks
+// credential on the job, a dead one, a history the warehouse would not hand
+// over — and the sweep proceeds rather than refusing, because most agents
+// never touch the mart and killing a whole paid sweep over an unpinnable
+// table is the wrong trade. What it must not do is proceed as though pinned.
+//
+// A record is the evidence for both halves of that. `dataVersion` is stamped
+// only when a version was pinned AND a query actually ran against it (see
+// the runner), and `toolQueries` carries the SQL the agent wrote verbatim. So
+// a record with queries and no `dataVersion` is a run that read the live mart
+// while nothing was holding it still — and a verdict that turned on that
+// run's constituent numbers is the one a reader has to discount. A run with
+// no queries read no versioned table and is unaffected, which is why this is
+// not simply "the pin was missing".
+//
+// Counted per agent because that is the grain a verdict is reported at: an
+// agent whose runs never queried the mart is not qualified by this at all,
+// and folding them together would qualify every verdict equally.
+export interface UnpinnedMartReads {
+  agentId: string
+  // Distinct cases with at least one such run, so a reader can go and look at
+  // the ones whose numbers may have moved.
+  caseIds: readonly string[]
+  // Runs, not cases: both arms and every attempt count, because each one is a
+  // separate read of a mart that was free to change in between.
+  runs: number
+}
+
+const readMartUnpinned = (record: RunRecord): boolean =>
+  record.dataVersion === undefined && record.toolQueries.length > 0
+
+export const unpinnedMartReads = (
+  records: readonly RunRecord[],
+): UnpinnedMartReads[] => {
+  const byAgent = new Map<string, { caseIds: Set<string>; runs: number }>()
+  for (const record of records) {
+    if (!readMartUnpinned(record)) continue
+    const entry = byAgent.get(record.agentId) ?? {
+      caseIds: new Set<string>(),
+      runs: 0,
+    }
+    entry.caseIds.add(record.caseId)
+    entry.runs += 1
+    byAgent.set(record.agentId, entry)
+  }
+  return [...byAgent.entries()].map(([agentId, entry]) => ({
+    agentId,
+    caseIds: [...entry.caseIds].sort(),
+    runs: entry.runs,
+  }))
+}
+
+// Said once, plainly, and then per agent. The first sentence is the one a
+// reader needs whether or not they know what a Delta version is; the list
+// under it is which verdicts it qualifies.
+export const unpinnedMartLines = (
+  reads: readonly UnpinnedMartReads[],
+): string[] => [
+  '> **The voter mart was not pinned to one version.** Both arms were meant ' +
+    'to read the same snapshot of it. No version could be resolved for this ' +
+    'sweep, so each arm read whatever the mart held when it ran \u2014 and the ' +
+    'arms are separate processes that can be an hour apart. For the runs ' +
+    'below, a difference in constituent numbers may belong to the data ' +
+    'moving rather than to the branch, so discount any verdict that turned ' +
+    'on one. Every other run in this report queried nothing versioned and ' +
+    'is unaffected.',
+  '>',
+  ...reads.map(
+    (read) =>
+      `> - ${read.agentId}: ${read.runs} run(s) queried the mart unpinned, ` +
+      `across case(s) ${read.caseIds.join(', ')}`,
+  ),
+]
+
 export const placeholderLines = (agentIds: readonly string[]): string[] => [
   `> **Placeholder inputs:** ${agentIds.join(', ')}. These case lists exist ` +
     'to exercise the pipeline, not to test the agent, so treat the verdict ' +
@@ -338,6 +417,15 @@ export const renderReport = (
   const placeholders = report.placeholderCases ?? []
   if (placeholders.length > 0) {
     lines.push(...placeholderLines(placeholders))
+    lines.push('')
+  }
+
+  // Beside the placeholder warning rather than at the foot with the arm gap:
+  // both qualify what the verdicts above can be read to mean, and a reader who
+  // stops after the first agent section has to have seen it.
+  const unpinned = report.unpinnedMart ?? []
+  if (unpinned.length > 0) {
+    lines.push(...unpinnedMartLines(unpinned))
     lines.push('')
   }
 

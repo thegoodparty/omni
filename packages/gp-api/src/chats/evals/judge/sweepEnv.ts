@@ -56,6 +56,24 @@ const AgentIdsSchema = NON_EMPTY.transform((value) => [
 const spends = (value: string | undefined): boolean =>
   spendsRealMoney({ [SPEND_ENV]: value })
 
+// AN UNPINNED SWEEP ARRIVES AS AN EMPTY STRING, not as an absent variable,
+// and reading one as malformed would defeat the failure policy it implements.
+// The workflow resolves the mart's Delta version in its own step and publishes
+// it as a step output; when the mart cannot be read that output is empty, and
+// Actions still exports the `env:` entry built from it. The policy is to sweep
+// unpinned and say so in the report — most agents never touch the mart, so
+// refusing a whole paid sweep over an unpinnable table is the wrong trade — so
+// blank reads here exactly as "not set" does.
+//
+// The shape is NOT re-checked here. `assertDeltaPin` refuses a non-numeric
+// version before the first turn of the run that would splice it into SQL, and
+// a second regex in this file is one more thing to drift from it.
+const OPTIONAL_VERSION = z
+  .string()
+  .transform((value) => value.trim())
+  .transform((value) => (value === '' ? undefined : value))
+  .optional()
+
 const PR_NUMBER = z
   .string()
   .regex(/^\d+$/)
@@ -91,7 +109,7 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   // an artifact of the voter data moving between the two captures. It comes
   // from outside the arm processes for exactly that reason: an arm that read
   // the current version itself would read a different one.
-  JUDGE_DATA_VERSION: NON_EMPTY.optional(),
+  JUDGE_DATA_VERSION: OPTIONAL_VERSION,
 })
 
 export class SweepEnvError extends Error {}

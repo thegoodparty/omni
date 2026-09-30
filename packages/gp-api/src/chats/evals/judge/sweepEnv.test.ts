@@ -154,6 +154,24 @@ describe('parseArmEnv', () => {
     )
   })
 
+  // THE UNPINNED PATH, and it arrives as an EMPTY STRING rather than as an
+  // absent variable: the workflow builds this entry from a step output that is
+  // empty when the mart could not be read, and Actions still exports it.
+  // Reading blank as malformed would refuse the whole arm and kill a paid
+  // sweep over a table most agents never query — which is the opposite of the
+  // policy the empty output implements.
+  it('reads an empty Delta version as not pinned rather than refusing', () => {
+    expect(
+      parseArmEnv(armEnv({ JUDGE_DATA_VERSION: '' })).dataVersion,
+    ).toBeUndefined()
+  })
+
+  it('reads a whitespace-only Delta version as not pinned', () => {
+    expect(
+      parseArmEnv(armEnv({ JUDGE_DATA_VERSION: '  ' })).dataVersion,
+    ).toBeUndefined()
+  })
+
   it('reads a PR number when there is one', () => {
     expect(parseArmEnv(armEnv({ JUDGE_PR_NUMBER: '2240' })).prNumber).toBe(2240)
   })
