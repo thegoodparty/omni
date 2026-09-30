@@ -411,20 +411,12 @@ export = async () => {
     (name) => pulumi.interpolate`arn:aws:s3:::${name}`,
   )
 
-  const campaignPlanInputQueueName = select({
-    preview: '',
-    dev: 'campaign-plan-input-dev.fifo',
-    // IAM grant provisioned ahead of the (currently disabled) prod
-    // CAMPAIGN_PLAN_INPUT_QUEUE_URL env var so enabling prod later doesn't
-    // 403 on SQS. An Allow on an unused queue ARN is harmless.
-    prod: 'campaign-plan-input-prod.fifo',
-  })
   const agentDispatchQueueName = select({
     preview: '',
     dev: 'agent-dispatch-dev.fifo',
     prod: 'agent-dispatch-prod.fifo',
   })
-  const staticQueueArns = [campaignPlanInputQueueName, agentDispatchQueueName]
+  const staticQueueArns = [agentDispatchQueueName]
     .filter((name): name is string => name !== '')
     .map((name) => `arn:aws:sqs:${region}:${accountId}:${name}`)
   const taskRoleQueueArns: pulumi.Input<string>[] = [
@@ -506,13 +498,6 @@ export = async () => {
       // and prod all send staff to the same console.
       GP_ADMIN_BASE_URL: 'https://admin.goodparty.org',
       SQS_QUEUE_BASE_URL: 'https://sqs.us-west-2.amazonaws.com/333022194791',
-      CAMPAIGN_PLAN_INPUT_QUEUE_URL: select({
-        preview: '',
-        dev: 'https://sqs.us-west-2.amazonaws.com/333022194791/campaign-plan-input-dev.fifo',
-        // prod disabled until we're ready to generate events in prod
-        // prod: 'https://sqs.us-west-2.amazonaws.com/333022194791/campaign-plan-input-prod.fifo',
-        prod: '',
-      }),
       CAMPAIGN_PLAN_RESULTS_BUCKET: select({
         preview: '',
         dev: 'campaign-plan-results-dev',

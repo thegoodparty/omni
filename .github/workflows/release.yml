@@ -431,25 +431,9 @@ jobs:
           terraform_version: 1.15.8
           terraform_wrapper: false
 
-      # campaign_plan_lambda/build.sh drives `uv export` + `uv pip install`. The
-      # pmf-engine build gets by on the runner's python3 -m pip; this one does
-      # not, so uv must be present wherever gp-ai artifacts are built.
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: latest
-
       - name: Build pmf-engine lambda package
         working-directory: packages/gp-ai
         run: bash pmf_engine/scripts/build_lambda_package.sh
-      # Terraform reads this zip via fileexists(...) ? filebase64sha256(...) : null.
-      # If it is missing the hash resolves to null, no diff is detected, and the
-      # plan comes back CLEAN while the lambda's code silently never updates —
-      # which is how campaign-plan sat frozen at 2026-07-08.
-      - name: Build campaign-plan lambda zip
-        working-directory: packages/gp-ai
-        run: bash campaign_plan_lambda/build.sh
-
 
       - name: Build serve-analyze lambda trigger
         working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
@@ -472,9 +456,6 @@ jobs:
       - name: apply dev/pmf-vpc-endpoints
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-vpc-endpoints
-      - name: apply dev/campaign-plan-lambda
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/campaign-plan-lambda
       - name: apply dev/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-engine-control-plane
@@ -519,9 +500,6 @@ jobs:
       - name: reverify dev/pmf-vpc-endpoints
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-vpc-endpoints
-      - name: reverify dev/campaign-plan-lambda
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/campaign-plan-lambda
       - name: reverify dev/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-control-plane
@@ -1134,25 +1112,9 @@ jobs:
           terraform_version: 1.15.8
           terraform_wrapper: false
 
-      # campaign_plan_lambda/build.sh drives `uv export` + `uv pip install`. The
-      # pmf-engine build gets by on the runner's python3 -m pip; this one does
-      # not, so uv must be present wherever gp-ai artifacts are built.
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: latest
-
       - name: Build pmf-engine lambda package
         working-directory: packages/gp-ai
         run: bash pmf_engine/scripts/build_lambda_package.sh
-      # Terraform reads this zip via fileexists(...) ? filebase64sha256(...) : null.
-      # If it is missing the hash resolves to null, no diff is detected, and the
-      # plan comes back CLEAN while the lambda's code silently never updates —
-      # which is how campaign-plan sat frozen at 2026-07-08.
-      - name: Build campaign-plan lambda zip
-        working-directory: packages/gp-ai
-        run: bash campaign_plan_lambda/build.sh
-
 
       - name: Build serve-analyze lambda trigger
         working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
@@ -1172,9 +1134,6 @@ jobs:
       - name: apply prod/autopilot-bot
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/autopilot-bot
-      - name: apply prod/campaign-plan-lambda
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/campaign-plan-lambda
       - name: apply prod/clickup-bot
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/clickup-bot
@@ -1231,9 +1190,6 @@ jobs:
       - name: reverify prod/autopilot-bot
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-bot
-      - name: reverify prod/campaign-plan-lambda
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/campaign-plan-lambda
       - name: reverify prod/clickup-bot
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/clickup-bot
