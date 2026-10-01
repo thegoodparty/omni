@@ -241,6 +241,10 @@ describe('a question written above the clarify widget', () => {
     expect(withoutTrailingQuestion('Look at the U.S. data first?')).toBe('')
   })
 
+  it('keeps an exclamation that ends in an interrobang', () => {
+    expect(withoutTrailingQuestion('Really!? Which first?')).toBe('Really!?')
+  })
+
   it('reads an all-caps acronym before a period as the end of a sentence', () => {
     expect(
       withoutTrailingQuestion('This applies to any ADU. Which zone?'),
