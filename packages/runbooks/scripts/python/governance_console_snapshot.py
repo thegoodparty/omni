@@ -365,15 +365,14 @@ CAUSE_CAVEATS = {
     "never_observed": _caveat(
         "Amplitude holds a definition for each of these events and no data behind it. "
         "Not one of them has ever fired.",
-        "Less than it sounds like. Every event here was found in the code, but nothing "
-        "waits before counting it, so one that shipped last Thursday scores exactly the "
-        "same as one that has been silent for months.",
-        "The group mixes two things. Counted on 2026-09-28: about 32 shipped too "
-        "recently to judge, and 4 are the real finding. Ruling on some events here does "
-        "not stop them coming back next run; an event leaves on its own the first time "
-        "it fires.",
-        "Split it before ruling on it. The 'older than 30d' button selects the events "
-        "that have been silent long enough to mean something.",
+        "Every event here was found in the code and shipped more than 30 days ago, so "
+        "the silence means something. Events that shipped more recently and have not "
+        "fired yet are left out of this group, and the digest counts them as too new to "
+        "judge.",
+        "Ruling on some events here does not stop them coming back next run; an event "
+        "leaves on its own the first time it fires.",
+        "Before calling one broken, check that the code that sends it can still run and "
+        "that the action behind it is one people actually take.",
         "instrumented_never_observed, DATA-2588",
     ),
     "dormant": _caveat(

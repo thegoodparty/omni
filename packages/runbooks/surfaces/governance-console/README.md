@@ -233,9 +233,8 @@ quick-select chips built from that cause's own data: `all`, `none`, one per dist
 provenance state, and `older than 30d` where it applies. Pick a set, then apply a verb
 to just those events.
 
-`never observed` is the usual case. On 2026-09-28 it held about thirty events
-instrumented in the last fortnight that simply had not fired yet, and four silent for
-months. `older than 30d` selects the four, which need a different verb from the rest.
+Use it when the evidence columns split a cause into more than one decision, for example
+when the provenance chips show some events were never found in code and others were.
 
 A per-event ruling coexists with the cause-level one, so "retire the cluster, except
 these four" is expressible. In the handoff, events ruled together under the same verb
