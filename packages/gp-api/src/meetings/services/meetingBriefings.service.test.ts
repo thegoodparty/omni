@@ -2642,7 +2642,7 @@ describe('publication gate: ready briefings must show an available agenda', () =
       expect(await rowFor(eo.id)).toBeNull()
     })
 
-    it('writes no row when the packet states a date two weeks from the target', async () => {
+    it('writes no row when the packet states a date two weeks from the target, and records why on the upload', async () => {
       const { eo, briefingRun } = await setupRun(
         userProvided({
           packet_stated_meeting_date: '2026-05-25',
@@ -2652,6 +2652,37 @@ describe('publication gate: ready briefings must show an available agenda', () =
       await uploadRowFor(eo.id, briefingRun.runId)
       await complete(briefingRun)
       expect(await rowFor(eo.id)).toBeNull()
+      const upload = await service.prisma.userAgendaUpload.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: eo.id,
+            meetingDate: new Date(MEETING_DATE),
+          },
+        },
+      })
+      expect(upload?.refusalReason).toBe(
+        `packet_date_mismatch:2026-05-25:${MEETING_DATE}`,
+      )
+    })
+
+    it('records an availability refusal on the upload row too', async () => {
+      const { eo, briefingRun } = await setupRun(
+        userProvided({ agenda_availability: 'inferred_from_prior' }),
+      )
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+      const upload = await service.prisma.userAgendaUpload.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: eo.id,
+            meetingDate: new Date(MEETING_DATE),
+          },
+        },
+      })
+      expect(upload?.refusalReason).toBe(
+        'agenda_unavailable:inferred_from_prior',
+      )
     })
 
     it('writes no row on a stated-date mismatch even when the agent called it matched', async () => {

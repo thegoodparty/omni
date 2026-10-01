@@ -106,11 +106,24 @@ export interface BriefingSummary {
    *
    * - `processing` — agenda accepted; briefing job is running
    * - `failed` — agenda submission or run failed; user can retry
+   * - `rejected` — the run finished but the agenda could not be used for
+   *   this meeting (see `userAgendaReason`); user can submit another
    * - `completed` — briefing produced (the `status` will usually flip to
    *   `briefing_ready` in the same payload, but this remains as a hint)
    * - `unknown` — server doesn't know what state the run is in
    */
-  userAgendaStatus?: 'processing' | 'failed' | 'completed' | 'unknown' | null
+  userAgendaStatus?:
+    | 'processing'
+    | 'failed'
+    | 'rejected'
+    | 'completed'
+    | 'unknown'
+    | null
+  /**
+   * Machine reason behind a `rejected` status, as gp-api recorded it, e.g.
+   * `packet_date_mismatch:2026-09-21:2026-10-05`. Null otherwise.
+   */
+  userAgendaReason?: string | null
 }
 
 // ---------------------------------------------------------------------------
