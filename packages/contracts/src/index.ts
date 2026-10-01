@@ -1075,6 +1075,8 @@ export {
   SmsStandardsVerdictSchema,
   type SmsStandardsVerdict,
   checkSmsStandards,
+  deriveSmsProtectedParts,
+  type SmsProtectedPart,
   SmsApprovalQueueItemSchema,
   type SmsApprovalQueueItem,
   SmsApprovalQueueResponseSchema,

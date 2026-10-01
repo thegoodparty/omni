@@ -61,6 +61,24 @@ const overlaps = (a: Hit, b: Hit): boolean => a.start < b.end && a.end > b.start
 
 // Every occurrence of every token in one line, longest token first so a
 // token whose text contains another's is matched whole.
+const WORD_CHARACTER = /[\p{L}\p{N}]/u
+
+// A phrase that starts or ends in a letter is never meant to be cut out of
+// a longer word: "Sarah" must not anchor inside "Sarahsville" ahead of the
+// candidate's own "Sarah" later in the line.
+const splitsWord = (
+  line: string,
+  hit: Hit & { spec: ProtectedSpec },
+): boolean => {
+  const { text } = hit.spec
+  const isWord = (char: string | undefined) =>
+    char !== undefined && WORD_CHARACTER.test(char)
+  return (
+    (isWord(text[0]) && isWord(line[hit.start - 1])) ||
+    (isWord(text[text.length - 1]) && isWord(line[hit.end]))
+  )
+}
+
 const findTokens = (line: string, tokens: readonly TokenSpec[]): TokenHit[] => {
   const byLength = tokens
     .filter((token) => token.text.length > 0)
@@ -141,7 +159,10 @@ export const valueToContent = (
         if (start === -1) break
         const hit = { start, end: start + spec.text.length, spec }
         const taken = [...(tokenHits[row] ?? []), ...(anchors[row] ?? [])]
-        if (!taken.some((other) => overlaps(hit, other))) {
+        if (
+          !splitsWord(line, hit) &&
+          !taken.some((other) => overlaps(hit, other))
+        ) {
           anchors[row]?.push(hit)
           placed = true
           break
@@ -223,6 +244,17 @@ export const lockedRanges = (doc: ProseMirrorNode): LockedRange[] => {
   })
   return ranges
 }
+
+// Strictly inside a protected phrase, where a drop would split it and the
+// guard will refuse it. The edges are fine: a pill dropped right before or
+// after a phrase leaves it whole.
+export const isInsideProtectedPhrase = (
+  doc: ProseMirrorNode,
+  pos: number,
+): boolean =>
+  lockedRanges(doc).some(
+    (range) => range.kind === 'protected' && range.from < pos && pos < range.to,
+  )
 
 interface Signature {
   protectedText: Map<string, string>

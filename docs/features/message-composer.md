@@ -1,8 +1,9 @@
 # Message composer and outreach disclaimers
 
 Owner: Justin. Status: waves 0 and 1 built (`Textarea` seamless variant;
-`TokenField`, `TokenPill` and `MERGE_TAGS`, with no call sites yet). Nothing
-past wave 1 is built.
+`TokenField`, `TokenPill` and `MERGE_TAGS`, with no call sites yet), plus
+the SMS span derivation wave 2 plugs into (`deriveSmsProtectedParts`).
+Robocall spans and everything user-visible past wave 0 are not built.
 
 A plan for two things that turn out to be one thing: editable-but-protected
 disclaimers in the SMS and robocall flows, and a reusable composer to hold them.
@@ -211,6 +212,16 @@ One function computes the spans from the same `(script, context)` inputs
 `checkSmsStandards` already takes, and lives beside it in contracts. A rule
 change then updates the lock and the verdict together, and they cannot drift
 apart.
+
+Built for SMS as `deriveSmsProtectedParts` in
+`packages/contracts/src/outreach/SmsAdminConsole.schema.ts`. It returns the
+exact text in the script that satisfies each rule, as written, plus the
+merge tag in its channel form (`MERGE_TAGS`), and honours a surface's
+`ignoredStandardsRules`. Two details the plan did not spell out: names match
+as whole words (the verdict's substring test would lock "chen" inside
+"kitchen"), and the name is looked for outside the disclaimer, because the
+committee often carries it ("Friends of Sarah Chen") and the copy the
+candidate wrote would otherwise go unlocked.
 
 This also means the list is **per campaign and legitimately sometimes empty**:
 
