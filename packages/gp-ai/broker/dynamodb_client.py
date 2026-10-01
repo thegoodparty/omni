@@ -32,6 +32,25 @@ JUDGE_OVERRIDE_KEY_RE = re.compile(
 # there is no import path between the three; the agreement is held by tests.
 JUDGE_RUN_ID_PREFIX = "_judge-"
 
+# The rest of the judge run-id shape, duplicated from the same two places for
+# the same reason. The dispatch Lambda refuses any judge run id that is not a
+# `fullmatch` for this, so a mint that accepted a longer one would hand out a
+# ticket for a run the layer above it will not dispatch — and the run id is
+# also what dispatch passes to ECS RunTask as `startedBy` and what the task
+# reaper reads back to identify the run. Product run ids are UUIDv7 (exactly
+# 36), which is where the number comes from.
+JUDGE_RUN_ID_MAX_LENGTH = 36
+
+# `fullmatch` on an explicit alphabet rather than `startswith` + a length test,
+# so the broker re-establishes the dispatch Lambda's whole run-id shape rather
+# than a weaker approximation of it. (The broker's own `IDENTIFIER_PATTERN`
+# already rejects the trailing newline Python's `$` would admit, because
+# pydantic matches with the Rust regex engine — but this regex is read by
+# Python's `re`, so the explicit `{1,N}` bound is what holds.)
+JUDGE_RUN_ID_RE = re.compile(
+    rf"^{JUDGE_RUN_ID_PREFIX}[A-Za-z0-9_-]{{1,{JUDGE_RUN_ID_MAX_LENGTH - len(JUDGE_RUN_ID_PREFIX)}}}$"
+)
+
 # Same alphabet the broker's own request models accept for an S3 VersionId
 # (`experiment_manifest.S3_VERSION_ID_PATTERN`).
 _S3_VERSION_ID_RE = re.compile(r"^[A-Za-z0-9._\-]{1,1024}$")

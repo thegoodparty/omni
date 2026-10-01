@@ -111,7 +111,11 @@ _FENCE_BREAKOUT_RE = re.compile(r"</?untrusted_web_content\b", re.IGNORECASE)
 class PublishRequest(BaseModel):
     artifact: dict
     duration_seconds: float = 0
-    cost_usd: float = 0
+    # `None`, not `0`, for an omitted cost — the same rule /run-status follows.
+    # A non-optional `= 0` default coerces the omission at the model layer
+    # instead of at the call site, but the result is the same unmeasured-cost
+    # zero, and the handler forwards this value verbatim onto the callback.
+    cost_usd: float | None = None
     # PMF QA gate (contract D, v1 observe-only). The runner attaches the
     # gate's verdict here on the success path so the broker can write it
     # durably to S3 (`<exp>/<run>/qa/verdict.json`) — the verdict's system of
