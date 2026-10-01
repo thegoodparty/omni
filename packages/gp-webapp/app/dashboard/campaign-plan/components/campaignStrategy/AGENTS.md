@@ -26,6 +26,11 @@ cards the candidate checks off. Feature overview + backend:
   `isDefaultTask` outreach dated in it. The gp-api weekly digest mirrors that
   active-week set (dynamic + text/robocall outreach, not the setup checklist), so
   keep the two in sync or the page and the email disagree.
+- **A row's link label comes from its own `cta`, falling back to "Open".**
+  Only the story task sets `cta` today ("Add your story"), and it has to match
+  the card pinned above the rail; the manager's task list prefers the same
+  column. Before this the tracker hardcoded "Open" for every linked row, so a
+  row could disagree with the surface next to it.
 - **Phase status has two axes.** `done` = every task in the phase completed;
   "happening now" (active) is date-driven (the first non-empty phase still in
   play). Empty intermediate phases are skipped so they can't strand a later
