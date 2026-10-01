@@ -82,3 +82,41 @@ def test_page_routes_drop_route_groups():
         "packages/gp-webapp/app/(candidate)/dashboard/page.tsx": "export default function P() {}",
     }))
     assert "/dashboard" in snap.page_routes
+
+
+SEND = "packages/gp-webapp/app/dashboard/outreach/Send.tsx"
+
+
+def test_last_call_site_removed_with_key_left_is_a_dead_listing():
+    base = gg.build_snapshot(tree({SEND: "trackEvent(EVENTS.Settings.Saved)"}))
+    head = gg.build_snapshot(tree({SEND: "noop()"}))
+    [f] = gg.dead_listings(base, head)
+    assert (f.rule, f.level, f.event) == ("dead_listing", "block", "Settings - Saved")
+    assert "Delete its key" in f.fix
+
+
+def test_removing_the_key_too_clears_the_dead_listing():
+    base = gg.build_snapshot(tree({SEND: "trackEvent(EVENTS.Settings.Saved)"}))
+    head = gg.build_snapshot(tree({SEND: "noop()"}, web=WEB_REG.replace("    Saved: 'Settings - Saved',\n", "")))
+    assert gg.dead_listings(base, head) == []
+
+
+def test_an_event_that_never_had_a_call_site_is_skipped():
+    base = gg.build_snapshot(tree({}))
+    head = gg.build_snapshot(tree({}))
+    assert gg.dead_listings(base, head) == []
+
+
+def test_a_hubspot_event_left_dead_says_to_check_hubspot():
+    api = "packages/gp-api/src/website/website.service.ts"
+    base = gg.build_snapshot(tree({api: "this.analytics.track(id, EVENTS.CandidateWebsite.Published)"}))
+    head = gg.build_snapshot(tree({api: "noop()"}))
+    [f] = gg.dead_listings(base, head)
+    assert "HubSpot" in f.detail
+
+
+def test_removing_a_hubspot_key_warns():
+    base = gg.build_snapshot(tree({}))
+    head = gg.build_snapshot(tree({}, api=API_REG.replace("    Published: 'Candidate Website - Published',\n", "")))
+    [f] = gg.hubspot_warnings(base, head)
+    assert (f.rule, f.level) == ("hubspot_event_removed", "warn")

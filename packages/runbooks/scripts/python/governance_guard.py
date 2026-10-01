@@ -264,3 +264,40 @@ def build_snapshot(tree: Tree) -> Snapshot:
         provenance_events=provenance,
         page_routes={r for p in paths if (r := page_route(p))},
     )
+
+
+@dataclass(frozen=True)
+class Finding:
+    rule: str
+    level: str
+    event: str
+    detail: str
+    fix: str
+    metrics: tuple[str, ...] = ()
+
+
+_RETIRE_FIX = (
+    "Delete its key from the EVENTS registry in this PR, then follow the "
+    "instrument-analytics-event skill's 'When a change removes an event' steps "
+    "(provenance upsert --direction retire, event-metadata RETIRE)."
+)
+
+
+def dead_listings(base: Snapshot, head: Snapshot) -> list[Finding]:
+    out = []
+    for name in sorted(head.registered()):
+        if base.count(name) >= 1 and head.count(name) == 0:
+            detail = "Its last call site was removed, but its registry key is still there."
+            if name in head.hubspot:
+                detail += " HubSpot workflows use this event; check them before merging."
+            out.append(Finding("dead_listing", "block", name, detail, _RETIRE_FIX))
+    return out
+
+
+def hubspot_warnings(base: Snapshot, head: Snapshot) -> list[Finding]:
+    return [
+        Finding("hubspot_event_removed", "warn", name,
+                "This backend event is used by HubSpot workflows and was removed from the registry.",
+                "Check the HubSpot workflow that triggers on it (see segment.types.ts) before merging.")
+        for name in sorted(base.hubspot) if not head.has_key(name)
+    ]
