@@ -85,27 +85,27 @@
   },
   "packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationFlow.tsx#wizard_stage": {
     "dashboard_question": "Where do users drop off in the campaign verification flow (intro vs form vs submitted)?",
-    "disposition": "accepted",
+    "disposition": "dismissed",
     "first_seen": "2026-09-28",
     "id": "packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationFlow.tsx#wizard_stage",
     "judge_reason": "URL-stable multi-stage wizard (intro/form/submitted) with no per-stage Viewed/Completed events visible in this handler.",
     "last_seen": "2026-09-28",
     "location": "packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationFlow.tsx",
     "rank": 0,
-    "reason": "intro/submitted views and intro continue already fire in CampaignVerificationSteps.tsx; the form step is the missing stage",
+    "reason": "already instrumented one hop away: ElectionFilingForm fires Pro Upgrade - Filing Details Viewed, Submitted and Submit Error for the form step (DATA-2594)",
     "rubric_rule": "multi-step flow: Viewed/Completed per stage",
     "surface_type": "wizard_stage"
   },
   "packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx#form_submit": {
     "dashboard_question": "How many users send a message (or use a suggested prompt) in the Chief of Staff chat, and what is the chat-opened-to-message-sent drop-off?",
-    "disposition": "accepted",
+    "disposition": "dismissed",
     "first_seen": "2026-09-10",
     "id": "packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx#form_submit",
     "judge_reason": "Rubric explicitly calls out AI chat send-message as real engagement to track alongside chat opened, distinct from generic chrome.",
     "last_seen": "2026-09-28",
     "location": "packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx",
     "rank": 1,
-    "reason": "same composer gap as AiChatBody: onMessageSent exists but no caller wires it",
+    "reason": "not instrumented by decision: chat usage is answerable from stored conversations, so no client open/send events (DATA-2594)",
     "rubric_rule": "AI chat message sent exception",
     "surface_type": "form_submit"
   },
@@ -149,6 +149,7 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage": {
+    "actioned_at": "2026-09-30",
     "dashboard_question": "Where do users drop off across the five-step door-knocking create flow (purpose/draw/points/name/success)?",
     "disposition": "accepted",
     "first_seen": "2026-08-31",
@@ -159,7 +160,8 @@
     "rank": 0,
     "reason": "outcomes fire (List Created, Recommended List Accepted); per-step drop-off does not",
     "rubric_rule": "multi-step flow: Viewed/Completed per stage",
-    "surface_type": "wizard_stage"
+    "surface_type": "wizard_stage",
+    "ticket_url": "https://github.com/thegoodparty/omni/pull/2250"
   },
   "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/CreateQuestion.tsx#form_submit": {
     "dashboard_question": "How many survey questions are created for door-knocking surveys?",
@@ -311,6 +313,7 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/gate/OutreachGate.tsx#wizard_stage": {
+    "actioned_at": "2026-10-01",
     "dashboard_question": "Where do users drop off within the outreach gate screens (Pro interstitial, verification, PIN, in-review)?",
     "disposition": "accepted",
     "first_seen": "2026-09-28",
@@ -321,7 +324,8 @@
     "rank": 0,
     "reason": "gate banner and explainer already fire from GateBanner; the inner gate screens do not",
     "rubric_rule": "multi-step flow: Viewed/Completed per stage",
-    "surface_type": "wizard_stage"
+    "surface_type": "wizard_stage",
+    "ticket_url": "https://app.clickup.com/t/17tnw2b0w9u"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage": {
     "actioned_at": "2026-09-25",
@@ -538,14 +542,14 @@
   },
   "packages/gp-webapp/app/dashboard/race-opponent/components/SelfResearch.tsx#form_submit": {
     "dashboard_question": "How many users start self-research, and how often does it fail vs complete?",
-    "disposition": "accepted",
+    "disposition": "dismissed",
     "first_seen": "2026-09-28",
     "id": "packages/gp-webapp/app/dashboard/race-opponent/components/SelfResearch.tsx#form_submit",
     "judge_reason": "Multi-state async job (not_started/queued/running/failed) surface with no visible tracked events for start, failure, or completion.",
     "last_seen": "2026-09-28",
     "location": "packages/gp-webapp/app/dashboard/race-opponent/components/SelfResearch.tsx",
     "rank": 1,
-    "reason": "completion fires server-side (SelfResearchCompleted); start and start-failure are untracked",
+    "reason": "the self-research route is linked from nowhere in the app; revisit if DATA-2591 confirms the flow is live (DATA-2594)",
     "rubric_rule": "async job start/outcome + blocker",
     "surface_type": "form_submit"
   },
@@ -581,14 +585,14 @@
   },
   "packages/gp-webapp/app/dashboard/shared/ai-chat/AiChatBody.tsx#form_submit": {
     "dashboard_question": "How many users send a message via the AI chat composer (open-to-send drop-off)?",
-    "disposition": "accepted",
+    "disposition": "dismissed",
     "first_seen": "2026-09-28",
     "id": "packages/gp-webapp/app/dashboard/shared/ai-chat/AiChatBody.tsx#form_submit",
     "judge_reason": "Same AI-chat composer submit exception as chatUI.tsx; no visible message-sent tracking event.",
     "last_seen": "2026-09-28",
     "location": "packages/gp-webapp/app/dashboard/shared/ai-chat/AiChatBody.tsx",
     "rank": 1,
-    "reason": "shared composer for Chief of Staff and Briefings; only server-side AI Assistant responses fire, no client send",
+    "reason": "unreachable: AiChatSurface, its only host, has no importer (DATA-2594)",
     "rubric_rule": "engagement exception - message sent",
     "surface_type": "form_submit"
   },
