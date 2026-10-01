@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import type {
   OutreachDetail,
+  ProposalLink,
   ServeSocialDraftRequest,
   ServeSocialGenerateRequest,
   ServeSocialPurpose,
@@ -67,7 +68,7 @@ interface SocialFlowGenerateInput {
   platforms: SocialAssetPlatform[]
 }
 
-interface SocialFlowSaveInput {
+interface SocialFlowSaveInput extends ProposalLink {
   name: string
   purpose: SocialFlowPurpose
   draftMessage: string
@@ -122,7 +123,12 @@ const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
       )
       return data.assets
     },
-    save: async (input) => {
+    save: async ({
+      proposalKey: _proposalKey,
+      priorityId: _priorityId,
+      ...input
+    }) => {
+      // A proposal link is a Serve chat card's; Win's save never carries one.
       const { data } = await clientRequest(
         'POST /v1/outreach/social',
         input as SocialSaveRequest,
@@ -169,6 +175,9 @@ export const SERVE_SOCIAL_SURFACE: SocialFlowSurface = {
 export interface SocialFlowPrefill {
   draftText: string
   purpose?: string | null
+  // From a chat card's proposal: saved with the post, linking it to its
+  // priority and making a second save of the same proposal return the first.
+  proposalLink?: ProposalLink
 }
 
 interface SocialFlowProps {
@@ -280,6 +289,7 @@ export const SocialFlow = ({
         purpose: purpose as SocialFlowPurpose,
         draftMessage: draft.trim(),
         assets: assets as SocialAsset[],
+        ...prefill?.proposalLink,
       }),
     onSuccess: (detail) => {
       setSaved(true)

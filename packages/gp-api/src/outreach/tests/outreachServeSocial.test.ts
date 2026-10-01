@@ -710,6 +710,91 @@ describe('POST /v1/outreach/serve/social', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
   })
+
+  // A chat card's proposal carries its derived key and the priority it was
+  // proposed under into the social flow's save.
+  describe('a save carrying a proposal link', () => {
+    const PROPOSAL_KEY = '0b7c9d1e-2f3a-4b5c-8d6e-7f8091a2b3c4'
+
+    const officePriority = (electedOfficeId: string) =>
+      service.prisma.priority.create({
+        data: {
+          electedOfficeId,
+          title: 'Fix the crosswalk on Main',
+          description: 'Residents raised it at three meetings running.',
+          source: PrioritySource.user_stated,
+        },
+      })
+
+    it('links the post to the priority under the key', async () => {
+      const priority = await officePriority(electedOffice.id)
+
+      const res = await postSave(
+        validSaveBody({ proposalKey: PROPOSAL_KEY, priorityId: priority.id }),
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const spine = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(spine).toMatchObject({
+        proposalKey: PROPOSAL_KEY,
+        priorityId: priority.id,
+      })
+    })
+
+    it('returns the first post when the same proposal is saved twice', async () => {
+      const first = await postSave(validSaveBody({ proposalKey: PROPOSAL_KEY }))
+      const second = await postSave(
+        validSaveBody({ proposalKey: PROPOSAL_KEY, name: 'Second try' }),
+      )
+
+      expect(first.status).toBe(HttpStatus.CREATED)
+      expect(second.status).toBe(HttpStatus.CREATED)
+      expect(second.data.id).toBe(first.data.id)
+      expect(second.data.name).toBe('Town hall announcement')
+      expect(await countAllSocialRows()).toMatchObject({
+        outreach: 1,
+        social: 1,
+      })
+    })
+
+    it('refuses a priority that belongs to another office', async () => {
+      const otherSlug = `${eoOrgSlug}-other`
+      await service.prisma.organization.create({
+        data: { slug: otherSlug, ownerId: service.user.id },
+      })
+      const otherOffice = await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: otherSlug },
+      })
+      const foreign = await officePriority(otherOffice.id)
+
+      const res = await postSave(
+        validSaveBody({ proposalKey: PROPOSAL_KEY, priorityId: foreign.id }),
+      )
+
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+      expect(await countAllSocialRows()).toMatchObject({ outreach: 0 })
+    })
+
+    it('refuses a key a different channel already spent', async () => {
+      await service.prisma.outreach.create({
+        data: {
+          campaignId: null,
+          organizationSlug: eoOrgSlug,
+          proposalKey: PROPOSAL_KEY,
+          outreachType: OutreachType.nativePhoneBanking,
+          status: OutreachStatus.in_progress,
+          name: 'Calls',
+        },
+      })
+
+      const res = await postSave(validSaveBody({ proposalKey: PROPOSAL_KEY }))
+
+      expect(res.status).toBe(HttpStatus.CONFLICT)
+      expect(await service.prisma.outreachSocial.count()).toBe(0)
+    })
+  })
 })
 
 describe('Win/Serve isolation (list + detail)', () => {

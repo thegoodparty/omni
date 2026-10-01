@@ -11,6 +11,7 @@ import {
   type PhoneBankingCreateResponse,
   type PhoneBankingPurpose,
   type PhoneBankingScriptDraftRequest,
+  type ProposalLink,
   type RecommendedListVariant,
   type ServePhoneBankingCreate,
   type ServePhoneBankingPurpose,
@@ -152,7 +153,7 @@ interface PhoneBankingFlowDraftInput {
   instructions?: string
 }
 
-interface PhoneBankingFlowCreateInput {
+interface PhoneBankingFlowCreateInput extends ProposalLink {
   name: string
   script: string
   sheetCount: number
@@ -197,7 +198,12 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
       )
       return data.draft
     },
-    createList: async (input) => {
+    createList: async ({
+      proposalKey: _proposalKey,
+      priorityId: _priorityId,
+      ...input
+    }) => {
+      // A proposal link is a Serve chat card's; Win's create is strict.
       const { data } = await clientRequest(
         'POST /v1/phone-banking/lists',
         input as PhoneBankingCreate,
@@ -247,6 +253,10 @@ interface PhoneBankingFlowProps {
   // A script already written, from a chat card's outreach proposal. Opens on
   // the who step under `custom`, the same seed SmsFlow's `initialScript` is.
   initialScript?: string
+  // The chat card proposal this flow was opened from. Rides on the create so
+  // the list is linked to its priority, and a second completion of the same
+  // proposal hands back the first list rather than building another.
+  proposalLink?: ProposalLink
   // The tracker task this flow was launched from, carried onto the created
   // list so every call logged against it joins back to the task.
   tracker?: OutreachTrackerOrigin
@@ -266,6 +276,7 @@ export const PhoneBankingFlow = ({
   preselectedListId,
   preselectedRecommendedVariant,
   initialScript,
+  proposalLink,
   tracker,
   source,
 }: PhoneBankingFlowProps) => {
@@ -357,6 +368,7 @@ export const PhoneBankingFlow = ({
         sheetCount,
         purpose: purpose as PhoneBankingFlowPurpose,
         voterFileFilterId,
+        ...proposalLink,
       })
     },
     onSuccess: (response) => {

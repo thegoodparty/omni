@@ -459,6 +459,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     await waitFor(() =>
       expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
     )
+    await user.type(screen.getByLabelText('Campaign name'), 'Maple calls')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -667,6 +668,7 @@ describe('ConstituentOutreachPage — the mount refresh', () => {
 // the message and the list in sessionStorage.
 describe('ConstituentOutreachPage — a chat card proposal', () => {
   const SCRIPT = 'Calling about the Maple Street drains.'
+  const PROPOSAL_KEY = '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7'
 
   const arriveWith = (params: string, payload?: object) => {
     if (payload) {
@@ -692,6 +694,8 @@ describe('ConstituentOutreachPage — a chat card proposal', () => {
       channel: 'phoneBanking',
       message: SCRIPT,
       savedFilterId: 3,
+      proposalKey: PROPOSAL_KEY,
+      priorityId: 'priority-1',
     })
 
     render(<ConstituentOutreachPage outreaches={[]} />)
@@ -709,6 +713,40 @@ describe('ConstituentOutreachPage — a chat card proposal', () => {
     await waitFor(() => expect(next).toBeEnabled())
     await user.click(next)
     expect(await screen.findByDisplayValue(SCRIPT)).toBeInTheDocument()
+
+    // The flow's own create carries the proposal link, which is what links
+    // the list to its priority and makes a second completion idempotent.
+    const bodies: ServePhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/serve/lists', ({ body }) => {
+      bodies.push(body)
+      return {
+        status: 200,
+        data: {
+          id: 9,
+          name: 'Calls',
+          sheetCount: 1,
+          entryCount: 1,
+          personCount: 1,
+          outreachId: 90,
+          hasMore: false,
+        },
+      }
+    })
+    await user.type(screen.getByLabelText('Campaign name'), 'Maple calls')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    const create = screen.getByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(create).toBeEnabled())
+    await user.click(create)
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({
+      script: SCRIPT,
+      voterFileFilterId: 3,
+      proposalKey: PROPOSAL_KEY,
+      priorityId: 'priority-1',
+    })
 
     expect(router.replace).toHaveBeenCalledWith(
       '/dashboard/constituent-outreach',
@@ -772,5 +810,92 @@ describe('ConstituentOutreachPage — a chat card proposal', () => {
     )
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('consumes a later link to the same send again', async () => {
+    api.mock('GET /v1/outreach/serve/:id', { status: 200, data: savedDetail })
+    const rows: HistoryRow[] = [
+      {
+        id: 77,
+        createdAt: '2026-08-30T00:00:00Z',
+        outreachType: 'socialMedia',
+        name: 'Introduction posts',
+        status: 'completed',
+      },
+    ]
+    vi.mocked(router.replace!).mockClear()
+    arriveWith('outreachId=77')
+    const { rerender } = render(<ConstituentOutreachPage outreaches={rows} />)
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    // router.replace strips the param, then the same chip is pressed again
+    // (the chat dock is mounted on this page too).
+    arriveWith('')
+    rerender(<ConstituentOutreachPage outreaches={rows} />)
+    arriveWith('outreachId=77')
+    rerender(<ConstituentOutreachPage outreaches={rows} />)
+
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(router.replace!)
+          .mock.calls.filter(
+            ([path]) => path === '/dashboard/constituent-outreach',
+          ),
+      ).toHaveLength(2),
+    )
+  })
+
+  it('waits for the SMS flag to settle before spending a text handoff', async () => {
+    serveSmsFlag.ready = false
+    serveSmsFlag.enabled = false
+    arriveWith('compose=text&handoff=n1', {
+      channel: 'text',
+      message: SCRIPT,
+      savedFilterId: 3,
+    })
+
+    const { rerender } = render(<ConstituentOutreachPage outreaches={[]} />)
+    expect(sessionStorage.getItem('cos-handoff-n1')).not.toBeNull()
+
+    serveSmsFlag.ready = true
+    serveSmsFlag.enabled = true
+    rerender(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(
+      await screen.findAllByRole('heading', {
+        name: 'Who do you want to reach?',
+      }),
+    ).not.toHaveLength(0)
+    expect(sessionStorage.getItem('cos-handoff-n1')).toBeNull()
+  })
+
+  it('leaves a text handoff unspent while SMS is off here', () => {
+    serveSmsFlag.ready = true
+    serveSmsFlag.enabled = false
+    arriveWith('compose=text&handoff=n1', {
+      channel: 'text',
+      message: SCRIPT,
+      savedFilterId: 3,
+    })
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(sessionStorage.getItem('cos-handoff-n1')).not.toBeNull()
+    expect(
+      screen.queryAllByRole('heading', { name: 'Who do you want to reach?' }),
+    ).toHaveLength(0)
+  })
+
+  it('opens social on the draft a card proposed', async () => {
+    arriveWith('compose=social&handoff=n1', {
+      channel: 'social',
+      message: SCRIPT,
+      proposalKey: PROPOSAL_KEY,
+    })
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(await screen.findByDisplayValue(SCRIPT)).toBeInTheDocument()
   })
 })

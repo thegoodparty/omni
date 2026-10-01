@@ -169,7 +169,7 @@ export class OutreachServeSocialController {
 
   @Post('social')
   @ResponseSchema(OutreachDetailSchema)
-  save(
+  async save(
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @Body(new ZodValidationPipe(ServeSocialSaveRequestSchema))
     input: ServeSocialSaveRequest,
@@ -178,9 +178,21 @@ export class OutreachServeSocialController {
       input.purpose,
       input.assets.map((asset) => asset.platform),
     )
+    const { proposalKey, priorityId, ...save } = input
+    if (priorityId !== undefined) {
+      await this.socialService.assertPriorityInOffice(
+        priorityId,
+        electedOffice.id,
+      )
+    }
     return this.socialService.saveSocialOutreach(
-      { campaignId: null, organizationSlug: electedOffice.organizationSlug },
-      input,
+      {
+        campaignId: null,
+        organizationSlug: electedOffice.organizationSlug,
+        ...(proposalKey !== undefined && { proposalKey }),
+        ...(priorityId !== undefined && { priorityId }),
+      },
+      save,
     )
   }
 

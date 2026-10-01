@@ -120,13 +120,21 @@ who owns the detail:
   any `CardDetailProvider` falls back to its own sheet, so it is never
   unopenable. The detail key is the tool call id (`cardWidgets.tsx`), which
   the live and persisted copies of one call share, so a panel opened
-  mid-turn survives the turn settling.
+  mid-turn survives the turn settling. Each card registers its key with the
+  provider, and the panel closes once no mounted card owns the open key (a
+  conversation switch). It checks a microtask later, so the live-to-persisted
+  swap of one card does not count as the card going away.
 - **Outreach hands off and never sends.** `OutreachProposalCard` links into
   the channel's own flow on the Serve outreach hub with the list and message
   carried in sessionStorage (`proposalPresentation.ts`, read back by
   `constituent-outreach/proposalHandoff.ts`), or into door knocking's create
-  flow with `?listId=`. It still resolves by `proposalKey`, so a proposal
-  already sent under its key reads as sent and links to that send.
+  flow with `?listId=`. The payload carries the card's `proposalKey` and, on
+  a priority, its `priorityId` (`CardWidgetContext`), which phone banking and
+  social send on their own create, so the send is linked to the priority and
+  a second completion returns the first. The card resolves by that key, so a
+  sent proposal reads as sent and links to that send. While the Serve SMS
+  flag reads off, a text proposal says texting is not available instead of
+  linking.
   `PastOutreachCard` is one chip per send, linking to its row's drawer on the
   hub. No compose, edit or send UI lives in a card: those flows own it.
 

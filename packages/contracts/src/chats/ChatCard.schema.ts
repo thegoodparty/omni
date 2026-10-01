@@ -54,6 +54,19 @@ export const OutreachProposalSchema = z.object({
 })
 export type OutreachProposal = z.infer<typeof OutreachProposalSchema>
 
+/**
+ * What a channel's own create carries when a proposal card handed the
+ * official into it: the card's derived key, so a second completion returns
+ * the first outreach instead of making another, and the priority it was
+ * proposed under. Both optional, because the same create serves every other
+ * way into the flow.
+ */
+export const ProposalLinkSchema = z.object({
+  proposalKey: z.string().uuid().optional(),
+  priorityId: z.string().min(1).optional(),
+})
+export type ProposalLink = z.infer<typeof ProposalLinkSchema>
+
 /** A prior send worth looking at, resolved live from the outreach history. */
 export const PastOutreachRefSchema = z.object({
   /** Outreach rows to render. Resolved at render, not snapshotted. */

@@ -689,6 +689,8 @@ export {
   ContactRefSchema,
   OutsideContactSchema,
   ChatCardSchema,
+  ProposalLinkSchema,
+  type ProposalLink,
   type ChatCardKind,
   type ProposalChannel,
   type OutreachProposal,

@@ -28,7 +28,10 @@ import {
   type PositionedWidget,
 } from '../../../shared/agent-chat/turnBlocks'
 import { createWidgetRegistry } from '../../../shared/agent-chat/widgetRegistry'
-import { cardWidgetTools } from '../../../shared/agent-chat/cards/cardWidgets'
+import {
+  cardWidgetTools,
+  type CardWidgetContext,
+} from '../../../shared/agent-chat/cards/cardWidgets'
 import {
   CardDetailProvider,
   CardDetailSheetHost,
@@ -216,7 +219,9 @@ const CHAT_SUGGESTIONS = [
  */
 const LIST_MAP_TOOL = 'show_list_map'
 
-type CosWidgetContext = ClarifyWidgetContext & ComposeHandoffWidgetContext
+type CosWidgetContext = CardWidgetContext &
+  ClarifyWidgetContext &
+  ComposeHandoffWidgetContext
 
 // show_list_map is deliberately not here: its map renders after the turn's
 // prose, once per turn, and moving it would change where it appears.

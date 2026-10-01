@@ -908,6 +908,18 @@ remembered on the `hold_failed` row for the retry.
   controller derives the scope from which route was called, never from
   whether the org happens to have a `Campaign` row, so a dual-role org keeps
   Win and Serve lists isolated the same way social does.
+- **A chat card's proposal link rides on the Serve creates.** The Serve phone
+  banking create and `POST /outreach/serve/social` accept an optional
+  `proposalKey` + `priorityId` (contracts `ProposalLinkSchema`, the key the
+  card derives and never the model). The priority is checked against the
+  caller's own office (`priorities/util/assertPriorityInOffice.util.ts`), the
+  key is written in the outreach INSERT, and a create carrying a key that
+  already names this org's outreach of the same channel returns that outreach
+  instead of building another (a race loses to the unique index and reads the
+  winner back). A key held by another org or another channel is a 409. The
+  phone banking replay reports `hasMore: false`: it hands back what was built,
+  not a fresh build. Text and door knocking do not take a key; see
+  `gp-webapp/app/dashboard/constituent-outreach/AGENTS.md`.
 - Tone vocabulary (`util/messageTone.util.ts`) is shared across every
   stateless compose endpoint — don't redefine `TONE_STYLES` per channel.
 - `nativePhoneBanking` and `nativeDoorKnocking` envelopes are never touched

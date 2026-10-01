@@ -48,10 +48,12 @@ const CompactCardContent = ({
   leading,
   title,
   subtitle,
+  chevron = true,
 }: {
   leading: ReactNode
   title: string
   subtitle?: string
+  chevron?: boolean
 }) => (
   <>
     <span className="flex shrink-0 items-center">{leading}</span>
@@ -65,10 +67,12 @@ const CompactCardContent = ({
         </span>
       ) : null}
     </span>
-    <ChevronRightIcon
-      className="text-muted-foreground size-4 shrink-0"
-      aria-hidden
-    />
+    {chevron ? (
+      <ChevronRightIcon
+        className="text-muted-foreground size-4 shrink-0"
+        aria-hidden
+      />
+    ) : null}
   </>
 )
 
@@ -119,6 +123,26 @@ export const CompactCardLink = ({
   <Link href={href} onClick={onNavigate} className={COMPACT_CARD_CLASS}>
     <CompactCardContent leading={leading} title={title} subtitle={subtitle} />
   </Link>
+)
+
+/** The same chip with nowhere to go, for a card whose workflow is off here. */
+export const CompactCardStatic = ({
+  leading,
+  title,
+  subtitle,
+}: {
+  leading: ReactNode
+  title: string
+  subtitle?: string
+}) => (
+  <div className="flex w-full max-w-md items-center gap-3 rounded-2xl border border-border p-3">
+    <CompactCardContent
+      leading={leading}
+      title={title}
+      subtitle={subtitle}
+      chevron={false}
+    />
+  </div>
 )
 
 export const CompactCardLoading = () => (

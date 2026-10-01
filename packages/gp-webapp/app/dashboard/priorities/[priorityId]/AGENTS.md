@@ -83,7 +83,10 @@ copy of the card replaces it.
 
 Outreach cards never open a panel. A proposal links into that channel's own
 flow on the Serve outreach hub, prefilled, and the send happens there (see
-`constituent-outreach/AGENTS.md`). Priorities hands off to the workflow that
+`constituent-outreach/AGENTS.md`). The handoff carries the card's
+`proposalKey` and this priority's id (passed in the widget context), so the
+phone banking or social outreach the official finishes is linked to the
+priority and a second completion returns the first. Priorities hands off to the workflow that
 owns the job; it does not re-implement it.
 
 ## Cards are keyed, not trusted

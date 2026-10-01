@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { assertPriorityInOffice } from '@/priorities/util/assertPriorityInOffice.util'
 import {
   DoorKnockingOutreachDetail,
   OutreachDetail,
@@ -36,9 +38,15 @@ type OutreachWithSocial = Prisma.OutreachGetPayload<{
 // Win/Serve isolation boundary documented in AGENTS.md (ENG-10976).
 // The Win branch also carries userId, the subject of the Campaign Scheduled
 // analytics event; the Serve branch does not emit it (see saveSocialOutreach).
+// Serve also carries a chat card's proposal link, when the save came from one.
 export type OutreachSocialSaveScope =
   | { campaignId: number; organizationSlug: string | null; userId: number }
-  | { campaignId: null; organizationSlug: string }
+  | {
+      campaignId: null
+      organizationSlug: string
+      proposalKey?: string
+      priorityId?: string
+    }
 
 export type OutreachSocialDetailScope =
   | { campaignId: number }
@@ -87,6 +95,30 @@ export class OutreachSocialService extends createPrismaBase(
     super()
   }
 
+  async assertPriorityInOffice(priorityId: string, electedOfficeId: string) {
+    await assertPriorityInOffice(this.client, priorityId, electedOfficeId)
+  }
+
+  private async replayProposal(
+    proposalKey: string,
+    scope: { organizationSlug: string },
+  ): Promise<OutreachWithSocial | null> {
+    const existing = await this.client.outreach.findUnique({
+      where: { proposalKey },
+      include: { social: { include: { assets: true } }, robocall: true },
+    })
+    if (!existing) return null
+    // Another org's key, or one a different channel already spent: neither
+    // is a post this caller may be handed.
+    if (
+      existing.organizationSlug !== scope.organizationSlug ||
+      existing.outreachType !== OutreachType.socialMedia
+    ) {
+      throw new ConflictException('Proposal key is already in use')
+    }
+    return existing
+  }
+
   async saveSocialOutreach(
     scope: OutreachSocialSaveScope,
     input: SocialSaveRequest | ServeSocialSaveRequest,
@@ -98,42 +130,70 @@ export class OutreachSocialService extends createPrismaBase(
       )
     }
 
-    const outreach = await this.client.$transaction(async (tx) => {
-      const spine = await tx.outreach.create({
-        data: {
-          campaignId: scope.campaignId,
-          organizationSlug: scope.organizationSlug,
-          outreachType: OutreachType.socialMedia,
-          status: OutreachStatus.completed,
-          name: input.name,
-        },
-      })
-      await tx.outreachSocial.create({
-        data: {
-          outreachId: spine.id,
-          purpose: input.purpose,
-          draftMessage: input.draftMessage,
-          assets: {
-            create: input.assets.map((asset) => {
-              const kind = SOCIAL_PLATFORM_KIND[asset.platform]
-              return {
-                platform: asset.platform,
-                kind,
-                text: asset.text,
-                caption:
-                  kind === SocialAssetKind.video_script
-                    ? (asset.caption ?? null)
-                    : null,
-              }
+    // A save from a chat card's proposal is idempotent on its key: saving
+    // the same proposal twice returns the first post rather than a second.
+    const serveScope = scope.campaignId === null ? scope : null
+    const proposalKey = serveScope?.proposalKey
+    if (serveScope && proposalKey !== undefined) {
+      const existing = await this.replayProposal(proposalKey, serveScope)
+      if (existing) return toOutreachDetail(existing)
+    }
+
+    const outreach = await this.client
+      .$transaction(async (tx) => {
+        const spine = await tx.outreach.create({
+          data: {
+            campaignId: scope.campaignId,
+            organizationSlug: scope.organizationSlug,
+            outreachType: OutreachType.socialMedia,
+            status: OutreachStatus.completed,
+            name: input.name,
+            ...(serveScope && {
+              proposalKey: serveScope.proposalKey,
+              priorityId: serveScope.priorityId,
             }),
           },
-        },
+        })
+        await tx.outreachSocial.create({
+          data: {
+            outreachId: spine.id,
+            purpose: input.purpose,
+            draftMessage: input.draftMessage,
+            assets: {
+              create: input.assets.map((asset) => {
+                const kind = SOCIAL_PLATFORM_KIND[asset.platform]
+                return {
+                  platform: asset.platform,
+                  kind,
+                  text: asset.text,
+                  caption:
+                    kind === SocialAssetKind.video_script
+                      ? (asset.caption ?? null)
+                      : null,
+                }
+              }),
+            },
+          },
+        })
+        return tx.outreach.findUniqueOrThrow({
+          where: { id: spine.id },
+          include: { social: { include: { assets: true } }, robocall: true },
+        })
       })
-      return tx.outreach.findUniqueOrThrow({
-        where: { id: spine.id },
-        include: { social: { include: { assets: true } }, robocall: true },
+      .catch(async (err: Error) => {
+        // Two saves of one proposal raced past the read above; the unique
+        // index on proposalKey let one through, so hand back that one.
+        if (
+          serveScope &&
+          proposalKey !== undefined &&
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          const winner = await this.replayProposal(proposalKey, serveScope)
+          if (winner) return winner
+        }
+        throw err
       })
-    })
 
     // The send terminal for the social channel: the save IS the send, so the
     // committed transaction above is the exactly-once point. Win only — the

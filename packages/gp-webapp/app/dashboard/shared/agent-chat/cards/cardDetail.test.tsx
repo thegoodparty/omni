@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import {
@@ -50,6 +50,31 @@ describe('CardDetail', () => {
     const next = within(await screen.findByRole('dialog'))
     expect(next.getByText('Ada detail')).toBeInTheDocument()
     expect(next.queryByText('Mark detail')).toBeNull()
+  })
+
+  // Chief of Staff swaps the whole thread when another conversation opens;
+  // the panel must not stay open on a card that is no longer there.
+  it('closes when the card that owns the open detail goes away', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(
+      <Thread>
+        <Card detailKey="call:tc-1" label="Mark" />
+      </Thread>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Mark chip' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    rerender(
+      <Thread>
+        <Card detailKey="call:tc-9" label="Ada" />
+      </Thread>,
+    )
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByRole('button', { name: 'Ada chip' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
   })
 
   // A live card and its persisted copy are different elements with one key.

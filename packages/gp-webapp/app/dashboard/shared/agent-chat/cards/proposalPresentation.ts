@@ -1,7 +1,4 @@
-import type {
-  ComposeHandoffPayload,
-  ProposalChannel,
-} from '@goodparty_org/contracts'
+import type { ProposalChannel } from '@goodparty_org/contracts'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import type { ProposalHandoff } from 'app/dashboard/constituent-outreach/proposalHandoff'
 
@@ -50,22 +47,29 @@ export const proposalComposeHref = (
 
 export const handoffStorageKey = (nonce: string) => `cos-handoff-${nonce}`
 
-/** What the hub reads back for the channel, or null when nothing rides. */
-export const handoffPayload = (proposal: {
-  channel: CardChannel
-  message: string
-  savedFilterId?: number | null
-}): ComposeHandoffPayload | ProposalHandoff | null => {
-  if (proposal.channel === 'doorKnocking') return null
-  if (proposal.channel === 'social') {
-    return { channel: 'serve_social', draftText: proposal.message }
-  }
-  return {
-    channel: proposal.channel,
-    message: proposal.message,
-    savedFilterId: proposal.savedFilterId ?? null,
-  }
-}
+/**
+ * What the hub reads back for the channel, or null when nothing rides (door
+ * knocking takes its list on the URL). The proposal link rides with it so the
+ * flow's own create is linked to the priority and idempotent on the key.
+ */
+export const handoffPayload = (
+  proposal: {
+    channel: CardChannel
+    message: string
+    savedFilterId?: number | null
+    proposalKey: string
+  },
+  priorityId?: string,
+): ProposalHandoff | null =>
+  proposal.channel === 'doorKnocking'
+    ? null
+    : {
+        channel: proposal.channel,
+        message: proposal.message,
+        savedFilterId: proposal.savedFilterId ?? null,
+        proposalKey: proposal.proposalKey,
+        ...(priorityId !== undefined && { priorityId }),
+      }
 
 export const outreachDetailHref = (outreachId: number): string =>
   `${SERVE_OUTREACH_HUB}?outreachId=${outreachId}`

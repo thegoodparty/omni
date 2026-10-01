@@ -1,9 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
 import type { ChatCard, OutreachDetail } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { ChatCardRenderer } from './ChatCardRenderer'
+
+const smsFlag = vi.hoisted(() => ({ ready: false, enabled: false }))
+vi.mock('@shared/experiments/serveSmsFlag', () => ({
+  useServeSmsFlag: () => smsFlag,
+}))
+
+afterEach(() => {
+  smsFlag.ready = false
+  smsFlag.enabled = false
+})
 
 const PROPOSAL_KEY = '3f2c1a90-1111-4222-8333-444455556666'
 
@@ -60,7 +70,13 @@ const mockNotSent = () =>
     data: { message: 'Not Found' },
   })
 
-const renderCard = (card: ChatCard) => render(<ChatCardRenderer card={card} />)
+const renderCard = (card: ChatCard, priorityId?: string) =>
+  render(
+    <ChatCardRenderer
+      card={card}
+      {...(priorityId !== undefined && { priorityId })}
+    />,
+  )
 
 const chip = () => screen.findByRole('link', { name: /Riverside neighbors/ })
 
@@ -116,15 +132,45 @@ describe('OutreachProposalCard', () => {
 
       fireEvent.click(link)
 
+      // The key rides through to the flow's create, so the send is linked
+      // to the proposal and a second completion returns the first.
       expect(stored()).toEqual({
         channel,
         message: MESSAGE,
         savedFilterId: 77,
+        proposalKey: PROPOSAL_KEY,
       })
     },
   )
 
-  it('opens the social flow with the draft, in the payload that flow already reads', async () => {
+  it('carries the priority it was proposed under', async () => {
+    mockNotSent()
+
+    renderCard(proposalCard(), 'priority-1')
+
+    const link = await chip()
+    fireEvent.click(link)
+
+    expect(handoffOf(link).stored()).toMatchObject({
+      proposalKey: PROPOSAL_KEY,
+      priorityId: 'priority-1',
+    })
+  })
+
+  it('says text is not available, and links nowhere, while SMS is off', async () => {
+    mockNotSent()
+    smsFlag.ready = true
+    smsFlag.enabled = false
+
+    renderCard(proposalCard({ channel: 'text' }))
+
+    expect(
+      await screen.findByText('Texting is not available for your office yet'),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it('opens the social flow with the draft and the proposal link', async () => {
     mockNotSent()
 
     renderCard(proposalCard({ channel: 'social', deepLinkOnly: true }))
@@ -137,7 +183,12 @@ describe('OutreachProposalCard', () => {
 
     fireEvent.click(link)
 
-    expect(stored()).toEqual({ channel: 'serve_social', draftText: MESSAGE })
+    expect(stored()).toEqual({
+      channel: 'social',
+      message: MESSAGE,
+      savedFilterId: 77,
+      proposalKey: PROPOSAL_KEY,
+    })
   })
 
   // The proposal contract is gaining door knocking; the card routes it the

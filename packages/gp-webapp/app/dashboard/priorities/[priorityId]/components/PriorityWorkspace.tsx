@@ -37,7 +37,10 @@ import {
   createWidgetRegistry,
   type WidgetInstance,
 } from '../../../shared/agent-chat/widgetRegistry'
-import { cardWidgetTools } from '../../../shared/agent-chat/cards/cardWidgets'
+import {
+  cardWidgetTools,
+  type CardWidgetContext,
+} from '../../../shared/agent-chat/cards/cardWidgets'
 import {
   CardDetailProvider,
   useCardDetailHost,
@@ -72,7 +75,7 @@ const KICKOFF =
 
 type Phase = 'loading' | 'ready' | 'error'
 
-type PriorityWidgetContext = ClarifyWidgetContext
+type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
 
 const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
   ...cardWidgetTools,
@@ -504,6 +507,7 @@ const PriorityWorkspaceBody = ({
                         })}
                         toolLabel={priorityToolLabel}
                         context={{
+                          priorityId,
                           clarifyInteractive:
                             message.id === activeClarifyId && !sending,
                           clarifyAnswer: clarifyAnswerById[message.id],
@@ -520,6 +524,7 @@ const PriorityWorkspaceBody = ({
                       blocks={blocks}
                       toolLabel={priorityToolLabel}
                       context={{
+                        priorityId,
                         clarifyInteractive: false,
                         onClarifyAnswer: answerClarify,
                       }}

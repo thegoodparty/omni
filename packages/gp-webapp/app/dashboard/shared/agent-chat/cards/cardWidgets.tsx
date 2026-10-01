@@ -5,6 +5,11 @@ import { toChatCard } from './toChatCard'
 
 // The tool call id when there is one, because the live turn has no message
 // row yet; the segment position otherwise, which is stable on reload.
+export type CardWidgetContext = {
+  // Absent outside a priority: an outreach handoff then links to no priority.
+  priorityId?: string
+}
+
 const cardDetailKey = (call: WidgetToolCall): string | undefined => {
   if (call.toolCallId) return `call:${call.toolCallId}`
   if (call.messageId !== null && call.segmentIndex !== null) {
@@ -23,13 +28,12 @@ const cardTool = (toolName: string, onParseFailure?: 'inline') =>
         toolCallId: call.toolCallId,
         conversationId: call.conversationId ?? '',
       }),
-    // Cards read nothing from the surface: everything they need is in the
-    // call, so any surface's context fits.
-    render: (card, _ctx: object, call) => {
+    render: (card, { priorityId }: CardWidgetContext, call) => {
       const detailKey = cardDetailKey(call)
       return (
         <ChatCardRenderer
           card={card}
+          {...(priorityId !== undefined && { priorityId })}
           {...(detailKey !== undefined && { detailKey })}
         />
       )

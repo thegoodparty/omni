@@ -3,7 +3,9 @@ import {
   useCallback,
   useContext,
   useId,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -18,6 +20,7 @@ type CardDetailContextValue = {
   close: () => void
   container: HTMLElement | null
   setContainer: (node: HTMLElement | null) => void
+  register: (key: string) => () => void
 }
 
 const CardDetailContext = createContext<CardDetailContextValue | null>(null)
@@ -34,9 +37,27 @@ export const CardDetailProvider = ({ children }: { children: ReactNode }) => {
   const [container, setContainer] = useState<HTMLElement | null>(null)
   const open = useCallback((detail: ActiveDetail) => setActive(detail), [])
   const close = useCallback(() => setActive(null), [])
+  // How many mounted cards own each key. When the last owner of the open
+  // detail goes (another conversation was opened, the thread was replaced),
+  // the panel closes rather than staying open on nothing. Checked a tick
+  // later because a turn settling unmounts the live card before the
+  // persisted copy with the same key mounts.
+  const owners = useRef(new Map<string, number>())
+  const register = useCallback((key: string) => {
+    owners.current.set(key, (owners.current.get(key) ?? 0) + 1)
+    return () => {
+      const left = (owners.current.get(key) ?? 1) - 1
+      if (left > 0) owners.current.set(key, left)
+      else owners.current.delete(key)
+      queueMicrotask(() => {
+        if (owners.current.has(key)) return
+        setActive((current) => (current?.key === key ? null : current))
+      })
+    }
+  }, [])
   const value = useMemo(
-    () => ({ active, open, close, container, setContainer }),
-    [active, open, close, container],
+    () => ({ active, open, close, container, setContainer, register }),
+    [active, open, close, container, register],
   )
   return (
     <CardDetailContext.Provider value={value}>
@@ -124,6 +145,8 @@ export const CardDetail = ({
   const fallbackKey = useId()
   const key = detailKey ?? fallbackKey
   const [localOpen, setLocalOpen] = useState(false)
+  const register = ctx?.register
+  useEffect(() => register?.(key), [register, key])
 
   if (!ctx) {
     return (

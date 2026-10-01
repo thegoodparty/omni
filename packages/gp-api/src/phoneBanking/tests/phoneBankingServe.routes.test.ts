@@ -9,6 +9,7 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import {
   OutreachStatus,
   OutreachType,
+  PrioritySource,
   VoterFileFilter,
 } from '../../generated/prisma'
 
@@ -243,6 +244,134 @@ describe('serve phone banking routes', () => {
         { where: { entry: { phoneBankingListId: secondRes.data.id } } },
       )
       expect(persons.map((p) => p.personId)).toEqual([second.id])
+    })
+  })
+
+  // A chat card's proposal hands the official into this flow carrying its
+  // derived key and the priority it was proposed under.
+  describe('a create carrying a proposal link', () => {
+    const PROPOSAL_KEY = '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7'
+
+    const officePriority = async (slug = eoSlug) => {
+      const office = await service.prisma.electedOffice.findFirstOrThrow({
+        where: { organizationSlug: slug },
+      })
+      return service.prisma.priority.create({
+        data: {
+          electedOfficeId: office.id,
+          title: 'Fix the crosswalk on Main',
+          description: 'Residents raised it at three meetings running.',
+          source: PrioritySource.user_stated,
+        },
+      })
+    }
+
+    it('links the envelope to the priority under the key', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770001' })])
+      const priority = await officePriority()
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({ proposalKey: PROPOSAL_KEY, priorityId: priority.id }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      const envelope = await service.prisma.outreach.findUnique({
+        where: { proposalKey: PROPOSAL_KEY },
+      })
+      expect(envelope).toMatchObject({
+        id: res.data.outreachId,
+        phoneBankingListId: res.data.id,
+        priorityId: priority.id,
+        organizationSlug: eoSlug,
+      })
+    })
+
+    it('hands back the first list when the same proposal completes twice', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770002' })])
+
+      const first = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({ proposalKey: PROPOSAL_KEY }),
+        eoHeaders(),
+      )
+      const second = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({ proposalKey: PROPOSAL_KEY, name: 'Again' }),
+        eoHeaders(),
+      )
+
+      expect(first.status).toBe(201)
+      expect(second.status).toBe(201)
+      expect(second.data).toMatchObject({
+        id: first.data.id,
+        outreachId: first.data.outreachId,
+        name: first.data.name,
+        entryCount: first.data.entryCount,
+        personCount: first.data.personCount,
+      })
+      expect(
+        await service.prisma.phoneBankingList.count({
+          where: { organizationSlug: eoSlug },
+        }),
+      ).toBe(1)
+    })
+
+    it('refuses a priority that belongs to another office', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770003' })])
+      const otherSlug = `${eoSlug}-other`
+      await service.prisma.organization.create({
+        data: { slug: otherSlug, ownerId: service.user.id },
+      })
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: otherSlug },
+      })
+      const foreign = await officePriority(otherSlug)
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({ proposalKey: PROPOSAL_KEY, priorityId: foreign.id }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(404)
+      expect(
+        await service.prisma.phoneBankingList.count({
+          where: { organizationSlug: eoSlug },
+        }),
+      ).toBe(0)
+    })
+
+    it('refuses a key another organization already spent', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770004' })])
+      const otherSlug = `${eoSlug}-spent`
+      await service.prisma.organization.create({
+        data: { slug: otherSlug, ownerId: service.user.id },
+      })
+      await service.prisma.outreach.create({
+        data: {
+          campaignId: null,
+          organizationSlug: otherSlug,
+          proposalKey: PROPOSAL_KEY,
+          outreachType: OutreachType.socialMedia,
+          status: OutreachStatus.completed,
+          name: 'Theirs',
+        },
+      })
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({ proposalKey: PROPOSAL_KEY }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(409)
+      expect(
+        await service.prisma.phoneBankingList.count({
+          where: { organizationSlug: eoSlug },
+        }),
+      ).toBe(0)
     })
   })
 
