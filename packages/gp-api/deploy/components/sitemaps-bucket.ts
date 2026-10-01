@@ -74,6 +74,7 @@ export const createSitemapsBucket = () => {
       {
         id: 'expire-noncurrent-versions',
         status: 'Enabled',
+        filter: {},
         noncurrentVersionExpiration: { noncurrentDays: 30 },
       },
     ],
