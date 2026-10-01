@@ -223,9 +223,18 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       // decides on its own when a step settles.
       ask_clarify_question: {
         ...ask,
-        execute: (input: Parameters<typeof ask.execute>[0]) => {
-          offeredThisTurn = true
-          return ask.execute(input)
+        execute: async (input: Parameters<typeof ask.execute>[0]) => {
+          const result = await ask.execute(input)
+          if (
+            !(
+              typeof result === 'object' &&
+              result !== null &&
+              'error' in result
+            )
+          ) {
+            offeredThisTurn = true
+          }
+          return result
         },
       },
       present_outreach_proposal: {

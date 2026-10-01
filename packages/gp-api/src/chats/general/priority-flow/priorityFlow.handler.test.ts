@@ -510,6 +510,25 @@ describe('PriorityFlowHandler', () => {
     ).toEqual({ presented: true, deepLinkOnly: false })
   })
 
+  it('does not count a refused question as offered', async () => {
+    const tools = build().buildTools(baseCtx())
+    const offered = vi.mocked(priorityStatus.buildStatusTool).mock.calls[0]?.[1]
+      ?.offered
+    const ask = tools.ask_clarify_question
+    if (offered === undefined || ask === undefined || !('execute' in ask)) {
+      throw new Error('expected the offer reader and the ask tool')
+    }
+    expect(
+      await ask.execute({
+        questionId: 'q1',
+        question: 'Which pets?',
+        options: [{ label: 'Dogs' }, { label: 'Dogs and Cats' }],
+        multiSelect: true,
+      }),
+    ).toHaveProperty('error')
+    expect(offered()).toBe(false)
+  })
+
   it('asks a structured question without touching the status', async () => {
     const tool = build().buildTools(baseCtx()).ask_clarify_question
     if (tool === undefined || !('execute' in tool)) {
