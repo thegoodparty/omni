@@ -1939,8 +1939,8 @@
    "anchor_confidence": "",
    "anchor_flag_reason": "",
    "area": "Dashboard",
-   "call_site_count": 0,
-   "call_site_retired_date": "2026-09-01",
+   "call_site_count": null,
+   "call_site_retired_date": null,
    "count_30d": 6,
    "count_total": 649,
    "declared_intent": "in use",
@@ -1984,7 +1984,7 @@
    "anchor_confidence": "high",
    "anchor_flag_reason": "",
    "area": "Door Knocking",
-   "call_site_count": 1,
+   "call_site_count": null,
    "call_site_retired_date": null,
    "count_30d": 275,
    "count_total": 300,
@@ -2027,7 +2027,7 @@
    "anchor_confidence": "high",
    "anchor_flag_reason": "",
    "area": "Door Knocking",
-   "call_site_count": 1,
+   "call_site_count": null,
    "call_site_retired_date": null,
    "count_30d": 1,
    "count_total": 1,
@@ -2070,7 +2070,7 @@
    "anchor_confidence": "high",
    "anchor_flag_reason": "",
    "area": "Door Knocking",
-   "call_site_count": 1,
+   "call_site_count": null,
    "call_site_retired_date": null,
    "count_30d": 1,
    "count_total": 2,
@@ -5050,7 +5050,8 @@
    "watchlist_status": "\u2014"
   }
  },
- "generated_at": "2026-09-29T21:02:57+00:00",
+ "generated_at": "2026-10-01T04:40:18+00:00",
+ "okr_labels": {},
  "overview": {
   "by_area": [
    {
@@ -5443,7 +5444,7 @@
   "totals": {
    "events": 658,
    "flagged": 174,
-   "open_decisions": 25
+   "open_decisions": 18
   }
  },
  "prior_flagged": {
@@ -5627,12 +5628,12 @@
    "items": [
     {
      "caveat": {
-      "check": "Look at the other events grouped with this one. If they carry a removal date and this one does not, its code probably was deleted and we simply could not date it. Before deciding our search has a new blind spot, search the code history for the event's full dotted name as one unbroken string: our counter copes with that name being split across lines and the history search does not.",
+      "check": "Look at the other events grouped with this one. If they were deleted in the same change and carry a removal date while this one does not, its code was probably deleted too and the date is still to come.",
       "means": "An event cannot fire if nothing in the code sends it. So our search is wrong, not the event. These events are alive, and this is a fault in our tooling rather than a problem with the product.",
       "measured": "We search the code for every place that sends each event. We found none for these, and yet Amplitude shows them firing normally, some of them thousands of times a month.",
-      "names": "call_site_count, count_call_sites, git log -S (DATA-2577). Full triage in books/monitor-analytics-event-health.md section 'Rank 0'",
+      "names": "call_site_count, count_call_sites, call_site_retired_date (DATA-2577). Full triage in books/monitor-analytics-event-health.md section 'Rank 0'",
       "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "A second, quite different situation lands here looking identical: an event whose code really was deleted, but where we could not work out when. Six events are in that state today, and there is an open ticket to fix it."
+      "wrong": "A second, quite different situation lands here looking identical: an event whose code really was deleted, but where we could not work out when. The common case of that was fixed on 2026-09-29, but the fix only reaches an event at the next weekly history walk, so one deleted shortly before then can still sit here until it runs."
      },
      "count": 5,
      "dismissable": false,
@@ -5660,6 +5661,7 @@
        "last_seen_date": "2026-09-09",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -5673,6 +5675,7 @@
        "last_seen_date": "2026-09-08",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -5686,6 +5689,7 @@
        "last_seen_date": "2026-09-08",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -5699,6 +5703,7 @@
        "last_seen_date": "2026-09-08",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -5712,11 +5717,13 @@
        "last_seen_date": "2026-09-08",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       }
      ],
      "id": "counter_blind_spot",
      "label": "counter blind spot (our counter, not the product)",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 0,
      "recommendation_reason": "This is our own search failing to find code that is there, not a problem with the product. It is fixed in our tooling, and it cannot be dismissed.",
@@ -5766,6 +5773,7 @@
        "last_seen_date": "2026-09-13",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "orphaned_firing"
       },
       {
@@ -5779,6 +5787,7 @@
        "last_seen_date": "2026-09-13",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "orphaned_firing"
       },
       {
@@ -5792,6 +5801,7 @@
        "last_seen_date": "2026-09-13",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "orphaned_firing"
       },
       {
@@ -5805,6 +5815,7 @@
        "last_seen_date": "2026-09-13",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "orphaned_firing"
       },
       {
@@ -5818,6 +5829,7 @@
        "last_seen_date": "2026-09-13",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "orphaned_firing"
       },
       {
@@ -5831,6 +5843,7 @@
        "last_seen_date": "2026-09-13",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "orphaned_firing"
       },
       {
@@ -5844,6 +5857,7 @@
        "last_seen_date": "2026-09-13",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "orphaned_firing"
       },
       {
@@ -5857,6 +5871,7 @@
        "last_seen_date": "2026-09-13",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "orphaned_firing"
       },
       {
@@ -5870,6 +5885,7 @@
        "last_seen_date": "2026-09-13",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "orphaned_firing"
       },
       {
@@ -5883,6 +5899,7 @@
        "last_seen_date": "2026-09-27",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -5896,11 +5913,13 @@
        "last_seen_date": "2026-09-27",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "active"
       }
      ],
      "id": "orphaned_firing",
      "label": "declared not-in-use, still firing",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 1,
      "recommendation_reason": "Two different problems look identical here: old app versions still sending a genuinely retired event, and a declaration that is simply wrong. Check when each one last fired before writing anything.",
@@ -5979,6 +5998,7 @@
        "last_seen_date": "2026-08-27",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -5992,6 +6012,7 @@
        "last_seen_date": "2026-09-01",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6005,6 +6026,7 @@
        "last_seen_date": "2026-09-01",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6018,6 +6040,7 @@
        "last_seen_date": "2026-07-29",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6031,6 +6054,7 @@
        "last_seen_date": "2026-08-30",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6044,6 +6068,7 @@
        "last_seen_date": "2026-09-01",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6057,6 +6082,7 @@
        "last_seen_date": "2026-08-30",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6070,6 +6096,7 @@
        "last_seen_date": "2026-09-01",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6083,6 +6110,7 @@
        "last_seen_date": "2026-09-01",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6096,6 +6124,7 @@
        "last_seen_date": "2026-08-04",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6109,6 +6138,7 @@
        "last_seen_date": "2026-08-16",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6122,6 +6152,7 @@
        "last_seen_date": "2026-07-30",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6135,6 +6166,7 @@
        "last_seen_date": "2026-08-16",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6148,6 +6180,7 @@
        "last_seen_date": "2026-08-16",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6161,6 +6194,7 @@
        "last_seen_date": "2026-08-16",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6174,6 +6208,7 @@
        "last_seen_date": "2026-08-16",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6187,6 +6222,7 @@
        "last_seen_date": "2026-08-11",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6200,6 +6236,7 @@
        "last_seen_date": "2026-08-16",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6213,6 +6250,7 @@
        "last_seen_date": "2026-07-30",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6226,6 +6264,7 @@
        "last_seen_date": "2026-08-16",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6239,6 +6278,7 @@
        "last_seen_date": "2026-07-24",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6252,11 +6292,13 @@
        "last_seen_date": "2026-07-28",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       }
      ],
      "id": "call_site_removed@2026-09-01",
      "label": "call sites removed on 2026-09-01",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 2,
      "recommendation_reason": "Nothing in the code sends these any more, and Amplitude still says they are in use. Retiring them is the fix.",
@@ -6305,6 +6347,7 @@
        "last_seen_date": "2026-09-08",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6318,6 +6361,7 @@
        "last_seen_date": "2026-09-08",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6331,6 +6375,7 @@
        "last_seen_date": "2026-09-09",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6344,6 +6389,7 @@
        "last_seen_date": "2026-09-09",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6357,6 +6403,7 @@
        "last_seen_date": "2026-09-08",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6370,6 +6417,7 @@
        "last_seen_date": "2026-09-09",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6383,6 +6431,7 @@
        "last_seen_date": "2026-09-09",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6396,6 +6445,7 @@
        "last_seen_date": "2026-09-09",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       },
       {
@@ -6409,11 +6459,13 @@
        "last_seen_date": "2026-09-08",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "active"
       }
      ],
      "id": "call_site_removed@2026-09-08",
      "label": "call sites removed on 2026-09-08",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 2,
      "recommendation_reason": "Nothing in the code sends these any more, and Amplitude still says they are in use. Retiring them is the fix.",
@@ -6454,11 +6506,13 @@
        "last_seen_date": "2026-04-20",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       }
      ],
      "id": "call_site_removed@2026-04-20",
      "label": "call sites removed on 2026-04-20",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 2,
      "recommendation_reason": "Nothing in the code sends these any more, and Amplitude still says they are in use. Retiring them is the fix.",
@@ -6501,11 +6555,13 @@
        "last_seen_date": "2026-07-21",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       }
      ],
      "id": "call_site_removed@2026-07-16",
      "label": "call sites removed on 2026-07-16",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 2,
      "recommendation_reason": "Nothing in the code sends these any more, and Amplitude still says they are in use. Retiring them is the fix.",
@@ -6548,11 +6604,13 @@
        "last_seen_date": "2026-07-21",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       }
      ],
      "id": "call_site_removed@unknown",
      "label": "call sites removed on unknown",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 2,
      "recommendation_reason": "Nothing in the code sends these any more, and Amplitude still says they are in use. Retiring them is the fix.",
@@ -6595,11 +6653,13 @@
        "last_seen_date": "2026-09-26",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "active"
       }
      ],
      "id": "anomaly_drop",
      "label": "anomaly drop",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 3,
      "recommendation_reason": "A live event dropped without an obvious cause. Nothing to write until the cause is known.",
@@ -6656,6 +6716,7 @@
        "last_seen_date": "2026-07-07",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       },
       {
@@ -6669,6 +6730,7 @@
        "last_seen_date": "2026-07-07",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       },
       {
@@ -6682,6 +6744,7 @@
        "last_seen_date": "2026-06-10",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       },
       {
@@ -6695,6 +6758,7 @@
        "last_seen_date": "2026-06-10",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       },
       {
@@ -6708,6 +6772,7 @@
        "last_seen_date": "2026-06-27",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       },
       {
@@ -6721,6 +6786,7 @@
        "last_seen_date": "2026-06-27",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       },
       {
@@ -6734,6 +6800,7 @@
        "last_seen_date": "2026-06-27",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       },
       {
@@ -6747,6 +6814,7 @@
        "last_seen_date": "2026-06-24",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       },
       {
@@ -6760,6 +6828,7 @@
        "last_seen_date": "2026-06-24",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       },
       {
@@ -6773,6 +6842,7 @@
        "last_seen_date": "2026-06-24",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       },
       {
@@ -6786,11 +6856,13 @@
        "last_seen_date": "2026-07-14",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "retired"
       }
      ],
      "id": "intent_divergence",
      "label": "intent divergence",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 5,
      "recommendation_reason": "What Amplitude says about these and what they actually do disagree. Amplitude is where you correct it.",
@@ -6804,7 +6876,7 @@
     },
     {
      "caveat": {
-      "check": "Look at when it last fired and ask whether that gap is unusual for this particular event.",
+      "check": "Check another event on the same page. If that one still fires, the page works and this action is simply rare. If nothing on the page fires, check the page is still reachable: code can survive inside a screen nobody can open any more.",
       "means": "The event has gone quiet, and it is one we care about more than most. It may be broken, or it may simply be rare.",
       "measured": "Nothing fired in the last 30 days, on events we watch more closely, because they are on the curated watchlist or belong to onboarding, activation or compliance.",
       "names": "event_count_30d, is_elevated",
@@ -6851,6 +6923,7 @@
        "last_seen_date": "2026-04-13",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6864,6 +6937,7 @@
        "last_seen_date": "2026-04-17",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6877,6 +6951,7 @@
        "last_seen_date": "2026-06-26",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6890,6 +6965,7 @@
        "last_seen_date": "2026-06-26",
        "okr": "activated_serve_users",
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6903,6 +6979,7 @@
        "last_seen_date": "2026-06-26",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6916,6 +6993,7 @@
        "last_seen_date": "2026-06-17",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6929,6 +7007,7 @@
        "last_seen_date": "2026-08-13",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6942,6 +7021,7 @@
        "last_seen_date": "2026-08-05",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6955,6 +7035,7 @@
        "last_seen_date": "2026-06-25",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -6968,11 +7049,13 @@
        "last_seen_date": "2026-08-25",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       }
      ],
      "id": "dormant_elevated",
      "label": "dormant, elevated",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 6,
      "recommendation_reason": "",
@@ -6989,9 +7072,9 @@
       "check": "Split it before ruling on it, which the buttons above the table do for you. 'not found in code' selects the ones nobody ever built, and the age column separates what shipped in the last fortnight from what has been silent for months.",
       "means": "Less than it sounds like. The list of events we check comes from the definitions people write in Amplitude, not from the code. So an event that somebody defined and never built scores exactly the same here as one that shipped last Thursday and has not fired yet.",
       "measured": "Amplitude holds a definition for each of these events and no data behind it. Not one of them has ever fired.",
-      "names": "instrumented_never_observed, DATA-2573, DATA-2508",
+      "names": "instrumented_never_observed, DATA-2508, DATA-2587, DATA-2588",
       "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "The group mixes three unrelated things. Counted on 2026-09-28, of 69 events: 34 were never built at all, about 32 shipped too recently to judge, and 4 are the real finding."
+      "wrong": "The group mixes three unrelated things. Counted on 2026-09-28, of 69 events: 34 were never built at all, about 32 shipped too recently to judge, and 4 are the real finding. An event that was never built stays here even after it is deleted from Amplitude, and ruling on some events here does not stop them coming back next run; an event leaves on its own the first time it fires."
      },
      "count": 69,
      "dismissable": true,
@@ -7081,6 +7164,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7094,6 +7178,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7107,6 +7192,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "provisional",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7120,6 +7206,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7133,6 +7220,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "provisional",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7146,6 +7234,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7159,6 +7248,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7172,6 +7262,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7185,6 +7276,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7198,6 +7290,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7211,6 +7304,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7224,6 +7318,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7237,6 +7332,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7250,6 +7346,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7263,6 +7360,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7276,6 +7374,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7289,6 +7388,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7302,6 +7402,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7315,6 +7416,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7328,6 +7430,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7341,6 +7444,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7354,6 +7458,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7367,6 +7472,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7380,6 +7486,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7393,6 +7500,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7406,6 +7514,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7419,6 +7528,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7432,6 +7542,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7445,6 +7556,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7458,6 +7570,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7471,6 +7584,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7484,6 +7598,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7497,6 +7612,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7510,6 +7626,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7523,6 +7640,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7536,6 +7654,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7549,6 +7668,21 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "provisional",
+       "removed_by_pr": null,
+       "status": "instrumented_never_observed"
+      },
+      {
+       "days_since_instrumented": -1,
+       "divergence": null,
+       "elevated": false,
+       "event_count_30d": 0,
+       "event_type": "Dashboard - Campaign Task Completed",
+       "instrumented_date": "2026-09-29",
+       "instrumented_pr": "",
+       "last_seen_date": null,
+       "okr": null,
+       "provenance": "full",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7562,6 +7696,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7575,6 +7710,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7588,6 +7724,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7601,6 +7738,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7614,6 +7752,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7627,6 +7766,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7640,6 +7780,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7653,6 +7794,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7666,6 +7808,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7679,6 +7822,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7692,6 +7836,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7705,6 +7850,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7718,6 +7864,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7731,6 +7878,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7744,6 +7892,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7757,6 +7906,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7770,19 +7920,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
-       "status": "instrumented_never_observed"
-      },
-      {
-       "days_since_instrumented": null,
-       "divergence": null,
-       "elevated": false,
-       "event_count_30d": 0,
-       "event_type": "Dashboard - Campaign Task Completed",
-       "instrumented_date": null,
-       "instrumented_pr": "",
-       "last_seen_date": null,
-       "okr": null,
-       "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7796,6 +7934,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7809,6 +7948,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7822,6 +7962,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7835,6 +7976,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7848,6 +7990,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7861,6 +8004,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7874,6 +8018,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7887,6 +8032,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7900,6 +8046,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7913,6 +8060,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7926,6 +8074,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7939,6 +8088,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7952,6 +8102,7 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       },
       {
@@ -7965,11 +8116,13 @@
        "last_seen_date": null,
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "instrumented_never_observed"
       }
      ],
      "id": "never_observed",
      "label": "instrumented, never observed",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 7,
      "recommendation_reason": "",
@@ -8042,6 +8195,7 @@
        "last_seen_date": "2026-06-18",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8055,6 +8209,7 @@
        "last_seen_date": "2026-08-09",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8068,6 +8223,7 @@
        "last_seen_date": "2026-05-16",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8081,6 +8237,7 @@
        "last_seen_date": "2026-07-08",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8094,6 +8251,7 @@
        "last_seen_date": "2026-06-06",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8107,6 +8265,7 @@
        "last_seen_date": "2026-04-02",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8120,6 +8279,7 @@
        "last_seen_date": "2026-06-25",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8133,6 +8293,7 @@
        "last_seen_date": "2026-06-25",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8146,6 +8307,7 @@
        "last_seen_date": "2026-07-22",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8159,6 +8321,7 @@
        "last_seen_date": "2026-06-25",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8172,6 +8335,7 @@
        "last_seen_date": "2026-06-23",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8185,6 +8349,7 @@
        "last_seen_date": "2026-08-27",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8198,6 +8363,7 @@
        "last_seen_date": "2026-07-21",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8211,6 +8377,7 @@
        "last_seen_date": "2026-07-21",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8224,6 +8391,7 @@
        "last_seen_date": "2026-08-10",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8237,6 +8405,7 @@
        "last_seen_date": "2026-07-21",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8250,6 +8419,7 @@
        "last_seen_date": "2026-08-16",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8263,6 +8433,7 @@
        "last_seen_date": "2026-08-03",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8276,6 +8447,7 @@
        "last_seen_date": "2026-06-25",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8289,6 +8461,7 @@
        "last_seen_date": "2026-07-22",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8302,6 +8475,7 @@
        "last_seen_date": "2026-07-29",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8315,6 +8489,7 @@
        "last_seen_date": "2026-07-27",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8328,6 +8503,7 @@
        "last_seen_date": "2026-07-26",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8341,6 +8517,7 @@
        "last_seen_date": "2026-07-31",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8354,6 +8531,7 @@
        "last_seen_date": "2026-07-28",
        "okr": null,
        "provenance": "commit only",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8367,6 +8545,7 @@
        "last_seen_date": "2026-07-29",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8380,6 +8559,7 @@
        "last_seen_date": "2026-08-27",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8393,6 +8573,7 @@
        "last_seen_date": "2026-08-26",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8406,6 +8587,7 @@
        "last_seen_date": "2026-08-25",
        "okr": null,
        "provenance": "full",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8419,6 +8601,7 @@
        "last_seen_date": "2026-05-26",
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8432,6 +8615,7 @@
        "last_seen_date": "2026-05-26",
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8445,6 +8629,7 @@
        "last_seen_date": "2026-05-26",
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "dormant"
       },
       {
@@ -8458,11 +8643,13 @@
        "last_seen_date": "2026-08-20",
        "okr": null,
        "provenance": "not found in code",
+       "removed_by_pr": null,
        "status": "dormant"
       }
      ],
      "id": "dormant",
      "label": "dormant",
+     "proof_hint": "",
      "queue": "flags",
      "rank": 8,
      "recommendation_reason": "",
@@ -8478,246 +8665,7 @@
    "queue": "flags"
   },
   {
-   "items": [
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-09-28",
-       "judge_reason": "URL-stable multi-stage wizard (intro/form/submitted) with no per-stage Viewed/Completed events visible in this handler.",
-       "last_seen": "2026-09-28",
-       "location": "packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationFlow.tsx",
-       "rubric_rule": "multi-step flow: Viewed/Completed per stage",
-       "surface_type": "wizard_stage"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationFlow.tsx#wizard_stage",
-     "label": "Where do users drop off in the campaign verification flow (intro vs form vs submitted)?",
-     "queue": "gaps",
-     "rank": 0,
-     "recommendation_reason": "URL-stable multi-stage wizard (intro/form/submitted) with no per-stage Viewed/Completed events visible in this handler.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-08-31",
-       "judge_reason": "Defines stage/step logic for a five-stage flow but this utility file shows no stage Viewed/Completed instrumentation.",
-       "last_seen": "2026-09-28",
-       "location": "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts",
-       "rubric_rule": "multi-step flow: Viewed/Completed per stage",
-       "surface_type": "wizard_stage"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage",
-     "label": "Where do users drop off across the five-step door-knocking create flow (purpose/draw/points/name/success)?",
-     "queue": "gaps",
-     "rank": 0,
-     "recommendation_reason": "Defines stage/step logic for a five-stage flow but this utility file shows no stage Viewed/Completed instrumentation.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-09-28",
-       "judge_reason": "Gate screens are stages of a paused flow with their own step position but no evident Viewed/Completed events per gate screen.",
-       "last_seen": "2026-09-28",
-       "location": "packages/gp-webapp/app/dashboard/outreach/v2/gate/OutreachGate.tsx",
-       "rubric_rule": "multi-step flow: Viewed/Completed per stage",
-       "surface_type": "wizard_stage"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/outreach/v2/gate/OutreachGate.tsx#wizard_stage",
-     "label": "Where do users drop off within the outreach gate screens (Pro interstitial, verification, PIN, in-review)?",
-     "queue": "gaps",
-     "rank": 0,
-     "recommendation_reason": "Gate screens are stages of a paused flow with their own step position but no evident Viewed/Completed events per gate screen.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-09-10",
-       "judge_reason": "Rubric explicitly calls out AI chat send-message as real engagement to track alongside chat opened, distinct from generic chrome.",
-       "last_seen": "2026-09-23",
-       "location": "packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx",
-       "rubric_rule": "AI chat message sent exception",
-       "surface_type": "form_submit"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx#form_submit",
-     "label": "How many users send a message (or use a suggested prompt) in the Chief of Staff chat, and what is the chat-opened-to-message-sent drop-off?",
-     "queue": "gaps",
-     "rank": 1,
-     "recommendation_reason": "Rubric explicitly calls out AI chat send-message as real engagement to track alongside chat opened, distinct from generic chrome.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-09-28",
-       "judge_reason": "onSubmit creates a recommended list (an outcome-producing action) with no visible tracked event on submit.",
-       "last_seen": "2026-09-28",
-       "location": "packages/gp-webapp/app/dashboard/outreach/v2/audience/OutreachAudienceStep.tsx",
-       "rubric_rule": "outcome / primary CTA - list creation submit",
-       "surface_type": "form_submit"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/outreach/v2/audience/OutreachAudienceStep.tsx#form_submit",
-     "label": "How many users create a recommended audience list via this drawer, and at what rate?",
-     "queue": "gaps",
-     "rank": 1,
-     "recommendation_reason": "onSubmit creates a recommended list (an outcome-producing action) with no visible tracked event on submit.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-09-28",
-       "judge_reason": "Multi-state async job (not_started/queued/running/failed) surface with no visible tracked events for start, failure, or completion.",
-       "last_seen": "2026-09-28",
-       "location": "packages/gp-webapp/app/dashboard/race-opponent/components/SelfResearch.tsx",
-       "rubric_rule": "async job start/outcome + blocker",
-       "surface_type": "form_submit"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/race-opponent/components/SelfResearch.tsx#form_submit",
-     "label": "How many users start self-research, and how often does it fail vs complete?",
-     "queue": "gaps",
-     "rank": 1,
-     "recommendation_reason": "Multi-state async job (not_started/queued/running/failed) surface with no visible tracked events for start, failure, or completion.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-09-28",
-       "judge_reason": "Same AI-chat composer submit exception as chatUI.tsx; no visible message-sent tracking event.",
-       "last_seen": "2026-09-28",
-       "location": "packages/gp-webapp/app/dashboard/shared/ai-chat/AiChatBody.tsx",
-       "rubric_rule": "engagement exception - message sent",
-       "surface_type": "form_submit"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/shared/ai-chat/AiChatBody.tsx#form_submit",
-     "label": "How many users send a message via the AI chat composer (open-to-send drop-off)?",
-     "queue": "gaps",
-     "rank": 1,
-     "recommendation_reason": "Same AI-chat composer submit exception as chatUI.tsx; no visible message-sent tracking event.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    }
-   ],
+   "items": [],
    "queue": "gaps"
   },
   {
@@ -9152,6 +9100,76 @@
    "disposition": "accepted",
    "evidence": [
     {
+     "first_seen": "2026-09-28",
+     "judge_reason": "URL-stable multi-stage wizard (intro/form/submitted) with no per-stage Viewed/Completed events visible in this handler.",
+     "last_seen": "2026-09-28",
+     "location": "packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationFlow.tsx",
+     "rubric_rule": "multi-step flow: Viewed/Completed per stage",
+     "surface_type": "wizard_stage"
+    }
+   ],
+   "id": "packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationFlow.tsx#wizard_stage",
+   "label": "Where do users drop off in the campaign verification flow (intro vs form vs submitted)?",
+   "queue": "gaps",
+   "rank": 0,
+   "recommendation_reason": "URL-stable multi-stage wizard (intro/form/submitted) with no per-stage Viewed/Completed events visible in this handler.",
+   "recommended": "accept",
+   "verbs": {
+    "accept": "Accept",
+    "defer": "Defer",
+    "dismiss": "Dismiss"
+   }
+  },
+  {
+   "caveat": {
+    "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+    "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+    "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+    "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+    "reference": "books/analytics-governance-gotchas.md",
+    "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+   },
+   "count": 1,
+   "dismissable": true,
+   "dismissed": null,
+   "disposition": "accepted",
+   "evidence": [
+    {
+     "first_seen": "2026-09-10",
+     "judge_reason": "Rubric explicitly calls out AI chat send-message as real engagement to track alongside chat opened, distinct from generic chrome.",
+     "last_seen": "2026-09-28",
+     "location": "packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx",
+     "rubric_rule": "AI chat message sent exception",
+     "surface_type": "form_submit"
+    }
+   ],
+   "id": "packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx#form_submit",
+   "label": "How many users send a message (or use a suggested prompt) in the Chief of Staff chat, and what is the chat-opened-to-message-sent drop-off?",
+   "queue": "gaps",
+   "rank": 1,
+   "recommendation_reason": "Rubric explicitly calls out AI chat send-message as real engagement to track alongside chat opened, distinct from generic chrome.",
+   "recommended": "accept",
+   "verbs": {
+    "accept": "Accept",
+    "defer": "Defer",
+    "dismiss": "Dismiss"
+   }
+  },
+  {
+   "caveat": {
+    "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+    "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+    "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+    "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+    "reference": "books/analytics-governance-gotchas.md",
+    "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+   },
+   "count": 1,
+   "dismissable": true,
+   "dismissed": null,
+   "disposition": "accepted",
+   "evidence": [
+    {
      "first_seen": "2026-07-23",
      "judge_reason": "Primary Save action submitting a count value produces a real outcome (task count recorded) with no visible trackEvent.",
      "last_seen": "2026-08-06",
@@ -9239,6 +9257,41 @@
    "queue": "gaps",
    "rank": 1,
    "recommendation_reason": "onMessageSent hook exists but this is a message-send moment the rubric flags as real engagement worth tracking; no trackEvent evident on the send call itself.",
+   "recommended": "accept",
+   "verbs": {
+    "accept": "Accept",
+    "defer": "Defer",
+    "dismiss": "Dismiss"
+   }
+  },
+  {
+   "caveat": {
+    "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+    "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+    "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+    "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+    "reference": "books/analytics-governance-gotchas.md",
+    "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+   },
+   "count": 1,
+   "dismissable": true,
+   "dismissed": null,
+   "disposition": "accepted",
+   "evidence": [
+    {
+     "first_seen": "2026-08-31",
+     "judge_reason": "Defines stage/step logic for a five-stage flow but this utility file shows no stage Viewed/Completed instrumentation.",
+     "last_seen": "2026-09-28",
+     "location": "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts",
+     "rubric_rule": "multi-step flow: Viewed/Completed per stage",
+     "surface_type": "wizard_stage"
+    }
+   ],
+   "id": "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage",
+   "label": "Where do users drop off across the five-step door-knocking create flow (purpose/draw/points/name/success)?",
+   "queue": "gaps",
+   "rank": 0,
+   "recommendation_reason": "Defines stage/step logic for a five-stage flow but this utility file shows no stage Viewed/Completed instrumentation.",
    "recommended": "accept",
    "verbs": {
     "accept": "Accept",
@@ -9537,6 +9590,43 @@
    },
    "count": 1,
    "dismissable": true,
+   "dismissed": {
+    "reason": "already answered by Outreach - Recommended List Accepted/Failed, fired in useOutreachAudience.ts one hop from this component"
+   },
+   "disposition": "dismissed",
+   "evidence": [
+    {
+     "first_seen": "2026-09-28",
+     "judge_reason": "onSubmit creates a recommended list (an outcome-producing action) with no visible tracked event on submit.",
+     "last_seen": "2026-09-28",
+     "location": "packages/gp-webapp/app/dashboard/outreach/v2/audience/OutreachAudienceStep.tsx",
+     "rubric_rule": "outcome / primary CTA - list creation submit",
+     "surface_type": "form_submit"
+    }
+   ],
+   "id": "packages/gp-webapp/app/dashboard/outreach/v2/audience/OutreachAudienceStep.tsx#form_submit",
+   "label": "How many users create a recommended audience list via this drawer, and at what rate?",
+   "queue": "gaps",
+   "rank": 1,
+   "recommendation_reason": "onSubmit creates a recommended list (an outcome-producing action) with no visible tracked event on submit.",
+   "recommended": "accept",
+   "verbs": {
+    "accept": "Accept",
+    "defer": "Defer",
+    "dismiss": "Dismiss"
+   }
+  },
+  {
+   "caveat": {
+    "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+    "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+    "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+    "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+    "reference": "books/analytics-governance-gotchas.md",
+    "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+   },
+   "count": 1,
+   "dismissable": true,
    "dismissed": null,
    "disposition": "retired",
    "evidence": [
@@ -9554,6 +9644,41 @@
    "queue": "gaps",
    "rank": 2,
    "recommendation_reason": "Submitting the drawer produces a real outcome (a new list created) distinct from the audience wizard stage, plus a failure path; no evidence of tracking.",
+   "recommended": "accept",
+   "verbs": {
+    "accept": "Accept",
+    "defer": "Defer",
+    "dismiss": "Dismiss"
+   }
+  },
+  {
+   "caveat": {
+    "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+    "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+    "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+    "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+    "reference": "books/analytics-governance-gotchas.md",
+    "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+   },
+   "count": 1,
+   "dismissable": true,
+   "dismissed": null,
+   "disposition": "accepted",
+   "evidence": [
+    {
+     "first_seen": "2026-09-28",
+     "judge_reason": "Gate screens are stages of a paused flow with their own step position but no evident Viewed/Completed events per gate screen.",
+     "last_seen": "2026-09-28",
+     "location": "packages/gp-webapp/app/dashboard/outreach/v2/gate/OutreachGate.tsx",
+     "rubric_rule": "multi-step flow: Viewed/Completed per stage",
+     "surface_type": "wizard_stage"
+    }
+   ],
+   "id": "packages/gp-webapp/app/dashboard/outreach/v2/gate/OutreachGate.tsx#wizard_stage",
+   "label": "Where do users drop off within the outreach gate screens (Pro interstitial, verification, PIN, in-review)?",
+   "queue": "gaps",
+   "rank": 0,
+   "recommendation_reason": "Gate screens are stages of a paused flow with their own step position but no evident Viewed/Completed events per gate screen.",
    "recommended": "accept",
    "verbs": {
     "accept": "Accept",
@@ -10102,6 +10227,41 @@
    "count": 1,
    "dismissable": true,
    "dismissed": null,
+   "disposition": "accepted",
+   "evidence": [
+    {
+     "first_seen": "2026-09-28",
+     "judge_reason": "Multi-state async job (not_started/queued/running/failed) surface with no visible tracked events for start, failure, or completion.",
+     "last_seen": "2026-09-28",
+     "location": "packages/gp-webapp/app/dashboard/race-opponent/components/SelfResearch.tsx",
+     "rubric_rule": "async job start/outcome + blocker",
+     "surface_type": "form_submit"
+    }
+   ],
+   "id": "packages/gp-webapp/app/dashboard/race-opponent/components/SelfResearch.tsx#form_submit",
+   "label": "How many users start self-research, and how often does it fail vs complete?",
+   "queue": "gaps",
+   "rank": 1,
+   "recommendation_reason": "Multi-state async job (not_started/queued/running/failed) surface with no visible tracked events for start, failure, or completion.",
+   "recommended": "accept",
+   "verbs": {
+    "accept": "Accept",
+    "defer": "Defer",
+    "dismiss": "Dismiss"
+   }
+  },
+  {
+   "caveat": {
+    "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+    "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+    "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+    "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+    "reference": "books/analytics-governance-gotchas.md",
+    "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+   },
+   "count": 1,
+   "dismissable": true,
+   "dismissed": null,
    "disposition": "retired",
    "evidence": [
     {
@@ -10153,6 +10313,41 @@
    "queue": "gaps",
    "rank": 1,
    "recommendation_reason": "Rubric explicitly calls out chat message-send as real engagement to track alongside chat-opened, and no submit event is visible here.",
+   "recommended": "accept",
+   "verbs": {
+    "accept": "Accept",
+    "defer": "Defer",
+    "dismiss": "Dismiss"
+   }
+  },
+  {
+   "caveat": {
+    "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+    "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+    "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+    "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+    "reference": "books/analytics-governance-gotchas.md",
+    "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+   },
+   "count": 1,
+   "dismissable": true,
+   "dismissed": null,
+   "disposition": "accepted",
+   "evidence": [
+    {
+     "first_seen": "2026-09-28",
+     "judge_reason": "Same AI-chat composer submit exception as chatUI.tsx; no visible message-sent tracking event.",
+     "last_seen": "2026-09-28",
+     "location": "packages/gp-webapp/app/dashboard/shared/ai-chat/AiChatBody.tsx",
+     "rubric_rule": "engagement exception - message sent",
+     "surface_type": "form_submit"
+    }
+   ],
+   "id": "packages/gp-webapp/app/dashboard/shared/ai-chat/AiChatBody.tsx#form_submit",
+   "label": "How many users send a message via the AI chat composer (open-to-send drop-off)?",
+   "queue": "gaps",
+   "rank": 1,
+   "recommendation_reason": "Same AI-chat composer submit exception as chatUI.tsx; no visible message-sent tracking event.",
    "recommended": "accept",
    "verbs": {
     "accept": "Accept",
@@ -10348,10 +10543,12 @@
   },
   "flags": {
    "dismiss": "Stop the digest ever raising this cause again. There is no expiry and nothing revisits it.",
+   "dismiss:event": "Note these as fine for this review only. Nothing is silenced: they are raised again next run, and leave this cause on their own once it stops applying to them.",
    "govern": "Write this to Amplitude Govern. A retirement here tells every consumer the events are dead.",
    "govern:correction": "Correct this event's declaration in Amplitude Govern. Nothing is retired.",
    "investigate": "Leave it open, on the record that you are looking into it.",
-   "ticket": "File it in the Data backlog, and stop the digest nagging about it."
+   "ticket": "File it in the Data backlog. The digest keeps raising it until the cause clears or is dismissed.",
+   "ticket:event": "File these in the Data backlog. They are raised again next run."
   },
   "gaps": {
    "accept": "Agree the surface is missing an event. It becomes a ticket, or gets instrumented directly.",

@@ -688,7 +688,9 @@ Once all four queues are dispositioned:
      earlier session is exactly the stale fact the Status column exists to flag.
    - **Check the fix has not already shipped, before proposing any row.** For every row you
      add or update, fetch the live status of each ticket it cites, and run
-     `git log origin/main --since=<the row's as-of date>` over the code it describes. A
+     `git log origin/main --since="$as_of" -- <the files the row names>`, where `$as_of` is
+     the first day of the row's `state · as-of YYYY-MM` month (`2026-09-01`), over the code
+     it describes. An empty result only counts if the paths matched files. A
      row whose ticket is closed, or whose problem a merged PR already fixed, is a warning
      about something that is fine, and that is worse than no row: delete or correct it
      instead. A handoff is built from a snapshot, so the console you ruled in can predate
