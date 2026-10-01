@@ -151,6 +151,12 @@ describe('CallhubErrorHandlingService', () => {
       )
     })
 
+    it('exposes the CallHub detail on the permanent error so callers can act on it', () => {
+      const thrown = classifyBody(400, { detail: 'low_credit' })
+      expect(thrown).toBeInstanceOf(CallhubPermanentError)
+      expect((thrown as CallhubPermanentError).callhubDetail).toBe('low_credit')
+    })
+
     // The detail is vendor-supplied, so it is not guaranteed to be a string.
     it('treats a non-string detail as permanent rather than throwing', () => {
       expect(

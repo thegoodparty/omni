@@ -8,7 +8,10 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import {
+  CallhubPermanentError,
+  isLowCreditDetail,
+} from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -249,6 +252,17 @@ export class OutreachRobocallSendService extends createPrismaBase(
       // unresolved one. Anything else is `transient` → reconcile + retry. Either
       // way we NEVER blind-retry (a second START could re-dial) and NEVER fail a
       // campaign that reads STARTED — reconcile commits that to dialed.
+      // A low-credit reject is permanent for retry, but the account just needs
+      // topping up — alert CAS in the channel they watch so it can be fixed.
+      if (
+        err instanceof CallhubPermanentError &&
+        isLowCreditDetail(err.callhubDetail)
+      ) {
+        await this.notification.notifyRobocallLowCredit(
+          draft.outreach.campaign!.slug,
+          outreachId,
+        )
+      }
       await this.reconcileDialing(
         outreachId,
         pkStr,

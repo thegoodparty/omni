@@ -10,8 +10,12 @@ import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampai
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
 import { ZodError } from 'zod'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import {
+  CALLHUB_LOW_CREDIT_DETAIL,
+  CallhubPermanentError,
+} from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
+import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubCampaignReport.schema'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -206,6 +210,52 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     // The marker is persisted BEFORE failSend, so a failSend that could not
     // commit still leaves the stale sweep able to fail (not relaunch) the row.
     expect((await readSatellite(outreachId)).permanentSendFailure).toBe(true)
+  })
+
+  it('alerts CAS when a launch is rejected for low_credit', async () => {
+    const outreachId = await createDraft()
+    vi.spyOn(
+      service.app.get(OutreachRobocallHoldService),
+      'failSend',
+    ).mockResolvedValue()
+    const lowCreditSpy = vi
+      .spyOn(
+        service.app.get(OutreachNotificationService),
+        'notifyRobocallLowCredit',
+      )
+      .mockResolvedValue()
+    launchSpy.mockRejectedValueOnce(
+      new CallhubPermanentError(
+        'out of credit',
+        undefined,
+        CALLHUB_LOW_CREDIT_DETAIL,
+      ),
+    )
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.startCampaign(outreachId)
+
+    expect(lowCreditSpy).toHaveBeenCalledWith(expect.any(String), outreachId)
+  })
+
+  it('does NOT alert low_credit for a permanent launch failure without that detail', async () => {
+    const outreachId = await createDraft()
+    vi.spyOn(
+      service.app.get(OutreachRobocallHoldService),
+      'failSend',
+    ).mockResolvedValue()
+    const lowCreditSpy = vi
+      .spyOn(
+        service.app.get(OutreachNotificationService),
+        'notifyRobocallLowCredit',
+      )
+      .mockResolvedValue()
+    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.startCampaign(outreachId)
+
+    expect(lowCreditSpy).not.toHaveBeenCalled()
   })
 
   it('does NOT fail a permanently-errored launch that CallHub reports STARTED (it dialed)', async () => {

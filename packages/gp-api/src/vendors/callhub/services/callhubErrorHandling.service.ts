@@ -1,4 +1,9 @@
-import { BadGatewayException, HttpException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  HttpException,
+  HttpExceptionOptions,
+  Injectable,
+} from '@nestjs/common'
 import { isAxiosError } from 'axios'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -25,7 +30,32 @@ interface CallhubErrorInfo {
 // 502 vendor failure to the client) — the distinct class only lets a caller
 // that retries (the robocall send sweeps) tell "stop retrying, this is
 // permanent" from "retry, this was transient". 429 stays transient (throttle).
-export class CallhubPermanentError extends BadGatewayException {}
+export class CallhubPermanentError extends BadGatewayException {
+  // The CallHub `detail` code from the response body (e.g. 'low_credit'), when
+  // one was present, so a caller can act on a specific permanent failure
+  // without re-parsing the axios cause.
+  readonly callhubDetail?: string
+
+  constructor(
+    objectOrError?: string | object,
+    descriptionOrOptions?: string | HttpExceptionOptions,
+    callhubDetail?: string,
+  ) {
+    super(objectOrError, descriptionOrOptions)
+    this.callhubDetail = callhubDetail
+  }
+}
+
+// CallHub's out-of-account-credit code on a launch 4xx. Permanent for retry
+// purposes (waiting adds no credit), but worth a distinct operator alert since
+// topping up the CallHub account unblocks it.
+export const CALLHUB_LOW_CREDIT_DETAIL = 'low_credit'
+
+// The vendor detail is not guaranteed to be normalized (see isRecoverableDetail
+// above), so match case/space-insensitively — a `Low_Credit` variant must not
+// silently skip the operator alert.
+export const isLowCreditDetail = (detail?: string): boolean =>
+  detail?.trim().toLowerCase() === CALLHUB_LOW_CREDIT_DETAIL
 
 // CallHub `detail` codes that arrive on a 4xx but are NOT properties of the
 // request, so the identical call succeeds on the next attempt.
@@ -102,7 +132,11 @@ export class CallhubErrorHandlingService {
         !RECOVERABLE_4XX.includes(status) &&
         !isRecoverableDetail(data)
       throw permanent
-        ? new CallhubPermanentError(customMessage ?? generic, { cause: error })
+        ? new CallhubPermanentError(
+            customMessage ?? generic,
+            { cause: error },
+            data?.detail,
+          )
         : new BadGatewayException(customMessage ?? generic, { cause: error })
     }
 
