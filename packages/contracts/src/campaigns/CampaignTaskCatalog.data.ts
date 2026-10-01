@@ -268,6 +268,27 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     priorityTier: 'P4',
   },
 
+  // Campaign setup work, so it belongs in pre-launch — and at the end of it:
+  // `preLaunch` timing dates it a week past the block's anchor, alongside the
+  // other two rows that close the phase out.
+  {
+    id: 'tell-us-your-story',
+    phase: 'preLaunch',
+    type: 'static',
+    category: CAMPAIGN_STORY_CATEGORY,
+    title: 'Tell us your campaign story',
+    description:
+      'Share your why, your background, and the issues you care about to sharpen your plan.',
+    channel: 'general',
+    timing: { kind: 'preLaunch' },
+    electionType: 'both',
+    proRequired: false,
+    status: 'live',
+    personalization: 'static',
+    pills: [],
+    priorityTier: 'P1',
+  },
+
   // ----- Launch -----
   {
     id: 'organize-house-party',
@@ -412,27 +433,6 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
   },
 
   // ----- Active campaign -----
-  // Phase 'active' rather than 'preLaunch' on purpose. The webapp reads
-  // "happening now" as the first phase whose latest task date has arrived and
-  // that still has open work, so an open pre-launch row dated today would drag
-  // a candidate weeks out from election day back to the start of the rail.
-  {
-    id: 'tell-us-your-story',
-    phase: 'active',
-    type: 'static',
-    category: CAMPAIGN_STORY_CATEGORY,
-    title: "Tell us why you're running",
-    description:
-      'Your plan gets sharper once we know your why, your background, and the issues you care about.',
-    channel: 'general',
-    timing: { kind: 'asap' },
-    electionType: 'both',
-    proRequired: false,
-    status: 'live',
-    personalization: 'static',
-    pills: [],
-    priorityTier: 'P1',
-  },
   {
     id: 'knock-on-doors',
     phase: 'active',

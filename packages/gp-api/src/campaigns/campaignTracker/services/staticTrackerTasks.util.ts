@@ -121,21 +121,20 @@ export const CAMPAIGN_STORY_TASK_TITLES = CAMPAIGN_TASK_CATALOG.filter(
 // story card uses.
 const CAMPAIGN_STORY_LINK = '/dashboard?personalize=1'
 
-// The "tell us your story" row. Dated to TODAY, not the shared upcoming-Monday
-// anchor the rest of the static catalog uses: it is work the candidate can do
-// right now, and dating it into the current week is what earns it the week
-// navigator's "Do this next" badge. Carries the link/CTA columns, which the
-// catalog schema does not model.
+// The campaign-story row. Built separately from the rest of the static catalog
+// only because it carries the link/CTA columns, which the catalog schema does
+// not model; its date comes from the same anchor its pre-launch siblings use,
+// so it lands at the end of that block rather than off on its own.
 export const buildCampaignStoryTrackerTaskRows = (
   campaignId: number,
-  today: Date,
+  start: Date,
   electionDate: Date | null,
 ): Prisma.CampaignTrackerTaskCreateManyInput[] =>
   CAMPAIGN_TASK_CATALOG.filter(
     (task) =>
       task.type === 'static' && task.category === CAMPAIGN_STORY_CATEGORY,
   ).map((task) => ({
-    ...toRow(campaignId, startOfDay(today), electionDate, task),
+    ...toRow(campaignId, startOfDay(start), electionDate, task),
     link: CAMPAIGN_STORY_LINK,
     cta: 'Add your story',
   }))

@@ -10,6 +10,7 @@ import {
   Post,
   Put,
 } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { Campaign } from '../../generated/prisma'
 import { CampaignTrackerTasksService } from './services/campaignTrackerTasks.service'
@@ -29,7 +30,10 @@ import { CampaignTrackerTaskResponseSchema } from './schemas/trackerTaskResponse
 export class CampaignTrackerController {
   constructor(
     private readonly trackerTasksService: CampaignTrackerTasksService,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(CampaignTrackerController.name)
+  }
 
   @Get()
   @McpTool({
@@ -41,7 +45,20 @@ export class CampaignTrackerController {
       'incomplete-but-important work and avoid repeating completed tasks.',
   })
   @ResponseSchema(z.array(CampaignTrackerTaskResponseSchema))
-  listCampaignTrackerTasks(@ReqCampaign() campaign: Campaign) {
+  async listCampaignTrackerTasks(@ReqCampaign() campaign: Campaign) {
+    // The story is finished on other surfaces (the story page, the manager
+    // chat), so tick its task here rather than leaving the list disagreeing
+    // with them until the next generation. Costs one indexed count once the
+    // task is already ticked, and is best-effort: a failure must not take the
+    // task list down with it.
+    await this.trackerTasksService
+      .completeCampaignStoryTaskIfDone(campaign)
+      .catch((err: unknown) =>
+        this.logger.error(
+          { err, campaignId: campaign.id },
+          'campaign story task sync failed, serving tasks as-is',
+        ),
+      )
     return this.trackerTasksService.listCampaignTrackerTasks(campaign)
   }
 

@@ -115,23 +115,25 @@ Two surfaces, deliberately:
 
 - **A pinned card** above the tracker rail (`CampaignPlanStoryCard`, between
   the hero and `CampaignStrategySection`), shown while the story is incomplete
-  and **not dismissible**. It is what guarantees the prompt is the first thing
-  on the page.
+  and **not dismissible**, sized like the dashboard's Pro banner: one card, one
+  CTA. It is what makes the prompt the first thing on the page.
 - **A real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static` catalog
-  entry) so the prompt flows through the same row machinery as everything else
-  rather than being a bespoke surface, and can be completed, reconciled and
-  rendered like any other task.
+  entry) at the **end of pre-launch**, so the prompt flows through the same row
+  machinery as everything else rather than being a bespoke surface.
 
-The card is needed on top of the task because the task sits in the **active**
-phase, which is a collapsed accordion for a candidate still in Pre-launch.
+The task's `completed` mirrors whether the story is finished, in both
+directions, and the row is never deleted. That is what makes the tracker the
+single source of truth for this work: finishing the story on any other surface
+ticks the task — `completeCampaignStoryTaskIfDone` runs on the tracker read, so
+it closes immediately rather than at the next generation — and emptying the
+story reopens it. A candidate never has to tick it by hand, and it can never
+disagree with the card.
 
-The task is `phase: 'active'` and dated **today**, not `preLaunch` and not the
-shared upcoming-Monday anchor. `derivePhaseStatuses` reads "happening now" as
-the first phase whose latest task date has arrived and that still has open
-work, so an open pre-launch row dated today would drag a candidate weeks from
-election day back to the start of the rail. Dating it into the current week
-also earns it the navigator's existing "Do this next" badge instead of
-competing with it.
+Known consequence, tracked separately: an open pre-launch row dated in the
+present pulls a mid-campaign candidate's rail back to Pre-launch, because
+`derivePhaseStatuses` decides "happening now" from task dates. Ticking the row
+does not rescue it; the date is what pulls the phase in. The date-driven phase
+model is what needs rethinking, not the row's placement.
 
 The manager home keeps its own `PersonalizeStoryCard` (the task list there
 renders dynamic rows only, so the static story row never appears in it). Ballot

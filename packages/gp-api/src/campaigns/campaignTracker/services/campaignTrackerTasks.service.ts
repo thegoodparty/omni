@@ -142,15 +142,15 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           electionDate,
           campaign.primaryResult === 'lost',
         ),
-        // Only while the story is unfinished, and dated today rather than the
-        // shared Monday anchor.
-        ...(storyComplete
-          ? []
-          : buildCampaignStoryTrackerTaskRows(
-              campaign.id,
-              new Date(),
-              electionDate,
-            )),
+        // Always materialized, ticked or not: the row is the record of this
+        // work, and its completion mirrors the story rather than its
+        // existence. Shares the anchor with its pre-launch siblings so it
+        // closes out that block.
+        ...buildCampaignStoryTrackerTaskRows(
+          campaign.id,
+          start,
+          electionDate,
+        ).map((row) => ({ ...row, completed: storyComplete })),
       ]
       const { count } = await tx.campaignTrackerTask.createMany({ data: rows })
       return count
@@ -212,10 +212,13 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 
   // Bring the story row in line with the candidate's CURRENT story state, the
   // same arrangement as reconcileBallotAccessTasks and under the same advisory
-  // lock. The row mirrors data, not intent: while the story is unfinished it is
-  // added if missing and reopened if it was checked off, because a checkbox
-  // that disagrees with the card pinned above the rail is worse than one the
-  // tracker reasserts. Once the story is complete the row is deleted outright.
+  // lock.
+  //
+  // The row is never deleted and never hand-checked: its `completed` mirrors
+  // whether the story is finished, in both directions. That is what makes the
+  // tracker the single source of truth for this work — finishing the story on
+  // any other surface ticks the task, and emptying it again reopens it, so the
+  // task can never disagree with the card pinned above the rail.
   async reconcileCampaignStoryTask(campaign: Campaign): Promise<number> {
     const { complete } = await this.storyState.read(campaign.id)
 
@@ -236,34 +239,72 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         title: { in: CAMPAIGN_STORY_TASK_TITLES },
       }
 
-      if (complete) {
-        const { count } = await tx.campaignTrackerTask.deleteMany({ where })
-        return count
-      }
-
       const existing = await tx.campaignTrackerTask.findMany({
         where,
         select: { id: true, completed: true },
       })
       if (existing.length === 0) {
+        // Recover the anchor the campaign's static rows were materialized
+        // with, rather than taking a fresh one: a row re-added months later
+        // has to land with its pre-launch siblings, not a week out from today.
+        // The block's earliest row IS that anchor (its `asap` tasks resolve to
+        // it), so the min stands in for a value we never stored.
+        const earliest = await tx.campaignTrackerTask.findFirst({
+          where: {
+            campaignId: campaign.id,
+            isDefaultTask: true,
+            phase: 'preLaunch',
+          },
+          orderBy: { date: Prisma.SortOrder.asc },
+          select: { date: true },
+        })
+        const rows = buildCampaignStoryTrackerTaskRows(
+          campaign.id,
+          earliest?.date ?? nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE),
+          this.resolveElectionDate(campaign),
+        ).map((row) => ({ ...row, completed: complete }))
         const { count } = await tx.campaignTrackerTask.createMany({
-          data: buildCampaignStoryTrackerTaskRows(
-            campaign.id,
-            new Date(),
-            this.resolveElectionDate(campaign),
-          ),
+          data: rows,
         })
         return count
       }
 
-      const checkedOff = existing.filter((row) => row.completed)
-      if (checkedOff.length === 0) return 0
+      const stale = existing.filter((row) => row.completed !== complete)
+      if (stale.length === 0) return 0
       const { count } = await tx.campaignTrackerTask.updateMany({
-        where: { id: { in: checkedOff.map((row) => row.id) } },
-        data: { completed: false },
+        where: { id: { in: stale.map((row) => row.id) } },
+        data: { completed: complete },
       })
       return count
     })
+  }
+
+  // The cheap half of the reconcile above, for the tracker read. Completing
+  // the story anywhere — the story page, the manager chat — has to tick this
+  // task without waiting for the next generation, or the tracker stops being
+  // the one place a candidate can trust about what is left to do.
+  //
+  // Only the open->complete direction, and only when there is an open row to
+  // tick: once it is ticked this costs a single indexed count, so polling the
+  // task list does not pay for a story read it cannot use. The full reconcile
+  // on every generation still handles the reverse.
+  async completeCampaignStoryTaskIfDone(campaign: Campaign): Promise<boolean> {
+    const where = {
+      campaignId: campaign.id,
+      isDefaultTask: true,
+      completed: false,
+      title: { in: CAMPAIGN_STORY_TASK_TITLES },
+    }
+    if ((await this.model.count({ where })) === 0) return false
+
+    const { complete } = await this.storyState.read(campaign.id)
+    if (!complete) return false
+
+    const { count } = await this.model.updateMany({
+      where,
+      data: { completed: true },
+    })
+    return count > 0
   }
 
   // Remove the deterministic outreach (text/robocall) rows. Called from the
