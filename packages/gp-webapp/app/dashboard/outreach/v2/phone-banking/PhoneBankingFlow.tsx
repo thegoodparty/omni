@@ -509,6 +509,11 @@ export const PhoneBankingFlow = ({
     preselectSpentRef.current = true
     if (audienceLists.some((list) => list.id === preselectedListId)) {
       selectAudienceList(preselectedListId)
+      // A caller that handed over the script as well as the list (a chat
+      // card's proposal) lands on the script, but only once the list really
+      // resolved: a script with no audience behind it would strand the
+      // official on a step whose Continue cannot pass.
+      if (initialScript) setStepId('script')
     }
   }, [
     open,
@@ -516,6 +521,7 @@ export const PhoneBankingFlow = ({
     audienceLists,
     audienceListsFetching,
     selectAudienceList,
+    initialScript,
   ])
 
   // Sizes the default sheet count to the audience once it resolves, instead

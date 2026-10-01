@@ -22,9 +22,8 @@ rule, the models, and the check that gates it:
 | File                          | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `page.tsx`                    | Server component: `serveAccess()` (redirects non-serve users; switches orgs through `/post-auth-redirect` when the user owns an eo- org that isn't selected), then fetches history via `GET /v1/outreach/serve` with `ignoreResponseError` — an empty array is a valid fresh-org response, never a 404                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `ConstituentOutreachPage.tsx` | Client hub: `OutreachProvider` seeded with the server rows, channel cards, the serve flows (social, phone banking, door knocking, and SMS behind `serve-sms-outreach`), the shared history table + details drawer with `fetchServeOutreachDetail` threaded in, and the same save→seed-cache handlers as Win's `OutreachHubPage`. It is the treatment reader of `useServeSmsFlag()`; the chat proposal card reads it without exposure to avoid linking text into a flow that is not there                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `ConstituentOutreachPage.tsx` | Client hub: `OutreachProvider` seeded with the server rows, channel cards, the serve flows (social, phone banking, door knocking, and SMS behind `serve-sms-outreach`), the shared history table + details drawer with `fetchServeOutreachDetail` threaded in, and the same save→seed-cache handlers as Win's `OutreachHubPage`. It is the treatment reader of `useServeSmsFlag()`; the chat cards' `ProposalFlowsProvider` reads it without exposure, to mount the text flow behind the same flag                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `ServeChannelCards.tsx`       | The channel grid — Social media, SMS, Phone banking and Door knocking, at `max-w-3xl grid-cols-2 sm:grid-cols-3` (four cards widen it to `max-w-4xl ... sm:grid-cols-4`, so the tiles stay the same size on either side of the SMS flag) rather than the candidate grid's five-column breakpoints. SMS renders only when the page passes an `onSmsClick`; the component itself reads no flag and stays hookless, so it needs no `'use client'`. Door knocking's card was removed for a while and is back: it had no serve wiring, and a permanently disabled placeholder reads as broken. Door knocking 3.0 wired it, and unlike the other two it navigates (`/dashboard/door-knocking?create=1`) instead of opening a flow in place — the map is its own page. So the grid shows three or four cards |
-| `proposalHandoff.ts` | The sessionStorage payload a chat card hands this hub's flows, proposal link included (see Gotchas) |
 
 ## Connection to Win outreach — one machine, two callers
 
@@ -121,35 +120,9 @@ generation services, the spine scoping — are in
   same reason (`OutreachHubPage`). Win gates its `?outreachId=` deep link on
   the refetch settling; this page's `?outreachId=` (a chat card's sent
   proposal or past send) needs no gate, because it resolves against whatever
-  rows are loaded and simply runs again when the refetch lands.
-
-- **Chat cards hand off here; they never send.** A Priorities or Chief of
-  Staff outreach proposal links to `?compose=<channel>&handoff=<nonce>`, with
-  the payload in `sessionStorage['cos-handoff-<nonce>']`, read as
-  `ProposalHandoffSchema` (`proposalHandoff.ts`: message, saved list, and the
-  proposal link). Text and phone banking open with `initialScript` and
-  `preselectedListId`, landing on the who step under `custom` (phone banking
-  also takes `initialName`, the list's name or else the audience line, so the
-  script step does not stop on an empty name); social opens on
-  compose with the draft. Nothing writes or charges until the official acts.
-  The Chief of Staff's own `ComposeHandoffPayload` still opens social. The
-  payload is spent on arrival, and one that names a different channel than
-  `compose` opens nothing.
-- **The proposal link makes the flow's create the proposal's send.** Phone
-  banking passes `proposalLink` to its create and social carries it on its
-  prefill into the save, so `POST /v1/phone-banking/serve/lists` and
-  `POST /v1/outreach/serve/social` write the outreach under the card's
-  `proposalKey` and `priorityId`. That is what makes the card read as sent,
-  links the send to its priority for the agent, and makes a second completion
-  of one proposal return the first rather than build another. Text does not
-  carry it: its create is a disposable `pending_payment` draft that re-entering
-  review replaces, so keying it would hand checkout a stale draft. Door
-  knocking does not either: a turf joins a multi-turf outreach and its create
-  buys a route, so it needs its own design.
-- **A text handoff waits for the SMS flag.** It is spent only once
-  `useServeSmsFlag()` is ready and on, and left in storage while SMS is off
-  here, since there is no text flow to open it in. The card says texting is not
-  available rather than linking when it can read the flag as off.
+  rows are loaded and simply runs again when the refetch lands. Chat proposal
+  cards do not come through this page at all: they open the same three flows
+  in place over the conversation (`shared/agent-chat/cards/proposalFlows.tsx`).
 
 - **The phone banking caller page and call-sheet PDF are one surface for
   both products.** Both hubs navigate to

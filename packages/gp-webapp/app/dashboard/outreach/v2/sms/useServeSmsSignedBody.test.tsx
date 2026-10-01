@@ -22,7 +22,9 @@ describe('useServeSmsSignedBody', () => {
       'This is the Asheville City Council. Is the flooding on your block still a problem?',
     )
 
-    expect(signed).toMatch(/^this is Bryan, your Asheville City Council Member\. /)
+    expect(signed).toMatch(
+      /^this is Bryan, your Asheville City Council Member\. /,
+    )
     expect(signed).toContain('Is the flooding on your block still a problem?')
   })
 

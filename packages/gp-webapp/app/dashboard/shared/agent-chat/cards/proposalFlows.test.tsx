@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ChatCard, ServePhoneBankingCreate } from '@goodparty_org/contracts'
+import type {
+  ChatCard,
+  ServePhoneBankingCreate,
+} from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'

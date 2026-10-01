@@ -323,6 +323,18 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('one option per choice')
   })
 
+  // The list is saved when the official starts the outreach, not by the
+  // agent, and the card shows no why, so the agent's message carries it.
+  it('counts the check audience without saving it, on one channel, signed', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('Do not save the list.')
+    expect(prompt).toContain('audienceFilters')
+    expect(prompt).toContain('Pick ONE channel')
+    expect(prompt).toContain('Never expect the card to say it.')
+    expect(prompt).toContain('signed as the official by first name and office')
+    expect(prompt).toContain("Official's first name: Bryan")
+  })
+
   it('takes an answer that picks several options as one problem', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('One problem can show up as several symptoms')
@@ -475,8 +487,7 @@ describe('PriorityFlowHandler', () => {
     expect(
       await tool.execute({
         ...text,
-        message:
-          'this is Bryan, your City Council Member. Is the sidewalk it?',
+        message: 'this is Bryan, your City Council Member. Is the sidewalk it?',
       }),
     ).toEqual({ presented: true, deepLinkOnly: true })
   })

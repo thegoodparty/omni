@@ -618,6 +618,14 @@ export const useOutreachAudience = ({
     resetCreateMutation()
   }, [resetCreateMutation])
 
+  const seedProposedAudience = useCallback((proposed: ProposedAudience) => {
+    setMode('filters')
+    setBuilderFilters(proposed.filters)
+    setBuilderSupportStatus(proposed.supportStatus)
+    setBuilderPrecincts(proposed.precincts)
+    setBuilderName(proposed.name)
+  }, [])
+
   const reset = useCallback(() => {
     // A preselected list whose row is already here survives the reset: the
     // hook's own preselect effect runs BEFORE the flow's open effect calls
@@ -640,17 +648,17 @@ export const useOutreachAudience = ({
     setCreateRecommendedListError(null)
     appliedPreselectRef.current = preselectReady ? preselect : undefined
     setAppliedPreselectedVariant(null)
+    setBuilderFilters({})
+    setBuilderSupportStatus([])
+    setBuilderPrecincts([])
+    setBuilderName('')
+    setRecommendedMeta(null)
+    resetCreateMutation()
     // Seeded here rather than beside the flow's own open effect, which calls
     // this reset after anything it could set first.
     const proposed = preselectReady ? undefined : proposedAudienceRef.current
-    if (proposed) setMode('filters')
-    setBuilderFilters(proposed?.filters ?? {})
-    setBuilderSupportStatus(proposed?.supportStatus ?? [])
-    setBuilderPrecincts(proposed?.precincts ?? [])
-    setBuilderName(proposed?.name ?? '')
-    setRecommendedMeta(null)
-    resetCreateMutation()
-  }, [resetCreateMutation, resetUniverseMutation])
+    if (proposed) seedProposedAudience(proposed)
+  }, [resetCreateMutation, resetUniverseMutation, seedProposedAudience])
 
   // Opening the builder leaves a selected recommendation behind: what gets
   // cut from here is a new audience, not that card.

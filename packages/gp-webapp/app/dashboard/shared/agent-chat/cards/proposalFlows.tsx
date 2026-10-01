@@ -134,51 +134,50 @@ export const ProposalFlowsProvider = ({
   return (
     <ProposalFlowsContext.Provider value={value}>
       {children}
-      <SocialFlow
-        open={proposal?.channel === 'social'}
-        onClose={close}
-        onSaved={settled}
-        surface={SERVE_SOCIAL_SURFACE}
-        {...(opened &&
-          proposal?.channel === 'social' && {
-            prefill: {
-              draftText: proposal.message,
-              proposalLink: linkOf(opened),
-            },
-          })}
-        source="deep_link"
-      />
-      <PhoneBankingFlow
-        open={proposal?.channel === 'phoneBanking'}
-        onClose={close}
-        onSaved={settled}
-        surface={SERVE_PHONE_BANKING_SURFACE}
-        {...(opened &&
-          proposal?.channel === 'phoneBanking' && {
-            ...(listId !== undefined && { preselectedListId: listId }),
-            ...(proposedAudience && { proposedAudience }),
-            initialScript: proposal.message,
-            initialName: proposalListName(proposal).slice(
-              0,
-              PHONE_BANKING_NAME_MAX_LENGTH,
-            ),
+      {/* Mounted only while open, the way the priority prototype mounted
+          them (feat/serve-priorities-flow): each opens fresh on the proposal
+          and closing it unmounts it, leaving the conversation as it was. */}
+      {opened && proposal?.channel === 'social' ? (
+        <SocialFlow
+          open
+          onClose={close}
+          onSaved={settled}
+          surface={SERVE_SOCIAL_SURFACE}
+          prefill={{
+            draftText: proposal.message,
             proposalLink: linkOf(opened),
-          })}
-        source="deep_link"
-      />
+          }}
+          source="deep_link"
+        />
+      ) : null}
+      {opened && proposal?.channel === 'phoneBanking' ? (
+        <PhoneBankingFlow
+          open
+          onClose={close}
+          onSaved={settled}
+          surface={SERVE_PHONE_BANKING_SURFACE}
+          {...(listId !== undefined && { preselectedListId: listId })}
+          {...(proposedAudience && { proposedAudience })}
+          initialScript={proposal.message}
+          initialName={proposalListName(proposal).slice(
+            0,
+            PHONE_BANKING_NAME_MAX_LENGTH,
+          )}
+          proposalLink={linkOf(opened)}
+          source="deep_link"
+        />
+      ) : null}
       {/* Behind the flag the outreach page mounts it behind, so a chat cannot
           reach a Serve SMS request the outreach page would not. */}
-      {sms.ready && sms.enabled ? (
+      {opened && proposal?.channel === 'text' && sms.ready && sms.enabled ? (
         <SmsFlow
-          open={proposal?.channel === 'text'}
+          open
           onClose={close}
           onScheduled={async () => settled()}
           surface={SERVE_SMS_SURFACE}
-          {...(proposal?.channel === 'text' && {
-            initialScript: signSms(proposal.message),
-            ...(listId !== undefined && { preselectedListId: listId }),
-            ...(proposedAudience && { proposedAudience }),
-          })}
+          initialScript={signSms(proposal.message)}
+          {...(listId !== undefined && { preselectedListId: listId })}
+          {...(proposedAudience && { proposedAudience })}
           source="deep_link"
         />
       ) : null}

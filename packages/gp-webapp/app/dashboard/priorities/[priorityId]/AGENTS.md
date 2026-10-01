@@ -70,31 +70,33 @@ same as it did live.
 
 ## Cards are compact, and a card's detail takes the rail
 
-Every card is one compact chip in the stream (mark, title, one line,
-chevron); see "Cards" in `shared/agent-chat/AGENTS.md`. The two people cards
-open their full detail in a panel, and on this page **the panel is the right
-rail**: `PriorityAside` swaps the status rail for the detail (widened to
-door knocking's 430px) with a Back control named for the rail, rather than
-stacking a third column. Below `lg` the detail is a bottom sheet
-(`PriorityDetailSheet`), the same treatment the status rail gets.
-`PriorityWorkspace` wraps everything in `CardDetailProvider`, so a panel
-opened on the live turn stays open when the turn settles and the persisted
-copy of the card replaces it.
+Every card is one row in the stream; see "Cards" in
+`shared/agent-chat/AGENTS.md`. The people cards open their detail in a panel,
+and on this page **the panel is the right rail**: `PriorityAside` swaps the
+status rail for the detail (widened to door knocking's 430px) with a Back
+control named for the rail, rather than stacking a third column. Below `lg`
+the detail is a bottom sheet (`PriorityDetailSheet`), the same treatment the
+status rail gets. `PriorityWorkspace` wraps everything in
+`CardDetailProvider`, so a panel opened on the live turn stays open when the
+turn settles and the persisted copy of the card replaces it.
 
-Outreach cards never open a panel. A proposal links into that channel's own
-flow on the Serve outreach hub, prefilled, and the send happens there (see
-`constituent-outreach/AGENTS.md`). The handoff carries the card's
-`proposalKey` and this priority's id (passed in the widget context), so the
-phone banking or social outreach the official finishes is linked to the
-priority and a second completion returns the first. Priorities hands off to the workflow that
-owns the job; it does not re-implement it.
+Outreach cards never open a panel. A proposal's button opens that channel's
+own flow over this conversation (`ProposalFlowsProvider`, mounted here
+around the workspace), filled in, and the official finishes it there; the
+route never changes. The card carries this priority's id (the widget
+context), so the phone banking or social outreach they finish is linked to
+the priority and a second completion returns the first. Priorities hands off
+to the workflow that owns the job; it does not re-implement it. The agent
+counts the audience but does not save it (the card carries the filter), picks
+one channel, and says why these people and why that channel in its own
+message, so the card never has to.
 
 ## A step carries whether its people were asked
 
 `define`, `options`, `method` and `plan` always end with a check. The agent
 picks who by the affectedness method in the prompt (`AFFECTEDNESS_BLOCK` in
 `gp-api/.../priority-flow/priorityFlow.prompt.ts`, from Samuel's Serve lists
-runbook), builds the saved list, writes the one question, and offers it as
+runbook), counts the group without saving it, writes the one question, and offers it as
 work already done through `present_outreach_proposal` on whichever channel
 those people answer on, door knocking included. Every check has two sides,
 both always offered: the most affected, and the least affected (exposure

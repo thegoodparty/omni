@@ -100,43 +100,63 @@ Staff's `show_list_map` is deliberately not on one: its map renders after the
 turn's prose and only once per turn, and a registry entry would move it to
 where the tool fired.
 
-## Cards — one compact chip each, the detail somewhere else
+## Cards — one row each, the detail somewhere else
 
-A card is never the full thing in the stream. Each one renders as a compact
-chip from `cards/cardShell.tsx` (a mark, a title, one line, a chevron), the
-way an attachment or a contact sits in a messages thread, so a turn with
-three cards still reads as a conversation. Where the chip goes depends on
-who owns the detail:
+A card is never the full thing in the stream. Each one renders as a row in
+the clarify question's own option-card style (`optionCard.ts`, which
+`ClarifyQuestionWidget` uses too, so an answer and a contact read as one
+family): a title, one short line, and whatever it leads to. Why a card is
+there is the agent's to say, once, in its message; no card repeats it.
 
-- **People open a panel here.** `OutsideContactCard` (who they are, why reach
-  out, who to ask for, the script with copy, call/email/site) and
-  `ConstituentsCard` (the people, each row linking to
-  `/dashboard/contacts/<id>`, which opens the contacts page's own person
-  panel) render through `CardDetail` (`cards/cardDetail.tsx`). The card
-  portals its detail into whatever host the surface mounted, so the detail
-  stays in the card's React tree. Hosts: `CardDetailSheetHost` (a right-side
-  sheet in the contacts page's `PersonOverlay` shell; Chief of Staff uses it)
-  or a surface's own (Priorities takes over its right rail). A card outside
-  any `CardDetailProvider` falls back to its own sheet, so it is never
-  unopenable. The detail key is the tool call id (`cardWidgets.tsx`), which
-  the live and persisted copies of one call share, so a panel opened
+- **People open a panel here.** `OutsideContactCard` is one row (name, role)
+  and its panel is laid out the way the contacts page lays out a person
+  (`PersonOverlay`): the name as the heading, one line under it, then one
+  `InfoSection` per thing to know (why reach out, who to ask for, what to say
+  with copy) and call / email / site. `ConstituentsCard` is one row per
+  person, and each opens that constituent's actual record, rendered by
+  `PersonRecord`, the presentational half of `PersonOverlay` extracted for
+  this. The three parts of the record that read the contacts table's own
+  queries (the Win status row, top issues, the activity feed) come in as
+  slots, and the chat omits them; the person query uses the contacts page's
+  own key (`['person', org, id]`) so the follow-up switch updates both. Both
+  render through `CardDetail` (`cards/cardDetail.tsx`), which portals the
+  detail into whatever host the surface mounted, so it stays in the card's
+  React tree. Hosts: `CardDetailSheetHost` (a right-side sheet in
+  `PersonOverlay`'s shell; Chief of Staff) or a surface's own (Priorities
+  takes over its right rail). A card outside any `CardDetailProvider` falls
+  back to its own sheet. The detail key is the tool call id (`cardWidgets.tsx`),
+  which the live and persisted copies of one call share, so a panel opened
   mid-turn survives the turn settling. Each card registers its key with the
   provider, and the panel closes once no mounted card owns the open key (a
   conversation switch). It checks a microtask later, so the live-to-persisted
   swap of one card does not count as the card going away.
-- **Outreach hands off and never sends.** `OutreachProposalCard` links into
-  the channel's own flow on the Serve outreach hub with the list and message
-  carried in sessionStorage (`proposalPresentation.ts`, read back by
-  `constituent-outreach/proposalHandoff.ts`), or into door knocking's create
-  flow with `?listId=`. The payload carries the card's `proposalKey` and, on
-  a priority, its `priorityId` (`CardWidgetContext`), which phone banking and
-  social send on their own create, so the send is linked to the priority and
-  a second completion returns the first. The card resolves by that key, so a
-  sent proposal reads as sent and links to that send. While the Serve SMS
-  flag reads off, a text proposal says texting is not available instead of
-  linking.
-  `PastOutreachCard` is one chip per send, linking to its row's drawer on the
-  hub. No compose, edit or send UI lives in a card: those flows own it.
+- **Outreach opens the channel's own flow, over the conversation.**
+  `OutreachProposalCard` is the audience, the count, the one channel the
+  agent chose, and a button ("Start the text", "Start the calls"...). No
+  channel switcher, no why, no cost note. The button calls
+  `ProposalFlowsProvider` (`cards/proposalFlows.tsx`), which both surfaces
+  mount and which mounts the outreach page's own `SocialFlow`,
+  `PhoneBankingFlow` and `SmsFlow` (Serve surfaces, SMS behind the same
+  `serve-sms-outreach` flag) only while one is open, the way Bryan's priority
+  prototype mounted them (`feat/serve-priorities-flow`). The route never
+  changes, so closing or finishing it leaves the official in the thread where
+  they were. The flow is filled in with what the card carries: the message
+  (`initialScript`; for SMS first run through `useServeSmsSignedBody`, the
+  compose step's own `checkSmsStandards` check, which prepends the official's
+  intro when the only miss is their name), phone banking's name, and the
+  audience. A card from before `audienceFilters` points at a saved list; a
+  current one carries the filter the agent counted with, and the flow opens
+  its builder already filled in (`proposedAudience`) and saves the list when
+  the official confirms and names it. Door knocking is the exception: its
+  create flow is drawn on its own map page and takes only a saved list, so the
+  card saves the list at the click, the latest point it can, and goes there.
+  Phone banking and social carry `{ proposalKey, priorityId }` on their create,
+  so the send is linked to the priority and a second completion returns the
+  first. The card resolves by that key, so a sent proposal reads as sent and
+  links to its row on the outreach page. While the SMS flag reads off, a text
+  proposal says texting is not available instead of offering a button.
+  `PastOutreachCard` is one row per send, linking to its row's drawer on the
+  hub. No compose, edit or send UI lives in a card: the flows own it.
 
 Chief of Staff renders inside a vaul drawer, and React bubbles a portal's
 pointer events up the React tree into it, which is why the detail sheet
