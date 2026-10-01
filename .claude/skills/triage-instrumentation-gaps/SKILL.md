@@ -595,7 +595,8 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
 `:` property paths are case-insensitive.
 
 1. **Name the drift** (A, B or C, per the SOP), or confirm the type the case above
-   already gave it (a case 2 accept is B). For A or C, continue only once the business
+   already gave it (a case 2 accept is B, and so is a case 3 yes whose `business_rule`
+   already covers the event). For A or C, continue only once the business
    group's ruling is in hand: stop and wait if it is not, and carry on if it is. A rename can hold a C inside a
    B; step 5 is where that surfaces, and it stops there.
 2. **Read both gotchas books** in full: `books/analytics-governance-gotchas.md` here,
