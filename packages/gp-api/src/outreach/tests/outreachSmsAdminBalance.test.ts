@@ -8,9 +8,15 @@ const service = useTestService()
 
 const getBalance = vi.fn()
 
-// The balance cache lives on the service instance, which outlives a test;
-// TTL 0 disables it so each case drives its own vendor read.
+// The balance cache lives on the service instance, which outlives a test,
+// and only evicts on expiry, so TTL 0 alone cannot stop an entry written
+// under a real TTL from feeding the next test. Each test therefore starts
+// on a frozen clock two minutes after the previous one: every entry a
+// test leaves behind is already expired when the next sweep runs.
+let clock = Date.now()
 beforeEach(async () => {
+  clock += 2 * 60 * 1000
+  vi.useFakeTimers({ toFake: ['Date'], now: clock })
   vi.stubEnv('BALANCE_CACHE_TTL_MS', '0')
   vi.stubEnv('DETAIL_FAILED_RETRY_COOLDOWN_MS', '0')
   getBalance.mockReset().mockResolvedValue({ balance: 808.6, creditLimit: 100 })
@@ -26,6 +32,7 @@ beforeEach(async () => {
   })
 })
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllEnvs()
 })
 
@@ -67,6 +74,16 @@ describe('GET /v1/outreach/admin/sms/balance', () => {
 
     expect(first.status).toBe(HttpStatus.OK)
     expect(second.status).toBe(HttpStatus.OK)
+    expect(getBalance).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not serve the previous test's cached balance", async () => {
+    getBalance.mockResolvedValue({ balance: 12.5, creditLimit: 100 })
+
+    const res = await service.client.get('/v1/outreach/admin/sms/balance')
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.account).toMatchObject({ balance: 12.5 })
     expect(getBalance).toHaveBeenCalledTimes(1)
   })
 
