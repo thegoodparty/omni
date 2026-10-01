@@ -875,14 +875,10 @@ export class PaymentEventsService {
     })
 
     try {
-      await this.analytics.track(
-        user.id,
-        EVENTS.Account.ProSubscriptionEnded,
-        {
-          subscriptionId,
-          cancellationReason: subscription.cancellation_details?.reason ?? null,
-        },
-      )
+      await this.analytics.track(user.id, EVENTS.Account.ProSubscriptionEnded, {
+        subscriptionId,
+        cancellationReason: subscription.cancellation_details?.reason ?? null,
+      })
     } catch (error) {
       this.logger.error(
         { error },
