@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 
 from broker.auth import hash_service_token
 from broker.dynamodb_client import (
+    JUDGE_RUN_ID_MAX_LENGTH,
+    JUDGE_RUN_ID_PREFIX,
     InputFileRef,
     ScopeTicket,
     ScopeTicketStore,
@@ -768,6 +770,61 @@ class TestMintJudgeFields:
 
         assert resp.status_code == 400
         store.put_ticket.assert_not_called()
+
+    def test_a_judge_run_id_at_the_dispatch_cap_is_accepted(self):
+        """The boundary itself is legal — the longest run id dispatch will
+        accept must still mint, or a real sweep arm would 400."""
+        store = MagicMock(spec=ScopeTicketStore)
+        run_id = JUDGE_RUN_ID_PREFIX + "a" * (JUDGE_RUN_ID_MAX_LENGTH - len(JUDGE_RUN_ID_PREFIX))
+        assert len(run_id) == JUDGE_RUN_ID_MAX_LENGTH
+
+        resp = self._post(store, **self._judge(run_id=run_id))
+
+        assert resp.status_code == 200
+        assert store.put_ticket.call_args.args[0].run_id == run_id
+
+    def test_a_judge_run_id_over_the_dispatch_cap_is_a_400(self):
+        """The prefix check alone passed anything up to IDENTIFIER_PATTERN's 64
+        characters. The dispatch Lambda `fullmatch`es JUDGE_RUN_ID_RE and
+        refuses a longer run id outright, because it hands the run id to ECS
+        RunTask as `startedBy` verbatim and the task reaper reads it back — so
+        a ticket minted here for a longer one is a live credential for a run
+        the layer above will never dispatch. A SERVICE_TOKEN holder is
+        authenticated, not trusted; mint re-establishes the whole shape, not
+        just the prefix."""
+        store = MagicMock(spec=ScopeTicketStore)
+        run_id = JUDGE_RUN_ID_PREFIX + "a" * (JUDGE_RUN_ID_MAX_LENGTH - len(JUDGE_RUN_ID_PREFIX) + 1)
+        assert len(run_id) == JUDGE_RUN_ID_MAX_LENGTH + 1
+
+        resp = self._post(store, **self._judge(run_id=run_id))
+
+        assert resp.status_code == 400
+        assert "startedBy" in resp.json()["detail"]
+        store.put_ticket.assert_not_called()
+
+    def test_the_rejection_does_not_echo_the_run_id(self):
+        """The 400 body is returned to a caller that may not be dispatch. The
+        other judge rejections keep the run id out of the response too — it
+        goes to the log line, which is ours."""
+        store = MagicMock(spec=ScopeTicketStore)
+        run_id = JUDGE_RUN_ID_PREFIX + "z" * (JUDGE_RUN_ID_MAX_LENGTH - len(JUDGE_RUN_ID_PREFIX) + 1)
+
+        resp = self._post(store, **self._judge(run_id=run_id))
+
+        assert resp.status_code == 400
+        assert run_id not in resp.json()["detail"]
+
+    def test_a_long_product_run_id_is_untouched_by_the_judge_cap(self):
+        """The cap is the judge dispatch contract, not a product one. A product
+        mint keeps whatever IDENTIFIER_PATTERN already allowed — narrowing it
+        here would reject run ids gp-api is free to mint."""
+        store = MagicMock(spec=ScopeTicketStore)
+        run_id = "a" * 64
+
+        resp = self._post(store, run_id=run_id)
+
+        assert resp.status_code == 200
+        assert store.put_ticket.call_args.args[0].run_id == run_id
 
     @pytest.mark.parametrize("environment", ["prod", "production", "qa", ""])
     def test_an_eval_run_outside_dev_is_a_400(self, environment):
