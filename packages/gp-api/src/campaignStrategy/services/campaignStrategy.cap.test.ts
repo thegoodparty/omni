@@ -72,7 +72,6 @@ describe('CampaignStrategyService', () => {
     campaignStrategyChallenge: { deleteMany: ReturnType<typeof vi.fn> }
     campaignStrategyOpponent: { deleteMany: ReturnType<typeof vi.fn> }
     campaign: { findUnique: ReturnType<typeof vi.fn> }
-    campaignStory: { findUnique: ReturnType<typeof vi.fn> }
     $transaction: ReturnType<typeof vi.fn>
   }
 
@@ -126,9 +125,6 @@ describe('CampaignStrategyService', () => {
       },
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
-      },
-      campaignStory: {
-        findUnique: vi.fn().mockResolvedValue({ id: 1, campaignId: 99 }),
       },
       // Supports both the array form and the interactive (callback) form,
       // handing the same mock delegates in as the tx client.
@@ -326,27 +322,17 @@ describe('CampaignStrategyService', () => {
     })
   })
 
-  it('materializes tracker static tasks at generation start for the story cohort', async () => {
+  it('materializes tracker static tasks at generation start', async () => {
     experimentRuns.dispatchRun
       .mockResolvedValueOnce({ runId: 'opp-run' })
       .mockResolvedValueOnce({ runId: 'oc-run' })
 
     await service.getOrGenerateStrategicLandscape(campaign())
 
-    // Static rows are materialized eagerly (story exists) so the tracker renders
-    // without waiting for the CAP-completion bootstrap.
+    // Static rows are materialized eagerly so the tracker renders without
+    // waiting for the CAP-completion bootstrap. The campaign story is not a
+    // precondition: a storyless campaign gets the same generic rows.
     expect(trackerTasks.materializeStaticTasks).toHaveBeenCalledTimes(1)
-  })
-
-  it('skips static materialization when the campaign has no story (legacy)', async () => {
-    prisma.campaignStory.findUnique.mockResolvedValueOnce(null)
-    experimentRuns.dispatchRun
-      .mockResolvedValueOnce({ runId: 'opp-run' })
-      .mockResolvedValueOnce({ runId: 'oc-run' })
-
-    await service.getOrGenerateStrategicLandscape(campaign())
-
-    expect(trackerTasks.materializeStaticTasks).not.toHaveBeenCalled()
   })
 
   it('reports failed (not generating) when NO dispatch produces a run', async () => {
@@ -846,11 +832,11 @@ describe('CampaignStrategyService', () => {
     expect(persister.persistOpponents).not.toHaveBeenCalled()
   })
 
-  describe('tracker bootstrap gating on campaign story', () => {
+  describe('tracker bootstrap on plan completion', () => {
     beforeEach(() => {
-      // Plan fully persisted so the plan-complete check passes and we reach the
-      // story gate. findFirst is hit twice: to locate the plan by runId, then
-      // again inside the bootstrap to re-read its persisted stamps.
+      // Plan fully persisted so the plan-complete check passes. findFirst is
+      // hit twice: to locate the plan by runId, then again inside the
+      // bootstrap to re-read its persisted stamps.
       prisma.campaignStrategy.findFirst.mockResolvedValue(
         planRow({
           oppositionRunId: 'opp-run',
@@ -861,22 +847,9 @@ describe('CampaignStrategyService', () => {
       s3.getFile.mockResolvedValue(JSON.stringify({ opponents: [] }))
     })
 
-    it('does not bootstrap the tracker when the campaign has no story', async () => {
-      prisma.campaignStory.findUnique.mockResolvedValue(null)
-
-      await service.onExperimentRunCompleted(
-        run({ runId: 'opp-run', experimentType: 'opposition_research' }),
-      )
-
-      expect(trackerTasks.bootstrapForCampaign).not.toHaveBeenCalled()
-    })
-
-    it('bootstraps the tracker once the campaign has a story', async () => {
-      prisma.campaignStory.findUnique.mockResolvedValue({
-        id: 1,
-        campaignId: 99,
-      })
-
+    // The story used to gate this: a campaign with no story row never
+    // bootstrapped, so it had no tracker rows and no weekly digest either.
+    it('bootstraps the tracker even when the campaign has no story', async () => {
       await service.onExperimentRunCompleted(
         run({ runId: 'opp-run', experimentType: 'opposition_research' }),
       )

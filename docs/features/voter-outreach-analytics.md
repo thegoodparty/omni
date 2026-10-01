@@ -405,12 +405,13 @@ Not yet built. What to create now that the new events are firing:
 ## Still open
 
 - **`Campaign Plan - Weekly Tasks Digest`** lost roughly two thirds of its
-  weekly audience after 2026-08-31. No change to
-  `packages/gp-api/src/campaigns/tasks/` explains it in that window — the only
-  commits are a legacy-backend teardown (ENG-11015) and a test-fixtures API —
-  so the likely cause is an audience change upstream (the digest mirrors the
-  tracker's active-week set, which only exists for the `campaign-story`
-  cohort). Needs its own look.
+  weekly audience after 2026-08-31. Diagnosed, not an instrumentation break:
+  the digest reads only `campaign_tracker_tasks` (the legacy `campaign_task`
+  digest was torn down in ENG-11015), and tracker rows only existed for a
+  campaign that had completed a Campaign Story. Removing that story gate from
+  plan generation and tracker bootstrap returns the rest of the population to
+  the cohort, so volume should recover as those campaigns generate plans.
+  Watch the weekly count for the recovery rather than treating it as fixed.
 
 ## Related
 
