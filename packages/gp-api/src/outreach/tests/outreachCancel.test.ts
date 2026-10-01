@@ -292,6 +292,12 @@ describe('POST /v1/outreach/:id/cancel', () => {
       where: { id: row.id },
     })
     expect(persisted.status).toBe(OutreachStatus.canceled)
+    // The route passes attribution down the delegation chain, so the spine
+    // records who canceled it — a regression re-dropping it at the delegation
+    // site would otherwise pass every test.
+    expect(persisted.canceledBy).toBe(service.user.email)
+    expect(persisted.canceledByAdmin).toBe(false)
+    expect(persisted.canceledAt).not.toBeNull()
     const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
       where: { outreachId: row.id },
     })
