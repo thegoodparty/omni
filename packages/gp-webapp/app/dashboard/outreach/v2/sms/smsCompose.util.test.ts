@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { SOCIAL_TONE_VALUES, type SocialTone } from '@goodparty_org/contracts'
 import { grammarizeOfficeName } from 'app/polls/onboarding/utils/grammarizeOfficeName'
 import {
+  composeScript,
   identificationIntro,
+  OPT_OUT_FOOTER,
   SERVE_SMS_IDENTIFICATION_FALLBACK,
   serveIdentificationIntro,
+  upgradeScriptFooter,
 } from './smsCompose.util'
 
 // The identification sentence is the one piece of Serve copy that could not
@@ -72,5 +75,34 @@ describe('identificationIntro (Win, unchanged)', () => {
 
   it.each(SOCIAL_TONE_VALUES)('still frames a candidacy (%s)', (tone) => {
     expect(identificationIntro(tone, 'Jane', 'City Council')).toBe(cases[tone])
+  })
+})
+
+// A build-mode draft is composed with no committee, and resume carries the
+// saved script verbatim -- the footer upgrade is the one edit allowed, so
+// it is pinned tight: insert exactly the missing line, touch nothing else.
+describe('upgradeScriptFooter', () => {
+  const draftScript = composeScript('this is Jane, candidate for Mayor.', null)
+
+  it('inserts the paid-for-by line above the opt-out footer', () => {
+    expect(upgradeScriptFooter(draftScript, 'Jane for Mayor')).toBe(
+      composeScript('this is Jane, candidate for Mayor.', 'Jane for Mayor'),
+    )
+  })
+
+  it('returns the script unchanged with no committee', () => {
+    expect(upgradeScriptFooter(draftScript, null)).toBe(draftScript)
+  })
+
+  it('never doubles an existing paid-for-by line', () => {
+    const verified = composeScript('body', 'Jane for Mayor')
+    expect(upgradeScriptFooter(verified, 'Jane for Mayor')).toBe(verified)
+    expect(upgradeScriptFooter(verified, 'Another Committee')).toBe(verified)
+  })
+
+  it('leaves a script that does not end with the system footer alone', () => {
+    const edited = `${draftScript} PS vote early`
+    expect(upgradeScriptFooter(edited, 'Jane for Mayor')).toBe(edited)
+    expect(edited.includes(OPT_OUT_FOOTER)).toBe(true)
   })
 })
