@@ -697,6 +697,21 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
       exactly the teams its lane summary names, and no others:
       `gh pr edit <n> --add-reviewer thegoodparty/semantic-layer-data` and/or
       `thegoodparty/semantic-layer-business`.
+
+      **Merged before review? Record the sign-off; never revert.** A revert is a second
+      layer change and re-notifies both groups. Open a gp-data-platform PR that
+      hand-authors the entries in
+      `analytics/diagnostics/semantic_catalog/config/ratifications.yml`: each half's
+      `approved:` is the date that group's first human approval lands, `approved_by_pr`
+      is the new PR, `rule_sha`/`build_sha`/`value_at_signing` come from the merged
+      change, and a comment says why it is hand-authored. Request both teams. Merge only
+      when each group has a human approval from a current member
+      (`gh pr view <n> --json reviews` against
+      `gh api orgs/thegoodparty/teams/<team>/members`); delegate-reviewer does not
+      count. If an approval lands on a later date than the file says, correct that half
+      first. After merge the publish run should print "nothing recorded; no PR to open",
+      because the hand-authored entry already holds the sign-off. gp-data-platform #1123 (DATA-2584) is
+      the worked example.
    3. **Mart docs PR**, alone.
    4. **omni PR**, from a fresh worktree off `origin/main`, after the sem PR merges:
       - **Refresh the fixture first.** Copy the merged sem file into
