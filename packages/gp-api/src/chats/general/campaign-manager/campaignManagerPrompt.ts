@@ -3,7 +3,7 @@ import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import { buildProductKnowledgeBlocks } from '../product-knowledge/productKnowledgePrompt'
-import type { StoryState } from './campaignStoryIntake.service'
+import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 import type { BallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 
 export type { BallotStatus }
