@@ -46,8 +46,8 @@ export const channelPickerHref = (
   const audience = audienceParam(target)
   if (channel === 'doorKnocking') {
     return audience
-      ? `/dashboard/door-knocking?create=1&${audience}`
-      : '/dashboard/door-knocking?create=1'
+      ? `/dashboard/door-knocking?create=1&source=voter_data&${audience}`
+      : '/dashboard/door-knocking?create=1&source=voter_data'
   }
   const base = `/dashboard/outreach?compose=${COMPOSE_PARAM[channel]}&source=voter_data`
   return channel === 'socialMedia' || !audience ? base : `${base}&${audience}`

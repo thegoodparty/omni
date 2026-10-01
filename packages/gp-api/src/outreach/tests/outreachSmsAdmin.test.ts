@@ -142,8 +142,10 @@ const seedOutreach = (
     identityId: string | null
     approvedAt: Date | null
     deniedAt: Date | null
+    canvassRequestedAt: Date | null
     script: string
     stripeCheckoutSessionId: string | null
+    freePurchaseSessionId: string | null
     date: Date
     scheduledLocalTime: string | null
   }> = {},
@@ -163,6 +165,9 @@ const seedOutreach = (
       scheduledLocalDate: SEND_LOCAL_DATE,
       textCount: 1200,
       billableTextCount: 1200,
+      // A row only reaches this console through a settled purchase, and
+      // approve refuses one that carries neither funding marker.
+      stripeCheckoutSessionId: 'cs_test_seed',
       ...overrides,
     },
   })
@@ -319,6 +324,35 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(ids).toContain(recent.id)
     })
 
+    it('lists a booked send whose day has passed as sent', async () => {
+      const sent = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+      })
+      // The sweep completes an unapproved row on its day like any other,
+      // but nothing went out — it is not a sent campaign.
+      await seedOutreach({
+        status: OutreachStatus.completed,
+        date: subDays(new Date(), 2),
+      })
+      // Booked and sent, but older than the Sent tab's lookback.
+      await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 100),
+        canvassRequestedAt: subDays(new Date(), 100),
+        date: subDays(new Date(), 100),
+      })
+      listAccountJobs.mockResolvedValue([liveJob('peerly-job-1', true)])
+
+      const res = await service.client.get('/v1/outreach/admin/sms/queue')
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.items.map((i: { id: number }) => i.id)).toEqual([sent.id])
+      expect(res.data.items[0].approvalStatus).toBe('sent')
+    })
+
     it('keeps a send-day row the completion sweep moved to in_progress', async () => {
       // The hourly completion sweep ratchets pending -> in_progress at UTC
       // midnight of the Peerly start_date whether or not CAS approved, so
@@ -360,6 +394,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: SEND_LOCAL_DATE,
         startTime: '09:00',
+        state: null,
       })
       expect(res.data.approvalStatus).toBe('canvass_requested')
       const updated = await service.prisma.outreach.findFirstOrThrow({
@@ -378,7 +413,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(track).toHaveBeenCalledWith(
         service.user.id,
         'Voter Outreach - Campaign Approved',
-        { channel: 'sms' },
+        { channel: 'sms', medium: 'text' },
       )
     })
 
@@ -394,6 +429,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: SEND_LOCAL_DATE,
         startTime: '18:00',
+        state: null,
       })
       // Activation carries the same window so a job whose schedule was
       // minted before the send time was honored gets realigned.
@@ -401,6 +437,33 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         campaignId,
         date: SEND_LOCAL_DATE,
         startTime: '18:00',
+        state: null,
+      })
+    })
+
+    it("threads the row's state into the booking and the activation window", async () => {
+      const row = await seedOutreach({ scheduledLocalTime: '18:00' })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { didState: 'CA' },
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: SEND_LOCAL_DATE,
+        startTime: '18:00',
+        state: 'CA',
+      })
+      expect(activateJob).toHaveBeenCalledWith('peerly-job-1', {
+        campaignId,
+        date: SEND_LOCAL_DATE,
+        startTime: '18:00',
+        state: 'CA',
       })
     })
 
@@ -424,6 +487,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
           date: SEND_LOCAL_DATE,
           startTime: booked,
+          state: null,
         })
       },
     )
@@ -490,6 +554,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: SEND_LOCAL_DATE,
         startTime: '09:00',
+        state: null,
       })
       const updated = await service.prisma.outreach.findFirstOrThrow({
         where: { id: row.id },
@@ -506,6 +571,43 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       )
       expect(res.status).toBe(HttpStatus.BAD_REQUEST)
       expect(requestCanvassers).not.toHaveBeenCalled()
+    })
+
+    it('400s a row carrying no record of a completed purchase', async () => {
+      const row = await seedOutreach({ stripeCheckoutSessionId: null })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain('no completed purchase')
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      const untouched = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(untouched.approvedAt).toBeNull()
+    })
+
+    it('approves a send the free-texts offer covered', async () => {
+      const row = await seedOutreach({
+        stripeCheckoutSessionId: null,
+        freePurchaseSessionId: 'free_confirmed_1700000000000',
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledTimes(1)
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.approvedAt).not.toBeNull()
+      expect(updated.canvassRequestedAt).not.toBeNull()
     })
 
     it('409s a second approve', async () => {
@@ -791,6 +893,24 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updateJob).not.toHaveBeenCalled()
     })
 
+    it('400s editing a sent row before any vendor write', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+      })
+      const updateJob = await withImage(row.id)
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        { script: 'edited', editedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(updateJob).not.toHaveBeenCalled()
+    })
+
     it('400s a campaign with no stored image', async () => {
       const row = await seedOutreach()
       const res = await service.client.patch(
@@ -878,6 +998,38 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         campaignId,
         date: NEW_LOCAL_DATE,
         startTime: '18:00',
+        state: null,
+      })
+    })
+
+    it("re-mints and rebooks in the row's state zone", async () => {
+      const row = await seedOutreach({ approvedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: {
+          didState: 'CA',
+          approvedBy: 'cas@goodparty.org',
+          canvassRequestedAt: subDays(new Date(), 1),
+        },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(updateJobSchedule).toHaveBeenCalledWith({
+        jobId: 'peerly-job-1',
+        campaignId,
+        date: NEW_LOCAL_DATE,
+        startTime: '09:00',
+        state: 'CA',
+      })
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: NEW_LOCAL_DATE,
+        startTime: '09:00',
+        state: 'CA',
       })
     })
 
@@ -895,6 +1047,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         campaignId,
         date: NEW_LOCAL_DATE,
         startTime: '09:00',
+        state: null,
       })
       expect(clearCanvassers).not.toHaveBeenCalled()
       expect(requestCanvassers).not.toHaveBeenCalled()
@@ -934,6 +1087,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: NEW_LOCAL_DATE,
         startTime: '09:00',
+        state: null,
       })
       // The stale booking must be cleared before the new day is requested —
       // Peerly allows one open canvasser request per job.
@@ -1030,6 +1184,24 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updateJobSchedule).not.toHaveBeenCalled()
     })
 
+    it('409s a sent row before any vendor write', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.CONFLICT)
+      expect(updateJobSchedule).not.toHaveBeenCalled()
+      expect(clearCanvassers).not.toHaveBeenCalled()
+    })
+
     it('400s a send time in the past', async () => {
       const row = await seedOutreach()
 
@@ -1063,6 +1235,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         campaignId,
         date: NEW_LOCAL_DATE,
         startTime: '09:00',
+        state: null,
       })
       expect(clearCanvassers).not.toHaveBeenCalled()
       expect(requestCanvassers).not.toHaveBeenCalled()
@@ -1138,6 +1311,22 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
       expect(res.status).toBe(HttpStatus.OK)
       expect(res.data.item.approvalStatus).toBe('awaiting_review')
+    })
+
+    it('serves a sent row with its delivery stats', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+        projectId: 'peerly-job-detail-sent',
+      })
+
+      const res = await service.client.get(`/v1/outreach/admin/sms/${row.id}`)
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.item.approvalStatus).toBe('sent')
+      expect(res.data.stats).toMatchObject({ sentTotal: 100, delivered: 90 })
     })
 
     it('renders without stats when the vendor read fails', async () => {

@@ -66,6 +66,7 @@ const renderForm = (onRecorded = vi.fn(), serveMode = false) => {
   render(
     <DoorKnockingSurfaceProvider value={serveMode}>
       <RecordKnockForm
+        turfId={1}
         target={target}
         clientKey="6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90"
         onRecorded={onRecorded}
@@ -447,6 +448,10 @@ describe('RecordKnockForm saving', () => {
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        medium: 'doorKnocking',
+        fanout: 'one-to-one',
+        product: 'win',
+        listId: 1,
         outcome: 'not_home',
         knockStatus: 'not_home',
         hasNote: true,
@@ -474,6 +479,10 @@ describe('RecordKnockForm saving', () => {
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        medium: 'doorKnocking',
+        fanout: 'one-to-one',
+        product: 'win',
+        listId: 1,
         outcome: 'answered',
         knockStatus: 'supporter',
         hasNote: true,
@@ -585,6 +594,10 @@ describe('RecordKnockForm in serve mode', () => {
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        medium: 'doorKnocking',
+        fanout: 'one-to-one',
+        product: 'serve',
+        listId: 1,
         outcome: 'answered',
         knockStatus: 'engaged',
         hasNote: false,

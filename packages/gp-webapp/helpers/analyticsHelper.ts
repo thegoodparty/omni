@@ -235,7 +235,9 @@ export const EVENTS = {
       CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
       WeekNavigated: 'Dashboard - Campaign Plan Week Navigated',
       TaskCTAClicked: 'Dashboard - Campaign Plan Task CTA Clicked',
-      TaskStatusUpdated: 'Dashboard - Campaign Task Status Updated',
+      // Completion only — an uncomplete is a correction, not an activation
+      // signal, and an event named Completed must not fire on one.
+      TaskCompleted: 'Dashboard - Campaign Task Completed',
       ViewModeToggled: 'Dashboard - Campaign Plan View Mode Toggled',
       VoterContactDialogViewed: 'Dashboard - Voter Contact Dialog Viewed',
       VoterContactRecorded: 'Dashboard - Voter Contact Recorded',
@@ -270,8 +272,18 @@ export const EVENTS = {
         Exit: 'Dashboard - Path to Victory: Exit About Phases Modal',
       },
     },
+    // One event per outreach campaign carrying a `medium` (the tracker's
+    // TaskChannel vocabulary) and a `fanout`, NOT one event per channel — the
+    // per-channel `Outreach - <channel>: Complete` trio went dark one channel
+    // at a time when the v2 hub replaced their surfaces, and nothing noticed
+    // for a month. Full schema: `docs/features/voter-outreach-analytics.md`.
     VoterContact: {
-      CampaignCompleted: 'Voter Outreach - Campaign Completed',
+      CampaignCompleted: 'Outreach - Campaign Completed',
+      // Fires on EVERY channel, always before Completed. On the paid channels
+      // and social the two sit close together (the draft exists, then it is
+      // paid for or saved); on door knocking and phone banking there is a real
+      // gap, because the list is created days before anyone works it.
+      CampaignCreated: 'Outreach - Campaign Created',
       LogProgress: {
         Exit: 'Dashboard - Voter Contact - Log Progress: Exit Log Progress',
         ClickAdd:
@@ -367,10 +379,6 @@ export const EVENTS = {
   },
   ProUpgrade: {
     ClickExit: 'Pro Upgrade: Click exit top nav',
-    Banner: {
-      ClickUpgrade:
-        'Pro Upgrade - Level Up Your Campaign Banner: Click upgrade',
-    },
     Modal: {
       Shown: 'Pro Upgrade - Modal: Modal Shown',
       Exit: 'Pro Upgrade - Modal: Exit',
@@ -385,8 +393,8 @@ export const EVENTS = {
     // from the legacy Modal / SplashPage / CommitteeCheck events above, which
     // belong to the older upgrade UX. The funnel's submit/checkout-start signals
     // already exist and are reused (Profile.CandidateProfile.SubmitSuccess,
-    // Outreach.DlcCompliance.RegistrationSubmitted / PinVerificationCompleted,
-    // ProUpgrade.ClickGoToStripe); the "viewed" steps below were the gap.
+    // Outreach.DlcCompliance.RegistrationSubmitted / PinVerificationCompleted);
+    // the "viewed" steps below were the gap.
     Compliance: {
       BannerViewed: 'Pro Upgrade - Banner Viewed',
       BannerGetPro: 'Pro Upgrade - Banner: Click Get Pro',
@@ -394,6 +402,12 @@ export const EVENTS = {
       TextingSetupBannerStart:
         'Pro Upgrade - Texting Setup Banner: Click Start',
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
+      // The funnel's first step: carries `source`, `channel` and `cta`.
+      FlowStarted: 'Pro Upgrade - Flow Started',
+      // The outreach gate's "Join Pro to send this campaign" pause screen.
+      InterstitialViewed: 'Pro Upgrade - Interstitial Viewed',
+      InterstitialJoin: 'Pro Upgrade - Interstitial: Click join',
+      InterstitialMaybeLater: 'Pro Upgrade - Interstitial: Click maybe later',
       ValuePropViewed: 'Pro Upgrade - Value Prop Viewed',
       ValuePropGetPro: 'Pro Upgrade - Value Prop: Click Get Pro',
       ValuePropMaybeLater: 'Pro Upgrade - Value Prop: Click Maybe later',
@@ -649,16 +663,16 @@ export const EVENTS = {
     ClickCreate: 'Outreach - Click Create',
     PhoneBanking: {
       // v2 create flow (phase 1 TDD): fires once the create call succeeds.
-      ListCreated: 'Voter Outreach - Phone Banking Call List Created',
+      ListCreated: 'Outreach - Phone Banking Call List Created',
       // Fires from every entry point that links to the print/[listId]/pdf
       // route (the flow's download step, and later the call-session header
       // button) — ENG-10918.
-      SheetDownloaded: 'Voter Outreach - Phone Banking Call Sheet Downloaded',
+      SheetDownloaded: 'Outreach - Phone Banking Call Sheet Downloaded',
       // ENG-10921: the in-app caller page. Distinct from the legacy
       // Dashboard.VoterContact.PhoneBanking group above, which belongs to
       // the pre-native script/download surface.
-      ContactViewed: 'Outreach - Phone Banking: Contact Viewed',
-      CallLogged: 'Outreach - Phone Banking: Call Logged',
+      ContactViewed: 'Outreach - Phone Banking Contact Viewed',
+      CallLogged: 'Outreach - Phone Banking Call Logged',
     },
     // The audience step's recommended-lists cards.
     // Fires once the recommendation is accepted (the saved list is created),
@@ -842,9 +856,8 @@ export const EVENTS = {
     DraftChatMessageSent: 'Ordinances - Draft Chat Message Sent',
   },
   // ENG-10626: the native door-knocking surface (voter map, turf cutting,
-  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above,
-  // which belongs to the legacy eCanvasser/script surface — different funnel,
-  // don't merge them.
+  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above —
+  // different funnel, don't merge them.
   //
   // The walk is the session: Started when the walk view opens, then exactly
   // one of Completed (left having logged at least one door) or Abandoned
@@ -860,23 +873,24 @@ export const EVENTS = {
   // that's the event the door-knocking activation metric counts, and the
   // manual "log progress" modal already feeds it the same way.
   DoorKnocking: {
-    ListCreated: 'Door Knocking - List Created',
-    ListEdited: 'Door Knocking - List Edited',
-    ListDeleted: 'Door Knocking - List Deleted',
-    RouteBuildFailed: 'Door Knocking - Route Build Failed',
-    SessionStarted: 'Door Knocking - Session Started',
-    SessionCompleted: 'Door Knocking - Session Completed',
-    SessionAbandoned: 'Door Knocking - Session Abandoned',
-    DoorLogged: 'Door Knocking - Door Logged',
+    ListCreated: 'Outreach - Door Knocking List Created',
+    ListEdited: 'Outreach - Door Knocking List Edited',
+    ListDeleted: 'Outreach - Door Knocking List Deleted',
+    RouteBuildFailed: 'Outreach - Door Knocking Route Build Failed',
+    SessionStarted: 'Outreach - Door Knocking Session Started',
+    SessionCompleted: 'Outreach - Door Knocking Session Completed',
+    SessionAbandoned: 'Outreach - Door Knocking Session Abandoned',
+    DoorLogged: 'Outreach - Door Knocking Door Logged',
     // ADR 0007, clear direction only: the walk's door is read-only-plus-Undo
     // (DoNotKnockControl), so nothing in the product sets the flag.
-    DoNotKnockCleared: 'Door Knocking - Do Not Knock Cleared',
+    DoNotKnockCleared: 'Outreach - Door Knocking Do Not Knock Cleared',
     // ADR 0008. Both directions for the same reason, and the Set event carries
     // which reason was given: the follow-up is optional, so how often it is
     // answered at all — and how the two answers split — is the only way to tell
     // whether the question is worth asking.
-    NotAVoterReasonSet: 'Door Knocking - Not A Voter Reason Set',
-    NotAVoterReasonCleared: 'Door Knocking - Not A Voter Reason Cleared',
+    NotAVoterReasonSet: 'Outreach - Door Knocking Not A Voter Reason Set',
+    NotAVoterReasonCleared:
+      'Outreach - Door Knocking Not A Voter Reason Cleared',
   },
 } as const
 

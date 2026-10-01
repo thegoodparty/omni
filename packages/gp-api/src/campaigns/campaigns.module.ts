@@ -15,7 +15,6 @@ import { AnalyticsModule } from '../analytics/analytics.module'
 import { CrmModule } from '../crm/crmModule'
 import { QueueProducerModule } from '../queue/producer/queueProducer.module'
 import { ScheduledMessagingModule } from '../scheduled-messaging/scheduled-messaging.module'
-import { EcanvasserIntegrationModule } from '../vendors/ecanvasserIntegration/ecanvasserIntegration.module'
 import { GoogleModule } from '../vendors/google/google.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { StripeModule } from '../vendors/stripe/stripe.module'
@@ -60,7 +59,6 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     ElectionsModule,
     OrganizationsModule,
     forwardRef(() => ContactsModule),
-    forwardRef(() => EcanvasserIntegrationModule),
     ScheduledMessagingModule,
     StripeModule,
     // PeerlyModule -> ContactsModule -> CampaignsModule -> PeerlyModule:

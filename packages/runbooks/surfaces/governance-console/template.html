@@ -1,0 +1,2448 @@
+<meta charset="utf-8" />
+<title>Event Health Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+/>
+<style>
+  /* Layout: a fixed-width operator column. Summary on top, then the queue as a
+     severity-railed list. Shares the explorer's palette because they are two pages
+     over one snapshot and should read as one system. */
+/* __THEME_CSS__ */
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 24px 64px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  /* --- header --- */
+
+  .masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 16px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .masthead h1 {
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .masthead .run {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .masthead .age {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  .lede {
+    margin: 14px 0 0;
+    max-width: 62ch;
+    color: var(--ink-2);
+  }
+
+  /* --- sections --- */
+
+  section {
+    margin-top: 32px;
+  }
+
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .sec-head h2 {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+
+  .sec-head .note {
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  /* --- stat tiles --- */
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+
+  .tile {
+    min-width: 0;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+  }
+
+  .tile .n {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tile .k {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .tile.is-open .n {
+    color: var(--crit);
+  }
+
+  /* --- status bar --- */
+
+  .statusbar {
+    display: flex;
+    height: 10px;
+    margin-top: 14px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: var(--surface-2);
+  }
+
+  .statusbar span {
+    display: block;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .legend i {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 5px;
+    border-radius: 2px;
+    vertical-align: baseline;
+  }
+
+  .legend b {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* --- disclosure --- */
+
+  details.panel {
+    margin-top: 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  details.panel > summary {
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  details.panel > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  details.panel > summary::before {
+    content: '\25B8';
+    display: inline-block;
+    width: 14px;
+    color: var(--ink-3);
+  }
+
+  details.panel[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .scroll {
+    overflow-x: auto;
+  }
+
+  /* --- tables --- */
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  th {
+    padding: 6px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  tr:last-child td {
+    border-bottom: 0;
+  }
+
+  td.num {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  td.mono,
+  .mono {
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  /* --- changes --- */
+
+  .changes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 10px;
+  }
+
+  .change {
+    min-width: 0;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  .change h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+
+  .change .n {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .change ul {
+    margin: 8px 0 0;
+    padding-left: 16px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .change li {
+    overflow-wrap: anywhere;
+  }
+
+  .change .empty {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  /* --- queue --- */
+
+  .queue {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .row {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--line-2);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+  }
+
+  .row.sev-crit {
+    border-left-color: var(--crit);
+  }
+
+  .row.sev-warn {
+    border-left-color: var(--warn);
+  }
+
+  .row.sev-low {
+    border-left-color: var(--line-2);
+  }
+
+  .row.is-dismissed {
+    opacity: 0.62;
+  }
+
+  .row > summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 12px;
+    padding: 11px 14px;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .row > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .row > summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  .row .caret {
+    width: 12px;
+    color: var(--ink-3);
+    font-size: 11px;
+  }
+
+  .row[open] .caret {
+    transform: rotate(90deg);
+  }
+
+  .row .title {
+    flex: 1 1 260px;
+    min-width: 0;
+    font-weight: 600;
+  }
+
+  .row.is-dismissed .title {
+    text-decoration: line-through;
+  }
+
+  .row .count {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+
+  .chip.okr {
+    color: var(--accent);
+    background: var(--surface-2);
+  }
+
+  .body {
+    padding: 0 14px 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .cause-key {
+    margin: 10px 0 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-3);
+    overflow-wrap: anywhere;
+  }
+
+  .locked,
+  .dismissal {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--ink-2);
+    background: var(--surface-2);
+  }
+
+  .locked {
+    border-left: 3px solid var(--warn);
+  }
+
+  .dismissal {
+    border-left: 3px solid var(--line-2);
+  }
+
+  /* Why this row can be trusted, and where its signal is known to be wrong. The one
+     block on the page that is about our tooling rather than about the product. */
+  .caveat {
+    margin: 10px 0 0;
+    padding: 9px 11px;
+    border-radius: 4px;
+    border-left: 3px solid var(--line-2);
+    background: var(--surface-2);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+
+  .caveat.has-residual {
+    border-left-color: var(--warn);
+  }
+
+  .caveat p {
+    margin: 0 0 6px;
+  }
+
+  .caveat p:last-child {
+    margin-bottom: 0;
+  }
+
+  .caveat b {
+    color: var(--ink);
+  }
+
+  .caveat code {
+    padding: 0 3px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--bg);
+  }
+
+  .caveat .clean {
+    color: var(--good);
+  }
+
+  .caveat .ref {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+
+  .evidence {
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+
+  /* Scroll rather than wrap: an event name broken over four lines is unreadable, and
+     these tables are the evidence someone rules on. */
+  .evidence table {
+    width: max-content;
+    min-width: 100%;
+    font-size: 12px;
+  }
+
+  /* Prose columns (a judge's reason, a divergence) still wrap, or max-content would
+     run a paragraph off the side of the world. */
+  .evidence td {
+    max-width: 46ch;
+  }
+
+  .evidence td.mono {
+    max-width: none;
+    white-space: nowrap;
+  }
+
+  /* A file path is mono but must wrap: kept on one line it is wide enough to push
+     every other column off a phone, which reads as a row with no evidence at all. */
+  .evidence td.path {
+    max-width: 44ch;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .evidence td,
+  .evidence th {
+    padding: 5px 10px;
+  }
+
+  /* --- per-event picking --- */
+
+  .picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .picker-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .pick-chip {
+    padding: 2px 9px;
+    font: inherit;
+    font-size: 11px;
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .pick-chip:hover {
+    color: var(--ink);
+    border-color: var(--ink-3);
+  }
+
+  th.pick,
+  td.pick {
+    width: 1%;
+    padding-right: 0;
+    white-space: nowrap;
+  }
+
+  tr.is-picked {
+    background: var(--surface-2);
+  }
+
+  .picked-wrap {
+    margin-top: 10px;
+  }
+
+  .picked-tally {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+
+  .picked {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .picked button {
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .picked button:hover {
+    color: var(--ink);
+    border-color: var(--ink-3);
+  }
+
+  .picked .clear {
+    margin-left: auto;
+    font-weight: 400;
+    color: var(--ink-3);
+    background: none;
+    border-color: transparent;
+  }
+
+  .chip.picked-chip {
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+  }
+
+  .row.has-picked {
+    border-left-color: var(--accent);
+  }
+
+  .elevated-note {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  td.num.fresh {
+    color: var(--good);
+    font-weight: 500;
+  }
+
+  .empty-queue {
+    padding: 14px;
+    background: var(--surface);
+    border: 1px dashed var(--line-2);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+  /* --- judgments --- */
+
+  .judgment {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+  }
+
+  .recommend {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .recommend b {
+    color: var(--ink);
+  }
+
+  .verdicts button.is-suggested {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  .approve-all {
+    margin-left: auto;
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: none;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .approve-all:disabled {
+    color: var(--ink-3);
+    border-color: var(--line-2);
+    cursor: default;
+  }
+
+  .verdicts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .verdicts button {
+    padding: 5px 11px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .verdicts button:hover {
+    color: var(--ink);
+    border-color: var(--ink-3);
+  }
+
+  .verdicts button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .verdicts button[aria-pressed='true'] {
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .verdicts .clear {
+    margin-left: auto;
+    font-weight: 400;
+    color: var(--ink-3);
+    background: none;
+    border-color: transparent;
+  }
+
+  .reason {
+    width: 100%;
+    margin-top: 8px;
+    padding: 7px 9px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+  }
+
+  .reason:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+
+  .reason.required {
+    border-color: var(--crit);
+    box-shadow: inset 0 0 0 1px var(--crit);
+  }
+
+  .reason.proof {
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  .fields > .reason[hidden] {
+    display: none;
+  }
+
+  .row.is-judged {
+    border-left-color: var(--accent);
+  }
+
+  /* A verdict held back for want of a reason or of code-removal proof. Marked on the
+     row as well as on the box, so a row left waiting by "take all suggestions" is
+     findable without scrolling every one of them. */
+  .row.is-held {
+    border-left-color: var(--crit);
+  }
+
+  /* Applied: the handoff carrying this row went out and Claude wrote it. A note in
+     this browser, not a re-check -- see the handoff bar. */
+  .row.is-applied {
+    border-left-color: var(--good);
+  }
+
+  .row.is-applied > summary .title {
+    color: var(--ink-3);
+  }
+
+  .chip.verdict {
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+
+  .chip.verdict.applied {
+    color: var(--good);
+    background: var(--good-bg);
+  }
+
+  .handoff .applied-tally {
+    font-size: 12px;
+    color: var(--good);
+  }
+
+  /* --- handoff bar --- */
+
+  .handoff {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    margin-top: 32px;
+    padding: 12px 16px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .handoff .tally {
+    font-weight: 600;
+  }
+
+  .handoff .hint {
+    flex: 1 1 240px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  .handoff button {
+    padding: 7px 14px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .handoff button:disabled {
+    color: var(--ink-3);
+    background: var(--surface-2);
+    border-color: var(--line-2);
+    cursor: default;
+  }
+
+  .handoff button.ghost {
+    color: var(--ink-2);
+    background: none;
+    border-color: var(--line-2);
+  }
+
+  /* The readable half of the handoff. Wide, calm, and scrollable, because it is read
+     top to bottom before a decision goes out. */
+  .review {
+    width: 100%;
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 4px 2px;
+  }
+
+  .review-section {
+    margin-top: 10px;
+  }
+
+  .review-section:first-child {
+    margin-top: 0;
+  }
+
+  .review-head {
+    position: sticky;
+    top: 0;
+    margin: 0 0 6px;
+    padding: 6px 0;
+    font-size: 12px;
+    color: var(--ink-3);
+    background: var(--surface);
+  }
+
+  .review-head b {
+    color: var(--ink);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .review-item {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border-left: 3px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    background: var(--surface-2);
+  }
+
+  .review-item.is-waiting {
+    border-left-color: var(--crit);
+  }
+
+  .review-effect {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .review-on {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .review-note {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--ink-2);
+    overflow-wrap: anywhere;
+  }
+
+  .review-note.quiet {
+    color: var(--ink-3);
+    font-style: italic;
+  }
+
+  .review-note b {
+    color: var(--ink);
+  }
+
+  .review-empty {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+/* __CARD_CSS__ */
+
+/* __NAV_CSS__ */
+  .handoff textarea {
+    width: 100%;
+    min-height: 160px;
+    padding: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    resize: vertical;
+  }
+
+  .foot {
+    margin-top: 40px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  .foot code {
+    font-family: var(--mono);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+    }
+  }
+</style>
+
+<div class="wrap" id="app"></div>
+
+<script>
+  const DATA = __DATA__
+
+  const el = (tag, className, text) => {
+    const node = document.createElement(tag)
+    if (className) node.className = className
+    if (text !== undefined && text !== null) node.textContent = String(text)
+    return node
+  }
+
+  const add = (parent, ...kids) => {
+    kids.forEach((k) => k && parent.appendChild(k))
+    return parent
+  }
+
+  // Status colours are semantic, not decorative: a reader should be able to find the
+  // one status that means "code removed but events still arrive" without reading.
+  const STATUS_TONE = {
+    orphaned_firing: 'crit',
+    instrumented_never_observed: 'crit',
+    dormant: 'warn',
+    deprecating: 'warn',
+    code_unknown: 'warn',
+    active: 'good',
+    retired: 'low',
+    system: 'low',
+  }
+
+  // The status vocabulary is the health log's. Two of them read as jargon on a page,
+  // so they get the words the log's own legend uses.
+  const STATUS_LABEL = {
+    instrumented_never_observed: 'never observed',
+    orphaned_firing: 'orphaned, still firing',
+    code_unknown: 'code unknown',
+  }
+
+  const TONE_VAR = {
+    crit: 'var(--crit)',
+    warn: 'var(--warn)',
+    good: 'var(--good)',
+    low: 'var(--line-2)',
+  }
+
+  // Ranks come from analytics_event_health.rank_record. 0-2 is "something is wrong now",
+  // 3-6 is "worth a look", 7+ is the long tail. The queues with no health rank
+  // (proposals, alignment) sort below all of them and read as low.
+  const severity = (rank) => (rank <= 2 ? 'crit' : rank <= 6 ? 'warn' : 'low')
+
+  const QUEUE_META = {
+    flags: {
+      title: 'Flagged, by cause',
+      note: 'one row per reason, not per event',
+      empty: 'Nothing flagged. The catalog is clean this run.',
+    },
+    gaps: {
+      title: 'Instrumentation gaps',
+      note: 'product surfaces with no event, awaiting a ruling',
+      empty: 'No untriaged gaps. Every surface the sweep found has been judged.',
+    },
+    proposals: {
+      title: 'Watchlist proposals',
+      note: 'new events in a watched family, not yet on the list',
+      empty: 'No proposals. Nothing new appeared in a watched family.',
+    },
+    alignment: {
+      title: 'Registry vs semantic layer',
+      note: 'a behavior and its governed metric disagree',
+      empty: 'No findings. The registry and the semantic layer agree.',
+    },
+  }
+
+  const daysAgo = (iso) => {
+    if (!iso) return ''
+    const then = new Date(iso + 'T00:00:00Z')
+    if (Number.isNaN(then.getTime())) return ''
+    const days = Math.floor((Date.now() - then.getTime()) / 86400000)
+    if (days <= 0) return 'today'
+    if (days === 1) return 'yesterday'
+    return days + ' days ago'
+  }
+
+  // --- header -----------------------------------------------------------------
+
+  const renderMasthead = (data) => {
+    const head = el('div', 'masthead')
+    add(
+      head,
+      el('h1', null, 'Event health console'),
+      el('span', 'run', 'run ' + (data.run_date || 'unknown')),
+      el('span', 'age', daysAgo(data.run_date)),
+    )
+    return head
+  }
+
+  // --- overview ---------------------------------------------------------------
+
+  const tile = (n, k, cls) => {
+    const node = el('div', cls ? 'tile ' + cls : 'tile')
+    add(node, el('div', 'n', n), el('div', 'k', k))
+    return node
+  }
+
+  const renderStatusBar = (byStatus) => {
+    const entries = Object.entries(byStatus).sort((a, b) => b[1] - a[1])
+    const total = entries.reduce((sum, [, n]) => sum + n, 0)
+    const bar = el('div', 'statusbar')
+    const legend = el('div', 'legend')
+
+    entries.forEach(([status, n]) => {
+      const tone = STATUS_TONE[status] || 'low'
+      const seg = el('span')
+      seg.style.width = (100 * n) / total + '%'
+      seg.style.background = TONE_VAR[tone]
+      bar.appendChild(seg)
+
+      const item = el('span')
+      const swatch = el('i')
+      swatch.style.background = TONE_VAR[tone]
+      const label = STATUS_LABEL[status] || status
+      add(item, swatch, el('b', null, n), document.createTextNode(' ' + label))
+      legend.appendChild(item)
+    })
+
+    return [bar, legend]
+  }
+
+  const renderAreas = (areas) => {
+    const panel = el('details', 'panel')
+    add(panel, el('summary', null, 'Areas (' + areas.length + ')'))
+
+    const scroll = el('div', 'scroll')
+    const table = el('table')
+    const thead = el('thead')
+    const hrow = el('tr')
+    add(
+      hrow,
+      el('th', null, 'Area'),
+      el('th', null, 'Total'),
+      el('th', null, 'Active'),
+      el('th', null, 'Dormant'),
+      el('th', null, 'Never observed'),
+      el('th', null, 'Orphaned'),
+    )
+    add(thead, hrow)
+
+    const tbody = el('tbody')
+    const sorted = [...areas].sort((a, b) => b.total - a.total)
+    sorted.forEach((area) => {
+      const counts = area.counts || {}
+      const row = el('tr')
+      add(
+        row,
+        el('td', null, area.name),
+        el('td', 'num', area.total),
+        el('td', 'num', counts.active || ''),
+        el('td', 'num', counts.dormant || ''),
+        el('td', 'num', counts.instrumented_never_observed || ''),
+        el('td', 'num', counts.orphaned_firing || ''),
+      )
+      tbody.appendChild(row)
+    })
+
+    add(table, thead, tbody)
+    add(scroll, table)
+    add(panel, scroll)
+    return panel
+  }
+
+  const renderOverview = (overview) => {
+    const section = el('section')
+    const head = el('div', 'sec-head')
+    add(head, el('h2', null, 'Where we are'))
+    add(section, head)
+
+    const tiles = el('div', 'tiles')
+    const totals = overview.totals || {}
+    const coverage = overview.metadata_coverage || {}
+    add(
+      tiles,
+      tile(totals.events ?? 0, 'events in the catalog'),
+      tile(totals.flagged ?? 0, 'events carrying a flag'),
+      tile(totals.open_decisions ?? 0, 'decisions waiting on you', 'is-open'),
+      tile((coverage.described_pct ?? 0) + '%', 'have a description'),
+    )
+    add(section, tiles)
+
+    const byStatus = overview.by_status || {}
+    if (Object.keys(byStatus).length) {
+      renderStatusBar(byStatus).forEach((node) => section.appendChild(node))
+    }
+
+    const areas = overview.by_area || []
+    if (areas.length) add(section, renderAreas(areas))
+
+    return section
+  }
+
+  // --- changes ----------------------------------------------------------------
+
+  const CHANGE_COPY = {
+    new: ['Newly flagged', 'Nothing new this run.'],
+    escalated: ['Got worse', 'Nothing escalated.'],
+    resolved: ['Cleared', 'Nothing cleared.'],
+  }
+
+  const renderChangeCard = (key, events) => {
+    const [heading, emptyText] = CHANGE_COPY[key]
+    const card = el('div', 'change')
+    add(card, el('h3', null, heading), el('div', 'n', events.length))
+
+    if (!events.length) {
+      add(card, el('p', 'empty', emptyText))
+      return card
+    }
+
+    const list = el('ul')
+    events.slice(0, 8).forEach((name) => add(list, el('li', null, name)))
+    add(card, list)
+    if (events.length > 8) {
+      add(card, el('p', 'empty', 'and ' + (events.length - 8) + ' more'))
+    }
+    return card
+  }
+
+  const renderChanges = (changes, hasPrior) => {
+    const section = el('section')
+    const head = el('div', 'sec-head')
+    add(
+      head,
+      el('h2', null, 'Since the last run'),
+      el(
+        'span',
+        'note',
+        hasPrior
+          ? 'against the previous snapshot'
+          : 'first snapshot, so everything reads as new',
+      ),
+    )
+    add(section, head)
+
+    const grid = el('div', 'changes')
+    ;['new', 'escalated', 'resolved'].forEach((key) =>
+      add(grid, renderChangeCard(key, changes[key] || [])),
+    )
+    add(section, grid)
+    return section
+  }
+
+  // Caveat and recommendation text is written with `backticks` around column and
+  // function names, because the same sentences live in the book they came from.
+  // Render them rather than showing the markup.
+  const withCode = (parent, text) => {
+    String(text || '').split('`').forEach((part, i) => {
+      if (!part) return
+      parent.appendChild(i % 2 ? el('code', null, part) : document.createTextNode(part))
+    })
+    return parent
+  }
+
+  // What a row's finding is based on, and where that evidence is known to mislead.
+  //
+  // Open by default and above the table: the cost this pays down is re-deriving a
+  // documented blind spot before every ruling, and a caveat behind a second click is a
+  // caveat nobody reads.
+  //
+  // Four questions in the reader's order -- what did we measure, what does it mean,
+  // where can it be wrong, how do I check -- in plain words, with every internal name
+  // held back to a separate line at the end. Anyone should be able to read the prose
+  // without having built the pipeline; the names line is for whoever is about to go
+  // and debug it.
+  // Queues whose caveat was printed once at the head, so the rows below do not repeat
+  // it. Populated by renderQueue before its rows render.
+  const hoisted = new Set()
+
+  const CAVEAT_PARTS = [
+    ['measured', 'What we measured.'],
+    ['means', 'What that means.'],
+    ['wrong', 'Where this can be wrong.'],
+    ['check', 'How to check.'],
+  ]
+
+  const renderCaveat = (caveat) => {
+    if (!caveat) return null
+    const box = el('div', 'caveat' + (caveat.wrong ? ' has-residual' : ''))
+
+    CAVEAT_PARTS.forEach(([field, label]) => {
+      // "Where this can be wrong: nothing known" is the load-bearing line, not a gap
+      // to leave blank. It is what tells someone to stop looking.
+      if (field === 'wrong' && !caveat.wrong) {
+        add(
+          box,
+          el(
+            'p',
+            'clean',
+            'Where this can be wrong. Nothing we know of. No trap has ever been ' +
+              'recorded against this check, so the evidence below is the whole ' +
+              'question.',
+          ),
+        )
+        return
+      }
+      if (!caveat[field]) return
+      const line = el('p')
+      add(line, el('b', null, label + ' '))
+      withCode(line, caveat[field])
+      add(box, line)
+    })
+
+    if (caveat.names || caveat.reference) {
+      const names = el('p', 'ref')
+      names.textContent = [
+        caveat.names && 'In the code: ' + caveat.names,
+        caveat.reference,
+      ].filter(Boolean).join('  ·  ')
+      add(box, names)
+    }
+    return box
+  }
+
+  // --- queue ------------------------------------------------------------------
+
+  // Column order is declared here, not taken from the JSON: the snapshot is written
+  // with sorted keys for a stable diff, which would otherwise put "Elevated" first.
+  const EVIDENCE_ORDER = [
+    'event_type',
+    'status',
+    'event_count_30d',
+    'last_seen_date',
+    'instrumented_date',
+    'days_since_instrumented',
+    'provenance',
+    'divergence',
+    'okr',
+    'elevated',
+    'instrumented_pr',
+    'location',
+    'surface_type',
+    'rubric_rule',
+    'judge_reason',
+    'family',
+    'first_seen_date',
+    'first_seen',
+    'last_seen',
+  ]
+
+  const EVIDENCE_LABELS = {
+    event_type: 'Event',
+    instrumented_date: 'Instrumented',
+    days_since_instrumented: 'Age',
+    provenance: 'Provenance',
+    status: 'Status',
+    event_count_30d: '30d',
+    last_seen_date: 'Last seen',
+    divergence: 'Divergence',
+    instrumented_pr: 'PR',
+    okr: 'OKR',
+    elevated: 'Elevated',
+    location: 'File',
+    surface_type: 'Surface',
+    judge_reason: 'Why the judge flagged it',
+    rubric_rule: 'Rule',
+    first_seen: 'First seen',
+    last_seen: 'Last seen',
+    family: 'Family',
+    first_seen_date: 'First seen',
+  }
+
+  const cell = (key, value) => {
+    if (key === 'elevated') return el('td', null, value ? 'yes' : '')
+    // Days, not a bare number: on the never-observed cause this column is the whole
+    // ruling, and "3" next to "94" has to read as an age at a glance.
+    if (key === 'days_since_instrumented') {
+      if (value === null || value === undefined) return el('td', 'num', '')
+      const td = el('td', 'num', value + 'd')
+      if (value <= 14) td.classList.add('fresh')
+      return td
+    }
+    if (key === 'provenance') {
+      const td = el('td')
+      const chip = el('span', 'chip low', value)
+      if (value === 'not found in code') chip.className = 'chip warn'
+      add(td, chip)
+      return td
+    }
+    if (key === 'instrumented_pr' && value) {
+      const td = el('td', 'mono')
+      const link = el('a', null, String(value).split('/').pop())
+      link.href = value
+      link.target = '_blank'
+      link.rel = 'noreferrer'
+      add(td, link)
+      return td
+    }
+    if (typeof value === 'number') return el('td', 'num', value)
+    if (key === 'location') return el('td', 'mono path', value ?? '')
+    if (key === 'event_type') return el('td', 'mono', value ?? '')
+    return el('td', null, value === null || value === undefined ? '' : value)
+  }
+
+  // `selectable` turns the evidence table into a picker. Only the flags queue gets it,
+  // and only where a cause holds more than one event: a cause is normally one ruling,
+  // and a checkbox on a single-row table is furniture.
+// __CARD_JS__
+
+  // __NAV_JS__
+  // An event name that opens its card in a row underneath, the way the explorer's
+  // table does. Built lazily and kept: reopening a card should cost nothing, and an
+  // operator comparing four events in a cause opens and closes the same ones.
+  const nameCell = (eventType, tr, span) => {
+    const td = el('td')
+    const btn = el('button', 'eventname', eventType)
+    btn.type = 'button'
+    btn.setAttribute('aria-expanded', 'false')
+
+    let detail = null
+    btn.addEventListener('click', () => {
+      if (!detail) {
+        detail = el('tr', 'eventdetail')
+        const cellNode = el('td')
+        cellNode.colSpan = span
+        add(cellNode, EventCard.render(eventType))
+        add(detail, cellNode)
+        tr.insertAdjacentElement('afterend', detail)
+      } else {
+        detail.hidden = !detail.hidden
+      }
+      const open = !detail.hidden
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false')
+      tr.classList.toggle('is-open', open)
+    })
+
+    add(td, btn)
+    return td
+  }
+
+  const renderEvidence = (rows, { selectable = false, onSelect = null } = {}) => {
+    if (!rows.length) return null
+    const present = Object.keys(rows[0])
+    const ordered = EVIDENCE_ORDER.filter((k) => present.includes(k)).concat(
+      present.filter((k) => !EVIDENCE_ORDER.includes(k)),
+    )
+    const keys = ordered.filter((k) =>
+      rows.some((r) => r[k] !== null && r[k] !== undefined && r[k] !== ''),
+    )
+    if (!keys.length) return null
+
+    const box = el('div', 'evidence')
+    const selected = new Set()
+    const boxes = new Map()
+
+    const announce = () => onSelect && onSelect([...selected])
+
+    const setChecked = (eventType, on) => {
+      const input = boxes.get(eventType)
+      if (!input) return
+      input.checked = on
+      input.closest('tr').classList.toggle('is-picked', on)
+      if (on) selected.add(eventType)
+      else selected.delete(eventType)
+    }
+
+    if (selectable) add(box, renderPicker(rows, setChecked, announce))
+
+    const scroll = el('div', 'scroll')
+    const table = el('table')
+
+    const thead = el('thead')
+    const hrow = el('tr')
+    if (selectable) add(hrow, el('th', 'pick', ''))
+    keys.forEach((k) => add(hrow, el('th', null, EVIDENCE_LABELS[k] || k)))
+    add(thead, hrow)
+
+    const tbody = el('tbody')
+    rows.forEach((row) => {
+      const tr = el('tr')
+      if (selectable) {
+        const td = el('td', 'pick')
+        const input = document.createElement('input')
+        input.type = 'checkbox'
+        input.setAttribute('aria-label', 'Select ' + row.event_type)
+        input.addEventListener('change', () => {
+          setChecked(row.event_type, input.checked)
+          announce()
+        })
+        boxes.set(row.event_type, input)
+        add(td, input)
+        tr.appendChild(td)
+      }
+      keys.forEach((k) => {
+        // The name is the handle onto the event, so it is the thing that opens its
+        // card. Everything else in the row stays inert: the table is also a picking
+        // surface, and a row where every cell does something is a row you cannot click
+        // safely.
+        if (k === 'event_type' && row.event_type) {
+          add(tr, nameCell(row.event_type, tr, keys.length + (selectable ? 1 : 0)))
+          return
+        }
+        add(tr, cell(k, row[k]))
+      })
+      tbody.appendChild(tr)
+    })
+
+    add(table, thead, tbody)
+    add(scroll, table)
+    add(box, scroll)
+    return box
+  }
+
+  // Quick-select chips, built from the data rather than hardcoded: whatever distinct
+  // provenance states or age bands this cause actually contains. "Everything not found
+  // in code" is one click because that is how a mixed cause splits.
+  const renderPicker = (rows, setChecked, announce) => {
+    const bar = el('div', 'picker')
+    add(bar, el('span', 'picker-label', 'Select'))
+
+    const chip = (label, match) => {
+      const btn = el('button', 'pick-chip', label)
+      btn.type = 'button'
+      btn.addEventListener('click', () => {
+        rows.forEach((row) => setChecked(row.event_type, match(row)))
+        announce()
+      })
+      bar.appendChild(btn)
+    }
+
+    chip('all', () => true)
+    chip('none', () => false)
+
+    const provenances = [...new Set(rows.map((r) => r.provenance).filter(Boolean))]
+    if (provenances.length > 1) {
+      provenances.forEach((p) => chip(p, (row) => row.provenance === p))
+    }
+
+    const dated = rows.filter((r) => r.days_since_instrumented !== null)
+    if (dated.length && dated.some((r) => r.days_since_instrumented > 30)) {
+      chip('older than 30d', (row) => row.days_since_instrumented > 30)
+    }
+
+    return bar
+  }
+
+  // --- judgment store ---------------------------------------------------------
+  //
+  // Judgments live in this browser, keyed by the run they were made against, until the
+  // handoff carries them to Claude Code. Every read and write is guarded: a private
+  // window, blocked site data or a thumbnail capture can make storage throw, and the
+  // page has to work anyway. Losing a judgment costs one re-click; a page that refuses
+  // to render costs the whole session.
+  const STORE_KEY = 'gp-event-health-console:' + (DATA.run_date || 'unknown')
+
+  // Verbs come from the snapshot, per queue, because each queue's file takes its own
+  // vocabulary and a shared one would have to be translated on the way back in.
+
+  const loadJudgments = () => {
+    try {
+      return JSON.parse(window.localStorage.getItem(STORE_KEY) || '{}')
+    } catch (err) {
+      return {}
+    }
+  }
+
+  const judgments = loadJudgments()
+
+  const saveJudgments = () => {
+    try {
+      window.localStorage.setItem(STORE_KEY, JSON.stringify(judgments))
+      return true
+    } catch (err) {
+      return false
+    }
+  }
+
+  const keyOf = (item) => item.queue + '\u0000' + item.id
+
+  // The labels on the buttons name the control you press ("Fix in Govern"). These name
+  // what happens to other people when you press it. Both are needed: the label has to
+  // be short enough to sit on a button, and the consequence is what you actually want
+  // to know before pressing it.
+  const NOT_A_RETIREMENT = /^no removal:\s*/i
+
+  const effectOf = (queue, verdict, proof) => {
+    const effects = (DATA.verb_effects || {})[queue] || {}
+    if (proof && NOT_A_RETIREMENT.test(proof) && effects[verdict + ':correction']) {
+      return effects[verdict + ':correction']
+    }
+    return effects[verdict] || ''
+  }
+
+  // A dismissal is the one verdict with no expiry. Every queue's `dismissed:` row is
+  // read by the next run and every run after it, and nothing ever asks again. So an
+  // unexplained dismissal is a permanent silence nobody can audit, and the reason is a
+  // precondition rather than a prompt. The other verbs all lead somewhere a person
+  // looks again -- a ticket, an investigation, a file that still shows the row -- so an
+  // empty reason there costs a little context and nothing else.
+  const NEEDS_REASON = new Set(['dismiss'])
+
+  const REASON_PLACEHOLDER =
+    'Why (goes into the record, so write it for next quarter you)'
+
+  const REASON_REQUIRED =
+    'Required: a dismissal never expires, so say why or nobody can audit the silence.'
+
+  // `govern` is the one verb that leaves this repo. It writes prod Amplitude, and what
+  // it usually writes is "this event is dead", which every consumer downstream then
+  // believes. The other three verbs land in a file in a PR and are undone by editing
+  // it, so they stay one click.
+  //
+  // The rule it enforces is the standing one: absent data is not removal, so an event
+  // is retired only against the commit or PR that deleted the call site
+  // (analytics-governance-gotchas.md, "Retirement declared from absent data"). Not
+  // every Govern write is a retirement, so a write that is not one says so in the same
+  // box and the handoff carries the statement -- evidenced either way, and never a
+  // silent exception.
+  const NEEDS_PROOF = new Set(['govern'])
+
+  const PROOF_SHAPES = [
+    /\b[0-9a-f]{7,40}\b/i,
+    /github\.com\/[\w.-]+\/[\w.-]+\/(commit|pull)\//i,
+    /#\d+/,
+    /^no removal:\s*\S/i,
+  ]
+
+  const isProof = (text) => PROOF_SHAPES.some((shape) => shape.test(String(text).trim()))
+
+  const PROOF_PLACEHOLDER =
+    'Code-removal proof: the deleting commit, PR or URL. Or "no removal: <why this ' +
+    'Govern write is not a retirement>".'
+
+  let onJudgmentChange = () => {}
+
+  // Every row's setter, so "approve all recommended" can drive the same path a click
+  // does rather than writing to the store behind the UI's back.
+  const setters = []
+
+  // Every row's paint, so a change made from the handoff bar shows on the rows it
+  // covers and not only in the tally at the bottom.
+  const repainters = []
+
+  const repaintAll = () => repainters.forEach((paint) => paint())
+
+  // Marking a batch applied is a note in this browser, deliberately not a
+  // re-derivation. A gap or a proposal reaches its file the moment Claude writes it,
+  // but a flagged cause only leaves the queue once a governance run has read that file
+  // -- and that is a Monday and Thursday thing. So the page records that a batch went
+  // out and stops offering it again; the next run is what confirms it. Inferring
+  // "done" from a fresh snapshot would report two thirds of a batch as undone for
+  // three days.
+  //
+  // `copied_at` is stamped on the judgment rather than held in a variable, because the
+  // whole point of the gap between copying and marking is that Claude is working in
+  // it. A reload or a republish in that window must not lose which rows went out.
+  const copiedKeys = () =>
+    Object.entries(judgments)
+      .filter(([, j]) => j.copied_at && !j.applied_at)
+      .map(([key]) => key)
+
+  const renderVerdicts = (item, row, summary) => {
+    const key = keyOf(item)
+    const verbs = item.verbs || {}
+    const block = el('div', 'judgment')
+
+    if (item.recommended && verbs[item.recommended]) {
+      const rec = el('p', 'recommend')
+      add(
+        rec,
+        el('b', null, 'Suggested: ' + verbs[item.recommended]),
+      )
+      withCode(rec, ' ' + (item.recommendation_reason || ''))
+      add(block, rec)
+    }
+
+    const bar = el('div', 'verdicts')
+    const fields = el('div', 'fields')
+
+    const reason = el('input', 'reason')
+    reason.type = 'text'
+    reason.id = 'reason-' + key.replace(/[^A-Za-z0-9_-]/g, '-')
+    reason.placeholder = REASON_PLACEHOLDER
+    reason.value = (judgments[key] && judgments[key].reason) || ''
+
+    const proof = el('input', 'reason proof')
+    proof.type = 'text'
+    proof.id = 'proof-' + key.replace(/[^A-Za-z0-9_-]/g, '-')
+    proof.placeholder = PROOF_PLACEHOLDER
+    proof.value = (judgments[key] && judgments[key].proof) || ''
+    proof.hidden = true
+
+    // A verdict chosen but not yet recorded, because a precondition is unmet. Held
+    // rather than written: recording it and asking afterwards means a page reload keeps
+    // the unevidenced version, which is the thing being prevented.
+    let pending = null
+
+    const missing = (verdict) => {
+      if (NEEDS_REASON.has(verdict) && !reason.value.trim()) return 'reason'
+      if (NEEDS_PROOF.has(verdict) && !isProof(proof.value)) return 'proof'
+      return null
+    }
+
+    const chip = el('span', 'chip verdict')
+    chip.hidden = true
+    summary.appendChild(chip)
+
+    const paint = () => {
+      const current = judgments[key]
+      const held = current ? current.verdict : pending && pending.verdict
+      bar.querySelectorAll('button[data-verdict]').forEach((btn) => {
+        btn.setAttribute(
+          'aria-pressed',
+          held === btn.dataset.verdict ? 'true' : 'false',
+        )
+      })
+      row.classList.toggle('is-judged', Boolean(current))
+      row.classList.toggle('is-held', Boolean(pending))
+      row.classList.toggle('is-applied', Boolean(current && current.applied_at))
+      chip.hidden = !current
+      chip.classList.toggle('applied', Boolean(current && current.applied_at))
+      if (current) {
+        chip.textContent =
+          (verbs[current.verdict] || current.verdict) +
+          (current.applied_at ? ' · applied' : '')
+      }
+
+      const want = pending && pending.want
+      reason.hidden = !current && !pending
+      reason.classList.toggle('required', want === 'reason')
+      reason.placeholder = want === 'reason' ? REASON_REQUIRED : REASON_PLACEHOLDER
+      // The proof box appears only for the verb that needs it, so the other three stay
+      // a single click.
+      proof.hidden = !NEEDS_PROOF.has(held)
+      proof.classList.toggle('required', want === 'proof')
+      clear.hidden = !current && !pending
+    }
+
+    const set = (verdict, { toggle = true } = {}) => {
+      if (!verbs[verdict]) return 'skipped'
+      const current = judgments[key]
+      // Clicking the verb a second time un-rules the row -- unless the row was already
+      // applied, where the same click would silently erase the record of a change
+      // Claude has already made. Changing an applied row to a DIFFERENT verb is still
+      // allowed, because that is a correction; `clear` is still the way to drop one
+      // outright. Both leave something on screen.
+      if (toggle && current && current.verdict === verdict && !current.applied_at) {
+        delete judgments[key]
+        pending = null
+      } else {
+        const want = missing(verdict)
+        if (want) {
+          delete judgments[key]
+          pending = { verdict, want }
+          saveJudgments()
+          paint()
+          ;(want === 'proof' ? proof : reason).focus()
+          onJudgmentChange()
+          return want === 'proof' ? 'needs-proof' : 'needs-reason'
+        }
+        pending = null
+        judgments[key] = {
+          queue: item.queue,
+          id: item.id,
+          label: item.label,
+          verdict,
+          verdict_label: verbs[verdict],
+          reason: reason.value.trim(),
+          proof: NEEDS_PROOF.has(verdict) ? proof.value.trim() : undefined,
+          took_suggestion: verdict === item.recommended,
+          decided_at: new Date().toISOString(),
+        }
+      }
+      saveJudgments()
+      paint()
+      onJudgmentChange()
+      return 'took'
+    }
+
+    Object.entries(verbs).forEach(([verdict, label]) => {
+      const btn = el('button', null, label)
+      btn.type = 'button'
+      btn.dataset.verdict = verdict
+      btn.setAttribute('aria-pressed', 'false')
+      const effect = effectOf(item.queue, verdict)
+      if (verdict === item.recommended) {
+        btn.classList.add('is-suggested')
+        btn.title = effect ? 'Suggested. ' + effect : 'Suggested'
+      } else if (effect) {
+        btn.title = effect
+      }
+      btn.addEventListener('click', () => set(verdict))
+      bar.appendChild(btn)
+    })
+
+    const clear = el('button', 'clear', 'clear')
+    clear.type = 'button'
+    clear.addEventListener('click', () => {
+      delete judgments[key]
+      pending = null
+      reason.value = ''
+      proof.value = ''
+      saveJudgments()
+      paint()
+      onJudgmentChange()
+    })
+    bar.appendChild(clear)
+
+    // Typing into the field a held verdict is waiting on commits it the moment it has
+    // something to stand on. Emptying it again takes the verdict back rather than
+    // leaving an unevidenced one behind -- the verdict is held, so one keystroke
+    // restores it.
+    const watch = (input, field) => {
+      input.addEventListener('input', () => {
+        if (pending) {
+          if (!missing(pending.verdict)) set(pending.verdict, { toggle: false })
+          return
+        }
+        const current = judgments[key]
+        if (!current) return
+        if (missing(current.verdict)) {
+          pending = { verdict: current.verdict, want: missing(current.verdict) }
+          delete judgments[key]
+          saveJudgments()
+          paint()
+          onJudgmentChange()
+          return
+        }
+        current[field] = input.value.trim()
+        saveJudgments()
+        onJudgmentChange()
+      })
+    }
+    watch(reason, 'reason')
+    watch(proof, 'proof')
+
+    repainters.push(paint)
+
+    setters.push({
+      queue: item.queue,
+      key,
+      label: item.label,
+      recommended: item.recommended,
+      // What this row is holding back, if anything, so the review panel can say what
+      // is NOT going out as well as what is.
+      pendingOf: () => pending,
+      // Approve-all never overwrites a decision already made by hand.
+      approve: () => {
+        if (judgments[key] || !item.recommended || !verbs[item.recommended]) {
+          return 'skipped'
+        }
+        return set(item.recommended, { toggle: false })
+      },
+    })
+
+    paint()
+    add(fields, reason, proof)
+    add(block, bar, fields)
+    return block
+  }
+
+  // A verdict on a hand-picked subset of a cause. Keyed by cause AND event, so it never
+  // collides with the cause-level ruling, and the two can coexist: "retire the cluster,
+  // except these four, which need looking at".
+  const eventKey = (item, eventType) =>
+    item.queue + '\u0000' + item.id + '\u0000' + eventType
+
+  const renderEventVerdicts = (item, row, summary) => {
+    const bar = el('div', 'picked')
+    bar.hidden = true
+
+    const tally = el('span', 'picked-tally')
+    const reason = el('input', 'reason')
+    reason.type = 'text'
+    reason.id = 'picked-reason-' + item.id.replace(/[^A-Za-z0-9_-]/g, '-')
+    reason.placeholder = 'Why these ones'
+
+    const proof = el('input', 'reason proof')
+    proof.type = 'text'
+    proof.id = 'picked-proof-' + item.id.replace(/[^A-Za-z0-9_-]/g, '-')
+    proof.placeholder = PROOF_PLACEHOLDER
+    proof.hidden = true
+
+    const chip = el('span', 'chip verdict picked-chip')
+    chip.hidden = true
+    summary.appendChild(chip)
+
+    let picked = []
+
+    const paintSummary = () => {
+      const mine = Object.values(judgments).filter(
+        (j) => j.scope === 'event' && j.id === item.id,
+      )
+      const n = mine.length
+      const done = mine.filter((j) => j.applied_at).length
+      chip.hidden = !n
+      chip.textContent =
+        (n === 1 ? '1 event ruled' : n + ' events ruled') +
+        (done ? ', ' + done + ' applied' : '')
+      chip.classList.toggle('applied', Boolean(n && done === n))
+      row.classList.toggle('has-picked', n > 0)
+    }
+
+    repainters.push(paintSummary)
+
+    const apply = (verdict) => {
+      if (NEEDS_REASON.has(verdict) && !reason.value.trim()) {
+        reason.classList.add('required')
+        reason.placeholder = REASON_REQUIRED
+        reason.focus()
+        return
+      }
+      // Picking events out of a cause and retiring just those is still a retirement,
+      // so it carries the same proof. One commit covers the set it deleted.
+      if (NEEDS_PROOF.has(verdict) && !isProof(proof.value)) {
+        proof.classList.add('required')
+        proof.focus()
+        return
+      }
+      reason.classList.remove('required')
+      proof.classList.remove('required')
+      reason.placeholder = 'Why these ones'
+      picked.forEach((eventType) => {
+        judgments[eventKey(item, eventType)] = {
+          queue: item.queue,
+          id: item.id,
+          scope: 'event',
+          event: eventType,
+          label: item.label,
+          verdict,
+          verdict_label: (item.verbs || {})[verdict] || verdict,
+          reason: reason.value.trim(),
+          proof: NEEDS_PROOF.has(verdict) ? proof.value.trim() : undefined,
+          decided_at: new Date().toISOString(),
+        }
+      })
+      saveJudgments()
+      reason.value = ''
+      proof.value = ''
+      paintSummary()
+      onJudgmentChange()
+    }
+
+    Object.entries(item.verbs || {}).forEach(([verdict, label]) => {
+      const btn = el('button', null, label)
+      btn.type = 'button'
+      btn.addEventListener('click', () => apply(verdict))
+      // Hovering or focusing the one verb that needs proof reveals the box, so the
+      // requirement is visible before the click rather than after it.
+      const reveal = () => {
+        if (NEEDS_PROOF.has(verdict) && !bar.hidden) proof.hidden = false
+      }
+      btn.addEventListener('mouseenter', reveal)
+      btn.addEventListener('focus', reveal)
+      bar.appendChild(btn)
+    })
+
+    const clear = el('button', 'clear', 'unrule these')
+    clear.type = 'button'
+    clear.addEventListener('click', () => {
+      picked.forEach((eventType) => delete judgments[eventKey(item, eventType)])
+      saveJudgments()
+      paintSummary()
+      onJudgmentChange()
+    })
+    bar.appendChild(clear)
+
+    const wrap = el('div', 'picked-wrap')
+    add(wrap, tally, bar, reason, proof)
+    reason.hidden = true
+
+    paintSummary()
+
+    return {
+      node: wrap,
+      onSelect: (events) => {
+        picked = events
+        const n = events.length
+        tally.textContent = n
+          ? (n === 1 ? '1 event selected' : n + ' events selected') + ', rule on just these:'
+          : ''
+        bar.hidden = !n
+        reason.hidden = !n
+        if (!n) proof.hidden = true
+      },
+    }
+  }
+
+  const renderRow = (item) => {
+    const tone = severity(item.rank)
+    const row = el('details', 'row sev-' + tone)
+    if (item.dismissed) row.classList.add('is-dismissed')
+
+    const summary = el('summary')
+    add(
+      summary,
+      el('span', 'caret', '▸'),
+      el('span', 'chip ' + tone, 'rank ' + item.rank),
+      el('span', 'title', item.label),
+      item.elevated && item.elevated.length
+        ? el('span', 'chip okr', item.elevated.length + ' elevated')
+        : null,
+      el('span', 'count', item.count === 1 ? '1 item' : item.count + ' events'),
+    )
+    add(row, summary)
+
+    const body = el('div', 'body')
+
+    if (item.queue === 'flags') {
+      add(body, el('p', 'cause-key', item.id))
+    }
+
+    if (item.dismissed) {
+      add(
+        body,
+        el(
+          'p',
+          'dismissal',
+          'Dismissed: ' + (item.dismissed.reason || 'no reason recorded'),
+        ),
+      )
+    } else if (!item.dismissable) {
+      add(
+        body,
+        el(
+          'p',
+          'locked',
+          item.queue === 'flags'
+            ? 'This cause cannot be dismissed. A dismissal would be ignored and ' +
+                'reported, so it has to be fixed rather than waved through.'
+            : 'This finding cannot be dismissed. omni is the side that is wrong here, ' +
+                'so it is ours to fix.',
+        ),
+      )
+    }
+
+    const caveat = hoisted.has(item.queue) ? null : renderCaveat(item.caveat)
+    if (caveat) add(body, caveat)
+
+    const rows = item.evidence || []
+    const selectable = item.queue === 'flags' && rows.length > 1
+    const picker = selectable ? renderEventVerdicts(item, row, summary) : null
+    const evidence = renderEvidence(rows, {
+      selectable,
+      onSelect: picker && picker.onSelect,
+    })
+    if (evidence) add(body, evidence)
+    if (picker) add(body, picker.node)
+
+    if (item.elevated_note) {
+      add(body, el('p', 'elevated-note', item.elevated_note))
+    }
+
+    add(body, renderVerdicts(item, row, summary))
+
+    add(row, body)
+    return row
+  }
+
+  const renderQueue = (queue) => {
+    const meta = QUEUE_META[queue.queue] || {
+      title: queue.queue,
+      note: '',
+      empty: 'Nothing here.',
+    }
+    const section = el('section')
+    const head = el('div', 'sec-head')
+    add(
+      head,
+      el('h2', null, meta.title),
+      el(
+        'span',
+        'note',
+        queue.items.length ? meta.note : '',
+      ),
+    )
+    add(section, head)
+
+    // Three of the four queues derive every row from the same detector, so the caveat
+    // is a property of the queue, not of the item. Printed once above the list rather
+    // than seven times inside it -- a warning repeated on every row stops being read.
+    // Flags keep theirs on the row, where each cause has a different signal.
+    const shared = queue.items.length && queue.items.every(
+      (item) => JSON.stringify(item.caveat) === JSON.stringify(queue.items[0].caveat),
+    )
+    if (shared && queue.items[0].caveat) {
+      hoisted.add(queue.queue)
+      add(section, renderCaveat(queue.items[0].caveat))
+    }
+
+    if (!queue.items.length) {
+      add(section, el('div', 'empty-queue', meta.empty))
+      return section
+    }
+
+    const list = el('div', 'queue')
+    queue.items.forEach((item) => add(list, renderRow(item)))
+    add(section, list)
+
+    // Takes only the rows that carry a suggestion and have not been ruled on. The
+    // judgment causes carry none by design, so this never silently decides the 112
+    // flags that turn on product knowledge the monitor does not have.
+    const suggested = queue.items.filter(
+      (item) => item.recommended && (item.verbs || {})[item.recommended],
+    ).length
+    if (suggested) {
+      const approve = el(
+        'button',
+        'approve-all',
+        'Take all ' + suggested + ' suggestions',
+      )
+      approve.type = 'button'
+      approve.addEventListener('click', () => {
+        // Neither gated verb can be taken in bulk. A reason typed on behalf of twelve
+        // rows is not a reason, and a bulk Govern write is precisely how a batch of
+        // events gets declared dead on nobody's evidence. Those rows are left marked
+        // and waiting rather than silently skipped.
+        const outcomes = setters
+          .filter((s) => s.queue === queue.queue)
+          .map((s) => s.approve())
+        const took = outcomes.filter((o) => o === 'took').length
+        const held = {
+          'needs-reason': outcomes.filter((o) => o === 'needs-reason').length,
+          'needs-proof': outcomes.filter((o) => o === 'needs-proof').length,
+        }
+        const waiting = [
+          held['needs-reason'] && held['needs-reason'] + ' need a reason',
+          held['needs-proof'] && held['needs-proof'] + ' need proof',
+        ].filter(Boolean).join(', ')
+        approve.textContent = took
+          ? 'Took ' + took + (waiting ? ', ' + waiting : '')
+          : waiting || 'Already ruled on'
+        approve.disabled = true
+      })
+      head.appendChild(approve)
+    }
+
+    return section
+  }
+
+  // --- handoff ----------------------------------------------------------------
+
+  // Plain text on purpose. It is read by a person before it is read by Claude, and a
+  // wall of JSON is not reviewable. The run date is on it because a judgment is made
+  // against a run: if a newer one has landed by the time this is applied, membership
+  // may have moved and the apply step has to re-check rather than assume.
+  const openJudgments = () => Object.values(judgments).filter((j) => !j.applied_at)
+
+  const buildHandoff = () => {
+    // Applied judgments are left out. Sending one again would add a second `cause:`
+    // row for a decision already recorded, and a YAML list has no idempotency to save
+    // it the way the gap state does.
+    const rows = openJudgments()
+    const lines = [
+      'DATA-2546 triage handoff',
+      'run: ' + (DATA.run_date || 'unknown'),
+      'judgments: ' + rows.length,
+      '',
+    ]
+    const queues = ['flags', 'gaps', 'proposals', 'alignment']
+    queues.forEach((queue) => {
+      const inQueue = rows.filter((row) => row.queue === queue)
+      if (!inQueue.length) return
+      lines.push('## ' + queue)
+
+      // Group by the item a ruling is about, so a cause and the events picked out of it
+      // arrive together. Applying them apart would risk retiring a cluster and then
+      // re-opening four of its members, in that order.
+      const ids = [...new Set(inQueue.map((row) => row.id))].sort()
+      ids.forEach((id) => {
+        const cause = inQueue.find((row) => row.id === id && row.scope !== 'event')
+        const events = inQueue
+          .filter((row) => row.id === id && row.scope === 'event')
+          .sort((a, b) => a.verdict.localeCompare(b.verdict) || a.event.localeCompare(b.event))
+
+        if (cause) {
+          // The verdict value, not its label: these are the literals each queue's own
+          // parser validates against, and a label would have to be translated back.
+          lines.push(
+            '- ' + cause.verdict + ': ' + id +
+              (cause.took_suggestion ? '' : '  [overridden]'),
+          )
+          lines.push('  reason: ' + (cause.reason || '(none given)'))
+          // The evidence travels with the verdict. A Govern write applied without it
+          // is the exact mistake the gate exists to stop, and the handoff is where the
+          // apply step reads it.
+          if (cause.proof) lines.push('  proof: ' + cause.proof)
+        } else if (events.length) {
+          lines.push('- (no cause-level ruling): ' + id)
+        }
+
+        // One ruling over 34 picked events is one decision, so it prints as one block.
+        // Repeating the verdict and reason per event turned a single call into 68
+        // lines nobody would read.
+        const groups = new Map()
+        events.forEach((row) => {
+          const groupKey =
+            row.verdict + '\u0000' + (row.reason || '') + '\u0000' + (row.proof || '')
+          if (!groups.has(groupKey)) {
+            groups.set(groupKey, {
+              verdict: row.verdict,
+              reason: row.reason,
+              proof: row.proof,
+              events: [],
+            })
+          }
+          groups.get(groupKey).events.push(row.event)
+        })
+
+        groups.forEach((group) => {
+          const n = group.events.length
+          lines.push(
+            '  - ' + group.verdict + ' (' + n + (n === 1 ? ' event' : ' events') + '): ' +
+              (group.reason || '(no reason given)'),
+          )
+          if (group.proof) lines.push('    proof: ' + group.proof)
+          group.events.sort().forEach((event) => lines.push('      ' + event))
+        })
+      })
+      lines.push('')
+    })
+    return lines.join('\n').trimEnd()
+  }
+
+  // --- review -----------------------------------------------------------------
+  //
+  // What the handoff says, in words about consequences rather than words about
+  // buttons. The handoff text is what Claude parses; this is what a person reads
+  // before sending it. Both are built from the same judgments, so they cannot
+  // disagree about what is going out.
+  //
+  // It exists because the first run produced a page on which the person who built the
+  // system could not read back his own decisions: every row said which control had
+  // been pressed and none of them said what would happen.
+
+  // One block per decision. Events ruled together under the same verb, reason and
+  // proof are one decision and read as one, the way they do in the handoff.
+  const decisionBlocks = (rows) => {
+    const out = []
+    const seen = new Map()
+    rows.forEach((row) => {
+      const groupKey = [
+        row.queue, row.id, row.verdict, row.reason || '', row.proof || '',
+      ].join('\u0000')
+      if (!seen.has(groupKey)) {
+        const block = {
+          queue: row.queue,
+          id: row.id,
+          label: row.label,
+          verdict: row.verdict,
+          verdict_label: row.verdict_label,
+          reason: row.reason,
+          proof: row.proof,
+          events: [],
+        }
+        seen.set(groupKey, block)
+        out.push(block)
+      }
+      if (row.scope === 'event') seen.get(groupKey).events.push(row.event)
+    })
+    return out
+  }
+
+  const decisionNode = (block) => {
+    const node = el('div', 'review-item')
+    const n = block.events.length
+
+    add(
+      node,
+      el('p', 'review-effect',
+        effectOf(block.queue, block.verdict, block.proof) ||
+          block.verdict_label || block.verdict),
+    )
+    add(
+      node,
+      el('p', 'review-on',
+        n
+          ? (n === 1 ? '1 event in ' : n + ' events in ') + block.label
+          : block.label),
+    )
+
+    // A Govern write says what it is standing on, because that is the one decision
+    // here whose evidence someone may have to answer for later.
+    if (block.proof) {
+      const proof = el('p', 'review-note')
+      const declared = NOT_A_RETIREMENT.test(block.proof)
+      add(proof, el('b', null, declared ? 'You said: ' : 'Evidence: '))
+      proof.appendChild(document.createTextNode(
+        block.proof.replace(NOT_A_RETIREMENT, '')))
+      add(node, proof)
+    }
+    if (block.reason) add(node, el('p', 'review-note', 'Because: ' + block.reason))
+    if (!block.proof && !block.reason) {
+      add(node, el('p', 'review-note quiet', 'No note given.'))
+    }
+    return node
+  }
+
+  const reviewSection = (title, note, nodes) => {
+    if (!nodes.length) return null
+    const box = el('div', 'review-section')
+    const head = el('p', 'review-head')
+    add(head, el('b', null, title), document.createTextNode(' ' + note))
+    add(box, head)
+    nodes.forEach((node) => add(box, node))
+    return box
+  }
+
+  const renderReview = () => {
+    const panel = el('div', 'review')
+    panel.hidden = true
+
+    const draw = () => {
+      panel.textContent = ''
+      const all = Object.values(judgments)
+      const going = decisionBlocks(all.filter((j) => !j.applied_at))
+      const done = decisionBlocks(all.filter((j) => j.applied_at))
+      const waiting = setters
+        .map((setter) => ({ setter, pending: setter.pendingOf && setter.pendingOf() }))
+        .filter((row) => row.pending)
+
+      add(panel, reviewSection(
+        'Going out',
+        going.length === 1 ? '— one decision' : '— ' + going.length + ' decisions',
+        going.map(decisionNode),
+      ))
+
+      add(panel, reviewSection(
+        'Waiting on you',
+        '— not included, because each needs something before it can be sent',
+        waiting.map(({ setter, pending }) => {
+          const node = el('div', 'review-item is-waiting')
+          add(node, el('p', 'review-effect',
+            (effectOf(setter.queue, pending.verdict) || pending.verdict) + ' — held'))
+          add(node, el('p', 'review-on', setter.label))
+          add(node, el('p', 'review-note', pending.want === 'proof'
+            ? 'Needs the commit or PR that deleted the code, or a note saying this is '
+              + 'not a retirement.'
+            : 'Needs a reason. A dismissal never expires, so an unexplained one cannot '
+              + 'be audited.'))
+          return node
+        }),
+      ))
+
+      add(panel, reviewSection(
+        'Already applied',
+        '— sent in an earlier batch this run, kept here as a record',
+        done.map(decisionNode),
+      ))
+
+      if (!going.length && !waiting.length && !done.length) {
+        add(panel, el('p', 'review-empty',
+          'Nothing ruled on yet. Decisions collect here as you make them.'))
+      }
+    }
+
+    return { node: panel, draw }
+  }
+
+  const renderHandoff = () => {
+    const bar = el('div', 'handoff')
+    const tally = el('span', 'tally')
+    const done = el('span', 'applied-tally')
+    const hint = el('span', 'hint')
+    const mark = el('button', 'ghost', 'Mark applied')
+    const copy = el('button', null, 'Copy handoff')
+    const review = el('button', 'ghost', 'Review')
+    const show = el('button', 'ghost', 'Raw text')
+    const box = el('textarea')
+    const panel = renderReview()
+
+    copy.type = 'button'
+    show.type = 'button'
+    mark.type = 'button'
+    review.type = 'button'
+    box.readOnly = true
+    box.id = 'handoff-text'
+    box.hidden = true
+
+    const refresh = () => {
+      const open = openJudgments().length
+      const applied = Object.values(judgments).filter((j) => j.applied_at).length
+      tally.textContent = open === 1 ? '1 judgment' : open + ' judgments'
+      done.textContent = applied ? applied + ' applied' : ''
+      hint.textContent = open
+        ? 'Paste this into Claude Code. It writes each one to the file its queue owns, files the tickets, and opens one PR.'
+        : applied
+          ? 'Everything ruled on this run has been applied. The next governance run is what confirms it.'
+          : 'Rule on a row above and it collects here. Nothing leaves this browser until you copy it.'
+      copy.disabled = !open
+      show.disabled = !open
+      review.disabled = !open && !applied
+      if (!panel.node.hidden) panel.draw()
+      const out = copiedKeys().length
+      mark.hidden = !out
+      mark.disabled = !out
+      mark.textContent = 'Mark ' + out + ' applied'
+      if (!open) box.hidden = true
+      box.value = buildHandoff()
+    }
+
+    // Marking is offered only after a copy, and only over the rows that copy carried.
+    // Anything ruled on since stays open, so "copy, get distracted, rule on four more,
+    // come back" does not quietly mark the four as done too.
+    const remember = () => {
+      const at = new Date().toISOString()
+      openJudgments().forEach((j) => {
+        j.copied_at = at
+      })
+      saveJudgments()
+    }
+
+    copy.addEventListener('click', () => {
+      const text = buildHandoff()
+      const fallback = () => {
+        box.hidden = false
+        box.focus()
+        box.select()
+        copy.textContent = 'Select and copy'
+        remember()
+        refresh()
+      }
+      if (!navigator.clipboard || !navigator.clipboard.writeText) return fallback()
+      navigator.clipboard.writeText(text).then(() => {
+        copy.textContent = 'Copied'
+        remember()
+        refresh()
+        window.setTimeout(() => {
+          copy.textContent = 'Copy handoff'
+        }, 1600)
+      }, fallback)
+    })
+
+    mark.addEventListener('click', () => {
+      const at = new Date().toISOString()
+      copiedKeys().forEach((key) => {
+        judgments[key].applied_at = at
+      })
+      saveJudgments()
+      repaintAll()
+      refresh()
+    })
+
+    review.addEventListener('click', () => {
+      panel.node.hidden = !panel.node.hidden
+      review.textContent = panel.node.hidden ? 'Review' : 'Hide review'
+      if (!panel.node.hidden) {
+        panel.draw()
+        box.hidden = true
+        show.textContent = 'Raw text'
+      }
+    })
+
+    show.addEventListener('click', () => {
+      box.hidden = !box.hidden
+      show.textContent = box.hidden ? 'Raw text' : 'Hide raw text'
+      if (!box.hidden) {
+        panel.node.hidden = true
+        review.textContent = 'Review'
+      }
+    })
+
+    add(bar, tally, done, hint, review, show, mark, copy, panel.node, box)
+    onJudgmentChange = refresh
+    refresh()
+    return bar
+  }
+
+  // --- boot -------------------------------------------------------------------
+
+  const render = () => {
+    const app = document.getElementById('app')
+    const hasPrior = (DATA.changes.still_open || []).length > 0 ||
+      (DATA.changes.resolved || []).length > 0
+
+    add(app, renderMasthead(DATA))
+    add(
+      app,
+      el(
+        'p',
+        'lede',
+        'Every open governance decision in one list, over the snapshot the ' +
+          'twice-weekly run committed. Rule on the rows, then copy the handoff at the ' +
+          'bottom into Claude Code and it writes them where the next run will read them.',
+      ),
+    )
+    add(app, renderOverview(DATA.overview))
+    add(app, renderChanges(DATA.changes, hasPrior))
+    DATA.queues.forEach((queue) => add(app, renderQueue(queue)))
+    add(app, renderHandoff())
+
+    const foot = el('div', 'foot')
+    add(
+      foot,
+      el(
+        'p',
+        null,
+        'Built ' +
+          (DATA.generated_at || '') +
+          ' from ' +
+          (DATA.source || '') +
+          '. ' +
+          (DATA.settled || []).length +
+          ' already-judged items are not shown.',
+      ),
+    )
+    add(app, foot)
+  }
+
+  render()
+  SurfaceNav.mount('console')
+</script>

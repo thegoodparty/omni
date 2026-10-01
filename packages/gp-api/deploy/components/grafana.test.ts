@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { ALERT_FILTER_WEBHOOK_URLS } from './grafana'
 import {
   recordingRuleExpression,
-  ROUTE_RECORDING_RULES,
-} from './alerting/controller-alerts'
+  RECORDING_RULES,
+} from './alerting/provisioned-alerts'
 
 /**
  * The Terraform that publishes the endpoint Pulumi points Grafana at.
@@ -70,7 +70,10 @@ describe('the recording rule expression', () => {
    * out by hand and re-marshals them as the API's camelCase, so asserting
    * the API's spelling here would assert the bug.
    */
-  const [rule] = ROUTE_RECORDING_RULES
+  const [rule] = RECORDING_RULES
+  if (!rule) {
+    throw new Error('no recording rule is provisioned to assert against')
+  }
   const expression = JSON.parse(recordingRuleExpression(rule, 'dev'))
 
   it('names the datasource and query type the way the provider reads', () => {
@@ -112,6 +115,15 @@ describe('the recording rule expression', () => {
     // rule wants one value per label set.
     expect(expression.model.instant).toBe(true)
     expect(expression.model.range).toBe(false)
+
+    // AND THIS IS THE KEY THAT ACTUALLY DECIDES IT. Loki's backend reads
+    // `queryType` from the model JSON; the two booleans above are the query
+    // editor's state and `query_type` is the DataQuery level. Without this
+    // key the rule ran a range query from 2026-09-29 18:51Z onward and every
+    // evaluation was rejected with `unsupported time series type
+    // "timeseries-multi"`, so the metric was never written and the five
+    // Geoapify budget rules reading it were blind.
+    expect(expression.model.queryType).toBe('instant')
   })
 
   it('substitutes the environment into the query', () => {

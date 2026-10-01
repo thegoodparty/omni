@@ -695,7 +695,7 @@ export type APIEndpoints = {
     Response: Organization
   }
 
-  // Team accounts (win-team-accounts). Mirrors gp-api's TeamController
+  // Team accounts. Mirrors gp-api's TeamController
   // (packages/gp-api/src/organizations/team.controller.ts) and the
   // @goodparty_org/contracts Team schemas, but createdAt is typed as string
   // (see TeamMember/PendingInvite below) — same ISO-over-JSON convention as
@@ -714,14 +714,13 @@ export type APIEndpoints = {
     Response: TeamStatsResponse
   }
 
-  // Gated server-side by the win-team-accounts flag (404 while off) — the
-  // only route that can create a membership row, so gating just this one
-  // makes the whole feature inert at 0%. outreachId is optional: the
-  // outreach drawer's list-scoped volunteer invite (ENG-11049) still sends
-  // one, but a general volunteer invite from the team page's drawer
-  // (ENG-11058) legally omits it; a campaignAdmin invite must never carry
-  // one — gp-api's Zod refine enforces that direction. phone (ENG-11058) is
-  // optional on either role and only ever backfills a blank profile field.
+  // The only route that can create a membership row. outreachId is
+  // optional: the outreach drawer's list-scoped volunteer invite
+  // (ENG-11049) still sends one, but a general volunteer invite from the
+  // team page's drawer (ENG-11058) legally omits it; a campaignAdmin invite
+  // must never carry one — gp-api's Zod refine enforces that direction.
+  // phone (ENG-11058) is optional on either role and only ever backfills a
+  // blank profile field.
   'POST /v1/organizations/team/invites': {
     Request: {
       email: string
@@ -1187,7 +1186,7 @@ export type APIEndpoints = {
   }
 
   'PUT /v1/outreach/by-proposal-key/:proposalKey': {
-    Request: Omit<OutreachProposal, 'proposalKey'> & { priorityId: string }
+    Request: Omit<OutreachProposal, 'proposalKey'> & { priorityId?: string }
     Response: OutreachDetail
   }
 
@@ -2577,7 +2576,7 @@ export type Organization = {
   ownerName?: string | null
 }
 
-// Wire shapes for team accounts (win-team-accounts / ENG-10816). Mirror
+// Wire shapes for team accounts (ENG-10816). Mirror
 // Team.schema.ts in @goodparty_org/contracts, but createdAt arrives over JSON
 // as an ISO string (the contract coerces it to Date) — same convention as
 // SelfResearchRecord above.
@@ -2625,7 +2624,7 @@ export type TeamStatsResponse = {
   stats: TeamMemberStats[]
 }
 
-// Wire shapes for outreach assignments (win-team-accounts / ENG-11048).
+// Wire shapes for outreach assignments (ENG-11048).
 // Mirrors OutreachAssignment.schema.ts in @goodparty_org/contracts, but
 // createdAt arrives over JSON as an ISO string — same convention as
 // TeamMember above.

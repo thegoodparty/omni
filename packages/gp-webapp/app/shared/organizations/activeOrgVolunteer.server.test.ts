@@ -1,19 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Organization } from 'gpApi/api-endpoints'
-import { TEAM_ACCOUNTS_FLAG_KEY } from '@shared/experiments/teamAccountsFlag'
 
-const { mockGetCurrentUserOrganizations, mockGetFlagVariants, mockCookies } =
-  vi.hoisted(() => ({
-    mockGetCurrentUserOrganizations: vi.fn(),
-    mockGetFlagVariants: vi.fn(),
-    mockCookies: vi.fn(),
-  }))
+const { mockGetCurrentUserOrganizations, mockCookies } = vi.hoisted(() => ({
+  mockGetCurrentUserOrganizations: vi.fn(),
+  mockCookies: vi.fn(),
+}))
 
 vi.mock('helpers/getCurrentUserOrganizations', () => ({
   getCurrentUserOrganizations: () => mockGetCurrentUserOrganizations(),
-}))
-vi.mock('@shared/experiments/getFlagVariants', () => ({
-  getFlagVariants: () => mockGetFlagVariants(),
 }))
 vi.mock('next/headers', () => ({
   cookies: () => mockCookies(),
@@ -44,34 +38,11 @@ beforeEach(() => {
 })
 
 describe('isActiveOrgVolunteer', () => {
-  it('returns false when the flag is off, even for a volunteer active org', async () => {
-    mockGetCurrentUserOrganizations.mockResolvedValue([
-      org('org-one', 'volunteer'),
-    ])
-    mockGetFlagVariants.mockResolvedValue({
-      [TEAM_ACCOUNTS_FLAG_KEY]: { value: 'off' },
-    })
-
-    await expect(isActiveOrgVolunteer()).resolves.toBe(false)
-  })
-
-  it('returns false when the flag cannot be resolved', async () => {
-    mockGetCurrentUserOrganizations.mockResolvedValue([
-      org('org-one', 'volunteer'),
-    ])
-    mockGetFlagVariants.mockResolvedValue(null)
-
-    await expect(isActiveOrgVolunteer()).resolves.toBe(false)
-  })
-
-  it('returns true for the cookie-selected org when its role is volunteer, flag on', async () => {
+  it('returns true for the cookie-selected org when its role is volunteer', async () => {
     mockGetCurrentUserOrganizations.mockResolvedValue([
       org('org-one', 'owner'),
       org('org-two', 'volunteer'),
     ])
-    mockGetFlagVariants.mockResolvedValue({
-      [TEAM_ACCOUNTS_FLAG_KEY]: { value: 'on' },
-    })
     mockCookies.mockResolvedValue(cookieStore('org-two'))
 
     await expect(isActiveOrgVolunteer()).resolves.toBe(true)
@@ -82,21 +53,15 @@ describe('isActiveOrgVolunteer', () => {
       org('org-one', 'volunteer'),
       org('org-two', 'owner'),
     ])
-    mockGetFlagVariants.mockResolvedValue({
-      [TEAM_ACCOUNTS_FLAG_KEY]: { value: 'on' },
-    })
     mockCookies.mockResolvedValue(cookieStore('stale-slug'))
 
     await expect(isActiveOrgVolunteer()).resolves.toBe(true)
   })
 
-  it('returns false for an owner/manager active org, flag on', async () => {
+  it('returns false for an owner/manager active org', async () => {
     mockGetCurrentUserOrganizations.mockResolvedValue([
       org('org-one', 'campaignAdmin'),
     ])
-    mockGetFlagVariants.mockResolvedValue({
-      [TEAM_ACCOUNTS_FLAG_KEY]: { value: 'on' },
-    })
 
     await expect(isActiveOrgVolunteer()).resolves.toBe(false)
   })

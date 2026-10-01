@@ -10,7 +10,10 @@ import { EVENTS, trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
 import { useEffect } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
-import { PRO_UPGRADE_ENTRY_PATH } from '@shared/experiments/proUpgrade3Flag'
+import {
+  proUpgradeHref,
+  type ProUpgradeSource,
+} from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 
 export const VIABILITY_SCORE_THRESHOLD = 2
 
@@ -34,6 +37,8 @@ interface ProUpgradeModalProps {
   onUpgradeLinkClick?: () => void
   defaultTrackingEnabled?: boolean
   trackingAttrs?: ReturnType<typeof buildTrackingAttrs>
+  // Which surface opened the modal, for the wizard's Flow Started event.
+  source?: ProUpgradeSource
 }
 
 export function ProUpgradeModal({
@@ -43,6 +48,7 @@ export function ProUpgradeModal({
   onUpgradeLinkClick,
   defaultTrackingEnabled = false,
   trackingAttrs = {},
+  source = 'direct',
 }: ProUpgradeModalProps): React.JSX.Element {
   const [user] = useUser()
   const [campaign] = useCampaign()
@@ -209,7 +215,9 @@ export function ProUpgradeModal({
           onClick={handleUpgradeLinkClick}
           {...trackingAttrs}
         >
-          <Link href={PRO_UPGRADE_ENTRY_PATH}>{cta}</Link>
+          <Link href={proUpgradeHref({ source, channel: 'generic', cta })}>
+            {cta}
+          </Link>
         </Button>
       </div>
     </Modal>

@@ -16,22 +16,46 @@ import {
   AssistantMarkdown,
   AssistantRow,
   ChatComposer,
-  InlineSegments,
   ThinkingRow,
   UserBubble,
 } from '../../../shared/agent-chat/chatUI'
 import MessageActionBar from '../../../shared/agent-chat/MessageActionBar'
-import { segmentsToLive } from '../../../shared/agent-chat/streaming'
+import { segmentsTextLength } from '../../../shared/agent-chat/streaming'
+import {
+  TurnBlocks,
+  liveTurnBlocks,
+  persistedTurnBlocks,
+  type PositionedWidget,
+} from '../../../shared/agent-chat/turnBlocks'
+import { createWidgetRegistry } from '../../../shared/agent-chat/widgetRegistry'
+import {
+  cardWidgetTools,
+  type CardWidgetContext,
+} from '../../../shared/agent-chat/cards/cardWidgets'
+import {
+  CLARIFY_TOOL,
+  clarifyWidgetTool,
+  type ClarifyWidgetContext,
+} from '../../../shared/agent-chat/clarifyWidget'
+import {
+  composeHandoffWidgetTool,
+  type ComposeHandoffWidgetContext,
+} from '../../../shared/agent-chat/composeHandoffWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
+import { useOrganization } from '@shared/organization-picker'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
 import type {
   AgentChatClient,
   ChatMessageDto,
 } from '../../../shared/agent-chat/chatClient'
-import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
+import {
+  COS_INTRO_MESSAGES,
+  SAVED_FILTERS_TOOL,
+  toolDisplayName,
+} from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
@@ -42,6 +66,7 @@ import {
 import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
 import ChatListMap from './ChatListMap'
 import ChatBoundaryDrawer from './ChatBoundaryDrawer'
+import { boundarySavedMessage } from './boundarySavedMessage'
 import { useAttachmentsEnabled } from '../../../shared/agent-chat/hooks/useAttachmentsEnabled'
 import type { ChatScope } from '../../../shared/agent-chat/chatClient'
 import {
@@ -108,6 +133,23 @@ interface Props {
    * a canned reply). Consumed once per mount.
    */
   pendingKickoff?: string
+  /**
+   * One-shot VISIBLE opening message: the user already typed their request
+   * somewhere else (the contacts assistant bar) and the surface opens onto
+   * the answer, so it renders as their own bubble and persists as a normal
+   * user turn. Composes with `pendingKickoff` (each effect leaves its ref
+   * unlatched when it bails on an in-flight stream, so the message lands
+   * after the kickoff's reply settles) but costs a second LLM turn to do it —
+   * a surface with a request already in hand should send only this.
+   */
+  pendingMessage?: string
+  /**
+   * Fires once per VISIBLE message the user sends — the composer, a quick
+   * prompt, a `pendingMessage`, a retry of one. Not for hidden kickoffs or
+   * sentinels, which the user never typed. The contacts entry point counts
+   * these for its open-to-send funnel (ENG-10767).
+   */
+  onMessageSent?: () => void
   /** Ref to the composer input, so a caller's suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -173,6 +215,18 @@ const CHAT_SUGGESTIONS = [
  */
 const LIST_MAP_TOOL = 'show_list_map'
 
+type CosWidgetContext = CardWidgetContext &
+  ClarifyWidgetContext &
+  ComposeHandoffWidgetContext
+
+// show_list_map is deliberately not here: its map renders after the turn's
+// prose, once per turn, and moving it would change where it appears.
+const cosWidgets = createWidgetRegistry<CosWidgetContext>([
+  ...cardWidgetTools,
+  clarifyWidgetTool,
+  composeHandoffWidgetTool,
+])
+
 // Pulls the widget payload back out of a persisted turn. Returns null for
 // every turn without one, which is nearly all of them.
 const listMapFromSegments = (
@@ -200,6 +254,8 @@ export default function ChiefOfStaffChatBody({
   quickPrompts,
   composerPlaceholder = 'How can I help?',
   pendingKickoff,
+  pendingMessage,
+  onMessageSent,
   composerRef,
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
@@ -208,6 +264,7 @@ export default function ChiefOfStaffChatBody({
 }: Props): React.JSX.Element {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const orgSlug = useOrganization()?.slug
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const dictation = useDictationAppend({
@@ -221,6 +278,9 @@ export default function ChiefOfStaffChatBody({
     retryable: boolean
   } | null>(null)
   const [liveListMap, setLiveListMap] = useState<ShowListMap | null>(null)
+  const [liveWidgets, setLiveWidgets] = useState<
+    PositionedWidget<CosWidgetContext>[]
+  >([])
   // Which list the holder is drawing on, if any. Owned HERE rather than by
   // the map card that opens it: a streaming turn's row is rebuilt under a
   // new key the moment it commits, so an overlay mounted inside the card
@@ -233,6 +293,11 @@ export default function ChiefOfStaffChatBody({
   // overlay covers the viewport, so this is not reachable by mouse; it is
   // reachable by keyboard, because the overlay traps no focus.
   const [refiningList, setRefiningList] = useState<ShowListMap | null>(null)
+  // The turn a saved boundary owes the conversation, held until the stream it
+  // may have been drawn during finishes. See the effect that drains it.
+  const [pendingBoundaryNote, setPendingBoundaryNote] = useState<string | null>(
+    null,
+  )
   const [introProgress, setIntroProgress] = useState(0)
   // True once anything has been sent this session (visible OR hidden). Gates the
   // with-greeting starter chips off after a hidden kickoff (which adds no user
@@ -257,6 +322,9 @@ export default function ChiefOfStaffChatBody({
   // parent clears pendingKickoff on close and re-sets the same sentinel on
   // reopen with the body still mounted, so a value guard lets that reopen fire.
   const kickedOffRef = useRef<string | undefined>(undefined)
+  // Same value-guard rationale as kickedOffRef: the parent clears the pending
+  // message on close and may re-set the same text on reopen.
+  const sentPendingRef = useRef<string | undefined>(undefined)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const assignComposerRef = useCallback(
     (node: HTMLTextAreaElement | null) => {
@@ -313,15 +381,19 @@ export default function ChiefOfStaffChatBody({
       onTurnStart: () => {
         setStreamError(null)
         setLiveListMap(null)
+        setLiveWidgets([])
       },
       // Cleared on settle as well as on start. The commit empties
       // liveSegments and swaps in the persisted transcript, whose segment
       // carries this same payload — so holding the live copy any longer
       // renders the card twice, once in the streaming row and once in
       // history, until the next message happens to clear it.
-      onTurnSettle: () => setLiveListMap(null),
+      onTurnSettle: () => {
+        setLiveListMap(null)
+        setLiveWidgets([])
+      },
       onError: (message, retryable) => setStreamError({ message, retryable }),
-      onEvent: (event) => {
+      onEvent: (event, { textLength, conversationId: turnConversationId }) => {
         // The ARGS carry the payload, which is why this reads tool_call and
         // not tool_result: args are what the segment persists, so the same
         // payload replays on reload.
@@ -331,6 +403,53 @@ export default function ChiefOfStaffChatBody({
           // Consumed either way: a payload we cannot parse is still not a
           // pill the user should see.
           return true
+        }
+        if (event.type === 'tool_call' && cosWidgets.has(event.toolName)) {
+          const instance = cosWidgets.resolve(
+            {
+              toolName: event.toolName,
+              conversationId: turnConversationId,
+              toolCallId: event.toolCallId ?? null,
+            },
+            event.args,
+          )
+          if (instance) {
+            const at = textLength()
+            setLiveWidgets((prev) => [
+              ...prev,
+              {
+                key: `${event.toolName}-${event.toolCallId ?? prev.length}`,
+                instance,
+                appearAfter: at,
+              },
+            ])
+            return true
+          }
+          // read_past_outreach is only sometimes a card; unparsed, it is a pill.
+          return cosWidgets.entry(event.toolName)?.onParseFailure !== 'inline'
+        }
+        // A finished crud_saved_filters call may have written a saved list.
+        // This lives here rather than on the contacts page because the agent
+        // can cut a list from any surface that mounts this body, and the
+        // map card right above reads `list-people` itself. Keys must match
+        // ContactsTableProvider (['custom-segments', orgSlug]),
+        // useListRowDetail (['list-detail', orgSlug, id]) and
+        // listPeopleQueryKey (['list-people', orgSlug, segment]) exactly.
+        if (
+          event.type === 'tool_result' &&
+          event.toolName === SAVED_FILTERS_TOOL
+        ) {
+          void queryClient.invalidateQueries({
+            queryKey: ['custom-segments', orgSlug],
+          })
+          void queryClient.invalidateQueries({
+            queryKey: ['list-detail', orgSlug],
+          })
+          // The map reads the list's members, not its summary, so it needs
+          // its own key dropped or it keeps drawing the pre-edit set.
+          void queryClient.invalidateQueries({
+            queryKey: ['list-people', orgSlug],
+          })
         }
         return false
       },
@@ -852,6 +971,11 @@ export default function ChiefOfStaffChatBody({
         return false
       }
       if (!opts?.hidden) {
+        // After the `!id` guard, not before it: a failed conversation create
+        // returns null and bails above, and counting that as a sent message
+        // would overstate the very open-to-send funnel this callback exists
+        // to measure (ENG-10767).
+        onMessageSent?.()
         setMessages((prev) => [
           ...prev,
           {
@@ -879,8 +1003,49 @@ export default function ChiefOfStaffChatBody({
       if (!opts?.hidden) setAttachments([])
       return true
     },
-    [sending, playback, ensureConversationId, send, setMessages, attachments],
+    [
+      sending,
+      playback,
+      ensureConversationId,
+      send,
+      setMessages,
+      attachments,
+      onMessageSent,
+    ],
   )
+
+  // The one thing that tells the conversation a shape was drawn. The write
+  // itself goes browser -> API and touches nothing the model can see, so
+  // without this turn the next message arrives in the context that existed
+  // before the holder drew and the assistant answers about the pre-boundary
+  // list. Hidden, because the holder did not type it; persisted, because a
+  // resumed conversation has to carry the same fact.
+  const handleBoundarySaved = useCallback(
+    ({ cleared }: { cleared: boolean }) => {
+      if (!refiningList) return
+      setPendingBoundaryNote(
+        boundarySavedMessage({
+          listId: refiningList.listId,
+          name: refiningList.name,
+          cleared,
+        }),
+      )
+    },
+    [refiningList],
+  )
+
+  // Queued rather than sent, because a boundary can be saved while a turn is
+  // still streaming — the drawer is mounted by this component precisely so it
+  // survives that — and `deliver` refuses a send with one in flight. Dropping
+  // it there would lose the model's only signal that a shape exists, and the
+  // holder would get the pre-boundary answer back with no way to tell why.
+  // Same wait-it-out shape as the kickoff effect above.
+  useEffect(() => {
+    if (!pendingBoundaryNote) return
+    if (loading || creatingRef.current || sending) return
+    setPendingBoundaryNote(null)
+    void deliver(pendingBoundaryNote, { hidden: true })
+  }, [pendingBoundaryNote, loading, sending, deliver])
 
   const sendContent = useCallback(
     (content: string) => deliver(content, { hidden: false }),
@@ -945,6 +1110,34 @@ export default function ChiefOfStaffChatBody({
     deliver,
   ])
 
+  // The visible twin of the kickoff effect: the contacts assistant bar takes
+  // the user's first message before this surface is even open, so it arrives
+  // as a prop instead of through the composer. Same guards for the same
+  // reasons — wait out a load/create/in-flight stream so it appends to the
+  // resolved conversation, and leave the ref unlatched when bailing so the
+  // effect retries once `sending` clears.
+  useEffect(() => {
+    if (!pendingMessage) {
+      sentPendingRef.current = undefined
+      return
+    }
+    if (!active || sentPendingRef.current === pendingMessage) return
+    if (loading || creatingRef.current || sending) return
+    if (conversationIdOverride && conversationId !== conversationIdOverride) {
+      return
+    }
+    sentPendingRef.current = pendingMessage
+    void deliver(pendingMessage, { hidden: false })
+  }, [
+    active,
+    pendingMessage,
+    loading,
+    sending,
+    conversationId,
+    conversationIdOverride,
+    deliver,
+  ])
+
   // A chip with `kickoff` fires an on-demand hidden send; otherwise it defers to
   // the chip's own `onSelect`.
   const onSuggestionClick = useCallback(
@@ -979,13 +1172,53 @@ export default function ChiefOfStaffChatBody({
     // message until it settles. Without this the card renders below the fold
     // and the follow-scroll has nothing to react to.
     liveListMap,
+    liveWidgets,
   ])
 
   // `liveListMap` counts as something on screen. onEvent consumes the
   // show_list_map call, so a turn that draws a map and says nothing pushes no
   // segment at all — without this the thinking row would sit under a rendered
   // map until the commit poll landed.
-  const working = sending && visibleSegments.length === 0 && !liveListMap
+  const working =
+    sending &&
+    visibleSegments.length === 0 &&
+    liveWidgets.length === 0 &&
+    !liveListMap
+  const liveBlocks = liveTurnBlocks(
+    visibleSegments,
+    liveWidgets,
+    segmentsTextLength(visibleSegments),
+  )
+
+  // The question still waiting on an answer: the last assistant turn that
+  // asked one, and only while nothing has been said since.
+  const activeClarifyId = useMemo(() => {
+    for (let i = visibleMessages.length - 1; i >= 0; i--) {
+      const message = visibleMessages[i]
+      if (!message) continue
+      if (message.role === 'user') return null
+      if ((message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return message.id
+      }
+    }
+    return null
+  }, [visibleMessages])
+  // An answer is the next thing the user said, so an answered question
+  // reloads with that answer showing.
+  const clarifyAnswerById = useMemo(() => {
+    const answers: Record<string, string> = {}
+    visibleMessages.forEach((message, index) => {
+      if (message.role === 'user') return
+      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return
+      }
+      const reply = visibleMessages
+        .slice(index + 1)
+        .find((later) => later.role === 'user')
+      if (reply) answers[message.id] = reply.content
+    })
+    return answers
+  }, [visibleMessages])
 
   const history = useMemo(
     () =>
@@ -1005,15 +1238,20 @@ export default function ChiefOfStaffChatBody({
         // project to a status pill reading `show_list_map` above the card it
         // already drew. The ordinance flow splits its present_* segments out
         // for the same reason.
-        live:
+        blocks:
           m.role === 'user'
             ? null
-            : segmentsToLive(
-                (m.segments ?? []).filter((s) => s.toolName !== LIST_MAP_TOOL),
-                m.content,
-              ),
+            : persistedTurnBlocks({
+                registry: cosWidgets,
+                segments: (m.segments ?? []).filter(
+                  (s) => s.toolName !== LIST_MAP_TOOL,
+                ),
+                content: m.content,
+                messageId: m.id,
+                conversationId,
+              }),
       })),
-    [visibleMessages],
+    [visibleMessages, conversationId],
   )
 
   // Starter chips: the caller's list, or the CoS defaults that send the chip's
@@ -1110,19 +1348,29 @@ export default function ChiefOfStaffChatBody({
         ))}
 
         {history.map((m) =>
-          m.live === null ? (
+          m.blocks === null ? (
             <UserBubble key={m.id}>{m.content}</UserBubble>
           ) : (
-            <AssistantRow key={m.id} fullWidth={Boolean(m.listMap)}>
-              <InlineSegments
-                segments={m.live}
+            <AssistantRow
+              key={m.id}
+              fullWidth={
+                Boolean(m.listMap) || m.blocks.some((b) => b.kind === 'widget')
+              }
+            >
+              <TurnBlocks
+                blocks={m.blocks}
                 toolLabel={toolLabel}
+                context={{
+                  clarifyInteractive: m.id === activeClarifyId && !busy,
+                  clarifyAnswer: clarifyAnswerById[m.id],
+                  onClarifyAnswer: sendContent,
+                  onComposeHandoff: handleComposeHandoff,
+                }}
                 onCitationClick={
                   attachmentsEnabled.enabled && conversationId
                     ? handleCitationClick
                     : undefined
                 }
-                onComposeHandoff={handleComposeHandoff}
               />
               {m.listMap ? (
                 <ChatListMap
@@ -1147,17 +1395,23 @@ export default function ChiefOfStaffChatBody({
             of nothing but the show_list_map call, and onEvent consumes that
             event rather than pushing a segment, so gating the row on
             segments alone hid the map until the transcript reloaded. */}
-        {visibleSegments.length > 0 || liveListMap ? (
-          <AssistantRow fullWidth={Boolean(liveListMap)}>
-            <InlineSegments
-              segments={visibleSegments}
+        {visibleSegments.length > 0 || liveWidgets.length > 0 || liveListMap ? (
+          <AssistantRow
+            fullWidth={Boolean(liveListMap) || liveWidgets.length > 0}
+          >
+            <TurnBlocks
+              blocks={liveBlocks}
               toolLabel={toolLabel}
+              context={{
+                clarifyInteractive: false,
+                onClarifyAnswer: sendContent,
+                onComposeHandoff: handleComposeHandoff,
+              }}
               onCitationClick={
                 attachmentsEnabled.enabled && conversationId
                   ? handleCitationClick
                   : undefined
               }
-              onComposeHandoff={handleComposeHandoff}
             />
             {liveListMap ? (
               <ChatListMap
@@ -1313,6 +1567,7 @@ export default function ChiefOfStaffChatBody({
         <ChatBoundaryDrawer
           list={refiningList}
           onClose={() => setRefiningList(null)}
+          onSaved={handleBoundarySaved}
         />
       )}
     </div>

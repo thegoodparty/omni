@@ -15,6 +15,7 @@ import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import {
   CHIEF_OF_STAFF_MODELS,
   ChiefOfStaffHandler,
@@ -73,6 +74,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     DistrictResolverService,
     CommunityIssueReadAdapter,
     HelpCenterSearchService,
+    PriorityFlowOutreachService,
     {
       provide: PRIORITIES_PORT,
       useClass: PrioritiesServiceAdapter,

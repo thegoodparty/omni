@@ -20,7 +20,7 @@ This module does not store the voter file itself — L2 is the source of truth. 
 ## Patterns
 
 - **L2 is the system of record for voters.** Treat `VotersService` as a thin axios wrapper — never cache L2 responses in our DB beyond the explicit count snapshots on `VoterFileFilter`.
-- **`L2_DATA_KEY` is required at boot** (`voters.service.ts` throws on missing env). Don't add lazy fallbacks.
+- **`L2_DATA_KEY` is degradable, not boot-gating.** `voters.service.ts` resolves it through `shared/env/env.ts`'s `resolveEnvVar`; missing/placeholder disables the `voter-file-l2` feature surface (one boot warn) and every public method throws a consistent `BadRequestException` instead of gp-api failing to start.
 - **Voter file downloads are gated** through `VoterFileDownloadAccessService` (in `src/shared/services/`) — it checks campaign tier + entitlement. Don't bypass it from new endpoints.
 - Filters are scoped to a campaign via `@UseCampaign()` + `@ReqCampaign()` — same pattern as the rest of the campaign-scoped surface.
 - **Filter create is not Pro-gated; update/delete and outreach use still are.** `VoterFileFilterService.filterAccessCheck` (`FILTER_PRO_REQUIRED_MESSAGE`) is called by `PUT`/`DELETE /voters/voter-file/filter/:id` and by outreach's use of a saved filter, but not by `POST /voters/voter-file/filter` — a free candidate can save a recommended list as a named list before upgrading (outreach-pro-gating-v2).

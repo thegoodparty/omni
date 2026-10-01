@@ -3,6 +3,7 @@ import {
   buildAlertDescription,
   buildAlertSummary,
   buildKnownCausesAnnotation,
+  EVALUATION_ERROR_NOTE,
   KNOWN_CAUSES_ANNOTATION,
 } from './alert-notification'
 import { Alert, KnownCause } from './alerts.types'
@@ -98,6 +99,32 @@ describe('buildAlertDescription', () => {
 
     const mentions = description.match(/<!subteam\^/g) ?? []
     expect(mentions).toHaveLength(2)
+  })
+
+  // The regression is the 2026-09-28 Grafana query-service outage: 190 of 216
+  // rules fired at once because `execErrState` is `Alerting`, and each page was
+  // written from its rule's own message. The prod memory one advised restarting
+  // the service while memory sat at 17%. A reader cannot tell an evaluation
+  // failure from the fault the rule looks for without being told what a state
+  // reason of `Error` and values of `-1` mean, so every description says it.
+  it('warns that an evaluation error means nothing was measured', () => {
+    expect(buildAlertDescription(alert, 'prod')).toContain(
+      EVALUATION_ERROR_NOTE,
+    )
+  })
+
+  // Covers the generated controller alerts as much as the hand-written ones,
+  // which is the reason it lives here and not in each `message`.
+  it('warns on an alert nobody owns too', () => {
+    expect(
+      buildAlertDescription({ ...alert, notify: undefined }, 'prod'),
+    ).toContain(EVALUATION_ERROR_NOTE)
+  })
+
+  // The note is fixed prose, so it must not smuggle in a placeholder that only
+  // `message`, `expr` and `evidence` are substituted for.
+  it('needs no environment substitution of its own', () => {
+    expect(EVALUATION_ERROR_NOTE).not.toContain('$ENV')
   })
 
   // The single-group spelling is what most alerts use, and a list of one has to

@@ -30,8 +30,29 @@ string keys. There is no per-key secret and no SSM parameter for app secrets.
 | `ELECTION_API_PROD` / `_DEV`       | election-api ECS tasks            | prod / dev        |
 | `AI_SECRETS_PROD` / `AI_SECRETS_DEV` | gp-ai Terraform roots (Fargate + Lambda) | prod / dev |
 | `broker-<env>`                     | PMF broker only                   | prod / dev        |
+| `LOCAL_DEV_ENV`                    | laptops, via `POST /v1/dev-env/bundle` | dev only     |
 
 preview stacks share the `*_DEV` secrets — there is no preview secret.
+
+### `LOCAL_DEV_ENV`
+
+The one blob that leaves the account by design. `npm run setup`'s GitHub
+device-flow default (`docs/development.md`) calls the dev-only vending
+endpoint, `POST /v1/dev-env/bundle` (`packages/gp-api/src/devEnv/AGENTS.md`),
+which hands a verified `thegoodparty` GitHub org member the values for a
+fresh laptop checkout — dev-grade only, never a prod credential. It is keyed
+by package (`{ "gp-api": { … }, "gp-webapp": { … } }`).
+
+It is vendable **by construction**, not by a filter that could get it wrong:
+the endpoint reads only this one secret, and `DECLARED_ENV_VARS` rejects any
+key the blob holds that isn't declared in that package's env contract
+(`ENV_VAR_CONTRACT` in `env.schema.ts`) — there is no code path that can leak
+a key nobody meant to vend. Adding a vendable key is a reviewed edit to both
+the secret and the receiving package's env contract, like any other secret
+change.
+
+**A key that lives in both `GP_API_DEV` and `LOCAL_DEV_ENV` rotates in both
+places** — accepted tech debt, deliberately traded for that guarantee.
 
 ## How a secret reaches running code
 
@@ -46,12 +67,17 @@ adding one needs a code change:
 - **gp-api and election-api need no code change.** The Pulumi program reads the
   live secret and enumerates its keys, wiring every one it finds
   (`Object.keys(secret)` in `packages/*/deploy/index.ts`). A key that exists in
-  the blob is in the task definition on the next deploy.
+  the blob is in the task definition on the next deploy. The one exception is
+  gp-api's four preview E2E test-account keys (`E2E_ADMIN_EMAIL`,
+  `E2E_ADMIN_PASSWORD`, `E2E_CANDIDATE_EMAIL`, `E2E_CANDIDATE_PASSWORD` in
+  `GP_API_DEV`): dev skips them, and preview maps them to `ADMIN_EMAIL`,
+  `ADMIN_PASSWORD`, `CANDIDATE_EMAIL` and `CANDIDATE_PASSWORD`, the names the
+  seed and E2E suite read.
 - **gp-ai needs a Terraform edit.** Each key is listed explicitly in the module's
   `secrets` array, so a new one means a new `valueFrom` entry plus an
   `AI_SECRETS_<ENV>` resource in the task role's IAM policy.
 
-`SECRET_NAMES` is set from the same key list and drives log redaction
+`SECRETS_MANAGER_KEYS` lists the same container variable names and drives log redaction
 (`packages/nest-common/src/observability/log-redaction.ts`), so a key added to the
 blob is automatically scrubbed from logs. That only covers the Node services —
 gp-ai does its own redaction.
@@ -122,7 +148,7 @@ Every real reason for wanting one has a better answer:
 | You want the value because                     | Do this instead                                                                 |
 | ---------------------------------------------- | ------------------------------------------------------------------------------- |
 | A prod call is 401/403ing                      | Read the failure in Loki via the Grafana MCP. The response body says whether the key is missing, malformed, expired, or scoped wrong — enough to act on. See `docs/observability.md`. |
-| You need to confirm a key is set               | `aws secretsmanager describe-secret` and the `SECRET_NAMES` env var both list key **names** without values; an admin can confirm presence in a sentence. |
+| You need to confirm a key is set               | `aws secretsmanager describe-secret` and the `SECRETS_MANAGER_KEYS` env var both list key **names** without values; an admin can confirm presence in a sentence. |
 | You're testing an integration locally          | Use your own sandbox credential from the vendor, in your gitignored `.env`. Never a prod one. |
 | You're reproducing a prod-only bug             | Reproduce against dev with a dev credential. If it only reproduces with the prod key, the bug is in the key's configuration at the vendor, not in the code. |
 | A vendor call needs to run once, against prod  | Ask an admin to run it, or add it as a one-shot script the deployed service runs with its task role. |

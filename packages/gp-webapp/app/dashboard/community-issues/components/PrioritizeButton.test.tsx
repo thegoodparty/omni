@@ -20,7 +20,6 @@ const mockPriority: Priority = {
   description: 'Rising rents',
   source: 'community_issue',
   sourceCampaignPositionId: null,
-  targetDate: null,
   currentStep: null,
   nextAction: null,
   createdAt: new Date().toISOString(),

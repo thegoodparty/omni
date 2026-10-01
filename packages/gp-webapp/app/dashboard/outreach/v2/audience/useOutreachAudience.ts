@@ -10,6 +10,7 @@ import type {
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachChannel } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
@@ -701,6 +702,7 @@ export const useOutreachAudience = ({
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
         channel: reachabilityKey,
+        medium: outreachChannel(reachabilityKey),
         intent: recommendation.intent,
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
@@ -765,6 +767,7 @@ export const useOutreachAudience = ({
         trackEvent(EVENTS.Outreach.RecommendedList.Failed, {
           variant: recommendation.variant,
           channel: reachabilityKey,
+          medium: outreachChannel(reachabilityKey),
           intent: recommendation.intent,
           count: recommendation.count,
           voteGoalShare: recommendation.voteGoalShare,
@@ -777,6 +780,7 @@ export const useOutreachAudience = ({
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
         channel: reachabilityKey,
+        medium: outreachChannel(reachabilityKey),
         intent: recommendation.intent,
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
@@ -827,6 +831,7 @@ export const useOutreachAudience = ({
         trackEvent(EVENTS.Outreach.RecommendedList.Failed, {
           variant: recommendedMeta.variant,
           channel: recommendedMeta.channel,
+          medium: outreachChannel(recommendedMeta.channel),
           intent: recommendedMeta.intent,
           count: recommendedMeta.count,
           voteGoalShare: recommendedMeta.voteGoalShare,
@@ -842,6 +847,7 @@ export const useOutreachAudience = ({
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendedMeta.variant,
         channel: recommendedMeta.channel,
+        medium: outreachChannel(recommendedMeta.channel),
         intent: recommendedMeta.intent,
         count: recommendedMeta.count,
         voteGoalShare: recommendedMeta.voteGoalShare,

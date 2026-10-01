@@ -9,16 +9,18 @@ import { CampaignTurfList } from './CampaignTurfList'
 // Every mutation here snackbars, and `render` wraps only a QueryClient.
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
 
-// The per-turf assignee menu reads both. Off by default, which is this
-// drawer's own default: an org without team accounts has no roster to pick
-// from and the menu renders nothing.
-let teamAccountsFlag = { ready: true, enabled: false }
-vi.mock('@shared/experiments/teamAccountsFlag', () => ({
-  useTeamAccountsFlag: () => teamAccountsFlag,
-}))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'campaign-1' }),
 }))
+
+// The per-turf assignee menu hides itself on an empty roster (its own rule,
+// not this suite's) — an empty team keeps these tests focused on the turf
+// row itself rather than on assignment, which has its own suite.
+const mockEmptyTeam = () =>
+  api.mock('GET /v1/organizations/team', {
+    status: 200,
+    data: { members: [], pendingInvites: [] },
+  })
 
 // The drawer's sibling list, which had no tests at all until it grew a write.
 // What is pinned here is mostly about which rows offer which control: the row
@@ -29,7 +31,7 @@ describe('CampaignTurfList', () => {
   const errorSnackbar = vi.fn()
 
   beforeEach(() => {
-    teamAccountsFlag = { ready: true, enabled: false }
+    mockEmptyTeam()
     vi.mocked(useSnackbar).mockReturnValue({
       displaySnackbar: vi.fn(),
       errorSnackbar,
@@ -65,7 +67,12 @@ describe('CampaignTurfList', () => {
 
   const renderList = (props: { onOverlayOpenChange?: () => void } = {}) =>
     render(
-      <CampaignTurfList anchorOutreachId={30} outreachId={30} {...props} />,
+      <CampaignTurfList
+        isServe={false}
+        anchorOutreachId={30}
+        outreachId={30}
+        {...props}
+      />,
     )
 
   it('renders a row per turf with its counts', async () => {

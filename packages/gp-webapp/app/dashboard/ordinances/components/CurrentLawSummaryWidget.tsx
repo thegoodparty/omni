@@ -2,7 +2,7 @@ import type {
   OrdinanceCurrentLawSummary,
   OrdinanceLawPoint,
 } from '@goodparty_org/contracts'
-import SourceLine from './SourceLine'
+import SourceLine from '../../shared/agent-chat/SourceLine'
 
 const PointsCard = ({
   title,

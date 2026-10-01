@@ -48,6 +48,22 @@ export const TIME_OPTIONS: {
   { id: 'custom', label: 'Custom time…', time: null },
 ]
 
+// "Central Time" for the campaign's zone; the IANA name if Intl can't.
+export const timeZoneCaption = (timeZone: string): string => {
+  try {
+    return (
+      new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        timeZoneName: 'longGeneric',
+      })
+        .formatToParts(new Date())
+        .find((part) => part.type === 'timeZoneName')?.value ?? timeZone
+    )
+  } catch {
+    return timeZone
+  }
+}
+
 const fmtDate = (d: Date) =>
   d.toLocaleDateString('en-US', {
     weekday: 'short',
@@ -77,6 +93,7 @@ interface SmsScheduleStepProps {
   onTimeSlotChange: (value: string) => void
   customTime: string
   onCustomTimeChange: (value: string) => void
+  timeZone: string
   earliestSend: number
   calendarFloor: number
   violates48h: boolean
@@ -93,19 +110,14 @@ export const SmsScheduleStep = ({
   onTimeSlotChange,
   customTime,
   onCustomTimeChange,
+  timeZone,
   earliestSend,
   calendarFloor,
   violates48h,
   outsideWindow,
 }: SmsScheduleStepProps) => {
   const [calOpen, setCalOpen] = useState(false)
-  const tz = useMemo(() => {
-    try {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone
-    } catch {
-      return 'Local time'
-    }
-  }, [])
+  const tz = useMemo(() => timeZoneCaption(timeZone), [timeZone])
   const earliestDay = useMemo(() => {
     const d = new Date(calendarFloor)
     d.setHours(0, 0, 0, 0)

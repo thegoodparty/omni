@@ -98,6 +98,12 @@ For a rank-1/2 flag, confirm what the firing axis is telling you by reading the 
 This is not part of the scheduled run (the code axis is the provenance CSV); it is the
 follow-up when a flag needs a verdict.
 
+**Known gotchas, pitfalls, traps, false positives and false negatives** in this process are
+indexed as a symptom table in [analytics-governance-gotchas.md](analytics-governance-gotchas.md) —
+scan it before ruling on any flag. The plain words are spelled out here on purpose: the
+rank-0 and rank-2 sections below are two of the entries, and a search for "gotcha" or
+"pitfall" does not find a section headed "Rank 0 — counter blind spot".
+
 1. **Find the instrumentation.** `rg -F "<event_type>" packages/` in the omni repo. Note where
    it fires (gp-webapp `trackEvent` or gp-api `AnalyticsService.track`).
 2. **Look for a change in the window.** `git log -S"<event_type>" -- packages/` and inspect the
@@ -119,8 +125,11 @@ not a silent break.
 
 This flag's propose-and-confirm flow (never auto-decide):
 
-1. Confirm in git: `git log -S'EVENTS.<KeyPath>' -- packages/gp-webapp` and read the removing
-   diff. The key-path is the one resolved from the `EVENTS` map for this event name.
+1. Confirm in git. The row's `call_site_retired_date` already names the day; the CSV's
+   walk is wrap-tolerant, so trust it over your own search. To read the removing diff,
+   pickaxe the **leaf key** (`git log -S'CheckGender' -- packages/gp-webapp`) rather than
+   the dotted key-path: Prettier wraps a long path across lines, so `-S'EVENTS.<KeyPath>'`
+   finds no commit even though the removal is there.
 2. Decide the verdict to propose:
    - **Retired** — the call site was deleted and nothing replaced it.
    - **Superseded by <event>** — a new event took its place (cite it). Never guess; if a
@@ -149,11 +158,7 @@ blind to how the reference is written — not the event dead. Fix the counter, n
    e.g. `MediaRequested`, not the full key-path — the full path is exactly what the counter
    failed to see).
 2. Identify the shape. Aliased (`const x = EVENTS.<prefix>`) and Prettier-wrapped key-paths
-   are counted since DATA-2106, so a rank-0 flag usually means a NEW shape. One exception,
-   and check it first: `call_site_retired_date` is resolved by a single-line `git log -S`,
-   so a Prettier-wrapped key-path gets a true `0` count with NO removal date, and the
-   straddle gate cannot suppress it. An event whose siblings carry a removal date is almost
-   certainly this, not a new shape (DATA-2427).
+   are counted since DATA-2106, so a rank-0 flag means a NEW shape.
 3. Extend `count_call_sites` in `scripts/python/amplitude_event_provenance_backfill.py`
    (tests first), re-run the walk, and confirm the count is non-zero.
 4. Never route a rank-0 event into the rank-2 retirement propose-and-confirm flow.
@@ -286,7 +291,20 @@ informational** rollup, plus a threaded reply with the full detail (per-event an
 numbers, watchlist proposals, informational transitions, and the status breakdown). Each
 item's tier comes from `digest_triage.py`: a deterministic rules pass (OKR flag, watchlist
 membership, health rank) that a rubric-guided Claude judge may then move by one tier —
-never demoting an OKR-anchored red item. The judge needs `ANTHROPIC_API_KEY` and reads its
+never demoting an OKR-anchored red item.
+
+That judge, and the gap judge in `instrumentation_gaps.py`, are each **one forced-tool-call
+request with a fixed system prompt** — no tools, no filesystem. So they cannot follow a
+pointer to a doc; the text has to be in the prompt. `governance_gotchas.py` pastes the
+**Judgment traps** table of
+[analytics-governance-gotchas.md](analytics-governance-gotchas.md) into both, because both
+rule before any human reads the digest and a trap the judge does not know about becomes a
+tier or a confirmed gap nobody has reason to question (DATA-2575). Only that table: the
+book's other half is tooling defects awaiting a Python fix and process rules about git
+archaeology, none of which a judge can act on, so it stays out of the prompt (62% of the
+file, and it would be paid twice a week). A missing or corrupt book degrades to the rubric
+alone rather than failing the run. The judges only read it — the book is written in the
+`/triage-instrumentation-gaps` review, with a human approving each row. The judge needs `ANTHROPIC_API_KEY` and reads its
 model from `DIGEST_TRIAGE_MODEL` (default `claude-sonnet-5`); when the key is unset or the
 judge call fails, the digest posts anyway on the deterministic rules tier, with a
 `⚙️ triage judgment unavailable this run` line in the parent.

@@ -1,0 +1,81 @@
+import { useTestService } from '@/test-service'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { v7 as uuidv7 } from 'uuid'
+import {
+  OutreachStatus,
+  OutreachType,
+  PrioritySource,
+} from '../../../../generated/prisma'
+import { PriorityFlowOutreachService } from './priorityFlowOutreach.service'
+
+// Runs against real Postgres on purpose. The bug this guards is SQL NULL
+// semantics — `priority_id <> $1` is never true for a NULL row — which a
+// mocked Prisma would happily "pass".
+const service = useTestService()
+
+let outreach: PriorityFlowOutreachService
+let slug: string
+let officeId: string
+
+const createPriority = async (title: string) =>
+  (
+    await service.prisma.priority.create({
+      data: {
+        electedOfficeId: officeId,
+        title,
+        description: title,
+        source: PrioritySource.user_stated,
+      },
+    })
+  ).id
+
+const send = (name: string, priorityId: string | null) =>
+  service.prisma.outreach.create({
+    data: {
+      organizationSlug: slug,
+      outreachType: OutreachType.text,
+      status: OutreachStatus.completed,
+      name,
+      priorityId,
+    },
+  })
+
+beforeEach(async () => {
+  outreach = service.app.get(PriorityFlowOutreachService)
+  officeId = uuidv7()
+  slug = `eo-${officeId}`
+  await service.prisma.organization.create({
+    data: { slug, ownerId: service.user.id },
+  })
+  await service.prisma.electedOffice.create({
+    data: { id: officeId, userId: service.user.id, organizationSlug: slug },
+  })
+})
+
+describe('PriorityFlowOutreachService.forOffice', () => {
+  it('includes sends with no priority, which is nearly all of them', async () => {
+    const bridge = await createPriority('Bridge')
+    const market = await createPriority('Market')
+    await send('about the bridge', bridge)
+    const marketSend = await send('about the market', market)
+    const newsletter = await send('office newsletter', null)
+
+    const rows = await outreach.forOffice(slug, bridge)
+
+    expect(rows.map((row) => row.outreachId).sort()).toEqual(
+      [marketSend.id, newsletter.id].sort(),
+    )
+  })
+
+  it('returns every send when the chat is not about a priority', async () => {
+    const bridge = await createPriority('Bridge')
+    const bridgeSend = await send('about the bridge', bridge)
+    const newsletter = await send('office newsletter', null)
+
+    const rows = await outreach.forOffice(slug, null)
+
+    expect(rows.map((row) => row.outreachId).sort()).toEqual(
+      [bridgeSend.id, newsletter.id].sort(),
+    )
+  })
+})

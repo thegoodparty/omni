@@ -9,7 +9,7 @@ import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
   OPT_OUT_FOOTER,
   SERVE_SMS_GREETING,
-  SERVE_SMS_GREETING_PREVIEW,
+  SMS_GREETING_PREVIEW,
   SERVE_SMS_SAMPLE_FIRST_NAME,
   SMS_GREETING,
   withSampleFirstName,
@@ -73,6 +73,7 @@ const openServeFlow = () => {
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(
     <SmsFlow
+      source="outreach_page"
       open
       onClose={onClose}
       onScheduled={onScheduled}
@@ -312,9 +313,7 @@ describe('SmsFlow (Serve surface)', () => {
     expect(
       await screen.findByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`),
     ).toBeInTheDocument()
-    expect(
-      screen.getByText(SERVE_SMS_GREETING_PREVIEW.caption),
-    ).toBeInTheDocument()
+    expect(screen.getByText(SMS_GREETING_PREVIEW.caption)).toBeInTheDocument()
     expect(screen.queryByText('Greeting First Name')).toBeNull()
     expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
   })
@@ -409,7 +408,7 @@ describe('SERVE_SMS_SURFACE', () => {
     expect(shown).toContain(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`)
     expect(shown).not.toContain('{{first_name}}')
     expect(shown).not.toContain('{first_name}')
-    expect(SERVE_SMS_GREETING_PREVIEW.greeting).toBe(
+    expect(SMS_GREETING_PREVIEW.greeting).toBe(
       `Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`,
     )
   })

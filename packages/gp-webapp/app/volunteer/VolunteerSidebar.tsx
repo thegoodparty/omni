@@ -42,7 +42,6 @@ import {
   useOrganizations,
   useSetOrganizationSlug,
 } from '@shared/organization-picker'
-import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 
 // The volunteer shell: a left sidebar (logo/wordmark, a bottom user block that
 // expands an in-sidebar "switch campaign" list, and a logout row) plus a slim
@@ -63,10 +62,6 @@ const VolunteerSidebar = ({
   const setOrganizationSlug = useSetOrganizationSlug()
   const handleLogOut = useHandleLogOut()
   const router = useRouter()
-  // trackExposure=false: a render-decision read for switch routing, same as
-  // OrganizationPicker's own read of this flag — not the experiment's own
-  // treatment surface.
-  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [leaveOpen, setLeaveOpen] = useState(false)
   const queryClient = useQueryClient()
@@ -78,7 +73,7 @@ const VolunteerSidebar = ({
   const canSwitchCampaigns = organizations.length > 1
 
   const destinationFor = (destination: Organization | undefined) =>
-    teamAccountsEnabled && destination?.role === 'volunteer'
+    destination?.role === 'volunteer'
       ? '/volunteer'
       : destination?.electedOfficeId
         ? '/dashboard/chief-of-staff'

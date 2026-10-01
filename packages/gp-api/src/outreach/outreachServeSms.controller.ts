@@ -68,8 +68,8 @@ const clampOffset = (raw?: string): number => {
 // handler and the two results readers at the bottom of this file are
 // deliberately NOT gated — none is reachable without an `Outreach` row, and
 // the create route below is the only thing that writes one, so gating the
-// writer makes the rest inert. Same reasoning `win-team-accounts` records
-// for gating only its create route (outreachAssignment.controller.ts).
+// writer makes the rest inert. Same reasoning as gating only the create
+// route on an assignment/invite flow (outreachAssignment.controller.ts).
 //
 // This gates ROLLOUT, not authorization. @UseElectedOffice() is the real
 // access check on every route here and stays that way whatever the flag says.

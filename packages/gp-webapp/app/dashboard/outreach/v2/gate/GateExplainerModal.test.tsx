@@ -23,6 +23,7 @@ const stateWith = (
   overrides: Partial<OutreachGateState>,
 ): OutreachGateState => ({
   enabled: true,
+  resolved: true,
   requirement: null,
   twoStep: false,
   membership: null,

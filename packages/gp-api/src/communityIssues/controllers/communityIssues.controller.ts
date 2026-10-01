@@ -12,10 +12,7 @@ import {
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
-import {
-  Priority as PriorityDto,
-  PrioritySchema,
-} from '@goodparty_org/contracts'
+import { PrioritySchema } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
@@ -24,8 +21,8 @@ import { UseElectedOffice } from 'src/electedOffice/decorators/UseElectedOffice.
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
-import { ElectedOffice, Priority, User } from '../../generated/prisma'
-import { toDateOnlyString } from 'src/shared/util/date.util'
+import { priorityToApi } from '@/priorities/util/priority.util'
+import { ElectedOffice, User } from '../../generated/prisma'
 import {
   CommunityIssueDetailSchema,
   CommunityIssueListQueryDto,
@@ -41,20 +38,6 @@ import { CommunityIssueDispatchService } from '../services/communityIssueDispatc
 import { CommunityIssuePrioritizeService } from '../services/communityIssuePrioritize.service'
 import { CommunityIssueReadService } from '../services/communityIssueRead.service'
 import { CommunityIssueSeedService } from '../services/communityIssueSeed.service'
-
-const toApi = (record: Priority): PriorityDto => ({
-  id: record.id,
-  electedOfficeId: record.electedOfficeId,
-  title: record.title,
-  description: record.description,
-  source: record.source,
-  sourceCampaignPositionId: record.sourceCampaignPositionId,
-  targetDate: toDateOnlyString(record.targetDate) ?? null,
-  currentStep: record.currentStep,
-  nextAction: record.nextAction,
-  createdAt: record.createdAt.toISOString(),
-  updatedAt: record.updatedAt.toISOString(),
-})
 
 @Controller('community-issues')
 @UsePipes(ZodValidationPipe)
@@ -170,6 +153,6 @@ export class CommunityIssuesController {
       electedOffice.organizationSlug,
       electedOffice.id,
     )
-    return toApi(priority)
+    return priorityToApi(priority)
   }
 }

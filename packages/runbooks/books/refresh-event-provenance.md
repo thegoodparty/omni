@@ -36,20 +36,70 @@ Regenerate the committed Amplitude event git-provenance dataset (the curated sum
 
 Core columns produced by the backfill walk:
 
+- `retired_date` / `retired_commit` / `retired_pr` — when the event's **name** left the
+  codebase. Written only when the name string is absent from the instrumentation paths
+  at HEAD and the walk has history for it (`classify_code_status` returning `removed`).
+  It is silent about whether anything still *calls* that name.
+### Removing an event is two steps, and these columns report different ones
+
+Read `retired_date` and `call_site_count` together or neither makes sense. They are not
+two views of one fact; they are two stages of the same removal.
+
+1. **The call site goes.** `call_site_count` drops from 1+ to `0`, and
+   `call_site_retired_date` gets the date. The name is still in the registry.
+2. **The name goes.** Now there is no key-path left to count, so `call_site_count`
+   becomes **empty** — not `0` — and `retired_date` / `retired_commit` / `retired_pr`
+   are written.
+
+`retired_date` is therefore set only when the event's **name** has left the
+instrumentation paths at HEAD (`classify_code_status` returning `removed`). It says
+nothing about whether anything still calls that name.
+
+**The two can never both be set.** A zero count beside an empty `retired_date` is a
+half-finished removal, not a conflict. Measured 2026-09-29 over 664 rows:
+
+| `call_site_count` | `retired_date` | rows | stage |
+| --- | --- | --- | --- |
+| 1+ | empty | 372 | live |
+| `0` | empty | 39 | call site gone, name left behind |
+| empty | set | 162 | both gone |
+| empty | empty | 91 | no resolvable key-path (dynamic dispatch, fired outside this repo, or never built) |
+
+**Never read an empty `retired_date` as evidence the instrument is live.**
+`classify_status` does exactly that — `if retired_date is None: return "active" if
+firing_recent else "dormant"` — so all 39 stage-1 events are classified as *code
+present* and can never reach `retired`. That is the blind spot DATA-2046 opened rank 2
+to close. Worked example 2026-09-29: `Onboarding V2 - Strategic Landscape Displayed` is
+declared at `packages/gp-webapp/helpers/analyticsHelper.ts:799` and its caller was
+deleted in `e5e863545` (2026-09-01).
+
+The plain-words version, for searching: **"still in the code" means the name is still
+there, not that anything sends the event.**
+
 - `call_site_count` — number of `EVENTS.X.Y` call sites at the deploy ref (non-test
   instrumentation paths). Key-paths resolve from BOTH registries — `gp-webapp`'s
   `helpers/analyticsHelper.ts` and `gp-api`'s `src/vendors/segment/segment.types.ts` —
   and an event declared in both sums their counts. `0` = declared but uncalled; empty =
   no resolvable key-path, which now means only a dynamic-dispatch event or one fired
   from outside this repo (vendor autocapture, gp-marketing).
-- `call_site_retired_date` — date the call-site count last dropped to zero (targeted
-  `git log -S` on the key-path), populated only when `call_site_count` is `0`. Known gap:
-  `git log -S` matches single-line literals and the diff is scanned line by line, so a
-  Prettier-wrapped key-path (`EVENTS.A.B\n  .C`) resolves no date and the column stays
-  empty even though the count is a true `0`.
+- `call_site_retired_date` — date the call-site count last dropped to zero, populated only
+  when `call_site_count` is `0`. Resolved by one full-history walk that reads every
+  commit's diff as two blocks and records the latest one to net-remove each key-path;
+  matching the block rather than each line is what makes a Prettier-wrapped key-path
+  (`EVENTS.A.B\n  .C`) visible. Comments are stripped first, so deleting prose that names
+  a key-path never stamps a date.
 - `instrumented_author_email` / `retired_author_email` — git author email (`%ae`) of the
   commit that instrumented and the commit that retired the event, for follow-up. Empty when
   the event is still in code (no retirement) or predates the walk window.
+- `instrumented_pr` / `retired_pr` — full GitHub link to the PR that added and removed the
+  instrumentation. **The link is not always an omni PR.** omni's history was grafted from the
+  predecessor repos, so a grafted commit's squash subject carries the *source* repo's `(#N)`
+  and the link points there (`thegoodparty/gp-webapp/pull/708`, say). Which repo a commit came
+  from is read off the `sync(<repo>)` graft merges, not off a cutover date — the predecessor
+  repos kept syncing in after omni's first PR, so an imported commit can be dated later than
+  the cutover. Every write re-derives this, so a link stored under the wrong repo heals on the
+  next walk; the skill's single-row `upsert` has no history to consult and leaves existing
+  links alone.
 
 ## Troubleshooting
 

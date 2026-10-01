@@ -66,16 +66,19 @@ export class OutreachProposalService {
     // A priority belongs to one elected office, so the caller's own office is
     // the whole tenancy boundary — the body must not be able to hang this
     // send off someone else's.
-    const priority = await this.priorities.findFirst({
-      where: {
-        id: input.priorityId,
-        electedOfficeId: electedOffice.id,
-        archivedAt: null,
-      },
-      select: { id: true },
-    })
-    if (!priority) {
-      throw new NotFoundException('Priority not found')
+    const priorityId = input.priorityId ?? undefined
+    if (priorityId !== undefined) {
+      const priority = await this.priorities.findFirst({
+        where: {
+          id: priorityId,
+          electedOfficeId: electedOffice.id,
+          archivedAt: null,
+        },
+        select: { id: true },
+      })
+      if (!priority) {
+        throw new NotFoundException('Priority not found')
+      }
     }
 
     // The schema POST /v1/phone-banking/serve/lists validates its body with.
@@ -114,7 +117,7 @@ export class OutreachProposalService {
             campaignId: null,
             organizationSlug: electedOffice.organizationSlug,
             proposalKey,
-            priorityId: input.priorityId,
+            priorityId,
           },
           parsed.data,
         )

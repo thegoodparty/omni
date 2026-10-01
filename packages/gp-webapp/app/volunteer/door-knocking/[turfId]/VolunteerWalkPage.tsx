@@ -95,7 +95,6 @@ export default function VolunteerWalkPage({
   turfId: number
 }): React.JSX.Element {
   const router = useRouter()
-  const walk = useWalkSession()
   // The turf itself, for its name (the walk session needs one to start) and
   // for `useWalkCompletion`, which needs the full row to derive whether the
   // walk is finished. GET /v1/door-knocking/turfs/:id admits an assigned
@@ -116,8 +115,17 @@ export default function VolunteerWalkPage({
   // this query from disabled to enabled a beat later, firing a second,
   // avoidable fetch against a key this instance already holds.
   const routeQuery = useQuery(routeQueryOptions(turfId))
+  // Declared after the route query on purpose: the walk's events are named per
+  // product, and this page learns its surface from the route payload rather
+  // than from an organization a volunteer cannot read. `start`/`end` are
+  // rebuilt each render, so they close over the settled value by the time a
+  // walk can begin.
+  const walk = useWalkSession(routeQuery.data?.isServe ?? false)
   const walkMap = useWalkMapSession({ id: turfId })
-  const completeFinishedWalk = useWalkCompletion(turfQuery.data ?? null)
+  const completeFinishedWalk = useWalkCompletion(
+    turfQuery.data ?? null,
+    routeQuery.data?.isServe ?? false,
+  )
   const [locationEnabled, setLocationEnabled] = useState(false)
   const location = useLiveLocation(locationEnabled)
   const [mapControlsOffset, setMapControlsOffset] = useState<number | null>(16)

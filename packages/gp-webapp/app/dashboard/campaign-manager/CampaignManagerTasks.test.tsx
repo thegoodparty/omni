@@ -419,6 +419,37 @@ describe('text/robocall cards link into the outreach hub', () => {
     )
   })
 
+  it('carries the tracker task and its phase, so the arrival joins back to it', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          id: 'task-7',
+          title: 'Send a text blast',
+          flowType: 'text',
+          link: null,
+          date: '2026-07-14T00:00:00.000Z',
+          phase: 'launch',
+        }),
+      ]),
+    )
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('link', { name: /start outreach/i }),
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/outreach?compose=text&source=campaign_manager&due=2026-07-14&trackerTaskId=task-7&phase=launch',
+    )
+  })
+
   it('links robocall tasks into the hub with the due date', () => {
     mockResult.mockReturnValue(
       settled([

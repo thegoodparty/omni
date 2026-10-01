@@ -20,6 +20,10 @@ import {
   type GateChannel,
 } from './gateCopy'
 import type { GateRequirement, OutreachGateState } from './useOutreachGate'
+import type {
+  OutreachFlowSource,
+  OutreachTrackerOrigin,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 
 interface OutreachGateProps {
   channel: GateChannel
@@ -39,6 +43,11 @@ interface OutreachGateProps {
   // position in place of the flow's (design: renderSgModal). `totalSteps`
   // 0 is a screen that draws no header. Null once the gate unmounts.
   onChromeChange?: (chrome: GateChrome | null) => void
+  // Where the flow was opened from and the label of the button that opened
+  // the gate, for the wizard's `Pro Upgrade - Flow Started`.
+  source: OutreachFlowSource
+  cta?: string
+  tracker?: OutreachTrackerOrigin
 }
 
 export interface GateChrome {
@@ -59,6 +68,9 @@ export const OutreachGate = ({
   onComplete,
   showInterstitial = true,
   onChromeChange,
+  source,
+  cta,
+  tracker,
 }: OutreachGateProps): React.JSX.Element | null => {
   // Read through a ref so the callbacks handed to the wizard and the
   // verification steps stay stable — both re-fire their position effects
@@ -142,6 +154,14 @@ export const OutreachGate = ({
               : PRO_UPGRADE_STEP.GUIDANCE
           }
           channel={channel}
+          attribution={{
+            source,
+            channel,
+            ...(cta ? { cta } : {}),
+            ...(tracker
+              ? { trackerTaskId: tracker.trackerTaskId, phase: tracker.phase }
+              : {}),
+          }}
           onExit={onExit}
           onComplete={handleProComplete}
           onPositionChange={reportProPosition}

@@ -38,6 +38,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+import governance_gotchas
 import llm_judge
 import ts_imports
 import ts_scopes
@@ -543,9 +544,21 @@ _JUDGE_INSTRUCTIONS = (
 )
 
 
-def judge_system_prompt(rubric: str) -> str:
-    """Rubric text (single-sourced from SKILL.md) plus the fixed judging instructions."""
-    return f"{rubric}\n\n---\n\n{_JUDGE_INSTRUCTIONS}"
+def judge_system_prompt(rubric: str, gotchas: str = "") -> str:
+    """Rubric text (single-sourced from SKILL.md), the known-gotchas book, then the fixed
+    judging instructions.
+
+    The gotchas book is pasted in rather than referenced because this judge is one
+    forced-tool-call request with no filesystem — see ``governance_gotchas``. It sits before
+    the instructions so the final word remains "the rubric is authoritative", and it is
+    omitted entirely when unavailable so no empty header reaches the model (DATA-2575).
+    """
+    parts = [rubric]
+    section = governance_gotchas.gotchas_prompt_section(gotchas)
+    if section:
+        parts.append(section)
+    parts.append(_JUDGE_INSTRUCTIONS)
+    return "\n\n---\n\n".join(parts)
 
 
 def build_judge_messages(candidates: Sequence[dict]) -> list[dict]:
@@ -595,20 +608,23 @@ make_anthropic_client = llm_judge.make_anthropic_client
 
 def judge_candidates(
     candidates: Sequence[dict], rubric: str, *, client, model: str,
+    gotchas: str = "",
     max_tokens: int | None = None,
 ) -> dict[str, dict]:
     """One batched judgment call over the capped candidate set. Client is injected so this
     is unit-testable without network. Forces the report_gap_verdicts tool for a validated
     result. Mirrors qa_validate.py's AnthropicJudge."""
     return llm_judge.judge_batch(
-        candidates, system=judge_system_prompt(rubric), tool=JUDGE_TOOL, client=client,
+        candidates, system=judge_system_prompt(rubric, gotchas), tool=JUDGE_TOOL,
+        client=client,
         model=model, message_builder=build_judge_messages, max_tokens=max_tokens,
         results_field="results", noun="candidates", validate=_validated_judge_batch,
     )
 
 
 def judge_all(
-    candidates: Sequence[dict], rubric: str, *, client, model: str, chunk_size: int = 25
+    candidates: Sequence[dict], rubric: str, *, client, model: str, chunk_size: int = 25,
+    gotchas: str = "",
 ) -> dict[str, dict]:
     """Judge candidates in bounded chunks, merging verdicts. One call per chunk keeps each
     request within the token/response budget on a whole-repo seed; the weekly run (<=25
@@ -616,7 +632,8 @@ def judge_all(
     out: dict[str, dict] = {}
     for i in range(0, len(candidates), chunk_size):
         chunk = candidates[i : i + chunk_size]
-        out.update(judge_candidates(chunk, rubric, client=client, model=model))
+        out.update(judge_candidates(chunk, rubric, client=client, model=model,
+                                    gotchas=gotchas))
     return out
 
 
@@ -634,7 +651,9 @@ def run_judgment(
     return llm_judge.run_graceful(
         candidates, api_key=api_key, model=model, tool=JUDGE_TOOL,
         message_builder=build_judge_messages,
-        system_factory=lambda: judge_system_prompt(load_rubric(rubric_path)),
+        system_factory=lambda: judge_system_prompt(
+            load_rubric(rubric_path), governance_gotchas.load_gotchas()
+        ),
         unavailable_status="skipped: rubric unavailable",
         client_factory=client_factory,
         results_field="results", noun="candidates", validate=_validated_judge_batch,
@@ -1253,7 +1272,9 @@ def run_seed(
         return dict(prior), "skipped: rubric unavailable", 0
     try:
         client = client_factory(api_key)
-        verdicts = judge_all(candidates, rubric, client=client, model=model, chunk_size=chunk_size)
+        verdicts = judge_all(candidates, rubric, client=client, model=model,
+                             chunk_size=chunk_size,
+                             gotchas=governance_gotchas.load_gotchas())
     except Exception as exc:  # noqa: BLE001 — judgment must never break the seed run
         return dict(prior), f"failed: {exc}", 0
     new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)

@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { createFlowStepHeading } from 'src/helpers/door-knocking-e2e'
 
 // Door knocking is a channel of Voter Outreach, not a peer of it: the left rail
@@ -14,9 +13,9 @@ import { createFlowStepHeading } from 'src/helpers/door-knocking-e2e'
 // gating arithmetic; what this adds is that the rail a real candidate is served
 // agrees with it.
 //
-// The user is deliberately one that WOULD qualify for the old entry — Pro, on
-// `native-door-knocking`, with the Cheyenne district `setupProCampaignUser`
-// pins — so the absence below is the change and not an unmet precondition.
+// The user is deliberately one that WOULD qualify for the old entry — Pro,
+// with the Cheyenne district `setupProCampaignUser` pins — so the absence
+// below is the change and not an unmet precondition.
 //
 // The list handoff through the same tile (`?listId=` into the create flow's who
 // step) is pinned separately in
@@ -25,11 +24,6 @@ import { createFlowStepHeading } from 'src/helpers/door-knocking-e2e'
 test.describe('door knocking is entered from Voter Outreach', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    // Before auth and navigation, because it is resolved server-side into the
-    // first SSR render.
-    await setFlagOverrides(page, {
-      'native-door-knocking': 'on',
-    })
   })
 
   test('the left rail offers no door-knocking entry, and the hub tile reaches it', async ({
@@ -79,9 +73,8 @@ test.describe('door knocking is entered from Voter Outreach', () => {
     // inerts everything outside the drawer — the h1 lives on the page,
     // outside the drawer, so it drops out of the accessibility tree the
     // moment the modal opens. Anchor on the purpose step's own heading
-    // instead: it renders as soon as the gate picks the native branch
-    // AND the create flow mounts, which is the state a candidate lands
-    // on from this tile.
+    // instead: it renders as soon as the create flow mounts, which is the
+    // state a candidate lands on from this tile.
     await expect(
       createFlowStepHeading(page, 'What do you want to do?'),
     ).toBeVisible({ timeout: 60_000 })

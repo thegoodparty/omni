@@ -266,6 +266,9 @@ const SERVE_AREAS: ProductArea[] = [
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
       'A list shown on a map here has Draw an area / Edit area beside Open list, which narrows that list to the shape without leaving the conversation',
       'A list already used for outreach is locked, so its map offers no draw button',
+      'The chat can leave cards in the conversation: a finished piece of outreach, past sends and how they did, and someone outside your records to call, with a script',
+      'A phone banking outreach card is sent from its Send button without leaving the chat; a text or social one opens its outreach flow to finish there',
+      'When there is a choice to make, the chat asks it as a multiple-choice question, with room to write your own answer',
     ],
   },
   {
@@ -377,8 +380,6 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
     does: 'GoodParty.org’s own canvassing tool: build a walk list, get turf on a map, and log what happened at each door.',
     inside: [
       'Reached from the Door knocking card on the outreach hub, not from a tab of its own',
-      'Custom door-knocking surveys, so volunteers log answers in the field',
-      'Summaries of interactions by day and by survey answer',
       'A campaign can hold several turfs. Mark the whole campaign done, or one turf at a time, from its row in outreach history. Done does not require every door to have been knocked',
       'Creating a campaign ends at drawing the turfs. The walking route is planned the first time somebody starts knocking a turf, which is also when they are asked whether they are walking or driving',
       'Each turf can be handed to a different person, from its card in the campaign’s row in outreach history',

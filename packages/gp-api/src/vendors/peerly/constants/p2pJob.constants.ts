@@ -36,7 +36,6 @@ export const P2P_PHONE_LIST_MAP = {
 } as const
 
 export const P2P_SCHEDULE_DEFAULTS = {
-  TIMEZONE: 'LOCAL',
   IS_GLOBAL: 1,
 } as const
 

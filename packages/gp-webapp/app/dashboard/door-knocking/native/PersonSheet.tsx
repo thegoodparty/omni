@@ -199,6 +199,9 @@ const FollowUpCard = ({ status }: { status: DoorKnockStatus }) => {
 
 interface PersonSheetProps {
   stop: RoutePayloadStop
+  // Passed straight through to RecordKnockForm's analytics — the sheet itself
+  // has no use for it.
+  turfId: number
   // Controlled by WalkView rather than held here, because auto-advance moves
   // between residents of one household without the sheet closing — internal
   // state would keep showing the person who was just logged.
@@ -304,6 +307,7 @@ const PhoneRow = ({
 
 export default function PersonSheet({
   stop,
+  turfId,
   selectedTargetId,
   onSelectTarget,
   statusFor,
@@ -784,6 +788,7 @@ export default function PersonSheet({
               <RecordKnockForm
                 key={target.stopTargetId}
                 target={target}
+                turfId={turfId}
                 clientKey={clientKeyFor(target.stopTargetId)}
                 onRecorded={(personId, knockStatus) =>
                   onRecorded(target.stopTargetId, personId, knockStatus)

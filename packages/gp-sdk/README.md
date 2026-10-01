@@ -63,6 +63,11 @@ const updatedCampaign = await client.campaigns.update(1, {
 await client.campaigns.grantInternalTestingApproval(1)
 await client.campaigns.revokeInternalTestingApproval(1)
 
+// Admin 10DLC status snapshot (M2M): every stuck-registration bucket the
+// nightly report renders, computed live by the same gp-api code. Includes
+// a DNS sweep over the bought-domain fleet, so the call can take seconds.
+const snapshot = await client.campaigns.getTenDlcStatusSnapshot()
+
 // Admin CV validation override (M2M): clears a CV pre-submission
 // validation hold (stamps cvValidationOverriddenAt and clears the hold
 // columns) so the next submission attempt bypasses the gate. The override
@@ -141,18 +146,6 @@ await client.personProfiles.clearRemoval({
   personId: subject.personId,
   clearedBy: 'ops@goodparty.org',
 })
-
-// Ecanvasser
-const ecanvasser = await client.ecanvasser.create({
-  apiKey: 'ecanvasser-api-key',
-  email: 'user@example.com',
-})
-
-const allEcanvassers = await client.ecanvasser.list()
-
-await client.ecanvasser.syncAll()
-
-await client.ecanvasser.delete(campaignId)
 
 // Admin agent runs (admin / M2M)
 const runs = await client.adminAgentRuns.list({

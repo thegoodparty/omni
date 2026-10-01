@@ -504,7 +504,10 @@ import { dirname, join, relative } from 'node:path'
 // accident (same pattern as `ordinances/data/ordinances-api.ts`). The chat
 // cards under `[priorityId]/cards/` deliberately carry NO directive: they
 // inherit the boundary from the chat that mounts them.
-const BASELINE = 593
+// 2026-09-29: 592 -> 591. The Priorities chat's own turnBlocks.tsx, a copy of
+// the shared splicer, was deleted when every chat moved onto the shared widget
+// registry. Locked in per the policy above.
+const BASELINE = 591
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

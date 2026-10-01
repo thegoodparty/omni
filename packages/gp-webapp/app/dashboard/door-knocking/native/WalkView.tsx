@@ -998,6 +998,7 @@ export default function WalkView({
       {sheetStop && sheet && (
         <PersonSheet
           stop={sheetStop}
+          turfId={turfId}
           stopSeq={sheetStop.seq}
           isServe={isServe}
           talkingPoints={routeQuery.data?.talkingPoints}

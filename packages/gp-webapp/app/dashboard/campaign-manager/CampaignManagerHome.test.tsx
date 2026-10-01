@@ -30,6 +30,14 @@ const renderHome = () =>
   )
 
 // firstName now comes from useUser (read by the provider), not a prop.
+// This suite renders the real ChiefOfStaffChatBody, which reads the org slug
+// to scope the saved-list cache invalidation. In the app every chat sits under
+// PageWrapper's OrganizationProvider; the harness has to supply it.
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useOrganization: () => ({ slug: 'test-org' }),
+}))
+
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [{ firstName: 'Renee' }],
 }))
