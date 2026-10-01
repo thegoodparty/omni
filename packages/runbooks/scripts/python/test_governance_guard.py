@@ -338,8 +338,11 @@ def test_unmatched_path_legs_are_examined_and_reported_separately():
     base_no_page = gg.build_snapshot(tree({}))
     report = gg.evaluate(base_no_page, base_no_page, LEGS, "2026-10-01", renames={})
     assert report.examined["unmatched_path_legs"] == ["Viewed@/dashboard"]
+    md = gg.render_markdown(report)
+    assert "_Path legs with no matching page (not guarded): Viewed@/dashboard._" in md
 
     page = "packages/gp-webapp/app/dashboard/page.tsx"
     base_with_page = gg.build_snapshot(tree({page: "export default function P() {}"}))
     report2 = gg.evaluate(base_with_page, base_with_page, LEGS, "2026-10-01", renames={})
     assert report2.examined["unmatched_path_legs"] == []
+    assert "no matching page" not in gg.render_markdown(report2)
