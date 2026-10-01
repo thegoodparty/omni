@@ -256,6 +256,9 @@ const checkLine = (step: PriorityStep): string => {
           check.contrast.when === undefined
             ? null
             : `Timing: ${optional(check.contrast.when)}.`,
+          check.contrast.heard === undefined
+            ? null
+            : `Heard: ${optional(check.contrast.heard)}.`,
         ]
           .filter((part): part is string => part !== null)
           .join(' '),

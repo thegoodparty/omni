@@ -226,6 +226,31 @@ describe('PriorityStatusRail', () => {
     expect(screen.queryByText(/least affected/i)).toBeNull()
   })
 
+  it('leads with the main side once it is out with people', () => {
+    const base = emptyPriorityStatus()
+    const status: PriorityStatus = {
+      ...base,
+      steps: base.steps.map((step) =>
+        step.id === 'define'
+          ? {
+              ...step,
+              state: 'settled',
+              check: {
+                state: 'out',
+                who: '',
+                question: '',
+                raised: 0,
+                contrast: { state: 'asked', who: '', question: '' },
+              },
+            }
+          : step,
+      ),
+    }
+    render(<PriorityStatusRail status={status} nextAction={null} />)
+    expect(screen.getAllByText('Waiting to hear back')).toHaveLength(1)
+    expect(screen.queryByText(/waiting on you/i)).toBeNull()
+  })
+
   it('shows the next action when there is one', () => {
     render(
       <PriorityStatusRail

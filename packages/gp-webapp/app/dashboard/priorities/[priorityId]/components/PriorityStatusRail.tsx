@@ -104,12 +104,13 @@ export const STEP_CHECK_LABELS: Record<PriorityCheckState, string> = {
   declined: 'Not checked with constituents',
 }
 
-// One line per step, whichever side it is about: what is waiting on the
-// official comes first, then what is out, then how the main side landed.
+// One line per step, whichever side it is about. The main side leads: once
+// it is out with people, that is the line, even if the other side is still
+// waiting on a yes.
 const checkLineState = (check: PriorityStepCheck): PriorityCheckState => {
-  const sides = [check.state, check.contrast?.state]
-  if (sides.includes('asked')) return 'asked'
-  if (sides.includes('out')) return 'out'
+  if (check.state === 'asked') return 'asked'
+  if (check.state === 'out' || check.contrast?.state === 'out') return 'out'
+  if (check.contrast?.state === 'asked') return 'asked'
   return check.state
 }
 

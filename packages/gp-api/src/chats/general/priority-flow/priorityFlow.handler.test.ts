@@ -394,6 +394,7 @@ describe('PriorityFlowHandler', () => {
                     state: 'declined' as const,
                     who: 'Households across town',
                     question: 'Would you pay toward this?',
+                    heard: 'Not if it raises the fee',
                   },
                 },
               }
@@ -407,7 +408,8 @@ describe('PriorityFlowHandler', () => {
         'Question: Is the sidewalk what keeps you off it? ' +
         'Timing: after the budget hearing. Raised 1 of 3 times. ' +
         'Least affected: declined. Who: Households across town. ' +
-        'Question: Would you pay toward this?',
+        'Question: Would you pay toward this? Heard: Not if it raises the ' +
+        'fee.',
     )
     expect(prompt).toContain(
       'evidence (What we know): open. Nothing recorded yet.\n',
