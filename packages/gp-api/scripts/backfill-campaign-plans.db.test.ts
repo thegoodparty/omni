@@ -81,6 +81,36 @@ describe('selectCandidates against the database', () => {
     expect(await idsFromSelect()).toEqual([])
   })
 
+  // The service refuses only when EVERY stored date has passed, so a returning
+  // candidate carrying last cycle's general alongside an upcoming primary is
+  // still generable. COALESCE, which prefers the general, read this campaign
+  // as expired and quietly left it out of the cohort.
+  it('selects a campaign with a past general but an upcoming primary', async () => {
+    const campaign = await seedCampaign({
+      electionDate: past,
+      primaryElectionDate: future,
+    })
+
+    expect(await idsFromSelect()).toEqual([campaign.id])
+  })
+
+  it('skips a campaign where both dates have passed', async () => {
+    await seedCampaign({
+      electionDate: past,
+      primaryElectionDate: dateString(subDays(new Date(), 60)),
+    })
+
+    expect(await idsFromSelect()).toEqual([])
+  })
+
+  it('reports the date that keeps the campaign live', async () => {
+    await seedCampaign({ electionDate: past, primaryElectionDate: future })
+
+    const [row] = await selectCandidates(service.prisma)
+
+    expect(row?.electionDate).toBe(future)
+  })
+
   it('skips a campaign with no date at all', async () => {
     await seedCampaign({ electionDate: undefined })
 
