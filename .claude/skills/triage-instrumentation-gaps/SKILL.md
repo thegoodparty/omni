@@ -692,6 +692,11 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
       `canonical_metrics.md` projections, or the blocking catalog-freshness gate
       fails. Open it as a **draft**: a draft posts nothing, and the review groups
       are only notified when it is marked ready, which the reviewer decides.
+      After marking it ready, check `requested_reviewers`. While DATA-2593 is open
+      the `routing` job cannot request teams (it fails with a 404), so add by hand
+      exactly the teams its lane summary names, and no others:
+      `gh pr edit <n> --add-reviewer thegoodparty/semantic-layer-data` and/or
+      `thegoodparty/semantic-layer-business`.
    3. **Mart docs PR**, alone.
    4. **omni PR**: `monitored_events.yaml` (case 1 edits, per the kinds above),
       `instrumentation_data/event_anchors.json`, the fixture copy of the sem file under
