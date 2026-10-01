@@ -247,6 +247,8 @@ to files that already exist and are already read back. Per-event review needs
 this ticket and is not built. Until it is, a reviewed flag is a note in the handoff and
 the digest will raise it again.
 
+The same gap covers `dismiss` and `ticket` on events picked out of a cause. The only silencing write is a `cause:` row, which quiets every event under that cause, now and later, so a subset cannot be quieted without quieting the rest. The page says so in the tooltip and in the review panel (`dismiss:event` and `ticket:event` in `VERB_EFFECTS`), and the skill applies neither as a file write. They are raised again next run, and an event leaves the cause on its own once the cause stops applying to it.
+
 Judgments live in `localStorage`, so they are per-browser and can be lost by clearing
 site data. That is deliberate for now: the artifact database only exists on a published
 page, and this one is still local. Publishing upgrades the store without changing how
