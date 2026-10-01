@@ -280,6 +280,7 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     )
     expect(prompt).toContain('Never ask for a decision in prose')
     expect(prompt).toContain('defers to your judgment')
+    expect(prompt).toContain('which is context and never itself a question')
   })
 
   it('keeps the clarify rulebook off the draft step and forbids interviewing', () => {

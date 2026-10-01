@@ -241,6 +241,17 @@ describe('a question written above the clarify widget', () => {
     expect(withoutTrailingQuestion('Look at the U.S. data first?')).toBe('')
   })
 
+  it('keeps the context when only the closing question is bold', () => {
+    expect(
+      withoutTrailingQuestion(
+        'The enforcement gap is real. **Which approach first?**',
+      ),
+    ).toBe('The enforcement gap is real.')
+    expect(withoutTrailingQuestion('**It is real.** Which first?')).toBe(
+      '**It is real.**',
+    )
+  })
+
   it('does not leave a fragment after an abbreviation before a name', () => {
     expect(withoutTrailingQuestion('Ask Dr. Smith. Which first?')).toBe(
       'Ask Dr. Smith.',

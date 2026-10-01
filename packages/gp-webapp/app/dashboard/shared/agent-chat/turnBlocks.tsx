@@ -20,7 +20,7 @@ export type TurnBlock<Ctx> =
   | { kind: 'segments'; key?: string; segments: LiveSegment[] }
   | { kind: 'widget'; key?: string; instance: WidgetInstance<Ctx> }
 
-const SENTENCE_BREAK = /[.!?]["')\]]?\s+(?=["'([]?[A-Z])/g
+const SENTENCE_BREAK = /[.!?][*_]*["')\]]?\s+(?=[*_]*["'([]?[A-Z])/g
 // "U.S. Census", "Dr. Smith", "Maple Ave. Housing": a capitalized word of up
 // to 3 letters, or one with an inner dot, before a period is read as an
 // abbreviation. Misreading "OK." costs the context; misreading "Dr." leaves a
@@ -28,7 +28,7 @@ const SENTENCE_BREAK = /[.!?]["')\]]?\s+(?=["'([]?[A-Z])/g
 const ABBREVIATION = /(?:^|\s)(?:[A-Z][A-Za-z]{0,2}|\S*\.\S*)\.$/
 
 // The last line goes when it ends in "?". When statements open that line,
-// only the closing run of questions goes, unless the line is wrapped in
+// only the closing run of questions goes, unless the whole line is wrapped in
 // emphasis, where cutting it would leave an unclosed marker.
 export const withoutTrailingQuestion = (text: string): string => {
   const trimmed = text.trimEnd()
@@ -36,7 +36,7 @@ export const withoutTrailingQuestion = (text: string): string => {
   const line = trimmed.slice(lineStart)
   if (!/\?[*_]*$/.test(line)) return text
   let cut = 0
-  if (!/[*_]$/.test(line)) {
+  if (!/^[*_].*[*_]$/.test(line)) {
     for (const match of line.matchAll(SENTENCE_BREAK)) {
       if (match[0].startsWith('?')) continue
       if (ABBREVIATION.test(line.slice(0, match.index + 1))) continue
