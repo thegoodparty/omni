@@ -740,7 +740,12 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    (`/api/v2/accounts/<acct>/runs/<run>/?include_related=["run_steps"]`, token in
    `~/.dbt/dbt_cloud.yml`, never printed): the GitHub badge lags the run by minutes
    and names no failing node. Write the watch so a GitHub API error retries rather
-   than ending the loop, or a blip reads as silence.
+   than ending the loop, or a blip reads as silence. **Read delegate's latest verdict
+   on every poll, never the first one you see.** Delegate can post a second review on
+   the same commit that contradicts the first ("approve", then "request changes"), and
+   as a COMMENTED review it does not clear GitHub's approved state, so a watch that
+   latches on the first verdict merges over open findings. Re-read it immediately
+   before merging.
 8. **After merge, verify:** the ratification follow-up PR opened, the catalog
    regenerated, the prod value matches the `semantic-value` line, the digest's
    `okr_anchor_dormant` latch for the old leg cleared, and anything predicted during
