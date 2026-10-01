@@ -365,10 +365,10 @@ CAUSE_CAVEATS = {
     "never_observed": _caveat(
         "Amplitude holds a definition for each of these events and no data behind it. "
         "Not one of them has ever fired.",
-        "Every event here was found in the code and shipped more than 30 days ago, so "
-        "the silence means something. Events that shipped more recently and have not "
-        "fired yet are left out of this group, and the digest counts them as too new to "
-        "judge.",
+        "Every event here was found in the code and either shipped more than 30 days "
+        "ago or is one we watch closely, so the silence means something. Other events "
+        "that shipped more recently and have not fired yet are left out of this group, "
+        "and the digest counts them as too new to judge.",
         "Ruling on some events here does not stop them coming back next run; an event "
         "leaves on its own the first time it fires.",
         "Before calling one broken, check that the code that sends it can still run and "

@@ -58,7 +58,7 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | orphaned_firing | set | last fire *after* `retired_date` (+ small grace for deploy/pipeline lag) | highest severity, escalate |
 | retired | set | quiet 30d+ | none |
 | code_unknown | no provenance row, or a blank one | any | auto-tracked, fired from outside this repo, or never built; anomaly-watched only |
-| instrumented_never_observed | found in code, not retired | never in catalog | possible broken instrumentation; flag once 30 days past `instrumented_date` (`NEVER_OBSERVED_GRACE_DAYS`). Before that it is counted in the digest as "too new to judge", not flagged. An undated row gets no grace |
+| instrumented_never_observed | found in code, not retired | never in catalog | possible broken instrumentation; flag once 30 days past `instrumented_date` (`NEVER_OBSERVED_GRACE_DAYS`). Before that it is counted in the digest as "too new to judge", not flagged. An undated row, or an elevated event (watchlist, onboarding, activation, compliance), gets no grace |
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); anomaly-watched, never a status flag |
 
 Severity ranks (0 = loudest): 0 OKR anchor dormant (latched), see DATA-2421, or counter

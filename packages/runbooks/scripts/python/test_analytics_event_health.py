@@ -2594,3 +2594,27 @@ def test_digest_counts_events_held_by_the_grace_period():
 
 def test_digest_omits_the_grace_line_when_nothing_is_inside_it():
     assert "Too new to judge" not in _digest([])
+
+
+def test_never_observed_elevated_inside_grace_is_still_flagged():
+    # An onboarding event that shipped last week and has never fired is exactly where a
+    # month of silence costs most, so the grace period does not apply to it.
+    code = {
+        "Onboarding - Account Created": _blank("Onboarding - Account Created")
+        | {"instrumented_date": "2026-06-18"},
+    }
+    result = eh.reconcile([], [], code, TODAY)
+
+    by = {r["event_type"]: r for r in result["records"]}
+    assert by["Onboarding - Account Created"]["elevated"]
+    assert [r["event_type"] for r in result["flagged"]] == ["Onboarding - Account Created"]
+    assert result["never_observed_in_grace"] == []
+
+
+def test_never_observed_watchlisted_event_is_elevated_and_gets_no_grace():
+    code = {"Watched Step": _blank("Watched Step") | {"instrumented_date": "2026-06-18"}}
+    result = eh.reconcile([], [], code, TODAY, watchlist_events=["Watched Step"])
+
+    by = {r["event_type"]: r for r in result["records"]}
+    assert by["Watched Step"]["elevated"] and by["Watched Step"]["on_watchlist"]
+    assert [r["event_type"] for r in result["flagged"]] == ["Watched Step"]

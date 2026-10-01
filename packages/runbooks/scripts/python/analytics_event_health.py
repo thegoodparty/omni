@@ -720,13 +720,15 @@ def reconcile(
     for event_type, crow in code.items():
         if event_type not in seen_in_catalog and not to_date(crow.get(RETIRED_COL)):
             instrumented = _date_or_none(crow.get("instrumented_date"))
+            on_watchlist = event_type in watchlist_events
+            elevated = is_elevated(None, event_type, None, on_watchlist=on_watchlist)
             records.append(
                 {
                     "event_type": event_type,
                     "family": None,
                     "status": "instrumented_never_observed" if has_code_provenance(crow) else "code_unknown",
-                    "elevated": is_elevated(None, event_type, None),
-                    "on_watchlist": event_type in watchlist_events,
+                    "elevated": elevated,
+                    "on_watchlist": on_watchlist,
                     "okr": okr_by_event.get(event_type),
                     "event_count_30d": 0,
                     "last_seen_date": None,
@@ -741,8 +743,11 @@ def reconcile(
                     "has_description": None,  # not an Amplitude catalog event; no Govern desc
                     "instrumented_date": instrumented,
                     # No date means no grace: an undated row is a never-built declaration,
-                    # and waiting on it would hide it for good.
+                    # and waiting on it would hide it for good. An elevated event gets none
+                    # either: onboarding, activation and watchlisted events are where a
+                    # month of silence costs most, so they are flagged from day one.
                     "in_grace": instrumented is not None
+                    and not elevated
                     and (today - instrumented).days <= NEVER_OBSERVED_GRACE_DAYS,
                 }
             )
