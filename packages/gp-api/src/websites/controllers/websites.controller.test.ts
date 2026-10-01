@@ -165,6 +165,27 @@ describe('WebsitesController', () => {
       expect(mockStoryCompleted.announce).toHaveBeenCalledWith(mockCampaign.id)
     })
 
+    // `about` also carries `committee`, which is not a story answer. Announcing
+    // on it would wipe and regenerate a complete-story campaign's whole plan
+    // for an unrelated edit.
+    it('stays quiet for a committee-only about save', async () => {
+      const body = new UpdateWebsiteSchema()
+      body.about = { committee: 'Friends of the Candidate' }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockStoryCompleted.announce).not.toHaveBeenCalled()
+    })
+
+    it('announces a save that only touches the issues', async () => {
+      const body = new UpdateWebsiteSchema()
+      body.about = { issues: [{ title: 'Roads', description: 'Fix them' }] }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockStoryCompleted.announce).toHaveBeenCalledWith(mockCampaign.id)
+    })
+
     it('stays quiet for a save that does not touch the story fields', async () => {
       const body = new UpdateWebsiteSchema()
       body.status = WebsiteStatus.published

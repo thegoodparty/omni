@@ -94,7 +94,11 @@ plan tab for it to take effect. The story spans three fields across two tables
 written from the story page, `PUT /v1/websites/mine` and the chat agent — so
 each of those writes enqueues `QueueType.CAMPAIGN_STORY_COMPLETED` through
 `CampaignStoryCompletedProducer`, and the consumer calls
-`CampaignStrategyService.regenerateOnStoryComplete`. Enqueued rather than
+`CampaignStrategyService.regenerateOnStoryComplete`. The websites guard watches
+`about.bio` and `about.issues` specifically rather than `about`, which also
+carries `committee`: announcing on that would wipe and regenerate a
+complete-story campaign's plan for an edit that had nothing to do with the
+story. Enqueued rather than
 called directly because `campaignStrategy` already depends on both
 `campaignStory` and `websites`, so a direct call would need a module cycle at
 each edge, and because a story autosave should not wait on a regeneration.
