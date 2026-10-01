@@ -21,12 +21,11 @@ export type TurnBlock<Ctx> =
   | { kind: 'widget'; key?: string; instance: WidgetInstance<Ctx> }
 
 const SENTENCE_BREAK = /[.!?][*_]*["')\]]?\s+(?=[*_]*["'([]?[A-Z])/g
-// "U.S. Census", "Dr. Smith", "Maple Ave. Housing": a capitalized word of 2
+// "U.S. Census", "Dr. Smith", "Maple Ave. Housing": a title-case word of 2
 // or 3 letters, or one with an inner dot, before a period is read as an
-// abbreviation. A lone capital is not ("Option A."), since lettered options
-// end sentences far more often than initials do. Misreading "OK." costs the
-// context; misreading "Dr." leaves a fragment above the widget, which is worse.
-const ABBREVIATION = /(?:^|\s)(?:[A-Z][A-Za-z]{1,2}|\S*\.\S*)\.$/
+// abbreviation. A lone capital ("Option A.") and an all-caps acronym ("ADU.",
+// "FAQ.") end sentences far more often than they abbreviate, so they don't.
+const ABBREVIATION = /(?:^|\s)(?:[A-Z][a-z]{1,2}|\S*\.\S*)\.$/
 
 // The last line goes when it ends in "?". When statements open that line,
 // only the closing run of questions goes, unless the whole line is wrapped in

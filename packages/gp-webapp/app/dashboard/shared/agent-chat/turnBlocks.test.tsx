@@ -241,6 +241,15 @@ describe('a question written above the clarify widget', () => {
     expect(withoutTrailingQuestion('Look at the U.S. data first?')).toBe('')
   })
 
+  it('reads an all-caps acronym before a period as the end of a sentence', () => {
+    expect(
+      withoutTrailingQuestion('This applies to any ADU. Which zone?'),
+    ).toBe('This applies to any ADU.')
+    expect(withoutTrailingQuestion('See the FAQ. Which first?')).toBe(
+      'See the FAQ.',
+    )
+  })
+
   it('reads a lettered option before a period as the end of a sentence', () => {
     expect(
       withoutTrailingQuestion('Context about Option A. Which first?'),
