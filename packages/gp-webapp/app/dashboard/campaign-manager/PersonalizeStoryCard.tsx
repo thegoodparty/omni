@@ -22,7 +22,7 @@ interface Props {
 export default function PersonalizeStoryCard({
   onPersonalize,
 }: Props): React.JSX.Element | null {
-  const { isComplete, isLoading } = useCampaignStoryComplete(true)
+  const { isComplete, isLoading, isError } = useCampaignStoryComplete(true)
   const [dismissed, setDismissed] = useState(false)
   useEffect(() => {
     try {
@@ -43,7 +43,10 @@ export default function PersonalizeStoryCard({
     setDismissed(true)
   }
 
-  if (isLoading || isComplete || dismissed) return null
+  // isError for the same reason the plan page's card checks it: the hook fails
+  // closed on a story-fetch error, so without this a candidate who already
+  // wrote their story gets told to go write it.
+  if (isLoading || isError || isComplete || dismissed) return null
 
   return (
     // onPersonalize opens the manager AND auto-launches the story intake chat
