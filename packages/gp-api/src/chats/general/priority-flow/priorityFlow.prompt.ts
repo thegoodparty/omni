@@ -243,6 +243,9 @@ const checkLine = (step: PriorityStep): string => {
           check.contrast.who.trim() === ''
             ? null
             : `Who: ${optional(check.contrast.who)}.`,
+          check.contrast.question.trim() === ''
+            ? null
+            : `Question: ${optional(check.contrast.question)}`,
           check.contrast.when === undefined
             ? null
             : `Timing: ${optional(check.contrast.when)}.`,

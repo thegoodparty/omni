@@ -414,6 +414,9 @@ const CHECK_STATE_LINE: Record<PriorityStepCheck['state'], string> = {
 const formatContrast = (contrast: PriorityStepContrast): string => {
   const detail = [
     contrast.who.trim() === '' ? null : optional(contrast.who),
+    contrast.question.trim() === ''
+      ? null
+      : `asking: ${optional(contrast.question)}`,
     contrast.when === undefined
       ? null
       : `they said: ${optional(contrast.when)}`,
@@ -429,6 +432,7 @@ const formatCheck = (
   const parts = [
     `${PRIORITY_STEP_LABELS[stepId]}: ${CHECK_STATE_LINE[check.state]}`,
     check.who.trim() === '' ? null : `who: ${optional(check.who)}`,
+    check.question.trim() === '' ? null : `asking: ${optional(check.question)}`,
     check.when === undefined ? null : `they said: ${optional(check.when)}`,
     check.state === 'deferred'
       ? `raised ${check.raised} of ${MAX_CHECK_RAISES} times`

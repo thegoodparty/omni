@@ -394,7 +394,8 @@ describe('PriorityFlowHandler', () => {
         'Check: deferred. Who: Households on the four blocks. ' +
         'Question: Is the sidewalk what keeps you off it? ' +
         'Timing: after the budget hearing. Raised 1 of 3 times. ' +
-        'Least affected: declined. Who: Households across town.',
+        'Least affected: declined. Who: Households across town. ' +
+        'Question: Would you pay toward this?',
     )
     expect(prompt).toContain(
       'evidence (What we know): open. Nothing recorded yet.\n',
