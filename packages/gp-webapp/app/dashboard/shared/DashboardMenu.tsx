@@ -256,7 +256,7 @@ const ORDINANCES_MENU_ITEM: MenuItem = {
 
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
-  label: NAV_LABELS.campaignTracker,
+  label: NAV_LABELS.campaignPlan,
   link: '/dashboard/campaign-plan',
   icon: <MdFileOpen />,
   v2Icon: NAV_HEADER_ICONS.scroll,
