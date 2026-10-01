@@ -241,7 +241,10 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
     const check = mergeStepCheck(
       stored,
       {
-        state: args.answer === 'declined' ? 'declined' : 'deferred',
+        // Taking it up is not another deferral, so it leaves the state alone
+        // rather than spend one of the raises the cap allows.
+        ...(args.answer === 'declined' && { state: 'declined' as const }),
+        ...(args.answer === 'not_yet' && { state: 'deferred' as const }),
         ...(args.when === undefined ? {} : { when: args.when }),
       },
       formatISO(new Date()),

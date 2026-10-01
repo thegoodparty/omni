@@ -591,6 +591,19 @@ describe('PriorityStatusService.recordCheckReminder', () => {
     expect(define.check?.raised).toBe(1)
   })
 
+  it('does not spend a raise when they take it up', async () => {
+    const { id, electedOfficeId } = await deferDefine()
+
+    const result = await statusService.recordCheckReminder({
+      priorityId: id,
+      electedOfficeId,
+      stepId: 'define',
+      answer: 'taking_it_up',
+    })
+
+    expect(result).toMatchObject({ check: { state: 'deferred', raised: 0 } })
+  })
+
   it('records a decline', async () => {
     const { id, electedOfficeId } = await deferDefine()
 
