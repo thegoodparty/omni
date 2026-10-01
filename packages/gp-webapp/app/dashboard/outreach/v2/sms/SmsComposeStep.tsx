@@ -43,11 +43,7 @@ import {
 } from 'app/dashboard/shared/dictation/useDictation'
 import { Intro } from '../social/Intro'
 import { ThinkingStream } from '../social/ThinkingStream'
-import {
-  IMAGE_ACCEPT,
-  IMAGE_MAX_BYTES,
-  SMS_GREETING_PREVIEW,
-} from './smsCompose.util'
+import { IMAGE_ACCEPT, IMAGE_MAX_BYTES } from './smsCompose.util'
 
 // Why each locked part cannot change, shown when an edit runs into it. Both
 // surfaces read the same words: none of them names voters or constituents.
@@ -103,7 +99,6 @@ interface SmsComposeStepProps {
   audienceName: string
   standardsFailures: SmsStandardsRule[]
   identificationExample: string
-  committeeName: string | null
   // The whole message as sent: greeting, body, disclaimer and opt-out.
   message: string
   onMessageChange: (message: string) => void
@@ -121,7 +116,6 @@ interface SmsComposeStepProps {
   isDraftError: boolean
   canUndo: boolean
   onUndo: () => void
-  image: File | null
   imagePreviewUrl: string | null
   onImageChange: (file: File | null) => void
   imageError: string | null
@@ -156,7 +150,6 @@ export const SmsComposeStep = ({
   audienceName,
   standardsFailures,
   identificationExample,
-  committeeName,
   message,
   onMessageChange,
   protectedParts,
@@ -169,7 +162,6 @@ export const SmsComposeStep = ({
   isDraftError,
   canUndo,
   onUndo,
-  image,
   imagePreviewUrl,
   onImageChange,
   imageError,
@@ -358,18 +350,9 @@ export const SmsComposeStep = ({
               variant="seamless"
               className="min-h-[140px]"
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              {SMS_GREETING_PREVIEW.caption}
-            </p>
             <p role="status" className="mt-1 min-h-4 text-xs text-foreground">
               {lockReason}
             </p>
-            {!isServe && committeeName === null && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Your &quot;Paid for by&quot; line is added once your campaign is
-                verified.
-              </p>
-            )}
 
             <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
               {canUndo && (
@@ -443,15 +426,6 @@ export const SmsComposeStep = ({
           <p className="text-xs text-destructive">
             Keep the whole message (including the identification and opt-out
             lines) under {SMS_COMPOSED_MAX_LENGTH} characters.
-          </p>
-        )}
-        {/* Win's edit mode shows the stored image via imagePreviewUrl with
-            no File in hand, and its requirement is already met there. */}
-        {!image && !imagePreviewUrl && (
-          <p className="text-xs text-muted-foreground">
-            {isServe
-              ? 'You can add a JPG, PNG, or GIF up to 500 KB.'
-              : 'An image is required for text campaigns — JPG, PNG, or GIF up to 500 KB.'}
           </p>
         )}
       </div>

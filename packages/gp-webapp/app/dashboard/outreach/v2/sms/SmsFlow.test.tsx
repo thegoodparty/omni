@@ -418,7 +418,7 @@ describe('SmsFlow', () => {
         screen.getByRole('textbox', { name: 'Message body' }),
       ).toHaveTextContent(/^Hello First name, this is Jane/),
     )
-    expect(screen.getByText(SMS_GREETING_PREVIEW.caption)).toBeInTheDocument()
+    expect(screen.queryByText(SMS_GREETING_PREVIEW.caption)).toBeNull()
     expect(screen.queryByText('Greeting First Name')).toBeNull()
 
     await attachImage()
@@ -1256,10 +1256,10 @@ describe('SmsFlow', () => {
       ).not.toBeInTheDocument()
     })
 
-    // QA 2026-09-30: an unverified campaign has no committee yet, so the
-    // system footer cannot carry a paid-for-by line and no edit the
-    // candidate makes can satisfy the rule. It must not block the build.
-    it('does not block build-mode compose on the missing paid-for-by line', async () => {
+    // QA 2026-09-30: an unverified campaign has no committee yet. The line
+    // still shows, naming a provisional committee, and the rule the server
+    // would apply to it must not block the build.
+    it('shows a provisional paid-for-by line and does not block build mode', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
       mockFreeAudience()
@@ -1283,10 +1283,8 @@ describe('SmsFlow', () => {
       await attachImage()
 
       expect(
-        screen.getByText(
-          'Your "Paid for by" line is added once your campaign is verified.',
-        ),
-      ).toBeInTheDocument()
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/Paid for by \S+ \S+ for City Council\.Reply STOP/)
       expect(
         screen.queryByText(/keep the "Paid for by" line/),
       ).not.toBeInTheDocument()

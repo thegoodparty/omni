@@ -315,7 +315,7 @@ describe('SmsFlow (Serve surface)', () => {
         screen.getByRole('textbox', { name: 'Message body' }),
       ).toHaveTextContent(/^Hello First name,/),
     )
-    expect(screen.getByText(SMS_GREETING_PREVIEW.caption)).toBeInTheDocument()
+    expect(screen.queryByText(SMS_GREETING_PREVIEW.caption)).toBeNull()
     expect(screen.queryByText('Greeting First Name')).toBeNull()
     expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
   })

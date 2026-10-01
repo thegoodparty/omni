@@ -87,6 +87,7 @@ import {
   composeScript,
   composeServeScript,
   identificationIntro,
+  provisionalCommitteeName,
   SMS_PURPOSES,
   type SmsFlowPurpose,
   upgradeScriptFooter,
@@ -720,15 +721,31 @@ export const SmsFlow = ({
   const committeeName = surface.isServe
     ? null
     : (tcrCompliance?.committeeName ?? null)
+  // Until verification records the committee, the message names a
+  // provisional one, so the "Paid for by" line is always there to see. It is
+  // swapped for the real committee the moment one exists.
+  const provisionalCommittee = surface.isServe
+    ? null
+    : provisionalCommitteeName(
+        candidateFullName,
+        campaign?.positionName || campaign?.details?.normalizedOffice || '',
+      )
+  const footerCommittee = committeeName ?? provisionalCommittee
+  // Upgrades a footer to the committee the message should name now: the
+  // provisional line onto a bare opt-out, or the real committee over either.
+  const upgradeFooter = (script: string) =>
+    upgradeScriptFooter(
+      script,
+      footerCommittee,
+      committeeName ? provisionalCommittee : null,
+    )
   // A resumed row carries the script exactly as it was saved (intro, body and
   // system footer already joined), so it must not be composed a second time.
   // Only the system footer is upgraded: a draft saved before verification has
   // no paid-for-by line, and scheduling's server-side compliance check will
   // demand it against the committee that exists by resume time.
   const composedMessage =
-    resumed && savedDraft?.script
-      ? upgradeScriptFooter(savedDraft.script, committeeName)
-      : message
+    resumed && savedDraft?.script ? upgradeFooter(savedDraft.script) : message
   const composedLength = composedMessage.length
   const loadMessage = (next: string) => {
     setMessage(next)
@@ -737,13 +754,15 @@ export const SmsFlow = ({
   // The committee resolves after the flow opens, so a message composed
   // before it has the opt-out line alone. Same upgrade a resumed draft gets.
   useEffect(() => {
-    const upgraded = upgradeScriptFooter(message, committeeName)
+    const upgraded = upgradeFooter(message)
     if (upgraded === message) return
     setMessage(upgraded)
     setLockSource(upgraded)
-  }, [message, committeeName])
+    // upgradeFooter is rebuilt each render from the two committees below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message, footerCommittee, provisionalCommittee])
   // The message with nothing written between its locked parts.
-  const emptyMessage = surface.composeMessage('', committeeName)
+  const emptyMessage = surface.composeMessage('', footerCommittee)
   const hasWrittenBody =
     message.replace(/\s+/g, '') !== '' &&
     message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
@@ -757,9 +776,9 @@ export const SmsFlow = ({
   })
   // Win ignores nothing once a committee exists, so this is the raw verdict
   // there. Without one (build mode -- the campaign is not verified yet) the
-  // paid-for-by line is system-composed off a committee name that does not
-  // exist, so no edit the candidate can make satisfies the rule; it is
-  // dropped here, and the footer upgrade above supplies the line at resume.
+  // line names a provisional committee the server would not accept, so the
+  // rule is dropped here; the footer upgrade above swaps in the real
+  // committee once verification records it, before anything can be sent.
   const ignoredStandardsRules: readonly SmsStandardsRule[] =
     !surface.isServe && committeeName === null
       ? [...surface.ignoredStandardsRules, 'paid_for_by']
@@ -771,11 +790,13 @@ export const SmsFlow = ({
     passed: standardsFailures.length === 0,
     failures: standardsFailures,
   }
+  // Locks the provisional line too: the verdict ignores it, but the
+  // candidate still must not edit the disclaimer out.
   const protectedParts = deriveSmsProtectedParts(lockSource, {
     candidateNames,
-    committeeName,
+    committeeName: footerCommittee,
     channel: surface.isServe ? 'serve' : 'peerly',
-    ignoredRules: ignoredStandardsRules,
+    ignoredRules: surface.ignoredStandardsRules,
   })
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
@@ -901,7 +922,7 @@ export const SmsFlow = ({
             currentDraft === undefined
               ? surface.composeMessage(
                   `${introFor(nextTone)} ${generated}`,
-                  committeeName,
+                  footerCommittee,
                 )
               : generated
           loadMessage(full)
@@ -923,7 +944,7 @@ export const SmsFlow = ({
     setUndoText(null)
     // A custom message starts as its locked parts, written between.
     const start =
-      selected === 'custom' ? surface.composeMessage('', committeeName) : ''
+      selected === 'custom' ? surface.composeMessage('', footerCommittee) : ''
     loadMessage(start)
     setOwnWords(selected === 'custom')
     setToneDrafts({})
@@ -1744,7 +1765,6 @@ export const SmsFlow = ({
           audienceName={selectedList?.name ?? audience.builderName}
           standardsFailures={standards.failures}
           identificationExample={introFor(tone)}
-          committeeName={committeeName}
           message={message}
           onMessageChange={handleMessageChange}
           protectedParts={protectedParts}
@@ -1757,7 +1777,6 @@ export const SmsFlow = ({
           isDraftError={draftMutation.isError}
           canUndo={undoText !== null}
           onUndo={handleUndo}
-          image={image}
           imagePreviewUrl={imagePreviewUrl}
           onImageChange={setImage}
           imageError={imageError}

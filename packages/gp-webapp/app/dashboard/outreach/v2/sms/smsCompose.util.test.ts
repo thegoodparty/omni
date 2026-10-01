@@ -7,6 +7,7 @@ import {
   OPT_OUT_FOOTER,
   SERVE_SMS_IDENTIFICATION_FALLBACK,
   serveIdentificationIntro,
+  provisionalCommitteeName,
   upgradeScriptFooter,
 } from './smsCompose.util'
 
@@ -117,9 +118,41 @@ describe('upgradeScriptFooter', () => {
     )
   })
 
+  it('swaps a provisional committee for the real one', () => {
+    const provisional = composeScript(
+      'this is Jane, candidate for Mayor.',
+      'Jane Doe for Mayor',
+    )
+    expect(
+      upgradeScriptFooter(provisional, 'Friends of Jane', 'Jane Doe for Mayor'),
+    ).toBe(
+      composeScript('this is Jane, candidate for Mayor.', 'Friends of Jane'),
+    )
+  })
+
+  it('leaves a committee line it did not write as provisional alone', () => {
+    const named = composeScript('body', 'Some Other Committee')
+    expect(
+      upgradeScriptFooter(named, 'Friends of Jane', 'Jane Doe for Mayor'),
+    ).toBe(named)
+  })
+
   it('leaves a script that does not end with the system footer alone', () => {
     const edited = `${draftScript} PS vote early`
     expect(upgradeScriptFooter(edited, 'Jane for Mayor')).toBe(edited)
     expect(edited.includes(OPT_OUT_FOOTER)).toBe(true)
+  })
+})
+
+describe('provisionalCommitteeName', () => {
+  it('names the candidate and the office sought', () => {
+    expect(provisionalCommitteeName('Sarah Chen', 'City Council')).toBe(
+      'Sarah Chen for City Council',
+    )
+  })
+
+  it('falls back to the name alone, and to nothing without one', () => {
+    expect(provisionalCommitteeName('Sarah Chen', '')).toBe('Sarah Chen')
+    expect(provisionalCommitteeName('  ', 'City Council')).toBeNull()
   })
 })

@@ -42,16 +42,38 @@ export const composeFooter = (committeeName?: string | null): string =>
 // also fire on body text and skip the injection, and a trailing footer that
 // names some OTHER committee is left alone so the standards check fails
 // closed instead of a second line being stacked under the first.
+// A provisional footer (see provisionalCommitteeName) is replaced the same
+// way, and only when it is exactly the line the system wrote.
 export const upgradeScriptFooter = (
   script: string,
   committeeName: string | null,
+  provisionalCommittee: string | null = null,
 ): string => {
   if (!committeeName) return script
   const upgraded = `\n\n${composeFooter(committeeName)}`
   if (script.endsWith(upgraded)) return script
-  const bare = `\n\n${OPT_OUT_FOOTER}`
-  if (!script.endsWith(bare)) return script
-  return script.slice(0, script.length - bare.length) + upgraded
+  const stale = [
+    `\n\n${OPT_OUT_FOOTER}`,
+    ...(provisionalCommittee
+      ? [`\n\n${composeFooter(provisionalCommittee)}`]
+      : []),
+  ].find((footer) => script.endsWith(footer))
+  if (!stale) return script
+  return script.slice(0, script.length - stale.length) + upgraded
+}
+
+// The committee a campaign names before verification has recorded the real
+// one, so the message always shows its "Paid for by" line. Never sent: a
+// campaign cannot schedule a text until it is verified, and verification
+// records the committee, which upgradeScriptFooter then swaps in. The same
+// fallback the robocall disclosure uses (docs/features/message-composer.md).
+export const provisionalCommitteeName = (
+  candidateName: string,
+  office: string,
+): string | null => {
+  const name = candidateName.trim()
+  if (!name) return null
+  return office.trim() ? `${name} for ${office.trim()}` : name
 }
 
 // Peerly merges {first_name} from the uploaded list CSV — the same token our
