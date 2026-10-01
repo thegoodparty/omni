@@ -71,6 +71,7 @@ const entry = (overrides: Partial<TenDlcStatusEntry>): TenDlcStatusEntry => ({
   campaignSlug: 'test-camp',
   userId: 11,
   committeeName: 'Friends of Test',
+  assignedPa: null,
   peerlyIdentityId: null,
   filingUrl: null,
   since: new Date('2026-09-20T00:00:00Z').toISOString(),
@@ -356,6 +357,31 @@ describe('TenDlcStatusPage', () => {
       screen.getByText('missing user association (data repair)')
     ).toBeInTheDocument()
     expect(screen.getByText(/ident-5 · CV IN_REVIEW/)).toBeInTheDocument()
+  })
+
+  it('shows the assigned success person, or Unassigned when there is none', async () => {
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        rejected: [
+          entry({
+            campaignId: 1,
+            campaignSlug: 'owned-camp',
+            assignedPa: 'Jane Smith',
+          }),
+          entry({
+            campaignId: 2,
+            campaignSlug: 'orphan-camp',
+            assignedPa: null,
+          }),
+        ],
+      })
+    )
+
+    renderPage()
+
+    expect(await screen.findByText('Assigned to')).toBeInTheDocument()
+    expect(screen.getByText('Jane Smith')).toBeInTheDocument()
+    expect(screen.getByText('Unassigned')).toBeInTheDocument()
   })
 
   it('labels rejected rows with the recovery path the identity dictates', async () => {

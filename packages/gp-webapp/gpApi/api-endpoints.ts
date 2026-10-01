@@ -2713,5 +2713,4 @@ export type ElectedOfficeInput = {
   onboardingStep?: string | null
   ballotReadyPositionId?: string | null
   customPositionName?: string | null
-  overrideDistrictId?: string | null
 }
