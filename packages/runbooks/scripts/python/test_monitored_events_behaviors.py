@@ -82,6 +82,12 @@ def test_a_caveat_carries_a_plain_headline():
     assert jargon == [], f"headlines written for engineers: {jargon}"
 
 
+# Governed metrics no behavior points at. align() only walks metrics a behavior names, so
+# these metrics' legs are never compared against the registry, here or in the scheduled
+# run. Shrink to empty as each gets a home question (DATA-2605); never add to it.
+UNPOINTED_METRICS = {"win_product_output_users", "activated_serve_users"}
+
+
 def test_committed_registry_has_no_case_1_drift_against_the_fixtures():
     # Refreshing a fixture after an upstream anchored_on change must come with the
     # registry edit that follows it; otherwise the scheduled run reports the drift.
@@ -102,3 +108,5 @@ def test_committed_registry_has_no_case_1_drift_against_the_fixtures():
         dismissed=aa.load_dismissals(aeh.WATCHLIST),
     )
     assert [f for f in findings if f["case"] == 1] == [], findings
+    pointed = {m for b in br.load_behaviors(aeh.WATCHLIST) for m in br.metric_list(b)}
+    assert set(anchors) - pointed == UNPOINTED_METRICS
