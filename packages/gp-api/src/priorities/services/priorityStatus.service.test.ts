@@ -507,16 +507,55 @@ describe('update_priority_status holds the check to being offered', () => {
 
   it('names every gate settled in one call without a check', async () => {
     const id = await createPriority()
+    const heard = {
+      state: 'confirmed' as const,
+      who: 'Renters',
+      heard: 'Yes, three of them said rent',
+    }
+    await statusService.applyUpdate(id, {
+      steps: [
+        { ...settleDefine, check: heard },
+        { id: 'evidence', state: 'settled', summary: 'Rents up' },
+        { id: 'listen_problem', state: 'settled', summary: 'Heard' },
+        { id: 'options', state: 'settled', summary: 'Two', check: heard },
+        { id: 'listen_options', state: 'settled', summary: 'Backed one' },
+      ],
+      nextAction: 'Pick the route',
+    })
 
     const result = await toolFor(id, () => false).execute({
       steps: [
-        settleDefine,
-        { id: 'options', state: 'settled', summary: 'Two paths' },
+        { id: 'method', state: 'settled', summary: 'Budget line' },
+        { id: 'plan', state: 'settled', summary: 'Ask in March' },
       ],
-      nextAction: 'Ask about both',
+      nextAction: 'Offer both checks',
     })
 
-    expect(JSON.stringify(result)).toContain('The problem and Your options')
+    expect(JSON.stringify(result)).toContain('The path and The plan')
+  })
+
+  it('works ahead of an open listening step but settles nothing past it', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        {
+          ...settleDefine,
+          check: { state: 'out', who: 'Renters', question: 'Is it rent?' },
+        },
+        { id: 'evidence', state: 'settled', summary: 'Rents up' },
+        { id: 'options', state: 'active' },
+      ],
+      nextAction: 'Draft options',
+    })
+
+    const result = await toolFor(id, () => false).execute({
+      steps: [{ id: 'options', state: 'settled', summary: 'Two paths' }],
+      nextAction: 'Check the options',
+    })
+
+    expect(result).toHaveProperty('error')
+    expect(JSON.stringify(result)).toContain('cannot be done until')
+    expect(stepOf(await statusService.read(id), 'options').state).toBe('active')
   })
 
   it('keeps the listening step open while the check is out', async () => {
