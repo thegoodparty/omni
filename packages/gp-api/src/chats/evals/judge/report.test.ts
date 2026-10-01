@@ -2,6 +2,7 @@ import { hoursToMilliseconds } from 'date-fns'
 import { describe, expect, it } from 'vitest'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
+import type { InvariantViolation } from './invariants'
 import type { AgentEntry } from './agents'
 import { createRng } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
@@ -1034,5 +1035,83 @@ describe('ungraded judgments say why', () => {
     const report = await withUngraded(0, ['stale reason'])
     expect(report).not.toContain('Why:')
     expect(report).not.toContain('stale reason')
+  })
+})
+
+// THE ONE QUALIFIER A PAIRWISE VERDICT STRUCTURALLY CANNOT CARRY. Delete a
+// rule from an agent's prompt and the outputs that follow usually read better
+// — a vocabulary constraint costs directness — so the delta moves TOWARD the
+// candidate and the regression is reported as an improvement. The live sweep
+// did exactly that: overall +0.44 toward a candidate whose only change was
+// deleting the constituents-not-voters rule, with instruction_adherence flat
+// at +0.02. These lines are what a reader needs beside that number.
+describe('a rule the candidate broke', () => {
+  const violation = (over: Partial<InvariantViolation> = {}) => ({
+    agentId: 'chief_of_staff',
+    invariant: 'constituents-not-voters',
+    describe: 'The people the user serves are constituents, never voters.',
+    baseRuns: 0,
+    candidateRuns: 2,
+    candidateCaseIds: ['capability-inventory-from-context'],
+    ...over,
+  })
+
+  const render = (violations: InvariantViolation[]): string =>
+    renderReport({ agents: [], invariantViolations: violations })
+
+  it('is stated as a fact, and says the delta will not show it', async () => {
+    const report = render([violation()])
+    expect(report).toContain('The candidate broke a rule the base kept')
+    expect(report).toContain('the delta above will not show it')
+    expect(report).toContain('constituents-not-voters')
+    expect(report).toContain('capability-inventory-from-context')
+    // The rule itself, so a reader who has not read the prompt knows what
+    // was broken.
+    expect(report).toContain('never voters')
+  })
+
+  // A rule BOTH arms break is a standing bug, not something this branch did.
+  // Reporting it under the same headline would send someone to review a diff
+  // that did not cause it.
+  it('is not called a regression when both arms broke it', () => {
+    const report = render([violation({ baseRuns: 3, candidateRuns: 2 })])
+    expect(report).not.toContain('The candidate broke a rule the base kept')
+    expect(report).toContain('broken by BOTH arms')
+    expect(report).toContain('standing problem')
+  })
+
+  // The opposite direction, and worth printing: the branch fixed something
+  // the comparison also cannot see.
+  it('says so when only the base broke it', () => {
+    const report = render([
+      violation({ baseRuns: 4, candidateRuns: 0, candidateCaseIds: [] }),
+    ])
+    expect(report).not.toContain('The candidate broke a rule the base kept')
+    expect(report).toContain('this branch fixing it')
+  })
+
+  it('prints nothing at all when every rule held', () => {
+    const report = renderReport({ agents: [] })
+    expect(report).not.toContain('broke a rule')
+    expect(report).not.toContain('standing problem')
+  })
+
+  // Three facts from one list, so a sweep that hit all three says all three
+  // rather than collapsing them into the loudest.
+  it('keeps the three cases apart in one report', () => {
+    const report = render([
+      violation({ invariant: 'new-break' }),
+      violation({ invariant: 'both-break', baseRuns: 1, candidateRuns: 1 }),
+      violation({
+        invariant: 'base-only',
+        baseRuns: 2,
+        candidateRuns: 0,
+        candidateCaseIds: [],
+      }),
+    ])
+    expect(report).toContain('The candidate broke a rule the base kept')
+    expect(report).toContain('new-break')
+    expect(report).toContain('broken by BOTH arms')
+    expect(report).toContain('this branch fixing it')
   })
 })

@@ -960,3 +960,45 @@ describe('anthropicJudge gives the judging step a chain it never sets', () => {
     })
   })
 })
+
+// THE HOP NOTHING ELSE COVERS. The invariant check and its report block are
+// each tested on their own, and neither notices if judgeSweep stops calling
+// it — which is the one edit that silently removes the only signal in this
+// report a pairwise verdict cannot carry. Replacing the call with an empty
+// list left the whole suite green.
+describe('judgeSweep checks the agents invariants', () => {
+  // The vocabulary regression, as the live sweep would have produced it: the
+  // base says constituents, the candidate volunteers voters, and the user
+  // never raised voting so the rule's exemption does not apply.
+  const vocabularyRegression = (): RunRecord[] =>
+    pair('capability-inventory-from-context', [
+      'I can see three priorities raised by constituents in your district.',
+      'I can see three priorities raised by voters in your district.',
+    ])
+
+  it('reports a rule the candidate broke and the base kept', async () => {
+    const result = await run(await seeded(vocabularyRegression()))
+    const broken = result.report.invariantViolations ?? []
+    expect(broken).toHaveLength(1)
+    expect(broken[0]?.invariant).toBe('constituents-not-voters')
+    expect(broken[0]?.candidateRuns).toBe(1)
+    expect(broken[0]?.baseRuns).toBe(0)
+    // And it reaches the rendered page, not just the object.
+    expect(result.markdown).toContain(
+      'The candidate broke a rule the base kept',
+    )
+  })
+
+  it('says nothing when both arms kept it', async () => {
+    const result = await run(
+      await seeded(
+        pair('priorities-on-file', [
+          'Three priorities are on file, raised by constituents.',
+          'Three priorities are on file, raised by residents.',
+        ]),
+      ),
+    )
+    expect(result.report.invariantViolations).toBeUndefined()
+    expect(result.markdown).not.toContain('broke a rule')
+  })
+})
