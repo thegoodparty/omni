@@ -314,6 +314,62 @@ describe('PriorityStatusRail', () => {
     ).toBeInTheDocument()
   })
 
+  it('keeps work past an open listening step in progress, and says why', () => {
+    const base = emptyPriorityStatus()
+    const status: PriorityStatus = {
+      ...base,
+      steps: base.steps.map((step) => {
+        if (step.id === 'define') {
+          return {
+            ...step,
+            state: 'settled',
+            check: { state: 'declined', who: '', question: '', raised: 0 },
+          }
+        }
+        if (step.id === 'evidence') return { ...step, state: 'settled' }
+        if (step.id === 'options') {
+          return {
+            ...step,
+            state: 'settled',
+            check: { state: 'out', who: '', question: '', raised: 0 },
+          }
+        }
+        return step
+      }),
+    }
+    render(<PriorityStatusRail status={status} nextAction={null} />)
+    const row = (id: PriorityStepId) =>
+      screen.getByRole('button', {
+        name: new RegExp(PRIORITY_STEP_LABELS[id], 'i'),
+      })
+    expect(
+      within(row('listen_problem')).getByText('Not started'),
+    ).toBeInTheDocument()
+    expect(
+      within(row('options')).getByText('Working on it'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('2 of 7 done')).toBeInTheDocument()
+  })
+
+  it('says the listening step is waiting on the check going out', () => {
+    render(
+      <PriorityStatusRail
+        status={withStep('define', {
+          state: 'settled',
+          check: { state: 'asked', who: '', question: '', raised: 0 },
+        })}
+        nextAction={null}
+      />,
+    )
+    expect(
+      within(
+        screen.getByRole('button', {
+          name: new RegExp(PRIORITY_STEP_LABELS.listen_problem, 'i'),
+        }),
+      ).getByText('Waiting on the check to go out'),
+    ).toBeInTheDocument()
+  })
+
   it('shows the next action when there is one', () => {
     render(
       <PriorityStatusRail

@@ -28,6 +28,7 @@ import {
   PRIORITY_GATE_STEPS,
   PRIORITY_LISTEN_GATES,
   isCheckAnswered,
+  openListenBefore,
   type PriorityStepCheck,
   type PriorityStepId,
   type PriorityStepState,
@@ -126,27 +127,48 @@ const SENT_OR_DECIDED: readonly PriorityCheckState[] = [
   'declined',
 ]
 
-const shownState = (step: PriorityStep): PriorityStepState =>
-  step.state === 'settled' &&
-  PRIORITY_GATE_STEPS.includes(step.id) &&
-  !(step.check && SENT_OR_DECIDED.includes(step.check.state))
+const shownState = (
+  step: PriorityStep,
+  steps: PriorityStep[],
+): PriorityStepState => {
+  if (step.state !== 'settled') return step.state
+  if (openListenBefore(steps, step.id) !== undefined) return 'active'
+  return PRIORITY_GATE_STEPS.includes(step.id) &&
+    !(step.check && SENT_OR_DECIDED.includes(step.check.state))
     ? 'active'
     : step.state
+}
 
 // A listening step shows the check it is waiting on, so "Who to hear from"
 // reads "Waiting to hear back" while the problem's check is out.
-const checkShownFor = (
+// An open listening step says what it is waiting on: the replies, once the
+// check is out, or the check itself going out.
+const LISTEN_WAITING = {
+  out: 'Waiting to hear back',
+  notSent: 'Waiting on the check to go out',
+} as const
+
+const listenLine = (
   step: PriorityStep,
   steps: PriorityStep[],
-): PriorityStepCheck | undefined => {
+): string | null => {
   const gate = PRIORITY_LISTEN_GATES[step.id]
-  if (gate === undefined) return step.check
-  // Only while it is out with people: a yes still owed sits on the gate's own
-  // row, and saying it twice reads as two things to do.
+  if (gate === undefined || step.state === 'settled') return null
   const check = steps.find((other) => other.id === gate)?.check
-  return check && !isCheckAnswered(check) && checkLineState(check) === 'out'
-    ? check
-    : undefined
+  if (isCheckAnswered(check)) return null
+  return check && checkLineState(check) === 'out'
+    ? LISTEN_WAITING.out
+    : LISTEN_WAITING.notSent
+}
+
+const checkLineFor = (
+  step: PriorityStep,
+  steps: PriorityStep[],
+): string | null => {
+  if (PRIORITY_LISTEN_GATES[step.id] !== undefined) {
+    return listenLine(step, steps)
+  }
+  return step.check ? STEP_CHECK_LABELS[checkLineState(step.check)] : null
 }
 
 const StepCheckLine = ({
@@ -156,11 +178,9 @@ const StepCheckLine = ({
   step: PriorityStep
   steps: PriorityStep[]
 }): React.JSX.Element | null => {
-  const check = checkShownFor(step, steps)
-  return check ? (
-    <span className="block text-xs text-muted-foreground">
-      {STEP_CHECK_LABELS[checkLineState(check)]}
-    </span>
+  const line = checkLineFor(step, steps)
+  return line ? (
+    <span className="block text-xs text-muted-foreground">{line}</span>
   ) : null
 }
 
@@ -200,7 +220,7 @@ const StepDetail = ({
           <p className="text-sm font-medium text-foreground">
             {PRIORITY_STEP_LABELS[step.id]}
           </p>
-          <StepStateChip state={shownState(step)} />
+          <StepStateChip state={shownState(step, steps)} />
         </div>
         <p className="text-xs text-muted-foreground">
           {PRIORITY_STEP_PURPOSE[step.id]}
@@ -238,12 +258,12 @@ const StepList = ({
           type="button"
           onClick={() => onSelect(step.id)}
           aria-labelledby={`step-${step.id}-label step-${step.id}-state`}
-          {...(checkShownFor(step, steps) && {
+          {...(checkLineFor(step, steps) !== null && {
             'aria-describedby': `step-${step.id}-check`,
           })}
           className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/40"
         >
-          <StepStateIcon state={shownState(step)} />
+          <StepStateIcon state={shownState(step, steps)} />
           <span
             className={cn(
               'flex-1 text-sm',
@@ -258,7 +278,7 @@ const StepList = ({
             </span>
           </span>
           <span id={`step-${step.id}-state`}>
-            <StepStateChip state={shownState(step)} />
+            <StepStateChip state={shownState(step, steps)} />
           </span>
         </button>
       </li>
@@ -283,7 +303,7 @@ export const PriorityStatusRail = ({
   const [selectedId, setSelectedId] = useState<PriorityStepId | null>(null)
   const selected = status.steps.find((step) => step.id === selectedId) ?? null
   const settled = status.steps.filter(
-    (step) => shownState(step) === 'settled',
+    (step) => shownState(step, status.steps) === 'settled',
   ).length
 
   return (

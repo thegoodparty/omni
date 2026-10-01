@@ -660,6 +660,7 @@ export {
   PRIORITY_GATE_STEPS,
   PRIORITY_LISTEN_GATES,
   isCheckAnswered,
+  openListenBefore,
   PriorityCheckStateSchema,
   PriorityStepCheckSchema,
   PriorityStepCheckInputSchema,
