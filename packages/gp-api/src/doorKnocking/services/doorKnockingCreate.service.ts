@@ -304,6 +304,21 @@ export class DoorKnockingCreateService extends createPrismaBase(
 
     const turfId = await this.client.$transaction(
       async (tx) => {
+        // The filter was read before the people-db scan, and a delete can land
+        // in that window: `assertNotLocked` only refuses a filter already used
+        // for outreach, and this create stamps that further down. Re-read it
+        // here, where the turf insert that follows takes a key-share lock on
+        // the row and holds the gap shut, so a racing delete gets "Voter file
+        // filter not found" rather than a foreign-key violation surfacing as a
+        // 500.
+        const filterStillExists = await tx.voterFileFilter.findFirst({
+          where: { id: filter.id, organizationSlug: organization.slug },
+          select: { id: true },
+        })
+        if (!filterStillExists) {
+          throw new NotFoundException('Voter file filter not found')
+        }
+
         // A caller adding a turf to an existing campaign names the anchor
         // Outreach on the wire; we validate it belongs to this same scope
         // (Win same campaign, Serve same org) and is still a live
