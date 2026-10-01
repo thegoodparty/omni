@@ -537,7 +537,8 @@ export default function OrdinanceFlowChat({
     liveWidgets,
     revealedTextLength,
   )
-  const turnBlocks = liveClarify ? dropTrailingQuestion(liveBlocks) : liveBlocks
+  const turnBlocks =
+    liveClarify && revealDone ? dropTrailingQuestion(liveBlocks) : liveBlocks
   const showWidgets = liveWidgets.some(
     (w) => revealedTextLength >= w.appearAfter,
   )
@@ -706,13 +707,14 @@ function AssistantMessage({
   const clarify = clarifyFromSegments(segments)
   // Same interleaved model as the live turn: text, tool pills, and step cards in
   // stream order, so a reloaded turn reads identically to how it streamed.
-  const blocks = persistedTurnBlocks({
+  const turnBlocks = persistedTurnBlocks({
     registry: ordinanceWidgets,
     segments,
     content: message.content ?? '',
     messageId: message.id,
     conversationId: message.conversationId,
   })
+  const blocks = clarify ? dropTrailingQuestion(turnBlocks) : turnBlocks
 
   return (
     <>

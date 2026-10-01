@@ -241,6 +241,34 @@ describe('a question written above the clarify widget', () => {
     expect(withoutTrailingQuestion('Look at the U.S. data first?')).toBe('')
   })
 
+  it('reads a lettered option before a period as the end of a sentence', () => {
+    expect(
+      withoutTrailingQuestion('Context about Option A. Which first?'),
+    ).toBe('Context about Option A.')
+  })
+
+  it('checks the text before a hidden clarify call left in the run', () => {
+    expect(
+      dropTrailingQuestion([
+        {
+          kind: 'segments',
+          segments: [
+            { kind: 'text', text: 'Two paths. Which first?' },
+            { kind: 'tool', toolName: 'ask_clarify_question', payload: {} },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        kind: 'segments',
+        segments: [
+          { kind: 'text', text: 'Two paths.' },
+          { kind: 'tool', toolName: 'ask_clarify_question', payload: {} },
+        ],
+      },
+    ])
+  })
+
   it('keeps the context when only the closing question is bold', () => {
     expect(
       withoutTrailingQuestion(

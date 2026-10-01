@@ -21,11 +21,12 @@ export type TurnBlock<Ctx> =
   | { kind: 'widget'; key?: string; instance: WidgetInstance<Ctx> }
 
 const SENTENCE_BREAK = /[.!?][*_]*["')\]]?\s+(?=[*_]*["'([]?[A-Z])/g
-// "U.S. Census", "Dr. Smith", "Maple Ave. Housing": a capitalized word of up
-// to 3 letters, or one with an inner dot, before a period is read as an
-// abbreviation. Misreading "OK." costs the context; misreading "Dr." leaves a
-// fragment above the widget, which is worse.
-const ABBREVIATION = /(?:^|\s)(?:[A-Z][A-Za-z]{0,2}|\S*\.\S*)\.$/
+// "U.S. Census", "Dr. Smith", "Maple Ave. Housing": a capitalized word of 2
+// or 3 letters, or one with an inner dot, before a period is read as an
+// abbreviation. A lone capital is not ("Option A."), since lettered options
+// end sentences far more often than initials do. Misreading "OK." costs the
+// context; misreading "Dr." leaves a fragment above the widget, which is worse.
+const ABBREVIATION = /(?:^|\s)(?:[A-Z][A-Za-z]{1,2}|\S*\.\S*)\.$/
 
 // The last line goes when it ends in "?". When statements open that line,
 // only the closing run of questions goes, unless the whole line is wrapped in
@@ -46,19 +47,29 @@ export const withoutTrailingQuestion = (text: string): string => {
   return (trimmed.slice(0, lineStart) + line.slice(0, cut)).trimEnd()
 }
 
+// A hidden clarify call left in the inline run (a surface that renders the
+// widget outside the blocks) sits after the text it should be checked against.
+const isClarifyCall = (s: LiveSegment): boolean =>
+  s.kind === 'tool' && s.toolName === CLARIFY_TOOL
+
 const dropTrailingQuestionFrom = <Ctx,>(
   block: TurnBlock<Ctx>,
 ): TurnBlock<Ctx>[] => {
   if (block.kind !== 'segments') return [block]
-  const last = block.segments[block.segments.length - 1]
+  let end = block.segments.length
+  while (end > 0 && isClarifyCall(block.segments[end - 1]!)) end--
+  const last = block.segments[end - 1]
   if (last?.kind !== 'text') return [block]
   const text = withoutTrailingQuestion(last.text)
   if (text === last.text) return [block]
-  const kept = block.segments.slice(0, -1)
-  const segments: LiveSegment[] = text
-    ? [...kept, { kind: 'text', text }]
-    : kept
-  return segments.length > 0 ? [{ ...block, segments }] : []
+  const segments: LiveSegment[] = [
+    ...block.segments.slice(0, end - 1),
+    ...(text ? [{ kind: 'text' as const, text }] : []),
+    ...block.segments.slice(end),
+  ]
+  return segments.some((seg) => !isClarifyCall(seg))
+    ? [{ ...block, segments }]
+    : []
 }
 
 // The clarify widget shows its own question, so prose that also asks it puts
