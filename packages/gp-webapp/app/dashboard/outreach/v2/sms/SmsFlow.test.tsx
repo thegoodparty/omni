@@ -656,6 +656,42 @@ describe('SmsFlow', () => {
         await waitFor(() => expect(box.value).toBe(`${INTRO} Vote early!`))
       })
 
+      it('keeps one intro per tone across fresh drafts and tone switches', async () => {
+        api.mock('POST /v1/outreach/sms/draft', ({ body }) => ({
+          status: 200,
+          data: {
+            draft:
+              body.tone === 'direct'
+                ? 'Hi, this is Jane, running for City Council. Vote early.'
+                : 'Vote Tuesday.',
+          },
+        }))
+        openFlow()
+        await userEvent.click(screen.getByText('Introduce myself to voters'))
+        await userEvent.click(await screen.findByText('Choose a voter list'))
+        await userEvent.click(await screen.findByText('Likely voters'))
+        await userEvent.click(
+          await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+        )
+        await userEvent.click(await screen.findByText('Pick a date'))
+        await userEvent.click(
+          await screen.findByRole('button', { name: dayName(4) }),
+        )
+        await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+        const box = (await screen.findByLabelText(
+          'Message body',
+        )) as HTMLTextAreaElement
+        const direct = 'Jane here, candidate for City Council. Vote early.'
+
+        await waitFor(() => expect(box.value).toBe(`${INTRO} Vote Tuesday.`))
+        await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
+        await waitFor(() => expect(box.value).toBe(direct))
+        await userEvent.click(screen.getByRole('radio', { name: /Warm/ }))
+        expect(box.value).toBe(`${INTRO} Vote Tuesday.`)
+        await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
+        expect(box.value).toBe(direct)
+      })
+
       it('flags brackets left to fill and holds Continue', async () => {
         await reachCompose('Rally at [Location] on [Date].')
         await attachImage()

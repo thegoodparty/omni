@@ -5,6 +5,7 @@ import {
   composeScript,
   ensureSmsIdentification,
   identificationIntro,
+  openWithSmsIdentification,
   OPT_OUT_FOOTER,
   SERVE_SMS_IDENTIFICATION_FALLBACK,
   serveIdentificationIntro,
@@ -227,5 +228,28 @@ describe('unfilledBrackets', () => {
     expect(
       unfilledBrackets('📅 [Date] | 🕐 [Time] at [Date] | {first_name}'),
     ).toEqual(['[Date]', '[Time]'])
+  })
+})
+
+describe('openWithSmsIdentification', () => {
+  const win = {
+    intro: identificationIntro('direct', 'Jane', 'City Council'),
+    firstName: 'Jane',
+    candidateNames: ['Jane Doe'],
+  }
+
+  it("replaces the model's own introduction instead of stacking under it", () => {
+    expect(
+      openWithSmsIdentification(
+        'Hi, this is Jane, running for City Council. Vote early.',
+        win,
+      ),
+    ).toBe('Jane here, candidate for City Council. Vote early.')
+  })
+
+  it('opens a plain body on the intro', () => {
+    expect(openWithSmsIdentification('Vote early.', win)).toBe(
+      'Jane here, candidate for City Council. Vote early.',
+    )
   })
 })

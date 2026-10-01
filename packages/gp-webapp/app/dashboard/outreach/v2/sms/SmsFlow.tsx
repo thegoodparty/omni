@@ -87,6 +87,7 @@ import {
   composeServeScript,
   ensureSmsIdentification,
   identificationIntro,
+  openWithSmsIdentification,
   SMS_PURPOSES,
   type SmsFlowPurpose,
   unfilledBrackets,
@@ -708,12 +709,13 @@ export const SmsFlow = ({
   ].filter((name): name is string => !!name)
   // Every body the flow sets that the official did not type goes through
   // this, so the compose step never opens on a candidate_name failure.
+  const identificationFor = (t: SocialTone) => ({
+    intro: introFor(t),
+    firstName: candidateFirstName,
+    candidateNames: identificationNames,
+  })
   const withIdentification = (text: string, t: SocialTone): string =>
-    ensureSmsIdentification(text, {
-      intro: introFor(t),
-      firstName: candidateFirstName,
-      candidateNames: identificationNames,
-    })
+    ensureSmsIdentification(text, identificationFor(t))
   // The seed lands in the open effect, before the sender's name may be
   // known: Win waits on the campaign (a Campaign Manager's own session name
   // is not the candidate's), Serve on the user.
@@ -882,12 +884,13 @@ export const SmsFlow = ({
           // the message's editable first sentence); improve mode polishes a
           // message that already carries it, and gets it back if the model
           // dropped or bracketed the name.
-          const intro = introFor(nextTone)
-          const identified = withIdentification(generated, nextTone)
           const full =
-            currentDraft === undefined && !identified.startsWith(intro)
-              ? `${intro} ${identified}`
-              : identified
+            currentDraft === undefined
+              ? openWithSmsIdentification(
+                  generated,
+                  identificationFor(nextTone),
+                )
+              : withIdentification(generated, nextTone)
           setBody(full)
           setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
         },

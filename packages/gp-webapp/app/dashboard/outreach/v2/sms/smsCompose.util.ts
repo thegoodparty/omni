@@ -232,17 +232,23 @@ export interface SmsIdentificationContext {
   candidateNames: string[]
 }
 
-export const ensureSmsIdentification = (
+const identify = (
   body: string,
   { intro, firstName, candidateNames }: SmsIdentificationContext,
+  mode: 'ensure' | 'open',
 ): string => {
   const names = candidateNames.map((name) => name.trim()).filter(Boolean)
-  if (body.trim().length === 0 || names.length === 0) return body
+  if (body.trim().length === 0) return mode === 'open' ? intro : body
+  if (names.length === 0) {
+    return mode === 'open' ? `${intro} ${body}` : body
+  }
   const namesSender = (text: string): boolean =>
     !checkSmsStandards(text, { candidateNames: names }).failures.includes(
       'candidate_name',
     )
-  if (namesSender(body) && !hasSenderPlaceholder(body)) return body
+  if (mode === 'ensure' && namesSender(body) && !hasSenderPlaceholder(body)) {
+    return body
+  }
 
   const isOpener = (sentence: string): boolean =>
     sentence.length <= 160 &&
@@ -268,10 +274,24 @@ export const ensureSmsIdentification = (
   const trimmedStart = replacedOpener || ungreeted !== rest
   rest = fillSenderPlaceholders(ungreeted, firstName).trim()
 
-  if (!replacedOpener && namesSender(rest)) return rest
+  if (mode === 'ensure' && !replacedOpener && namesSender(rest)) return rest
   if (!rest) return intro
   return `${intro} ${trimmedStart ? capitalizeFirst(rest) : rest}`
 }
+
+// For a body that may already be fine: returned untouched when it names the
+// sender with no placeholder, repaired otherwise.
+export const ensureSmsIdentification = (
+  body: string,
+  context: SmsIdentificationContext,
+): string => identify(body, context, 'ensure')
+
+// For a fresh AI draft, which must open on the surface's own intro: any
+// introduction the model wrote is replaced rather than kept beneath it.
+export const openWithSmsIdentification = (
+  body: string,
+  context: SmsIdentificationContext,
+): string => identify(body, context, 'open')
 
 // Square brackets a draft left for the sender to fill in ("[Date]",
 // "[time]"). Shown on the compose step so nothing goes out with one.
