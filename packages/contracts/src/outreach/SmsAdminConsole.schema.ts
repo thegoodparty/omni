@@ -181,7 +181,11 @@ export const deriveSmsProtectedParts = (
       const committee = context.committeeName?.trim()
       const after = script.slice(phrase.index + phrase[0].length)
       const named = committee
-        ? new RegExp(`^\\s+${escapeRegExp(committee)}`, 'i').exec(after)
+        ? // Any run of non-letters between them: "Paid for by Friends", "Paid
+          // for by: Friends", "Paid for by - Friends" all name the committee.
+          new RegExp(`^[^\\p{L}\\p{N}]+${escapeRegExp(committee)}`, 'iu').exec(
+            after,
+          )
         : null
       disclaimer = {
         start: phrase.index,

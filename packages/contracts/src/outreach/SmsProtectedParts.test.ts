@@ -101,6 +101,15 @@ describe('deriveSmsProtectedParts', () => {
     ).toBeUndefined()
   })
 
+  it('locks the committee with the phrase across punctuation', () => {
+    for (const separator of [': ', ', ', ' - ', ' — ', ':']) {
+      const script = `Hi {first_name}. Paid for by${separator}Friends of Sarah Chen. Reply STOP`
+      expect(textsFor(script).paid_for_by).toBe(
+        `Paid for by${separator}Friends of Sarah Chen`,
+      )
+    }
+  })
+
   it('locks the phrase alone when the committee is unknown or not right after it', () => {
     const script =
       'Hi {first_name}. Paid for by the committee to elect Sarah. Reply STOP'
