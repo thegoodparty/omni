@@ -125,6 +125,34 @@ describe('TokenField', () => {
     expect(editor.state.doc).toBe(before)
   })
 
+  it('keeps undo history when only a reason changes', async () => {
+    const { editor, onChange, rerender } = await mount()
+    const before = editor.state.doc
+    rerender(
+      <TokenField
+        aria-label="Message body"
+        value="Hi {first_name}. Reply STOP to opt out."
+        onChange={onChange}
+        tokens={[FIRST_NAME]}
+        protectedRanges={[{ ...OPT_OUT, reason: 'A newly fetched reason.' }]}
+      />,
+    )
+    await act(async () => undefined)
+    expect(editor.state.doc).toBe(before)
+  })
+
+  it('inserts multi-line text as a line break at the cursor, not extra lines', async () => {
+    const { editor, ref, onChange } = await mount({
+      value: 'Before after',
+      protectedRanges: [],
+    })
+    act(() => {
+      editor.commands.setTextSelection(positionOf(editor, ' after'))
+    })
+    act(() => ref.current?.insertText('• one\n• '))
+    expect(onChange).toHaveBeenLastCalledWith('Before• one\n•  after')
+  })
+
   it('inserts a token through the ref', async () => {
     const { ref, onChange } = await mount({ value: 'Hi ', protectedRanges: [] })
     act(() => ref.current?.insertToken('first_name'))

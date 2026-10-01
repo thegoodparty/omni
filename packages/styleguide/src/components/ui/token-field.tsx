@@ -99,7 +99,18 @@ function TokenField({
   // unsorted server list) do not rebuild the document.
   const byId = <T extends { id: string }>(specs: T[]) =>
     [...specs].sort((a, b) => a.id.localeCompare(b.id))
-  const specKey = JSON.stringify([byId(tokens), byId(protectedRanges)])
+  // Only what goes into the document. A phrase's `reason` is read at
+  // blocked-edit time and never rendered, so a new reason must not rebuild
+  // the message (and lose undo history) on its own.
+  const specKey = JSON.stringify([
+    byId(tokens).map(({ id, label, text, required = false }) => ({
+      id,
+      label,
+      text,
+      required,
+    })),
+    byId(protectedRanges).map(({ id, text }) => ({ id, text })),
+  ])
   const loadedSpecKey = React.useRef(specKey)
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const frame = React.useRef(0)
@@ -242,23 +253,17 @@ function TokenField({
       },
       insertText: (text) => {
         if (!editor || text.length === 0) return
-        const [first = '', ...rest] = text.split('\n')
-        editor
-          .chain()
-          .focus()
-          .insertContent(
-            rest.length === 0
-              ? { type: 'text', text: first }
-              : [first, ...rest].map((line) =>
-                  line.length > 0
-                    ? {
-                        type: 'paragraph',
-                        content: [{ type: 'text', text: line }],
-                      }
-                    : { type: 'paragraph' },
-                ),
-          )
-          .run()
+        editor.commands.focus()
+        // A line break splits the line the cursor is on, as Enter would.
+        // Inserting whole paragraphs instead also severs the text around
+        // the cursor into lines of their own. One transaction, so the
+        // cursor is mapped through each step.
+        const tr = editor.state.tr
+        text.split('\n').forEach((line, index) => {
+          if (index > 0) tr.split(tr.selection.from)
+          if (line.length > 0) tr.insertText(line)
+        })
+        editor.view.dispatch(tr.scrollIntoView())
       },
       focus: () => {
         editor?.commands.focus()
