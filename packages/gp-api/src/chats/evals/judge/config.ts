@@ -98,6 +98,16 @@ export interface RenderConfig {
   // Cap on any one rendered block, input or output. Anything longer is cut
   // with an explicit marker. Applied identically to both arms, so it can
   // never favour one.
+  //
+  // IT HAS TO FIT THE EVIDENCE, not just bound the prompt. A background
+  // agent's input is a captured payload of web sources — the real
+  // race_opponent_summary fixtures are 26-51KB each — and several probes ask
+  // whether the agent handled one source among six correctly: a conflicting
+  // pair, a planted instruction, an archived page. Cut at 12,000 characters
+  // the judge read about a quarter of that and would have scored those probes
+  // on evidence it never saw, which reads as the probe failing to separate
+  // rather than as the cap. Truncation is still reported per run, so a block
+  // that does hit the cap is visible rather than silent.
   maxRenderedChars: number
   // Replaced with `[assistant]` in rendered text. Model and provider names
   // are the identity leak a blind judge is most likely to act on. The
@@ -167,7 +177,7 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     maxHours: 6,
   },
   render: {
-    maxRenderedChars: 12_000,
+    maxRenderedChars: 60_000,
     identityPatterns: [
       /\bclaude\b/gi,
       /\banthropic\b/gi,
