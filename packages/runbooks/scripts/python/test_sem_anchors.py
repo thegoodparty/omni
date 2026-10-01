@@ -227,3 +227,14 @@ def test_load_anchors_skips_gh_when_fallback_disabled(monkeypatch):
     monkeypatch.setattr(sa.subprocess, "run", lambda *a, **k: pytest.fail("gh must not run"))
     anchors, problems = sa.load_anchors()
     assert anchors == {} and any(sa.TOKEN_ENV in p for p in problems)
+
+
+def test_a_serve_exclusion_is_kept_and_a_contact_unit_is_ignored():
+    # `unit: contact` changes how the mart counts campaigns, not whether the leg fires,
+    # so it must not split the series key. A product exclusion does narrow the leg.
+    anchors = sa.parse_anchors(FIXTURE.read_text())
+    legs = {leg.event: leg for leg in anchors["win_activated_users"]}
+    door = legs["Outreach - Door Knocking Door Logged"]
+    assert door.excluding == (("product", ("serve",)),)
+    assert door.key == "Outreach - Door Knocking Door Logged[excluding product=serve]"
+    assert door.registry_key == "Outreach - Door Knocking Door Logged"
