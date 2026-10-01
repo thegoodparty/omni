@@ -1,4 +1,7 @@
-import { BadRequestException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import type { Person } from '@goodparty_org/contracts'
 import { Organization } from '../../generated/prisma'
 import {
@@ -24,17 +27,28 @@ import {
 // it (or any other per-caller row requirement) has to pass it as isEligible.
 // P2pPhoneListUploadService.hasGeoTargetableAddress is the worked example.
 //
-// Three circuit breakers guard this loop, plus a pre-flight that fires before
-// it starts. They stop four different things and none of them substitutes for
-// another, so read them together:
+// Three circuit breakers guard this loop, plus a pre-flight and a deadline
+// that bound it from outside. They stop five different things and none of them
+// substitutes for another, so read them together:
 //
-//   - the PRE-FLIGHT bounds the wall clock, for a caller with a request
+//   - the PRE-FLIGHT bounds the cap cheaply, for a caller with a request
 //     waiting. A filter whose matched count already exceeds maxRecipients
 //     cannot be resolved inside the gateway's ~120s idle timeout, so it is
 //     refused on page 1 rather than discovered ~219s in, after the client has
-//     already been disconnected. This is the only guard whose reason is the
-//     caller's deadline rather than the audience's shape — and so the only one
-//     a caller can turn off, which a queue consumer should (skipPreflightCap).
+//     already been disconnected.
+//   - the DEADLINE bounds the wall clock (timeBudgetMs). The pre-flight only
+//     catches a filter over the CAP, and the cap sits far above what two
+//     minutes of paging can reach: at the ~1.3-2.5s/page measured in prod,
+//     120s buys 50-90 pages, so a filter matching 55,000-100,000 people used
+//     to pass every guard here and then be killed in flight (INC-101: 82
+//     pages, `statusCode: null` at 120,038ms, and the Peerly upload completed
+//     45.9s after the client was gone, leaving a phone list nobody asked for
+//     a second time). So once per page the projected finish time is compared
+//     with the budget and a resolution that cannot land inside it is refused
+//     at the earliest page that proves it. These two are the only guards whose
+//     reason is the caller's deadline rather than the audience's shape — and so
+//     the only ones a caller turns off, which a queue consumer should
+//     (skipPreflightCap, and simply not passing timeBudgetMs).
 //   - the CAP bounds the output. Too many recipients for one send.
 //   - the STALL guard bounds repetition. Consecutive full pages in which
 //     people-api handed back no phone number this resolution had not already
@@ -72,6 +86,24 @@ export const MAX_AUDIENCE_RECIPIENTS = 100_000
 // rejects more than half of what it reads.
 const SCAN_ALLOWANCE = 2
 
+// How long a resolution with a request waiting on it may spend reading pages.
+//
+// The gateway gives up on an idle request at ~120s. Out of that the handler
+// also has to do its pre-resolution lookups (TCR compliance, the org, the
+// opt-out scrub — a few seconds), assemble its CSV, hand it to the vendor and
+// write its own rows (~3s for the 82,000-row upload in INC-101) and still get
+// a response out. 90s leaves ~30s for all of that, which is why the number is
+// not 120s.
+//
+// It is a budget, not a target: anything projected past it is refused in
+// seconds with a message naming the matched count, instead of hanging for two
+// minutes and then building a list the user never learns about. The trade is
+// deliberate and it is visible — a filter that used to resolve in, say, 93s
+// now gets a refusal. The fix that makes this constant unnecessary is taking
+// the build off the request path (ENG-10801's follow-up); until then a fast,
+// honest refusal beats a hang.
+export const MAX_INTERACTIVE_RESOLUTION_MS = 90_000
+
 // Consecutive full pages carrying no phone this resolution had not already
 // seen. More than one, because a single such page is reachable legitimately
 // when people-api's ordering clusters a household's shared numbers together;
@@ -102,6 +134,39 @@ export type FilterAudienceOptions = {
   // Kept caller-supplied so each channel's cap message speaks its own
   // vocabulary; the default is channel-neutral.
   limitExceededMessage?: string
+  // How long this resolution may spend reading pages before it is refused.
+  //
+  // PASS IT WHENEVER THERE IS A REQUEST WAITING, and leave it undefined when
+  // there is not. Both of today's HTTP callers pass
+  // MAX_INTERACTIVE_RESOLUTION_MS; the SQS-driven delivery path passes nothing,
+  // because its resolution genuinely completes however long it takes and a
+  // refusal there would fail a send that is already paid for.
+  //
+  // Two checks come with it, and they fail differently on purpose:
+  //   - the PROJECTION, once per page from page 2 on: matched count / pageSize
+  //     gives the pages this filter needs, the pages already fetched give what
+  //     one costs, and a projected finish past the budget is a
+  //     BadRequestException naming the matched count. Client-correctable, so a
+  //     400 — the route alerts ignore it, which is right: the user is told to
+  //     narrow the filter and nothing is broken.
+  //   - the HARD STOP, before fetching each page: elapsed past the budget is a
+  //     ServiceUnavailableException, which the route alerts DO page on. By
+  //     construction the projection should have refused first, so reaching it
+  //     means upstream paging slowed down mid-resolution and we want to hear
+  //     about it. Either way the handler stops while the client is still
+  //     connected, so it can never upload work nobody is waiting for.
+  //
+  // The projection needs the matched count, which only page 1 asks for: a
+  // caller passing skipPreflightCap with a budget keeps the hard stop alone.
+  timeBudgetMs?: number
+  // The deadline refusal's wording, so each channel speaks its own vocabulary
+  // (the cap has limitExceededMessage for the same reason). Both counts are
+  // measured rather than configured: affordableCount is what this filter's
+  // observed page cost says fits inside the budget right now.
+  budgetExceededMessage?: (counts: {
+    matchedCount: number
+    affordableCount: number
+  }) => string
   // Skip the page-1 pre-flight cap, leaving only the in-loop cap.
   //
   // SET THIS WHEN THERE IS NO REQUEST WAITING, and only then. The pre-flight
@@ -158,6 +223,8 @@ export async function* resolveFilterAudience(
     maxRecipients = MAX_AUDIENCE_RECIPIENTS,
     isEligible,
     limitExceededMessage,
+    timeBudgetMs,
+    budgetExceededMessage,
     skipPreflightCap = false,
   } = options
 
@@ -179,6 +246,14 @@ export async function* resolveFilterAudience(
   let resolvedCount = 0
   let stalledPages = 0
 
+  // The deadline's two measurements. Page 1 is timed but kept OUT of the
+  // per-page average: it carries the parallel COUNT the pre-flight needs, so
+  // it is the slowest page of the resolution and projecting 80 more pages from
+  // it would refuse filters that finish comfortably.
+  const startedAt = Date.now()
+  let pagingMsAfterPage1 = 0
+  let matchedCount: number | null = null
+
   let page = 1
   while (true) {
     if (page > maxPages) {
@@ -186,6 +261,20 @@ export async function* resolveFilterAudience(
         `Pagination exceeded ${maxPages} pages — aborting`,
       )
     }
+
+    // THE HARD STOP. The projection below should have refused long before
+    // this, so getting here means paging slowed down after this resolution
+    // started. Stop while the client is still connected: the alternative is
+    // the gateway hanging up at ~120s and the handler carrying on to finish
+    // work that nobody will be told about.
+    if (timeBudgetMs !== undefined && Date.now() - startedAt > timeBudgetMs) {
+      throw new ServiceUnavailableException(
+        'Resolving this audience ran out of time before it finished — ' +
+          'nothing was created. Try again, or narrow the filter.',
+      )
+    }
+
+    const pageStartedAt = Date.now()
     const { people, pagination } = await contactsService.findContactsForFilter(
       // SMS reachability belongs to the channel, not the shared filter
       // resolution — force it here regardless of what the request asked.
@@ -210,6 +299,12 @@ export async function* resolveFilterAudience(
       organization,
       excludePersonIds,
     )
+    if (page === 1) {
+      // Only page 1 is asked for the count, and only when the pre-flight is on.
+      matchedCount = skipPreflightCap ? null : pagination.totalResults
+    } else {
+      pagingMsAfterPage1 += Date.now() - pageStartedAt
+    }
 
     // THE CAP, CHECKED BEFORE THE WORK INSTEAD OF DURING IT — for a caller
     // with a request waiting. See skipPreflightCap for who opts out and why.
@@ -240,6 +335,38 @@ export async function* resolveFilterAudience(
           `This filter matches over the ${maxRecipients} recipient ` +
             `limit — narrow the filter and try again.`,
       )
+    }
+
+    // THE DEADLINE, PROJECTED. The resolution reads a page per 1000 matched
+    // rows whatever the later skips do (skips remove recipients, not reads),
+    // so pages-still-to-read times what a page has actually cost this
+    // resolution is how long it has left. Refuse at the first page that proves
+    // it cannot land inside the budget — not at page 1, whose COUNT makes it
+    // unrepresentative, and not at the end, which is the hang this replaces.
+    if (
+      timeBudgetMs !== undefined &&
+      matchedCount !== null &&
+      page > 1 &&
+      people.length >= pageSize
+    ) {
+      const avgPageMs = pagingMsAfterPage1 / (page - 1)
+      const pagesNeeded = Math.ceil(matchedCount / pageSize)
+      const elapsedMs = Date.now() - startedAt
+      const projectedMs =
+        elapsedMs + Math.max(0, pagesNeeded - page) * avgPageMs
+      if (projectedMs > timeBudgetMs) {
+        // What the measured page cost says does fit, reported to the person so
+        // "narrow the filter" is a number rather than an instruction to guess.
+        const affordableCount =
+          Math.max(1, Math.floor(timeBudgetMs / Math.max(avgPageMs, 1))) *
+          pageSize
+        throw new BadRequestException(
+          budgetExceededMessage?.({ matchedCount, affordableCount }) ??
+            `This filter matches ${matchedCount} people — more than can be ` +
+              `resolved while you wait (about ${affordableCount} right now). ` +
+              `Narrow the filter and try again.`,
+        )
+      }
     }
 
     // Measured before the eligibility gate and off the phone rather than the
