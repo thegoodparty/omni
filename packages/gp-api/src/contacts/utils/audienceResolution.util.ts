@@ -357,9 +357,20 @@ export async function* resolveFilterAudience(
       if (projectedMs > timeBudgetMs) {
         // What the measured page cost says does fit, reported to the person so
         // "narrow the filter" is a number rather than an instruction to guess.
+        // It has to be a size that SURVIVES THIS SAME CHECK on the retry, so
+        // the divisor is the budget still unspent, not all of it: a retry pays
+        // the slow first page and these same pages over again before it can be
+        // judged. That makes the number a little pessimistic (it does not
+        // credit back the pages already read), which is the right direction —
+        // naming a count that gets refused a second time is the failure this
+        // message exists to avoid.
         const affordableCount =
-          Math.max(1, Math.floor(timeBudgetMs / Math.max(avgPageMs, 1))) *
-          pageSize
+          Math.max(
+            1,
+            Math.floor(
+              Math.max(0, timeBudgetMs - elapsedMs) / Math.max(avgPageMs, 1),
+            ),
+          ) * pageSize
         throw new BadRequestException(
           budgetExceededMessage?.({ matchedCount, affordableCount }) ??
             `This filter matches ${matchedCount} people — more than can be ` +

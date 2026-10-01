@@ -556,10 +556,38 @@ describe('resolveFilterAudience', () => {
           },
         ),
       ),
-    ).rejects.toThrow(new BadRequestException('82000 is too many, try 60000'))
+    ).rejects.toThrow(new BadRequestException('82000 is too many, try 57000'))
 
     expect(findContactsForFilter).toHaveBeenCalledTimes(2)
     expect(elapsedMs()).toBe(4500)
+  })
+
+  it('names a size on refusal that then resolves on the retry', async () => {
+    // The refusal above suggested 57,000. A suggestion that gets refused a
+    // second time is worse than no suggestion, so resolve exactly that many at
+    // exactly the page cost it was measured from: 3s for the COUNT-carrying
+    // first page and 1.5s after, which lands at 88.5s inside the 90s budget.
+    const { findContactsForFilter, elapsedMs } = timedPages({
+      fullPages: 57,
+      totalResults: 57_000,
+      page1Ms: 3000,
+      pageMs: 1500,
+    })
+
+    const { resolved } = await countDrain(
+      resolveFilterAudience(
+        { findContactsForFilter },
+        {
+          filterInput: {},
+          organization: ORGANIZATION,
+          excludePersonIds: new Set(),
+          timeBudgetMs: 90_000,
+        },
+      ),
+    )
+
+    expect(resolved).toBe(57_000)
+    expect(elapsedMs()).toBeLessThan(90_000)
   })
 
   it('resolves a list that projects just inside the budget', async () => {
