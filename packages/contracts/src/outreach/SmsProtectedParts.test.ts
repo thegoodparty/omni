@@ -73,6 +73,12 @@ describe('deriveSmsProtectedParts', () => {
     expect(texts.paid_for_by).toBe('Paid for by Friends of Sarah Chen')
   })
 
+  it('skips a committee copy that is not right after the phrase', () => {
+    const script =
+      "Hi {first_name}, it's Sarah! Paid for by the committee, Friends of Sarah Chen. Reply STOP"
+    expect(textsFor(script).candidate_name).toBe('Sarah')
+  })
+
   it('matches names as whole words, never inside another word', () => {
     const script = 'Hi {first_name}, the kitchen is open. Reply STOP'
     const context = { candidateNames: ['Lee Chen'] }

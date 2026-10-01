@@ -195,11 +195,22 @@ export const deriveSmsProtectedParts = (
   }
 
   if (!ignored.has('candidate_name')) {
-    const outside = disclaimer
+    const withoutDisclaimer = disclaimer
       ? script.slice(0, disclaimer.start) +
         ' '.repeat(disclaimer.text.length) +
         script.slice(disclaimer.start + disclaimer.text.length)
       : script
+    // Every copy of the committee too, not just one that follows "Paid for
+    // by": "Paid for by the committee, Friends of Sarah Chen" leaves the
+    // committee outside the unit, and its "Sarah Chen" would otherwise win
+    // the full-name match over the candidate's own "it's Sarah".
+    const committee = context.committeeName?.trim()
+    const outside = committee
+      ? withoutDisclaimer.replace(
+          new RegExp(escapeRegExp(committee), 'giu'),
+          (match) => ' '.repeat(match.length),
+        )
+      : withoutDisclaimer
     // The full name as written when it is there; otherwise the first of its
     // words the script uses, since scripts often identify by first name.
     const names = (context.candidateNames ?? []).filter(Boolean)

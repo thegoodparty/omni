@@ -121,6 +121,20 @@ describe('valueToContent and docToValue', () => {
     expect(lockedRanges(state.doc).map((r) => r.id)).toEqual(['paid_for_by'])
   })
 
+  it('never anchors a phrase in the middle of a longer word', () => {
+    const name: ProtectedSpec = {
+      id: 'candidate_name',
+      text: 'Sarah',
+      reason: 'Your name.',
+    }
+    const state = stateFor("Sarahsville loves it's Sarah!", [], [name])
+    const [range] = lockedRanges(state.doc)
+    expect(state.doc.textBetween(range?.from ?? 0, range?.to ?? 0)).toBe(
+      'Sarah',
+    )
+    expect(range?.from).toBeGreaterThan(posOf(state, 'loves'))
+  })
+
   it('protects nothing when the span is missing, rather than inventing it', () => {
     expect(lockedRanges(stateFor('Hi there.', [], [OPT_OUT]).doc)).toEqual([])
   })
