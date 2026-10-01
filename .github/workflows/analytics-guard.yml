@@ -14,16 +14,21 @@ concurrency:
   group: analytics-guard-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Set here rather than as repo variables: neither value is sensitive, a change is a
+# reviewed one-line PR, and a PR editing these lines runs against its own copy, so the
+# guard can never block the PR that turns it down.
+env:
+  # block | warn | off
+  GOVERNANCE_GUARD_MODE: warn
+  # Who is cc'd on the PR comment when the guard itself errors.
+  GOVERNANCE_GUARD_ALERT: '@datawithtristan'
+
 jobs:
   guard:
     name: Analytics guard
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      # block | warn | off. Repo Actions variable, so the guard can be softened in
-      # seconds without a PR. Unset means warn.
-      MODE: ${{ vars.GOVERNANCE_GUARD_MODE || 'warn' }}
-      ALERT: ${{ vars.GOVERNANCE_GUARD_ALERT }}
       GH_TOKEN: ${{ github.token }}
       PR: ${{ github.event.pull_request.number }}
     steps:
@@ -35,7 +40,7 @@ jobs:
       # cannot find uv, its exit normalises to 1, and the comment says it could not run.
       - name: Set up uv
         id: setup_uv
-        if: env.MODE != 'off'
+        if: env.GOVERNANCE_GUARD_MODE != 'off'
         continue-on-error: true
         uses: astral-sh/setup-uv@v3
         with:
@@ -43,14 +48,14 @@ jobs:
 
       - name: Install deps
         id: install_deps
-        if: env.MODE != 'off'
+        if: env.GOVERNANCE_GUARD_MODE != 'off'
         continue-on-error: true
         working-directory: packages/runbooks/scripts/python
         run: uv sync --frozen
 
       - name: Run the guard
         id: guard
-        if: env.MODE != 'off'
+        if: env.GOVERNANCE_GUARD_MODE != 'off'
         working-directory: packages/runbooks/scripts/python
         run: |
           set +e
@@ -85,7 +90,7 @@ jobs:
           fi
 
       - name: Post or update the guard comment
-        if: env.MODE != 'off'
+        if: env.GOVERNANCE_GUARD_MODE != 'off'
         # Never fails the job: a comment is a courtesy, not the check. The Verdict step
         # below is the only place a decision gets made.
         continue-on-error: true
@@ -97,14 +102,14 @@ jobs:
             cp "$RUNNER_TEMP/guard.md" "$body" || echo "::warning::could not read guard.md for a clean result"
           elif [ "$code" = "2" ]; then
             cp "$RUNNER_TEMP/guard.md" "$body" || echo "::warning::could not read guard.md for a blocking result"
-            if [ "$MODE" != "block" ]; then
+            if [ "$GOVERNANCE_GUARD_MODE" != "block" ]; then
               sed -i 's/^\*\*Blocks merge\*\*$/**Would block merge (shadow mode, not enforced yet)**/' "$body" \
                 || echo "::warning::could not rewrite the shadow-mode line"
             fi
           else
             # shellcheck disable=SC2016 # literal markdown backticks, not an expansion
             printf '<!-- analytics-guard -->\n### Analytics guard\n\nThe guard could not run on this PR, so it passed without checking. %s\n\n```\n%s\n```\n' \
-              "${ALERT:+cc $ALERT}" "$(jq -r '.error // "unknown"' "$RUNNER_TEMP/guard.json" 2>/dev/null || echo unknown)" > "$body"
+              "${GOVERNANCE_GUARD_ALERT:+cc $GOVERNANCE_GUARD_ALERT}" "$(jq -r '.error // "unknown"' "$RUNNER_TEMP/guard.json" 2>/dev/null || echo unknown)" > "$body"
           fi
           existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
             --jq '[.[] | select(.body | startswith("<!-- analytics-guard -->"))][0].id // empty' 2>/dev/null | head -1)
@@ -116,7 +121,7 @@ jobs:
           fi
 
       - name: Analytics guard is off
-        if: env.MODE == 'off'
+        if: env.GOVERNANCE_GUARD_MODE == 'off'
         continue-on-error: true
         run: |
           set -uo pipefail
@@ -132,7 +137,7 @@ jobs:
           fi
 
       - name: Runbooks tests (only when the runbooks package changed)
-        if: ${{ !cancelled() && env.MODE != 'off' }}
+        if: ${{ !cancelled() && env.GOVERNANCE_GUARD_MODE != 'off' }}
         working-directory: packages/runbooks/scripts/python
         env:
           SEM_ANCHORS_NO_GH: "1"
@@ -158,13 +163,13 @@ jobs:
           uv run pytest -q
 
       - name: Verdict
-        if: ${{ !cancelled() && env.MODE != 'off' }}
+        if: ${{ !cancelled() && env.GOVERNANCE_GUARD_MODE != 'off' }}
         run: |
           code='${{ steps.guard.outputs.code }}'
           case "$code" in
             0) echo "Analytics guard: clean." ;;
             1) echo "::warning::Analytics guard could not run; passing without checking (see PR comment)." ;;
-            2) if [ "$MODE" = "block" ]; then
+            2) if [ "$GOVERNANCE_GUARD_MODE" = "block" ]; then
                  echo "::error::Analytics guard found blocking problems. The PR comment (or this job's summary) says exactly what to add."
                  exit 1
                fi

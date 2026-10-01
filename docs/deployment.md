@@ -280,12 +280,14 @@ make it pass; never grant one that permission.
 
 `.github/workflows/analytics-guard.yml` runs `governance_guard.py` (DATA-2432) on every
 PR, with no path filter, and posts or updates one PR comment naming the exact fix. The
-Actions variable `GOVERNANCE_GUARD_MODE` (`block` | `warn` | `off`, unset means `warn`)
-sets whether a blocking finding fails the check or only warns; `GOVERNANCE_GUARD_ALERT`
-names who gets cc'd in the comment when the guard itself errors. The job never fails a
+workflow's top-level `env:` sets `GOVERNANCE_GUARD_MODE` (`block` | `warn` | `off`),
+whether a blocking finding fails the check or only warns, and `GOVERNANCE_GUARD_ALERT`,
+who gets cc'd in the comment when the guard itself errors. Changing either is a one-line
+PR; that PR runs against its own edited workflow, so the guard never blocks the change
+that turns it down. The job never fails a
 PR for a mechanical reason: a failed uv setup or `uv sync` makes the guard report that it
 could not run and skips the runbooks suite with a warning, a comment-posting failure only
-warns, and `MODE=off` prints a warning and checks nothing. The full report (or the error)
+warns, and `off` prints a warning and checks nothing. The full report (or the error)
 always goes to the job summary too, because the comment is capped at 60,000 characters.
 OKR legs come from the vendored sem copy at the PR's merge base, not the PR's own copy. The
 runbooks suite (only when `packages/runbooks` changed) runs in the same job; its guard
