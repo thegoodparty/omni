@@ -8,7 +8,13 @@ import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnowledgePrompt'
-import type { ChatAnchor } from '@goodparty_org/contracts'
+import {
+  MAX_CHECK_RAISES,
+  PRIORITY_STEP_LABELS,
+  type ChatAnchor,
+  type PriorityStepCheck,
+  type PriorityStepContrast,
+} from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { PriorityRecord } from './prioritiesPort'
 
@@ -143,9 +149,18 @@ const firstRunResearchBlock = (hasWebSearch: boolean): string =>
 - Ask, do not assert: this is inference from public sources, and say so.
 - Keep it to the length rules. A bootstrap is a short opening, not a briefing document.`
 
-const PRIORITIES_RULES = `PRIORITIES RULES (apply whenever you call \`crud_priorities\`):
+const PRIORITIES_RULES = `PRIORITIES RULES (apply whenever you reference <priorities> or call \`crud_priorities\`):
 - Confirm material changes back to the user in plain language after you make them.
-- Never archive a priority unless the user clearly asked you to.`
+- Never archive a priority unless the user clearly asked you to.
+- You have where each priority stands, so use it: tie what they ask about to the priority it touches, and say plainly when something this week bears on one of them or when one has not moved.
+- Moving a priority forward happens in that priority's own guided flow, not here: the problem, hearing from constituents, the options, the method, the plan. Answer what they ask, then point them at it with a link, written as [the priority's title](/dashboard/priorities/ID) with the id from <priorities>. Do not run its steps, do not recommend a method here, and do not rebuild a plan that already exists there.
+- A step that was never checked with the constituents it lands on (put off, declined, or no check yet) is reported that way whenever its substance comes up, in one clause, without moralizing.`
+
+const CHECK_REMINDER_RULES = `CHECKS THEY PUT OFF (apply whenever <priorities> shows a check as put off):
+- When they put off checking a step with constituents, they told you when. Check in on it: when that moment has arrived (the hearing is past, the meeting is this week, the vote is coming) or the step it rests on needs another look, raise it ONCE in the session, in one line, in their own words, with the link to the priority: "You wanted to talk to the renters on Oak once the budget hearing was done. Want to do that now?"
+- Then take the answer and let it go. If they want to do it now, send them to the priority, where the list and the question get built. Never build the outreach here.
+- Every time you raise one, record it with record_check_reminder, whatever they said. The priority itself counts the same reminders, and after ${MAX_CHECK_RAISES} put-offs a check is let go for good, so a reminder you do not record is one too many. Taking it up does not count as a put-off.
+- Never raise one whose raised count has reached ${MAX_CHECK_RAISES}.`
 
 const BRIEFING_RULES = `BRIEFING RULES (apply whenever you call \`list_briefings\` or \`get_briefing\`):
 - Cite the meeting date when you reference a briefing.
@@ -266,6 +281,8 @@ const cardRulesBlock = (toolNames: string[]): string | null => {
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   crud_priorities:
     'manage the user’s durable priorities (list/create/update/archive)',
+  record_check_reminder:
+    'record that you reminded them about a constituent check they put off on a priority',
   web_search: 'search the public web for current news and factual lookups',
   list_briefings: 'list the user’s upcoming and recent meeting briefings',
   get_briefing: 'read the full briefing for one of the user’s meetings by date',
@@ -385,10 +402,67 @@ const officeContextBlock = (ctx: ChiefOfStaffContext): string =>
     '</office_context>',
   ].join('\n')
 
+const CHECK_STATE_LINE: Record<PriorityStepCheck['state'], string> = {
+  asked: 'offered to them, waiting on their yes, nothing out with constituents',
+  out: 'out with constituents, waiting on answers',
+  confirmed: 'constituents agreed',
+  revised: 'changed after hearing from constituents',
+  deferred: 'put off',
+  declined: 'declined, constituents not asked',
+}
+
+const formatContrast = (contrast: PriorityStepContrast): string => {
+  const detail = [
+    contrast.who.trim() === '' ? null : optional(contrast.who),
+    contrast.question.trim() === ''
+      ? null
+      : `asking: ${optional(contrast.question)}`,
+    contrast.when === undefined ? null : `timing: ${optional(contrast.when)}`,
+    contrast.heard === undefined
+      ? null
+      : `constituents said: ${optional(contrast.heard)}`,
+  ].filter((part): part is string => part !== null)
+  const line = `least affected: ${CHECK_STATE_LINE[contrast.state]}`
+  return detail.length === 0 ? line : `${line} (${detail.join(', ')})`
+}
+
+const formatCheck = (
+  stepId: keyof typeof PRIORITY_STEP_LABELS,
+  check: PriorityStepCheck,
+): string => {
+  const parts = [
+    `${PRIORITY_STEP_LABELS[stepId]}: ${CHECK_STATE_LINE[check.state]}`,
+    check.who.trim() === '' ? null : `who: ${optional(check.who)}`,
+    check.question.trim() === '' ? null : `asking: ${optional(check.question)}`,
+    check.when === undefined ? null : `timing: ${optional(check.when)}`,
+    check.heard === undefined
+      ? null
+      : `constituents said: ${optional(check.heard)}`,
+    check.state === 'deferred'
+      ? `raised ${check.raised} of ${MAX_CHECK_RAISES} times`
+      : null,
+    check.contrast === undefined ? null : formatContrast(check.contrast),
+  ]
+  return parts.filter((part): part is string => part !== null).join(', ')
+}
+
+const formatFlow = (p: PriorityRecord): string => {
+  if (p.flow === undefined) return ''
+  const { currentStep, nextAction, checks } = p.flow
+  const step =
+    currentStep === null ? 'all steps done' : PRIORITY_STEP_LABELS[currentStep]
+  const next = nextAction === null ? 'nothing scheduled' : optional(nextAction)
+  const heard =
+    checks.length === 0
+      ? 'none yet'
+      : checks.map(({ stepId, check }) => formatCheck(stepId, check)).join('; ')
+  return ` (id: ${p.id}) on: ${step}, next: ${next}, constituent checks: ${heard}`
+}
+
 const formatPriority = (p: PriorityRecord): string => {
   const title = sanitizeUntrustedContent(p.title)
   const description = optional(p.description)
-  return `- ${title}: ${description}`
+  return `- ${title}${formatFlow(p)}: ${description}`
 }
 
 const prioritiesBlock = (priorities: PriorityRecord[]): string => {
@@ -429,7 +503,12 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     prioritiesBlock(ctx.priorities),
     ...(ctx.anchor ? [anchoredIssueBlock(ctx.anchor)] : []),
     toolBlock(toolNames),
-    ...(toolNames.includes('crud_priorities') ? [PRIORITIES_RULES] : []),
+    ...(toolNames.includes('crud_priorities') || ctx.priorities.length > 0
+      ? [PRIORITIES_RULES]
+      : []),
+    ...(toolNames.includes('record_check_reminder')
+      ? [CHECK_REMINDER_RULES]
+      : []),
     ...(hasWebSearch ? [WEB_SEARCH_RULES] : []),
     officeStructureBlock(hasWebSearch),
     ...(toolNames.includes('list_briefings') ||

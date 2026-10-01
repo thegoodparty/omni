@@ -19,6 +19,7 @@ import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.se
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { buildComposeHandoffTool } from './services/composeHandoff.tool'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -330,6 +331,68 @@ describe('ChiefOfStaffHandler', () => {
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
         'read_community_issues',
+      )
+    })
+  })
+
+  describe('check reminder tool', () => {
+    const priorityWith = (state: 'deferred' | 'out') => ({
+      id: 'pri-1',
+      title: 'Rents',
+      description: 'Keep renters near transit.',
+      archivedAt: null,
+      flow: {
+        currentStep: 'evidence' as const,
+        nextAction: null,
+        checks: [
+          {
+            stepId: 'define' as const,
+            check: { state, who: '', question: '', raised: 0 },
+          },
+        ],
+      },
+    })
+    const buildWithStatus = () =>
+      new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          buildCheckReminderTool: vi.fn(() => ({
+            record_check_reminder: {
+              description: 'stub',
+              inputSchema: undefined,
+              execute: () => ({}),
+            },
+          })),
+        } as unknown as PriorityStatusService,
+      )
+
+    it('registers only when a priority has a check put off', async () => {
+      const handler = buildWithStatus()
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'record_check_reminder',
+      )
+      expect(
+        Object.keys(
+          handler.buildTools({ ...ctx, priorities: [priorityWith('out')] }),
+        ),
+      ).not.toContain('record_check_reminder')
+      const withDeferral = { ...ctx, priorities: [priorityWith('deferred')] }
+      expect(Object.keys(handler.buildTools(withDeferral))).toContain(
+        'record_check_reminder',
+      )
+      expect(handler.buildSystemPrompt(withDeferral)).toContain(
+        'CHECKS THEY PUT OFF',
       )
     })
   })

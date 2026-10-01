@@ -89,6 +89,114 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('<priorities>')
   })
 
+  const priorityInFlow = {
+    id: 'pri-1',
+    title: 'Rents near transit',
+    description: 'Keep renters near the new line.',
+    archivedAt: null,
+    flow: {
+      currentStep: 'evidence' as const,
+      nextAction: 'Pull the rent numbers',
+      checks: [
+        {
+          stepId: 'define' as const,
+          check: {
+            state: 'deferred' as const,
+            who: 'Renters on Oak',
+            question: 'Is rent what is pushing you out?',
+            when: 'after the budget hearing',
+            raised: 1,
+            contrast: {
+              state: 'deferred' as const,
+              who: 'Owners across town',
+              question: 'Would you pay toward this?',
+            },
+          },
+        },
+      ],
+    },
+  }
+
+  it('carries what constituents said on a check they answered', () => {
+    const answered = {
+      ...priorityInFlow,
+      flow: {
+        ...priorityInFlow.flow,
+        checks: [
+          {
+            stepId: 'define' as const,
+            check: {
+              state: 'confirmed' as const,
+              who: 'Renters on Oak',
+              question: '',
+              raised: 0,
+              heard: 'Rent, mostly, said three households',
+              contrast: {
+                state: 'revised' as const,
+                who: '',
+                question: '',
+                heard: 'Owners want the cost shared',
+              },
+            },
+          },
+        ],
+      },
+    }
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ priorities: [answered] }),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain(
+      'constituents said: Rent, mostly, said three households',
+    )
+    expect(prompt).toContain('constituents said: Owners want the cost shared')
+  })
+
+  it('carries where each priority stands and points into its flow', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ priorities: [priorityInFlow] }),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain(
+      '- Rents near transit (id: pri-1) on: What we know, next: Pull the ' +
+        'rent numbers, constituent checks: The problem: put off, who: ' +
+        'Renters on Oak, asking: Is rent what is pushing you out?, timing: ' +
+        'after the budget hearing, raised 1 of 3 times, least ' +
+        'affected: put off (Owners across town, asking: Would you pay ' +
+        'toward this?): Keep renters near the new line.',
+    )
+    expect(prompt).toContain("[the priority's title](/dashboard/priorities/ID)")
+    expect(prompt).toContain('Do not run its steps')
+    expect(prompt).not.toContain('CHECKS THEY PUT OFF')
+  })
+
+  it('checks in on a put-off check only with the reminder tool', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ priorities: [priorityInFlow] }),
+      toolNames: [...TOOLS, 'record_check_reminder'],
+    })
+    expect(prompt).toContain('CHECKS THEY PUT OFF')
+    expect(prompt).toContain('record it with record_check_reminder')
+    expect(prompt).toContain('Never build the outreach here')
+  })
+
+  it('says a priority with no checks has none yet', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({
+        priorities: [
+          {
+            ...priorityInFlow,
+            flow: { currentStep: 'define', nextAction: null, checks: [] },
+          },
+        ],
+      }),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain(
+      'on: The problem, next: nothing scheduled, constituent checks: none yet',
+    )
+  })
+
   it('asks for priorities when none are on file', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx({ priorities: [] }),

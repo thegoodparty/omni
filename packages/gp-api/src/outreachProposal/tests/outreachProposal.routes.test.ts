@@ -310,7 +310,7 @@ describe('outreach proposal routes', () => {
       expect(persisted.priorityId).toBeNull()
     })
 
-    it.each(['social', 'text'])(
+    it.each(['social', 'text', 'doorKnocking'])(
       'refuses to send a %s proposal from the card',
       async (channel) => {
         const res = await service.client.put(

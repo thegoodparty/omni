@@ -48,6 +48,7 @@ describe('toolStatusLabel', () => {
       'count_contacts',
       'list_precincts',
       'crud_saved_filters',
+      'record_check_reminder',
     ]) {
       expect(toolDisplayName(name)).not.toBe(name)
     }

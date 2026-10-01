@@ -121,6 +121,164 @@ describe('PriorityStatusRail', () => {
     expect(screen.getByText(PRIORITY_STEP_PURPOSE.define)).toBeInTheDocument()
   })
 
+  it('says whether a step has been checked with constituents', () => {
+    const base = emptyPriorityStatus()
+    const status: PriorityStatus = {
+      ...base,
+      steps: base.steps.map((step) => {
+        if (step.id === 'define') {
+          return {
+            ...step,
+            state: 'settled',
+            check: { state: 'deferred', who: '', question: '', raised: 0 },
+          }
+        }
+        if (step.id === 'options') {
+          return {
+            ...step,
+            state: 'settled',
+            check: {
+              state: 'confirmed',
+              who: '',
+              question: '',
+              raised: 0,
+              contrast: { state: 'declined', who: '', question: '' },
+            },
+          }
+        }
+        return step
+      }),
+    }
+    render(<PriorityStatusRail status={status} nextAction={null} />)
+
+    const defineRow = screen.getByRole('button', {
+      name: new RegExp(PRIORITY_STEP_LABELS.define, 'i'),
+    })
+    const optionsRow = screen.getByRole('button', {
+      name: new RegExp(PRIORITY_STEP_LABELS.options, 'i'),
+    })
+    const evidenceRow = screen.getByRole('button', {
+      name: new RegExp(PRIORITY_STEP_LABELS.evidence, 'i'),
+    })
+    expect(
+      within(defineRow).getByText('Checking with constituents later'),
+    ).toBeInTheDocument()
+    expect(
+      within(optionsRow).getByText('Constituents agreed'),
+    ).toBeInTheDocument()
+    expect(within(optionsRow).queryByText(/least affected/i)).toBeNull()
+    expect(within(defineRow).queryByText(/least affected/i)).toBeNull()
+    expect(within(evidenceRow).queryByText(/constituents/i)).toBeNull()
+    expect(defineRow).toHaveAccessibleName(
+      new RegExp(`^${PRIORITY_STEP_LABELS.define}\\s+\\S`),
+    )
+    expect(defineRow).not.toHaveAccessibleName(/constituents/i)
+    expect(defineRow).toHaveAccessibleDescription(
+      'Checking with constituents later',
+    )
+    expect(evidenceRow).not.toHaveAttribute('aria-describedby')
+  })
+
+  it('says an offered check is waiting on the official', () => {
+    const base = emptyPriorityStatus()
+    const status: PriorityStatus = {
+      ...base,
+      steps: base.steps.map((step) =>
+        step.id === 'define'
+          ? {
+              ...step,
+              state: 'settled',
+              check: { state: 'asked', who: '', question: '', raised: 0 },
+            }
+          : step,
+      ),
+    }
+    render(<PriorityStatusRail status={status} nextAction={null} />)
+    expect(
+      screen.getByText('Waiting on you: check with constituents'),
+    ).toBeInTheDocument()
+  })
+
+  it('says once that a check is waiting, whichever side it is', () => {
+    const base = emptyPriorityStatus()
+    const status: PriorityStatus = {
+      ...base,
+      steps: base.steps.map((step) =>
+        step.id === 'define'
+          ? {
+              ...step,
+              state: 'settled',
+              check: {
+                state: 'asked',
+                who: '',
+                question: '',
+                raised: 0,
+                contrast: { state: 'asked', who: '', question: '' },
+              },
+            }
+          : step,
+      ),
+    }
+    render(<PriorityStatusRail status={status} nextAction={null} />)
+    expect(
+      screen.getAllByText('Waiting on you: check with constituents'),
+    ).toHaveLength(1)
+    expect(screen.queryByText(/least affected/i)).toBeNull()
+  })
+
+  it('leads with the main side once it is out with people', () => {
+    const base = emptyPriorityStatus()
+    const status: PriorityStatus = {
+      ...base,
+      steps: base.steps.map((step) =>
+        step.id === 'define'
+          ? {
+              ...step,
+              state: 'settled',
+              check: {
+                state: 'out',
+                who: '',
+                question: '',
+                raised: 0,
+                contrast: { state: 'asked', who: '', question: '' },
+              },
+            }
+          : step,
+      ),
+    }
+    render(<PriorityStatusRail status={status} nextAction={null} />)
+    const defineRow = screen.getByRole('button', {
+      name: new RegExp(PRIORITY_STEP_LABELS.define, 'i'),
+    })
+    expect(
+      within(defineRow).getByText('Waiting to hear back'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/waiting on you/i)).toBeNull()
+  })
+
+  it('shows who to hear from waiting while the check is out', () => {
+    const base = emptyPriorityStatus()
+    const status: PriorityStatus = {
+      ...base,
+      steps: base.steps.map((step) =>
+        step.id === 'define'
+          ? {
+              ...step,
+              state: 'settled',
+              check: { state: 'out', who: '', question: '', raised: 0 },
+            }
+          : step,
+      ),
+    }
+    render(<PriorityStatusRail status={status} nextAction={null} />)
+    const listenRow = screen.getByRole('button', {
+      name: new RegExp(PRIORITY_STEP_LABELS.listen_problem, 'i'),
+    })
+    expect(
+      within(listenRow).getByText('Waiting to hear back'),
+    ).toBeInTheDocument()
+  })
+
   it('shows the next action when there is one', () => {
     render(
       <PriorityStatusRail
