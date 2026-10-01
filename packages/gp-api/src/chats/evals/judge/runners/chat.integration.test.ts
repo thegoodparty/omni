@@ -530,6 +530,62 @@ describe('runChatCase', () => {
     TURN_TIMEOUT_MS,
   )
 
+  // STOPS ON A BROKEN TURN, which is money rather than tidiness. The
+  // conversation the case authored is already over — the next turn would be
+  // answered against a history whose last reply is the interrupted sentinel,
+  // and combineChatStatus discards the whole case as infraError anyway — so
+  // every turn after the broken one is real model spend on output nothing
+  // reads.
+  it(
+    'posts no further turn once one has broken',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: {
+          caseId: 'breaks-on-one',
+          turns: ['first?', 'second?', 'third?'],
+        },
+        script: {
+          // A tool this turn never registered. runScript throws while the
+          // route drains the stream, which is the ordinary shape of a turn
+          // that dies mid-generation.
+          steps: [{ kind: 'tool', tool: 'no_such_tool', input: {} }],
+          usage: TOKENS,
+        },
+      })
+
+      expect(record.status).toBe('infraError')
+      // One user row, not three: the two later turns were never posted.
+      const users = (await transcriptRows()).filter(
+        (row) => row.role === ChatMessageRole.user,
+      )
+      expect(users.map((row) => row.content)).toEqual(['first?'])
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // And a DECLINED turn is not a broken one: a fallback reply is an agent
+  // result, the history is intact, and the conversation has to continue or
+  // the case measures the harness's patience instead of the agent.
+  it(
+    'keeps going after a turn the agent declined',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: { caseId: 'declines-then-answers', turns: ['first?', 'second?'] },
+        script: {
+          steps: [{ kind: 'text', text: TOOL_BUDGET_FALLBACK_REPLY }],
+          usage: TOKENS,
+        },
+      })
+
+      expect(record.status).toBe('blocked')
+      const users = (await transcriptRows()).filter(
+        (row) => row.role === ChatMessageRole.user,
+      )
+      expect(users.map((row) => row.content)).toEqual(['first?', 'second?'])
+    },
+    TURN_TIMEOUT_MS,
+  )
+
   it(
     'records a multi-turn case under an input the judge can read',
     async () => {

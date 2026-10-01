@@ -386,11 +386,12 @@ const driveCase = async (
 
     const events = parseStreamEvents(String(streamed.data))
     const done = events.find((event) => event.type === 'done')
-    outcomes.push({
+    const turn: TurnOutcome = {
       output: await readAssistantText(ports, done?.assistantMessageId),
       events,
       streamErrored: events.some((event) => event.type === 'error'),
-    })
+    }
+    outcomes.push(turn)
     trace.push(...buildTrace(events, capture.outcomes.slice(outcomesBefore)))
 
     // Per turn, because the capture's usage promise is replaced by the next
@@ -404,6 +405,19 @@ const driveCase = async (
       await readTurnTokens(capture)
     } catch (usageErr) {
       usageErrors.push(traceErrorText(usageErr))
+    }
+
+    // STOP ON A BROKEN TURN, and do not post the rest. The conversation this
+    // case authored is already over: the next turn would be answered against
+    // a history whose last reply is missing or is the interrupted sentinel,
+    // and `combineChatStatus` discards the whole case as infraError anyway —
+    // so every turn after this one is real model spend on output nothing
+    // reads. A DECLINED turn is not this: a fallback reply is an agent
+    // result, the history is intact, and the conversation continues.
+    if (
+      classifyChatStatus(turn.output, turn.streamErrored, []) === 'infraError'
+    ) {
+      break
     }
   }
 
@@ -624,6 +638,22 @@ export const turnTokens = (
   }
 }
 
+// BOTH REASONS, NOT ONE INSTEAD OF THE OTHER. The directive refusal and a
+// route or transport failure are independent: the seam refuses before the
+// model is called, so a `driveCase` throw is something else going wrong in
+// the same run. Reporting only the directive sends the reader to fix a case
+// list when the turn also failed to reach the app at all.
+export const directiveFailureText = (
+  agentId: string,
+  caseId: string,
+  directiveError: string,
+  driveError?: string,
+): string =>
+  `${agentId}/${caseId}: ${directiveError}` +
+  (driveError === undefined
+    ? ''
+    : ` (the run also failed to complete: ${driveError})`)
+
 export const runChatCase = async (
   ports: ChatRunnerPorts,
   request: ChatRunRequest,
@@ -688,6 +718,9 @@ export const runChatCase = async (
   // pricing guard below would otherwise restate the same failure generically,
   // one step behind it.
   let usageErrorTraced = false
+  // Carried so the directive refusal below can say the turn ALSO broke,
+  // rather than replacing one reason with the other.
+  let driveError: string | undefined
   try {
     outcome = await driveCase(ports, request, llm.capture, turns)
     trace = outcome.trace
@@ -703,7 +736,8 @@ export const runChatCase = async (
     // result: no output exists to judge, which is exactly what infraError
     // means and why the schema forbids one.
     outcome = { turns: [], trace: [], usageErrors: [] }
-    trace = infraTrace(traceErrorText(err))
+    driveError = traceErrorText(err)
+    trace = infraTrace(driveError)
   } finally {
     llm.restore()
     databricks.restore()
@@ -712,14 +746,18 @@ export const runChatCase = async (
 
   // A forced-failure directive that named a tool the turn never registered.
   // Thrown rather than recorded, and thrown AFTER the restores above so the
-  // singleton is left clean: the record would otherwise be
-  // indistinguishable from a case the agent simply never needed the tool for,
-  // and the sweep would report a verdict about a condition nobody applied.
-  // Nothing was spent — the seam refuses before the model is called.
+  // singleton is left clean: the record would otherwise be indistinguishable
+  // from a case the agent simply never needed the tool for, and the sweep
+  // would report a verdict about a condition nobody applied. Nothing was
+  // spent — the seam refuses before the model is called.
   if (llm.capture.directiveError !== undefined) {
     throw new CaseListError(
-      `${request.agentId}/${request.case.caseId}: ` +
+      directiveFailureText(
+        request.agentId,
+        request.case.caseId,
         llm.capture.directiveError,
+        driveError,
+      ),
     )
   }
 

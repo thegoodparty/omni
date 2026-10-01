@@ -16,6 +16,7 @@ import {
   ciContextFromEnv,
   classifyChatStatus,
   combineChatStatus,
+  directiveFailureText,
   everyTurnPriced,
   joinTurnReplies,
   priceRun,
@@ -541,5 +542,28 @@ describe('everyTurnPriced', () => {
   // turn unpriceable instead of priced at what its first two turns cost.
   it('is false when a turn the case asked for never reported', () => {
     expect(everyTurnPriced(2, ['a', 'b', 'c'])).toBe(false)
+  })
+})
+
+// BOTH REASONS, NOT ONE INSTEAD OF THE OTHER. The seam refuses a directive
+// before the model is called, so a run that ALSO failed to complete failed
+// for a second, independent reason — and reporting only the directive sends
+// the reader to fix a case list when the turn never reached the app.
+describe('directiveFailureText', () => {
+  it('names the directive when that is all that went wrong', () => {
+    expect(
+      directiveFailureText('chief_of_staff', 'one', 'no such tool: x'),
+    ).toBe('chief_of_staff/one: no such tool: x')
+  })
+
+  it('keeps the run failure beside the directive', () => {
+    const text = directiveFailureText(
+      'chief_of_staff',
+      'one',
+      'no such tool: x',
+      'Error: POST /v1/chats/:id/messages returned 502',
+    )
+    expect(text).toContain('no such tool: x')
+    expect(text).toContain('returned 502')
   })
 })

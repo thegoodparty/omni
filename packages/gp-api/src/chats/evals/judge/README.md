@@ -257,11 +257,15 @@ zero rather than as that partial sum, which is what a single unreported turn
 already recorded and the only other thing `TokenUsageSchema` can say; the trace
 carries the reason.
 
-Status is worst-turn-wins. A broken turn makes the case `infraError`, because
-the conversation the case authored did not happen and the turns after it were
-answered against a history missing a reply. A turn that fell back to the
-declined reply marks it `blocked` even if a later turn recovered — a
-conversation that had to recover is the behavior being compared.
+Status is worst-turn-wins, and **a broken turn stops the loop.** The case is
+`infraError` because the conversation it authored did not happen, so posting
+the turns after it would be real model spend on output nothing reads — they
+would be answered against a history whose last reply is missing or is the
+interrupted sentinel, and the verdict is already thrown away. A DECLINED turn
+is not that: a fallback reply is an agent result, the history is intact, and
+the conversation continues. It marks the case `blocked` even if a later turn
+recovered, because a conversation that had to recover is the behavior being
+compared.
 
 **A seeded prior transcript reaches the store, because no route writes an
 assistant message.** The assistant row is produced by the stream as a side
