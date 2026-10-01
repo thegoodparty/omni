@@ -584,8 +584,10 @@ Keep `.to_string()`: pandas otherwise elides columns, and the elided column is u
 the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api_events`;
 `:` property paths are case-insensitive.
 
-1. **Name the drift** (A, B or C, per the SOP). For A or C, stop until the business
-   group has ruled. A rename can hold a C inside a B; step 5 is where that surfaces.
+1. **Name the drift** (A, B or C, per the SOP). Arriving from a case 2 accept, it is
+   B: confirm and continue. For a case 3 yes or a standalone drift, name it now, and
+   for A or C stop until the business group has ruled. A rename can hold a C inside a
+   B; step 5 is where that surfaces, and it stops there.
 2. **Read both gotchas books** in full: `books/analytics-governance-gotchas.md` here,
    and gp-data-platform's `.claude/skills/win-analytics-knowledge/references/gotchas.md`
    (or `serve-…`). After drafting the plan, check it against them row by row and say
@@ -738,16 +740,16 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
         call sites, check the judge's `evidence` against the metric's exclusions: it can
         pick the one call site the metric excludes (the self-report modal, on
         DATA-2584).
-   **Watching CI.** Read the dbt Cloud run itself
-   (`/api/v2/accounts/<acct>/runs/<run>/?include_related=["run_steps"]`, token in
-   `~/.dbt/dbt_cloud.yml`, never printed): the GitHub badge lags the run by minutes
-   and names no failing node. Write the watch so a GitHub API error retries rather
-   than ending the loop, or a blip reads as silence. **Read delegate's latest verdict
-   on every poll, never the first one you see.** Delegate can post a second review on
-   the same commit that contradicts the first ("approve", then "request changes"), and
-   as a COMMENTED review it does not clear GitHub's approved state, so a watch that
-   latches on the first verdict merges over open findings. Re-read it immediately
-   before merging.
+   5. **Watching CI.** Read the dbt Cloud run itself
+      (`/api/v2/accounts/<acct>/runs/<run>/?include_related=["run_steps"]`, token in
+      `~/.dbt/dbt_cloud.yml`, never printed): the GitHub badge lags the run by minutes
+      and names no failing node. Write the watch so a GitHub API error retries rather
+      than ending the loop, or a blip reads as silence. **Read delegate's latest verdict
+      on every poll, never the first one you see.** Delegate can post a second review on
+      the same commit that contradicts the first ("approve", then "request changes"), and
+      as a COMMENTED review it does not clear GitHub's approved state, so a watch that
+      latches on the first verdict merges over open findings. Re-read it immediately
+      before merging.
 8. **After merge, verify:** the ratification follow-up PR opened, the catalog
    regenerated, the prod value matches the `semantic-value` line, the digest's
    `okr_anchor_dormant` latch for the old leg cleared, and anything predicted during
