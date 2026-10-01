@@ -218,7 +218,14 @@ def run_status(
             reason_code=wire_reason_code,
             detail=req.detail or "",
             duration_seconds=req.duration_seconds or 0,
-            cost_usd=req.cost_usd or 0,
+            # Forwarded as-is, NOT `or 0`. The runner withholds cost_usd when
+            # any part of the run's spend was never observed (an unpriced model,
+            # or a terminal ResultMessage that carried no cost), and `or 0`
+            # turned that withholding straight back into a measured-looking
+            # $0.00 — understating a timed-out run's partial spend AND making it
+            # indistinguishable from a genuinely free one. The omission has to
+            # survive to gp-api for the distinction to exist anywhere.
+            cost_usd=req.cost_usd,
         )
 
     # Delete ticket + run-lock on any terminal state (failed/contract_violation/timeout —

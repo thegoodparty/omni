@@ -138,6 +138,35 @@ class TestArtifactPublishCarriesDurationAndCost:
         assert call_kwargs["duration_seconds"] == 73.4
         assert call_kwargs["cost_usd"] == 0.18
 
+    def test_an_omitted_cost_is_not_coerced_to_zero(self):
+        """`cost_usd` once defaulted to 0 on the model, which coerced an
+        unmeasured cost at the model layer rather than at the call site — the
+        same measured-looking $0.00 /run-status produced with `or 0`. A cost
+        the runner did not report has to reach the callback as absent, which
+        is what gp-api turns into a null `costUsd` column."""
+        app, _, mock_sender, _ = _create_app()
+
+        resp = TestClient(app).post(
+            "/artifact/publish",
+            json={"artifact": _valid_artifact(), "duration_seconds": 73.4},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        assert mock_sender.send_result.call_args.kwargs["cost_usd"] is None
+
+    def test_an_observed_zero_cost_still_reaches_the_callback(self):
+        app, _, mock_sender, _ = _create_app()
+
+        resp = TestClient(app).post(
+            "/artifact/publish",
+            json={"artifact": _valid_artifact(), "cost_usd": 0.0},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        assert mock_sender.send_result.call_args.kwargs["cost_usd"] == 0.0
+
 
 class TestArtifactPublishSuccess:
     def test_valid_artifact_publishes_to_s3_and_sends_callback(self):
@@ -424,7 +453,9 @@ class TestArtifactPublishVoterTargeting:
             experiment_id="voter_targeting",
             status="success",
             duration_seconds=0,
-            cost_usd=0,
+            # The body omitted cost_usd, so it forwards as None (absent on the
+            # wire), not as a measured-looking 0.
+            cost_usd=None,
             artifact_key="voter_targeting/331e5b56-e316-45a3-bdb3-08f81c7fad00/artifact.json",
             artifact_bucket="gp-agent-artifacts-dev",
         )

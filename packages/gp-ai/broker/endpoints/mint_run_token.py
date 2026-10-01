@@ -8,7 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from broker.auth import get_service_token, verify_service_token
 from broker.dynamodb_client import (
+    JUDGE_RUN_ID_MAX_LENGTH,
     JUDGE_RUN_ID_PREFIX,
+    JUDGE_RUN_ID_RE,
     ExperimentOverrideRef,
     InputFileRef,
     ScopeTicket,
@@ -140,7 +142,8 @@ def _validate_judge_fields(
     A SERVICE_TOKEN holder is authenticated, not trusted, so every judge
     invariant the dispatch Lambda establishes is re-established here.
 
-    `is_eval` is checked against the run-id prefix in BOTH directions, and is
+    `is_eval` is checked against the run-id prefix in BOTH directions, the run
+    id is then held to the dispatch Lambda's whole shape, and `is_eval` is
     honored in `dev` only. The prefix binding is the load-bearing one: `is_eval` makes the broker drop this run's success
     callback (`artifact_publish`) and every terminal status (`run_status`), so
     without the binding a token holder could mint `is_eval=true` against a real
@@ -148,6 +151,13 @@ def _validate_judge_fields(
     row would hang until the 45-minute stale sweep. The converse direction is a
     wiring bug rather than an attack: a judge run id minted without `is_eval`
     posts callbacks gp-api cannot match, one error per run.
+
+    The shape check is `JUDGE_RUN_ID_RE.fullmatch`, the same regex dispatch
+    uses, not just its length bound: a validator that accepts a shape the next
+    layer rejects is the defect, so this mirrors the layer it stands in for.
+    The bound itself is the ECS `startedBy` ceiling dispatch sizes the run id
+    against before passing it to RunTask verbatim, and the one the task reaper
+    reads back to identify the run.
 
     `ExperimentOverrideRef` already pins the key shape and the shared folder,
     and `ScopeTicket` re-checks the agent binding on load. Raising here turns
@@ -168,6 +178,30 @@ def _validate_judge_fields(
                 f"is_eval must be true exactly when run_id is prefixed {JUDGE_RUN_ID_PREFIX!r}; "
                 "is_eval suppresses this run's results callbacks, so it may only be set for a run "
                 "gp-api has no experiment_run row for"
+            ),
+        )
+    # Shape, not just prefix. Mirrors `_validate_judge_dispatch`, which
+    # `fullmatch`es the same regex and refuses the dispatch outright — so
+    # without this the broker mints a live ticket for a judge run id the
+    # Lambda above it will never dispatch, and nothing downstream re-checks it.
+    if judge_run_id and JUDGE_RUN_ID_RE.fullmatch(run_id) is None:
+        # Logged, not echoed: the run id is caller-controlled, and the other
+        # judge rejections keep it out of the 400 body too. Safe to log —
+        # `IDENTIFIER_PATTERN` has already bounded it to 64 characters of
+        # `[a-zA-Z0-9_-]`, so there is no newline to forge a log line with.
+        logger.warning(
+            "mint_run_token judge_run_id_malformed run_id=%s run_id_length=%d experiment_id=%s",
+            run_id,
+            len(run_id),
+            experiment_id,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"a judge run_id must match {JUDGE_RUN_ID_RE.pattern}; dispatch passes the run id "
+                f"to ECS RunTask as startedBy verbatim and refuses anything over "
+                f"{JUDGE_RUN_ID_MAX_LENGTH} characters, so a ticket minted for a longer one is a "
+                "ticket for a run that cannot be dispatched"
             ),
         )
     # Dev-only on `is_eval`, not just on the override: a sweep's base arm sets

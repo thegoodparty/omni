@@ -426,6 +426,22 @@ class TestJudgeContractAgreement:
         # producer.
         assert broker_prefix == lambda_prefix == "_judge-"
 
+    def test_run_id_regex_matches_the_dispatch_lambdas(self):
+        """The prefix is only half the shape. Mint `fullmatch`es this regex to
+        refuse a judge run id the dispatch Lambda would refuse, so the two
+        patterns drifting apart would silently reopen the gap: mint accepting a
+        run id dispatch rejects, or rejecting one a real sweep arm uses."""
+        from broker.dynamodb_client import JUDGE_RUN_ID_MAX_LENGTH as broker_max
+        from broker.dynamodb_client import JUDGE_RUN_ID_RE as broker_re
+        from pmf_engine.control_plane.manifest_loader import JUDGE_RUN_ID_MAX_LENGTH as lambda_max
+        from pmf_engine.control_plane.manifest_loader import JUDGE_RUN_ID_RE as lambda_re
+
+        assert broker_re.pattern == lambda_re.pattern
+        # Also pinned literally: the two could drift together away from the 36
+        # `packages/contracts` publishes as JUDGE_RUN_ID_MAX_LENGTH, which is
+        # what the TypeScript producer sizes its run ids against.
+        assert broker_max == lambda_max == 36
+
     def test_version_id_alphabet_matches_the_request_models(self):
         from broker.dynamodb_client import _S3_VERSION_ID_RE
         from broker.endpoints.experiment_manifest import S3_VERSION_ID_PATTERN

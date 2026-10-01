@@ -220,6 +220,48 @@ class TestRunStatusContractViolation:
         mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "run-001")
 
 
+class TestRunStatusWithholdsAnUnmeasuredCost:
+    """An unmeasured figure must not be reported as zero. The runner omits
+    `cost_usd` when any part of a run's spend was never observed — an unpriced
+    model, or a terminal ResultMessage with no cost — precisely so a timed-out
+    run is not billed a measured-looking $0.00. The broker coerced that
+    omission straight back with `or 0`, which was strictly worse than the
+    partial sum it replaced: a run with one priced turn at $6.00 and one
+    unpriced turn reached gp-api as $0.00, indistinguishable from a genuinely
+    free run.
+
+    gp-api can represent the distinction — `costUsd: z.number().optional()` on
+    the wire, `costUsd: data.costUsd ?? null` into a nullable column — so the
+    omission only has to survive the broker.
+    """
+
+    def test_an_omitted_cost_is_forwarded_as_omitted(self):
+        app, _, mock_sender, _ = _create_app()
+
+        resp = TestClient(app).post(
+            "/internal/run-status",
+            json={"status": "timeout", "detail": "Exceeded time limit", "duration_seconds": 42.5},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        assert mock_sender.send_result.call_args[1]["cost_usd"] is None
+
+    def test_an_observed_zero_is_still_forwarded_as_zero(self):
+        """The other half of the distinction: a genuine zero is a measurement
+        and must stay on the wire as one."""
+        app, _, mock_sender, _ = _create_app()
+
+        resp = TestClient(app).post(
+            "/internal/run-status",
+            json={"status": "failed", "reason_code": "agent_error", "detail": "boom", "cost_usd": 0.0},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        assert mock_sender.send_result.call_args[1]["cost_usd"] == 0.0
+
+
 class TestRunStatusSuccessRejected:
     """`status=success` via /run-status is NOT allowed — success must only
     flow through /artifact/publish, which is the only path that uploads to
