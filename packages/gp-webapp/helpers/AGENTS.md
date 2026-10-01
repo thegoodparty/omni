@@ -31,6 +31,9 @@ Grouped by category:
 - **It's a 50+ file dumping ground.** Before adding a new helper, grep for the same idea — it likely exists. If unsure, ask.
 - `linkhelper.ts` is lowercase (legacy). Don't rename casually — many imports.
 - `test-utils/` is the canonical Vitest helper set; don't duplicate. See `docs/testing.md`.
+- **`analyticsHelper.ts` is guarded.** The Analytics guard check blocks a PR that removes an
+  event's last call site but leaves its `EVENTS` key, or that removes or moves a call site of
+  an event an OKR counts without an `intents:` row. Use the `instrument-analytics-event` skill.
 
 ## Related
 
