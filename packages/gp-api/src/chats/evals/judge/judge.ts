@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { NoObjectGeneratedError } from 'ai'
+import { NoObjectGeneratedError, TypeValidationError } from 'ai'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
@@ -450,14 +450,28 @@ const runSeat = async (
     })
     return { model, verdict: object }
   } catch (err) {
-    // ONLY THE SCHEMA FAILURE IS RENAMED. The provider's own message for it
-    // is "No object generated: response did not match schema", which does
-    // not say which schema or what it wanted — and this sentence is what the
-    // report prints, to a reader who cannot see config.dimensions. Every
-    // other failure (auth, rate limit, network) keeps its own message,
-    // because calling those a rubric problem would send the next person to
-    // the wrong place.
+    // Auth, rate limits, network: their own message already says what
+    // happened.
     if (!NoObjectGeneratedError.isInstance(err)) throw err
+
+    // ONE ERROR TYPE, SEVERAL DIFFERENT FAILURES, and only one of them is
+    // about the rubric. The SDK raises NoObjectGeneratedError for a verdict
+    // that broke the schema, for a response truncated mid-JSON, for an empty
+    // one and for a content filter. Measured on a truncation: finishReason
+    // `length`, cause a JSONParseError, message "could not parse the
+    // response". So the cause is what separates them — a type-validation
+    // failure is the model answering the wrong shape, anything else is the
+    // response never arriving intact.
+    //
+    // The distinction is the whole value of renaming at all. Telling someone
+    // their rubric was not satisfied when the real problem was max_tokens
+    // sends them to the prompt for an answer that is in the finish reason.
+    if (!TypeValidationError.isInstance(err.cause)) {
+      throw new Error(
+        `seat ${model} produced no readable verdict (finish reason: ` +
+          `${err.finishReason}): ${err.message}`,
+      )
+    }
     throw new Error(
       `seat ${model} returned no verdict matching the rubric, which ` +
         `requires one per dimension: ${config.dimensions.join(', ')}`,

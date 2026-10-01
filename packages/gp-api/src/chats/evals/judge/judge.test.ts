@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NoObjectGeneratedError } from 'ai'
+import { JSONParseError, NoObjectGeneratedError, TypeValidationError } from 'ai'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
@@ -68,7 +68,13 @@ const fake = (
           throw new NoObjectGeneratedError({
             message: 'No object generated: response did not match schema.',
             text: JSON.stringify(reply),
-            cause: parsed.error,
+            // A TYPE-VALIDATION cause, which is what the SDK attaches when
+            // the model answered the wrong shape — and what separates that
+            // from a truncated response. See the truncation fake below.
+            cause: new TypeValidationError({
+              value: reply,
+              cause: parsed.error,
+            }),
             finishReason: 'stop',
             usage: {
               inputTokens: 0,
@@ -704,5 +710,64 @@ describe('an ungraded reason is scrubbed', () => {
     // The sentence survives: a redaction that ate the message would make the
     // report useless in a different way.
     expect(reason).toContain('provider rejected key')
+  })
+})
+
+// ONE ERROR TYPE, SEVERAL FAILURES. The SDK raises NoObjectGeneratedError for
+// a verdict that broke the schema, for a response truncated mid-JSON, for an
+// empty one and for a content filter. Measured against the real provider with
+// maxOutputTokens 16: finishReason `length`, cause a JSONParseError, message
+// "No object generated: could not parse the response." Those numbers are
+// where this fixture comes from.
+describe('a truncated response is not called a rubric failure', () => {
+  const truncated = (): Error =>
+    new NoObjectGeneratedError({
+      message: 'No object generated: could not parse the response.',
+      text: '{"rubric_version":"uj-rub',
+      cause: new JSONParseError({
+        text: '{"rubric_version":"uj-rub',
+        cause: new Error('Unexpected end of JSON input'),
+      }),
+      finishReason: 'length',
+      usage: {
+        inputTokens: 0,
+        outputTokens: 16,
+        totalTokens: 16,
+        inputTokenDetails: {
+          noCacheTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        outputTokenDetails: { textTokens: 16, reasoningTokens: 0 },
+      },
+      response: { id: 'fake', timestamp: new Date(0), modelId: 'fake' },
+    })
+
+  it('says the response was unreadable and names the finish reason', async () => {
+    const { llm } = fake([truncated()])
+    const result = await judgeCase(
+      llm,
+      plan(blindCase(BASE, CANDIDATE, X_IS_BASE)),
+    )
+    const reason = result.kind === 'ungraded' ? result.reason : ''
+    expect(reason).toContain('produced no readable verdict')
+    // The actionable part: max_tokens, not the rubric.
+    expect(reason).toContain('finish reason: length')
+  })
+
+  // THE BLOCKER THIS TEST EXISTS FOR. Renaming every
+  // NoObjectGeneratedError sent a reader to the rubric for a problem that
+  // was in the token budget.
+  it('does not blame the rubric for it', async () => {
+    const { llm } = fake([truncated()])
+    const result = await judgeCase(
+      llm,
+      plan(blindCase(BASE, CANDIDATE, X_IS_BASE)),
+    )
+    const reason = result.kind === 'ungraded' ? result.reason : ''
+    expect(reason).not.toContain('matching the rubric')
+    for (const dimension of DEFAULT_JUDGE_CONFIG.dimensions) {
+      expect(reason).not.toContain(dimension)
+    }
   })
 })
