@@ -70,25 +70,48 @@ same as it did live.
 
 ## A step carries whether its people were asked
 
-`define`, `options`, `method` and (when it puts something new on people)
-`plan` end with a check: the agent finds the most affected constituents by
-the affectedness method in the prompt (`AFFECTEDNESS_BLOCK` in
-`gp-api/.../priority-flow/priorityFlow.prompt.ts`), builds the saved list,
-writes the one question, and offers it as work already done through the
-`present_outreach_proposal` card (door knocking has no card yet, so it gets a
-`/dashboard/door-knocking?listId=` link). The check is the ask for its stage.
-`listen_problem` and `listen_options` never ask again: they are where the
-answers to the `define` and `options` checks land.
+`define`, `options`, `method` and `plan` always end with a check. The agent
+picks who by the affectedness method in the prompt (`AFFECTEDNESS_BLOCK` in
+`gp-api/.../priority-flow/priorityFlow.prompt.ts`, from Samuel's Serve lists
+runbook), builds the saved list, writes the one question, and offers it as
+work already done through `present_outreach_proposal` on whichever channel
+those people answer on, door knocking included. Every check has two sides,
+both always offered: the most affected, and the least affected (exposure
+inverted, same gates), each on its own card. The official can take both, one,
+or neither. The check is the ask for its stage. `listen_problem` and
+`listen_options` never ask again: they are where the answers to the `define`
+and `options` checks land.
+
+A model left alone records the check and moves on without showing it, so the
+server holds the order. `update_priority_status` refuses to record `asked`
+until a card or a question has gone out in that turn (the priority-flow
+handler tells it, since tools are built per turn), refuses to open a step past
+a settled gate that has no check, and answers a gate settled without one with
+`checkDue`: offer it now, before any next-step work. So `asked` means shown,
+and the rail reads it as waiting on the official.
 
 Listening is not a gate. The answer lives on the step as `check`
 (`PriorityStepCheckSchema` in contracts): `asked`, `out`, `confirmed`,
-`revised`, `deferred`, `declined`. A deferral comes back at most
-`MAX_CHECK_RAISES` times, and the count is derived in `mergeStepCheck`
-(recording `deferred` over `deferred` is a raise), shared by the server and
-`applyStatusUpdate` so the two never count differently. A malformed check
-drops on its own, both in the stored status and in a live patch, so it can
-never stop the step itself from moving. The rail prints one line per step
-with a check (`STEP_CHECK_LABELS`).
+`revised`, `deferred`, `declined`, with the least-affected side nested as
+`check.contrast` with its own state. It is nested rather than a second check
+because it is offered, answered and raised together; it has its own state
+because the official can take one side and not the other. A check patch may
+omit `state` to move only the contrast. A deferral comes back at most
+`MAX_CHECK_RAISES` times, and the count is derived (and capped) in
+`mergeStepCheck`: recording `deferred` over `deferred` is a raise. It is
+shared by the server and `applyStatusUpdate` so the two never count
+differently. A malformed check, or contrast, drops on its own, in the stored
+status, in a live patch and in the server's tool input, so it never stops the
+step itself from moving. The rail prints one line per side
+(`STEP_CHECK_LABELS`, `STEP_CONTRAST_LABELS`).
+
+Chief of Staff reads the same state (current step, next action, checks)
+through its priorities context and points into this flow without running it.
+When a put-off check's moment arrives it raises it once, in one line, and
+records it with `record_check_reminder`, a narrow write in
+`PriorityStatusService.recordCheckReminder` that touches only that step's
+check and spends the same raise counter, so the two surfaces never nag
+separately.
 
 ## Cards are keyed, not trusted
 
@@ -104,9 +127,11 @@ Two values in an outreach proposal are **derived in
   the server would not agree with.
 - `deepLinkOnly` — `channel !== 'phoneBanking'`. Only phone banking can be
   completed from a card. Social carries no platform in the proposal contract,
-  and text lands `pending_payment` behind Stripe, so a Send button there would
-  leave an unpaid draft. The API's 400 is the backstop; the guard is that the
-  button never renders.
+  text lands `pending_payment` behind Stripe, so a Send button there would
+  leave an unpaid draft, and door knocking is cut on a map: its card links to
+  `/dashboard/door-knocking?create=1&listId=`, the shape the CRM channel
+  picker uses, so the create flow opens on the saved list. The API's 400 is
+  the backstop; the guard is that the button never renders.
 
 Args that fail to parse drop the card and leave the turn's prose alone.
 `read_past_outreach` is a data read whose args are `{ channel? }`, so it always

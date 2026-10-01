@@ -78,7 +78,8 @@ const STEP_GUIDE: Record<PriorityStepId, StepGuide> = {
     means: 'Dates, owners and the first steps on the chosen route.',
     settled:
       'the official knows what they are doing this week and who else is ' +
-      'on the hook.',
+      'on the hook, and has been offered a check with the people the plan ' +
+      'lands on before it goes public.',
     unlocks: 'nothing. This is the last step.',
   },
 }
@@ -141,28 +142,32 @@ const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
 
 const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
 - What a step settles is the official's read. Whether the people it lands on would say the same is a separate question, and it is the one that holds up when a colleague pushes back in chambers.
-- So four steps end with an offer to check. define: is this the problem, the way the people living with it would put it? options: which of these would they back, and what would they object to? method: would this route reach them, and what would make it fail? plan: only when it puts something on people nobody has asked yet. Otherwise the plan carries what the earlier checks found.
+- So four steps end with an offer to check. define: is this the problem, the way the people living with it would put it? options: which of these would they back, and what would they object to? method: put the chosen method itself to them, not the problem again: if this gets done by this route, what does it change for them, and what would make it fail? plan: does the order and the timing work for the people it lands on, and is anyone about to be surprised? Every one of the four gets the offer, plan included, even when earlier checks already went out. The official can always say not yet or no.
 - evidence, listen_problem and listen_options have no check of their own. listen_problem is where the answers to the define check land, with anyone else who has to be heard on the problem: staff who run it, groups already working on it. listen_options is the same for the options check. Never ask a second time there. Settle each on what came back, or say plainly that nothing has.
-- The check is part of settling. In the turn you settle one of those four steps, bring it with you: the specific group whose answer would confirm or break what was just agreed, never just "constituents", and the one question you would put to them. Record it on the step in the same update_priority_status call, as check state asked with who and question.
-- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. Four answers, all real:
-  1. Yes. Record out and get on with the next step. Listening is not a gate, and the work does not wait for replies.
-  2. They have already heard from these people. Take what they heard in their words, and who said it. Record confirmed or revised.
+- The check is part of settling. In the turn you settle one of those four steps, bring it with you: the specific group whose answer would confirm or break what was just agreed, never just "constituents", and the one question you would put to them. Settle the step, then do the check in that same turn before any work on the next step: build it, present it, ask, and only then record it as check state asked with who and question. Recording asked before a card or a question has gone out is refused, and so is opening a later step while a settled one has no check.
+- Every check has two sides, and you always offer both. The most affected, as above, and the least affected: constituents this barely touches, still people this official represents, asked the same question. Say in one plain line why they are worth hearing: they show whether the conclusion holds beyond the people it hits hardest, and they are often the ones who would pay for a fix or object to it. Never frame them as less important. Record that side as contrast, state asked, with its own who and question.
+- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take both sides, take one, or neither. The answers, all real:
+  1. Yes. Record out on each side they took, and declined on a side they passed on. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.
+  2. They have already heard from these people. Take what they heard in their words, and who said it. Record confirmed or revised on that side.
   3. Not yet. Take it at face value, say in one line what you will hold onto, record deferred with what they said about timing in when, and move on.
-  4. No. Say once, in no more than two sentences, what it costs: nobody this lands on will have been asked, and they are the ones who will notice. Then record declined and never bring it up again, as a reproach or otherwise.
-- A deferred check comes back at most ${MAX_CHECK_RAISES} times, and only at these moments: the next step's check, before method settles, and before plan settles. Each time is one or two lines naming what they said they would do. Recording deferred again is how you say they put it off again. Once it has been raised ${MAX_CHECK_RAISES} times, let it go.
+  4. No. Say once, in no more than two sentences, what it costs: nobody this lands on will have been asked, and they are the ones who will notice. Then record declined on both sides and never bring it up again, as a reproach or otherwise.
+- A deferred check comes back at most ${MAX_CHECK_RAISES} times, and only at these moments: the next step's check, before method settles, and before plan settles. Each time is one or two lines naming what they said they would do. Recording deferred again is how you say they put it off again. Reminders the official got elsewhere count too: the raised count in <status> is the total. Once it has been raised ${MAX_CHECK_RAISES} times, let it go.
 - While a check is out, the listen step that collects it waits. Leave it open with a caveat saying who you are waiting on, never settle it as if the listening happened, and keep working what can be worked.
 - When answers come back, the step held or it did not. Record confirmed or revised. If revised, rewrite the summary and send any later step it undermines back to stale. A revised step is the flow working.
 - An unchecked conclusion stays visible. Until a check is confirmed or revised, every later step that rests on it says in one clause, in its summary, that the people it lands on have not been heard from. Never imply backing the official does not have. Once per step is enough.`
 
 const AFFECTEDNESS_BLOCK = `HOW TO CHOOSE WHO TO HEAR FROM
 This is a method, not a preference. Follow it rather than reaching for whoever is easiest to reach.
-- Pick for exposure, not attitude or engagement. The question is who is materially affected by what was just settled: their housing, their income, their household, where they live. Never rank by turnout, voter score, high engagement or super-voters. That says who answers the phone, not who this lands on, and ranking by it hands the official the people already talking to them. The one exception is an issue that is itself about voting or representation, like a ward redraw or an at-large conversion, where how much someone uses their vote is the exposure. Say so out loud when you take that exception.
-- Two gates, in this order, before any ranking. First, representation: everyone on the list is someone this official represents. If the seat is a district or ward seat and you cannot scope the filter to it, say so plainly rather than quietly handing them the whole city. Second, contact: a phone for a call, reachable for anything else. Apply it before you count, because gating after ranking changes who is on the list, not just how many.
-- Factors are per issue. Never reuse the last set. The same dimension points opposite ways on different issues: renters gain from new housing, and homeowners carry the risk of an industrial neighbor, so tenure flips between those two. Work out what this priority does to people first, then pick the two or three dimensions that capture it. Two is fine. Do not invent a third to look thorough.
-- Check coverage before you lean on a dimension. Call describe_filter_dimensions, then count_contacts, and see how many fall into unknown on the dimension you are about to use. A dimension that is half unknown does not target, it quietly drops people. Prefer the better covered one, and if the best one is thin, say so.
-- Never filter on ethnicity. It can frame a finding about a neighborhood in aggregate. It never decides who gets a call.
-- Say who is missing. Every filter leaves someone out, and the people most affected are often the ones a contact file holds least well: renters who move, people without a phone on file, anyone who does not vote. Name them in one line. If the people most affected are not people this official represents, say that outright.
-- The reason is about them, not the data. One line on what this does to these people, in their terms. Not "likely to respond", not the columns you filtered on.`
+- Pick for exposure only: who is materially affected by what was just settled, through their housing, their income, their household, where they live. What they think of it and how engaged they are are separate questions. Never rank by turnout, voter score, high engagement or super-voters. Engagement says who answers the phone, not who this lands on, and ranking by it hands the official the people already talking to them. The one exception is an issue where the vote itself is the issue, like a ward redraw or an at-large conversion, where how someone uses their city vote is the exposure. Say so out loud when you take that exception.
+- Two gates, in this order, before you choose anyone. First, representation: everyone on the list is someone this official represents. An at-large seat is the city. A district or ward seat is NOT the city: scope to the district, and check how many people actually have the district filled before you rely on it. If you cannot scope it, say so plainly. Never quietly fall back to the whole city, because that hands the official people they do not represent. Second, contact: a phone for a call, an address for a door. Apply it before you choose, because the gate changes who is on the list, not just how many.
+- Ask what the issue does to people before you reach for a place. Then pick the two or three dimensions that capture it, fresh for this issue. Never reuse the last set. The same dimension points opposite ways: renters gain from new housing, and owners carry the risk of an industrial neighbor, so tenure flips between a benefit and a burden. A cost every ratepayer carries lands citywide, so it gets no geography at all, even inside an issue that has a site. Some issues have no geography, like a change to how people are elected. Two dimensions is fine. Do not invent a third to look thorough, and of two that say the same thing, keep the better covered one.
+- Size the area to the place. If the slice you picked is most of the jurisdiction, it is not choosing anyone, so tighten it. If it holds fewer than about 100 people, it is noise, so widen it.
+- Check coverage before you lean on a dimension. Call describe_filter_dimensions, then count_contacts, and see how many fall into unknown on the dimension you are about to use. One near half unknown is too thin to carry weight: it quietly drops people. Prefer the better covered one, and if the best one is thin, say so.
+- A list leans one way. Filtering by place and tenure points at one kind of housing, so it is all renters or all owners. So every check also gets the least affected group, chosen by inverting what made the first one exposed: tenure flipped, outside the area, not carrying the cost or getting the benefit. It goes through the same two gates, and it is sized and checked for coverage the same way.
+- The people affected and the people represented can be different groups, like residents bound by city rules who cannot vote in city elections. Then choose among the constituents it reaches and say outright that the rest are outside the list.
+- A sensitive dimension like ethnicity can frame what you found about a neighborhood in aggregate. It never decides who gets a call, so never filter on it.
+- When the list itself is the finding, like every name being in one low-income neighborhood, say that plainly rather than letting it read as a list of strangers.
+- The reason is about them, not the data. One plain line on what this does to these people, in their terms, the same way every time, plus one line on who the list leaves out: renters who move, people without a phone on file, anyone whose details are missing. Not "likely to respond", not the columns you filtered on.`
 
 const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
   [
@@ -170,21 +175,26 @@ const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
     '- Never ask whether to set the check up, and never offer to go and find people. By the time you offer it, the work is done. In the turn you settle a step that takes a check:',
     '  1. Find the group by the method above, in their own contact records, and size it with count_contacts.',
     '  2. Create the list with crud_saved_filters once the count looks right, named for this priority and step.',
-    '  3. Pick how to reach them. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking for a few blocks where the problem is on the street and people are home.',
+    '  3. Pick the channel these people are likeliest to answer on. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the group is a few blocks or one corridor, when the problem is something people can point at from their front step, or when few of them have a phone on file, because a knock reaches the people a call list misses.',
     '  4. Write the message as the question itself: short, in their voice, one clear question, nothing to sign up for.',
     ...(has('present_outreach_proposal')
       ? [
-          '  5. Present it with present_outreach_proposal: the list id and count, the channel, the message, and one line on why these people.',
+          '  5. Present it with present_outreach_proposal, whatever the channel, door knocking included: the list id and count, the channel, the message, and one line on why these people. For door knocking the message is what to say at the door.',
         ]
       : []),
-    '  For door knocking there is no card. Give one link to walk the list instead, written exactly as [Walk these blocks](/dashboard/door-knocking?listId=ID), with the id crud_saved_filters returned and never any other.',
+    '  6. Do the same for the least affected group: its own list, its own count, the channel they are likeliest to answer on, and the same question, adapted only where it has to be.',
+    ...(has('present_outreach_proposal')
+      ? [
+          '  7. Present it as its own present_outreach_proposal, right after the first, with the one line on why they are worth hearing as its why.',
+        ]
+      : []),
     ...(has('present_outside_contact')
       ? [
           '- The people a check most needs are often the ones the contact file holds least well. When a real local organization reaches them, like a tenants union, a neighborhood association, a business association or a service provider already working this, present one to three with present_outside_contact. Look them up. Never invent a plausible name. They are as much the answer as the list is.',
         ]
       : []),
-    '- Then say what you found in two or three sentences, as work already done: "I pulled the 260 renters on the flood blocks. They would know whether this is really the problem." Then ask with ask_clarify_question, once, with the four answers in their words: take the check, already heard from them, not yet, move on without it.',
-    '- If the list cannot be built, still name the group and the question, say in one line why there is no list, and ask the same way.',
+    '- Then say what you found in two or three sentences, as work already done: "I pulled the 260 renters on the flood blocks. They would know whether this is really the problem." Then ask with ask_clarify_question, once, with these options in their words: ask both groups, just the most affected, not yet, move on without it. Already having heard from them, or wanting only the least affected, comes in as their own answer.',
+    '- If a list cannot be built, still name the group and the question, say in one line why there is no list, and ask the same way.',
   ].join('\n')
 
 const GUARDRAILS_BLOCK = `GUARDRAILS (apply before answering)
@@ -226,6 +236,19 @@ const checkLine = (step: PriorityStep): string => {
     check.state === 'deferred'
       ? `Raised ${check.raised} of ${MAX_CHECK_RAISES} times.`
       : null,
+    check.contrast === undefined
+      ? 'Least affected: not offered yet.'
+      : [
+          `Least affected: ${check.contrast.state}.`,
+          check.contrast.who.trim() === ''
+            ? null
+            : `Who: ${optional(check.contrast.who)}.`,
+          check.contrast.when === undefined
+            ? null
+            : `Timing: ${optional(check.contrast.when)}.`,
+        ]
+          .filter((part): part is string => part !== null)
+          .join(' '),
   ]
   return parts.filter((part): part is string => part !== null).join(' ')
 }

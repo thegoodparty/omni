@@ -2,6 +2,7 @@ import {
   PriorityCheckStateSchema,
   PriorityStatusSchema,
   PriorityStepCheckInputSchema,
+  PriorityStepContrastInputSchema,
   PriorityStepIdSchema,
   PriorityStepStateSchema,
 } from '@goodparty_org/contracts'
@@ -37,20 +38,21 @@ const PriorityStepUpdateSchema = z.object({
         'the doubt is resolved.',
     ),
   check: PriorityStepCheckInputSchema.extend({
-    state: PriorityCheckStateSchema.describe(
-      'asked = you put the check to them in this turn and they have not ' +
-        'answered. out = they took it and it is in the field. confirmed = ' +
-        'the people asked backed what the step settled. revised = what they ' +
-        'said changed it; put the change in summary. deferred = not yet; ' +
-        'record it again only when you raised it again and heard not yet ' +
-        'again, because that is what counts the raises. declined = they ' +
-        'chose to settle this without checking.',
+    state: PriorityCheckStateSchema.optional().describe(
+      'The most-affected side. asked = you put the check to them in this ' +
+        'turn and they have not answered. out = they took it and it is in ' +
+        'the field. confirmed = the people asked backed what the step ' +
+        'settled. revised = what they said changed it; put the change in ' +
+        'summary. deferred = not yet; record it again only when you raised ' +
+        'it again and heard not yet again, because that is what counts the ' +
+        'raises. declined = they chose to settle this without checking. ' +
+        'Omit to keep what is stored, for example when only contrast moved.',
     ),
     who: z
       .string()
       .optional()
       .describe(
-        'The specific group whose answer would confirm or break this ' +
+        'The most-affected group, whose answer would confirm or break this ' +
           'step, in plain words. Omit to keep what is stored.',
       ),
     question: z
@@ -64,13 +66,22 @@ const PriorityStepUpdateSchema = z.object({
         'On a deferral, what they said about timing, in their words. ' +
           'Omit to keep what is stored.',
       ),
+    contrast: PriorityStepContrastInputSchema.optional().describe(
+      'The least-affected side, asked the same way: state uses the same ' +
+        'values, who is that group, question is what you put to them. ' +
+        'declined means the official chose not to ask them. Omit to keep ' +
+        'what is stored.',
+    ),
   })
     .optional()
     .describe(
       'Whether what this step settled has been checked with the people it ' +
         'lands on. Pass it only when the check itself changed; omit it to ' +
         'keep the stored check.',
-    ),
+    )
+    // A malformed check drops instead of failing the write, so the step still
+    // moves, exactly as the rail's optimistic merge already shows it moving.
+    .catch(undefined),
 })
 
 export const UpdatePriorityStatusInputSchema = z.object({
@@ -94,6 +105,34 @@ export const UpdatePriorityStatusInputSchema = z.object({
 export type UpdatePriorityStatusInput = z.infer<
   typeof UpdatePriorityStatusInputSchema
 >
+
+export const CheckReminderAnswerSchema = z.enum([
+  'not_yet',
+  'taking_it_up',
+  'declined',
+])
+export type CheckReminderAnswer = z.infer<typeof CheckReminderAnswerSchema>
+
+export const RecordCheckReminderInputSchema = z.object({
+  priorityId: z
+    .string()
+    .min(1)
+    .describe('The id of the priority, from <priorities>.'),
+  stepId: PriorityStepIdSchema.describe(
+    'The step whose put-off check you just raised.',
+  ),
+  answer: CheckReminderAnswerSchema.describe(
+    'not_yet = they put it off again, or did not take it up. taking_it_up ' +
+      '= they want to do it now, and you pointed them at the priority, ' +
+      'where it gets built. declined = they decided not to check it at all.',
+  ),
+  when: z
+    .string()
+    .optional()
+    .describe(
+      'Any new timing they gave, in their words. Omit to keep what is stored.',
+    ),
+})
 
 export const PriorityStatusResponseSchema = z.object({
   status: PriorityStatusSchema,

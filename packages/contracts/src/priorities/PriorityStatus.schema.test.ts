@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MAX_CHECK_RAISES,
   PRIORITY_STATUS_VERSION,
   PRIORITY_STEP_IDS,
   mergeStepCheck,
@@ -105,6 +106,63 @@ describe('mergeStepCheck', () => {
     expect(once?.when).toBe(deferred.when)
     const twice = mergeStepCheck(once, { state: 'deferred' }, NOW)
     expect(twice?.raised).toBe(2)
+  })
+
+  it('moves the least-affected side alone without counting a raise', () => {
+    const withContrast = mergeStepCheck(
+      deferred,
+      {
+        contrast: {
+          state: 'deferred',
+          who: 'Owners outside the flood blocks',
+          question: 'Would you back paying for this?',
+        },
+      },
+      NOW,
+    )
+    expect(withContrast).toMatchObject({
+      state: 'deferred',
+      raised: 0,
+      contrast: {
+        state: 'deferred',
+        who: 'Owners outside the flood blocks',
+      },
+    })
+    const sent = mergeStepCheck(
+      withContrast,
+      { contrast: { state: 'out' } },
+      NOW,
+    )
+    expect(sent?.contrast).toEqual({
+      state: 'out',
+      who: 'Owners outside the flood blocks',
+      question: 'Would you back paying for this?',
+    })
+    expect(mergeStepCheck(sent, { state: 'out' }, NOW)?.contrast?.state).toBe(
+      'out',
+    )
+  })
+
+  it('drops an unreadable least-affected side and keeps the check', () => {
+    const status = parsePriorityStatus({
+      version: 2,
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          check: { state: 'out', contrast: { state: 'nope' } },
+        },
+      ],
+    })
+    expect(status.steps[0]?.check?.state).toBe('out')
+    expect(status.steps[0]?.check?.contrast).toBeUndefined()
+  })
+
+  it('never counts past the cap', () => {
+    const atCap: PriorityStepCheck = { ...deferred, raised: MAX_CHECK_RAISES }
+    expect(mergeStepCheck(atCap, { state: 'deferred' }, NOW)?.raised).toBe(
+      MAX_CHECK_RAISES,
+    )
   })
 
   it('does not count a first deferral or a move out of one', () => {

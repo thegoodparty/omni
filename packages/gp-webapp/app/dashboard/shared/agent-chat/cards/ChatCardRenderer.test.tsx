@@ -462,6 +462,25 @@ describe('OutreachProposalCard', () => {
     expect(messageBox()).toHaveValue(MESSAGE)
   })
 
+  it('deep-links door knocking into its create flow with the list picked', async () => {
+    mockNotSent()
+    mockAudience()
+
+    renderCard(proposalCard({ channel: 'doorKnocking', deepLinkOnly: true }))
+
+    const link = await screen.findByRole('link', {
+      name: 'Finish in outreach',
+    })
+    expect(link).toHaveAttribute(
+      'href',
+      '/dashboard/door-knocking?create=1&listId=77',
+    )
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull()
+    expect(
+      screen.getByText('You will pick the blocks to walk on a map.'),
+    ).toBeVisible()
+  })
+
   it('suppresses Send on a non-phoneBanking proposal that claims it can send', async () => {
     mockNotSent()
     mockAudience()

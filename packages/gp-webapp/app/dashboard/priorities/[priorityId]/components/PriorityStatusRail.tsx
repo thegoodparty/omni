@@ -95,12 +95,22 @@ const StepStateChip = ({
 // Whether the people a step lands on have been heard from. Shown because an
 // unchecked conclusion should never read the same as a checked one.
 export const STEP_CHECK_LABELS: Record<PriorityCheckState, string> = {
-  asked: 'Ready to check with constituents',
+  asked: 'Waiting on you: check with constituents',
   out: 'Waiting to hear back',
   confirmed: 'Constituents agreed',
   revised: 'Changed after hearing from constituents',
   deferred: 'Checking with constituents later',
   declined: 'Not checked with constituents',
+}
+
+// The other side of the same check: the constituents it touches least.
+export const STEP_CONTRAST_LABELS: Record<PriorityCheckState, string> = {
+  asked: 'Waiting on you: check with the least affected',
+  out: 'Least affected: waiting to hear back',
+  confirmed: 'Least affected agreed',
+  revised: 'Changed after hearing from the least affected',
+  deferred: 'Least affected: checking later',
+  declined: 'Least affected: not asked',
 }
 
 const StepCheckLine = ({
@@ -109,9 +119,16 @@ const StepCheckLine = ({
   step: PriorityStep
 }): React.JSX.Element | null =>
   step.check ? (
-    <span className="block text-xs text-muted-foreground">
-      {STEP_CHECK_LABELS[step.check.state]}
-    </span>
+    <>
+      <span className="block text-xs text-muted-foreground">
+        {STEP_CHECK_LABELS[step.check.state]}
+      </span>
+      {step.check.contrast ? (
+        <span className="block text-xs text-muted-foreground">
+          {STEP_CONTRAST_LABELS[step.check.contrast.state]}
+        </span>
+      ) : null}
+    </>
   ) : null
 
 const changedOn = (step: PriorityStep): string | null => {

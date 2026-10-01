@@ -239,7 +239,34 @@ describe('PriorityFlowHandler', () => {
       'update_priority_status',
       'web_search',
     ])
-    expect(priorityStatus.buildStatusTool).toHaveBeenCalledWith('pri-1')
+    expect(priorityStatus.buildStatusTool).toHaveBeenCalledWith(
+      'pri-1',
+      expect.any(Function),
+    )
+  })
+
+  it('tells the status tool when a card or a question went out this turn', async () => {
+    const tools = build().buildTools(baseCtx())
+    const offered = vi.mocked(priorityStatus.buildStatusTool).mock.calls[0]?.[1]
+    if (offered === undefined) throw new Error('expected the offer reader')
+    expect(offered()).toBe(false)
+
+    const ask = tools.ask_clarify_question
+    if (ask === undefined || !('execute' in ask)) {
+      throw new Error('expected an executable tool')
+    }
+    await ask.execute({
+      questionId: 'q1',
+      question: 'Want to check this with them?',
+      options: [{ label: 'Ask both groups' }, { label: 'Not yet' }],
+    })
+    expect(offered()).toBe(true)
+
+    const fresh = build()
+    fresh.buildTools(baseCtx())
+    const nextTurn = vi.mocked(priorityStatus.buildStatusTool).mock
+      .calls[1]?.[1]
+    expect(nextTurn?.()).toBe(false)
   })
 
   it('adds the CRM and community-issue tools when those services resolve', () => {
@@ -289,6 +316,22 @@ describe('PriorityFlowHandler', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('CHECKING A STEP WITH THE PEOPLE IT LANDS ON')
     expect(prompt).toContain('comes back at most 3 times')
+    expect(prompt).toContain(
+      'Every one of the four gets the offer, plan included',
+    )
+    expect(prompt).toContain(
+      'method: put the chosen method itself to them, not the problem again',
+    )
+    expect(prompt).toContain(
+      'Every check has two sides, and you always offer both',
+    )
+    expect(prompt).toContain('Never frame them as less important')
+    expect(prompt).toContain(
+      'do the check in that same turn before any work on the next step',
+    )
+    expect(prompt).toContain(
+      'has been offered a check with the people the plan lands on',
+    )
     expect(prompt).not.toContain('HOW TO CHOOSE WHO TO HEAR FROM')
     expect(prompt).not.toContain('BUILD THE CHECK BEFORE YOU OFFER IT')
   })
@@ -296,11 +339,21 @@ describe('PriorityFlowHandler', () => {
   it('adds the affectedness method and the list work with the CRM tools', () => {
     const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('HOW TO CHOOSE WHO TO HEAR FROM')
-    expect(prompt).toContain('Pick for exposure, not attitude or engagement')
-    expect(prompt).toContain('Never filter on ethnicity')
+    expect(prompt).toContain('Pick for exposure only')
+    expect(prompt).toContain('A district or ward seat is NOT the city')
+    expect(prompt).toContain('Never quietly fall back to the whole city')
+    expect(prompt).toContain('fewer than about 100 people')
+    expect(prompt).toContain('every check also gets the least affected group')
+    expect(prompt).toContain(
+      'Present it as its own present_outreach_proposal, right after the first',
+    )
+    expect(prompt).toContain('never filter on it')
     expect(prompt).toContain('BUILD THE CHECK BEFORE YOU OFFER IT')
-    expect(prompt).toContain('present_outreach_proposal')
-    expect(prompt).toContain('/dashboard/door-knocking?listId=ID')
+    expect(prompt).toContain(
+      'Present it with present_outreach_proposal, whatever the channel, ' +
+        'door knocking included',
+    )
+    expect(prompt).not.toContain('/dashboard/door-knocking')
     expect(prompt).toContain('present_outside_contact')
     expect(prompt.indexOf('HOW TO CHOOSE WHO TO HEAR FROM')).toBeLessThan(
       prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT'),
@@ -325,6 +378,11 @@ describe('PriorityFlowHandler', () => {
                   question: 'Is the sidewalk what keeps you off it?',
                   when: 'after the budget hearing',
                   raised: 1,
+                  contrast: {
+                    state: 'declined' as const,
+                    who: 'Households across town',
+                    question: 'Would you pay toward this?',
+                  },
                 },
               }
             : step,
@@ -335,7 +393,8 @@ describe('PriorityFlowHandler', () => {
       'define (The problem): settled. Cracked slabs on four blocks ' +
         'Check: deferred. Who: Households on the four blocks. ' +
         'Question: Is the sidewalk what keeps you off it? ' +
-        'Timing: after the budget hearing. Raised 1 of 3 times.',
+        'Timing: after the budget hearing. Raised 1 of 3 times. ' +
+        'Least affected: declined. Who: Households across town.',
     )
     expect(prompt).toContain(
       'evidence (What we know): open. Nothing recorded yet.\n',
@@ -362,6 +421,9 @@ describe('PriorityFlowHandler', () => {
     expect(
       await tool.execute({ ...proposal, channel: 'phoneBanking' as const }),
     ).toEqual({ presented: true, deepLinkOnly: false })
+    expect(
+      await tool.execute({ ...proposal, channel: 'doorKnocking' as const }),
+    ).toEqual({ presented: true, deepLinkOnly: true })
   })
 
   it('asks a structured question without touching the status', async () => {

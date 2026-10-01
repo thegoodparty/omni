@@ -22,8 +22,17 @@ export const CHAT_CARD_KINDS = [
 export const ChatCardKindSchema = z.enum(CHAT_CARD_KINDS)
 export type ChatCardKind = z.infer<typeof ChatCardKindSchema>
 
-/** Channels a proposal can be sent straight from the chat. */
-export const PROPOSAL_CHANNELS = ['social', 'phoneBanking', 'text'] as const
+/**
+ * Channels a proposal can be made on. Only phone banking is sent from the
+ * card; the rest deep-link into their own flow. Append only: the channel is
+ * persisted in the tool args of segments that already exist.
+ */
+export const PROPOSAL_CHANNELS = [
+  'social',
+  'phoneBanking',
+  'text',
+  'doorKnocking',
+] as const
 export const ProposalChannelSchema = z.enum(PROPOSAL_CHANNELS)
 export type ProposalChannel = z.infer<typeof ProposalChannelSchema>
 

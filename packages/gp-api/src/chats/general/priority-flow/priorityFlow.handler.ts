@@ -171,13 +171,34 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   }
 
   private assembleTools(ctx: PriorityFlowContext): Record<string, LlmTool> {
+    // Tools are built once per turn, so this flag is "did a card or a question
+    // reach the official in this turn". The status tool refuses to record a
+    // check as asked until one has, which is what makes `asked` mean shown.
+    let offeredThisTurn = false
+    const ask = buildAskClarifyQuestionTool()
+    const propose = buildPresentOutreachProposalTool()
     const tools: Record<string, LlmTool> = {
-      ...this.priorityStatus.buildStatusTool(ctx.priorityId),
+      ...this.priorityStatus.buildStatusTool(
+        ctx.priorityId,
+        () => offeredThisTurn,
+      ),
       // The answer comes back as an ordinary user turn, so this presents a
       // decision without touching the seven-step status. The agent still
       // decides on its own when a step settles.
-      ask_clarify_question: buildAskClarifyQuestionTool(),
-      present_outreach_proposal: buildPresentOutreachProposalTool(),
+      ask_clarify_question: {
+        ...ask,
+        execute: (input: Parameters<typeof ask.execute>[0]) => {
+          offeredThisTurn = true
+          return ask.execute(input)
+        },
+      },
+      present_outreach_proposal: {
+        ...propose,
+        execute: (input: Parameters<typeof propose.execute>[0]) => {
+          offeredThisTurn = true
+          return propose.execute(input)
+        },
+      },
       present_outside_contact: buildPresentOutsideContactTool(),
       present_past_outreach: buildPresentPastOutreachTool(),
       read_past_outreach: buildReadPastOutreachTool({

@@ -305,7 +305,7 @@ const SERVE_AREAS: ProductArea[] = [
       'An issue from Community Issues can be pulled in as a priority',
       'Each row shows the step it is on and the next thing to do about it',
       'Opening a priority works it forward one step at a time',
-      'Before a step is done, it offers to check it with the constituents it affects most, with the list and the question ready',
+      'Before a step is done, it offers to check it with the constituents it affects most and least, with the lists and the question ready',
     ],
     gate: 'Priorities is being rolled out, so it is not on every account yet.',
   },

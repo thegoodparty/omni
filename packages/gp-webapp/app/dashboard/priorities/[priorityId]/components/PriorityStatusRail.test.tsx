@@ -137,7 +137,13 @@ describe('PriorityStatusRail', () => {
           return {
             ...step,
             state: 'settled',
-            check: { state: 'confirmed', who: '', question: '', raised: 0 },
+            check: {
+              state: 'confirmed',
+              who: '',
+              question: '',
+              raised: 0,
+              contrast: { state: 'declined', who: '', question: '' },
+            },
           }
         }
         return step
@@ -160,7 +166,31 @@ describe('PriorityStatusRail', () => {
     expect(
       within(optionsRow).getByText('Constituents agreed'),
     ).toBeInTheDocument()
+    expect(
+      within(optionsRow).getByText('Least affected: not asked'),
+    ).toBeInTheDocument()
+    expect(within(defineRow).queryByText(/least affected/i)).toBeNull()
     expect(within(evidenceRow).queryByText(/constituents/i)).toBeNull()
+  })
+
+  it('says an offered check is waiting on the official', () => {
+    const base = emptyPriorityStatus()
+    const status: PriorityStatus = {
+      ...base,
+      steps: base.steps.map((step) =>
+        step.id === 'define'
+          ? {
+              ...step,
+              state: 'settled',
+              check: { state: 'asked', who: '', question: '', raised: 0 },
+            }
+          : step,
+      ),
+    }
+    render(<PriorityStatusRail status={status} nextAction={null} />)
+    expect(
+      screen.getByText('Waiting on you: check with constituents'),
+    ).toBeInTheDocument()
   })
 
   it('shows the next action when there is one', () => {

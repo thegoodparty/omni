@@ -90,8 +90,32 @@ export const PRIORITY_CHECK_STATES = [
 export const PriorityCheckStateSchema = z.enum(PRIORITY_CHECK_STATES)
 export type PriorityCheckState = z.infer<typeof PriorityCheckStateSchema>
 
+/** The steps that end with a check: a stage gate each. */
+export const PRIORITY_GATE_STEPS: readonly PriorityStepId[] = [
+  'define',
+  'options',
+  'method',
+  'plan',
+]
+
 /** How many times a deferred check is brought back before it is let go. */
 export const MAX_CHECK_RAISES = 3
+
+/**
+ * The other side of a check: the constituents a step touches least, asked
+ * the same question. It shows whether the conclusion holds beyond the people
+ * it hits hardest, and it finds who would pay for or object to a fix. Nested
+ * in the check rather than a second check because it is offered, answered
+ * and raised together with it; it keeps its own state because the official
+ * can take one group and not the other.
+ */
+export const PriorityStepContrastSchema = z.object({
+  state: PriorityCheckStateSchema,
+  who: z.string().default(''),
+  question: z.string().default(''),
+  when: z.string().optional(),
+})
+export type PriorityStepContrast = z.infer<typeof PriorityStepContrastSchema>
 
 export const PriorityStepCheckSchema = z.object({
   state: PriorityCheckStateSchema,
@@ -104,25 +128,57 @@ export const PriorityStepCheckSchema = z.object({
   /** Times a deferred check has been raised again. Counted by the server. */
   raised: z.number().int().nonnegative().default(0),
   updatedAt: z.string().optional(),
+  /** The least-affected group. Dropped on its own if it fails to parse. */
+  contrast: PriorityStepContrastSchema.optional().catch(undefined),
 })
 export type PriorityStepCheck = z.infer<typeof PriorityStepCheckSchema>
 
-/** What the agent writes for a check. Omitted fields keep what is stored. */
-export const PriorityStepCheckInputSchema = z.object({
+export const PriorityStepContrastInputSchema = z.object({
   state: PriorityCheckStateSchema,
   who: z.string().optional(),
   question: z.string().optional(),
   when: z.string().optional(),
 })
+export type PriorityStepContrastInput = z.infer<
+  typeof PriorityStepContrastInputSchema
+>
+
+/**
+ * What the agent writes for a check. Omitted fields keep what is stored, and
+ * that includes `state`, so a patch can move only the least-affected side
+ * without re-recording the main one (which would count as a raise).
+ */
+export const PriorityStepCheckInputSchema = z.object({
+  state: PriorityCheckStateSchema.optional(),
+  who: z.string().optional(),
+  question: z.string().optional(),
+  when: z.string().optional(),
+  contrast: PriorityStepContrastInputSchema.optional(),
+})
 export type PriorityStepCheckInput = z.infer<
   typeof PriorityStepCheckInputSchema
 >
 
+const mergeContrast = (
+  stored: PriorityStepContrast | undefined,
+  patch: PriorityStepContrastInput | undefined,
+): PriorityStepContrast | undefined => {
+  if (patch === undefined) return stored
+  const when = patch.when ?? stored?.when
+  return {
+    state: patch.state,
+    who: patch.who ?? stored?.who ?? '',
+    question: patch.question ?? stored?.question ?? '',
+    ...(when === undefined ? {} : { when }),
+  }
+}
+
 /**
  * Merge a check patch onto the stored one. Recording "deferred" over a stored
  * deferral is how the agent says it raised the check again and heard "not
- * yet" again, so the count lives here rather than with the model. Shared so
- * the server and the optimistic client merge cannot count differently.
+ * yet" again, so the count lives here rather than with the model, capped at
+ * MAX_CHECK_RAISES. Shared so the server and the optimistic client merge
+ * cannot count differently.
  */
 export const mergeStepCheck = (
   stored: PriorityStepCheck | undefined,
@@ -132,13 +188,18 @@ export const mergeStepCheck = (
   if (patch === undefined) return stored
   const raisedAgain = stored?.state === 'deferred' && patch.state === 'deferred'
   const when = patch.when ?? stored?.when
+  const contrast = mergeContrast(stored?.contrast, patch.contrast)
   return {
-    state: patch.state,
+    state: patch.state ?? stored?.state ?? 'asked',
     who: patch.who ?? stored?.who ?? '',
     question: patch.question ?? stored?.question ?? '',
     ...(when === undefined ? {} : { when }),
-    raised: (stored?.raised ?? 0) + (raisedAgain ? 1 : 0),
+    raised: Math.min(
+      MAX_CHECK_RAISES,
+      (stored?.raised ?? 0) + (raisedAgain ? 1 : 0),
+    ),
     updatedAt: now,
+    ...(contrast === undefined ? {} : { contrast }),
   }
 }
 

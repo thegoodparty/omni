@@ -65,6 +65,7 @@ export const SERVE_PROPOSAL_FREE_NOTE: Record<ProposalChannel, string> = {
   social: 'Free. You post it yourself.',
   phoneBanking: 'Free. You make the calls.',
   text: '',
+  doorKnocking: 'Free. You knock the doors.',
 }
 
 // What happens after the deep link, for the two channels that are always one.
@@ -77,6 +78,7 @@ export const SERVE_PROPOSAL_DEEP_LINK_NOTE: Record<
   social: 'You will pick where to post it in outreach.',
   text: 'You will pay for this text in outreach before it goes out.',
   phoneBanking: null,
+  doorKnocking: 'You will pick the blocks to walk on a map.',
 }
 
 type OutreachProposalCardProps = {
