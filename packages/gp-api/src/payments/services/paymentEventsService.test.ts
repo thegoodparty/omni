@@ -721,6 +721,43 @@ describe('PaymentEventsService', () => {
       ).toHaveBeenCalledOnce()
     })
 
+    it('tracks a Subscription Past Due event when the status transitions to past_due', async () => {
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent({ status: 'past_due' }, { status: 'active' }),
+      )
+
+      expect(analytics.track).toHaveBeenCalledWith(
+        mockUser.id,
+        EVENTS.Account.SubscriptionPastDue,
+        expect.objectContaining({
+          subscriptionId: 'sub_test_unmatched',
+          campaignSlug: mockCampaign.slug,
+        }),
+      )
+    })
+
+    it('does not track past_due when the status did not change to past_due', async () => {
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent(
+          { status: 'active', cancel_at: 1_760_000_000 },
+          { cancel_at: 1_790_000_000 },
+        ),
+      )
+
+      expect(analytics.track).not.toHaveBeenCalled()
+    })
+
+    it('does not track past_due when the subscription is already past_due and a different field changed', async () => {
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent(
+          { status: 'past_due', cancel_at: 1_760_000_000 },
+          { cancel_at: 1_790_000_000 },
+        ),
+      )
+
+      expect(analytics.track).not.toHaveBeenCalled()
+    })
+
     // The id this lookup reads is written by our own fulfillment, seconds after
     // checkout, and Stripe delivers a subscription's sibling events
     // concurrently with that write. Acknowledging a miss this young would drop
@@ -865,6 +902,35 @@ describe('PaymentEventsService', () => {
         campaignsService.persistCampaignProCancellation,
       ).toHaveBeenCalledOnce()
       expect(slackService.message).toHaveBeenCalledOnce()
+    })
+
+    it('tracks a Subscription Cancelled Payment Failed event when the reason is payment_failed', async () => {
+      await service.customerSubscriptionDeletedHandler(
+        deletedEvent({
+          cancellation_details: { reason: 'payment_failed' },
+        }),
+      )
+
+      expect(analytics.track).toHaveBeenCalledWith(
+        mockUser.id,
+        EVENTS.Account.SubscriptionCancelledPaymentFailed,
+        expect.objectContaining({
+          subscriptionId: 'sub_test_unmatched',
+          campaignSlug: mockCampaign.slug,
+        }),
+      )
+    })
+
+    it('does not track a payment-failed event when the cancellation reason is not payment_failed', async () => {
+      await service.customerSubscriptionDeletedHandler(
+        deletedEvent({
+          cancellation_details: {
+            reason: 'cancellation_requested',
+          },
+        }),
+      )
+
+      expect(analytics.track).not.toHaveBeenCalled()
     })
 
     // A cancellation that beat its own checkout's fulfillment write is the one
