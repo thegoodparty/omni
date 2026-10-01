@@ -1,6 +1,7 @@
 import { Fragment } from 'react'
 import type { ChatMessageSegment } from './chatClient'
 import { InlineSegments } from './chatUI'
+import { CLARIFY_TOOL } from './clarifyWidget'
 import { segmentsToLive, type LiveSegment } from './streaming'
 import type { WidgetInstance, WidgetRegistry } from './widgetRegistry'
 
@@ -18,6 +19,51 @@ export interface PositionedWidget<Ctx> {
 export type TurnBlock<Ctx> =
   | { kind: 'segments'; key?: string; segments: LiveSegment[] }
   | { kind: 'widget'; key?: string; instance: WidgetInstance<Ctx> }
+
+const SENTENCE_BREAK = /[.!?]["')\]]?\s+(?=["'([]?[A-Z])/g
+
+// The last line goes when it ends in "?". When statements open that line,
+// only the closing run of questions goes, unless the line is wrapped in
+// emphasis, where cutting it would leave an unclosed marker.
+export const withoutTrailingQuestion = (text: string): string => {
+  const trimmed = text.trimEnd()
+  const lineStart = trimmed.lastIndexOf('\n') + 1
+  const line = trimmed.slice(lineStart)
+  if (!/\?[*_]*$/.test(line)) return text
+  let cut = 0
+  if (!/[*_]$/.test(line)) {
+    for (const match of line.matchAll(SENTENCE_BREAK)) {
+      if (!match[0].startsWith('?')) cut = match.index + match[0].length
+    }
+  }
+  return (trimmed.slice(0, lineStart) + line.slice(0, cut)).trimEnd()
+}
+
+// The clarify widget shows its own question, so prose that also asks it puts
+// the question on screen twice. Only the text directly above the widget is
+// touched, and only its closing question.
+const dropQuestionsAboveClarify = <Ctx,>(
+  blocks: TurnBlock<Ctx>[],
+): TurnBlock<Ctx>[] =>
+  blocks.flatMap((block, i): TurnBlock<Ctx>[] => {
+    const next = blocks[i + 1]
+    if (
+      block.kind !== 'segments' ||
+      next?.kind !== 'widget' ||
+      next.instance.toolName !== CLARIFY_TOOL
+    ) {
+      return [block]
+    }
+    const last = block.segments[block.segments.length - 1]
+    if (last?.kind !== 'text') return [block]
+    const text = withoutTrailingQuestion(last.text)
+    if (text === last.text) return [block]
+    const kept = block.segments.slice(0, -1)
+    const segments: LiveSegment[] = text
+      ? [...kept, { kind: 'text', text }]
+      : kept
+    return segments.length > 0 ? [{ ...block, segments }] : []
+  })
 
 // Live turn: splice each shown widget into the revealed segments at its text
 // position (`appearAfter`). Gated on a fixed threshold (not the moving
@@ -87,7 +133,7 @@ export const liveTurnBlocks = <Ctx,>(
   }
   placeWidgetsUpTo(acc)
   flushRun()
-  return blocks
+  return dropQuestionsAboveClarify(blocks)
 }
 
 // Reloaded turn: the persisted segments already carry the widget tools at their
@@ -190,7 +236,7 @@ export const persistedTurnBlocks = <Ctx,>({
     if (entry.onParseFailure === 'inline') run.push(s)
   })
   flushRun()
-  return blocks
+  return dropQuestionsAboveClarify(blocks)
 }
 
 // Render a turn's interleaved blocks: inline runs via the shared

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { ChatMessageSegment } from './chatClient'
-import { TurnBlocks, liveTurnBlocks, persistedTurnBlocks } from './turnBlocks'
+import {
+  TurnBlocks,
+  liveTurnBlocks,
+  persistedTurnBlocks,
+  withoutTrailingQuestion,
+  type TurnBlock,
+} from './turnBlocks'
 import { createWidgetRegistry, defineWidgetTool } from './widgetRegistry'
 
 type Ctx = { label: string }
@@ -116,5 +122,138 @@ describe('liveTurnBlocks', () => {
           : 'widget',
       ),
     ).toEqual([['Lead in. '], 'widget', ['After.']])
+  })
+})
+
+describe('a question written above the clarify widget', () => {
+  const clarifyRegistry = createWidgetRegistry<Ctx>([
+    defineWidgetTool({
+      toolName: 'ask_clarify_question',
+      parse: (args) =>
+        typeof args === 'object' && args !== null ? { asked: true } : null,
+      render: () => <p>clarify widget</p>,
+    }),
+    defineWidgetTool({
+      toolName: 'present_note',
+      parse: (args) =>
+        typeof args === 'object' && args !== null ? { note: true } : null,
+      render: () => <p>note widget</p>,
+    }),
+  ])
+
+  const shape = (blocks: TurnBlock<Ctx>[]) =>
+    blocks.map((b) =>
+      b.kind === 'segments'
+        ? b.segments.map((s) => (s.kind === 'text' ? s.text : s.kind))
+        : b.instance.toolName,
+    )
+
+  const persisted = (segments: ChatMessageSegment[]) =>
+    shape(
+      persistedTurnBlocks({
+        registry: clarifyRegistry,
+        segments,
+        content: '',
+        messageId: 'm1',
+        conversationId: 'c1',
+      }),
+    )
+
+  const clarify: ChatMessageSegment = {
+    kind: 'tool',
+    toolName: 'ask_clarify_question',
+    toolCallId: 't1',
+    payload: {},
+  }
+
+  it('drops a text block that is only the question', () => {
+    expect(
+      persisted([
+        { kind: 'text', text: 'Which direction do you want to go first?\n\n' },
+        clarify,
+      ]),
+    ).toEqual(['ask_clarify_question'])
+  })
+
+  it('keeps the context and drops only the closing question', () => {
+    expect(
+      persisted([
+        {
+          kind: 'text',
+          text: 'The gap is in enforcement.\n\nThat changes the options. Which do you want first?',
+        },
+        clarify,
+      ]),
+    ).toEqual([
+      ['The gap is in enforcement.\n\nThat changes the options.'],
+      'ask_clarify_question',
+    ])
+  })
+
+  it('drops a run of closing questions, not just the last one', () => {
+    expect(
+      persisted([
+        {
+          kind: 'text',
+          text: 'Here is where it stands. Data first? Or the gap?',
+        },
+        clarify,
+      ]),
+    ).toEqual([['Here is where it stands.'], 'ask_clarify_question'])
+  })
+
+  it('drops a whole emphasized question line rather than cutting inside it', () => {
+    expect(
+      persisted([
+        { kind: 'text', text: 'Context.\n**Noted. Which one first?**' },
+        clarify,
+      ]),
+    ).toEqual([['Context.'], 'ask_clarify_question'])
+  })
+
+  it('leaves context that does not end in a question alone', () => {
+    expect(
+      persisted([{ kind: 'text', text: 'Two paths from here.' }, clarify]),
+    ).toEqual([['Two paths from here.'], 'ask_clarify_question'])
+  })
+
+  it('leaves a question above any other widget alone', () => {
+    expect(
+      persisted([
+        { kind: 'text', text: 'Want to see it?' },
+        { kind: 'tool', toolName: 'present_note', payload: {} },
+      ]),
+    ).toEqual([['Want to see it?'], 'present_note'])
+  })
+
+  it('leaves the question when a tool pill sits between it and the widget', () => {
+    expect(
+      persisted([
+        { kind: 'text', text: 'Which first?' },
+        { kind: 'tool', toolName: 'search_web', payload: {} },
+        clarify,
+      ]),
+    ).toEqual([['Which first?', 'tool'], 'ask_clarify_question'])
+  })
+
+  it('does not split on an abbreviation inside the question', () => {
+    expect(withoutTrailingQuestion('Look at the U.S. data first?')).toBe('')
+  })
+
+  it('drops the question on the live turn once the widget shows', () => {
+    const instance = clarifyRegistry.resolve(
+      { toolName: 'ask_clarify_question' },
+      {},
+    )
+    if (!instance) throw new Error('expected instance')
+    const text = 'Two paths. Which first?'
+    const segments = [{ kind: 'text' as const, text }]
+    const widgets = [{ instance, appearAfter: text.length }]
+
+    expect(shape(liveTurnBlocks(segments, widgets, 5))).toEqual([[text]])
+    expect(shape(liveTurnBlocks(segments, widgets, text.length))).toEqual([
+      ['Two paths.'],
+      'ask_clarify_question',
+    ])
   })
 })

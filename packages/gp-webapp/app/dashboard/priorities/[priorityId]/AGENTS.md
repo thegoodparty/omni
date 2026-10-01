@@ -122,6 +122,12 @@ written-in answer shown as written. The widget always adds its own "Or write you
 own..." option, which is the bail-out back to free chat, so the agent never
 writes one.
 
+The widget shows its own question, so the agent never writes it as chat text
+and never ends a message with an either/or in prose (a "Yes" back to "this, or
+that?" answers nothing). The prompt says so, and the shared `turnBlocks`
+backstops it: a question closing the text right above the widget is dropped
+(see `shared/agent-chat/AGENTS.md`).
+
 ## The chat dock is off here
 
 `DashboardLayout` mounts the Chief of Staff bar at the bottom of every

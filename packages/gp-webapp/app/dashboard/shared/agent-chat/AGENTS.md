@@ -86,6 +86,17 @@ registry existed, and they had started to drift.
    point in the text where its tool fired, with prose above and below it, and a
    reload renders the same order it streamed in.
 
+**A question written right above the clarify widget is dropped.** The widget
+shows its own question, so prose that also asks it puts it on screen twice.
+Both `liveTurnBlocks` and `persistedTurnBlocks` strip the closing question of
+the text block directly before an `ask_clarify_question` widget
+(`withoutTrailingQuestion`), and the whole block if that was all it held. It
+touches nothing else: a pill between the text and the widget, or any other
+widget, leaves the prose alone. The prompts forbid the duplicate too; this is
+the backstop for when the model slips. On the live turn the question can show
+for a beat before the widget lands, since the widget appears only once the
+reveal reaches its seam.
+
 A block whose data is not in the tool args (the Priorities status marker reads
 a replay held in state) is not a registry entry. Hand it to
 `persistedTurnBlocks` as `surfaceWidget` and build its live instance yourself.

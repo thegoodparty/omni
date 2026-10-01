@@ -12,7 +12,11 @@ export const buildAskClarifyQuestionTool = (): LlmStreamTool<
     'options; a factual option should cite a source, a pure-judgment option ' +
     'need not. The UI always adds an "Or write your own..." freeform option, ' +
     'so never add one yourself. Do not ask the next question until this one is ' +
-    'answered.',
+    'answered. The UI shows the question above its options, so never write ' +
+    'the question, or any rewording of it, as chat text. Any text before ' +
+    'this call is context and never ends in a question. Use this tool ' +
+    'whenever the user has to choose; never end a message with an either/or ' +
+    'or pick-one question in prose.',
   inputSchema: ChatClarifyQuestionSchema,
   execute: ({ questionId }) => ({ asked: true, questionId }),
 })

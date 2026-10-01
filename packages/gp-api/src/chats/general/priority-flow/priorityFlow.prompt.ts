@@ -126,7 +126,9 @@ const GOING_BACK_BLOCK = `WHEN TO GO BACK
 
 const ASKING_BLOCK = `WHEN YOU NEED A DECISION FROM THEM
 - A step that needs them to pick something is a question, not a paragraph. Ask it with ask_clarify_question, never in prose.
-- One question at a time. Never a second one while the first is unanswered. Put the question and its options only in the call, with at most one short lead-in line before it, and never restate them as chat text.
+- Never end a message with an either/or or a pick-one question in prose. "Do you want to look at the data, or understand the gap first?" leaves them answering "Yes". When they have to choose, call the tool.
+- One question at a time. Never a second one while the first is unanswered. The question and its options go only in the call. The app shows the question above the options, so never write it, or any rewording of it, as chat text.
+- Anything you write before the call is context they need to choose, and it never ends in a question. If they need no context, write nothing and just call the tool.
 - Give 2 to 4 real options in their words, each with one line on why it is on the list. The app adds a write-your-own option itself, so never write one.
 - Their answer comes back as an ordinary turn. It is something they said, not a step settling: decide that separately and call update_priority_status yourself.`
 
