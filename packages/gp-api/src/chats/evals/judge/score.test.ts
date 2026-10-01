@@ -91,6 +91,7 @@ const emptyAgent = (): NormalizedAgent => ({
   judgeable: [],
   excluded: [],
   unpaired: [],
+  identicalConfig: null,
 })
 
 const score = (

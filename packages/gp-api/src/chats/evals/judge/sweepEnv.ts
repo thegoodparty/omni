@@ -89,6 +89,22 @@ const BLANK_IS_UNSET = z
   .transform((value) => (value === '' ? undefined : value))
   .optional()
 
+// WHO ASKED FOR THESE AGENTS: a person who named them, or the trigger's diff.
+// `auto` picking an agent up because a README in its directory moved is an
+// accidental sweep, and the identical-config and identical-output refusals
+// exist to stop one. A request that names what to sweep is not that, and it
+// already comes from someone with push access — judge-comment.yml admits only
+// `admin|maintain|write` and denies on a failed lookup — so the refusals turn
+// into qualifiers in the report rather than silence.
+//
+// Affirmative, like the spend switch: only this exact word disarms anything,
+// so an empty, absent or garbled value leaves every refusal armed. That is the
+// safe direction, because the cost of reading `explicit` as `auto` is a sweep
+// that refused and said why, and the cost of the reverse is a verdict about
+// two things nothing proved were different.
+export const SELECTION_ENV = 'JUDGE_SELECTION'
+export const EXPLICIT_SELECTION = 'explicit'
+
 const PR_NUMBER = z
   .string()
   .regex(/^\d+$/)
@@ -109,6 +125,12 @@ const SweepEnvSchema = z.object({
   // gated only the arms would make "exercise the pipeline for nothing" a
   // false claim, and it was one.
   JUDGE_SPEND: z.string().optional(),
+  // Read by BOTH entry points too, and by all three processes of a sweep. It
+  // is BLANK_IS_UNSET rather than NON_EMPTY.optional() for the reason the long
+  // note above gives: the workflow builds it from the selection step's output,
+  // so it arrives as an empty string on any path that did not set one, and a
+  // parser that read blank as malformed would refuse the arm.
+  [SELECTION_ENV]: BLANK_IS_UNSET,
 })
 
 const ArmEnvSchema = SweepEnvSchema.extend({
@@ -176,6 +198,10 @@ export interface SweepEnv {
   // gets a canned script; on the judging entry it means a canned panel. Both
   // have to honour it or the pipeline is not exercisable for nothing.
   spends: boolean
+  // The judging entry acts on it: an identical config digest, or identical
+  // output on every pair, is then reported with a qualifier instead of
+  // refused.
+  explicitSelection: boolean
 }
 
 type ParsedSweep = z.infer<typeof SweepEnvSchema>
@@ -184,6 +210,7 @@ const toSweepEnv = (data: ParsedSweep): SweepEnv => ({
   sweepId: data.JUDGE_SWEEP_ID,
   agentIds: data.JUDGE_AGENTS,
   spends: spends(data.JUDGE_SPEND),
+  explicitSelection: data[SELECTION_ENV] === EXPLICIT_SELECTION,
   ...(data.JUDGE_PR_NUMBER !== undefined && {
     prNumber: data.JUDGE_PR_NUMBER,
   }),
