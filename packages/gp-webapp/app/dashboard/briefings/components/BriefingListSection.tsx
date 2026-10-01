@@ -5,6 +5,8 @@ import type { BriefingSummary } from '@shared/briefings/types'
 type Props = {
   title: string
   summaries: BriefingSummary[]
+  /** Offer "Replace agenda" on ready rows. Only the Upcoming list wants it. */
+  allowReplace?: boolean
 }
 
 /**
@@ -16,6 +18,7 @@ type Props = {
 export default function BriefingListSection({
   title,
   summaries,
+  allowReplace = false,
 }: Props): React.JSX.Element | null {
   if (summaries.length === 0) return null
 
@@ -29,7 +32,11 @@ export default function BriefingListSection({
           s.status === 'awaiting_agenda' ? (
             <AwaitingAgendaRow key={s.id} summary={s} />
           ) : (
-            <BriefingListRow key={s.id} summary={s} />
+            <BriefingListRow
+              key={s.id}
+              summary={s}
+              allowReplace={allowReplace}
+            />
           ),
         )}
       </div>

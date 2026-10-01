@@ -79,7 +79,11 @@ export default function BriefingsLanding({
         {featured ? (
           <>
             <UpcomingCountdownCard summary={featured} />
-            <BriefingListSection title="Upcoming" summaries={upcoming} />
+            <BriefingListSection
+              title="Upcoming"
+              summaries={upcoming}
+              allowReplace
+            />
           </>
         ) : (
           !past.length && <EmptyState />
