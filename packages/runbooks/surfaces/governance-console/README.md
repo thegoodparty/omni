@@ -253,7 +253,21 @@ site data. That is deliberate for now: the artifact database only exists on a pu
 page, and this one is still local. Publishing upgrades the store without changing how
 the page feels.
 
-## Rebuilding it
+## How it stays current
+
+The Monday and Thursday governance run builds the snapshot right after the explorer's,
+while the health report is still on disk, and commits it in the same state PR. The
+republish routine that publishes the explorer and the product map (`trig_01E8wipVnESi9uqoEBWZXFKY`,
+12:00 and 13:00 UTC) then publishes this page too, only when the committed snapshot's
+`generated_at` is strictly newer than the live page's.
+
+A new run starts a clean page, because judgments are keyed by run date. Copy the
+handoff out of the old run before Monday or Thursday noon UTC, or its unsent rulings
+stay behind on a page nobody opens again.
+
+## Rebuilding it by hand
+
+For when you cannot wait for the schedule, such as right after a triage PR merges.
 
 ```bash
 # 1. the health report is gitignored and lives 30 days as a CI artifact
@@ -269,6 +283,9 @@ uv run governance_console_snapshot.py \
 # 3. the page (needs nothing at all)
 cd ../../surfaces/governance-console && python3 build.py
 ```
+
+Then publish `governance-console.html` to the console's artifact URL. It declares no
+runtime capabilities, so there is nothing to preserve on the publish.
 
 Step 3 is deliberately dependency-free. The scheduled republish routine runs it with a
 bare interpreter, so `build.py` must never import the governance modules, which pull in
