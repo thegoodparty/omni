@@ -502,11 +502,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     name: '[Win] Door-knocking route planner spend ceiling',
     type: 'metric',
     // No per-organization spend cap exists — a 500-waypoint daily budget used
-    // to sit beside this and was removed — and nothing sums across
-    // organizations, so the total bill scales with how many orgs hold the
-    // flag. This is that missing global view: a ceiling that pages rather than
-    // a hard cap, because one org's spend must not be able to fail another
-    // org's knock.
+    // to sit beside this and was removed, and so was the five-campaigns-a-day
+    // allowance (2026-09-24) — and nothing sums across organizations, so the
+    // total bill scales with how many orgs hold the flag. This is that missing
+    // global view: a ceiling that pages rather than a hard cap, because one
+    // org's spend must not be able to fail another org's knock.
     //
     // Reads the DoorKnockingSpend log line rather than
     // geoapify_credits_total: the log is exact and immune to the
@@ -521,14 +521,27 @@ export const GLOBAL_ALERTS: Alert[] = [
     // watch the pool. Assembling the window in PromQL costs nothing, so the
     // choice is now purely about what signal is wanted.
     expr: doorKnockingCredits('6h'),
-    // Roughly 900 stops routed inside six hours — about six maximum-size
-    // turfs, and close enough to two organizations' entire default daily
-    // allowance to serve as one. A stop costs a little over ten credits all
-    // in, so the two allowances are nearer 11,000; the round number stays
-    // because moving a fast-burn threshold on arithmetic alone buys nothing,
-    // and the direction it errs in is early. No legitimate pilot morning
-    // reaches that; a loop or an unintended rollout does, and it still leaves
-    // most of Geoapify's ~50k daily pool to react in.
+    // A fifth of Geoapify's ~50k daily pool inside six hours, which is a rate
+    // that empties the account in a day and leaves most of it to react in.
+    // That is what the number means; it is NOT a count of doors, and the
+    // arithmetic that used to sit here ("roughly 900 stops... about six
+    // maximum-size turfs... two organizations' daily allowance") was written
+    // against pricing we no longer pay. A route is priced per block FACE —
+    // ten credits each — plus one credit per door for the street path, so a
+    // door costs about two credits all in and a full 150-door list a few
+    // hundred. Measured in prod on 2026-10-01: 13,588 credits bought 94 lists
+    // and 6,046 doors, ~145 credits a list, 2.2 a door. So 10,000 credits is
+    // nearer 70 average lists or 30 maximum-size ones than it is to 900 doors.
+    //
+    // Which means a firing is NOT by itself evidence of a loop. One campaign
+    // preparing a large canvass reaches this legitimately: on 2026-10-01 a
+    // single press of Create campaign made ~100 lists and buying a route for
+    // each of them cost 13,588 credits, a quarter of the day's pool, with
+    // every list billed exactly once (incident 99). The threshold stays at
+    // 10,000 anyway — a fifth of the pool in six hours is worth a human look
+    // whoever spent it, and erring early is the direction to err in — but the
+    // message below has to tell the reader how to tell the two apart, because
+    // the remedy for one of them is pulling a paying customer's flag.
     threshold: 10000,
     for: '5m',
     // The [6h] range vector needs a matching fetch window; the default 600s
@@ -540,9 +553,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // free, and 5m stays only because the firing behaviour was tuned under it.
     evaluationIntervalSeconds: 300,
     message: [
-      'Door-knocking has burned more than 10,000 Geoapify credits in the last 6 hours — roughly two organizations\u2019 entire daily allowance, and well above any legitimate pilot rate.',
+      'Door-knocking has burned more than 10,000 Geoapify credits in the last 6 hours — about a fifth of the 50,000-credit daily pool every organization shares, at a rate that would empty it inside a day. That is roughly 70 walk lists bought, or 30 maximum-size ones; it is not 900 doors (a door costs about two credits, not ten).',
       'Click *View in Grafana* to see the DoorKnockingSpend lines, then group by organizationSlug (`sum by (organizationSlug) (sum_over_time(... | unwrap credits [24h]))`) to find which organizations are driving it. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
-      'If the spend is legitimate growth, raise the threshold deliberately. If one org is looping, pull its flag — there is no global cap in the code, so this alert is the only thing standing between a runaway and the Geoapify bill.',
+      'Then decide which of two things you are looking at, because the remedy differs. A runaway re-buys: the same turfId appears on more than one spend line, or buys arrive faster than a person can press a button. Legitimate preparation does not: one spend line per turf, ids climbing in creation order, and a finite number of them — one press of Create campaign can make ~100 lists, and routing all of them is ~14,000 credits.',
+      'If it is a runaway, pull that org’s flag — there is no cap in the code, so this page is the only thing standing between it and the Geoapify bill. If it is a campaign preparing a real canvass, the spend is legitimate and the question is whether the day’s pool can afford it: check the 24h total against the four geoapify-daily-budget tiers before you touch anybody’s flag, and if this is simply our new normal, raise the threshold or the plan deliberately rather than per page.',
     ].join('\n\n'),
     notify: 'win-bugs',
   },
