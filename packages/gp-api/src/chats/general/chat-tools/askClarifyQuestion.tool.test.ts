@@ -24,4 +24,28 @@ describe('buildAskClarifyQuestionTool', () => {
       tool.inputSchema.parse({ ...question, multiSelect: true }).multiSelect,
     ).toBe(true)
   })
+
+  it('refuses a multi-select question whose labels contain each other', async () => {
+    const options = [
+      { label: 'Dogs' },
+      { label: 'Cats' },
+      { label: 'Dogs and Cats' },
+    ]
+    expect(
+      await tool.execute({
+        questionId: 'q1',
+        question: 'Which pets?',
+        options,
+        multiSelect: true,
+      }),
+    ).toHaveProperty('error')
+    expect(
+      await tool.execute({
+        questionId: 'q1',
+        question: 'Which pets?',
+        options,
+        multiSelect: false,
+      }),
+    ).toEqual({ asked: true, questionId: 'q1' })
+  })
 })

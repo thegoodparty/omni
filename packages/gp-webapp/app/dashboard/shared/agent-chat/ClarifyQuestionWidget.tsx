@@ -31,7 +31,9 @@ export const formatClarifyChoices = (labels: string[]): string =>
 // The inverse of formatClarifyChoices: the option indexes whose formatted line
 // is exactly this answer, or null for a written-in answer. Labels are matched
 // whole and in option order, so a label holding a comma or an "and" still
-// parses; fewer choices are tried first.
+// parses. More choices are tried first, so an answer that reads as several
+// labels is not taken for one label that happens to contain them; the tool
+// refuses a question whose labels overlap like that.
 export const parseClarifyChoices = (
   answer: string,
   labels: string[],
@@ -51,7 +53,7 @@ export const parseClarifyChoices = (
     }
     return null
   }
-  for (let count = 1; count <= labels.length; count++) {
+  for (let count = labels.length; count >= 1; count--) {
     const match = walk(count, 0, 0, 0)
     if (match) return match
   }

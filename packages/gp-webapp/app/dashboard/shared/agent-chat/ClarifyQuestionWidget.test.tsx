@@ -221,6 +221,12 @@ describe('formatClarifyChoices / parseClarifyChoices', () => {
     }
   })
 
+  it('reads an answer as several labels before one that contains them', () => {
+    expect(
+      parseClarifyChoices('Dogs and Cats', ['Dogs', 'Cats', 'Dogs and Cats']),
+    ).toEqual([0, 1])
+  })
+
   it('returns null for anything that is not an exact set', () => {
     expect(parseClarifyChoices('Curbside pilot and more', labels)).toBeNull()
     expect(parseClarifyChoices('curbside pilot', labels)).toBeNull()

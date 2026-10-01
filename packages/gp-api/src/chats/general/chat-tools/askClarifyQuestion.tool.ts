@@ -17,5 +17,21 @@ export const buildAskClarifyQuestionTool = (): LlmStreamTool<
     'options become checkboxes and the answer comes back as the chosen labels ' +
     'joined into one line. Leave it off when the answers rule each other out.',
   inputSchema: ChatClarifyQuestionSchema,
-  execute: ({ questionId }) => ({ asked: true, questionId }),
+  execute: ({ questionId, options, multiSelect }) => {
+    // A multi-select answer comes back as labels joined into one line, so a
+    // label that contains another would read two ways on reload.
+    const labels = options.map((option) => option.label.trim().toLowerCase())
+    const overlaps =
+      multiSelect &&
+      labels.some((label, i) =>
+        labels.some((other, j) => i !== j && label.includes(other)),
+      )
+    return overlaps
+      ? {
+          error:
+            'In a multiSelect question no option label can contain another. ' +
+            'Reword the options so each stands alone, then ask again.',
+        }
+      : { asked: true, questionId }
+  },
 })
