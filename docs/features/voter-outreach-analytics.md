@@ -391,14 +391,19 @@ block carries the same date.
 
 ## Monitoring
 
-Not yet built. What to create now that the new events are firing:
+A volume anomaly monitor watches `Outreach - Campaign Completed` **grouped by
+`medium`** (Amplitude monitor `zxdr3o2w` on chart `xdxrdhf6`, created
+2026-10-01): automatic anomaly detection at 99%, drops and spikes, checked
+daily. The grouping is the point: one channel dropping to zero alerts instead
+of hiding inside a flat total. This is the check that would have caught the
+August break in a day rather than a month. The chart starts at 2026-09-30, so
+the baseline only sees post-cutover rows.
 
-- A volume anomaly monitor on `Outreach - Campaign Completed` **grouped
-  by `medium`**, so one channel dropping to zero alerts instead of hiding
-  inside a flat total. This is the check that would have caught the August
-  break in a day rather than a month.
+Not built:
+
 - Volume monitors on `Outreach - Door Knocking Door Logged` and
-  `Outreach - Phone Banking Call Logged`.
+  `Outreach - Phone Banking Call Logged`. Optional; add them if the campaign
+  monitor proves useful.
 - A CI check that fails a PR removing an event literal a live Amplitude custom
   event, cohort or saved chart depends on.
 
