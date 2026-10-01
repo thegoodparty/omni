@@ -22,6 +22,8 @@ r = d.get("tool_response") or {}
 print(i.get("file_path") or (r.get("filePath") if isinstance(r, dict) else "") or "")
 ' 2>/dev/null)"
 [ -n "$file_path" ] || exit 0
+# A path outside the repo root is left unstripped by this substitution, so it falls
+# through the case below (no prefix matches) and exits 0 rather than matching by accident.
 rel="${file_path#"$REPO_ROOT"/}"
 
 emit_context() {
@@ -53,7 +55,21 @@ else
     emit_context "The analytics guard could not run (no merge base with origin/main). The Analytics guard CI check will run on the PR."
     exit 0
   fi
-  output="$(cd "$PY_DIR" && timeout 50 uv run --quiet governance_guard.py check --base "$base" 2>&1)"
+  # `timeout` is GNU coreutils, not stock on macOS (only on PATH via a manual gnubin
+  # tweak). Fall back to `gtimeout`, then to no bounding command at all — the hook's
+  # settings.json entry already carries "timeout": 60, so Claude Code bounds the run.
+  if command -v timeout >/dev/null 2>&1; then
+    limit=(timeout 50)
+  elif command -v gtimeout >/dev/null 2>&1; then
+    limit=(gtimeout 50)
+  else
+    limit=()
+  fi
+  # Unquoted `${limit[@]:-}` (not `"${limit[@]}"`): stock macOS bash 3.2 treats a
+  # quoted empty array as unbound under `set -u`, and even the `:-` fallback only
+  # suppresses that error when unquoted. `limit` only ever holds bare words (no
+  # spaces/globs), so skipping the quoting here is safe.
+  output="$(cd "$PY_DIR" && ${limit[@]:-} uv run --quiet governance_guard.py check --base "$base" 2>&1)"
   status=$?
 fi
 
