@@ -2303,3 +2303,99 @@ def test_introducing_pr_skips_a_branch_merging_main_into_itself():
     assert bf._pick_introducing_pr("") is None
     # Grafted history keeps the strict rule: the oldest merge or nothing.
     assert bf._pick_introducing_pr(subjects, oldest_only=True) is None
+
+
+# --------------------------------------------------------------------------- #
+# Expiring blank rows whose name left the taxonomy (DATA-2587)
+# --------------------------------------------------------------------------- #
+
+
+def test_has_code_provenance_ignores_identity_and_stamp_columns():
+    assert not bf.has_code_provenance(_row("Declared Only"))
+    assert bf.has_code_provenance(_row("Counted", call_site_count="0"))
+    assert bf.has_code_provenance(_row("Dated", last_code_change_date="2026-01-01"))
+
+
+def test_expire_drops_only_blank_rows_whose_name_left_the_taxonomy():
+    rows = {
+        "Deleted Blank": _row("Deleted Blank"),
+        "Deleted With History": _row("Deleted With History", instrumented_commit="c1", instrumented_date="2025-01-01"),
+        "Page": _row("Page"),  # auto-tracked: blank by nature, still declared
+        "Just Shipped": _row("Just Shipped", instrumented_date="2026-09-29"),
+    }
+    universe = {"Page", "Just Shipped"}
+
+    expired = bf.expire_undeclared_blank_rows(rows, universe)
+
+    assert expired == ["Deleted Blank"]
+    assert set(rows) == {"Deleted With History", "Page", "Just Shipped"}
+
+
+def test_expire_skips_when_the_taxonomy_read_is_empty(capsys):
+    rows = {"Page": _row("Page"), "Scroll Depth": _row("Scroll Depth")}
+
+    assert bf.expire_undeclared_blank_rows(rows, set()) == []
+    assert set(rows) == {"Page", "Scroll Depth"}
+    assert "WARNING" in capsys.readouterr().err
+
+
+def test_expire_skips_when_more_rows_would_go_than_the_cap(capsys):
+    rows = {f"E{i}": _row(f"E{i}") for i in range(4)}
+
+    assert bf.expire_undeclared_blank_rows(rows, {"Other"}, max_expire=3) == []
+    assert len(rows) == 4
+    err = capsys.readouterr().err
+    assert "WARNING" in err and "4" in err
+
+
+def test_run_refresh_expires_blank_row_whose_name_left_the_taxonomy(monkeypatch, tmp_path):
+    # Live shape from 2026-09-29: 31 names deleted from Govern had all-blank rows and kept
+    # flagging as never observed, because a refresh only ever added rows.
+    csv_path = tmp_path / "prov.csv"
+    bf.write_provenance(
+        [
+            _row("Event A", instrumented_commit="aaaa", instrumented_date="2025-02-01"),
+            _row("Voter Outreach - Campaign Created"),
+            _row("Old With History", instrumented_commit="oooo", instrumented_date="2024-01-01"),
+        ],
+        str(csv_path),
+    )
+    state_path = tmp_path / "state.json"
+    bf.write_watermark(str(state_path), "oldsha", "origin/develop", 10, "2025-04-01T00:00:00")
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))
+    monkeypatch.setattr(bf, "git_grep_present_text", lambda *a, **k: "")
+    monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
+    monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
+    monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 10)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
+    cur = FakeCursor(["Event A"])
+
+    rows = bf.run_refresh(cur, "/root", None, DT, csv_path=str(csv_path), state_path=str(state_path))
+
+    assert {r["event_type"] for r in rows} == {"Event A", "Old With History"}
+    assert set(bf.read_provenance_rows(str(csv_path))) == {"Event A", "Old With History"}
+
+
+def test_run_refresh_keeps_a_departed_name_the_registry_still_counts(monkeypatch, tmp_path):
+    # The call-site pass runs before expiry: a name still in an EVENTS registry gets a count,
+    # which is history, so the row survives even though Govern no longer lists it.
+    csv_path = tmp_path / "prov.csv"
+    bf.write_provenance([_row("Event A", instrumented_date="2025-02-01"), _row("Still In Registry")], str(csv_path))
+    state_path = tmp_path / "state.json"
+    bf.write_watermark(str(state_path), "oldsha", "origin/develop", 10, "2025-04-01T00:00:00")
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))
+    monkeypatch.setattr(bf, "git_grep_present_text", lambda *a, **k: "")
+    monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
+    monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
+    monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 10)
+
+    def fake_augment(rows, *a, **k):
+        for row in rows:
+            row["call_site_count"] = "2" if row["event_type"] == "Still In Registry" else None
+
+    monkeypatch.setattr(bf, "augment_call_site_columns", fake_augment)
+    cur = FakeCursor(["Event A"])
+
+    rows = bf.run_refresh(cur, "/root", None, DT, csv_path=str(csv_path), state_path=str(state_path))
+
+    assert {r["event_type"] for r in rows} == {"Event A", "Still In Registry"}
