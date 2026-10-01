@@ -869,15 +869,14 @@ export class PaymentEventsService {
     })
     await this.sendProCancellationSlackMessage(user, campaign)
 
-    const cancellationReason =
-      subscription.cancellation_details?.reason
-    if (cancellationReason === 'payment_failed') {
+    const reason = subscription.cancellation_details?.reason
+    if (reason === 'payment_failed') {
+      const event = EVENTS.Account.SubscriptionCancelledPaymentFailed
       void this.analytics
-        .track(
-          user.id,
-          EVENTS.Account.SubscriptionCancelledPaymentFailed,
-          { subscriptionId, campaignSlug: campaign.slug },
-        )
+        .track(user.id, event, {
+          subscriptionId,
+          campaignSlug: campaign.slug,
+        })
         .catch(() => undefined)
     }
   }
