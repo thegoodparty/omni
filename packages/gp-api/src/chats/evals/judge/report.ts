@@ -172,12 +172,16 @@ const evidenceLines = (score: AgentScore): string[] => {
 
 const exclusionLine = (score: AgentScore): string => {
   const e = score.exclusions
-  return (
+  const base =
     `Excluded pairs: ${e.toolError} tool error, ${e.infraError} infra ` +
     `error, ${e.identicalConfig} identical config. Plus ${e.unpaired} ` +
     `unpaired record(s). Separately, ${e.ungraded} ungraded judgment(s) ` +
     "(the judge itself failed, which is not a CAN'T SAY verdict)."
-  )
+  // THE REASON, not just the count. A sweep whose judge failed on every pair
+  // reported the number alone, and recovering the cause meant reproducing
+  // the run — which is the one thing a report exists to make unnecessary.
+  if (e.ungraded === 0 || e.ungradedReasons.length === 0) return base
+  return `${base} Why: ${e.ungradedReasons.join(' | ')}`
 }
 
 const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {

@@ -100,6 +100,12 @@ export interface ExclusionCounts {
   // A judge failure. Reported apart from CAN'T SAY, which is a real
   // verdict about a real comparison.
   ungraded: number
+  // WHY THE JUDGE FAILED, deduplicated, because a count alone is not
+  // actionable. The first live sweep reported "29 ungraded judgment(s)" and
+  // nothing else; every seat had thrown the same sentence, and finding out
+  // which one meant reproducing the run. The reasons are already on the
+  // judgments — this carries them to the report.
+  ungradedReasons: readonly string[]
 }
 
 export interface OrientedFlag {
@@ -667,6 +673,11 @@ export const scoreAgent = (
       ).length,
       unpaired: normalized.unpaired.length,
       ungraded: judgments.filter((j) => j.kind === 'ungraded').length,
+      ungradedReasons: [
+        ...new Set(
+          judgments.filter((j) => j.kind === 'ungraded').map((j) => j.reason),
+        ),
+      ],
     },
     positionConsistency,
     orderUnstablePairs: overallResult.pairs

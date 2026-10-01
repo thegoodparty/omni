@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { NoObjectGeneratedError } from 'ai'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
 import {
   CaseVerdictSchema,
+  caseVerdictSchemaFor,
   judgeAll,
   judgeCase,
   OVERALL,
@@ -23,10 +25,25 @@ interface FakeCall {
   messages: LlmMessage[]
   models: string[] | undefined
   temperature: number | undefined
+  // THE CONSTRAINT THE MODEL WAS ACTUALLY GIVEN, as a predicate rather than
+  // the schema object: `jsonCompletion` is generic, so `options.schema` is
+  // `ZodType<T>` at the call site and cannot be stored as a concrete one.
+  // Kept at all because the schema is the only thing that makes a model fill
+  // in the dimensions, and swapping it for the permissive one is invisible
+  // from a verdict — the open schema and the strict one both end in an
+  // ungraded judgment, one via missingDimensions and one via a parse failure.
+  schemaAccepts: (value: JsonValue) => boolean
+  retries: number | undefined
 }
 
 // Mirrors what LlmService does: the service parses the model's JSON against
 // the schema, so a reply that violates it must fail here the same way.
+//
+// AND IT MUST FAIL WITH THE SAME ERROR TYPE. The parse happens inside the AI
+// SDK's generateObject, which does not surface a ZodError — it throws
+// NoObjectGeneratedError. A fake that threw the ZodError instead let a test
+// assert on a zod issue path and read as proof that the report names the
+// missing dimension, which production never did.
 const fake = (
   replies: readonly (JsonValue | Error)[],
 ): { llm: JsonJudgeModel; calls: FakeCall[] } => {
@@ -40,15 +57,34 @@ const fake = (
           messages: options.messages,
           models: options.models,
           temperature: options.temperature,
+          schemaAccepts: (value) => options.schema.safeParse(value).success,
+          retries: options.retries,
         })
         const reply = replies[Math.min(index, replies.length - 1)]
         index += 1
         if (reply instanceof Error) throw reply
-        return {
-          object: options.schema.parse(reply),
-          tokens: 0,
-          model: 'fake',
+        const parsed = options.schema.safeParse(reply)
+        if (!parsed.success) {
+          throw new NoObjectGeneratedError({
+            message: 'No object generated: response did not match schema.',
+            text: JSON.stringify(reply),
+            cause: parsed.error,
+            finishReason: 'stop',
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              totalTokens: 0,
+              inputTokenDetails: {
+                noCacheTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+              },
+              outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+            },
+            response: { id: 'fake', timestamp: new Date(0), modelId: 'fake' },
+          })
         }
+        return { object: parsed.data, tokens: 0, model: 'fake' }
       },
     },
   }
@@ -275,13 +311,36 @@ describe('judgeCase', () => {
     expect((await judgeCase(llm, plan(normalized))).kind).toBe('ungraded')
   })
 
-  it('is ungraded, naming the dimension, when one is missing', async () => {
+  // NAMING THE RUBRIC, not the zod issue path. The schema now requires every
+  // configured dimension, so a short verdict is rejected by the provider and
+  // the only message available is "response did not match schema" — which
+  // does not say which schema or what it wanted, and this sentence is what
+  // the report prints. An earlier version of this test matched
+  // /instruction_adherence/ against a ZodError dump and so passed while
+  // production said nothing of the kind.
+  it('is ungraded, naming what the rubric wanted, on a short verdict', async () => {
     const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
     const { llm } = fake([reply({ dimensions: { task_success: dim('X') } })])
     const result = await judgeCase(llm, plan(normalized))
-    expect(result.kind === 'ungraded' && result.reason).toMatch(
-      /instruction_adherence/,
-    )
+    const reason = result.kind === 'ungraded' ? result.reason : ''
+    expect(reason).toContain('returned no verdict matching the rubric')
+    for (const dimension of DEFAULT_JUDGE_CONFIG.dimensions) {
+      expect(reason).toContain(dimension)
+    }
+    // Not the provider's own words, and not a zod dump: those are what this
+    // sentence replaces.
+    expect(reason).not.toContain('did not match schema')
+  })
+
+  // The other failures keep their own message. Calling a rate limit a rubric
+  // problem would send the next reader to the wrong place entirely.
+  it('leaves a non-schema failure saying what it was', async () => {
+    const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    const { llm } = fake([new Error('rate limited by the provider')])
+    const result = await judgeCase(llm, plan(normalized))
+    const reason = result.kind === 'ungraded' ? result.reason : ''
+    expect(reason).toContain('rate limited by the provider')
+    expect(reason).not.toContain('matching the rubric')
   })
 
   it('is ungraded when no seat is configured', async () => {
@@ -484,5 +543,166 @@ describe('the order-swap subsample', () => {
     const judgments = await judgeAll(llm, cases(5))
     expect(judgments).toHaveLength(6)
     expect(calls).toHaveLength(6)
+  })
+})
+
+// WHAT THE FIRST LIVE SWEEP COULD NOT CATCH, and what cost it 29 ungraded
+// judgments. `CaseVerdictSchema` declares `dimensions` as an open
+// `z.record`, which as a structured-output constraint means "arbitrary keys,
+// none required" — so the model satisfied it with `{}`, put everything in
+// `overall`, and every seat threw. The prose prompt named the three
+// dimensions and lost, because a schema is a constraint and prose is a
+// request. Nothing in the suite noticed: every fake judge in it returns a
+// full verdict, so the schema was never the thing under test.
+describe('caseVerdictSchemaFor', () => {
+  const dims = ['task_success', 'instruction_adherence', 'user_utility']
+  const dimension = { reasoning: 'r', verdict: 'tie' }
+  const verdict = (dimensions: Record<string, typeof dimension>) => ({
+    rubric_version: 'uj-rubric-0.2',
+    dimensions,
+    overall: { reasoning: 'r', verdict: 'tie' },
+  })
+
+  it('refuses an empty dimensions object', () => {
+    // The open record ACCEPTS this, which is the whole bug. Asserted against
+    // the permissive schema too, so the difference between them is the thing
+    // under test rather than an implementation detail.
+    expect(CaseVerdictSchema.safeParse(verdict({})).success).toBe(true)
+    expect(caseVerdictSchemaFor(dims).safeParse(verdict({})).success).toBe(
+      false,
+    )
+  })
+
+  it.each(dims)('refuses a verdict missing %s', (missing) => {
+    const present = Object.fromEntries(
+      dims.filter((d) => d !== missing).map((d) => [d, dimension]),
+    )
+    expect(caseVerdictSchemaFor(dims).safeParse(verdict(present)).success).toBe(
+      false,
+    )
+  })
+
+  it('accepts a verdict naming every configured dimension', () => {
+    const all = Object.fromEntries(dims.map((d) => [d, dimension]))
+    expect(caseVerdictSchemaFor(dims).safeParse(verdict(all)).success).toBe(
+      true,
+    )
+  })
+
+  // Derived from the config, so a dimension added there is required of the
+  // model without a second edit here.
+  it('requires whatever the config names, not a hardcoded three', () => {
+    const schema = caseVerdictSchemaFor(['only_this_one'])
+    const all = Object.fromEntries(dims.map((d) => [d, dimension]))
+    expect(schema.safeParse(verdict(all)).success).toBe(false)
+    expect(
+      schema.safeParse(verdict({ only_this_one: dimension })).success,
+    ).toBe(true)
+  })
+})
+
+// The hop from `caseVerdictSchemaFor` to the model call. The schema tests
+// above prove the strict schema refuses an empty dimensions object; this is
+// what proves the judge hands that schema to the model rather than the
+// permissive one it sits beside. Reverting that single line reintroduces the
+// defect that left the first live sweep with 29 ungraded judgments, and
+// without this the whole suite stays green while it does.
+describe('the seat is constrained by the strict schema', () => {
+  const emptyDimensions = {
+    rubric_version: 'uj-rubric-0.2',
+    dimensions: {},
+    overall: { reasoning: 'r', verdict: 'tie' },
+  }
+
+  it('gives the model a schema that refuses empty dimensions', async () => {
+    const { llm, calls } = fake([reply({ overall: 'tie' })])
+    await judgeCase(llm, plan(blindCase(BASE, CANDIDATE, X_IS_BASE)))
+    expect(calls).toHaveLength(1)
+    const accepts = calls[0]?.schemaAccepts
+    expect(accepts).toBeDefined()
+    expect(accepts?.(emptyDimensions)).toBe(false)
+  })
+
+  it('requires every dimension the config names', async () => {
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      dimensions: ['task_success'],
+    }
+    const { llm, calls } = fake([reply({ overall: 'tie' })])
+    await judgeCase(llm, plan(blindCase(BASE, CANDIDATE, X_IS_BASE)), config)
+    const accepts = calls[0]?.schemaAccepts
+    expect(
+      accepts?.({
+        ...emptyDimensions,
+        dimensions: { task_success: { reasoning: 'r', verdict: 'tie' } },
+      }),
+    ).toBe(true)
+    expect(accepts?.(emptyDimensions)).toBe(false)
+  })
+})
+
+// THE RETRY BUDGET ON A PAID PATH. LlmService defaults to 3, which is four
+// calls and about ten seconds of backoff per seat. A verdict the rubric
+// schema rejects is not a transient failure — the panel runs at temperature 0
+// over a byte-identical prompt, so a retry re-asks a question already
+// answered the same way, and three of them multiply a systematic
+// non-compliance by four across every pair and every seat.
+describe('a seat does not inherit the service retry budget', () => {
+  it('asks for one retry, not the default', async () => {
+    const { llm, calls } = fake([reply({ overall: 'tie' })])
+    await judgeCase(llm, plan(blindCase(BASE, CANDIDATE, X_IS_BASE)))
+    expect(calls).toHaveLength(1)
+    // Stated rather than left to the service: omitting it is what costs the
+    // four calls, and an omission reads identically to a deliberate 3.
+    expect(calls[0]?.retries).toBe(1)
+  })
+})
+
+// A DIMENSION NAME THAT IS ALSO AN OBJECT KEY. `o['__proto__'] = x` sets the
+// prototype instead of defining an own property, so a schema shape built by
+// assignment would carry no key for this one name — and `z.object` would then
+// accept `dimensions: {}` again, which is the defect this whole change
+// exists to close, reintroduced for exactly one name. Both guards fail
+// together: `verdict.dimensions['__proto__']` also resolves off the
+// prototype chain rather than being undefined.
+describe('caseVerdictSchemaFor is not confused by an object key', () => {
+  it.each(['__proto__', 'constructor', 'toString'])(
+    'still requires a dimension named %s',
+    (name) => {
+      const schema = caseVerdictSchemaFor([name])
+      const verdict = (dimensions: JsonValue) => ({
+        rubric_version: 'uj-rubric-0.2',
+        dimensions,
+        overall: { reasoning: 'r', verdict: 'tie' },
+      })
+      expect(schema.safeParse(verdict({})).success).toBe(false)
+      expect(
+        schema.safeParse(
+          verdict({ [name]: { reasoning: 'r', verdict: 'tie' } }),
+        ).success,
+      ).toBe(true)
+    },
+  )
+})
+
+// The reason reaches a PR comment and the job summary from a path that makes
+// real model calls, so it goes through the same scrubber the arm manifests
+// use. Asserted here rather than trusted from sweepArm's own tests, because
+// this is a second caller of it and the one nothing covered.
+describe('an ungraded reason is scrubbed', () => {
+  it('redacts a secret the provider echoed back', async () => {
+    const secret = process.env.ANTHROPIC_API_KEY
+    expect(secret).toBeDefined()
+    const { llm } = fake([new Error(`provider rejected key ${secret}`)])
+    const result = await judgeCase(
+      llm,
+      plan(blindCase(BASE, CANDIDATE, X_IS_BASE)),
+    )
+    const reason = result.kind === 'ungraded' ? result.reason : ''
+    expect(reason).not.toContain(secret)
+    expect(reason).toContain('[redacted ANTHROPIC_API_KEY]')
+    // The sentence survives: a redaction that ate the message would make the
+    // report useless in a different way.
+    expect(reason).toContain('provider rejected key')
   })
 })
