@@ -851,10 +851,14 @@ nor linear. A route buy makes **two** billed calls:
   buildings and water).
 
 So the price is roughly `10 × faces + doors`, and the second term is not small:
-over the 2026-10-01 burst the split was 7,563 planner credits to 5,487 routing
-ones, 42% of the bill. A route costs about 70% more than it did before that
-commit, which is worth saying out loud because nothing else was re-calibrated
-for it — the pool buys ~340 average lists a day now rather than ~600.
+`geoapify_credits_total` split the 2026-10-01 burst 7,563 planner credits to
+5,487 routing ones, so 42% of the bill was the street path. (The spend log
+makes the same burst 14,033 credits; the Prometheus counter reads a few percent
+lower because it resets on deploy and `increase()` estimates across the gap —
+read the log for a total and the counter for the split.) A route therefore
+costs about 70% more than it did before that commit, which is worth saying out
+loud because nothing else was re-calibrated for it: the pool buys ~340 average
+lists a day now rather than ~600.
 
 Faces are still the unit that dominates, and there are far fewer of them than
 stops — a 150-stop turf on a grid is a couple of dozen faces. A stop therefore
