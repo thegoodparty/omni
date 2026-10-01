@@ -13,8 +13,16 @@ const defaultEnvPath = (): string => path.resolve(process.cwd(), '.env')
 //
 // `.env` is still loaded unconditionally, because it carries every other
 // credential an eval might want and it is simply absent in CI. What changes
-// is that a real key already in the environment survives it: that is how CI
-// supplies one, from a repo secret rather than a file.
+// is that a real key already in the environment survives it.
+//
+// THAT ONLY HELPS A PROCESS VITEST DID NOT START. `vitest.config.ts` sets
+// `test.env` from `.env.test`, and the worker's environment is built as
+// `{...process.env, ...test.env}` — so inside any vitest run the stub has
+// already replaced a repo secret exported under this name, `hadRealKey` is
+// false, and there is nothing here to preserve. A key supplied by the
+// environment survives for `npx tsx` only. The judge's arms are vitest and
+// do not call this at all: they take the real key under a name `.env.test`
+// does not define, which is what `judge/modelKey.ts` exists for.
 //
 // Returning early instead — "if the env has a key, skip the file" — looks
 // equivalent and is not. A developer with ANTHROPIC_API_KEY exported in

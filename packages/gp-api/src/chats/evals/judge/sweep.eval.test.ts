@@ -6,6 +6,7 @@ import type { ChatTurnScript } from './runners/chatSeam'
 import { ciContextFromEnv, runChatCase } from './runners/chat'
 import { seedChatOrg, seedOptionsFor } from './runners/seedChatOrg'
 import { captureArm, unjudgeableRecords, type ArmCaseRequest } from './sweepArm'
+import { restoreRealModelKey } from './modelKey'
 import { parseArmEnv, storeFromEnv } from './sweepEnv'
 
 // ONE ARM OF ONE SWEEP. Steps 1 and 2 of three: this file runs twice, once in
@@ -22,6 +23,14 @@ import { parseArmEnv, storeFromEnv } from './sweepEnv'
 // lives in `sweepArm.ts` and is unit-tested there against a fake runner; what
 // is left here is the wiring to the real app, which
 // `runners/chat.integration.test.ts` covers on its own.
+
+// BEFORE useTestService, and at module scope on purpose. LlmService reads
+// ANTHROPIC_API_KEY when it is constructed, which happens inside the app boot
+// that useTestService registers as a beforeAll hook — so a test body is too
+// late. See modelKey.ts for why the real key does not arrive under its own
+// name. A no-op when this arm is not spending, and when nobody asked for a
+// sweep at all.
+if (process.env.JUDGE_ARM !== undefined) restoreRealModelKey()
 
 const service = useTestService()
 

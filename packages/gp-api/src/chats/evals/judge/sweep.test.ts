@@ -16,9 +16,13 @@ import {
   type ArmManifest,
   type RecordStore,
 } from './records'
+import { PinoLogger } from 'nestjs-pino'
+import { LlmService } from '@/llm/services/llm.service'
 import {
+  anthropicJudge,
   cannedVerdict,
   emitReport,
+  ensureFallbackModels,
   judgeSweep,
   type SweepResult,
 } from './sweep'
@@ -826,5 +830,133 @@ describe('a sweep whose agents were named by hand', () => {
     expect(outputs.report.refusals?.[0]?.reason).toContain(
       'came back byte-identical on both arms',
     )
+  })
+})
+
+// The judging step runs under tsx, which loads no `.env` file at all, and
+// LlmService throws on construction without AI_MODELS. The first live sweep
+// hit that after both arms had been billed, so the cost of getting this wrong
+// is a whole paid sweep with no verdict.
+describe('ensureFallbackModels', () => {
+  it.each([undefined, ''])('fills an %p list from the panel seats', (set) => {
+    const env: NodeJS.ProcessEnv = {
+      ...(set !== undefined && { AI_MODELS: set }),
+    }
+    ensureFallbackModels(DEFAULT_JUDGE_CONFIG, env)
+    expect(env.AI_MODELS).toBe(DEFAULT_JUDGE_CONFIG.panel.seats.join(','))
+    // Non-empty, which is the only thing LlmService checks. Asserted against
+    // the config rather than a literal: a seat list that emptied would
+    // otherwise satisfy this test and fail at construction.
+    expect(env.AI_MODELS).not.toBe('')
+  })
+
+  it('carries every seat, not just the first', () => {
+    const env: NodeJS.ProcessEnv = {}
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      panel: { ...DEFAULT_JUDGE_CONFIG.panel, seats: ['seat-a', 'seat-b'] },
+    }
+    ensureFallbackModels(config, env)
+    expect(env.AI_MODELS).toBe('seat-a,seat-b')
+  })
+
+  it('treats a whitespace-only list as unset', () => {
+    // LlmService splits on commas and filters empties, so `'   '` reaches it
+    // as zero models and throws a DIFFERENT message — one that reads like a
+    // malformed config rather than a missing one.
+    const env: NodeJS.ProcessEnv = { AI_MODELS: '   ' }
+    ensureFallbackModels(DEFAULT_JUDGE_CONFIG, env)
+    expect(env.AI_MODELS).toBe(DEFAULT_JUDGE_CONFIG.panel.seats.join(','))
+  })
+
+  // An empty seat list joins to `''`, which is the value the guard above
+  // reads as unset — so assigning it would leave this function having
+  // "filled" the variable and LlmService throwing anyway, after both arms
+  // were billed. It has to refuse instead.
+  it.each([[[]], [['']], [['  ', '']]])(
+    'refuses a panel whose seats are %j',
+    (seats) => {
+      const env: NodeJS.ProcessEnv = {}
+      const config: JudgeConfig = {
+        ...DEFAULT_JUDGE_CONFIG,
+        panel: { ...DEFAULT_JUDGE_CONFIG.panel, seats },
+      }
+      expect(() => ensureFallbackModels(config, env)).toThrow(
+        /panel has no seats/,
+      )
+      expect(env.AI_MODELS).toBeUndefined()
+    },
+  )
+
+  // The environment wins where it is set: in CI the workflow and `.env.test`
+  // are the source of truth for which models the process may reach, and this
+  // helper exists to cover the case where nothing set it, not to override a
+  // deployment that did.
+  it('leaves a list the environment already set', () => {
+    const env: NodeJS.ProcessEnv = { AI_MODELS: 'from-the-environment' }
+    ensureFallbackModels(DEFAULT_JUDGE_CONFIG, env)
+    expect(env.AI_MODELS).toBe('from-the-environment')
+  })
+
+  // THE CALL FORM PRODUCTION USES, and the only one the tests above do not.
+  // `anthropicJudge` calls it with no second argument, so a default changed
+  // to `{}` would leave every test green and move the key nowhere.
+  it('defaults to the real process environment', () => {
+    const had = process.env.AI_MODELS
+    try {
+      delete process.env.AI_MODELS
+      ensureFallbackModels(DEFAULT_JUDGE_CONFIG)
+      expect(process.env.AI_MODELS).toBe(
+        DEFAULT_JUDGE_CONFIG.panel.seats.join(','),
+      )
+    } finally {
+      if (had === undefined) delete process.env.AI_MODELS
+      else process.env.AI_MODELS = had
+    }
+  })
+})
+
+// WHAT TIES THE HELPER TO THE STEP THAT NEEDS IT. Every assertion above is
+// about the function; none of them notices if `anthropicJudge` stops calling
+// it, and under vitest `AI_MODELS` always arrives from `.env.test` — so the
+// condition the fix exists for never occurs in this suite. Deleting the call
+// reintroduces the exact defect that killed the first live sweep, with the
+// suite green.
+describe('anthropicJudge gives the judging step a chain it never sets', () => {
+  const withoutModels = (run: () => void): void => {
+    const hadModels = process.env.AI_MODELS
+    const hadCi = process.env.CI
+    try {
+      delete process.env.AI_MODELS
+      // Skips `overrideEnvForEvals`, which would rewrite the environment
+      // from a developer's `.env` and could put AI_MODELS back.
+      process.env.CI = 'true'
+      run()
+    } finally {
+      if (hadModels === undefined) delete process.env.AI_MODELS
+      else process.env.AI_MODELS = hadModels
+      if (hadCi === undefined) delete process.env.CI
+      else process.env.CI = hadCi
+    }
+  }
+
+  // The revert-check, written as a test: this is the error the first live
+  // sweep died on, and it is what makes the assertion below mean something
+  // more than "constructing did not crash".
+  it('LlmService refuses to construct without AI_MODELS', () => {
+    withoutModels(() => {
+      expect(() => new LlmService(new PinoLogger({ pinoHttp: {} }))).toThrow(
+        /AI_MODELS/,
+      )
+    })
+  })
+
+  it('constructs anyway, and leaves the seats behind as the chain', () => {
+    withoutModels(() => {
+      expect(anthropicJudge(DEFAULT_JUDGE_CONFIG)).toBeDefined()
+      expect(process.env.AI_MODELS).toBe(
+        DEFAULT_JUDGE_CONFIG.panel.seats.join(','),
+      )
+    })
   })
 })

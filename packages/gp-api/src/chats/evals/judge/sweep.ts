@@ -340,8 +340,40 @@ export const emitReport = (
 // this entry point is pure functions over stored records, and booting the app
 // graph to make a model call would drag in Postgres and the queue for
 // nothing. Its only required dependency is a logger.
-const anthropicJudge = (): JsonJudgeModel => {
+// LlmService refuses to construct without AI_MODELS, and AI_MODELS is its
+// DEFAULT fallback chain — the one thing this judge never reaches, because
+// every seat in config.panel pins its own model. The list is in `.env.test`,
+// in `.env.example` and in the deploy config; the judging step runs under
+// tsx, which loads none of them, so the first live sweep died here with
+// "Please set AI_MODELS in your .env" after both arms had been paid for.
+//
+// Derived from the seats rather than written out as a fourth copy: a second
+// seat then lands in the fallback list on its own, and the value is at least
+// true to what the panel actually calls.
+export const ensureFallbackModels = (
+  config: JudgeConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): void => {
+  const existing = env.AI_MODELS
+  if (existing !== undefined && existing.trim() !== '') return
+  // Derived AND checked, because an empty seat list joins to the empty
+  // string — the exact value the guard above reads as unset. Assigning it
+  // would leave this function having "filled" the variable and LlmService
+  // throwing the same message, after both arms were billed.
+  const seats = config.panel.seats.filter((seat) => seat.trim() !== '')
+  if (seats.length === 0) {
+    throw new Error(
+      'The judge panel has no seats, so there is no model to name in ' +
+        'AI_MODELS and no seat to ask for a verdict. Fix panel.seats in ' +
+        'config.ts before running a sweep.',
+    )
+  }
+  env.AI_MODELS = seats.join(',')
+}
+
+export const anthropicJudge = (config: JudgeConfig): JsonJudgeModel => {
   if (process.env.CI !== 'true') overrideEnvForEvals()
+  ensureFallbackModels(config)
   return new LlmService(new PinoLogger({ pinoHttp: {} }))
 }
 
@@ -391,7 +423,7 @@ export const main = async (): Promise<number> => {
   const result = await judgeSweep(
     {
       store: storeFromEnv(env),
-      llm: env.spends ? anthropicJudge() : cannedJudge(config),
+      llm: env.spends ? anthropicJudge(config) : cannedJudge(config),
       config,
     },
     env,
