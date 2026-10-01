@@ -79,6 +79,29 @@ describe('deriveSmsProtectedParts', () => {
     expect(textsFor(script).candidate_name).toBe('Sarah')
   })
 
+  it('does not lock a name inside a disclaimer the surface ignores', () => {
+    const script =
+      'Hello {{first_name}}, vote Nov 3! Paid for by Friends of Sarah Chen. Reply STOP'
+    const texts = textsFor(script, {
+      ...CONTEXT,
+      channel: 'serve',
+      ignoredRules: ['paid_for_by'],
+    })
+    expect(texts.candidate_name).toBeUndefined()
+    expect(texts.paid_for_by).toBeUndefined()
+  })
+
+  it('still locks the name when the committee is the candidate’s own name', () => {
+    const script =
+      "Hi {first_name}, it's Sarah Chen! Paid for by Sarah Chen. Reply STOP"
+    const texts = textsFor(script, {
+      candidateNames: ['Sarah Chen'],
+      committeeName: 'Sarah Chen',
+    })
+    expect(texts.candidate_name).toBe('Sarah Chen')
+    expect(texts.paid_for_by).toBe('Paid for by Sarah Chen')
+  })
+
   it('matches names as whole words, never inside another word', () => {
     const script = 'Hi {first_name}, the kitchen is open. Reply STOP'
     const context = { candidateNames: ['Lee Chen'] }

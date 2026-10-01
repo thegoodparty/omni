@@ -219,8 +219,12 @@ export const deriveSmsProtectedParts = (
   // candidate's name ("Friends of Sarah Chen"), and the name has to be found
   // outside it: inside, the disclaimer already locks it, and the copy the
   // candidate actually wrote ("it's Sarah") would go unlocked.
+  // Found even when the surface ignores paid_for_by (Serve), so the name
+  // search still skips it: a name that only appears inside a disclaimer the
+  // surface does not enforce must not get locked there. Only the lock itself
+  // is gated on the rule.
   let disclaimer: { start: number; text: string } | null = null
-  if (!ignored.has('paid_for_by')) {
+  {
     const phrase = /paid\s+for\s+by/i.exec(script)
     if (phrase) {
       const committee = context.committeeName?.trim()
@@ -249,13 +253,21 @@ export const deriveSmsProtectedParts = (
     // by": "Paid for by the committee, Friends of Sarah Chen" leaves the
     // committee outside the unit, and its "Sarah Chen" would otherwise win
     // the full-name match over the candidate's own "it's Sarah".
+    //
+    // Unless the committee IS the candidate's name ("Sarah Chen" for Sarah
+    // Chen): then every copy of it is also the name they wrote, and masking
+    // them all would leave nothing to lock.
     const committee = context.committeeName?.trim()
-    const outside = committee
-      ? withoutDisclaimer.replace(
-          new RegExp(escapeRegExp(committee), 'giu'),
-          (match) => ' '.repeat(match.length),
-        )
-      : withoutDisclaimer
+    const committeeIsName = (context.candidateNames ?? []).some(
+      (name) => name.trim().toLowerCase() === committee?.toLowerCase(),
+    )
+    const outside =
+      committee && !committeeIsName
+        ? withoutDisclaimer.replace(
+            new RegExp(escapeRegExp(committee), 'giu'),
+            (match) => ' '.repeat(match.length),
+          )
+        : withoutDisclaimer
     // The full name as written when it is there; otherwise the first of its
     // words the script uses, since scripts often identify by first name.
     const names = (context.candidateNames ?? []).filter(Boolean)
@@ -267,7 +279,7 @@ export const deriveSmsProtectedParts = (
     if (text) parts.push({ rule: 'candidate_name', kind: 'phrase', text })
   }
 
-  if (disclaimer) {
+  if (disclaimer && !ignored.has('paid_for_by')) {
     parts.push({ rule: 'paid_for_by', kind: 'phrase', text: disclaimer.text })
   }
 
