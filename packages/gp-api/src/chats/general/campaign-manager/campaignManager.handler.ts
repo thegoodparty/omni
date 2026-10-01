@@ -33,11 +33,11 @@ import {
   LEGAL_LINE,
 } from './campaignManagerPrompt'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
-import {
-  CampaignStoryIntakeService,
-  type StoryField,
-  type StoryState,
-} from './campaignStoryIntake.service'
+import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
+import type {
+  StoryField,
+  StoryState,
+} from '@/campaignStory/services/campaignStoryState.service'
 import { buildCampaignStoryTool } from './campaignStoryTool'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
