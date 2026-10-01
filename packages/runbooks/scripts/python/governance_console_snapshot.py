@@ -365,20 +365,16 @@ CAUSE_CAVEATS = {
     "never_observed": _caveat(
         "Amplitude holds a definition for each of these events and no data behind it. "
         "Not one of them has ever fired.",
-        "Less than it sounds like. The list of events we check comes from the "
-        "definitions people write in Amplitude, not from the code. So an event that "
-        "somebody defined and never built scores exactly the same here as one that "
-        "shipped last Thursday and has not fired yet.",
-        "The group mixes three unrelated things. Counted on 2026-09-28, of 69 events: "
-        "34 were never built at all, about 32 shipped too recently to judge, and 4 are "
-        "the real finding. An event that was never built stays here even after it is "
-        "deleted from Amplitude, and ruling on some events here does not stop them "
-        "coming back next run; an event leaves on its own the first time it fires.",
-        "Split it before ruling on it, which the buttons above the table do for you. "
-        "'not found in code' selects the ones nobody ever built, and the age column "
-        "separates what shipped in the last fortnight from what has been silent for "
-        "months.",
-        "instrumented_never_observed, DATA-2508, DATA-2587, DATA-2588",
+        "Less than it sounds like. Every event here was found in the code, but nothing "
+        "waits before counting it, so one that shipped last Thursday scores exactly the "
+        "same as one that has been silent for months.",
+        "The group mixes two things. Counted on 2026-09-28: about 32 shipped too "
+        "recently to judge, and 4 are the real finding. Ruling on some events here does "
+        "not stop them coming back next run; an event leaves on its own the first time "
+        "it fires.",
+        "Split it before ruling on it. The 'older than 30d' button selects the events "
+        "that have been silent long enough to mean something.",
+        "instrumented_never_observed, DATA-2588",
     ),
     "dormant": _caveat(
         "Nothing fired in the last 30 days.",

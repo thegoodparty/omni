@@ -78,7 +78,12 @@ export const CreateElectedOfficeSchema = z
     // Office identity for campaign-less creation (no pre-existing organization).
     ballotReadyPositionId: z.string().nullable().optional(),
     customPositionName: z.string().nullable().optional(),
-    overrideDistrictId: z.string().nullable().optional(),
+    // overrideDistrictId is deliberately absent, mirroring
+    // PatchOrganizationDto: it names the people-db district every
+    // district-derived metric and contact lookup for the new org is scoped to,
+    // so a self-service caller must not be able to pick it. The one write path
+    // is the M2M PUT :id/district route, which resolves the id server-side
+    // from a state/district pair.
   })
   .superRefine(refineTermDates)
 

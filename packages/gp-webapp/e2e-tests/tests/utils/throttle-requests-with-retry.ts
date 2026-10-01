@@ -76,7 +76,7 @@ const CLERK_RATE_WINDOW_MS = 10_000
 // The 100-req/10s budget is per Clerk INSTANCE, and every process that holds
 // the dev secret key spends from it: all of this run's workers, any other E2E
 // run in flight at the same time (another PR, the release train, a re-run),
-// gp-api dev's own provisioning lookups, and the 6-hourly test-user sweep.
+// gp-api dev's own provisioning lookups, and the hourly test-user sweep.
 // Note that gp-api's provisioning lookups are UNTHROTTLED and un-retried: its
 // own clerkThrottle.util.ts wraps only the test-fixture and test-user-sweep
 // calls, never the hot auth path, where ClerkAuthService.getUser goes straight

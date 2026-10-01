@@ -47,7 +47,7 @@ Tests that need an authenticated user call `authenticateTestUser(page)` from `te
 
 By default, a single user is cached and shared across tests in a worker. Pass `{ isolated: true }` to create a dedicated user for a test.
 
-Test users are not cleaned up per-run. A scheduled job on gp-api (`UsersService.deleteTestUsers`, every 6h) removes any `@test.goodparty.org` user older than 3 hours from both the DB and Clerk, so every e2e run leaves a short-lived footprint that the next scheduled sweep clears.
+Test users are not cleaned up per-run. A scheduled job on gp-api (`UsersService.deleteTestUsers`, hourly) removes any `@test.goodparty.org` user older than 3 hours from both the DB and Clerk, so every e2e run leaves a short-lived footprint that the next scheduled sweep clears.
 
 ```typescript
 import { authenticateTestUser } from '../utils/api-registration'

@@ -187,12 +187,6 @@ Both carry an explicit "feeds a HubSpot re-engagement email" comment in
 | `Community Issues - Top Issues Dispatch Skipped`   | `communityIssueDispatch.service.ts:354` (`trackDispatchSkippedInactive`) | Same shape — cron-driven re-engagement, fires repeatedly for an inactive account.        |
 | `Community Issues - Trending Issues Dispatch Skipped` | `communityIssueDispatch.service.ts:354`                           | Same as above (same call site, event chosen by `experimentType`).                        |
 
-### Excluded — no gp-api-fired event
-
-| Event                                | Where it exists                        | Status                                                                                                                                    |
-| --------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Account - Password Reset Requested`   | `segment.types.ts` only (`Account.PasswordResetRequested`) | Defined but **never fired** anywhere in `src/`. Password reset goes out via Mailgun (`email.service.ts`), not HubSpot. Exclude unless Ops finds a portal workflow keyed on it. |
-
 ### Swept, not yet classified — Ops to confirm before scoping
 
 These exist in `segment.types.ts` and are plausible email triggers, but
