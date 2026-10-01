@@ -32,7 +32,10 @@ correctly without embedding a channel list:
 
 - **"did outreach"** = `Outreach - Campaign Completed` where
   `fanout = one-to-many`, OR an `Outreach - Door Knocking Door Logged` /
-  `Outreach - Phone Banking Call Logged`.
+  `Outreach - Phone Banking Call Logged`. A chart reaching back before
+  2026-09-29 must also accept `fanout = (none)`: no earlier row carries it, so
+  `one-to-many` alone drops all pre-cutover history. `ce:Outreach - All`
+  already does this.
 - **"voters reached"** = SUM(`recipientCount`) where `fanout = one-to-many`,
   plus COUNT of the two contact events.
 
