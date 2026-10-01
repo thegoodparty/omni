@@ -503,6 +503,13 @@ export {
 } from './campaigns/UpdateCommitteeName.schema'
 
 export {
+  UpdateFilingUrlSchema,
+  type UpdateFilingUrlInput,
+  UpdateFilingUrlOutputSchema,
+  type UpdateFilingUrlOutput,
+} from './campaigns/UpdateFilingUrl.schema'
+
+export {
   RaceListItemSchema,
   RaceListItemArraySchema,
   type RaceListItem,
