@@ -10,6 +10,7 @@ import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucke
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
+import { createSitemapsBucket } from './components/sitemaps-bucket'
 import { createVpc } from './components/vpc'
 
 export = async () => {
@@ -46,6 +47,10 @@ export = async () => {
   // Production deploy manages the VPC. The actual VPC details are hard-coded above as individual variables.
   if (environment === 'prod') {
     createVpc()
+    // One global bucket serving prod sitemaps, so only the prod stack
+    // creates it (same single-owner pattern as the preview shared cluster
+    // on the dev stack).
+    createSitemapsBucket()
   }
 
   const secretName = select({
