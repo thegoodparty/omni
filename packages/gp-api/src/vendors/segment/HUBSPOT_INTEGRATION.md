@@ -126,46 +126,6 @@ change. If the Ops portal spot-check finds this event actually populates a
 persistent contact field, Ops simply never sets the env var and this stays
 on the workflow path; no code change needed either way.
 
-### Robocall payment / receipt — MOVE
-
-Named explicitly in the TDD as move-eligible. Every milestone below carries a
-deterministic Segment `messageId` (`<outreachId>:<milestone>[:<suffix>]`) so a
-replay dedups to one email regardless of transport — that property is
-unaffected by the single-send cutover.
-
-A robocall-services refactor (`outreachRobocallCompletion.service.ts`
-consolidation, `callhubCredits` removal) landed between the inventory draft
-and this cutover and shifted every line number below; re-verified against
-`git blame` at cutover time. Three of the seven events route through a
-shared `emitMilestone` in `outreachRobocallHold.service.ts`
-(HoldPlaced/HoldFailed/SendFailed) and two more through a shared
-`emitMilestone` in `outreachRobocallHoldFailure.service.ts`
-(Reminder/Canceled), so the single-send call was added there once per file
-rather than at every individual site; Scheduled and Receipt each have their
-own `emit*` method (Receipt's is duplicated across the capture and
-fresh-charge services, one per settlement path).
-
-| Event                     | Fired from                                                                                                     | Single-send env var                       | Recipient         |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- | ------------------- |
-| `Robocall - Scheduled`    | `outreachRobocall.service.ts` (`emitScheduled`, called from `createDraft`)                                        | `HUBSPOT_ROBOCALL_SCHEDULED_EMAIL_ID`      | `campaign.userId` |
-| `Robocall - Hold Placed` | `outreachRobocallHold.service.ts` (`emitMilestone`, called from `authorizeHold`'s success commit)                 | `HUBSPOT_ROBOCALL_HOLD_PLACED_EMAIL_ID`    | `user.id`         |
-| `Robocall - Hold Failed` | `outreachRobocallHold.service.ts` (`emitMilestone`, via `transitionToHoldFailed` — decline + card-escalation) and `outreachRobocallSend.service.ts` (`emitHoldFailed`, dead hold at dial time) | `HUBSPOT_ROBOCALL_HOLD_FAILED_EMAIL_ID`    | `userId`          |
-| `Robocall - Send Failed` | `outreachRobocallHold.service.ts` (`emitMilestone`, called from `failSend`)                                       | `HUBSPOT_ROBOCALL_SEND_FAILED_EMAIL_ID`    | `userId`          |
-| `Robocall - Reminder`    | `outreachRobocallHoldFailure.service.ts` (`emitMilestone`, called from `remindHoldFailure`)                       | `HUBSPOT_ROBOCALL_REMINDER_EMAIL_ID`       | `campaign.userId` |
-| `Robocall - Canceled`    | `outreachRobocallDeferredHold.service.ts` (`emitCanceled`, called from `cancelExpiredDeferred`) and `outreachRobocallHoldFailure.service.ts` (`emitMilestone`, called from `cancelExpiredHoldFailure`) | `HUBSPOT_ROBOCALL_CANCELED_EMAIL_ID`       | `campaign.userId` |
-| `Robocall - Receipt`     | `outreachRobocallFreshCharge.service.ts` and `outreachRobocallCapture.service.ts` (both `emitReceipt`)            | `HUBSPOT_ROBOCALL_RECEIPT_EMAIL_ID`        | `userId`          |
-
-All seven asset ids are **Ops to create and set** — every env var above is
-unset in every environment today, so each milestone still sends only via the
-existing Segment-event -> HubSpot workflow path until Ops creates the asset
-and sets the id. `OutreachRobocallSingleSendService`
-(`src/outreach/services/outreachRobocallSingleSend.service.ts`) is the shared
-single-send leg for all seven: it resolves the recipient's email fresh from
-`userId` (most firing sites carry only a userId, not a loaded `User` — several
-are SQS-consumer or payment-flow terminals), skips silently when its env var
-is unset, and never throws — a HubSpot failure must never fail a payment
-capture, an SQS consumer, or a cron sweep transition.
-
 ### Lifecycle digests and nudges — STAY
 
 | Event                                        | Fired from                                                        | Reason to stay                                                                                                        |
@@ -511,15 +471,6 @@ every environment today, pending their Ops-created assets. Ops removes each
 email's workflow send action once its asset is created and the env var is
 set in prod — until then every one of these paths is a no-op single-send
 alongside the unchanged workflow email.
-
-The seven robocall payment/receipt milestones (ENG-11035, see the
-"Robocall payment / receipt" table above) are the second batch cut over,
-via the shared `OutreachRobocallSingleSendService`. Same shape: each
-Segment event keeps firing unchanged, each asset id env var is unset today,
-and a HubSpot failure is logged and swallowed rather than thrown — these
-fire from an HTTP authorize call, a payment capture/charge, or a `@Cron`
-sweep transition, where a thrown error would fail an already-committed
-money operation or abort a sweep's remaining rows.
 
 Poll results ready and meeting briefing ready (ENG-11035) follow the same
 pattern — see the Poll results / Meeting briefing ready sections above for

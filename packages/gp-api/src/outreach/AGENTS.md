@@ -477,10 +477,9 @@ ROBOCALL_SETTLE_MARGIN_HOURS (24)` must fit inside the hold's `capture_before`
   deterministic way from `failSend` when a PERMANENT staging/dial failure surfaces
   (see "Send failures" below). Capture/deferred-sweep/reminder-retry-cancel are
   later slices. Every one of these milestones (plus Scheduled, Reminder,
-  Canceled, and Receipt elsewhere in this file) also runs a HubSpot single-send
-  email leg alongside the unchanged Segment event (ENG-11035,
-  `OutreachRobocallSingleSendService`) — see `HUBSPOT_INTEGRATION.md`'s
-  "Robocall payment / receipt" table.
+  Canceled, and Receipt elsewhere in this file) is delivered to the candidate
+  by a HubSpot workflow keyed on the Segment event — there is no per-event
+  single-send email leg.
 - **Cross-channel send terminal.** `EVENTS.Outreach.CampaignScheduled`
   (`Voter Outreach - Campaign Scheduled`, `channel: 'robocall'`, messageId
   `<outreachId>:campaign_scheduled`, DATA-2526), emitted from the authorize
