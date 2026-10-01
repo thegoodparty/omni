@@ -112,7 +112,9 @@ export class VoterFileController {
   @Get('filters')
   @UseOrganization()
   listVoterFileFilters(@ReqOrganization() organization: Organization) {
-    return this.voterFileFilterService.findByOrganizationSlug(organization.slug)
+    return this.voterFileFilterService.findUsableByOrganizationSlug(
+      organization,
+    )
   }
 
   @Get('filter/:id')

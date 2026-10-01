@@ -209,6 +209,8 @@ RETIRED_COL = "retired_date"
 INSTRUMENTED_PR_COL = "instrumented_pr"
 CALL_SITE_COUNT_COL = "call_site_count"
 CALL_SITE_RETIRED_COL = "call_site_retired_date"
+# Columns that identify or stamp a provenance row rather than record anything found in code.
+_NON_EVIDENCE_COLS = ("event_type", "event_type_slug", "updated_at")
 
 
 # --- pure helpers -------------------------------------------------------------
@@ -360,6 +362,14 @@ def detect_anomaly(weeks: Sequence[tuple[date, int]]) -> dict | None:
     return {"current": current, "baseline": round(baseline, 1)} if drop else None
 
 
+def has_code_provenance(crow: Mapping[str, Any]) -> bool:
+    """False for a row the walk onboarded from the taxonomy and never found in code (DATA-2508).
+
+    Such a row records a declaration, so it says nothing about whether the event is in the code.
+    """
+    return any(v not in (None, "") for k, v in crow.items() if k not in _NON_EVIDENCE_COLS)
+
+
 def classify_status(
     *,
     in_code: bool | None,
@@ -369,7 +379,7 @@ def classify_status(
     today: date,
 ) -> str:
     """SOP status from the code x firing axes. ``in_code`` is None when the event has no
-    provenance row (code axis unknown: auto-tracked or brand-new)."""
+    provenance row, or a blank one (code axis unknown: auto-tracked, brand-new, or never built)."""
     if in_code is None:
         return "code_unknown"
     if retired_date is None:  # code present
@@ -666,7 +676,7 @@ def reconcile(
         if is_system(family, event_type):
             status = "system"  # anomaly-watched only
         else:
-            in_code = None if crow is None else True
+            in_code = True if crow is not None and has_code_provenance(crow) else None
             retired = to_date(crow.get(RETIRED_COL)) if crow else None
             status = classify_status(
                 in_code=in_code, firing_recent=firing_recent, retired_date=retired,
@@ -700,7 +710,7 @@ def reconcile(
                 {
                     "event_type": event_type,
                     "family": None,
-                    "status": "instrumented_never_observed",
+                    "status": "instrumented_never_observed" if has_code_provenance(crow) else "code_unknown",
                     "elevated": is_elevated(None, event_type, None),
                     "on_watchlist": event_type in watchlist_events,
                     "okr": okr_by_event.get(event_type),
