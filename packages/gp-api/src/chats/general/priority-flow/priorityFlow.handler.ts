@@ -48,7 +48,10 @@ import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
-import { buildPriorityOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import {
+  buildPriorityOutreachProposalTool,
+  checkProposalRefusal,
+} from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import {
@@ -69,7 +72,7 @@ export const PRIORITY_FLOW_MODELS = [
 // Every draft goes out under the official's name, and the drawer refuses one
 // that does not carry it, so a card that lands there with a placeholder or an
 // unsigned text opens on an error. Text and phone scripts are spoken as the
-// official; social and door knocking are not checked for a name.
+// official, or on their behalf; social and door knocking are not checked.
 const PLACEHOLDER = /\[[^\]\n]{1,40}\]/
 
 const unsignedDraftReason = (
@@ -82,15 +85,20 @@ const unsignedDraftReason = (
       "signed with the official's first name and office from <priority>."
     )
   }
-  if (input.channel !== 'text' || firstName === null) return null
+  const voiced = input.channel === 'text' || input.channel === 'phoneBanking'
+  if (!voiced || firstName === null) return null
   const { failures } = checkSmsStandards(input.message, {
     candidateNames: [firstName],
   })
-  return failures.includes('candidate_name')
+  if (!failures.includes('candidate_name')) return null
+  // A caller may be a volunteer, so the script names the official without
+  // claiming to be them.
+  return input.channel === 'text'
     ? `A text has to name the official. Open it with "this is ` +
         `${firstName}, your" and their office (no greeting, the flow adds ` +
         `one), then present it again.`
-    : null
+    : `A phone script has to name the official. Have the caller say who ` +
+        `they are calling for: "${firstName}, your" and their office.`
 }
 
 @Injectable()
@@ -208,9 +216,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     // check as asked until one has, which is what makes `asked` mean shown.
     let offeredThisTurn = false
     const ask = buildAskClarifyQuestionTool()
-    const propose = buildPriorityOutreachProposalTool(() =>
-      this.priorityStatus.read(ctx.priorityId),
-    )
+    const propose = buildPriorityOutreachProposalTool()
     const tools: Record<string, LlmTool> = {
       ...this.priorityStatus.buildStatusTool(ctx.priorityId, {
         offered: () => offeredThisTurn,
@@ -231,9 +237,16 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         execute: async (input: Parameters<typeof propose.execute>[0]) => {
           const unsigned = unsignedDraftReason(input, ctx.officialFirstName)
           if (unsigned !== null) return { error: unsigned }
-          const result = await propose.execute(input)
-          if (!('error' in result)) offeredThisTurn = true
-          return result
+          const refusal =
+            input.stepId === undefined && input.side === undefined
+              ? null
+              : checkProposalRefusal(
+                  input,
+                  await this.priorityStatus.read(ctx.priorityId),
+                )
+          if (refusal !== null) return { error: refusal }
+          offeredThisTurn = true
+          return propose.execute(input)
         },
       },
       present_outside_contact: buildPresentOutsideContactTool(),

@@ -300,6 +300,24 @@ export const isCheckAnswered = (
   check?.state === 'revised' ||
   check?.state === 'declined'
 
+/**
+ * The first listening step before `id` that is still open, if any. Work can
+ * go ahead of an open listening step, but nothing past it is done until it
+ * closes, because what comes after rests on what people have not said yet.
+ */
+export const openListenBefore = (
+  steps: readonly { id: PriorityStepId; state: PriorityStepState }[],
+  id: PriorityStepId,
+): PriorityStepId | undefined => {
+  const at = PRIORITY_STEP_IDS.indexOf(id)
+  return steps.find(
+    (step) =>
+      PRIORITY_LISTEN_GATES[step.id] !== undefined &&
+      PRIORITY_STEP_IDS.indexOf(step.id) < at &&
+      step.state !== 'settled',
+  )?.id
+}
+
 // Reads heal what earlier builds let through: a check is only meaningful on
 // a gate, and an `asked` that was never stamped as shown was never shown, so
 // it reads as no check at all and the gate asks for it again.

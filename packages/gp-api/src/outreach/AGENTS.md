@@ -1277,6 +1277,9 @@ Serve SMS and the delivery layer are covered by colocated suites rather than
 the HTTP harness, except the controller: `outreachServeSms.controller.test.ts`
 covers both routes' feature-flag gate (404 when off, composing nothing and
 writing no row) and the pass-through when on;
+`tests/outreachServeSmsProposal.test.ts` runs a card's text through the
+harness (the key moving to a fresh draft, an unpaid draft reading as unsent,
+the paid send putting the priority's check out, a spent key 409ing);
 `services/outreachServeSmsCreate.service.test.ts` covers the create
 (a client-supplied count ignored, below-25 rejected by name, exactly-25
 accepted, an empty audience rejected, weekend / too-soon / too-far / unreal

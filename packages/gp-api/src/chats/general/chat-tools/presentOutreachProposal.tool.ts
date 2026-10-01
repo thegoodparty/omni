@@ -103,21 +103,18 @@ export const checkProposalRefusal = (
         `went out (${sent}). Do not offer it again; wait for what people say.`
 }
 
-export const buildPriorityOutreachProposalTool = (
-  readStatus: () => Promise<PriorityStatus>,
-): LlmStreamTool<typeof priorityProposalInput> => ({
+// The caller checks a named check with checkProposalRefusal before this runs,
+// since it holds the priority.
+export const buildPriorityOutreachProposalTool = (): LlmStreamTool<
+  typeof priorityProposalInput
+> => ({
   description:
     DESCRIPTION +
     '\n\nWhen this puts out a check, pass stepId and side, so the check ' +
     'moves to out on its own once the official sends it.',
   inputSchema: priorityProposalInput,
-  execute: async (input) => {
-    const names = input.stepId !== undefined || input.side !== undefined
-    const refusal = names
-      ? checkProposalRefusal(input, await readStatus())
-      : null
-    return refusal === null
-      ? { presented: true, deepLinkOnly: isDeepLinkOnly(input.channel) }
-      : { error: refusal }
-  },
+  execute: (input) => ({
+    presented: true,
+    deepLinkOnly: isDeepLinkOnly(input.channel),
+  }),
 })

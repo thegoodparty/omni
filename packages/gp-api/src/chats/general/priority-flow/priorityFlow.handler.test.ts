@@ -445,7 +445,8 @@ describe('PriorityFlowHandler', () => {
       audience: 'Maple Ave households',
       count: 312,
       channel: 'social' as const,
-      message: 'Sidewalk repairs start next month.',
+      message:
+        'Hi, this is Bryan, your City Council Member. Repairs start soon.',
       why: 'These are the households on the blocks being repaired.',
       deepLinkOnly: false,
     }
@@ -491,6 +492,22 @@ describe('PriorityFlowHandler', () => {
         message: 'this is Bryan, your City Council Member. Is the sidewalk it?',
       }),
     ).toEqual({ presented: true, deepLinkOnly: true })
+    expect(
+      await tool.execute({
+        ...text,
+        channel: 'phoneBanking' as const,
+        message: 'Hi, I am calling for the City Council. Is the sidewalk it?',
+      }),
+    ).toHaveProperty('error')
+    expect(
+      await tool.execute({
+        ...text,
+        channel: 'phoneBanking' as const,
+        message:
+          'Hi, I am calling for Bryan, your City Council Member. Is it the ' +
+          'sidewalk?',
+      }),
+    ).toEqual({ presented: true, deepLinkOnly: false })
   })
 
   // A side that went out has been asked; offering it again would ask the

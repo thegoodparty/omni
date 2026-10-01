@@ -92,7 +92,7 @@ describe('a Serve text carrying a proposal link', () => {
     vi.spyOn(
       service.app.get(QueueProducerService),
       'sendMessage',
-    ).mockResolvedValue(true)
+    ).mockResolvedValue(undefined)
   })
 
   const headers = () => ({ headers: { 'x-organization-slug': slug } })
