@@ -85,13 +85,11 @@ def test_a_caveat_carries_a_plain_headline():
 UNPOINTED_METRICS = {"win_product_output_users", "activated_serve_users"}
 
 
-def test_committed_registry_has_no_case_1_drift_against_the_fixtures():
-    # Refreshing a fixture after an upstream anchored_on change must come with the
-    # registry edit that follows it; otherwise the scheduled run reports the drift.
-    fixtures = Path(aeh.__file__).parent / "fixtures"
-    anchors: dict = {}
-    for name in ("sem_analytics__users_win.yml", "sem_analytics__users_serve.yml"):
-        anchors.update(sa.parse_anchors((fixtures / name).read_text()))
+def test_committed_registry_has_no_case_1_drift_against_the_okr_copy():
+    # The committed OKR copy is refreshed from upstream twice a week; a refresh that
+    # changes anchored_on must come with the registry edit that follows it, otherwise the
+    # scheduled run reports the drift.
+    anchors, _ = sa.load_vendored_anchors()
     doc = yaml.safe_load(aeh.WATCHLIST.read_text())
     findings = aa.align(
         br.load_behaviors(aeh.WATCHLIST),
