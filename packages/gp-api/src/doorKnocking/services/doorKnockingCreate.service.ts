@@ -58,8 +58,9 @@ import { recordWaypointSpend } from '../utils/waypointSpend.util'
 // the number of stops a savable list can hold, rather than carrying a second
 // 150 that can drift from this one.
 export const MAX_STOPS = 150
-// The vendor call happens inside the transaction by design, so the timeout
-// must absorb it.
+// The route purchase, when a create is handed a travel mode, happens inside
+// the transaction by design, so the timeout must absorb that vendor call. The
+// people-db scan does not run in there any more — see `create`.
 const CREATE_TX_TIMEOUT_MS = 120_000
 
 // What one create cost, kept split by API until the metric records it that
@@ -247,22 +248,62 @@ export class DoorKnockingCreateService extends createPrismaBase(
     ])
     const excludePersonIds = [...new Set([...doNotKnockIds, ...notAVoterIds])]
 
+    // Read outside the transaction for the same reason the status reads above
+    // are: the audience resolution needs it, and that resolution and the
+    // people-db scan it feeds are what a create actually spends its time on.
+    const filter = await this.client.voterFileFilter.findFirst({
+      where: {
+        id: input.voterFileFilterId,
+        organizationSlug: organization.slug,
+      },
+      // activityConditions is a relation, so it has to be pulled in
+      // explicitly — without it the resolution below sees a list with no
+      // conditions and routes the unfiltered roster.
+      include: { activityConditions: true },
+    })
+    if (!filter) {
+      throw new NotFoundException('Voter file filter not found')
+    }
+
+    // The list's own saved filters, resolved exactly as the CRM resolves them.
+    // Anything less and the list's activity conditions, support-status,
+    // contacts-made and voter-likelihood overrides stop applying the moment it
+    // is routed — the roster the candidate previewed in Contacts and the
+    // roster they walk would quietly disagree.
+    const resolved = await this.contacts.resolveSavedFilterForQuery(
+      organization,
+      filter,
+    )
+    if (resolved.empty) {
+      // Nobody survives the list's own filters, so there is nothing to route —
+      // and nothing about the polygon, which has not been looked at yet, could
+      // change that. Raised before paying for a people-db scan that can only
+      // come back empty.
+      throw new BadRequestException(emptyAudienceMessage(filter, isServe))
+    }
+
+    // The doors, resolved BEFORE the transaction opens rather than inside it.
+    // This is a Databricks statement over the voter file, not a Postgres
+    // query: measured at 3.4s of a 3.5s transaction, against ~60ms for every
+    // write the create makes. A transaction waiting on it holds one of the
+    // instance's 20 connections (DB_CONN_LIMIT) doing nothing, so twenty saves
+    // in flight together pinned the entire pool and the next one failed with
+    // "The database was briefly unavailable" — Prisma allows a transaction two
+    // seconds to acquire a connection and then gives up (P2028). A campaign
+    // saved as one batch of lists passes twenty easily, and holding the
+    // connection across this call was the only thing that made it possible.
+    const { people } = await this.peopleApi.evaluate({
+      districtId,
+      bbox: polygonBbox(input.geoPoly),
+      filters: resolved.filters,
+      idOverrides: resolved.idOverrides,
+      contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+      excludePersonIds,
+    })
+    const stops = this.buildStops(people, input.geoPoly, isServe)
+
     const turfId = await this.client.$transaction(
       async (tx) => {
-        const filter = await tx.voterFileFilter.findFirst({
-          where: {
-            id: input.voterFileFilterId,
-            organizationSlug: organization.slug,
-          },
-          // activityConditions is a relation, so it has to be pulled in
-          // explicitly — without it the resolution below sees a list with no
-          // conditions and routes the unfiltered roster.
-          include: { activityConditions: true },
-        })
-        if (!filter) {
-          throw new NotFoundException('Voter file filter not found')
-        }
-
         // A caller adding a turf to an existing campaign names the anchor
         // Outreach on the wire; we validate it belongs to this same scope
         // (Win same campaign, Serve same org) and is still a live
@@ -326,34 +367,6 @@ export class DoorKnockingCreateService extends createPrismaBase(
             purpose: input.purpose,
           },
         })
-
-        // The list's own saved filters, resolved exactly as the CRM resolves
-        // them. Anything less and the list's activity conditions,
-        // support-status, contacts-made and voter-likelihood overrides stop
-        // applying the moment it is routed — the roster the candidate
-        // previewed in Contacts and the roster they walk would quietly
-        // disagree.
-        const resolved = await this.contacts.resolveSavedFilterForQuery(
-          organization,
-          filter,
-        )
-        if (resolved.empty) {
-          // Nobody survives the list's own filters, so there is nothing to
-          // route — and nothing about the polygon, which has not been looked
-          // at yet, could change that. Raised before paying for a people-db
-          // scan that can only come back empty.
-          throw new BadRequestException(emptyAudienceMessage(filter, isServe))
-        }
-
-        const { people } = await this.peopleApi.evaluate({
-          districtId,
-          bbox: polygonBbox(input.geoPoly),
-          filters: resolved.filters,
-          idOverrides: resolved.idOverrides,
-          contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
-          excludePersonIds,
-        })
-        const stops = this.buildStops(people, input.geoPoly, isServe)
 
         // A travel mode is what turns a create into a purchase. Sent, the
         // route is bought here exactly as it always was. Omitted, the turf
