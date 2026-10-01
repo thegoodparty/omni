@@ -57,6 +57,8 @@ export const handoffPayload = (
     channel: CardChannel
     message: string
     savedFilterId?: number | null
+    listName?: string | null
+    audience: string
     proposalKey: string
   },
   priorityId?: string,
@@ -67,6 +69,7 @@ export const handoffPayload = (
         channel: proposal.channel,
         message: proposal.message,
         savedFilterId: proposal.savedFilterId ?? null,
+        name: proposal.listName?.trim() || proposal.audience,
         proposalKey: proposal.proposalKey,
         ...(priorityId !== undefined && { priorityId }),
       }

@@ -138,10 +138,24 @@ describe('OutreachProposalCard', () => {
         channel,
         message: MESSAGE,
         savedFilterId: 77,
+        name: 'Riverside',
         proposalKey: PROPOSAL_KEY,
       })
     },
   )
+
+  it('names the send after the audience when the list has no name', async () => {
+    mockNotSent()
+
+    renderCard(proposalCard({ listName: null }))
+
+    const link = await chip()
+    fireEvent.click(link)
+
+    expect(handoffOf(link).stored()).toMatchObject({
+      name: 'Riverside neighbors',
+    })
+  })
 
   it('carries the priority it was proposed under', async () => {
     mockNotSent()
@@ -187,6 +201,7 @@ describe('OutreachProposalCard', () => {
       channel: 'social',
       message: MESSAGE,
       savedFilterId: 77,
+      name: 'Riverside',
       proposalKey: PROPOSAL_KEY,
     })
   })

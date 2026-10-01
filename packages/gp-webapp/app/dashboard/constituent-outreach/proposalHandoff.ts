@@ -13,6 +13,9 @@ export const ProposalHandoffSchema = z
     channel: z.enum(['text', 'phoneBanking', 'social']),
     message: z.string().min(1),
     savedFilterId: z.number().int().positive().nullish(),
+    // What the flow can name the send without asking: the saved list's
+    // name, else the proposal's audience line.
+    name: z.string().min(1).optional(),
   })
   .extend(ProposalLinkSchema.shape)
 

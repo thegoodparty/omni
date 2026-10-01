@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ComposeHandoffPayloadSchema,
+  PHONE_BANKING_NAME_MAX_LENGTH,
   type OutreachDetail,
 } from '@goodparty_org/contracts'
 import DashboardLayout from '../shared/DashboardLayout'
@@ -312,6 +313,10 @@ const ConstituentOutreachContent = () => {
           followUpListId ?? phoneBankingPrefill?.savedFilterId ?? undefined
         }
         initialScript={phoneBankingPrefill?.message}
+        initialName={phoneBankingPrefill?.name?.slice(
+          0,
+          PHONE_BANKING_NAME_MAX_LENGTH,
+        )}
         proposalLink={
           phoneBankingPrefill ? proposalLinkOf(phoneBankingPrefill) : undefined
         }

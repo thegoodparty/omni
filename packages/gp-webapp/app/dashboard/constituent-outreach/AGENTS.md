@@ -128,7 +128,9 @@ generation services, the spine scoping — are in
   the payload in `sessionStorage['cos-handoff-<nonce>']`, read as
   `ProposalHandoffSchema` (`proposalHandoff.ts`: message, saved list, and the
   proposal link). Text and phone banking open with `initialScript` and
-  `preselectedListId`, landing on the who step under `custom`; social opens on
+  `preselectedListId`, landing on the who step under `custom` (phone banking
+  also takes `initialName`, the list's name or else the audience line, so the
+  script step does not stop on an empty name); social opens on
   compose with the draft. Nothing writes or charges until the official acts.
   The Chief of Staff's own `ComposeHandoffPayload` still opens social. The
   payload is spent on arrival, and one that names a different channel than

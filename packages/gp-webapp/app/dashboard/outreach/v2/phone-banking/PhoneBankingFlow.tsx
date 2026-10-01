@@ -253,6 +253,9 @@ interface PhoneBankingFlowProps {
   // A script already written, from a chat card's outreach proposal. Opens on
   // the who step under `custom`, the same seed SmsFlow's `initialScript` is.
   initialScript?: string
+  // The list name a chat card proposal already knows, so the script step does
+  // not stop on an empty required field. Editable like any typed name.
+  initialName?: string
   // The chat card proposal this flow was opened from. Rides on the create so
   // the list is linked to its priority, and a second completion of the same
   // proposal hands back the first list rather than building another.
@@ -276,6 +279,7 @@ export const PhoneBankingFlow = ({
   preselectedListId,
   preselectedRecommendedVariant,
   initialScript,
+  initialName,
   proposalLink,
   tracker,
   source,
@@ -436,8 +440,8 @@ export const PhoneBankingFlow = ({
     setInstructions('')
     setSheetCount(1)
     setSheetCountEdited(false)
-    setName('')
-    setNameEdited(false)
+    setName(initialName ?? '')
+    setNameEdited(Boolean(initialName))
     setSaved(false)
     setCreateResponse(null)
     setGateOpen(false)
@@ -471,6 +475,7 @@ export const PhoneBankingFlow = ({
     draftMutate,
     preselectedRecommendedVariant,
     initialScript,
+    initialName,
   ])
 
   // Applies the handed-over preselected list to the who step's picker once

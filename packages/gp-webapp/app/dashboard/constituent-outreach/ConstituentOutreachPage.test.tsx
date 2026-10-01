@@ -694,6 +694,7 @@ describe('ConstituentOutreachPage — a chat card proposal', () => {
       channel: 'phoneBanking',
       message: SCRIPT,
       savedFilterId: 3,
+      name: 'Maple Street households',
       proposalKey: PROPOSAL_KEY,
       priorityId: 'priority-1',
     })
@@ -732,7 +733,11 @@ describe('ConstituentOutreachPage — a chat card proposal', () => {
         },
       }
     })
-    await user.type(screen.getByLabelText('Campaign name'), 'Maple calls')
+    // Named from the proposal, so the script step does not stop on an empty
+    // required field, and still editable.
+    expect(screen.getByLabelText('Campaign name')).toHaveValue(
+      'Maple Street households',
+    )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -742,6 +747,7 @@ describe('ConstituentOutreachPage — a chat card proposal', () => {
     await user.click(create)
     await waitFor(() => expect(bodies).toHaveLength(1))
     expect(bodies[0]).toMatchObject({
+      name: 'Maple Street households',
       script: SCRIPT,
       voterFileFilterId: 3,
       proposalKey: PROPOSAL_KEY,
