@@ -25,6 +25,7 @@ import {
   type PriorityCheckState,
   type PriorityStatus,
   type PriorityStep,
+  type PriorityStepCheck,
   type PriorityStepId,
   type PriorityStepState,
 } from '@goodparty_org/contracts'
@@ -103,14 +104,13 @@ export const STEP_CHECK_LABELS: Record<PriorityCheckState, string> = {
   declined: 'Not checked with constituents',
 }
 
-// The other side of the same check: the constituents it touches least.
-export const STEP_CONTRAST_LABELS: Record<PriorityCheckState, string> = {
-  asked: 'Waiting on you: check with the least affected',
-  out: 'Least affected: waiting to hear back',
-  confirmed: 'Least affected agreed',
-  revised: 'Changed after hearing from the least affected',
-  deferred: 'Least affected: checking later',
-  declined: 'Least affected: not asked',
+// One line per step, whichever side it is about: what is waiting on the
+// official comes first, then what is out, then how the main side landed.
+const checkLineState = (check: PriorityStepCheck): PriorityCheckState => {
+  const sides = [check.state, check.contrast?.state]
+  if (sides.includes('asked')) return 'asked'
+  if (sides.includes('out')) return 'out'
+  return check.state
 }
 
 const StepCheckLine = ({
@@ -119,16 +119,9 @@ const StepCheckLine = ({
   step: PriorityStep
 }): React.JSX.Element | null =>
   step.check ? (
-    <>
-      <span className="block text-xs text-muted-foreground">
-        {STEP_CHECK_LABELS[step.check.state]}
-      </span>
-      {step.check.contrast ? (
-        <span className="block text-xs text-muted-foreground">
-          {STEP_CONTRAST_LABELS[step.check.contrast.state]}
-        </span>
-      ) : null}
-    </>
+    <span className="block text-xs text-muted-foreground">
+      {STEP_CHECK_LABELS[checkLineState(step.check)]}
+    </span>
   ) : null
 
 const changedOn = (step: PriorityStep): string | null => {

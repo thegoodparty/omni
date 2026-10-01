@@ -166,9 +166,7 @@ describe('PriorityStatusRail', () => {
     expect(
       within(optionsRow).getByText('Constituents agreed'),
     ).toBeInTheDocument()
-    expect(
-      within(optionsRow).getByText('Least affected: not asked'),
-    ).toBeInTheDocument()
+    expect(within(optionsRow).queryByText(/least affected/i)).toBeNull()
     expect(within(defineRow).queryByText(/least affected/i)).toBeNull()
     expect(within(evidenceRow).queryByText(/constituents/i)).toBeNull()
     expect(defineRow).toHaveAccessibleName(
@@ -199,6 +197,33 @@ describe('PriorityStatusRail', () => {
     expect(
       screen.getByText('Waiting on you: check with constituents'),
     ).toBeInTheDocument()
+  })
+
+  it('says once that a check is waiting, whichever side it is', () => {
+    const base = emptyPriorityStatus()
+    const status: PriorityStatus = {
+      ...base,
+      steps: base.steps.map((step) =>
+        step.id === 'define'
+          ? {
+              ...step,
+              state: 'settled',
+              check: {
+                state: 'asked',
+                who: '',
+                question: '',
+                raised: 0,
+                contrast: { state: 'asked', who: '', question: '' },
+              },
+            }
+          : step,
+      ),
+    }
+    render(<PriorityStatusRail status={status} nextAction={null} />)
+    expect(
+      screen.getAllByText('Waiting on you: check with constituents'),
+    ).toHaveLength(1)
+    expect(screen.queryByText(/least affected/i)).toBeNull()
   })
 
   it('shows the next action when there is one', () => {
