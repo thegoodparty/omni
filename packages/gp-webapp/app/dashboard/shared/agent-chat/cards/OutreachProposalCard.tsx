@@ -20,6 +20,7 @@ import {
   outreachDetailHref,
   peopleCount,
   proposalComposeHref,
+  proposalSampleLine,
   type CardChannel,
 } from './proposalPresentation'
 
@@ -120,12 +121,15 @@ export const OutreachProposalCard = ({
     <CompactCardLink
       leading={<ProposalMark />}
       title={proposal.audience}
-      subtitle={[
-        getChannelLabel(cardOutreachType(channel)),
-        channel === 'social' ? '' : peopleCount(proposal.count),
-      ]
-        .filter(Boolean)
-        .join(' · ')}
+      subtitle={
+        proposalSampleLine(proposal) ??
+        [
+          getChannelLabel(cardOutreachType(channel)),
+          channel === 'social' ? '' : peopleCount(proposal.count),
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      }
       href={proposalComposeHref(proposal, handoffNonce)}
       onNavigate={carryDraft}
     />

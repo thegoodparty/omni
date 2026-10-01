@@ -1,4 +1,4 @@
-import type { ProposalChannel } from '@goodparty_org/contracts'
+import type { ListSample, ProposalChannel } from '@goodparty_org/contracts'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import type { ProposalHandoff } from 'app/dashboard/constituent-outreach/proposalHandoff'
 
@@ -16,6 +16,7 @@ export const PROPOSAL_OUTREACH_TYPE: Record<ProposalChannel, OutreachType> = {
   social: 'socialMedia',
   phoneBanking: 'phoneBanking',
   text: 'text',
+  doorKnocking: 'nativeDoorKnocking',
 }
 
 export const cardOutreachType = (channel: CardChannel): OutreachType =>
@@ -79,3 +80,49 @@ export const outreachDetailHref = (outreachId: number): string =>
 
 export const peopleCount = (count: number): string =>
   count === 1 ? '1 constituent' : `${count.toLocaleString()} constituents`
+
+// A sample smaller than its audience is the only kind that changes who gets
+// it: the list and the server both read anything bigger as the whole thing.
+const isSampled = (proposal: {
+  count: number
+  sampleSize?: number
+}): proposal is { count: number; sampleSize: number } =>
+  proposal.sampleSize !== undefined && proposal.sampleSize < proposal.count
+
+const SAMPLE_VERB: Record<ProposalChannel, string> = {
+  text: 'Text',
+  phoneBanking: 'Call',
+  doorKnocking: 'Visit',
+  social: 'Reach',
+}
+
+/** "Text 4,000 of 58,520, picked at random", or null for the whole list. */
+export const proposalSampleLine = (proposal: {
+  channel: ProposalChannel
+  count: number
+  sampleSize?: number
+}): string | null =>
+  isSampled(proposal)
+    ? `${SAMPLE_VERB[proposal.channel]} ${proposal.sampleSize.toLocaleString()} of ${proposal.count.toLocaleString()}, picked at random`
+    : null
+
+/**
+ * The sample a list saved from this proposal is drawn as, keyed on the
+ * proposal so saving it again draws the same people. Undefined saves the
+ * live list.
+ */
+export const proposalListSample = (proposal: {
+  proposalKey: string
+  count: number
+  sampleSize?: number
+  widensOutreachIds?: number[]
+}): ListSample | undefined =>
+  isSampled(proposal)
+    ? {
+        size: proposal.sampleSize,
+        seedKey: proposal.proposalKey,
+        ...(proposal.widensOutreachIds?.length && {
+          excludeOutreachIds: proposal.widensOutreachIds,
+        }),
+      }
+    : undefined

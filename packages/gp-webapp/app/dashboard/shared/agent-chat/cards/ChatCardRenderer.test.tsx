@@ -101,6 +101,33 @@ describe('ChatCardRenderer', () => {
 })
 
 describe('OutreachProposalCard', () => {
+  it('says a sampled proposal reaches some of its audience, picked at random', async () => {
+    mockNotSent()
+    smsFlag.ready = true
+    smsFlag.enabled = true
+
+    renderCard(
+      proposalCard({ channel: 'text', count: 58_520, sampleSize: 4_000 }),
+    )
+
+    const link = await chip()
+    expect(
+      within(link).getByText('Text 4,000 of 58,520, picked at random'),
+    ).toBeInTheDocument()
+  })
+
+  it('reads a sample no smaller than its audience as the whole audience', async () => {
+    mockNotSent()
+
+    renderCard(proposalCard({ sampleSize: 500 }))
+
+    const link = await chip()
+    expect(
+      within(link).getByText('Phone banking · 412 constituents'),
+    ).toBeInTheDocument()
+    expect(within(link).queryByText(/picked at random/)).toBeNull()
+  })
+
   it('is one chip naming the audience, channel and reach, with nothing to send here', async () => {
     mockNotSent()
 
