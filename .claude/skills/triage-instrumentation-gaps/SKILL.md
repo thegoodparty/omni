@@ -686,6 +686,14 @@ Once all four queues are dispositioned:
      cause key is a row the next person cannot find — see the book's own maintenance rules.
    - **Re-measure before writing a number.** A figure carried over from a ticket or an
      earlier session is exactly the stale fact the Status column exists to flag.
+   - **Check the fix has not already shipped, before proposing any row.** For every row you
+     add or update, fetch the live status of each ticket it cites, and run
+     `git log origin/main --since=<the row's as-of date>` over the code it describes. A
+     row whose ticket is closed, or whose problem a merged PR already fixed, is a warning
+     about something that is fine, and that is worse than no row: delete or correct it
+     instead. A handoff is built from a snapshot, so the console you ruled in can predate
+     the fix. 2026-09-30: two rows were added for problems fixed the day before, and two
+     more still cited a ticket that had closed unbuilt.
 
    If nothing came up, say so in one line and move on. A session with no new traps is the
    normal case.

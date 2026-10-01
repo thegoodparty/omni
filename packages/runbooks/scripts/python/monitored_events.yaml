@@ -588,19 +588,20 @@ behaviors:
     product: win
     asked_by: bryan@goodparty.org
     headline: >-
-      Do not read this as revenue. Staff-granted Pro fires the same event as a real purchase and
-      only Stripe tells them apart.
+      This covers paid upgrades only. Candidates given Pro by staff are not in it, because nothing
+      records that any more.
     caveats: >-
       Answerable today, both halves. First-week behaviour is a self-join on amplitude_events off the
       webhook-fired upgrade timestamp; retention needs Stripe subscription state, confirmed present
-      2026-09-16 and joinable on gp_api_db_user.meta_data.customerId. The caveat that matters:
-      `Account - Pro Subscription Confirmed` is NOT a purchase event — it also fires on staff-granted
-      Pro (paymentMethod 'admin') and on a degraded webhook payload, both at price 0. Comped Pro is
-      separable on paymentMethod, never on price. Prefer the Stripe row for anything revenue-shaped.
+      2026-09-16 and joinable on gp_api_db_user.meta_data.customerId. The upgrade timestamp is
+      `pro_upgrade_complete`, fired from the Stripe checkout webhook. It used to be
+      `Account - Pro Subscription Confirmed`, which only ever fired for staff-granted Pro (all 225
+      events, paymentMethod 'admin', price 0) and has been silent since the admin form was removed
+      in April 2026; its Stripe branch never fired. Prefer the Stripe row for anything revenue-shaped.
     surfaces:
       - path: packages/gp-api/src/payments/services/paymentEventsService.ts
         label: upgrade_timestamp
-        instrumented_by: "Account - Pro Subscription Confirmed"
+        instrumented_by: "pro_upgrade_complete"
       - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
         label: post_upgrade_activity
         instrumented_by: "Voter Data - List Exported"
