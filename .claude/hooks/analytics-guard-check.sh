@@ -7,9 +7,6 @@
 # cannot run says so as context and never fails the edit: CI is the backstop.
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PY_DIR="$REPO_ROOT/packages/runbooks/scripts/python"
-
 payload="$(cat)"
 file_path="$(printf '%s' "$payload" | python3 -c '
 import json, sys
@@ -22,8 +19,15 @@ r = d.get("tool_response") or {}
 print(i.get("file_path") or (r.get("filePath") if isinstance(r, dict) else "") or "")
 ' 2>/dev/null)"
 [ -n "$file_path" ] || exit 0
-# A path outside the repo root is left unstripped by this substitution, so it falls
-# through the case below (no prefix matches) and exits 0 rather than matching by accident.
+# The root comes from the edited file, not from this script: settings are shared across
+# worktrees, so the file may sit in a different checkout than the hook, and that
+# checkout's guard and history are the ones that apply. Physical paths on both sides,
+# because git prints a resolved toplevel (/private/var/... on macOS) and the payload may not.
+file_dir="$(cd "$(dirname "$file_path")" 2>/dev/null && pwd -P)" || exit 0
+file_path="$file_dir/$(basename "$file_path")"
+REPO_ROOT="$(git -C "$file_dir" rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$REPO_ROOT" ] || exit 0
+PY_DIR="$REPO_ROOT/packages/runbooks/scripts/python"
 rel="${file_path#"$REPO_ROOT"/}"
 
 emit_context() {
@@ -46,10 +50,16 @@ case "$rel" in
   *) exit 0 ;;
 esac
 
+# uv and argparse exit 2 as well, so a 2 is only a block when the guard's own json says so.
+json_out="$(mktemp)"
+trap 'rm -f "$json_out"' EXIT
+export ANALYTICS_GUARD_JSON="$json_out"
+
 if [ -n "${ANALYTICS_GUARD_CMD:-}" ]; then
-  output="$(bash -c "$ANALYTICS_GUARD_CMD" 2>&1)"
+  output="$(cd "$REPO_ROOT" && bash -c "$ANALYTICS_GUARD_CMD" 2>&1)"
   status=$?
 else
+  [ -d "$PY_DIR" ] || exit 0
   base="$(git -C "$REPO_ROOT" merge-base origin/main HEAD 2>/dev/null)"
   if [ -z "$base" ]; then
     emit_context "The analytics guard could not run (no merge base with origin/main). The Analytics guard CI check will run on the PR."
@@ -69,13 +79,24 @@ else
   # quoted empty array as unbound under `set -u`, and even the `:-` fallback only
   # suppresses that error when unquoted. `limit` only ever holds bare words (no
   # spaces/globs), so skipping the quoting here is safe.
-  output="$(cd "$PY_DIR" && ${limit[@]:-} uv run --quiet governance_guard.py check --base "$base" 2>&1)"
+  output="$(cd "$PY_DIR" && ${limit[@]:-} uv run --quiet governance_guard.py check \
+    --base "$base" --repo "$REPO_ROOT" --json "$json_out" 2>&1)"
   status=$?
+fi
+
+if [ "$status" = "2" ]; then
+  verdict="$(python3 -c '
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("status", ""))
+except Exception:
+    print("")' "$json_out" 2>/dev/null)"
+  [ "$verdict" = "block" ] || status=1
 fi
 
 case "$status" in
   2)
-    printf 'This edit breaks analytics governance. Fix it now, in this change:\n\n%s\n' "$output" >&2
+    printf 'This edit breaks analytics governance. Fix it now, in this change:\n\n%s\n\nIf you are midway through moving this call site, finish the move; the check re-runs on your next edit.\n' "$output" >&2
     exit 2
     ;;
   0)
