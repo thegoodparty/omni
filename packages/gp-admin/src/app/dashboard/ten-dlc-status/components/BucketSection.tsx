@@ -1,14 +1,23 @@
 'use client'
 
 import Link from 'next/link'
-import { Badge, Button, Flex, Heading, Table, Text } from '@radix-ui/themes'
+import {
+  Badge,
+  Button,
+  Card,
+  Flex,
+  Heading,
+  Table,
+  Text,
+} from '@radix-ui/themes'
+import { HiOutlineExternalLink } from 'react-icons/hi'
 import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 import type { TenDlcStatusBucket, TenDlcStatusEntry } from '@goodparty_org/sdk'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { ResendCvPinButton } from '@/app/dashboard/campaigns/components/ResendCvPinButton'
 import { useCvHoldOverride } from '@/app/dashboard/campaigns/components/useCvHoldOverride'
-import { BUCKET_META, RADIX_UNSUSPENSION_URL } from '../bucketMeta'
+import { BUCKET_META, RADIX_UNSUSPENSION_URL, TONE_FILL } from '../bucketMeta'
 
 const linkClass = 'text-[var(--accent-11)] hover:underline'
 
@@ -136,28 +145,24 @@ function EntryActions({
         </ProtectedContent>
       )}
       {bucketKey === 'domainNotResolving' && (
-        <a
-          href={RADIX_UNSUSPENSION_URL}
-          target="_blank"
-          rel="noreferrer"
-          className={linkClass}
-        >
-          Radix unsuspension
-        </a>
+        <Button asChild size="1" variant="soft" color="gray">
+          <a href={RADIX_UNSUSPENSION_URL} target="_blank" rel="noreferrer">
+            Radix unsuspension
+            <HiOutlineExternalLink />
+          </a>
+        </Button>
       )}
       {entry.filingUrl && (
-        <a
-          href={entry.filingUrl}
-          target="_blank"
-          rel="noreferrer"
-          className={linkClass}
-        >
-          Filing
-        </a>
+        <Button asChild size="1" variant="soft" color="gray">
+          <a href={entry.filingUrl} target="_blank" rel="noreferrer">
+            Filing
+            <HiOutlineExternalLink />
+          </a>
+        </Button>
       )}
-      <Link href={`/dashboard/users/${entry.userId}`} className={linkClass}>
-        View user
-      </Link>
+      <Button asChild size="1" variant="soft">
+        <Link href={`/dashboard/users/${entry.userId}`}>View user</Link>
+      </Button>
     </Flex>
   )
 }
@@ -165,50 +170,70 @@ function EntryActions({
 export function BucketSection({ bucket }: { bucket: TenDlcStatusBucket }) {
   const meta = BUCKET_META[bucket.key]
   return (
-    <Flex direction="column" gap="2" mb="5">
-      <Flex gap="2" align="center">
-        <Heading size="3">{meta.label}</Heading>
-        <Badge color={meta.tone}>{bucket.entries.length}</Badge>
-      </Flex>
-      <Text size="1" color="gray">
-        {meta.hint}
-      </Text>
-      <Table.Root size="1">
-        <Table.Header>
-          <Table.Row>
-            <Table.ColumnHeaderCell>Campaign</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Committee</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Waiting</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Context</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Actions</Table.ColumnHeaderCell>
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
-          {bucket.entries.map((entry) => (
-            <Table.Row key={`${bucket.key}-${entry.campaignId}`}>
-              <Table.Cell>
-                <Link
-                  href={`/dashboard/users/${entry.userId}`}
-                  className={linkClass}
-                >
-                  {entry.campaignSlug}
-                </Link>{' '}
-                <Text size="1" color="gray">
-                  #{entry.campaignId}
-                </Text>
-              </Table.Cell>
-              <Table.Cell>{entry.committeeName ?? '—'}</Table.Cell>
-              <Table.Cell>{daysSince(entry.since)}</Table.Cell>
-              <Table.Cell>
-                <EntryContext bucketKey={bucket.key} entry={entry} />
-              </Table.Cell>
-              <Table.Cell>
-                <EntryActions bucketKey={bucket.key} entry={entry} />
-              </Table.Cell>
+    <Card
+      mb="4"
+      style={{ boxShadow: `inset 0 3px 0 0 ${TONE_FILL[meta.tone]}` }}
+    >
+      <Flex direction="column" gap="2" pt="1">
+        <Flex
+          gap="2"
+          align="center"
+          pb="2"
+          style={{ borderBottom: '1px solid var(--gray-5)' }}
+        >
+          <span
+            aria-hidden
+            style={{
+              display: 'inline-block',
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              backgroundColor: TONE_FILL[meta.tone],
+            }}
+          />
+          <Heading size="3">{meta.label}</Heading>
+          <Badge color={meta.tone}>{bucket.entries.length}</Badge>
+        </Flex>
+        <Text size="1" color="gray">
+          {meta.hint}
+        </Text>
+        <Table.Root size="1">
+          <Table.Header>
+            <Table.Row>
+              <Table.ColumnHeaderCell>Campaign</Table.ColumnHeaderCell>
+              <Table.ColumnHeaderCell>Committee</Table.ColumnHeaderCell>
+              <Table.ColumnHeaderCell>Waiting</Table.ColumnHeaderCell>
+              <Table.ColumnHeaderCell>Context</Table.ColumnHeaderCell>
+              <Table.ColumnHeaderCell>Actions</Table.ColumnHeaderCell>
             </Table.Row>
-          ))}
-        </Table.Body>
-      </Table.Root>
-    </Flex>
+          </Table.Header>
+          <Table.Body>
+            {bucket.entries.map((entry) => (
+              <Table.Row key={`${bucket.key}-${entry.campaignId}`}>
+                <Table.Cell>
+                  <Link
+                    href={`/dashboard/users/${entry.userId}`}
+                    className={linkClass}
+                  >
+                    {entry.campaignSlug}
+                  </Link>{' '}
+                  <Text size="1" color="gray">
+                    #{entry.campaignId}
+                  </Text>
+                </Table.Cell>
+                <Table.Cell>{entry.committeeName ?? '—'}</Table.Cell>
+                <Table.Cell>{daysSince(entry.since)}</Table.Cell>
+                <Table.Cell>
+                  <EntryContext bucketKey={bucket.key} entry={entry} />
+                </Table.Cell>
+                <Table.Cell>
+                  <EntryActions bucketKey={bucket.key} entry={entry} />
+                </Table.Cell>
+              </Table.Row>
+            ))}
+          </Table.Body>
+        </Table.Root>
+      </Flex>
+    </Card>
   )
 }

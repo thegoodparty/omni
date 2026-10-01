@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { Theme } from '@radix-ui/themes'
 import type {
   TenDlcStatusBucketKey,
   TenDlcStatusEntry,
@@ -84,6 +85,15 @@ const entry = (overrides: Partial<TenDlcStatusEntry>): TenDlcStatusEntry => ({
   ...overrides,
 })
 
+// Select.Content resolves theme tokens at render, so the page needs the
+// Radix Theme context even in jsdom.
+const renderPage = () =>
+  render(
+    <Theme>
+      <TenDlcStatusPage />
+    </Theme>
+  )
+
 const snapshot = (
   populated: Partial<Record<TenDlcStatusBucketKey, TenDlcStatusEntry[]>> = {}
 ): TenDlcStatusSnapshot => ({
@@ -112,12 +122,15 @@ describe('TenDlcStatusPage', () => {
   })
 
   it('shows the all-clear state when every bucket is empty', async () => {
-    render(<TenDlcStatusPage />)
+    renderPage()
 
-    expect(await screen.findByText('No campaigns stuck')).toBeInTheDocument()
     expect(
-      screen.getByText('Every registration is moving. Nothing to triage.')
+      await screen.findByText(
+        'Every registration is moving. Nothing to triage.'
+      )
     ).toBeInTheDocument()
+    const stuckTile = screen.getByRole('group', { name: 'Stuck now' })
+    expect(within(stuckTile).getByText('0')).toBeInTheDocument()
   })
 
   it('counts red and amber buckets toward the stuck total, never nudges', async () => {
@@ -141,18 +154,76 @@ describe('TenDlcStatusPage', () => {
       })
     )
 
-    render(<TenDlcStatusPage />)
+    renderPage()
 
-    expect(await screen.findByText('3 stuck')).toBeInTheDocument()
-    expect(screen.getByText('rejected-camp')).toBeInTheDocument()
+    expect(await screen.findByText('rejected-camp')).toBeInTheDocument()
+    const stuckTile = screen.getByRole('group', { name: 'Stuck now' })
+    expect(within(stuckTile).getByText('3')).toBeInTheDocument()
     expect(screen.getByText('escalated-camp')).toBeInTheDocument()
     expect(screen.getByText('pin-camp')).toBeInTheDocument()
+  })
+
+  it('filters to one bucket via its chart bar and clears on second click', async () => {
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        rejected: [entry({ campaignId: 1, campaignSlug: 'rejected-camp' })],
+        awaitingPin: [entry({ campaignId: 3, campaignSlug: 'pin-camp' })],
+      })
+    )
+
+    renderPage()
+    await screen.findByText('rejected-camp')
+
+    const bar = screen.getByRole('button', {
+      name: /Rejected by Peerly\/CampaignVerify/,
+    })
+    await userEvent.click(bar)
+
+    expect(screen.getByText('rejected-camp')).toBeInTheDocument()
+    expect(screen.queryByText('pin-camp')).not.toBeInTheDocument()
+    expect(screen.getByText('Showing 1 of 2 registrations')).toBeInTheDocument()
+
+    await userEvent.click(bar)
+    expect(screen.getByText('pin-camp')).toBeInTheDocument()
+  })
+
+  it('narrows rows across buckets with the search box', async () => {
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        rejected: [
+          entry({
+            campaignId: 1,
+            campaignSlug: 'jane-doe-for-council',
+            committeeName: 'Friends of Jane Doe',
+          }),
+          entry({ campaignId: 2, campaignSlug: 'other-camp' }),
+        ],
+        awaitingPin: [entry({ campaignId: 3, campaignSlug: 'pin-camp' })],
+      })
+    )
+
+    renderPage()
+    await screen.findByText('jane-doe-for-council')
+
+    await userEvent.type(
+      screen.getByPlaceholderText('Search candidate, campaign, or committee'),
+      'jane doe'
+    )
+
+    // Committee-name match keeps the row; everything else filters out.
+    expect(screen.getByText('jane-doe-for-council')).toBeInTheDocument()
+    expect(screen.queryByText('other-camp')).not.toBeInTheDocument()
+    expect(screen.queryByText('pin-camp')).not.toBeInTheDocument()
+    expect(screen.getByText('Showing 1 of 3 registrations')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(screen.getByText('other-camp')).toBeInTheDocument()
   })
 
   it('surfaces a load failure instead of rendering an empty page', async () => {
     mockGetTenDlcStatusSnapshot.mockRejectedValue(new Error('api down'))
 
-    render(<TenDlcStatusPage />)
+    renderPage()
 
     expect(await screen.findByText(/api down/)).toBeInTheDocument()
   })
@@ -170,7 +241,7 @@ describe('TenDlcStatusPage', () => {
       })
     )
 
-    render(<TenDlcStatusPage />)
+    renderPage()
     const button = await screen.findByRole('button', {
       name: 'Resend CV PIN',
     })
@@ -187,7 +258,7 @@ describe('TenDlcStatusPage', () => {
     )
     mockResendCvPin.mockResolvedValue({ error: 'PIN already verified' })
 
-    render(<TenDlcStatusPage />)
+    renderPage()
     await userEvent.click(
       await screen.findByRole('button', { name: 'Resend CV PIN' })
     )
@@ -213,7 +284,7 @@ describe('TenDlcStatusPage', () => {
       })
     )
 
-    render(<TenDlcStatusPage />)
+    renderPage()
     const buttons = await screen.findAllByRole('button', {
       name: 'Override hold & resubmit',
     })
@@ -273,7 +344,7 @@ describe('TenDlcStatusPage', () => {
       })
     )
 
-    render(<TenDlcStatusPage />)
+    renderPage()
 
     expect(await screen.findByText('run run-77 (FAILED)')).toBeInTheDocument()
     expect(screen.getByText('vote-held.site (registered)')).toBeInTheDocument()
@@ -301,7 +372,7 @@ describe('TenDlcStatusPage', () => {
       })
     )
 
-    render(<TenDlcStatusPage />)
+    renderPage()
 
     expect(
       await screen.findByText('identity minted — escalate to Peerly')
