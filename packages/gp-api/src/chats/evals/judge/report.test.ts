@@ -936,6 +936,10 @@ describe('the all-identical-outputs qualifier', () => {
   // The table's own closing sentence used to promise a refusal above it, which
   // on this path does not exist. It has to describe both outcomes or it tells
   // a reader to go looking for something that is not there.
+  //
+  // The ORDINARY fixture, one matching pair out of 25: that sentence is a
+  // static part of the table and not a branch, so an all-identical fixture
+  // here would imply a conditional that does not exist.
   it('leaves the table honest about both outcomes', async () => {
     const report = renderReport({
       agents: [await pipeline(sweepRecords(25))],
@@ -943,9 +947,9 @@ describe('the all-identical-outputs qualifier', () => {
       identicalOutputs: [
         {
           agentId: 'chief_of_staff',
-          identical: 25,
+          identical: 1,
           of: 25,
-          allIdentical: true,
+          allIdentical: false,
           caseIds: ['cos-case-0'],
         },
       ],

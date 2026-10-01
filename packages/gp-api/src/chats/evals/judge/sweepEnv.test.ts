@@ -174,6 +174,16 @@ describe('parseArmEnv', () => {
     ).toBe(true)
   })
 
+  // Trimmed, like every other value this file parses, so stray whitespace in
+  // a workflow expression is not the difference between a verdict and a
+  // refusal.
+  it('trims a padded selection rather than reading it as derived', () => {
+    expect(
+      parseArmEnv(armEnv({ [SELECTION_ENV]: '  explicit  ' }))
+        .explicitSelection,
+    ).toBe(true)
+  })
+
   // AND A BLANK VALUE MUST NOT REFUSE THE ARM. Same shape as the Delta
   // version above and for the same reason: Actions exports every `env:` entry
   // a job declares, including one built from a step output that wrote nothing,

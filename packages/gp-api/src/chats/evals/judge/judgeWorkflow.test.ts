@@ -239,6 +239,15 @@ describe('judge.yml tells every judge process who asked', () => {
     }
   })
 
+  // THE ONE HOP THAT CROSSES A JOB BOUNDARY, and the only unguarded link in
+  // the chain: the arms read a `needs.plan.outputs.*` expression, so if the
+  // plan job stops publishing that output every explicit sweep silently
+  // refuses again with this file fully green. JUDGE_DATA_VERSION needs no
+  // equivalent — it is a same-job `steps.*.outputs.*` read.
+  it('has the plan job publish what the sweep job reads', () => {
+    expect(yaml).toContain('selection: ${{ steps.select.outputs.selection }}')
+  })
+
   it('resolves it once, in the step that knows the difference', () => {
     const select = steps.find(
       (step) => step.name === 'Resolve the agent selection',
@@ -254,6 +263,22 @@ describe('judge.yml tells every judge process who asked', () => {
     expect(select?.body).not.toMatch(
       new RegExp(`echo "selection=(?!${EXPLICIT_SELECTION}|auto)`),
     )
+  })
+
+  // ON EVERY BRANCH, not merely somewhere in the step. The step has three
+  // exits that publish `agents`, and one of them losing its `selection` line
+  // would publish an empty value — which reads as `auto`, so the guards come
+  // back on for that whole path and nothing goes red. Counted against the
+  // `agents` writes rather than against a literal 3, so adding a fourth exit
+  // is not a test to update but a test that fails until it publishes both.
+  it('publishes it on every branch that publishes an agent list', () => {
+    const body =
+      steps.find((step) => step.name === 'Resolve the agent selection')?.body ??
+      ''
+    const occurrences = (pattern: RegExp): number =>
+      (body.match(pattern) ?? []).length
+    expect(occurrences(/echo "agents=/g)).toBeGreaterThan(1)
+    expect(occurrences(/echo "selection=/g)).toBe(occurrences(/echo "agents=/g))
   })
 
   // The price and the guard state belong in the same comment: a reader
