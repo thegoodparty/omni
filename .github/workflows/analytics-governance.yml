@@ -212,6 +212,9 @@ jobs:
           # refreshing at all, so annotate the run the way the sheet step does.
           if ! uv run event_explorer_snapshot.py --series \
             -o ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json; then
+            # A failed write can leave a half-written file, and the commit step stages
+            # whatever is on disk, so put the last good copy back.
+            git checkout -- ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json
             msg="Explorer snapshot NOT rebuilt: the shared page keeps its previous data until the next run."
             echo "::warning::$msg"
             echo ":warning: $msg" >> "$GITHUB_STEP_SUMMARY"
@@ -224,6 +227,9 @@ jobs:
       # so it runs after that step. The same republish routine publishes it (DATA-2582).
       - name: Event health console snapshot
         id: console_snapshot
+        # It lifts the area rollup and cards from the explorer snapshot, so a failed
+        # explorer step would leave it joining this run onto last run's file.
+        if: steps.explorer_snapshot.outcome == 'success'
         working-directory: packages/runbooks/scripts/python
         # Non-fatal for the same reason as the explorer snapshot above.
         continue-on-error: true
@@ -231,6 +237,7 @@ jobs:
           set -euo pipefail
           if ! uv run governance_console_snapshot.py \
             -o ../../surfaces/governance-console/data/governance-console.json; then
+            git checkout -- ../../surfaces/governance-console/data/governance-console.json
             msg="Event health console snapshot NOT rebuilt: the console keeps its previous data until the next run."
             echo "::warning::$msg"
             echo ":warning: $msg" >> "$GITHUB_STEP_SUMMARY"
