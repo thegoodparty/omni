@@ -907,3 +907,14 @@ def test_main_refuses_a_missing_input(tmp_path, capsys):
 
     assert rc == 1
     assert "missing input" in capsys.readouterr().err
+
+
+def test_no_flag_sentence_promises_a_silence_the_pipeline_cannot_write():
+    """Only a cause-level dismissal silences anything. A ticket, or any ruling on events
+    picked out of a cause, is raised again next run, and its sentence must say so."""
+    flags = gcs.VERB_EFFECTS["flags"]
+
+    assert "stop" not in flags["ticket"].lower()
+    for verdict in ("dismiss:event", "ticket:event"):
+        assert "raised again next run" in flags[verdict], verdict
+        assert "no expiry" not in flags[verdict] and "Permanent" not in flags[verdict]

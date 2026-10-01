@@ -196,14 +196,43 @@ describe('a judge that reads position instead of quality', () => {
   // The whole reason for the order-swap subsample. A fixed slot preference
   // produces a delta of zero and zero consistency, and the gate has to
   // report that rather than dressing it up as equivalence.
+  //
+  // FIFTY CASES, because the gate needs gates.minSwappedPairs of them before
+  // it will fail anything, and orderSwap.fraction 0.2 takes every fifth pair.
+  // 25 cases is five swapped pairs, which is the sample the first live sweep
+  // had and is not enough to tell a biased judge from a coin.
   it('is gated, not reported as a verdict', async () => {
+    const normalized = normalizeAgent(sweepRecords(50), createRng(42))
+    const judgments = await judgeAll(alwaysX, normalized.judgeable)
+    const score = scoreAgent({ normalized, judgments })
+    // The delta is NOT asserted. A fixed slot preference scores whichever arm
+    // the rng put in X, so the delta depends on how the slots happened to
+    // fall across the sample rather than on the bias — it was exactly 0 at 25
+    // cases by coincidence of an even split. Zero consistency is the property
+    // that actually identifies this judge.
+    expect(score.positionConsistency).toBe(0)
+    expect(score.swappedPairs).toBeGreaterThanOrEqual(
+      DEFAULT_JUDGE_CONFIG.gates.minSwappedPairs,
+    )
+    expect(score.label).toBe("CAN'T SAY")
+    expect(score.labelNote).toMatch(/reading position rather than quality/)
+  })
+
+  // The same biased judge on the sample a placeholder case list produces.
+  // Still reported, and it no longer decides the verdict — the case floor
+  // does, which is the honest reason at that size.
+  it('is reported but not gated when too few pairs were swapped', async () => {
     const normalized = normalizeAgent(sweepRecords(25), createRng(42))
     const judgments = await judgeAll(alwaysX, normalized.judgeable)
     const score = scoreAgent({ normalized, judgments })
-    expect(score.overall.delta).toBe(0)
     expect(score.positionConsistency).toBe(0)
-    expect(score.label).toBe("CAN'T SAY")
-    expect(score.labelNote).toMatch(/reading position rather than quality/)
+    expect(score.swappedPairs).toBeLessThan(
+      DEFAULT_JUDGE_CONFIG.gates.minSwappedPairs,
+    )
+    expect(score.labelNote ?? '').not.toMatch(/reading position/)
+    const report = renderReport({ agents: [score] })
+    expect(report).toContain(`0 of ${score.swappedPairs} agreed`)
+    expect(report).toContain('Too few swapped pairs to gate on')
   })
 })
 
@@ -409,6 +438,7 @@ describe('provenance', () => {
       dimensions: {},
       regressions: [],
       exclusions: {
+        ungradedReasons: [],
         toolError: 0,
         infraError: 0,
         identicalConfig: 0,
@@ -416,6 +446,7 @@ describe('provenance', () => {
         ungraded: 0,
       },
       positionConsistency: null,
+      swappedPairs: 0,
       orderUnstablePairs: [],
       panelDisagreementRate: null,
       flags: [],
@@ -951,5 +982,57 @@ describe('the all-identical-outputs qualifier', () => {
       ],
     })
     expect(report).toContain('qualified above rather than read as SAME')
+  })
+})
+
+// A COUNT WITHOUT A CAUSE SENT SOMEBODY BACK TO REPRODUCE THE RUN. The first
+// live sweep's report said "29 ungraded judgment(s)" and stopped there; the
+// reason was on every judgment and never reached the page.
+describe('ungraded judgments say why', () => {
+  const withUngraded = async (
+    ungraded: number,
+    ungradedReasons: readonly string[],
+  ): Promise<string> => {
+    const base = await pipeline(sweepRecords(3))
+    return renderReport({
+      agents: [
+        {
+          ...base,
+          exclusions: { ...base.exclusions, ungraded, ungradedReasons },
+        },
+      ],
+    })
+  }
+
+  it('prints the reason beside the count', async () => {
+    const report = await withUngraded(29, [
+      'seat claude-sonnet-4-6 returned no verdict for task_success',
+    ])
+    expect(report).toContain('29 ungraded judgment(s)')
+    expect(report).toContain(
+      'Why: seat claude-sonnet-4-6 returned no verdict for task_success',
+    )
+  })
+
+  it('joins several distinct reasons', async () => {
+    const report = await withUngraded(2, ['rate limited', 'no verdict'])
+    expect(report).toContain('Why: rate limited | no verdict')
+  })
+
+  // Nothing failed, so there is nothing to explain and the clause would be
+  // noise on every clean report.
+  it('says nothing when no judgment was ungraded', async () => {
+    const report = await withUngraded(0, [])
+    expect(report).toContain('0 ungraded judgment(s)')
+    expect(report).not.toContain('Why:')
+  })
+
+  // The opposite defect: a reason list that somehow arrives non-empty with a
+  // zero count must not print either, or a clean sweep grows a dangling
+  // explanation for a failure that did not happen.
+  it('says nothing when the count is zero even if reasons survive', async () => {
+    const report = await withUngraded(0, ['stale reason'])
+    expect(report).not.toContain('Why:')
+    expect(report).not.toContain('stale reason')
   })
 })

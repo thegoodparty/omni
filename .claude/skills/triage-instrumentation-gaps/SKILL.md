@@ -206,7 +206,11 @@ dismissal they did not ask for.
 **A ruling on part of a cause.** A handoff can carry an indented per-event block under a
 cause. Apply the cause-level verb first, then the per-event ones, so "retire the cluster
 except these four" lands in that order. Per-event `govern` goes to `event-metadata` the
-same way; per-event `reviewed` has nowhere to land and goes in the PR body as a note.
+same way. Per-event `reviewed`, `dismiss` and `ticket` have nowhere to land as a silence:
+never turn them into a `cause:` row, which would quiet every event under that cause, and
+never into an `event:` row, which is a watchlist-proposal rejection and silences no flag.
+Record them in the PR body, file the ticket if one was asked for, and tell the reviewer the
+digest will raise them again until the cause stops applying.
 
 ## Queue A — instrumentation gaps
 
@@ -682,6 +686,18 @@ Once all four queues are dispositioned:
      cause key is a row the next person cannot find — see the book's own maintenance rules.
    - **Re-measure before writing a number.** A figure carried over from a ticket or an
      earlier session is exactly the stale fact the Status column exists to flag.
+   - **Check the fix has not already shipped, before proposing any row.** For every row you
+     add or update, fetch the live status of each ticket it cites, and run
+     `git log origin/main --since="$as_of" -- $row_paths`. Set `$as_of` to the first day of
+     the row's `state · as-of YYYY-MM` month (`2026-09-01`) and `$row_paths` to the files
+     the row names (e.g. `packages/runbooks/scripts/python/analytics_event_health.py`);
+     confirm with `ls $row_paths` that they exist, because a path that matches nothing also
+     returns an empty log and reads as "no fix". A
+     row whose ticket is closed, or whose problem a merged PR already fixed, is a warning
+     about something that is fine, and that is worse than no row: delete or correct it
+     instead. A handoff is built from a snapshot, so the console you ruled in can predate
+     the fix. 2026-09-30: two rows were added for problems fixed the day before, and two
+     more still cited a ticket that had closed unbuilt.
 
    If nothing came up, say so in one line and move on. A session with no new traps is the
    normal case.

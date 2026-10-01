@@ -28,14 +28,14 @@ const InterstitialStep = (): React.JSX.Element => {
   }, [gateChannel])
 
   const handleJoin = (): void => {
-    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialJoin, {
+    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialCompleted, {
       channel: gateChannel,
     })
     goToNextStep()
   }
 
   const handleMaybeLater = (): void => {
-    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialMaybeLater, {
+    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialDismissed, {
       channel: gateChannel,
     })
     exit()

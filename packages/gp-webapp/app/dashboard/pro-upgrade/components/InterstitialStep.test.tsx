@@ -120,7 +120,7 @@ describe('InterstitialStep analytics', () => {
     )
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Compliance.InterstitialJoin,
+      EVENTS.ProUpgrade.Compliance.InterstitialCompleted,
       { channel: 'robocall' },
     )
     expect(goToNextStep).toHaveBeenCalled()
@@ -134,7 +134,7 @@ describe('InterstitialStep analytics', () => {
     )
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Compliance.InterstitialMaybeLater,
+      EVENTS.ProUpgrade.Compliance.InterstitialDismissed,
       { channel: 'robocall' },
     )
     expect(exit).toHaveBeenCalled()

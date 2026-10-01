@@ -1,9 +1,11 @@
 import { z } from 'zod'
+import { NoObjectGeneratedError, TypeValidationError } from 'ai'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import type { JudgePayload, NormalizedCase, SlotMap } from './normalize'
 import { withSwappedSlots } from './normalize'
+import { scrubReason } from './sweepArm'
 
 // Runs the blind comparison.
 //
@@ -76,6 +78,38 @@ export const CaseVerdictSchema = z.object({
   absolute_floor: AbsoluteFloorSchema.optional(),
 })
 export type CaseVerdict = z.infer<typeof CaseVerdictSchema>
+
+// THE SCHEMA THE MODEL IS GIVEN, and it cannot be the one above. An open
+// `z.record` compiles to a JSON Schema object with arbitrary keys and nothing
+// required, so a model constrained by it satisfies `dimensions` with `{}` and
+// puts everything in `overall` — which is exactly what the first live sweep
+// got, on all 29 judgments. The prose prompt names the dimensions too, and
+// lost: a schema is a constraint and prose is a request.
+//
+// Named keys, derived from the same `config.dimensions` the prompt and
+// `missingDimensions` read, so the three cannot drift apart. Kept separate
+// from `CaseVerdictSchema` because that one is the shape of a verdict anybody
+// may hold, including a canned one, while this is the shape one particular
+// panel must be made to return.
+export const caseVerdictSchemaFor = (
+  dimensions: readonly string[],
+): z.ZodType<CaseVerdict> => {
+  // Object.fromEntries, not an assignment into a literal. `o['__proto__'] = x`
+  // sets the prototype instead of creating an own property, so `z.object`
+  // would see no key for that one name and accept `dimensions: {}` again —
+  // this bug, reintroduced for exactly one dimension name. fromEntries
+  // defines an own property whatever the key is.
+  const shape: Record<string, typeof DimensionVerdictSchema> =
+    Object.fromEntries(dimensions.map((d) => [d, DimensionVerdictSchema]))
+  return z.object({
+    rubric_version: z.string(),
+    shared_observations: z.string().optional(),
+    dimensions: z.object(shape),
+    overall: OverallVerdictSchema,
+    flags: z.array(FlagSchema).optional(),
+    absolute_floor: AbsoluteFloorSchema.optional(),
+  })
+}
 
 // The key scoring joins on. Never sent to the model.
 export const OVERALL = 'overall'
@@ -388,10 +422,14 @@ const combine = (
   return combined
 }
 
-const missingDimensions = (
-  verdict: CaseVerdict,
-  dimensions: readonly string[],
-): string[] => dimensions.filter((d) => dimensionOf(verdict, d) === undefined)
+// LlmService defaults to 3, which costs four paid calls and about ten
+// seconds of backoff before a seat gives up. That budget exists for a
+// transient failure, and a verdict rejected by the rubric schema is not one:
+// the panel runs at temperature 0 over a byte-identical prompt, so the
+// retries re-ask a question already answered the same way. One retry still
+// absorbs a network blip; three multiply a systematic non-compliance by four
+// across every pair and every seat.
+const SEAT_RETRIES = 1
 
 // One seat, one pinned model. Passing a list would let jsonCompletion fall
 // back down a shared default and every seat would converge on the same
@@ -402,19 +440,43 @@ const runSeat = async (
   model: string,
   config: JudgeConfig,
 ): Promise<SeatVerdict> => {
-  const { object } = await llm.jsonCompletion({
-    messages: buildMessages(payload, config),
-    schema: CaseVerdictSchema,
-    models: [model],
-    temperature: config.panel.temperature,
-  })
-  const missing = missingDimensions(object, config.dimensions)
-  if (missing.length > 0) {
+  try {
+    const { object } = await llm.jsonCompletion({
+      messages: buildMessages(payload, config),
+      schema: caseVerdictSchemaFor(config.dimensions),
+      models: [model],
+      temperature: config.panel.temperature,
+      retries: SEAT_RETRIES,
+    })
+    return { model, verdict: object }
+  } catch (err) {
+    // Auth, rate limits, network: their own message already says what
+    // happened.
+    if (!NoObjectGeneratedError.isInstance(err)) throw err
+
+    // ONE ERROR TYPE, SEVERAL DIFFERENT FAILURES, and only one of them is
+    // about the rubric. The SDK raises NoObjectGeneratedError for a verdict
+    // that broke the schema, for a response truncated mid-JSON, for an empty
+    // one and for a content filter. Measured on a truncation: finishReason
+    // `length`, cause a JSONParseError, message "could not parse the
+    // response". So the cause is what separates them — a type-validation
+    // failure is the model answering the wrong shape, anything else is the
+    // response never arriving intact.
+    //
+    // The distinction is the whole value of renaming at all. Telling someone
+    // their rubric was not satisfied when the real problem was max_tokens
+    // sends them to the prompt for an answer that is in the finish reason.
+    if (!TypeValidationError.isInstance(err.cause)) {
+      throw new Error(
+        `seat ${model} produced no readable verdict (finish reason: ` +
+          `${err.finishReason}): ${err.message}`,
+      )
+    }
     throw new Error(
-      `seat ${model} returned no verdict for ${missing.join(', ')}`,
+      `seat ${model} returned no verdict matching the rubric, which ` +
+        `requires one per dimension: ${config.dimensions.join(', ')}`,
     )
   }
-  return { model, verdict: object }
 }
 
 // Takes the payload and the key, never a NormalizedCase: the slot map is
@@ -448,10 +510,15 @@ export const judgeCase = async (
     return {
       kind: 'ungraded',
       key: planned.key,
-      reason:
+      // Scrubbed HERE rather than at the report, so every future reader of a
+      // Judgment.reason gets it. These messages come off a path that makes
+      // real model calls, and the reason reaches a PR comment and the job
+      // summary — see SECRET_VARS.
+      reason: scrubReason(
         seatFailures.length === 0
           ? 'no judge seats configured'
           : seatFailures.map((f) => `${f.model}: ${f.message}`).join('; '),
+      ),
     }
   }
   return {
