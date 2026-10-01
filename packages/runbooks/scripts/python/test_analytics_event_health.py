@@ -2547,3 +2547,74 @@ def test_reconcile_blank_row_on_auto_tracked_event_stays_system():
     by = {r["event_type"]: r for r in eh.reconcile(catalog, [], {"page": _blank("page")}, TODAY)["records"]}
 
     assert by["page"]["status"] == "system"
+
+
+# --- never-observed grace period (DATA-2597) ---
+
+
+def test_never_observed_inside_the_grace_period_is_counted_not_flagged():
+    # TODAY is 2026-06-25. An event instrumented a fortnight ago that has not fired yet
+    # is "too new to judge", not a finding; one silent for 31 days is.
+    code = {
+        "Shipped Last Week": _blank("Shipped Last Week") | {"instrumented_date": "2026-06-18"},
+        "Exactly Thirty": _blank("Exactly Thirty") | {"instrumented_date": "2026-05-26"},
+        "Thirty One": _blank("Thirty One") | {"instrumented_date": "2026-05-25"},
+    }
+    result = eh.reconcile([], [], code, TODAY)
+
+    by = {r["event_type"]: r for r in result["records"]}
+    assert all(r["status"] == "instrumented_never_observed" for r in by.values())
+    assert result["status_counts"]["instrumented_never_observed"] == 3
+    assert [r["event_type"] for r in result["flagged"]] == ["Thirty One"]
+    assert result["never_observed_in_grace"] == ["Exactly Thirty", "Shipped Last Week"]
+
+
+def test_never_observed_without_an_instrumented_date_gets_no_grace():
+    code = {"Undated": _blank("Undated") | {"instrumented_pr": "#9"}}
+    result = eh.reconcile([], [], code, TODAY)
+
+    assert [r["event_type"] for r in result["flagged"]] == ["Undated"]
+    assert result["never_observed_in_grace"] == []
+
+
+def test_never_observed_with_an_unparseable_date_gets_no_grace():
+    code = {"Junk": _blank("Junk") | {"instrumented_date": "not a date"}}
+    result = eh.reconcile([], [], code, TODAY)
+
+    assert [r["event_type"] for r in result["flagged"]] == ["Junk"]
+
+
+def test_digest_counts_events_held_by_the_grace_period():
+    out = _digest([], never_observed_in_grace=["Shipped Last Week", "Exactly Thirty"])
+    assert (
+        f"**Too new to judge (2)**: instrumented in the last {eh.NEVER_OBSERVED_GRACE_DAYS} "
+        "days and not fired yet, so not flagged: Shipped Last Week · Exactly Thirty"
+    ) in out
+
+
+def test_digest_omits_the_grace_line_when_nothing_is_inside_it():
+    assert "Too new to judge" not in _digest([])
+
+
+def test_never_observed_elevated_inside_grace_is_still_flagged():
+    # An onboarding event that shipped last week and has never fired is exactly where a
+    # month of silence costs most, so the grace period does not apply to it.
+    code = {
+        "Onboarding - Account Created": _blank("Onboarding - Account Created")
+        | {"instrumented_date": "2026-06-18"},
+    }
+    result = eh.reconcile([], [], code, TODAY)
+
+    by = {r["event_type"]: r for r in result["records"]}
+    assert by["Onboarding - Account Created"]["elevated"]
+    assert [r["event_type"] for r in result["flagged"]] == ["Onboarding - Account Created"]
+    assert result["never_observed_in_grace"] == []
+
+
+def test_never_observed_watchlisted_event_is_elevated_and_gets_no_grace():
+    code = {"Watched Step": _blank("Watched Step") | {"instrumented_date": "2026-06-18"}}
+    result = eh.reconcile([], [], code, TODAY, watchlist_events=["Watched Step"])
+
+    by = {r["event_type"]: r for r in result["records"]}
+    assert by["Watched Step"]["elevated"] and by["Watched Step"]["on_watchlist"]
+    assert [r["event_type"] for r in result["flagged"]] == ["Watched Step"]

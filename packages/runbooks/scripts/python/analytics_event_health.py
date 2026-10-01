@@ -72,6 +72,10 @@ DORMANT_DAYS = 30
 # genuine orphan (stale clients emitting a removed event) keeps firing for weeks, well past this
 # window, so it is still caught; only the expected boundary tail is suppressed. (tunable, pending Eng)
 ORPHAN_GRACE_DAYS = 2
+# An event instrumented this recently that has not fired yet is too new to judge, not a
+# finding (DATA-2597). On 2026-10-01 these were 43 of the 79 never-observed events, and each
+# leaves the cause on its first fire anyway. Matches DORMANT_DAYS: past it, silence is news.
+NEVER_OBSERVED_GRACE_DAYS = 30
 RETIREMENT_FLOOR_PCT = 0.05  # current week below this fraction of baseline = anomaly drop
 ABSOLUTE_FLOOR = 5  # baseline fires/week below which a drop-to-zero rule replaces the %
 MIN_BASELINE_WEEKS = 5  # need >= current + 4 baseline complete weeks to judge an anomaly
@@ -226,6 +230,15 @@ def to_date(value: Any) -> date | None:
     if isinstance(value, date):
         return value
     return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+
+
+def _date_or_none(value: Any) -> date | None:
+    """``to_date`` that reads a malformed value as absent instead of raising, for a CSV
+    column a hand edit can corrupt. One bad row must not take the whole run down."""
+    try:
+        return to_date(value)
+    except ValueError:
+        return None
 
 
 def _prose(text: str) -> str | None:
@@ -496,7 +509,7 @@ def rank_record(record: Mapping[str, Any]) -> int:
     if status == "dormant" and elevated:
         return 6
     if status == "instrumented_never_observed":
-        return 7
+        return 99 if record.get("in_grace") else 7
     if status == "dormant":
         return 8
     return 99
@@ -706,13 +719,16 @@ def reconcile(
     # instrumented but never observed: present in the code axis, absent from the catalog
     for event_type, crow in code.items():
         if event_type not in seen_in_catalog and not to_date(crow.get(RETIRED_COL)):
+            instrumented = _date_or_none(crow.get("instrumented_date"))
+            on_watchlist = event_type in watchlist_events
+            elevated = is_elevated(None, event_type, None, on_watchlist=on_watchlist)
             records.append(
                 {
                     "event_type": event_type,
                     "family": None,
                     "status": "instrumented_never_observed" if has_code_provenance(crow) else "code_unknown",
-                    "elevated": is_elevated(None, event_type, None),
-                    "on_watchlist": event_type in watchlist_events,
+                    "elevated": elevated,
+                    "on_watchlist": on_watchlist,
                     "okr": okr_by_event.get(event_type),
                     "event_count_30d": 0,
                     "last_seen_date": None,
@@ -725,6 +741,14 @@ def reconcile(
                     "divergence": None,
                     "gpmeta": None,
                     "has_description": None,  # not an Amplitude catalog event; no Govern desc
+                    "instrumented_date": instrumented,
+                    # No date means no grace: an undated row is a never-built declaration,
+                    # and waiting on it would hide it for good. An elevated event gets none
+                    # either: onboarding, activation and watchlisted events are where a
+                    # month of silence costs most, so they are flagged from day one.
+                    "in_grace": instrumented is not None
+                    and not elevated
+                    and (today - instrumented).days <= NEVER_OBSERVED_GRACE_DAYS,
                 }
             )
 
@@ -779,6 +803,11 @@ def reconcile(
         "proposals": proposals,
         "flagged": flagged,
         "records": records,
+        # Counted, not flagged: a jump here is a batch that shipped and may never fire.
+        "never_observed_in_grace": sorted(
+            r["event_type"] for r in records
+            if r["status"] == "instrumented_never_observed" and r.get("in_grace")
+        ),
     }
 
 
@@ -1004,6 +1033,14 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
         lines += [
             "",
             f"**Dormant tail ({len(tail)})** — code present, 0 fires/30d, not elevated: {names}",
+        ]
+    grace = result.get("never_observed_in_grace") or []
+    if grace:
+        lines += [
+            "",
+            f"**Too new to judge ({len(grace)})**: instrumented in the last "
+            f"{NEVER_OBSERVED_GRACE_DAYS} days and not fired yet, so not flagged: "
+            + " · ".join(grace),
         ]
     lines += [
         "",
