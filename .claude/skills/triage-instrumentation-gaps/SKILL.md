@@ -584,10 +584,9 @@ Keep `.to_string()`: pandas otherwise elides columns, and the elided column is u
 the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api_events`;
 `:` property paths are case-insensitive.
 
-1. **Name the drift** (A, B or C, per the SOP). Arriving from a case 2 accept, or from
-   a case 3 yes already classified as B (the `business_rule` covers the new event), it
-   is B: confirm and continue. For a standalone drift, name it now, and for A or C stop
-   until the business group has ruled. A rename can hold a C inside a
+1. **Name the drift** (A, B or C, per the SOP), or confirm the type the case above
+   already gave it (a case 2 accept is B). For A or C, continue only once the business
+   group's ruling is in hand: stop and wait if it is not, and carry on if it is. A rename can hold a C inside a
    B; step 5 is where that surfaces, and it stops there.
 2. **Read both gotchas books** in full: `books/analytics-governance-gotchas.md` here,
    and gp-data-platform's `.claude/skills/win-analytics-knowledge/references/gotchas.md`
