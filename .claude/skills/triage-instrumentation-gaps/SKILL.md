@@ -553,8 +553,10 @@ site, do not trust the count.
 - **yes** → draft an `anchored_on` addition (no `era`, just the new leg). Then ask
   whether the metric's `business_rule` already covers it. If it does, this is drift B
   and follows the case 2 accept path. If counting it changes what the rule says, it is
-  drift A: the `business_rule` changes in the same sem PR and the business group
-  reviews it. Never add the leg and leave a rule that contradicts it.
+  drift A: stop, and tell the reviewer the business group has to rule on the new scope
+  before any PR is drafted. Once they have, the `business_rule` change rides in the
+  same sem PR as the leg, through **Resolve a drift end to end**. Never add the leg and
+  leave a rule that contradicts it.
 - **no** → the behavior answers a broader question than the metric. Append to
   `dismissed:` in `monitored_events.yaml`, keyed on the finding's `event_key`:
   `- {event: "<event_key>", reason: "<reason>", date: "<run_date>", metric: "<metric>"}`
