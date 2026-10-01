@@ -1,3 +1,25 @@
+## 2026-10-01
+
+### Potential instrumentation gaps
+
+Coverage: 58 tracked — 11 new, 0 open, 17 accepted, 6 dismissed, 7 resolved, 17 retired.
+Scan: 448 surfaces enumerated, 118 already tracked, 330 candidates.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage | wizard_stage | multi-step flow stage Viewed/Completed | Where in the poll-creation wizard do users drop off, per step? | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx |
+| 0 | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx#wizard_stage | wizard_stage | multi-step flow stage Viewed/Completed | Where do users drop off in the priorities plan wizard, per step? | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx |
+| 0 | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage | wizard_stage | multi-step flow stage Viewed/Completed | Where do users drop off in the pro-upgrade wizard, per step/channel? | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L710 | form_submit | payment outcome - backend server truth | How often does robocall payment setup/authorization succeed or fail? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215 | form_submit | primary CTA / form submit | How many users submit (or delete) a briefing error report? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet | form_submit | primary CTA / form submit | How often do users successfully submit a bug/error report on a briefing, and how often does it fail? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog | form_submit | primary CTA / outcome | How many users successfully submit notes via the Add Notes dialog, and how often does it fail? | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx |
+| 2 | packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx#form_submit | form_submit | outcome / blocker reporting | How often do users submit a bug report on an ordinance draft? | packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx |
+| 2 | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx#form_submit | form_submit | AI chat message sent (explicit exception to chrome skip) | How many messages do users send in the ordinance flow chat? | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx |
+| 2 | packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit#L112 | form_submit | primary CTA / outcome | How many users successfully name and save a recommended audience list? | packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx |
+
+(1 more new gaps — see the state file.)
+
 ## 2026-09-28
 
 ### Potential instrumentation gaps
