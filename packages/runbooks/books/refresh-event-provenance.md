@@ -67,11 +67,12 @@ half-finished removal, not a conflict. Measured 2026-09-29 over 664 rows:
 
 **Never read an empty `retired_date` as evidence the instrument is live.**
 `classify_status` does exactly that — `if retired_date is None: return "active" if
-firing_recent else "dormant"` — so all 39 stage-1 events are classified as *code
+firing_recent else "dormant"` — so every stage-1 event is classified as *code
 present* and can never reach `retired`. That is the blind spot DATA-2046 opened rank 2
-to close. Worked example 2026-09-29: `Onboarding V2 - Strategic Landscape Displayed` is
-declared at `packages/gp-webapp/helpers/analyticsHelper.ts:799` and its caller was
-deleted in `e5e863545` (2026-09-01).
+to close. Worked example: `Onboarding V2 - Strategic Landscape Displayed` lost its caller
+in `e5e863545` (2026-09-01) and stayed declared in
+`packages/gp-webapp/helpers/analyticsHelper.ts`, reading stage 1, until DATA-2594 deleted
+the name (2026-09-30).
 
 The plain-words version, for searching: **"still in the code" means the name is still
 there, not that anything sends the event.**
