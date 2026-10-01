@@ -244,6 +244,9 @@ interface PhoneBankingFlowProps {
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the who step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
+  // A script already written, from a chat card's outreach proposal. Opens on
+  // the who step under `custom`, the same seed SmsFlow's `initialScript` is.
+  initialScript?: string
   // The tracker task this flow was launched from, carried onto the created
   // list so every call logged against it joins back to the task.
   tracker?: OutreachTrackerOrigin
@@ -262,6 +265,7 @@ export const PhoneBankingFlow = ({
   surface = WIN_PHONE_BANKING_SURFACE,
   preselectedListId,
   preselectedRecommendedVariant,
+  initialScript,
   tracker,
   source,
 }: PhoneBankingFlowProps) => {
@@ -406,14 +410,17 @@ export const PhoneBankingFlow = ({
     // purpose its intent maps onto: the candidate answered that question by
     // picking the card. It drafts for that purpose too, below, exactly as a
     // tap on the card would.
-    const carriedPurpose = preselectedRecommendedVariant
-      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
-      : null
-    setStepId(carriedPurpose ? 'who' : 'purpose')
-    setPurpose(carriedPurpose)
+    // A seeded script wins over a carried purpose: the words are already
+    // chosen, so drafting for a purpose would throw them away.
+    const carriedPurpose =
+      !initialScript && preselectedRecommendedVariant
+        ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+        : null
+    setStepId(initialScript || carriedPurpose ? 'who' : 'purpose')
+    setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
-    setScript('')
-    setScriptManuallyEdited(false)
+    setScript(initialScript ?? '')
+    setScriptManuallyEdited(Boolean(initialScript))
     setInstructions('')
     setSheetCount(1)
     setSheetCountEdited(false)
@@ -451,6 +458,7 @@ export const PhoneBankingFlow = ({
     resetAudience,
     draftMutate,
     preselectedRecommendedVariant,
+    initialScript,
   ])
 
   // Applies the handed-over preselected list to the who step's picker once

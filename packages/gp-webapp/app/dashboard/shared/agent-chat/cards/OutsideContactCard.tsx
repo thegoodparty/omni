@@ -8,9 +8,16 @@ import {
   MailIcon,
   PhoneIcon,
 } from '@styleguide/components/ui/icons'
-import { CardNote, CardShell } from './cardShell'
+import { CardDetail } from './cardDetail'
+import {
+  CompactCard,
+  DetailHeader,
+  DetailSection,
+  InitialsAvatar,
+} from './cardShell'
 
 export const SERVE_OUTSIDE_CONTACT_CARD_COPY = {
+  why: 'Why reach out',
   askFor: 'Ask for',
   script: 'What to say',
   copyScript: 'Copy script',
@@ -53,71 +60,87 @@ const CopyScriptButton = ({ script }: { script: string }) => {
   )
 }
 
+type OutsideContact = Extract<ChatCard, { kind: 'outside_contact' }>
+
+const ContactActions = ({ card }: { card: OutsideContact }) =>
+  card.phone || card.email || card.url ? (
+    <div className="flex flex-wrap gap-2">
+      {card.phone ? (
+        <Button asChild size="small">
+          <a href={telHref(card.phone)}>
+            <PhoneIcon className="size-4" aria-hidden />
+            {SERVE_OUTSIDE_CONTACT_CARD_COPY.call}
+          </a>
+        </Button>
+      ) : null}
+      {card.email ? (
+        <Button
+          asChild
+          size="small"
+          variant={card.phone ? 'outline' : 'default'}
+        >
+          <a href={mailtoHref(card.email, card.script)}>
+            <MailIcon className="size-4" aria-hidden />
+            {SERVE_OUTSIDE_CONTACT_CARD_COPY.email}
+          </a>
+        </Button>
+      ) : null}
+      {card.url ? (
+        <Button
+          asChild
+          size="small"
+          variant={card.phone || card.email ? 'outline' : 'default'}
+        >
+          <a href={card.url} target="_blank" rel="noreferrer">
+            <ExternalLinkIcon className="size-4" aria-hidden />
+            {SERVE_OUTSIDE_CONTACT_CARD_COPY.site}
+          </a>
+        </Button>
+      ) : null}
+    </div>
+  ) : null
+
 export const OutsideContactCard = ({
   card,
+  detailKey,
 }: {
-  card: Extract<ChatCard, { kind: 'outside_contact' }>
+  card: OutsideContact
+  detailKey?: string
 }) => (
-  <CardShell className="gap-4">
-    <div className="flex min-w-0 flex-col">
-      <span className="truncate text-sm font-medium">{card.name}</span>
-      <span className="text-muted-foreground truncate text-xs">
-        {card.role}
-      </span>
+  <CardDetail
+    {...(detailKey !== undefined && { detailKey })}
+    title={card.name}
+    chip={({ open, expanded }) => (
+      <CompactCard
+        leading={<InitialsAvatar name={card.name} />}
+        title={card.name}
+        subtitle={card.role}
+        expanded={expanded}
+        onOpen={open}
+      />
+    )}
+  >
+    <div className="flex flex-col gap-5">
+      <DetailHeader
+        leading={<InitialsAvatar name={card.name} size="large" />}
+        title={card.name}
+        subtitle={card.role}
+      />
+      <ContactActions card={card} />
+      <DetailSection label={SERVE_OUTSIDE_CONTACT_CARD_COPY.why}>
+        <p className="text-sm">{card.why}</p>
+      </DetailSection>
+      <DetailSection label={SERVE_OUTSIDE_CONTACT_CARD_COPY.askFor}>
+        <p className="text-sm">{card.askFor}</p>
+      </DetailSection>
+      <DetailSection
+        label={SERVE_OUTSIDE_CONTACT_CARD_COPY.script}
+        action={<CopyScriptButton script={card.script} />}
+      >
+        <p className="bg-muted/40 rounded-lg p-3 text-sm whitespace-pre-wrap">
+          {card.script}
+        </p>
+      </DetailSection>
     </div>
-    <CardNote>{card.why}</CardNote>
-    <div className="flex flex-col gap-1">
-      <span className="text-muted-foreground text-xs font-semibold">
-        {SERVE_OUTSIDE_CONTACT_CARD_COPY.askFor}
-      </span>
-      <p className="text-sm">{card.askFor}</p>
-    </div>
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground text-xs font-semibold">
-          {SERVE_OUTSIDE_CONTACT_CARD_COPY.script}
-        </span>
-        <CopyScriptButton script={card.script} />
-      </div>
-      <p className="bg-muted/40 rounded-lg p-3 text-sm whitespace-pre-wrap">
-        {card.script}
-      </p>
-    </div>
-    {card.phone || card.email || card.url ? (
-      <div className="flex flex-wrap gap-2">
-        {card.phone ? (
-          <Button asChild size="small">
-            <a href={telHref(card.phone)}>
-              <PhoneIcon className="size-4" aria-hidden />
-              {SERVE_OUTSIDE_CONTACT_CARD_COPY.call}
-            </a>
-          </Button>
-        ) : null}
-        {card.email ? (
-          <Button
-            asChild
-            size="small"
-            variant={card.phone ? 'outline' : 'default'}
-          >
-            <a href={mailtoHref(card.email, card.script)}>
-              <MailIcon className="size-4" aria-hidden />
-              {SERVE_OUTSIDE_CONTACT_CARD_COPY.email}
-            </a>
-          </Button>
-        ) : null}
-        {card.url ? (
-          <Button
-            asChild
-            size="small"
-            variant={card.phone || card.email ? 'outline' : 'default'}
-          >
-            <a href={card.url} target="_blank" rel="noreferrer">
-              <ExternalLinkIcon className="size-4" aria-hidden />
-              {SERVE_OUTSIDE_CONTACT_CARD_COPY.site}
-            </a>
-          </Button>
-        ) : null}
-      </div>
-    ) : null}
-  </CardShell>
+  </CardDetail>
 )

@@ -68,23 +68,34 @@ is worse than the move itself.
 in the transcript from an empty status. That is why a reloaded thread reads the
 same as it did live.
 
+## Cards are compact, and a card's detail takes the rail
+
+Every card is one compact chip in the stream (mark, title, one line,
+chevron); see "Cards" in `shared/agent-chat/AGENTS.md`. The two people cards
+open their full detail in a panel, and on this page **the panel is the right
+rail**: `PriorityAside` swaps the status rail for the detail (widened to
+door knocking's 430px) with a Back control named for the rail, rather than
+stacking a third column. Below `lg` the detail is a bottom sheet
+(`PriorityDetailSheet`), the same treatment the status rail gets.
+`PriorityWorkspace` wraps everything in `CardDetailProvider`, so a panel
+opened on the live turn stays open when the turn settles and the persisted
+copy of the card replaces it.
+
+Outreach cards never open a panel. A proposal links into that channel's own
+flow on the Serve outreach hub, prefilled, and the send happens there (see
+`constituent-outreach/AGENTS.md`). Priorities hands off to the workflow that
+owns the job; it does not re-implement it.
+
 ## Cards are keyed, not trusted
 
 A card is a tool call rendered inline through `shared/agent-chat/cards/ChatCardRenderer`.
-Two values in an outreach proposal are **derived in
-`shared/agent-chat/cards/toChatCard.ts`, never read off the model's args**:
-
-- `proposalKey` — `mintProposalKey(conversationId, toolCallId)` from
-  `@goodparty_org/contracts`. Deterministic uuidv5, so the browser and the
-  server arrive at the same key and the card can resolve the outreach it would
-  create. This needs `toolCallId`, which the SSE event and the persisted
-  segment both carry; a proposal without one drops rather than minting a key
-  the server would not agree with.
-- `deepLinkOnly` — `channel !== 'phoneBanking'`. Only phone banking can be
-  completed from a card. Social carries no platform in the proposal contract,
-  and text lands `pending_payment` behind Stripe, so a Send button there would
-  leave an unpaid draft. The API's 400 is the backstop; the guard is that the
-  button never renders.
+`proposalKey` is **derived in `shared/agent-chat/cards/toChatCard.ts`, never
+read off the model's args**: `mintProposalKey(conversationId, toolCallId)`
+from `@goodparty_org/contracts`. Deterministic uuidv5, so the browser and the
+server arrive at the same key and the card can resolve the outreach sent
+under it, which is how a proposal reads as sent. This needs `toolCallId`,
+which the SSE event and the persisted segment both carry; a proposal without
+one drops rather than minting a key the server would not agree with.
 
 Args that fail to parse drop the card and leave the turn's prose alone.
 `read_past_outreach` is a data read whose args are `{ channel? }`, so it always
@@ -133,4 +144,6 @@ knocking's walk is the other case.
 
 The rail is an `aside` from `lg` up. Below that it collapses into a sheet
 opened from a button in the page header, next to the title — not a fixed
-bottom affordance, which would fight the composer.
+bottom affordance, which would fight the composer. A card's detail follows
+the same split, and `useIsMobile` (the `lg` boundary) decides which of the two
+mounts the detail, since only one may hold the portal target.

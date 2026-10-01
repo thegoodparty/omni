@@ -11,8 +11,10 @@ import {
   SheetTitle,
   SheetTrigger,
   Skeleton,
+  cn,
 } from '@styleguide'
-import { ListChecksIcon } from '@styleguide/components/ui/icons'
+import { ArrowLeftIcon, ListChecksIcon } from '@styleguide/components/ui/icons'
+import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import {
   parsePriorityStatus,
   type ChatAnchor,
@@ -35,10 +37,11 @@ import {
   createWidgetRegistry,
   type WidgetInstance,
 } from '../../../shared/agent-chat/widgetRegistry'
+import { cardWidgetTools } from '../../../shared/agent-chat/cards/cardWidgets'
 import {
-  cardWidgetTools,
-  type CardWidgetContext,
-} from '../../../shared/agent-chat/cards/cardWidgets'
+  CardDetailProvider,
+  useCardDetailHost,
+} from '../../../shared/agent-chat/cards/cardDetail'
 import {
   CLARIFY_TOOL,
   clarifyWidgetTool,
@@ -69,7 +72,7 @@ const KICKOFF =
 
 type Phase = 'loading' | 'ready' | 'error'
 
-type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
+type PriorityWidgetContext = ClarifyWidgetContext
 
 const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
   ...cardWidgetTools,
@@ -85,19 +88,99 @@ const statusMarker = (
   render: () => <StatusChangeMarker changes={changes} />,
 })
 
-export const PriorityWorkspace = ({
-  priorityId,
-  title,
-  description,
-  initialStatus,
-  initialNextAction,
+const RAIL_TITLE = 'Where this stands'
+
+// A card's detail takes the rail over rather than opening a third column: the
+// conversation keeps its width, and Back returns to the steps.
+const PriorityAside = ({
+  status,
+  nextAction,
 }: {
+  status: PriorityStatus
+  nextAction: string | null
+}) => {
+  const { active, close, setContainer } = useCardDetailHost()
+  const isMobile = useIsMobile()
+  const showDetail = active !== null && !isMobile
+  const asideRef = useRef<HTMLElement>(null)
+  const activeKey = active?.key
+  useEffect(() => {
+    if (asideRef.current) asideRef.current.scrollTop = 0
+  }, [activeKey])
+
+  return (
+    <aside
+      ref={asideRef}
+      className={cn(
+        'hidden shrink-0 overflow-y-auto border-l border-border lg:block',
+        showDetail ? 'w-[430px]' : 'w-80 p-4',
+      )}
+    >
+      {showDetail ? (
+        <>
+          <div className="sticky top-0 z-10 border-b border-border bg-background px-3 py-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="small"
+              className="gap-1"
+              onClick={close}
+            >
+              <ArrowLeftIcon className="size-4" aria-hidden />
+              {RAIL_TITLE}
+            </Button>
+          </div>
+          <div ref={setContainer} className="p-5" />
+        </>
+      ) : (
+        <PriorityStatusRail status={status} nextAction={nextAction} />
+      )}
+    </aside>
+  )
+}
+
+// Below lg the rail is already a sheet, so a card's detail is one too.
+const PriorityDetailSheet = () => {
+  const { active, close, setContainer } = useCardDetailHost()
+  const isMobile = useIsMobile()
+  return (
+    <Sheet
+      open={active !== null && isMobile}
+      onOpenChange={(next) => {
+        if (!next) close()
+      }}
+    >
+      <SheetContent
+        side="bottom"
+        className="max-h-[85dvh]"
+        aria-describedby={undefined}
+      >
+        <SheetTitle asChild>
+          <span className="sr-only">{active?.title ?? ''}</span>
+        </SheetTitle>
+        <SheetBody className="pt-10">
+          <div ref={setContainer} />
+        </SheetBody>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+type PriorityWorkspaceProps = {
   priorityId: string
   title: string
   description: string
   initialStatus: PriorityStatus
   initialNextAction: string | null
-}): React.JSX.Element => {
+}
+
+const PriorityWorkspaceBody = ({
+  priorityId,
+  title,
+  description,
+  initialStatus,
+  initialNextAction,
+}: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>('loading')
   const [retryNonce, setRetryNonce] = useState(0)
@@ -316,7 +399,6 @@ export const PriorityWorkspace = ({
   // Hold the shimmer until something has actually painted, so there is no
   // empty flash between "Thinking..." and the first word.
   const working = sending && blocks.length === 0
-  const railTitle = 'Where this stands'
 
   if (phase === 'error') {
     return (
@@ -367,12 +449,12 @@ export const PriorityWorkspace = ({
                     className="shrink-0 gap-1.5 lg:hidden"
                   >
                     <ListChecksIcon className="size-4" aria-hidden />
-                    {railTitle}
+                    {RAIL_TITLE}
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="bottom" className="max-h-[85dvh]">
                   <SheetHeader>
-                    <SheetTitle>{railTitle}</SheetTitle>
+                    <SheetTitle>{RAIL_TITLE}</SheetTitle>
                   </SheetHeader>
                   <SheetBody>
                     <PriorityStatusRail
@@ -422,7 +504,6 @@ export const PriorityWorkspace = ({
                         })}
                         toolLabel={priorityToolLabel}
                         context={{
-                          priorityId,
                           clarifyInteractive:
                             message.id === activeClarifyId && !sending,
                           clarifyAnswer: clarifyAnswerById[message.id],
@@ -439,7 +520,6 @@ export const PriorityWorkspace = ({
                       blocks={blocks}
                       toolLabel={priorityToolLabel}
                       context={{
-                        priorityId,
                         clarifyInteractive: false,
                         onClarifyAnswer: answerClarify,
                       }}
@@ -475,9 +555,16 @@ export const PriorityWorkspace = ({
         </div>
       </div>
 
-      <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border p-4 lg:block">
-        <PriorityStatusRail status={status} nextAction={nextAction} />
-      </aside>
+      <PriorityAside status={status} nextAction={nextAction} />
+      <PriorityDetailSheet />
     </div>
   )
 }
+
+export const PriorityWorkspace = (
+  props: PriorityWorkspaceProps,
+): React.JSX.Element => (
+  <CardDetailProvider>
+    <PriorityWorkspaceBody {...props} />
+  </CardDetailProvider>
+)

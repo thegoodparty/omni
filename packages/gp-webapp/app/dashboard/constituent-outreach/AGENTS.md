@@ -24,6 +24,7 @@ rule, the models, and the check that gates it:
 | `page.tsx`                    | Server component: `serveAccess()` (redirects non-serve users; switches orgs through `/post-auth-redirect` when the user owns an eo- org that isn't selected), then fetches history via `GET /v1/outreach/serve` with `ignoreResponseError` — an empty array is a valid fresh-org response, never a 404                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `ConstituentOutreachPage.tsx` | Client hub: `OutreachProvider` seeded with the server rows, channel cards, the serve flows (social, phone banking, door knocking, and SMS behind `serve-sms-outreach`), the shared history table + details drawer with `fetchServeOutreachDetail` threaded in, and the same save→seed-cache handlers as Win's `OutreachHubPage`. It is also the only reader of `useServeSmsFlag()`                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `ServeChannelCards.tsx`       | The channel grid — Social media, SMS, Phone banking and Door knocking, at `max-w-3xl grid-cols-2 sm:grid-cols-3` (four cards widen it to `max-w-4xl ... sm:grid-cols-4`, so the tiles stay the same size on either side of the SMS flag) rather than the candidate grid's five-column breakpoints. SMS renders only when the page passes an `onSmsClick`; the component itself reads no flag and stays hookless, so it needs no `'use client'`. Door knocking's card was removed for a while and is back: it had no serve wiring, and a permanently disabled placeholder reads as broken. Door knocking 3.0 wired it, and unlike the other two it navigates (`/dashboard/door-knocking?create=1`) instead of opening a flow in place — the map is its own page. So the grid shows three or four cards |
+| `proposalHandoff.ts` | The sessionStorage payload a chat card hands the text and phone banking flows (see Gotchas) |
 
 ## Connection to Win outreach — one machine, two callers
 
@@ -117,9 +118,20 @@ generation services, the spine scoping — are in
   channel here that leaves the page to do its work, so returning from it can
   be served from the client router cache with the campaign the flow just
   created missing from the table. Win's hub carries the same refetch for the
-  same reason (`OutreachHubPage`). Win additionally gates its `?outreachId=`
-  deep link on the refetch settling; this page consumes no such param, so
-  there is nothing here to gate.
+  same reason (`OutreachHubPage`). Win gates its `?outreachId=` deep link on
+  the refetch settling; this page's `?outreachId=` (a chat card's sent
+  proposal or past send) needs no gate, because it resolves against whatever
+  rows are loaded and simply runs again when the refetch lands.
+
+- **Chat cards hand off here; they never send.** A Priorities or Chief of
+  Staff outreach proposal links to `?compose=<channel>&handoff=<nonce>`, with
+  the payload in `sessionStorage['cos-handoff-<nonce>']`. Social keeps the
+  Chief of Staff's `ComposeHandoffPayload`. Text and phone banking read
+  `ProposalHandoffSchema` (`proposalHandoff.ts`: message plus saved list) and
+  open their flow with `initialScript` and `preselectedListId`, so it lands on
+  the who step under `custom`, past the purpose picker and short of anything
+  that writes or charges. The payload is spent on arrival, and one that names
+  a different channel than `compose` opens nothing.
 
 - **The phone banking caller page and call-sheet PDF are one surface for
   both products.** Both hubs navigate to

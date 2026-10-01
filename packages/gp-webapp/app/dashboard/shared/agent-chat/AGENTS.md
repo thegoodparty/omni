@@ -20,7 +20,7 @@ nearest reference wrapper.
 | `chatTypes.ts` | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat. |
 | `ClarifyQuestionWidget.tsx` | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. |
 | `widgetRegistry.ts` + `turnBlocks.tsx` | **Tool calls rendered as widgets.** See "Widgets" below. |
-| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. The copy is Serve copy (`SERVE_*`); Win's Campaign Manager mounts the Chief of Staff body but its agent has none of these tools. |
+| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. The copy is Serve copy (`SERVE_*`); Win's Campaign Manager mounts the Chief of Staff body but its agent has none of these tools. See "Cards" below. |
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`. |
 | `MessageActionBar.tsx` | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls. |
 | `chatHelpers.ts` | `newClientMessageId`, `friendlyError`. |
@@ -99,6 +99,40 @@ other tool, and a label map that falls back to the raw tool name would put
 Staff's `show_list_map` is deliberately not on one: its map renders after the
 turn's prose and only once per turn, and a registry entry would move it to
 where the tool fired.
+
+## Cards — one compact chip each, the detail somewhere else
+
+A card is never the full thing in the stream. Each one renders as a compact
+chip from `cards/cardShell.tsx` (a mark, a title, one line, a chevron), the
+way an attachment or a contact sits in a messages thread, so a turn with
+three cards still reads as a conversation. Where the chip goes depends on
+who owns the detail:
+
+- **People open a panel here.** `OutsideContactCard` (who they are, why reach
+  out, who to ask for, the script with copy, call/email/site) and
+  `ConstituentsCard` (the people, each row linking to
+  `/dashboard/contacts/<id>`, which opens the contacts page's own person
+  panel) render through `CardDetail` (`cards/cardDetail.tsx`). The card
+  portals its detail into whatever host the surface mounted, so the detail
+  stays in the card's React tree. Hosts: `CardDetailSheetHost` (a right-side
+  sheet in the contacts page's `PersonOverlay` shell; Chief of Staff uses it)
+  or a surface's own (Priorities takes over its right rail). A card outside
+  any `CardDetailProvider` falls back to its own sheet, so it is never
+  unopenable. The detail key is the tool call id (`cardWidgets.tsx`), which
+  the live and persisted copies of one call share, so a panel opened
+  mid-turn survives the turn settling.
+- **Outreach hands off and never sends.** `OutreachProposalCard` links into
+  the channel's own flow on the Serve outreach hub with the list and message
+  carried in sessionStorage (`proposalPresentation.ts`, read back by
+  `constituent-outreach/proposalHandoff.ts`), or into door knocking's create
+  flow with `?listId=`. It still resolves by `proposalKey`, so a proposal
+  already sent under its key reads as sent and links to that send.
+  `PastOutreachCard` is one chip per send, linking to its row's drawer on the
+  hub. No compose, edit or send UI lives in a card: those flows own it.
+
+Chief of Staff renders inside a vaul drawer, and React bubbles a portal's
+pointer events up the React tree into it, which is why the detail sheet
+carries `data-vaul-no-drag`.
 
 ## Reference wrappers — copy the closest
 

@@ -1,17 +1,16 @@
 import type {
   ComposeHandoffPayload,
-  OutreachProposal,
   ProposalChannel,
 } from '@goodparty_org/contracts'
 import type { OutreachType } from 'gpApi/types/outreach.types'
-import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/constants'
-import {
-  formatOutreachCost,
-  outreachCostCents,
-} from 'app/dashboard/outreach/util/outreachPricing'
-import type { ReachabilityKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
+import type { ProposalHandoff } from 'app/dashboard/constituent-outreach/proposalHandoff'
 
 const SERVE_OUTREACH_HUB = '/dashboard/constituent-outreach'
+
+// Door knocking is a live channel the proposal contract is gaining. Widened
+// here so the card routes it the day the enum carries it, and compiles both
+// before and after.
+export type CardChannel = ProposalChannel | 'doorKnocking'
 
 // The proposal vocabulary is the chat's, the badge vocabulary is outreach's.
 // One map rather than a second copy of the channel labels, so a card and a
@@ -22,79 +21,54 @@ export const PROPOSAL_OUTREACH_TYPE: Record<ProposalChannel, OutreachType> = {
   text: 'text',
 }
 
-const COMPOSE_PARAM: Record<ProposalChannel, string> = {
-  social: 'social',
-  phoneBanking: 'phoneBanking',
-  text: 'text',
-}
+export const cardOutreachType = (channel: CardChannel): OutreachType =>
+  channel === 'doorKnocking'
+    ? 'nativeDoorKnocking'
+    : PROPOSAL_OUTREACH_TYPE[channel]
 
 /**
- * Into the full flow, carrying whatever that flow can currently accept: the
- * saved audience as a param, and for social the draft itself through the
- * sessionStorage handoff the Chief of Staff already uses (the text rides
- * storage, not the URL, so the draft is never in a shareable link).
+ * Into the channel's own flow, where the official reviews and sends. The
+ * draft and the list ride the sessionStorage handoff (`handoffPayload`) so
+ * the message is never in a shareable link. Door knocking is drawn over its
+ * own map, a route rather than a drawer, and takes the list as `?listId=`.
  */
 export const proposalComposeHref = (
-  proposal: Pick<OutreachProposal, 'channel' | 'savedFilterId'>,
-  handoffNonce?: string,
+  proposal: { channel: CardChannel; savedFilterId?: number | null },
+  handoffNonce: string,
 ): string => {
-  const params = new URLSearchParams({
-    compose: COMPOSE_PARAM[proposal.channel],
-  })
-  // Social has no audience step, so a listId there would be read and dropped.
-  if (proposal.channel !== 'social' && proposal.savedFilterId) {
-    params.set('listId', String(proposal.savedFilterId))
+  if (proposal.channel === 'doorKnocking') {
+    const params = new URLSearchParams({ create: '1' })
+    if (proposal.savedFilterId) {
+      params.set('listId', String(proposal.savedFilterId))
+    }
+    return `/dashboard/door-knocking?${params.toString()}`
   }
-  if (proposal.channel === 'social' && handoffNonce) {
-    params.set('handoff', handoffNonce)
-  }
+  const params = new URLSearchParams({ compose: proposal.channel })
+  if (handoffNonce) params.set('handoff', handoffNonce)
   return `${SERVE_OUTREACH_HUB}?${params.toString()}`
 }
 
 export const handoffStorageKey = (nonce: string) => `cos-handoff-${nonce}`
 
-export const socialHandoffPayload = (
-  message: string,
-): ComposeHandoffPayload => ({
-  channel: 'serve_social',
-  draftText: message,
-})
+/** What the hub reads back for the channel, or null when nothing rides. */
+export const handoffPayload = (proposal: {
+  channel: CardChannel
+  message: string
+  savedFilterId?: number | null
+}): ComposeHandoffPayload | ProposalHandoff | null => {
+  if (proposal.channel === 'doorKnocking') return null
+  if (proposal.channel === 'social') {
+    return { channel: 'serve_social', draftText: proposal.message }
+  }
+  return {
+    channel: proposal.channel,
+    message: proposal.message,
+    savedFilterId: proposal.savedFilterId ?? null,
+  }
+}
 
 export const outreachDetailHref = (outreachId: number): string =>
   `${SERVE_OUTREACH_HUB}?outreachId=${outreachId}`
 
 export const peopleCount = (count: number): string =>
   count === 1 ? '1 constituent' : `${count.toLocaleString()} constituents`
-
-// Which reachability leaf a channel is counted by, the same mapping the
-// outreach flows hand their audience step. Social has none: a post has no
-// recipients, so there is no list to pick and no count to follow it.
-export const PROPOSAL_REACHABILITY_KEY: Record<
-  ProposalChannel,
-  ReachabilityKey | null
-> = {
-  social: null,
-  phoneBanking: 'phoneBanking',
-  text: 'sms',
-}
-
-export const proposalHasAudience = (channel: ProposalChannel): boolean =>
-  PROPOSAL_REACHABILITY_KEY[channel] !== null
-
-// The per-person rate the hub tiles, the CRM channel picker and every outreach
-// flow already read. Nothing here restates it: text carries a rate there,
-// phone banking and social are zero because the official does that work.
-const pricePerPerson = (channel: ProposalChannel): number =>
-  OUTREACH_OPTIONS.find(
-    (option) => option.type === PROPOSAL_OUTREACH_TYPE[channel],
-  )?.cost ?? 0
-
-export const isFreeChannel = (channel: ProposalChannel): boolean =>
-  pricePerPerson(channel) === 0
-
-export const estimatedCostCents = (
-  channel: ProposalChannel,
-  count: number,
-): number => outreachCostCents(count, pricePerPerson(channel))
-
-export const formatDollars = formatOutreachCost

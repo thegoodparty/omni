@@ -46,23 +46,35 @@ vi.mock('../../../shared/dictation/useDictationAppend', () => ({
 }))
 
 // The card components are another surface's concern; this asserts only that a
-// card tool call reaches the renderer, and with which key.
-vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', () => ({
-  ChatCardRenderer: ({
-    card,
-    conversationId,
-  }: {
-    card: { kind: string; proposalKey?: string }
-    conversationId: string
-  }) => (
-    <div
-      data-testid="chat-card"
-      data-kind={card.kind}
-      data-proposal-key={card.proposalKey ?? ''}
-      data-conversation-id={conversationId}
-    />
-  ),
-}))
+// card tool call reaches the renderer, and with which key. The outside contact
+// is the exception, rendered for real, because where its detail opens is this
+// surface's concern.
+vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', async () => {
+  const { OutsideContactCard } = await vi.importActual<
+    typeof import('../../../shared/agent-chat/cards/OutsideContactCard')
+  >('../../../shared/agent-chat/cards/OutsideContactCard')
+  return {
+    ChatCardRenderer: ({
+      card,
+      detailKey,
+    }: {
+      card: { kind: string; proposalKey?: string }
+      detailKey?: string
+    }) =>
+      card.kind === 'outside_contact' ? (
+        <OutsideContactCard
+          card={card as Parameters<typeof OutsideContactCard>[0]['card']}
+          {...(detailKey !== undefined && { detailKey })}
+        />
+      ) : (
+        <div
+          data-testid="chat-card"
+          data-kind={card.kind}
+          data-proposal-key={card.proposalKey ?? ''}
+        />
+      ),
+  }
+})
 
 const deferred = (): { promise: Promise<void>; resolve: () => void } => {
   let resolve = (): void => undefined
@@ -285,7 +297,68 @@ describe('PriorityWorkspace', () => {
       'data-proposal-key',
       mintProposalKey(CONVERSATION_ID, 'tc-proposal'),
     )
-    expect(card).toHaveAttribute('data-conversation-id', CONVERSATION_ID)
+  })
+
+  it('opens a card in the rail, in place of the steps, and Back returns to them', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          { kind: 'text', text: 'He runs the permit desk.' },
+          {
+            kind: 'tool',
+            toolName: 'present_outside_contact',
+            toolCallId: 'tc-contact',
+            payload: {
+              name: 'Mark Matheny',
+              role: 'Director, Development Services Department',
+              why: 'He signs off on the drainage permits.',
+              askFor: 'The stormwater review',
+              script: 'Calling about the Maple Street drains.',
+              phone: '(828) 555-0100',
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    const chip = await screen.findByRole('button', { name: /Mark Matheny/ })
+    const rail = screen.getByRole('complementary')
+    expect(
+      within(rail).getByText(PRIORITY_STEP_LABELS.evidence),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Calling about the Maple Street drains.'),
+    ).toBeNull()
+
+    fireEvent.click(chip)
+
+    expect(
+      await within(rail).findByText('Calling about the Maple Street drains.'),
+    ).toBeInTheDocument()
+    expect(within(rail).getByRole('link', { name: /Call/ })).toHaveAttribute(
+      'href',
+      'tel:8285550100',
+    )
+    expect(within(rail).queryByText(PRIORITY_STEP_LABELS.evidence)).toBeNull()
+    expect(chip).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(
+      within(rail).getByRole('button', { name: /Where this stands/ }),
+    )
+
+    expect(
+      await within(rail).findByText(PRIORITY_STEP_LABELS.evidence),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Calling about the Maple Street drains.'),
+    ).toBeNull()
   })
 
   it('renders a clarify question, and answering it sends an ordinary turn', async () => {

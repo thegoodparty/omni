@@ -36,6 +36,7 @@ import {
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { clientRequest } from 'gpApi/typed-request'
+import { ProposalHandoffSchema, type ProposalHandoff } from './proposalHandoff'
 
 interface ConstituentOutreachPageProps {
   pathname?: string
@@ -69,6 +70,11 @@ const ConstituentOutreachContent = () => {
   const [socialPrefill, setSocialPrefill] = useState<SocialFlowPrefill | null>(
     null,
   )
+  const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
+  const [phoneBankingPrefill, setPhoneBankingPrefill] =
+    useState<ProposalHandoff | null>(null)
+  const [smsFlowOpen, setSmsFlowOpen] = useState(false)
+  const [smsPrefill, setSmsPrefill] = useState<ProposalHandoff | null>(null)
   const handoffConsumedRef = useRef(false)
   const handoffParam = searchParams?.get('handoff')
   const composeParam = searchParams?.get('compose')
@@ -78,8 +84,14 @@ const ConstituentOutreachContent = () => {
   // with the draft pre-filled. The consumedRef guards the async window
   // between router.replace() and the params actually clearing, mirroring
   // OutreachComposeDeepLink's pattern.
+  //
+  // A chat card's outreach proposal arrives the same way for text and phone
+  // banking (`proposalHandoff.ts`): the message and the saved list, opened in
+  // that channel's flow and stopped short of anything that sends or charges.
   useEffect(() => {
-    if (!handoffParam || composeParam !== 'social') {
+    const isProposalChannel =
+      composeParam === 'text' || composeParam === 'phoneBanking'
+    if (!handoffParam || (composeParam !== 'social' && !isProposalChannel)) {
       handoffConsumedRef.current = false
       return
     }
@@ -90,6 +102,18 @@ const ConstituentOutreachContent = () => {
       const stored = sessionStorage.getItem(`cos-handoff-${handoffParam}`)
       if (!stored) return
       sessionStorage.removeItem(`cos-handoff-${handoffParam}`)
+      if (isProposalChannel) {
+        const proposal = ProposalHandoffSchema.safeParse(JSON.parse(stored))
+        if (!proposal.success || proposal.data.channel !== composeParam) return
+        if (proposal.data.channel === 'text') {
+          setSmsPrefill(proposal.data)
+          setSmsFlowOpen(true)
+        } else {
+          setPhoneBankingPrefill(proposal.data)
+          setPhoneBankingFlowOpen(true)
+        }
+        return
+      }
       const result = ComposeHandoffPayloadSchema.safeParse(JSON.parse(stored))
       if (!result.success || result.data.channel !== 'serve_social') return
       setSocialPrefill({
@@ -101,8 +125,6 @@ const ConstituentOutreachContent = () => {
       // sessionStorage unavailable or malformed payload: open without prefill
     }
   }, [composeParam, handoffParam, router])
-  const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
-  const [smsFlowOpen, setSmsFlowOpen] = useState(false)
   // This card IS the treatment surface, so the exposure is tracked here (the
   // hook's default) rather than suppressed. `ready` is read as well as
   // `enabled`: a variant is `undefined` while it resolves, so gating on
@@ -196,15 +218,34 @@ const ConstituentOutreachContent = () => {
   // beside its own copy of this: a `router.refresh()` per exit is the same
   // fix written once per exit and forgotten on the next one.
   //
-  // No settle flag, unlike Win's — this page consumes no `?outreachId=` deep
-  // link, so nothing is waiting on the refetch to resolve an id. And no
-  // `.catch()`: `refetchOutreaches` already swallows both failure levels.
+  // No settle flag, unlike Win's: the `?outreachId=` effect below resolves
+  // against whatever rows are loaded and simply runs again when the refetch
+  // lands. And no `.catch()`: `refetchOutreaches` already swallows both
+  // failure levels.
   useEffect(() => {
     void refetchOutreaches()
     // Mount only: a refetch keyed on anything else would fire under the
     // drawer while the official is reading it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // A chat card's send opens here on its own row's drawer. The seeded rows
+  // are tried first and the mount refetch after, so a send made since this
+  // route's RSC last ran still finds its row.
+  const outreachIdParam = searchParams?.get('outreachId')
+  const outreachDeepLinkRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!outreachIdParam || outreachDeepLinkRef.current === outreachIdParam) {
+      return
+    }
+    const row = (outreaches ?? []).find(
+      (candidate) => String(candidate.id) === outreachIdParam,
+    )
+    if (!row) return
+    outreachDeepLinkRef.current = outreachIdParam
+    router.replace('/dashboard/constituent-outreach', { scroll: false })
+    if (isDrawerRow(row)) setDetailsRow(row)
+  }, [outreachIdParam, outreaches, router])
 
   return (
     <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
@@ -241,10 +282,14 @@ const ConstituentOutreachContent = () => {
           // Spent on close, so pressing the tile afterwards opens a plain
           // flow rather than silently reusing the follow-up audience.
           setFollowUpListId(undefined)
+          setPhoneBankingPrefill(null)
         }}
         onSaved={handlePhoneBankingSaved}
         surface={SERVE_PHONE_BANKING_SURFACE}
-        preselectedListId={followUpListId}
+        preselectedListId={
+          followUpListId ?? phoneBankingPrefill?.savedFilterId ?? undefined
+        }
+        initialScript={phoneBankingPrefill?.message}
         source="outreach_page"
       />
       {/* Mounted only behind the flag, not merely rendered closed: with the
@@ -256,9 +301,14 @@ const ConstituentOutreachContent = () => {
       {smsMounted && (
         <SmsFlow
           open={smsFlowOpen}
-          onClose={() => setSmsFlowOpen(false)}
+          onClose={() => {
+            setSmsFlowOpen(false)
+            setSmsPrefill(null)
+          }}
           onScheduled={refetchOutreaches}
           surface={SERVE_SMS_SURFACE}
+          initialScript={smsPrefill?.message}
+          preselectedListId={smsPrefill?.savedFilterId ?? undefined}
           source="outreach_page"
         />
       )}

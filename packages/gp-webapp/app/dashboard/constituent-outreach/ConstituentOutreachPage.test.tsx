@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
+import { useSearchParams } from 'next/navigation'
 import type {
   ServePhoneBankingCreate,
   ServePhoneBankingScriptDraftRequest,
@@ -658,5 +659,118 @@ describe('ConstituentOutreachPage — the mount refresh', () => {
     expect(
       await within(desktopTable()).findByText('Introduction walk'),
     ).toBeInTheDocument()
+  })
+})
+
+// A chat card hands its proposal to this page through the same handoff the
+// Chief of Staff uses for social: `?compose=<channel>&handoff=<nonce>`, with
+// the message and the list in sessionStorage.
+describe('ConstituentOutreachPage — a chat card proposal', () => {
+  const SCRIPT = 'Calling about the Maple Street drains.'
+
+  const arriveWith = (params: string, payload?: object) => {
+    if (payload) {
+      sessionStorage.setItem('cos-handoff-n1', JSON.stringify(payload))
+    }
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams(params) as ReturnType<typeof useSearchParams>,
+    )
+  }
+
+  afterEach(() => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams() as ReturnType<typeof useSearchParams>,
+    )
+    serveSmsFlag.ready = true
+    serveSmsFlag.enabled = false
+    sessionStorage.clear()
+  })
+
+  it('opens phone banking past the purpose, on the list, with the script written', async () => {
+    mockPhoneBankingAudience()
+    arriveWith('compose=phoneBanking&handoff=n1', {
+      channel: 'phoneBanking',
+      message: SCRIPT,
+      savedFilterId: 3,
+    })
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(
+      await screen.findAllByRole('heading', {
+        name: 'Who do you want to reach?',
+      }),
+    ).not.toHaveLength(0)
+    expect(
+      screen.queryByText('Introduce myself to constituents'),
+    ).not.toBeInTheDocument()
+
+    const next = await screen.findByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(next).toBeEnabled())
+    await user.click(next)
+    expect(await screen.findByDisplayValue(SCRIPT)).toBeInTheDocument()
+
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/constituent-outreach',
+      { scroll: false },
+    )
+    // Spent on arrival, so a reload does not reopen it.
+    expect(sessionStorage.getItem('cos-handoff-n1')).toBeNull()
+  })
+
+  it('opens text on its audience step with the message carried in', async () => {
+    serveSmsFlag.ready = true
+    serveSmsFlag.enabled = true
+    arriveWith('compose=text&handoff=n1', {
+      channel: 'text',
+      message: SCRIPT,
+      savedFilterId: 3,
+    })
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(
+      await screen.findAllByRole('heading', {
+        name: 'Who do you want to reach?',
+      }),
+    ).not.toHaveLength(0)
+    expect(
+      screen.queryByText('Explain a recent decision'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens nothing for a payload that names another channel', () => {
+    mockPhoneBankingAudience()
+    arriveWith('compose=phoneBanking&handoff=n1', {
+      channel: 'text',
+      message: SCRIPT,
+    })
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(
+      screen.queryAllByRole('heading', { name: 'Who do you want to reach?' }),
+    ).toHaveLength(0)
+  })
+
+  it('opens a send on its own row when a card links to it', async () => {
+    api.mock('GET /v1/outreach/serve/:id', { status: 200, data: savedDetail })
+    arriveWith('outreachId=77')
+
+    render(
+      <ConstituentOutreachPage
+        outreaches={[
+          {
+            id: 77,
+            createdAt: '2026-08-30T00:00:00Z',
+            outreachType: 'socialMedia',
+            name: 'Introduction posts',
+            status: 'completed',
+          },
+        ]}
+      />,
+    )
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
   })
 })

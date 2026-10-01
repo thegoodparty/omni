@@ -3,9 +3,14 @@ import { defineWidgetTool } from '../widgetRegistry'
 import { ChatCardRenderer } from './ChatCardRenderer'
 import { toChatCard } from './toChatCard'
 
-export type CardWidgetContext = {
-  // Absent outside a priority: the outreach card then sends with no priority.
-  priorityId?: string
+// The tool call id when there is one, because the live turn has no message
+// row yet; the segment position otherwise, which is stable on reload.
+const cardDetailKey = (call: WidgetToolCall): string | undefined => {
+  if (call.toolCallId) return `call:${call.toolCallId}`
+  if (call.messageId !== null && call.segmentIndex !== null) {
+    return `segment:${call.messageId}:${call.segmentIndex}`
+  }
+  return undefined
 }
 
 const cardTool = (toolName: string, onParseFailure?: 'inline') =>
@@ -18,13 +23,17 @@ const cardTool = (toolName: string, onParseFailure?: 'inline') =>
         toolCallId: call.toolCallId,
         conversationId: call.conversationId ?? '',
       }),
-    render: (card, { priorityId }: CardWidgetContext, call) => (
-      <ChatCardRenderer
-        card={card}
-        {...(priorityId !== undefined && { priorityId })}
-        conversationId={call.conversationId ?? ''}
-      />
-    ),
+    // Cards read nothing from the surface: everything they need is in the
+    // call, so any surface's context fits.
+    render: (card, _ctx: object, call) => {
+      const detailKey = cardDetailKey(call)
+      return (
+        <ChatCardRenderer
+          card={card}
+          {...(detailKey !== undefined && { detailKey })}
+        />
+      )
+    },
     ...(onParseFailure && { onParseFailure }),
   })
 

@@ -27,11 +27,11 @@ export const buildPresentOutreachProposalTool = (): LlmStreamTool<
     'the message goes out under their name exactly as you write it, and the ' +
     'audience is the list it will be sent to. Never call this with a sketch, ' +
     'a placeholder, or a message you plan to refine. Build the list and ' +
-    'write the copy first, then present once. Only a phoneBanking proposal ' +
-    'can be sent from the card itself. A social or text proposal is a ' +
-    'recommendation the official finishes elsewhere, so write it that way ' +
-    'and never promise them one click. deepLinkOnly is set from the channel ' +
-    'whatever you pass, so do not reason about it.',
+    'write the copy first, then present once. Nothing is sent from the ' +
+    'card: it opens that channel in outreach with the list and the message ' +
+    'filled in, and the official reviews and sends it there. Say it that ' +
+    'way and never promise them one click. deepLinkOnly is set from the ' +
+    'channel whatever you pass, so do not reason about it.',
   inputSchema: presentOutreachProposalInput,
   execute: (input) => ({
     presented: true,
