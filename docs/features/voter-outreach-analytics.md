@@ -37,7 +37,10 @@ correctly without embedding a channel list:
   `one-to-many` alone drops all pre-cutover history. `ce:Outreach - All`
   already does this.
 - **"voters reached"** = SUM(`recipientCount`) where `fanout = one-to-many`,
-  plus COUNT of the two contact events.
+  plus COUNT of the two contact events. This measure starts at 2026-09-29.
+  Earlier rows carry no `fanout`, and every completion before then was a
+  number the candidate typed in (see Migration), so accepting `(none)` here
+  would mix self-reported counts into a measured total.
 
 The `fanout = one-to-many` filter is what stops the two one-to-one channels
 being counted twice — once per finished list and again per contact.
