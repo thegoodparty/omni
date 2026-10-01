@@ -16,6 +16,8 @@
 export const EVENTS = {
   Account: {
     ProSubscriptionConfirmed: 'Account - Pro Subscription Confirmed',
+    ProSubscriptionPastDue: 'Account - Pro Subscription Past Due',
+    ProSubscriptionEnded: 'Account - Pro Subscription Ended',
     ProUpgradeComplete: 'pro_upgrade_complete',
     UserDeleted: 'Account - User Deleted',
   },
