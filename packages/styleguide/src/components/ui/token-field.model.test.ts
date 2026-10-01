@@ -8,6 +8,7 @@ import {
   docToValue,
   findViolation,
   guardTransaction,
+  isInsideProtectedPhrase,
   lockedRanges,
   stripProtected,
   valueToContent,
@@ -290,5 +291,30 @@ describe('guardTransaction', () => {
       .replaceWith(0, state.doc.content.size, stateFor('Other').doc.content)
       .setMeta('tokenFieldSkipGuard', true)
     expect(guardTransaction(state, tr)).toBeNull()
+  })
+})
+
+describe('isInsideProtectedPhrase', () => {
+  it('is true strictly inside a phrase and false at its edges or elsewhere', () => {
+    const state = stateFor()
+    const start = posOf(state, 'Reply STOP')
+    const end = start + OPT_OUT.text.length
+    expect(isInsideProtectedPhrase(state.doc, start + 3)).toBe(true)
+    expect(isInsideProtectedPhrase(state.doc, start)).toBe(false)
+    expect(isInsideProtectedPhrase(state.doc, end)).toBe(false)
+    expect(isInsideProtectedPhrase(state.doc, posOf(state, 'vote'))).toBe(false)
+  })
+
+  it('is what the paragraph tells the drop cursor', () => {
+    const state = stateFor()
+    // The drop cursor calls the hook with the view and the pointer's
+    // position; only `view.state` and `pos.pos` are read.
+    const hook = schema.nodes.paragraph?.spec.disableDropCursor as (
+      view: { state: EditorState },
+      pos: { pos: number },
+    ) => boolean
+    const inside = posOf(state, 'Reply STOP') + 3
+    expect(hook({ state }, { pos: inside })).toBe(true)
+    expect(hook({ state }, { pos: posOf(state, 'vote') })).toBe(false)
   })
 })

@@ -12,6 +12,7 @@ import {
   PROTECTED_MARK,
   TOKEN_NODE,
   guardTransaction,
+  isInsideProtectedPhrase,
   lockedRanges,
   stripProtected,
 } from './token-field.model'
@@ -166,6 +167,16 @@ export const TokenFieldGuard = Extension.create<GuardOptions>({
   name: 'tokenFieldGuard',
   addOptions() {
     return { onBlocked: () => undefined }
+  },
+  // The drop cursor marks where a dragged pill will land, so it must not
+  // offer a spot the guard will refuse: none inside a locked phrase. The
+  // drop cursor asks the paragraph under the pointer through this spec hook.
+  extendNodeSchema(extension) {
+    if (extension.name !== 'paragraph') return {}
+    return {
+      disableDropCursor: (view: EditorView, pos: { pos: number }) =>
+        isInsideProtectedPhrase(view.state.doc, pos.pos),
+    }
   },
   addProseMirrorPlugins() {
     const { onBlocked } = this.options

@@ -224,6 +224,17 @@ export const lockedRanges = (doc: ProseMirrorNode): LockedRange[] => {
   return ranges
 }
 
+// Strictly inside a protected phrase, where a drop would split it and the
+// guard will refuse it. The edges are fine: a pill dropped right before or
+// after a phrase leaves it whole.
+export const isInsideProtectedPhrase = (
+  doc: ProseMirrorNode,
+  pos: number,
+): boolean =>
+  lockedRanges(doc).some(
+    (range) => range.kind === 'protected' && range.from < pos && pos < range.to,
+  )
+
 interface Signature {
   protectedText: Map<string, string>
   requiredCount: Map<string, number>
