@@ -1,0 +1,112 @@
+name: Analytics guard
+
+# DATA-2432. No path filters: this becomes a required check, and a required job that a
+# path filter skips leaves every unrelated PR waiting on it forever. The job decides
+# inside itself what to run.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: analytics-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Analytics guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # block | warn | off. Repo Actions variable, so the guard can be softened in
+      # seconds without a PR. Unset means warn.
+      MODE: ${{ vars.GOVERNANCE_GUARD_MODE || 'warn' }}
+      ALERT: ${{ vars.GOVERNANCE_GUARD_ALERT }}
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        if: env.MODE != 'off'
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+
+      - name: Install deps
+        if: env.MODE != 'off'
+        working-directory: packages/runbooks/scripts/python
+        run: uv sync --frozen
+
+      - name: Run the guard
+        id: guard
+        if: env.MODE != 'off'
+        working-directory: packages/runbooks/scripts/python
+        run: |
+          set +e
+          base=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          uv run governance_guard.py check --base "$base" --head HEAD \
+            --markdown "$RUNNER_TEMP/guard.md" --json "$RUNNER_TEMP/guard.json"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Post or update the guard comment
+        if: env.MODE != 'off'
+        run: |
+          set -euo pipefail
+          code='${{ steps.guard.outputs.code }}'
+          body="$RUNNER_TEMP/comment.md"
+          if [ "$code" = "1" ]; then
+            printf '<!-- analytics-guard -->\n### Analytics guard\n\nThe guard could not run on this PR, so it passed without checking. %s\n\n```\n%s\n```\n' \
+              "${ALERT:+cc $ALERT}" "$(jq -r .error "$RUNNER_TEMP/guard.json" 2>/dev/null || echo unknown)" > "$body"
+          else
+            cp "$RUNNER_TEMP/guard.md" "$body"
+            if [ "$code" = "2" ] && [ "$MODE" != "block" ]; then
+              sed -i 's/^\*\*Blocks merge\*\*$/**Would block merge (shadow mode, not enforced yet)**/' "$body"
+            fi
+          fi
+          existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- analytics-guard -->"))][0].id // empty')
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -F body=@"$body" > /dev/null
+          elif [ "$code" != "0" ] || grep -q '^\*\*Warnings\*\*' "$body"; then
+            gh pr comment "$PR" --body-file "$body"
+          fi
+
+      - name: Runbooks tests (only when the runbooks package changed)
+        if: env.MODE != 'off'
+        working-directory: packages/runbooks/scripts/python
+        env:
+          SEM_ANCHORS_NO_GH: "1"
+        run: |
+          if [ -z "$(git diff --name-only '${{ steps.guard.outputs.base }}' HEAD -- .)" ]; then
+            echo "No runbooks changes; skipping the suite."
+            exit 0
+          fi
+          # Collection first and separately: one unimportable file once silenced this
+          # whole suite for a month, and a collection error must not read as a test result.
+          if ! uv run pytest --collect-only -q > "$RUNNER_TEMP/collect.log" 2>&1; then
+            echo "::error::pytest could not collect the runbooks suite. Fix the import error below before trusting any result."
+            tail -40 "$RUNNER_TEMP/collect.log"
+            exit 1
+          fi
+          uv run pytest -q
+
+      - name: Verdict
+        if: env.MODE != 'off'
+        run: |
+          code='${{ steps.guard.outputs.code }}'
+          case "$code" in
+            0) echo "Analytics guard: clean." ;;
+            1) echo "::warning::Analytics guard could not run; passing without checking (see PR comment)." ;;
+            2) if [ "$MODE" = "block" ]; then
+                 echo "::error::Analytics guard found blocking problems. The PR comment says exactly what to add."
+                 exit 1
+               fi
+               echo "::warning::Analytics guard would block this PR (shadow mode)." ;;
+            *) echo "::warning::Analytics guard exited $code; treating as a guard error and passing." ;;
+          esac

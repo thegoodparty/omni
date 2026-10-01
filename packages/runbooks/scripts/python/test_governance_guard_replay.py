@@ -1,7 +1,9 @@
-"""Replays the breaks that motivated DATA-2432 against real history. Skips when the
-commits are not in the local clone (a shallow CI checkout); the guard workflow uses a full
-clone, so it runs there."""
+"""Replays the breaks that motivated DATA-2432 against real history. Skips locally when the
+commits are not in the clone (e.g. a shallow checkout); fails under GitHub Actions instead,
+since a skipped acceptance test reads as a pass — the Analytics guard job must check out
+with fetch-depth: 0, and this test is what catches a regression on that."""
 
+import os
 import subprocess
 
 import pytest
@@ -19,6 +21,8 @@ def _has(sha: str) -> bool:
 
 def _replay(sha: str, extra: dict[str, str]) -> gg.Report:
     if not _has(sha):
+        if os.environ.get("GITHUB_ACTIONS"):
+            pytest.fail(f"{sha} not in this clone; the Analytics guard job must check out with fetch-depth: 0")
         pytest.skip(f"{sha} not in this clone")
     anchors, date = sa.load_vendored_anchors()
     anchors = {m: list(legs) for m, legs in anchors.items()}
