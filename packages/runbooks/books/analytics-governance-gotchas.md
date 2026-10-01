@@ -113,13 +113,11 @@ row live here:
 | **One search is not evidence** | A pickaxe or grep on one identifier returns nothing, and the clean negative reads as proof the thing is absent. A wrong guess at the spelling is indistinguishable from absence. | A negative is not evidence until a second, differently-shaped method agrees. Search the **value**, then the **reference** (constants, aliases, lookup tables, nested groups), then the **tree before the change** (`git grep <term> <sha-before>`, then `git log --diff-filter=D`). When a negative contradicts other evidence — "no call sites since April 2025" against 1,471 fires a month — the negative is wrong until proven otherwise. Dynamic dispatch defeats a literal search outright. Two sightings on 2026-09-29: a pickaxe on `ScheduleTextCampaign` nearly produced a wrong verdict on 14 live events whose call sites referenced the nested `ScheduleCampaign` group (DATA-2546); and a search of the docs for "pitfall / trap / gotcha / known issue" returned nothing an hour later, because the section that documents the trap is headed "Rank 0 — counter blind spot". **The same rule applies to searching prose, and the artifact is as much at fault as the search** — hence the plain-word alias line now in that book. | invariant |
 ## Follow-up
 
-Not built: a linter that re-verifies the mechanically checkable `state` rows against the
-live catalog and CSV (the blank/zero counts, the pre-cutover link count, the
-never-observed split) and flags the rest once their as-of date goes stale. **DATA-1960**
-owns this — its "Gotcha freshness" section already scopes turning mechanically checkable
-state rows into linter assertions, for gp-data-platform's equivalent file. Extend it to
-this one rather than filing a second ticket. Until it ships, re-check a `state` row before
-acting on it; the as-of date is the last time anyone did.
+Not built: an automated freshness check. **DATA-2592** owns it: the scheduled run flags
+any `state` row whose cited ticket has closed, that cites none, or whose as-of date is
+more than two months old, and a test ties each console caveat to the row it restates.
+Until it ships, re-check a `state` row before acting on it; the as-of date is the last
+time anyone did. (DATA-1960 is the same idea for gp-data-platform's own gotchas file.)
 
 ## Cross-references
 
