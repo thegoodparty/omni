@@ -18,7 +18,14 @@ beforeEach(() => {
 
 describe('ProPitchDialog', () => {
   it('renders the title, the price pill and every tile title when open', () => {
-    render(<ProPitchDialog open onOpenChange={vi.fn()} />)
+    render(
+      <ProPitchDialog
+        source="navigation"
+        channel="generic"
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
 
     expect(screen.getByText(MEMBERSHIP_COPY.pitch.title)).toBeInTheDocument()
     expect(screen.getByText(MEMBERSHIP_COPY.pitch.pill)).toBeInTheDocument()
@@ -33,7 +40,14 @@ describe('ProPitchDialog', () => {
   // The footer also has to sit OUTSIDE the scrolling body, or a short
   // viewport scrolls the Join button off the bottom of the dialog.
   it('centers the header and pins the footer outside the scrolling body', () => {
-    render(<ProPitchDialog open onOpenChange={vi.fn()} />)
+    render(
+      <ProPitchDialog
+        source="navigation"
+        channel="generic"
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
 
     const content = document.querySelector('[data-slot="dialog-content"]')
     const footer = document.querySelector('[data-slot="dialog-footer"]')
@@ -48,16 +62,31 @@ describe('ProPitchDialog', () => {
     )
   })
 
-  it('fires PitchViewed when the dialog opens', () => {
-    render(<ProPitchDialog open onOpenChange={vi.fn()} />)
+  it('reports the generic interstitial view when the dialog opens', () => {
+    render(
+      <ProPitchDialog
+        source="navigation"
+        channel="generic"
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Membership.PitchViewed,
+      EVENTS.ProUpgrade.Compliance.InterstitialViewed,
+      { channel: 'generic' },
     )
   })
 
   it('renders nothing when closed', () => {
-    render(<ProPitchDialog open={false} onOpenChange={vi.fn()} />)
+    render(
+      <ProPitchDialog
+        source="navigation"
+        channel="generic"
+        open={false}
+        onOpenChange={vi.fn()}
+      />,
+    )
 
     expect(screen.queryByText(MEMBERSHIP_COPY.pitch.title)).toBeNull()
     expect(trackEvent).not.toHaveBeenCalled()
@@ -66,14 +95,22 @@ describe('ProPitchDialog', () => {
   it('pushes the Pro upgrade entry path and closes when Join is clicked', async () => {
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
-    render(<ProPitchDialog open onOpenChange={onOpenChange} />)
+    render(
+      <ProPitchDialog
+        source="navigation"
+        channel="generic"
+        open
+        onOpenChange={onOpenChange}
+      />,
+    )
 
     await user.click(
       screen.getByRole('button', { name: MEMBERSHIP_COPY.pitch.join }),
     )
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Membership.PitchJoin,
+      EVENTS.ProUpgrade.Compliance.InterstitialCompleted,
+      { channel: 'generic' },
     )
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(router.push).toHaveBeenCalledWith(
@@ -84,14 +121,47 @@ describe('ProPitchDialog', () => {
   it('closes without navigating when the dialog is dismissed', async () => {
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
-    render(<ProPitchDialog open onOpenChange={onOpenChange} />)
+    render(
+      <ProPitchDialog
+        source="navigation"
+        channel="generic"
+        open
+        onOpenChange={onOpenChange}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'Close' }))
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Membership.PitchDismiss,
+      EVENTS.ProUpgrade.Compliance.InterstitialDismissed,
+      { channel: 'generic' },
     )
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('carries a voter data wall into its events and the wizard link', async () => {
+    const user = userEvent.setup()
+    render(
+      <ProPitchDialog
+        source="contacts"
+        channel="voter-data"
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.InterstitialViewed,
+      { channel: 'voter-data' },
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: MEMBERSHIP_COPY.pitch.join }),
+    )
+
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade?source=contacts&channel=voter-data&cta=Join+Pro',
+    )
   })
 })
