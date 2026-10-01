@@ -115,7 +115,10 @@ export const checkSmsStandards = (
   const failures: SmsStandardsRule[] = []
   const lower = script.toLowerCase()
 
-  if (!/reply\s+stop/i.test(script)) {
+  // Whole word, as the composer's lock matches it (deriveSmsProtectedParts):
+  // "reply stoppage" must fail here rather than pass with nothing locked,
+  // where the opt-out instruction could then be deleted before the send.
+  if (!/reply\s+stop\b/i.test(script)) {
     failures.push('opt_out_line')
   }
   if (!script.includes('{first_name}')) {
