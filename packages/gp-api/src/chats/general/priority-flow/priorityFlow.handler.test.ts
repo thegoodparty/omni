@@ -42,6 +42,7 @@ const baseCtx = (): PriorityFlowContext => ({
   electedOfficeId: 'office-1',
   organizationSlug: ORG,
   organization: { slug: ORG } as Organization,
+  officialFirstName: 'Bryan',
   officeTitle: 'City Council Member',
   jurisdiction: null,
   title: 'Sidewalk repairs on Maple Ave',

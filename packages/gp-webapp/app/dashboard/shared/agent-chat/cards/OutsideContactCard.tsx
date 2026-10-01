@@ -3,22 +3,21 @@ import type { ChatCard } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import {
   CheckIcon,
+  CircleHelpIcon,
   CopyIcon,
   ExternalLinkIcon,
   MailIcon,
+  MessageSquareIcon,
   PhoneIcon,
+  UserRoundIcon,
 } from '@styleguide/components/ui/icons'
+import { InfoSection } from 'app/dashboard/contacts/crm/person/InfoSection'
 import { CardDetail } from './cardDetail'
-import {
-  CompactCard,
-  DetailHeader,
-  DetailSection,
-  InitialsAvatar,
-} from './cardShell'
+import { CompactCard } from './cardShell'
 
 export const SERVE_OUTSIDE_CONTACT_CARD_COPY = {
   why: 'Why reach out',
-  askFor: 'Ask for',
+  askFor: 'Who to ask for',
   script: 'What to say',
   copyScript: 'Copy script',
   copied: 'Copied',
@@ -39,8 +38,9 @@ const CopyScriptButton = ({ script }: { script: string }) => {
   return (
     <Button
       type="button"
-      variant="ghost"
+      variant="outline"
       size="small"
+      className="self-start"
       icon={
         copied ? (
           <CheckIcon className="size-4" aria-hidden />
@@ -100,6 +100,9 @@ const ContactActions = ({ card }: { card: OutsideContact }) =>
     </div>
   ) : null
 
+// Laid out the way the contacts page lays out a person (PersonOverlay): the
+// name as the page heading, one line under it, then one InfoSection card per
+// thing to know, so a researched contact and a constituent read alike.
 export const OutsideContactCard = ({
   card,
   detailKey,
@@ -112,7 +115,6 @@ export const OutsideContactCard = ({
     title={card.name}
     chip={({ open, expanded }) => (
       <CompactCard
-        leading={<InitialsAvatar name={card.name} />}
         title={card.name}
         subtitle={card.role}
         expanded={expanded}
@@ -120,27 +122,31 @@ export const OutsideContactCard = ({
       />
     )}
   >
-    <div className="flex flex-col gap-5">
-      <DetailHeader
-        leading={<InitialsAvatar name={card.name} size="large" />}
-        title={card.name}
-        subtitle={card.role}
-      />
-      <ContactActions card={card} />
-      <DetailSection label={SERVE_OUTSIDE_CONTACT_CARD_COPY.why}>
-        <p className="text-sm">{card.why}</p>
-      </DetailSection>
-      <DetailSection label={SERVE_OUTSIDE_CONTACT_CARD_COPY.askFor}>
-        <p className="text-sm">{card.askFor}</p>
-      </DetailSection>
-      <DetailSection
-        label={SERVE_OUTSIDE_CONTACT_CARD_COPY.script}
-        action={<CopyScriptButton script={card.script} />}
-      >
-        <p className="bg-muted/40 rounded-lg p-3 text-sm whitespace-pre-wrap">
-          {card.script}
-        </p>
-      </DetailSection>
+    <div>
+      <h2 className="pt-4 pb-2 text-3xl font-semibold">{card.name}</h2>
+      <p className="mb-6 text-xl font-semibold">{card.role}</p>
+      <div className="flex flex-col gap-6">
+        <ContactActions card={card} />
+        <InfoSection
+          title={SERVE_OUTSIDE_CONTACT_CARD_COPY.why}
+          icon={<CircleHelpIcon className="size-6" aria-hidden />}
+        >
+          <p className="text-md">{card.why}</p>
+        </InfoSection>
+        <InfoSection
+          title={SERVE_OUTSIDE_CONTACT_CARD_COPY.askFor}
+          icon={<UserRoundIcon className="size-6" aria-hidden />}
+        >
+          <p className="text-md">{card.askFor}</p>
+        </InfoSection>
+        <InfoSection
+          title={SERVE_OUTSIDE_CONTACT_CARD_COPY.script}
+          icon={<MessageSquareIcon className="size-6" aria-hidden />}
+        >
+          <p className="text-md whitespace-pre-wrap">{card.script}</p>
+          <CopyScriptButton script={card.script} />
+        </InfoSection>
+      </div>
     </div>
   </CardDetail>
 )

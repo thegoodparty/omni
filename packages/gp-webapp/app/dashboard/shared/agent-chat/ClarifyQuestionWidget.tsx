@@ -11,6 +11,7 @@ import {
 } from '@styleguide'
 import type { ChatClarifyQuestion } from '@goodparty_org/contracts'
 import SourceLine from './SourceLine'
+import { OPTION_CARD_CLASS, OPTION_CARD_INTERACTIVE_CLASS } from './optionCard'
 
 // Renders one clarify question as selectable option cards (radio + title, with
 // the rationale and cited source in a divided section below) plus an
@@ -68,9 +69,10 @@ export default function ClarifyQuestionWidget({
             <div
               key={id}
               className={cn(
-                'flex flex-col rounded-xl border border-border bg-card p-4 shadow-sm transition-colors',
+                'flex flex-col',
+                OPTION_CARD_CLASS,
                 'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5',
-                selectable && 'cursor-pointer hover:border-foreground/20',
+                selectable && OPTION_CARD_INTERACTIVE_CLASS,
               )}
             >
               <Label
@@ -150,7 +152,11 @@ export default function ClarifyQuestionWidget({
           type="button"
           disabled={disabled}
           onClick={() => setWritingOwn(true)}
-          className="cursor-pointer rounded-xl border border-border bg-card p-4 text-left text-sm text-muted-foreground shadow-sm transition-colors hover:border-foreground/20 disabled:cursor-default disabled:opacity-50 disabled:hover:border-border"
+          className={cn(
+            OPTION_CARD_CLASS,
+            OPTION_CARD_INTERACTIVE_CLASS,
+            'text-left text-sm text-muted-foreground disabled:cursor-default disabled:opacity-50 disabled:hover:border-border',
+          )}
         >
           Or write your own...
         </button>

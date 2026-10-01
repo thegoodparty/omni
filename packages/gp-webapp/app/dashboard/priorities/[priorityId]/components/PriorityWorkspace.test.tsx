@@ -76,6 +76,14 @@ vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', async () => {
   }
 })
 
+// The outreach flows are the outreach page's components; mounting them here
+// is covered in proposalFlows.test.tsx.
+vi.mock('../../../shared/agent-chat/cards/proposalFlows', () => ({
+  ProposalFlowsProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
+  useProposalFlows: () => null,
+}))
+
 const deferred = (): { promise: Promise<void>; resolve: () => void } => {
   let resolve = (): void => undefined
   const promise = new Promise<void>((r) => {

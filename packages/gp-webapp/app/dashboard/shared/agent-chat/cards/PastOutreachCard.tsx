@@ -1,7 +1,5 @@
 import { useQueries } from '@tanstack/react-query'
 import type { ChatCard, OutreachDetail } from '@goodparty_org/contracts'
-import { Avatar } from '@styleguide'
-import { HistoryIcon } from '@styleguide/components/ui/icons'
 import { getChannelLabel } from 'app/dashboard/outreach/v2/channelMeta'
 import { shortOutreachDate } from 'app/dashboard/outreach/v2/outreachDate.util'
 import { useSmsResults } from 'app/dashboard/outreach/v2/useOutreachResults'
@@ -14,14 +12,6 @@ export const SERVE_PAST_OUTREACH_COPY = {
   untitled: 'Untitled send',
   responses: (n: number) => `${n.toLocaleString()} responses`,
 }
-
-const HistoryMark = () => (
-  <Avatar aria-hidden>
-    <Avatar.Icon>
-      <HistoryIcon />
-    </Avatar.Icon>
-  </Avatar>
-)
 
 // One chip per send, opening that send in the outreach history's own
 // drawer: history already owns what a send looks like after the fact.
@@ -38,7 +28,6 @@ const PastOutreachChip = ({ row }: { row: OutreachDetail }) => {
   const count = row.textCount ?? row.billableTextCount
   return (
     <CompactCardLink
-      leading={<HistoryMark />}
       title={row.name || row.title || SERVE_PAST_OUTREACH_COPY.untitled}
       subtitle={[
         getChannelLabel(row.outreachType),

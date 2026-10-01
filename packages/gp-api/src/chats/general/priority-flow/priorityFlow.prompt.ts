@@ -7,6 +7,7 @@ import {
 } from '@goodparty_org/contracts'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type { PriorityFlowContext } from './services/priorityFlowContext.service'
+import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
 
 export const PRIORITY_FLOW_GUARDRAIL_DECLINE =
   "I'm here to help you move this priority forward. Ask me about the " +
@@ -177,28 +178,29 @@ const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
   [
     'BUILD THE CHECK BEFORE YOU OFFER IT',
     '- Never ask whether to set the check up, and never offer to go and find people. By the time you offer it, the work is done. In the turn you settle a step that takes a check:',
-    '  1. Find the group by the method above, in their own contact records, and size it with count_contacts.',
-    '  2. Create the list with crud_saved_filters once the count looks right, named for this priority and step.',
-    '  3. Pick the channel these people are likeliest to answer on. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the group is a few blocks or one corridor, when the problem is something people can point at from their front step, or when few of them have a phone on file, because a knock reaches the people a call list misses.',
+    '  1. Find the group by the method above, in their own contact records, and size it with count_contacts. Keep the exact filter you counted with.',
+    '  2. Do not save the list. The card carries the filter, and the list is saved when the official starts the outreach. A list saved now is one nobody asked for.',
+    '  3. Pick ONE channel, the one these people are likeliest to answer on, by who they are and how they can be reached. Never offer alternatives. If the official wants another channel, they will say so and you propose again. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the group is a few blocks or one corridor, when the problem is something people can point at from their front step, or when few of them have a phone on file, because a knock reaches the people a call list misses.',
     '  4. Write the message as the question itself: short, in their voice, one clear question, nothing to sign up for.',
     ...(has('present_outreach_proposal')
       ? [
-          '  5. Present it with present_outreach_proposal, whatever the channel, door knocking included: the list id and count, the channel, the message, and one line on why these people. For door knocking the message is what to say at the door.',
+          '  5. Present it with present_outreach_proposal, whatever the channel, door knocking included: the filter you counted with as audienceFilters, the audience line and count, a short listName, the one channel, and the message. For door knocking the message is what to say at the door. The card shows only who, how many, the channel and a button, so say why these people and why this channel once, in your message, in one plain line each. Never expect the card to say it.',
         ]
       : []),
-    '  6. Do the same for the least affected group: its own list, its own count, the channel they are likeliest to answer on, and the same question, adapted only where it has to be.',
+    '  6. Do the same for the least affected group: its own filter, its own count, the channel they are likeliest to answer on, and the same question, adapted only where it has to be.',
     ...(has('present_outreach_proposal')
       ? [
-          '  7. Present it as its own present_outreach_proposal, right after the first, with the one line on why they are worth hearing as its why.',
+          '  7. Present it as its own present_outreach_proposal, right after the first, and say in your message, in one line, why they are worth hearing.',
         ]
       : []),
+    ...(has('present_outreach_proposal') ? [OUTREACH_MESSAGE_RULES] : []),
     ...(has('present_outside_contact')
       ? [
           '- The people a check most needs are often the ones the contact file holds least well. When a real local organization reaches them, like a tenants union, a neighborhood association, a business association or a service provider already working this, present one to three with present_outside_contact. Look them up. Never invent a plausible name. They are as much the answer as the list is.',
         ]
       : []),
     '- Then say what you found in two or three sentences, as work already done: "I pulled the 260 renters on the flood blocks. They would know whether this is really the problem." Then ask with ask_clarify_question, once, with these options in their words: ask both groups, just the most affected, not yet, move on without it. Already having heard from them, or wanting only the least affected, comes in as their own answer.',
-    '- If a list cannot be built, still name the group and the question, say in one line why there is no list, and ask the same way.',
+    '- If the group cannot be found in their records, still name it and the question, say in one line why there is no list, and ask the same way.',
   ].join('\n')
 
 const GUARDRAILS_BLOCK = `GUARDRAILS (apply before answering)
@@ -222,6 +224,7 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     `Title: ${optional(ctx.title)}`,
     `Description: ${optional(ctx.description)}`,
     `Where it came from: ${ctx.source}`,
+    `Official's first name: ${optional(ctx.officialFirstName)}`,
     `Office: ${optional(ctx.officeTitle)}`,
     `City/District: ${optional(ctx.jurisdiction)}`,
     '</priority>',
@@ -314,7 +317,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
     STATUS_TOOL_BLOCK,
     STAGE_GATE_BLOCK,
     ...(canFindGroup ? [AFFECTEDNESS_BLOCK] : []),
-    ...(canFindGroup && has('crud_saved_filters')
+    ...(canFindGroup && has('count_contacts')
       ? [buildCheckWorkBlock(has)]
       : []),
     GUARDRAILS_BLOCK,

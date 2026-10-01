@@ -2,6 +2,9 @@ import { queryOptions } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 
+export const proposalOutreachQueryKey = (proposalKey: string) =>
+  ['chat-card-proposal-outreach', proposalKey] as const
+
 /**
  * Nothing found means nothing sent yet, so a 404 resolves to null instead of
  * throwing. `retry: false` because the default config retries twice, and
@@ -9,7 +12,7 @@ import { clientRequest } from 'gpApi/typed-request'
  */
 export const proposalOutreachQueryOptions = (proposalKey: string) =>
   queryOptions({
-    queryKey: ['chat-card-proposal-outreach', proposalKey] as const,
+    queryKey: proposalOutreachQueryKey(proposalKey),
     retry: false,
     queryFn: async () => {
       try {
@@ -36,9 +39,14 @@ export const pastOutreachQueryOptions = (outreachId: number) =>
       }).then((res) => res.data),
   })
 
-export const cardContactQueryOptions = (contactId: string) =>
+// The contacts page's own key for a person, so the follow-up switch the
+// record carries updates this copy the same way it updates that page's.
+export const cardContactQueryOptions = (
+  contactId: string,
+  orgSlug: string | undefined,
+) =>
   queryOptions({
-    queryKey: ['chat-card-contact', contactId] as const,
+    queryKey: ['person', orgSlug, contactId] as const,
     queryFn: () =>
       clientRequest('GET /v1/contacts/:id', { id: contactId }).then(
         (res) => res.data,

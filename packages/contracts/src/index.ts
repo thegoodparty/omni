@@ -704,6 +704,8 @@ export {
   OutsideContactSchema,
   ChatCardSchema,
   ProposalLinkSchema,
+  ProposalAudienceFiltersSchema,
+  type ProposalAudienceFilters,
   type ProposalLink,
   type ChatCardKind,
   type ProposalChannel,

@@ -17,6 +17,7 @@ import {
 } from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { PriorityRecord } from './prioritiesPort'
+import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
 
 export const COS_GUARDRAIL_DECLINE =
   "I'm your Chief of Staff. Please ask me something about your office, " +
@@ -260,10 +261,11 @@ const cardRulesBlock = (toolNames: string[]): string | null => {
         : []),
     ...(has('present_outreach_proposal')
       ? [
-          '- Present outreach only when it is final: the list saved and the message written.' +
+          '- Present outreach only when it is final: the audience counted with `count_contacts` and the message written. Do not save a list for it: pass the filter you counted with as audienceFilters, and the list is saved when the user starts the outreach. Pick ONE channel, the one these people are likeliest to answer on, and never offer alternatives on the card. The card shows only who, how many, the channel and a button, so say why these people and why this channel once, in your message.' +
             (has('read_past_outreach')
               ? ' Call `read_past_outreach` first so you can say what came back last time.'
               : ''),
+          OUTREACH_MESSAGE_RULES,
         ]
       : []),
   ]

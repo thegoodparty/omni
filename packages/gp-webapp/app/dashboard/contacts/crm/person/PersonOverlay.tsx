@@ -398,7 +398,11 @@ const getIncomeBucket = (income: number | null) => {
   )
 }
 
-const PersonContent: React.FC<{
+// The record itself, without the contacts table around it, so a chat card can
+// open a constituent the way this page does. The three parts that read the
+// table's own queries come in as slots; a surface without the table omits
+// them and gets the rest of the record unchanged.
+export const PersonRecord: React.FC<{
   person: Person
   // Named for the surface, not for one of its consequences: this flag decides
   // party visibility AND the card's whole vocabulary, and calling it
@@ -406,14 +410,24 @@ const PersonContent: React.FC<{
   // pass. Serve reads constituents; Win reads voters.
   isServe: boolean
   showWinActivities: boolean
-}> = ({ person, isServe, showWinActivities }) => {
+  statusRow?: ReactNode
+  topIssues?: ReactNode
+  activityFeed?: ReactNode
+}> = ({
+  person,
+  isServe,
+  showWinActivities,
+  statusRow,
+  topIssues,
+  activityFeed,
+}) => {
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
   const { isWin, isReady: isWinContextReady } = useWinVoterContext()
 
   // Fires once per person open (this component remounts per person via the
-  // `key={person.id}` on PersonContent below — a fresh person always gets a
+  // `key={person.id}` on PersonRecord below — a fresh person always gets a
   // fresh `firedContactViewed` ref). Distinct from `Contacts.Viewed`, which
   // fires from the contacts page itself.
   const firedContactViewedRef = useRef(false)
@@ -450,16 +464,16 @@ const PersonContent: React.FC<{
           of the Support Status Field below and the OptedInChip that used to
           render next to the name above. Self-gates on Win so Serve's
           rendering (the Field below, no opt-in display) is untouched. */}
-      <StatusRow person={person} hidePoliticalParty={isServe} />
+      {statusRow}
       {/* Serve's only editable per-contact status, self-gating the same way
           StatusRow does for Win. */}
       <FollowUpRow person={person} isServe={isServe} />
       <div className="flex flex-col gap-6">
         <NotesSection personId={person.id} />
 
-        {showActivitiesAndIssues ? (
+        {showActivitiesAndIssues && topIssues ? (
           <InfoSection title="Top Issues" icon={<LuFrown size={24} />}>
-            <TopIssuesContent />
+            {topIssues}
           </InfoSection>
         ) : null}
 
@@ -548,9 +562,9 @@ const PersonContent: React.FC<{
           )}
         </InfoSection>
 
-        {showActivityFeed ? (
+        {showActivityFeed && activityFeed ? (
           <InfoSection title="Activity Feed" icon={<LuSmile size={24} />}>
-            <ActivitiesContent />
+            {activityFeed}
           </InfoSection>
         ) : null}
       </div>
@@ -624,11 +638,19 @@ export default function PersonOverlay(): React.JSX.Element {
             </div>
           ) : (
             person && (
-              <PersonContent
+              <PersonRecord
                 key={person.id}
                 person={person}
                 isServe={isElectedOfficial}
                 showWinActivities={isWinContext}
+                statusRow={
+                  <StatusRow
+                    person={person}
+                    hidePoliticalParty={isElectedOfficial}
+                  />
+                }
+                topIssues={<TopIssuesContent />}
+                activityFeed={<ActivitiesContent />}
               />
             )
           )}
