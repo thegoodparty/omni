@@ -30,6 +30,7 @@ import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
 import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { serializeWebsiteBio } from '@/websites/util/serializeWebsiteBio.util'
+import { CampaignStoryStateService } from '@/campaignStory/services/campaignStoryState.service'
 import {
   TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY,
   VOTER_GOALS_ADVISORY_LOCK_KEY,
@@ -38,8 +39,10 @@ import { CompleteTaskBodySchema } from '../../tasks/schemas/completeTaskBody.sch
 import {
   BALLOT_ACCESS_TASK_TITLES,
   buildBallotAccessTrackerTaskRows,
+  buildCampaignStoryTrackerTaskRows,
   buildOutreachTrackerTaskRows,
   buildStaticTrackerTaskRows,
+  CAMPAIGN_STORY_TASK_TITLES,
   needsBallotAccessTasks,
 } from './staticTrackerTasks.util'
 import {
@@ -80,6 +83,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     private readonly experimentRuns: ExperimentRunsService,
     private readonly s3: S3Service,
     private readonly slack: SlackService,
+    private readonly storyState: CampaignStoryStateService,
   ) {
     super()
   }
@@ -103,6 +107,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   // on the campaign serializes concurrent first-loads (the count check alone
   // isn't atomic, so two callers could both read zero and each insert the rows).
   async materializeStaticTasks(campaign: Campaign): Promise<number> {
+    const { complete: storyComplete } = await this.storyState.read(campaign.id)
     return this.client.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY}::integer, ${campaign.id}::integer)`
 
@@ -137,6 +142,15 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           electionDate,
           campaign.primaryResult === 'lost',
         ),
+        // Only while the story is unfinished, and dated today rather than the
+        // shared Monday anchor.
+        ...(storyComplete
+          ? []
+          : buildCampaignStoryTrackerTaskRows(
+              campaign.id,
+              new Date(),
+              electionDate,
+            )),
       ]
       const { count } = await tx.campaignTrackerTask.createMany({ data: rows })
       return count
@@ -196,6 +210,62 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     })
   }
 
+  // Bring the story row in line with the candidate's CURRENT story state, the
+  // same arrangement as reconcileBallotAccessTasks and under the same advisory
+  // lock. The row mirrors data, not intent: while the story is unfinished it is
+  // added if missing and reopened if it was checked off, because a checkbox
+  // that disagrees with the card pinned above the rail is worse than one the
+  // tracker reasserts. Once the story is complete the row is deleted outright.
+  async reconcileCampaignStoryTask(campaign: Campaign): Promise<number> {
+    const { complete } = await this.storyState.read(campaign.id)
+
+    return this.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY}::integer, ${campaign.id}::integer)`
+
+      // Nothing to reconcile before the static rows exist — materialization
+      // owns the first decision, and adding the row here would strand a
+      // campaign with a story task and nothing else.
+      const bootstrapped = await tx.campaignTrackerTask.count({
+        where: { campaignId: campaign.id, isDefaultTask: true },
+      })
+      if (bootstrapped === 0) return 0
+
+      const where = {
+        campaignId: campaign.id,
+        isDefaultTask: true,
+        title: { in: CAMPAIGN_STORY_TASK_TITLES },
+      }
+
+      if (complete) {
+        const { count } = await tx.campaignTrackerTask.deleteMany({ where })
+        return count
+      }
+
+      const existing = await tx.campaignTrackerTask.findMany({
+        where,
+        select: { id: true, completed: true },
+      })
+      if (existing.length === 0) {
+        const { count } = await tx.campaignTrackerTask.createMany({
+          data: buildCampaignStoryTrackerTaskRows(
+            campaign.id,
+            new Date(),
+            this.resolveElectionDate(campaign),
+          ),
+        })
+        return count
+      }
+
+      const checkedOff = existing.filter((row) => row.completed)
+      if (checkedOff.length === 0) return 0
+      const { count } = await tx.campaignTrackerTask.updateMany({
+        where: { id: { in: checkedOff.map((row) => row.id) } },
+        data: { completed: false },
+      })
+      return count
+    })
+  }
+
   // Remove the deterministic outreach (text/robocall) rows. Called from the
   // weekly cron when the candidate has lost their primary: a lost-primary race
   // is over, so the plan's general-election contact schedule no longer applies
@@ -235,9 +305,10 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     campaign: CampaignWith<'user'>,
     mode: 'initial' | 'weekly',
   ): Promise<void> {
-    // Before the missing-params bail-out: the ballot-access rows are ours to
-    // fix regardless of whether this campaign can dispatch a CAP run.
+    // Before the missing-params bail-out: these rows are ours to fix
+    // regardless of whether this campaign can dispatch a CAP run.
     await this.reconcileBallotAccessTasks(campaign)
+    await this.reconcileCampaignStoryTask(campaign)
 
     const raceId = campaign.details?.raceId
     const clerkUserId = campaign.user?.clerkId

@@ -2,21 +2,28 @@ import { describe, expect, it } from 'vitest'
 import { startOfDay, subDays, subWeeks } from 'date-fns'
 import {
   BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_STORY_CATEGORY,
   CAMPAIGN_TASK_CATALOG,
   VOTER_CONTACT_SCHEDULE,
 } from '@goodparty_org/contracts'
 import {
   BALLOT_ACCESS_TASK_TITLES,
   buildBallotAccessTrackerTaskRows,
+  buildCampaignStoryTrackerTaskRows,
   buildOutreachTrackerTaskRows,
   buildStaticTrackerTaskRows,
+  CAMPAIGN_STORY_TASK_TITLES,
   needsBallotAccessTasks,
 } from './staticTrackerTasks.util'
 
 describe('buildStaticTrackerTaskRows', () => {
   const start = startOfDay(new Date('2026-01-01'))
   const election = startOfDay(new Date('2026-11-03'))
-  const staticTasks = CAMPAIGN_TASK_CATALOG.filter((t) => t.type === 'static')
+  // The story row is built separately (dated to today, with a link), so it is
+  // deliberately not part of this builder's output.
+  const staticTasks = CAMPAIGN_TASK_CATALOG.filter(
+    (t) => t.type === 'static' && t.category !== CAMPAIGN_STORY_CATEGORY,
+  )
 
   it('builds one row per static catalog task, marked default', () => {
     const rows = buildStaticTrackerTaskRows(7, start, election, true)
@@ -24,6 +31,13 @@ describe('buildStaticTrackerTaskRows', () => {
     expect(rows.every((r) => r.isDefaultTask === true)).toBe(true)
     expect(rows.every((r) => r.campaignId === 7)).toBe(true)
     expect(rows.every((r) => Boolean(r.phase))).toBe(true)
+  })
+
+  it('never emits the story row', () => {
+    const rows = buildStaticTrackerTaskRows(7, start, election, true)
+    for (const title of CAMPAIGN_STORY_TASK_TITLES) {
+      expect(rows.map((r) => r.title)).not.toContain(title)
+    }
   })
 
   it('dates election-relative tasks off the election date', () => {
@@ -139,5 +153,40 @@ describe('buildOutreachTrackerTaskRows', () => {
 
   it('builds no outreach when there is no election date to anchor to', () => {
     expect(buildOutreachTrackerTaskRows(7, start, null, false)).toEqual([])
+  })
+})
+
+describe('buildCampaignStoryTrackerTaskRows', () => {
+  const today = new Date('2026-06-10T18:30:00Z')
+  const election = startOfDay(new Date('2026-11-03'))
+
+  it('builds the one story row as a default task', () => {
+    const rows = buildCampaignStoryTrackerTaskRows(7, today, election)
+    expect(rows).toHaveLength(CAMPAIGN_STORY_TASK_TITLES.length)
+    expect(rows.every((r) => r.isDefaultTask === true)).toBe(true)
+    expect(rows.every((r) => r.campaignId === 7)).toBe(true)
+  })
+
+  // Today, not the shared upcoming-Monday anchor: the row has to land in the
+  // current week for the week navigator to badge it "Do this next".
+  it('dates the row to today', () => {
+    const rows = buildCampaignStoryTrackerTaskRows(7, today, election)
+    expect(rows[0]?.date).toEqual(startOfDay(today))
+  })
+
+  // Phase 'active' rather than 'preLaunch' so an open row dated today cannot
+  // drag a mid-campaign candidate's rail back to the start.
+  it('sits in the active phase and carries its own link and CTA', () => {
+    const rows = buildCampaignStoryTrackerTaskRows(7, today, election)
+    expect(rows[0]?.phase).toBe('active')
+    expect(rows[0]?.link).toBe('/dashboard?personalize=1')
+    expect(rows[0]?.cta).toBe('Add your story')
+  })
+
+  // flowType drives the voter-contact count modal; the story task is not
+  // outreach, so it must stay null and complete as a plain toggle.
+  it('has no flow type', () => {
+    const rows = buildCampaignStoryTrackerTaskRows(7, today, election)
+    expect(rows[0]?.flowType).toBeNull()
   })
 })

@@ -42,6 +42,26 @@ overview: `docs/features/campaign-tracker-v3.md`.
   (`TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY`), because the plan endpoint is polled
   and the count-check alone isn't atomic, so the eager call and the bootstrap
   call can't double-insert the catalog.
+- **The story task mirrors story state, and is the one row the tracker
+  reasserts.** The catalog's `Campaign story` category
+  (`CAMPAIGN_STORY_CATEGORY` in contracts) holds one `static` task that only
+  exists while the candidate's Campaign Story is unfinished.
+  `reconcileCampaignStoryTask` (same advisory lock as the ballot-access
+  reconcile, called from `dispatchGeneration`) adds it when missing, deletes it
+  once the story is complete, and **reopens it if it was checked off while the
+  story is still unfinished** — the row tracks data, not intent, and a checkbox
+  that disagrees with the card pinned above the rail is worse than one the
+  tracker reasserts. Two non-obvious details: it is built by its own
+  `buildCampaignStoryTrackerTaskRows` (excluded from `buildStaticTrackerTaskRows`)
+  because it is dated to **today** rather than the shared upcoming-Monday
+  anchor and carries `link`/`cta`, which the catalog schema does not model; and
+  its phase is **`active`, not `preLaunch`**, because the webapp reads
+  "happening now" as the first phase whose latest date has arrived and that
+  still has open work — an open pre-launch row dated today drags a candidate
+  weeks from election day back to the start of the rail (there is a test
+  asserting exactly that trap in `buildTrackerStrategy.test.ts`). Dating it
+  into the current week is also what earns it the navigator's "Do this next"
+  badge.
 - **Ballot access is gated on the candidate's ballot stage.** The catalog's
   `Ballot access` category (`BALLOT_ACCESS_CATEGORY` in contracts) is dropped at
   materialization for a candidate who answered onboarding's "Are you already on

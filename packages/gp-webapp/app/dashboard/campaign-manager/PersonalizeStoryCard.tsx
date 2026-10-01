@@ -48,9 +48,13 @@ export default function PersonalizeStoryCard({
   return (
     // onPersonalize opens the manager AND auto-launches the story intake chat
     // flow (see CampaignManagerHome's startStory).
+    // Title and description match the plan page's pinned card and the
+    // tracker's story task, so the three surfaces don't each name this
+    // differently. The CTA label stays as-is: it mirrors the manager's own
+    // "Personalize your campaign" starter chip, which opens the same flow.
     <ManagerPromptCard
-      title="Personalize your campaign messaging"
-      description="Tell me your reasons for running and I can personalize your voter outreach plan to match."
+      title="Tell us why you're running"
+      description="Your plan gets sharper once we know your why, your background, and the issues you care about."
       ctaLabel="Personalize your campaign"
       onCta={onPersonalize}
       onSkip={onSkip}

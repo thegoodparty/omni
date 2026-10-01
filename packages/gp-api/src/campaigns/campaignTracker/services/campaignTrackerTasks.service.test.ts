@@ -7,7 +7,10 @@ import {
   ExperimentRunStatus,
 } from '../../../generated/prisma'
 import { CampaignTrackerTasksService } from './campaignTrackerTasks.service'
-import { BALLOT_ACCESS_TASK_TITLES } from './staticTrackerTasks.util'
+import {
+  BALLOT_ACCESS_TASK_TITLES,
+  CAMPAIGN_STORY_TASK_TITLES,
+} from './staticTrackerTasks.util'
 import { CAMPAIGN_TRACKER_EXPERIMENT_TYPE } from '../campaignTracker.consts'
 import { SlackChannel } from 'src/vendors/slack/slackService.types'
 
@@ -23,6 +26,7 @@ const makeService = () => {
       findMany: vi.fn().mockResolvedValue([]),
       findFirst: vi.fn().mockResolvedValue(null),
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       update: vi.fn().mockResolvedValue({ id: 't1' }),
     },
     campaign: {
@@ -56,16 +60,19 @@ const makeService = () => {
   }
   const s3 = { getFile: vi.fn() }
   const slack = { message: vi.fn().mockResolvedValue('ok') }
+  // Default: story unfinished, which is the state that produces the row.
+  const storyState = { read: vi.fn().mockResolvedValue({ complete: false }) }
   const service = new CampaignTrackerTasksService(
     experimentRuns as never,
     s3 as never,
     slack as never,
+    storyState as never,
   )
   Object.defineProperty(service, '_prisma', { value: prisma })
   Object.assign(service, {
     logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
   })
-  return { service, prisma, experimentRuns, s3, slack }
+  return { service, prisma, experimentRuns, s3, slack, storyState }
 }
 
 const campaign = (over: Record<string, unknown> = {}) =>
@@ -196,6 +203,107 @@ describe('CampaignTrackerTasksService.materializeStaticTasks', () => {
     for (const title of BALLOT_ACCESS_TASK_TITLES) {
       expect(titles).toContain(title)
     }
+  })
+
+  it('includes the story row while the story is unfinished', async () => {
+    await h.service.materializeStaticTasks(campaign())
+    const titles = titlesFromFirstCreateMany()
+    for (const title of CAMPAIGN_STORY_TASK_TITLES) {
+      expect(titles).toContain(title)
+    }
+  })
+
+  it('omits the story row once the story is complete', async () => {
+    h.storyState.read.mockResolvedValue({ complete: true })
+    await h.service.materializeStaticTasks(campaign())
+    const titles = titlesFromFirstCreateMany()
+    for (const title of CAMPAIGN_STORY_TASK_TITLES) {
+      expect(titles).not.toContain(title)
+    }
+  })
+
+  // Dated today, not the shared upcoming-Monday anchor: the row has to land in
+  // the current week for the week navigator to badge it "Do this next".
+  it('dates the story row to today and gives it a link', async () => {
+    await h.service.materializeStaticTasks(campaign())
+    const rows = firstOrThrow(
+      h.prisma.campaignTrackerTask.createMany.mock.calls,
+    )[0].data as { title: string; date: Date; link?: string }[]
+    const story = rows.find((row) =>
+      CAMPAIGN_STORY_TASK_TITLES.includes(row.title),
+    )
+    expect(story?.date).toEqual(startOfDay(new Date()))
+    expect(story?.link).toBe('/dashboard?personalize=1')
+  })
+})
+
+describe('CampaignTrackerTasksService.reconcileCampaignStoryTask', () => {
+  let h: ReturnType<typeof makeService>
+  beforeEach(() => {
+    h = makeService()
+    // Static rows already exist, so the reconcile is past its pre-bootstrap
+    // guard.
+    h.prisma.campaignTrackerTask.count.mockResolvedValue(1)
+  })
+
+  it('does nothing before the static rows exist', async () => {
+    h.prisma.campaignTrackerTask.count.mockResolvedValue(0)
+
+    await h.service.reconcileCampaignStoryTask(campaign())
+
+    expect(h.prisma.campaignTrackerTask.createMany).not.toHaveBeenCalled()
+    expect(h.prisma.campaignTrackerTask.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('deletes the story row once the story is complete', async () => {
+    h.storyState.read.mockResolvedValue({ complete: true })
+
+    await h.service.reconcileCampaignStoryTask(campaign())
+
+    expect(h.prisma.campaignTrackerTask.deleteMany).toHaveBeenCalledWith({
+      where: {
+        campaignId: 42,
+        isDefaultTask: true,
+        title: { in: CAMPAIGN_STORY_TASK_TITLES },
+      },
+    })
+  })
+
+  it('adds the story row when it is missing and the story is unfinished', async () => {
+    h.prisma.campaignTrackerTask.findMany.mockResolvedValue([])
+
+    await h.service.reconcileCampaignStoryTask(campaign())
+
+    const rows = firstOrThrow(
+      h.prisma.campaignTrackerTask.createMany.mock.calls,
+    )[0].data as { title: string }[]
+    expect(rows.map((row) => row.title)).toEqual(CAMPAIGN_STORY_TASK_TITLES)
+  })
+
+  it('leaves an open story row alone', async () => {
+    h.prisma.campaignTrackerTask.findMany.mockResolvedValue([
+      { id: 't1', completed: false },
+    ])
+
+    await h.service.reconcileCampaignStoryTask(campaign())
+
+    expect(h.prisma.campaignTrackerTask.createMany).not.toHaveBeenCalled()
+    expect(h.prisma.campaignTrackerTask.updateMany).not.toHaveBeenCalled()
+  })
+
+  // The row mirrors story data, not intent: checking it off without filling
+  // anything in would otherwise disagree with the card pinned above the rail.
+  it('reopens a story row that was checked off with the story still unfinished', async () => {
+    h.prisma.campaignTrackerTask.findMany.mockResolvedValue([
+      { id: 't1', completed: true },
+    ])
+
+    await h.service.reconcileCampaignStoryTask(campaign())
+
+    expect(h.prisma.campaignTrackerTask.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['t1'] } },
+      data: { completed: false },
+    })
   })
 })
 
