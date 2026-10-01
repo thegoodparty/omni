@@ -24,7 +24,11 @@ import {
 } from './chiefOfStaff.handler'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
-import { CONSTITUENT_TABLES } from './services/constituentDataScope'
+import {
+  CONSTITUENT_CATALOG,
+  CONSTITUENT_SCHEMA,
+  CONSTITUENT_TABLES,
+} from './services/constituentDataScope'
 import { PrioritiesServiceAdapter } from './services/prioritiesService.adapter'
 import { PRIORITIES_PORT } from './services/prioritiesPort'
 import { CommunityIssueReadAdapter } from './services/communityIssueRead.adapter'
@@ -45,8 +49,8 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
   if (!conn) return null
   return new DatabricksSqlProvider({
     ...conn,
-    catalog: 'goodparty_data_catalog',
-    schema: 'mart_serve_agents',
+    catalog: CONSTITUENT_CATALOG,
+    schema: CONSTITUENT_SCHEMA,
   })
 }
 

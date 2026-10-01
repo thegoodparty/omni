@@ -199,7 +199,7 @@ const withToolPartsAsText = (messages: ModelMessage[]): ModelMessage[] =>
 // the model why its tools are gone, and end the prompt on a user turn —
 // the rewrite can leave an assistant message last, which Anthropic would
 // treat as a prefill to continue rather than a turn to answer.
-const toolBudgetExhaustedNote: ModelMessage = {
+export const toolBudgetExhaustedNote: ModelMessage = {
   role: 'user',
   content:
     'Tools are no longer available for this turn. If the information ' +

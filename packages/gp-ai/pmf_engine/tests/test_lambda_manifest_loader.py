@@ -14,6 +14,8 @@ import pytest
 from botocore.exceptions import ClientError
 
 from pmf_engine.control_plane.manifest_loader import (
+    MAX_JUDGE_OVERRIDE_INSTRUCTION_BYTES,
+    MAX_JUDGE_OVERRIDE_MANIFEST_BYTES,
     ManifestLoaderError,
     ManifestLoaderMalformedError,
     ManifestLoaderTransientError,
@@ -68,8 +70,22 @@ class FakeS3:
 
     # ---------- setup helpers ----------
 
-    def set_object(self, bucket: str, key: str, body: bytes, version_id: str | None = "v1") -> None:
-        self.objects[(bucket, key)] = {"body": body, "version_id": version_id, "error": None}
+    def set_object(
+        self,
+        bucket: str,
+        key: str,
+        body: bytes,
+        version_id: str | None = "v1",
+        content_length: int | None = None,
+    ) -> None:
+        # `content_length` overrides the declared size independently of the
+        # body, so a test can model S3 declaring one size and serving another.
+        self.objects[(bucket, key)] = {
+            "body": body,
+            "version_id": version_id,
+            "error": None,
+            "content_length": content_length,
+        }
 
     def set_json(self, bucket: str, key: str, payload: dict, version_id: str | None = "v1") -> None:
         self.set_object(bucket, key, json.dumps(payload).encode(), version_id=version_id)
@@ -103,15 +119,17 @@ class FakeS3:
         if entry.get("error"):
             raise entry["error"]
         body = entry["body"]
+        declared = entry.get("content_length")
         return {
             "Body": BytesIO(body),
             "VersionId": entry["version_id"],
-            "ContentLength": len(body),
+            "ContentLength": len(body) if declared is None else declared,
         }
 
     def head_object(self, *, Bucket, Key, **_kw):
         self.calls.append(("head_object", Bucket, Key))
         entry = self.objects.get((Bucket, Key))
+        # (declared ContentLength is honored below, same as get_object)
         if entry is None:
             # boto3 head_object returns code "404" (HTTP status) on missing
             # keys, NOT "NoSuchKey" (which only appears in get_object's parsed
@@ -126,9 +144,12 @@ class FakeS3:
             )
         if entry.get("error"):
             raise entry["error"]
+        declared = entry.get("content_length")
+        if declared is None:
+            declared = len(entry["body"]) if entry["body"] is not None else 0
         return {
             "VersionId": entry["version_id"],
-            "ContentLength": len(entry["body"]) if entry["body"] is not None else 0,
+            "ContentLength": declared,
         }
 
     # ---------- inspection helpers ----------
@@ -1171,3 +1192,172 @@ class TestRuntimeFieldValidation:
         )
         routing = self._publish(manifest).routing_for("fanout_smoke_test")
         assert routing["model"] == "sonnet"
+
+
+class TestFetchJudgeOverride:
+    """`fetch_judge_override` is I/O + version pinning only. The behavior
+    allowlist that keeps a judge run from widening its own scope lives in
+    dispatch_handler; see tests/test_judge_override.py."""
+
+    # A schema the Fargate runner actually accepts (`type: object` WITH a
+    # properties dict). `{"type": "object"}` alone would be a misleading
+    # fixture: the loader does no policy, so it would pass here and be
+    # refused by dispatch and by the runner.
+    OVERRIDE = {
+        "model": "opus",
+        "max_turns": 42,
+        "output_schema": {"type": "object", "properties": {"headline": {"type": "string"}}},
+    }
+    MANIFEST_KEY = "_judge/smoke_test/a1b2c3/manifest.json"
+    INSTRUCTION_KEY = "_judge/smoke_test/a1b2c3/instruction.md"
+
+    def _loader(self, s3: FakeS3) -> ManifestRoutingLoader:
+        return ManifestRoutingLoader(bucket=BUCKET, s3_client=s3, ttl_seconds=60.0)
+
+    def _staged(self) -> tuple[FakeS3, ManifestRoutingLoader]:
+        s3 = FakeS3()
+        s3.set_json(BUCKET, self.MANIFEST_KEY, self.OVERRIDE, version_id="override-m-1")
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n", version_id="override-i-1")
+        return s3, self._loader(s3)
+
+    def test_returns_manifest_and_both_version_pins(self):
+        _s3, loader = self._staged()
+
+        manifest, manifest_vid, instruction_vid = loader.fetch_judge_override(
+            manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY
+        )
+
+        assert manifest == self.OVERRIDE
+        assert manifest_vid == "override-m-1"
+        assert instruction_vid == "override-i-1"
+
+    def test_reads_no_index_and_no_published_experiment(self):
+        """The whole point of the content-addressed folder: nothing touches
+        index.json, so a sweep cannot race a publish or another sweep."""
+        s3, loader = self._staged()
+
+        loader.fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+        touched = {key for _op, _bucket, key in s3.calls}
+        assert touched == {self.MANIFEST_KEY, self.INSTRUCTION_KEY}
+
+    def test_is_not_cached(self):
+        """Content-addressed keys have nothing to invalidate, and a stale
+        warm-Lambda entry would be unfixable."""
+        s3, loader = self._staged()
+
+        loader.fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+        loader.fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+        assert len([c for c in s3.calls if c[0] == "get_object"]) == 2
+
+    @pytest.mark.parametrize(
+        "manifest_key",
+        [
+            "_judge/../compliance_setup/manifest.json",
+            "_judge/smoke_test/a1b2c3/../../compliance_setup/manifest.json",
+            "/_judge/smoke_test/a1b2c3/manifest.json",
+            "smoke_test/manifest.json",
+            "_judge/smoke_test/a1b2c3/instruction.md",
+        ],
+    )
+    def test_refuses_a_non_canonical_key_before_any_s3_call(self, manifest_key):
+        s3, loader = self._staged()
+
+        with pytest.raises(ValueError, match="manifest_key"):
+            loader.fetch_judge_override(manifest_key=manifest_key, instruction_key=self.INSTRUCTION_KEY)
+
+        assert s3.calls == []
+
+    def test_missing_manifest_is_malformed(self):
+        s3 = FakeS3()
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n")
+
+        with pytest.raises(ManifestLoaderMalformedError):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_missing_instruction_is_malformed(self):
+        """Unlike the published path, which proceeds unpinned: an override
+        folder missing half its bytes is a staging bug with no fallback."""
+        s3 = FakeS3()
+        s3.set_json(BUCKET, self.MANIFEST_KEY, self.OVERRIDE)
+
+        with pytest.raises(ManifestLoaderMalformedError, match="instruction missing"):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_access_denied_on_instruction_is_transient(self):
+        s3 = FakeS3()
+        s3.set_json(BUCKET, self.MANIFEST_KEY, self.OVERRIDE)
+        s3.set_error(BUCKET, self.INSTRUCTION_KEY, "AccessDenied", op="HeadObject")
+
+        with pytest.raises(ManifestLoaderTransientError):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_corrupt_manifest_json_is_malformed(self):
+        s3 = FakeS3()
+        s3.set_object(BUCKET, self.MANIFEST_KEY, b"{not json")
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n")
+
+        with pytest.raises(ManifestLoaderMalformedError, match="not valid JSON"):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_non_object_manifest_is_malformed(self):
+        s3 = FakeS3()
+        s3.set_object(BUCKET, self.MANIFEST_KEY, b'["model"]')
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n")
+
+        with pytest.raises(ManifestLoaderMalformedError, match="must be a JSON object"):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_refuses_an_oversize_manifest_without_reading_it(self):
+        """`_judge/*` is the one prefix the publish pipeline does not produce,
+        so nothing upstream bounds the object's size. An unbounded read OOMs
+        the Lambda, and an OOM returns no `batchItemFailures` — every OTHER
+        record in the SQS batch is silently lost, not just the judge one."""
+        s3 = FakeS3()
+        s3.set_object(BUCKET, self.MANIFEST_KEY, b"{}", content_length=MAX_JUDGE_OVERRIDE_MANIFEST_BYTES + 1)
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n")
+
+        with pytest.raises(ManifestLoaderMalformedError, match="exceeds size cap"):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_refuses_an_oversize_manifest_whose_content_length_lied(self):
+        s3 = FakeS3()
+        s3.set_object(
+            BUCKET,
+            self.MANIFEST_KEY,
+            b"x" * (MAX_JUDGE_OVERRIDE_MANIFEST_BYTES + 10),
+            content_length=12,
+        )
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n")
+
+        with pytest.raises(ManifestLoaderMalformedError, match="exceeds size cap"):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_refuses_an_oversize_instruction_on_its_head(self):
+        """Its bytes are never read here — only the VersionId is needed — but
+        the BROKER will read it, and the broker is a shared service. Failing
+        the sweep at dispatch beats 502ing it mid-run."""
+        s3 = FakeS3()
+        s3.set_json(BUCKET, self.MANIFEST_KEY, self.OVERRIDE)
+        s3.set_object(
+            BUCKET,
+            self.INSTRUCTION_KEY,
+            b"# candidate\n",
+            content_length=MAX_JUDGE_OVERRIDE_INSTRUCTION_BYTES + 1,
+        )
+
+        with pytest.raises(ManifestLoaderMalformedError, match="instruction exceeds size cap"):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_unversioned_bucket_yields_no_pins(self):
+        s3 = FakeS3()
+        s3.set_json(BUCKET, self.MANIFEST_KEY, self.OVERRIDE, version_id=None)
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n", version_id=None)
+
+        _manifest, manifest_vid, instruction_vid = self._loader(s3).fetch_judge_override(
+            manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY
+        )
+
+        assert manifest_vid is None
+        assert instruction_vid is None

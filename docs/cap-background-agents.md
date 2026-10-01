@@ -87,6 +87,40 @@ The dispatch message (what gp-api actually sends today):
 > does send. There is no top-level `prior_artifact_versions` or `input_files` field on
 > the gp-api side — uploads ride inside `params._input_files`.
 
+One optional top-level field gp-api never sends: `_judge_override`, for the Universal
+Judge. A judge sweep dispatches straight to this queue, bypassing gp-api, and may name
+a `_judge/<agentId>/<configDigest>/` key pair whose `manifest.json` + `instruction.md`
+the run executes in place of the published `<experiment_type>/*` pair:
+
+```js
+{
+  // ...the fields above, plus:
+  run_id, // MUST be prefixed `_judge-` when `_judge_override` is present
+  _judge_override: { manifest_key, instruction_key },
+}
+```
+
+Honored in `dev` only (at the broker as well as at dispatch), never for a write-action
+experiment. A judge run can change what the agent is **told** to do, never what it is
+**allowed** to touch: the scope ticket, ECS routing and `input_schema` still come from
+the published manifest, and the override manifest may set only `model`, `max_turns`,
+`timeout_seconds`, `output_schema` and `runtime` — anything else, `scope` above all, is
+refused loudly. Both objects' S3 VersionIds are pinned at dispatch and ride the scope
+ticket, so the broker serves exactly the bytes dispatch vetted.
+
+The run id is the other half of the contract, and it is what gates the run — not the
+presence of `_judge_override`, because a sweep's base arm carries a judge run id and no
+override. `_judge-` marks a run as having no gp-api `experiment_run` row: the mint sets
+`is_eval` (so the broker suppresses the results callback *and* leaves the org's
+`latest.json` pointer alone), the scheduler drops its `started`/`failed` callbacks, the
+task reaper skips the reconciling callback for a dead task, and `send_error_callback` suppresses every
+dispatch-side rejection callback, sending the message to the DLQ instead. Any run id
+carrying the prefix is also refused outside `dev`, refused for a write-action
+experiment, and required to match `^_judge-[A-Za-z0-9_-]{1,29}$` — ECS caps `startedBy`
+at 36 characters and dispatch passes the run id through verbatim, so use `judgeRunId()`
+from `@goodparty_org/contracts`. Detail in
+`packages/gp-ai/pmf_engine/control_plane/README.md`.
+
 `dispatchRun` is generic over `keyof AgentJobContracts`, and `params` is typed
 against `src/generated/agent-job-contracts.ts` — **generated from the per-experiment
 `manifest.json` files** in the `agent-experiment-metadata-dev` S3 bucket via
@@ -234,7 +268,12 @@ CloudWatch metric namespace is literally `PMFEngine`.
 - **`task_reaper`** — EventBridge target for ECS Task-State-Change (STOPPED). If a
   task stops with a **non-zero exit code** (OOM/eviction/failed-to-start) the runner
   never published a result, so the reaper sends a `failed` callback. A clean exit is
-  left alone — the runner reported its own result.
+  left alone — the runner reported its own result. For a run id prefixed `_judge-`
+  the **callback** is skipped (no gp-api row to reconcile) but the diagnosis is not:
+  the stop is logged with its exit code and stopCode like any other. The reaper
+  cannot stop a *live* task for anyone — it fires on `lastStatus=STOPPED` and holds
+  `sqs:SendMessage` and nothing else. A runaway task is bounded by the runner's own
+  `timeout_seconds`, which is the same for judge and product runs.
 
 **Why the cap is exact:** exactly one scheduler runs at a time and is the sole
 RunTask caller, counting `desiredStatus=RUNNING` tasks against the SSM cap each tick.

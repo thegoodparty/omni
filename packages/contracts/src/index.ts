@@ -627,6 +627,15 @@ export {
   AgentRunDetailSchema,
   type AgentRunDetail,
 } from './agentRuns/AgentRun.schema'
+export {
+  JUDGE_KEY_PREFIX,
+  JUDGE_RUN_ID_MAX_LENGTH,
+  JUDGE_RUN_ID_PREFIX,
+  JudgeOverrideSchema,
+  judgeOverrideKeys,
+  judgeRunId,
+} from './agentRuns/JudgeOverride.schema'
+export type { JudgeOverride } from './agentRuns/JudgeOverride.schema'
 
 export {
   BRIEFING_DATE_RANGE_VALUES,
