@@ -17,6 +17,13 @@ class ResizeObserverMock {
 globalThis.ResizeObserver =
   ResizeObserverMock as unknown as typeof ResizeObserver
 
+// Radix Select needs the pointer-capture APIs jsdom lacks (same stubs as
+// CampaignForm.test.tsx) or the dropdown never opens.
+Element.prototype.hasPointerCapture = vi.fn(() => false)
+Element.prototype.setPointerCapture = vi.fn()
+Element.prototype.releasePointerCapture = vi.fn()
+HTMLElement.prototype.scrollIntoView = vi.fn()
+
 const mockHas = vi.fn()
 const mockUseAuth = vi.fn()
 
@@ -219,6 +226,57 @@ describe('TenDlcStatusPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(screen.getByText('other-camp')).toBeInTheDocument()
+  })
+
+  it('filters rows by assignee, including Unassigned, and clears', async () => {
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        rejected: [
+          entry({
+            campaignId: 1,
+            campaignSlug: 'janes-camp',
+            assignedPa: 'Jane Smith',
+          }),
+          entry({
+            campaignId: 2,
+            campaignSlug: 'bobs-camp',
+            assignedPa: 'Bob Ross',
+          }),
+        ],
+        awaitingPin: [entry({ campaignId: 3, campaignSlug: 'orphan-camp' })],
+      })
+    )
+
+    renderPage()
+    await screen.findByText('janes-camp')
+
+    await userEvent.click(
+      screen.getByRole('combobox', { name: 'Assignee filter' })
+    )
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'Jane Smith' })
+    )
+
+    expect(screen.getByText('janes-camp')).toBeInTheDocument()
+    expect(screen.queryByText('bobs-camp')).not.toBeInTheDocument()
+    expect(screen.queryByText('orphan-camp')).not.toBeInTheDocument()
+    expect(screen.getByText('Showing 1 of 3 registrations')).toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('combobox', { name: 'Assignee filter' })
+    )
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'Unassigned' })
+    )
+
+    expect(screen.getByText('orphan-camp')).toBeInTheDocument()
+    expect(screen.queryByText('janes-camp')).not.toBeInTheDocument()
+    expect(screen.getByText('Showing 1 of 3 registrations')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(screen.getByText('janes-camp')).toBeInTheDocument()
+    expect(screen.getByText('bobs-camp')).toBeInTheDocument()
+    expect(screen.getByText('orphan-camp')).toBeInTheDocument()
   })
 
   it('surfaces a load failure instead of rendering an empty page', async () => {
