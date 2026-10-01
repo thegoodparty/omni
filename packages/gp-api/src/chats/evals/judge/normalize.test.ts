@@ -21,6 +21,7 @@ import {
   withSwappedSlots,
   type JudgePayload,
   type NormalizedCase,
+  type NormalizeOptions,
 } from './normalize'
 import type { RunRecord } from './record'
 
@@ -721,5 +722,129 @@ describe('an arm whose checkout did not know a case field', () => {
     expect(blinded.payload.sharedInput).toContain(
       'Condition: account state pro=false.',
     )
+  })
+})
+
+// THE REFUSALS ARE A MONEY GUARD, NOT A SECOND OPINION. `auto` picking an
+// agent up because a README in its directory moved is the accidental spend
+// they exist to stop. A request that names its agents is the opposite of that,
+// and the digest — the rendered prompt plus the tool names — cannot see a
+// model swap, a provider swap, a sampling change or a rewritten tool body at
+// all, which are among the likeliest reasons to ask for a comparison in the
+// first place.
+describe('an explicitly named selection is judged rather than refused', () => {
+  const EXPLICIT: NormalizeOptions = { explicitSelection: true }
+
+  it('blinds a pair whose two arms hashed alike', () => {
+    const [base, candidate] = IDENTICAL_DIGEST_PAIR
+    const result = blindCase(
+      base,
+      candidate,
+      ALWAYS_X_IS_BASE,
+      DEFAULT_JUDGE_CONFIG,
+      EXPLICIT,
+    )
+    expect(result.caseId).toBe('cos-noop')
+    // A real pair, not an empty shell: the two arms' answers reached the
+    // payload and are still distinguishable from each other.
+    expect(result.payload.runs[0].finalOutput).not.toBe(
+      result.payload.runs[1].finalOutput,
+    )
+  })
+
+  it('normalizes the whole agent and names what matched', () => {
+    const result = normalizeAgent(
+      IDENTICAL_DIGEST_PAIR,
+      ALWAYS_X_IS_BASE,
+      DEFAULT_JUDGE_CONFIG,
+      EXPLICIT,
+    )
+    expect(result.judgeable.map((c) => c.caseId)).toEqual(['cos-noop'])
+    expect(result.excluded).toEqual([])
+    expect(result.identicalConfig).toEqual({
+      caseIds: ['cos-noop'],
+      digestSetsMatch: true,
+    })
+  })
+
+  // The digest is derived per case, so one pair hashing alike among pairs that
+  // did not is a far narrower claim than a whole agent hashing alike. The
+  // report says those two differently, so the notice has to tell them apart.
+  it('distinguishes one matching case from a matching agent', () => {
+    const result = normalizeAgent(
+      [...CHAT_PAIR, ...IDENTICAL_DIGEST_PAIR],
+      ALWAYS_X_IS_BASE,
+      DEFAULT_JUDGE_CONFIG,
+      EXPLICIT,
+    )
+    expect(result.judgeable.map((c) => c.caseId).sort()).toEqual([
+      'cos-noop',
+      'cos-priorities',
+    ])
+    expect(result.identicalConfig).toEqual({
+      caseIds: ['cos-noop'],
+      digestSetsMatch: false,
+    })
+  })
+
+  // A pair that hashed alike and was excluded anyway was never judged, so
+  // naming it as judged would have the qualifier claim a verdict that does not
+  // exist. The agent-level fact still has to be reported.
+  it('does not name an excluded pair among the judged ones', () => {
+    const broken = IDENTICAL_DIGEST_PAIR.map((record) => ({
+      ...record,
+      telemetry: { ...record.telemetry, toolErrors: 1 },
+    }))
+    const result = normalizeAgent(
+      broken,
+      ALWAYS_X_IS_BASE,
+      DEFAULT_JUDGE_CONFIG,
+      EXPLICIT,
+    )
+    expect(result.judgeable).toEqual([])
+    expect(result.identicalConfig).toEqual({
+      caseIds: [],
+      digestSetsMatch: true,
+    })
+  })
+
+  // Nothing matched, so there is nothing to qualify. This is the property that
+  // keeps the report silent on every ordinary sweep.
+  it('reports no notice when the digests genuinely differ', () => {
+    expect(
+      normalizeAgent(
+        CHAT_PAIR,
+        ALWAYS_X_IS_BASE,
+        DEFAULT_JUDGE_CONFIG,
+        EXPLICIT,
+      ).identicalConfig,
+    ).toBeNull()
+  })
+
+  // The guard is the default, so a caller that says nothing — and `auto`,
+  // which says so — still gets the refusal. Both spellings, because the whole
+  // point is that the opt-in has to be asked for by name.
+  it.each([
+    ['nothing at all', undefined],
+    ['an explicitly derived selection', { explicitSelection: false }],
+  ] as const)('still refuses on %s', (_label, options) => {
+    expect(() =>
+      normalizeAgent(
+        IDENTICAL_DIGEST_PAIR,
+        ALWAYS_X_IS_BASE,
+        DEFAULT_JUDGE_CONFIG,
+        options,
+      ),
+    ).toThrow(IdenticalConfigError)
+    const [base, candidate] = IDENTICAL_DIGEST_PAIR
+    expect(() =>
+      blindCase(
+        base,
+        candidate,
+        ALWAYS_X_IS_BASE,
+        DEFAULT_JUDGE_CONFIG,
+        options,
+      ),
+    ).toThrow(IdenticalConfigError)
   })
 })

@@ -145,6 +145,13 @@ jobs:
       # agent it cannot price is an agent with nothing to compare. Empty means
       # "nothing to judge", and `sweep` is gated on it being non-empty.
       agents: ${{ steps.estimate.outputs.sweep_agents }}
+      # `explicit` when a person named the agents, `auto` when the diff
+      # derived them. The word the three judge processes read as
+      # JUDGE_SELECTION, and the one thing that decides whether the
+      # identical-config and identical-output refusals are armed — so it is
+      # resolved in the `select` step, where the distinction exists, rather
+      # than re-derived from `inputs.agents` in three more places.
+      selection: ${{ steps.select.outputs.selection }}
       candidate_sha: ${{ steps.gate.outputs.candidate_sha }}
       base_ref: ${{ steps.gate.outputs.base_ref }}
       estimate_usd: ${{ steps.estimate.outputs.usd }}
@@ -426,8 +433,22 @@ jobs:
             refuse "The agent selector in this request is not something the judge can read. It has to be one agent id, a comma-separated list of ids, \`all\`, or \`auto\` — agent ids are lowercase snake_case. Fix the selector and ask again. The value is deliberately not repeated here; the log has it."
           fi
 
+          # EVERY BRANCH BELOW PUBLISHES `selection`, and the two words are
+          # the ones sweepEnv.ts parses.
+          #
+          # `all` COUNTS AS EXPLICIT, alongside a list of ids, and that is the
+          # arguable one. It is this file's own "rare, expensive exception for
+          # a change to shared code" (see the input's description), and a
+          # change to the model, the provider or the sampling settings IS a
+          # change to shared code — which is exactly the change the digest
+          # cannot see. Classing `all` as derived would therefore refuse the
+          # case the override exists for. It stays the loudest row in the
+          # price comment instead, which is the guard it has always had.
           if [ "$REQUESTED" != "auto" ]; then
-            echo "agents=$REQUESTED" >> "$GITHUB_OUTPUT"
+            {
+              echo "agents=$REQUESTED"
+              echo "selection=explicit"
+            } >> "$GITHUB_OUTPUT"
             echo "selection: $REQUESTED (as asked for)"
             exit 0
           fi
@@ -484,7 +505,10 @@ jobs:
 
           if [ -z "$touched" ]; then
             echo "::notice::auto selection matched no agent; nothing to judge"
-            echo "agents=" >> "$GITHUB_OUTPUT"
+            {
+              echo "agents="
+              echo "selection=auto"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -500,7 +524,10 @@ jobs:
             refuse "\`auto\` derived an agent id from this branch's diff that is not lowercase snake_case, so the judge will not pass it on. Look for a directory this PR adds under \`packages/runbooks/experiments\` whose name is not a valid agent id, and rename it. The derived value is deliberately not repeated — not here and not in the log — because a name able to break out of a code span is the reason it was rejected in the first place."
           fi
 
-          echo "agents=$touched" >> "$GITHUB_OUTPUT"
+          {
+            echo "agents=$touched"
+            echo "selection=auto"
+          } >> "$GITHUB_OUTPUT"
           echo "selection: $touched (auto, from the diff against $BASE_REF)"
 
       # The judge CLI lands separately, in the wave-0 PR (#2198), and this
@@ -671,6 +698,7 @@ jobs:
         env:
           AGENTS: ${{ steps.select.outputs.agents }}
           REQUESTED: ${{ inputs.agents }}
+          SELECTION: ${{ steps.select.outputs.selection }}
           LIVE: ${{ inputs.live }}
           SWEEP_CAPABLE: ${{ steps.cli.outputs.sweep_capable }}
           REQUESTED_BY: ${{ inputs.requested_by }}
@@ -996,6 +1024,19 @@ jobs:
             # name two different sets in two summaries of one run.
             if [ "$sweep_agents" != "$AGENTS" ]; then
               echo "| to sweep | \`${sweep_agents:-nothing}\` |"
+            fi
+            # WHETHER THE SAMENESS GUARDS ARE ARMED, next to the price,
+            # because they are the difference between this sweep producing a
+            # verdict and refusing to. A request that names its agents is
+            # judged even when both arms hash alike — which is what a
+            # model-only or tool-implementation change looks like — and the
+            # report carries a qualifier saying so. `auto` refuses that
+            # instead, since there nobody asked for the spend. Two literals,
+            # so nothing from outside reaches this row.
+            if [ "$SELECTION" = "explicit" ]; then
+              echo "| selection | named in the request, so two arms that hash alike are judged and qualified rather than refused |"
+            else
+              echo "| selection | \`auto\`, from the diff, so two arms that hash alike are refused |"
             fi
             echo "| candidate | \`$CANDIDATE_SHA\` |"
             echo "| base | \`$BASE_REF\` |"
@@ -1501,6 +1542,15 @@ jobs:
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          # WHO ASKED FOR THESE AGENTS, and therefore whether the sameness
+          # refusals are armed. `explicit` when the request named them,
+          # `auto` when the diff derived them; resolved once in the plan
+          # job's `select` step, because the distinction exists only there.
+          # All three judge processes read it, the same way they all read
+          # JUDGE_SPEND — the arms parse it through the shared schema and the
+          # judging step is what acts on it, so a step that disagreed would
+          # be a quiet source of a verdict nobody can place.
+          JUDGE_SELECTION: ${{ needs.plan.outputs.selection }}
           # THE SAME VALUE ON BOTH ARMS, from the one step that resolved it.
           # Read from a step output rather than resolved here: two arms that
           # each looked up "current" would be two lookups an hour apart, and
@@ -1543,6 +1593,8 @@ jobs:
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          # Who asked for these agents — see the base arm above.
+          JUDGE_SELECTION: ${{ needs.plan.outputs.selection }}
           # The same step output the base arm read, and it HAS to be the same
           # expression: two arms on different versions is worse than two arms
           # on none, because each would report a pin nothing held.
@@ -1575,6 +1627,9 @@ jobs:
           JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
           JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
+          # Who asked for these agents, and THE STEP THAT ACTS ON IT: the arms
+          # only parse it. See the base arm above.
+          JUDGE_SELECTION: ${{ needs.plan.outputs.selection }}
           # THIS STEP SPENDS TOO — one panel call per judgeable pair, per
           # seat — so it needs the switch the arms needed. Omitting it here
           # does not make the sweep free: both captures have already been

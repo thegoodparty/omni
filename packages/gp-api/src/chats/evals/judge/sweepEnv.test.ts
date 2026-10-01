@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EXPLICIT_SELECTION,
+  SELECTION_ENV,
   SweepEnvError,
   parseArmEnv,
   parseSweepEnv,
@@ -161,6 +163,33 @@ describe('parseArmEnv', () => {
     ).toBeUndefined()
   })
 
+  // WHO ASKED FOR THESE AGENTS, which is what decides whether the sameness
+  // refusals are armed. Pinned to the one word rather than to anything truthy,
+  // for the reason the spend switch is: the cost of reading `auto` as
+  // `explicit` is a verdict about two things nothing proved were different.
+  it('reads a named selection as explicit', () => {
+    expect(
+      parseArmEnv(armEnv({ [SELECTION_ENV]: EXPLICIT_SELECTION }))
+        .explicitSelection,
+    ).toBe(true)
+  })
+
+  // AND A BLANK VALUE MUST NOT REFUSE THE ARM. Same shape as the Delta
+  // version above and for the same reason: Actions exports every `env:` entry
+  // a job declares, including one built from a step output that wrote nothing,
+  // so this arrives as an empty string rather than as an absent variable.
+  // `NON_EMPTY.optional()` here would kill a paid capture over it.
+  it.each([undefined, '', '   ', 'auto', 'EXPLICIT', 'true', 'yes'])(
+    'leaves the refusals armed on JUDGE_SELECTION=%o',
+    (value) => {
+      expect(
+        parseArmEnv(
+          armEnv(value === undefined ? {} : { [SELECTION_ENV]: value }),
+        ).explicitSelection,
+      ).toBe(false)
+    },
+  )
+
   // The fixture identifiers a background case's `{judge…}` tokens are
   // substituted with. Same thread as the Delta version, keyed off the same
   // constant the exporting half builds from, so a rename cannot leave an arm
@@ -286,6 +315,24 @@ describe('parseSweepEnv', () => {
     })
     expect(env.sweepId).toBe('swp_1')
     expect(env.agentIds).toEqual(['chief_of_staff'])
+  })
+
+  // THE ENTRY THAT ACTS ON IT. The arms parse the same value through the
+  // shared schema, but it is this step that turns a refusal into a qualifier,
+  // so a parser that carried it only to the arms would carry it nowhere.
+  it.each([
+    [EXPLICIT_SELECTION, true],
+    ['auto', false],
+    ['', false],
+  ] as const)('carries JUDGE_SELECTION=%o as %o', (value, expected) => {
+    expect(
+      parseSweepEnv({
+        JUDGE_SWEEP_ID: 'swp_1',
+        JUDGE_AGENTS: 'chief_of_staff',
+        JUDGE_RECORDS_DIR: '/tmp/judge',
+        [SELECTION_ENV]: value,
+      }).explicitSelection,
+    ).toBe(expected)
   })
 
   it('names what is missing for the judging entry', () => {

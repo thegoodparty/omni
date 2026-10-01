@@ -19,12 +19,14 @@ import {
   IdenticalConfigError,
   MismatchedInputError,
   normalizeAgent,
+  type NormalizeOptions,
 } from './normalize'
 import type { RunRecord } from './record'
 import { RecordStoreError, type ArmManifest, type RecordStore } from './records'
 import {
   renderReport,
   unpinnedMartReads,
+  type AgentIdenticalConfig,
   type Refusal,
   type SeededTranscripts,
   type SweepReport,
@@ -170,6 +172,19 @@ export const judgeSweep = async (
   const placeholderCases: string[] = []
   const seededTranscripts: SeededTranscripts[] = []
   const identical: IdenticalOutputs[] = []
+  const identicalConfigs: AgentIdenticalConfig[] = []
+  const identicalOutputsReported: string[] = []
+
+  // A REQUEST THAT NAMED ITS AGENTS DISARMS BOTH SAMENESS REFUSALS. Not the
+  // other guards: a missing manifest, one arm's records, a spend switch the
+  // arms disagree with are all still fatal, because none of them is a verdict
+  // anybody could read. These two are — an explicit model swap hashes
+  // identically by construction, and an inert change really does produce the
+  // same bytes — so they are reported with a qualifier that says what the
+  // verdict can and cannot mean. See NormalizeOptions and report.ts.
+  const options: NormalizeOptions = {
+    explicitSelection: env.explicitSelection,
+  }
 
   for (const agentId of env.agentIds) {
     const forAgent = records.filter((r) => r.agentId === agentId)
@@ -206,11 +221,14 @@ export const judgeSweep = async (
     }
 
     try {
-      // Refuses two arms that hashed to the same config, which is the one
-      // refusal that has to happen: the agent saw no difference, so there is
+      // Refuses two arms that hashed to the same config unless the request
+      // named them: on `auto` the agent saw no difference, so there is
       // nothing to compare and a sweep would have spent money proving two
       // identical things identical.
-      const normalized = normalizeAgent(forAgent, rng, config)
+      const normalized = normalizeAgent(forAgent, rng, config, options)
+      if (normalized.identicalConfig !== null) {
+        identicalConfigs.push({ agentId, ...normalized.identicalConfig })
+      }
 
       // Before any judge call, because a sweep whose arms produced the same
       // bytes has nothing for a judge to read and the calls would be paid
@@ -218,8 +236,11 @@ export const judgeSweep = async (
       const sameness = identicalOutputs(agentId, normalized.judgeable)
       identical.push(sameness)
       if (sameness.allIdentical && config.gates.failOnAllIdenticalOutputs) {
-        refusals.push({ agentId, reason: allIdenticalReason(sameness) })
-        continue
+        if (!env.explicitSelection) {
+          refusals.push({ agentId, reason: allIdenticalReason(sameness) })
+          continue
+        }
+        identicalOutputsReported.push(agentId)
       }
 
       const judgments = await judgeAll(deps.llm, normalized.judgeable, config)
@@ -252,6 +273,10 @@ export const judgeSweep = async (
     // evidence beside a verdict and it is the number that makes a dropped
     // candidate obvious.
     ...(identical.length > 0 && { identicalOutputs: identical }),
+    // Both absent unless something matched AND the selection was explicit, so
+    // the ordinary sweep's report carries neither qualifier.
+    ...(identicalConfigs.length > 0 && { identicalConfigs }),
+    ...(identicalOutputsReported.length > 0 && { identicalOutputsReported }),
     // Over EVERY record, not only the judgeable pairs. A run that was
     // excluded still read the live mart, and the point of the warning is to
     // say which reads the missing pin was free to move.
@@ -265,6 +290,13 @@ export const judgeSweep = async (
     // the refusals say. A sweep with some verdicts and some refusals did:
     // the refusals are in the report and one agent's gap does not invalidate
     // another's comparison.
+    //
+    // A QUALIFIED VERDICT IS STILL A VERDICT, so an explicit sweep whose arms
+    // hashed alike, or whose every pair matched, ends green where it used to
+    // end red. That is the change, not an oversight: exiting non-zero on a
+    // verdict this report carries and explains would make "report rather than
+    // refuse" a distinction with no difference, and this exit code means "the
+    // sweep could not do what it was asked", never "the answer was SAME".
     exitCode: scores.length === 0 ? 1 : 0,
   }
 }

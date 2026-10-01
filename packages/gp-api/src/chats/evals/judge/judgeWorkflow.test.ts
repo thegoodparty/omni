@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
 // The sweep's three processes each read their spend switch from their own
 // workflow step, so the steps can disagree — and the first version of this
@@ -199,5 +200,74 @@ describe('judge.yml pins both arms to one voter-mart version', () => {
     // connect, so a `$(npx tsx ...)` here reads driver chatter as the version.
     expect(resolver?.body).toContain('version="$(cat "$out")"')
     expect(resolver?.body).not.toMatch(/^\s*exit 1$/m)
+  })
+})
+
+// WHETHER THE SAMENESS REFUSALS ARE ARMED travels the same road the spend
+// switch does, and can go wrong the same way: three processes each reading
+// their own step's `env:`. A judging step left without it would refuse a
+// comparison the requester asked for by name; an arm without it is harmless
+// today and is one future change away from not being, so all three are pinned
+// to the ONE plan-job output rather than to three expressions that agree by
+// coincidence.
+describe('judge.yml tells every judge process who asked', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const spending = steps.filter((step) =>
+    SPENDING_COMMANDS.some((command) => step.body.includes(command)),
+  )
+
+  it('finds the three steps to check', () => {
+    // Guards the scan: a moved file or a changed indent would make every
+    // assertion below vacuously true.
+    expect(spending).toHaveLength(3)
+  })
+
+  it('sets JUDGE_SELECTION on all three, from one expression', () => {
+    const values = spending.map((step) => ({
+      name: step.name,
+      value: envValue(step.body, SELECTION_ENV),
+    }))
+    expect(values.filter((v) => v.value === null).map((v) => v.name)).toEqual(
+      [],
+    )
+    // A job output, which is the only shape resolved where the distinction
+    // exists. A literal or an `inputs.` reference here would be a second
+    // derivation of it, free to disagree with the one the plan comment printed.
+    for (const { value } of values) {
+      expect(value).toBe('${{ needs.plan.outputs.selection }}')
+    }
+  })
+
+  it('resolves it once, in the step that knows the difference', () => {
+    const select = steps.find(
+      (step) => step.name === 'Resolve the agent selection',
+    )
+    expect(select).toBeDefined()
+    // Built from the parser's own constant rather than from a literal typed
+    // twice: `parseSweepEnv` disarms the refusals on exactly this word, and a
+    // rename on either side that did not reach the other would otherwise look
+    // like a workflow that still says who asked and a judge that stopped
+    // listening.
+    expect(select?.body).toContain(`echo "selection=${EXPLICIT_SELECTION}"`)
+    expect(select?.body).toContain('echo "selection=auto"')
+    expect(select?.body).not.toMatch(
+      new RegExp(`echo "selection=(?!${EXPLICIT_SELECTION}|auto)`),
+    )
+  })
+
+  // The price and the guard state belong in the same comment: a reader
+  // approving ~$264 of sweep should be able to see whether two arms that hash
+  // alike will be judged or refused.
+  it('says in the plan comment which mode the request is in', () => {
+    const estimate = steps.find(
+      (step) => step.name === 'Estimate the cost and case count',
+    )
+    expect(estimate?.body).toContain('SELECTION: ${{ steps.select.outputs')
+    expect(estimate?.body).toContain(
+      `if [ "$SELECTION" = "${EXPLICIT_SELECTION}" ]`,
+    )
+    expect(estimate?.body).toMatch(/\| selection \| named in the request/)
+    expect(estimate?.body).toMatch(/\| selection \| \\`auto\\`, from the diff/)
   })
 })

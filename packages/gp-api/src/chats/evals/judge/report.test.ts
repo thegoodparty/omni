@@ -787,3 +787,169 @@ describe('the seeded-transcript warning', () => {
     expect(refusalAt).toBeGreaterThan(seededAt)
   })
 })
+
+// On an `auto` sweep these two facts are refusals and never reach the report,
+// so every assertion here is about the explicit path — where the qualifier is
+// all a reader gets in place of one.
+describe('the identical-config qualifier', () => {
+  const NOTICE = {
+    agentId: 'chief_of_staff',
+    caseIds: ['cos-case-0'],
+    digestSetsMatch: true,
+  }
+
+  // The wording is the deliverable, not decoration: it is carrying the weight
+  // the refusal used to, so it has to say what the digest covers and therefore
+  // what a matching digest does not rule out.
+  it('says what the digest covers and what it cannot see', async () => {
+    const report = renderReport({
+      agents: [await pipeline(sweepRecords(25))],
+      registry: REGISTRY,
+      identicalConfigs: [NOTICE],
+    })
+    expect(report).toContain(
+      'The two arms were configured identically, as far as the digest can ' +
+        'see.',
+    )
+    expect(report).toContain('the rendered system prompt')
+    expect(report).toContain('the names of the tools the agent was offered')
+    expect(report).toContain('A change to the model, the provider')
+    expect(report).toContain('about whatever the digest')
+    expect(report).toContain(
+      '> - chief_of_staff: both arms produced the same set of digests; ' +
+        'judged case(s) cos-case-0',
+    )
+  })
+
+  // Some pairs matching and others not is a far narrower claim than the two
+  // arms' whole digest sets matching, and a line that read the same for both
+  // would overstate it.
+  it('scopes some matching pairs apart from matching sets', async () => {
+    const report = renderReport({
+      agents: [await pipeline(sweepRecords(25))],
+      registry: REGISTRY,
+      identicalConfigs: [{ ...NOTICE, digestSetsMatch: false }],
+    })
+    expect(report).toContain(
+      '> - chief_of_staff: some pairs hashed alike and some did not; ' +
+        'judged case(s) cos-case-0',
+    )
+    expect(report).not.toContain('the same set of digests')
+  })
+
+  // THE SET CHECK IS NOT A PAIR CHECK. It compares the two arms' digest SETS,
+  // so a branch that permuted digests across cases satisfies it while no pair
+  // matched at all — and the line must not then claim every pair hashed
+  // alike, next to verdicts for pairs that genuinely differed.
+  it('does not read matching sets as matching pairs', async () => {
+    const report = renderReport({
+      agents: [await pipeline(sweepRecords(25))],
+      registry: REGISTRY,
+      identicalConfigs: [{ ...NOTICE, caseIds: [] }],
+    })
+    expect(report).toContain(
+      '> - chief_of_staff: both arms produced the same set of digests; no ' +
+        'pair of it both hashed alike and reached a verdict',
+    )
+    expect(report).not.toContain('judged case(s)')
+  })
+
+  // A warning that always appears is one readers learn to skip. Absence cannot
+  // fail by itself, so this is asserted over the same report the test above
+  // builds minus the one field: a renderer that printed unconditionally would
+  // pass that test and fail this one.
+  it('prints nothing when the digests genuinely differ', async () => {
+    const report = renderReport({
+      agents: [await pipeline(sweepRecords(25))],
+      registry: REGISTRY,
+    })
+    expect(report).not.toContain('as far as the digest can see')
+    expect(report).not.toContain('hashed alike')
+    expect(report).not.toContain('the same set of digests')
+  })
+
+  // Beside the other verdict qualifiers and ahead of the reference tables, for
+  // the reason the degraded-panel block is: on an explicit sweep this IS the
+  // refusal that did not happen, so a reader who stops before the tables has
+  // to have met it. Pinned against both neighbours, because "somewhere above
+  // the footer" is satisfied by almost every position in the report.
+  it('sits with the qualifiers, above refusals and tables', async () => {
+    const report = renderReport({
+      agents: [await pipeline(sweepRecords(25))],
+      registry: REGISTRY,
+      placeholderCases: ['chief_of_staff'],
+      identicalConfigs: [NOTICE],
+      identicalOutputsReported: ['chief_of_staff'],
+      refusals: [{ agentId: 'meeting_briefing', reason: 'nothing to compare' }],
+      identicalOutputs: [
+        {
+          agentId: 'chief_of_staff',
+          identical: 1,
+          of: 25,
+          allIdentical: false,
+          caseIds: ['cos-case-0'],
+        },
+      ],
+    })
+    const at = {
+      placeholder: report.indexOf('Placeholder inputs'),
+      config: report.indexOf('as far as the digest can see'),
+      outputs: report.indexOf('came back byte-identical for'),
+      refusal: report.indexOf('— refused'),
+      table: report.indexOf('### Identical outputs'),
+    }
+    // Every one found first: a block that vanished would index at -1, which
+    // sorts before everything and passes a bare comparison.
+    for (const [name, index] of Object.entries(at)) {
+      expect(index, name).toBeGreaterThan(0)
+    }
+    expect(at.placeholder).toBeLessThan(at.config)
+    expect(at.config).toBeLessThan(at.outputs)
+    expect(at.outputs).toBeLessThan(at.refusal)
+    expect(at.refusal).toBeLessThan(at.table)
+  })
+})
+
+describe('the all-identical-outputs qualifier', () => {
+  it('names the agents and what it cannot rule out', async () => {
+    const report = renderReport({
+      agents: [await pipeline(sweepRecords(25))],
+      registry: REGISTRY,
+      identicalOutputsReported: ['chief_of_staff', 'meeting_briefing'],
+    })
+    expect(report).toContain(
+      'Every judgeable pair came back byte-identical for: chief_of_staff, ' +
+        'meeting_briefing.',
+    )
+    expect(report).toContain('a legitimate SAME')
+    expect(report).toContain('the commit under test')
+  })
+
+  it('prints nothing when some pair differed', async () => {
+    const report = renderReport({
+      agents: [await pipeline(sweepRecords(25))],
+      registry: REGISTRY,
+    })
+    expect(report).not.toContain('came back byte-identical for')
+  })
+
+  // The table's own closing sentence used to promise a refusal above it, which
+  // on this path does not exist. It has to describe both outcomes or it tells
+  // a reader to go looking for something that is not there.
+  it('leaves the table honest about both outcomes', async () => {
+    const report = renderReport({
+      agents: [await pipeline(sweepRecords(25))],
+      registry: REGISTRY,
+      identicalOutputs: [
+        {
+          agentId: 'chief_of_staff',
+          identical: 25,
+          of: 25,
+          allIdentical: true,
+          caseIds: ['cos-case-0'],
+        },
+      ],
+    })
+    expect(report).toContain('qualified above rather than read as SAME')
+  })
+})

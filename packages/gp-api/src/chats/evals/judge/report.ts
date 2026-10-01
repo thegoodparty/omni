@@ -1,6 +1,7 @@
 import { AGENTS, coverage, type AgentEntry } from './agents'
 import { formatGap, type ArmGap } from './armGap'
 import type { IdenticalOutputs } from './identicalOutputs'
+import type { IdenticalConfigNotice } from './normalize'
 import type { Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { PRICING_VERSION } from './pricing'
@@ -20,6 +21,13 @@ import type { CiContext, RunRecord } from './record'
 export interface Refusal {
   agentId: string
   reason: string
+}
+
+// `normalizeAgent`'s notice, keyed by the agent it came from. The notice is one
+// agent's fact and does not carry the id, so the id is attached here rather
+// than stored twice with nothing keeping the two in step.
+export interface AgentIdenticalConfig extends IdenticalConfigNotice {
+  agentId: string
 }
 
 // An agent some of whose cases were answered mid-conversation, against a
@@ -54,6 +62,15 @@ export interface SweepReport {
   // How many of each agent's pairs came back byte-identical. Evidence, not a
   // verdict: the refusal for an all-identical sweep arrives as a Refusal.
   identicalOutputs?: readonly IdenticalOutputs[]
+  // Agents whose two arms hashed to the same config and were compared anyway,
+  // because the request named them. Absent on an `auto` sweep, where the same
+  // fact is a refusal, and absent whenever the digests genuinely differed.
+  identicalConfigs?: readonly AgentIdenticalConfig[]
+  // Agents whose every judgeable pair came back byte-identical and which were
+  // judged rather than refused, for the same reason. Carried as the list the
+  // judging entry decided not to refuse rather than re-derived here, so the
+  // qualifier can never disagree with what actually happened.
+  identicalOutputsReported?: readonly string[]
   // Runs that queried the voter mart with no Delta version pinned. Empty or
   // absent on a sweep that either pinned the mart or never read it.
   unpinnedMart?: readonly UnpinnedMartReads[]
@@ -316,7 +333,8 @@ export const identicalOutputLines = (
   'Pairs whose two arms produced the same output. A few are ordinary — a ' +
     'deterministic agent answering a question the branch did not touch will ' +
     'match. All of them means the candidate never reached the agent, which ' +
-    'is refused above rather than reported as SAME.',
+    'is refused above — or, on a sweep whose agents were named by hand, ' +
+    'qualified above rather than read as SAME.',
   '',
   '| agent | identical pairs | cases |',
   '| --- | --- | --- |',
@@ -435,6 +453,61 @@ export const degradedPanelLines = (scores: readonly AgentScore[]): string[] => {
   ]
 }
 
+// THE QUALIFIER THAT CARRIES WHAT A REFUSAL USED TO. On an `auto` selection
+// two arms with one digest are refused, so this never prints there; on a
+// request that named its agents it is all a reader gets, which is why it says
+// what the digest does and does not cover rather than only that it matched.
+export const identicalConfigLines = (
+  notices: readonly AgentIdenticalConfig[],
+): string[] => [
+  '> **The two arms were configured identically, as far as the digest can ' +
+    'see.** It covers exactly two things: the rendered system prompt, and ' +
+    'the names of the tools the agent was offered. A change to the model, ' +
+    'the provider, the sampling settings, or the implementation behind a ' +
+    'tool whose name did not move is therefore invisible to it — and every ' +
+    'one of those is an ordinary reason to ask for a comparison. So any ' +
+    'verdict above for an agent listed below is about whatever the digest ' +
+    'cannot see, or about nothing at all, and nothing in this report can ' +
+    'tell those two apart. On an `auto` selection this is refused instead; ' +
+    'it is reported here because the request named what to sweep.',
+  '>',
+  // Two facts, each stated as itself. `digestSetsMatch` is the agent-level
+  // check, and it is SET equality — a branch that permuted digests across
+  // cases satisfies it with no pair matching at all — so it is reported as
+  // the sets matching and never as "every pair matched". `caseIds` is the
+  // pairs that really did hash alike AND reached a verdict, which is the
+  // narrower claim a reader can act on.
+  ...notices.map(
+    (notice) =>
+      `> - ${notice.agentId}: ` +
+      (notice.digestSetsMatch
+        ? 'both arms produced the same set of digests; '
+        : 'some pairs hashed alike and some did not; ') +
+      (notice.caseIds.length === 0
+        ? 'no pair of it both hashed alike and reached a verdict'
+        : `judged case(s) ${notice.caseIds.join(', ')}`),
+  ),
+]
+
+// The second refusal turned qualifier, and a different claim from the one
+// above: the digests differed and the OUTPUTS still matched everywhere. On an
+// explicit request that can legitimately mean the change does nothing, which
+// is a real SAME — so it is reported, and the thing it cannot be told apart
+// from is named instead of assumed away.
+export const identicalOutputsReportedLines = (
+  agentIds: readonly string[],
+): string[] => [
+  `> **Every judgeable pair came back byte-identical for: ${agentIds.join(
+    ', ',
+  )}.** On an \`auto\` selection that is refused, because it is ` +
+    'indistinguishable from the candidate never having been applied at all. ' +
+    'This sweep named its agents, so it is reported instead: a change that ' +
+    'genuinely does nothing is a legitimate SAME. Before reading it as one, ' +
+    'check that the candidate arm is the commit under test and that its ' +
+    'config reached the agent, because no verdict above distinguishes those ' +
+    'two stories.',
+]
+
 export const placeholderLines = (agentIds: readonly string[]): string[] => [
   `> **Placeholder inputs:** ${agentIds.join(', ')}. These case lists exist ` +
     'to exercise the pipeline, not to test the agent, so treat the verdict ' +
@@ -501,6 +574,21 @@ export const renderReport = (
   const degraded = degradedPanelLines(report.agents)
   if (degraded.length > 0) {
     lines.push(...degraded)
+    lines.push('')
+  }
+
+  // Ahead of the refusals, because on an explicit sweep these two ARE the
+  // refusals that did not happen: a reader who stops before the reference
+  // sections has to have met them.
+  const identicalConfigs = report.identicalConfigs ?? []
+  if (identicalConfigs.length > 0) {
+    lines.push(...identicalConfigLines(identicalConfigs))
+    lines.push('')
+  }
+
+  const outputsReported = report.identicalOutputsReported ?? []
+  if (outputsReported.length > 0) {
+    lines.push(...identicalOutputsReportedLines(outputsReported))
     lines.push('')
   }
 

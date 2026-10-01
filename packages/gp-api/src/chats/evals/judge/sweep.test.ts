@@ -43,7 +43,12 @@ const env: SweepEnv = {
   agentIds: ['chief_of_staff'],
   recordsDir: '/unused',
   spends: true,
+  // The derived selection, which is the one every refusal below is about. The
+  // explicit variant is the exception and says so at its own call sites.
+  explicitSelection: false,
 }
+
+const NAMED: SweepEnv = { ...env, explicitSelection: true }
 
 // One seat, always naming the same slot, on every dimension the config asks
 // for. Enough for scoring to produce a label; the judge's own behaviour is
@@ -143,6 +148,14 @@ const run = async (
   config?: JudgeConfig,
 ): Promise<SweepResult> =>
   judgeSweep({ store, llm, registry: REGISTRY, ...(config && { config }) }, env)
+
+// The same judging entry under the selection a person named, which is the only
+// thing the tests below vary. Its own function rather than a fourth parameter
+// on `run`, so no call site has to skip over `config` with an `undefined`.
+const runNamed = async (
+  store: RecordStore,
+  llm: JsonJudgeModel = alwaysX,
+): Promise<SweepResult> => judgeSweep({ store, llm, registry: REGISTRY }, NAMED)
 
 const cases = (n: number): RunRecord[] =>
   Array.from({ length: n }, (_, i) =>
@@ -718,5 +731,100 @@ describe('emitReport', () => {
     ['empty', { GITHUB_STEP_SUMMARY: '' }],
   ])('still prints and does not append when the variable is %s', (_n, env) => {
     expect(emit(BODY, env)).toHaveLength(3)
+  })
+})
+
+// WHEN A PERSON NAMED THE AGENTS, the two sameness refusals become qualifiers.
+// The guard is there to stop an accidental sweep — `auto` picking an agent up
+// because a README in its directory moved — and not to second-guess a request
+// that said what to compare. A branch changing only the model, the provider,
+// the sampling settings or a tool's implementation hashes identically by
+// construction, and evaluating a model swap is one of the most obvious reasons
+// to reach for this tool at all.
+describe('a sweep whose agents were named by hand', () => {
+  const sameDigest = (records: RunRecord[]): RunRecord[] =>
+    records.map((record) => ({
+      ...record,
+      variant: { ...record.variant, configDigest: 'sha256:identical' },
+    }))
+
+  it('judges two arms that hashed alike, with a qualifier', async () => {
+    const result = await runNamed(await seeded(sameDigest(cases(2))))
+    expect(result.report.refusals).toBeUndefined()
+    expect(result.report.agents).toHaveLength(1)
+    expect(result.report.identicalConfigs).toEqual([
+      {
+        agentId: 'chief_of_staff',
+        caseIds: ['case-0', 'case-1'],
+        digestSetsMatch: true,
+      },
+    ])
+    // The qualifier has to carry the weight the refusal used to, so it says
+    // what the digest covers and what it therefore cannot see.
+    expect(result.markdown).toContain(
+      'The two arms were configured identically, as far as the digest can ' +
+        'see.',
+    )
+    expect(result.markdown).toContain('the names of the tools the agent was')
+    expect(result.markdown).toContain(
+      '> - chief_of_staff: both arms produced the same set of digests; ' +
+        'judged case(s) case-0, case-1',
+    )
+    expect(result.exitCode).toBe(0)
+  })
+
+  // The later, stronger signal, and on a named request it has a legitimate
+  // reading: a change that genuinely does nothing produces the same bytes, and
+  // that is a real SAME rather than a broken pipeline.
+  it('judges an all-identical sweep, and qualifies it', async () => {
+    const result = await runNamed(
+      await seeded([
+        ...pair('a', ['same', 'same']),
+        ...pair('b', ['same', 'same']),
+      ]),
+    )
+    expect(result.report.refusals).toBeUndefined()
+    expect(result.report.agents).toHaveLength(1)
+    expect(result.report.identicalOutputsReported).toEqual(['chief_of_staff'])
+    expect(result.markdown).toContain(
+      'Every judgeable pair came back byte-identical for: chief_of_staff.',
+    )
+    expect(result.markdown).toContain('the commit under test')
+    expect(result.exitCode).toBe(0)
+  })
+
+  // A WARNING THAT ALWAYS APPEARS IS ONE READERS LEARN TO SKIP. Absence cannot
+  // fail on its own, so it is asserted against the same records that produce
+  // the qualifier two tests above — a renderer that printed unconditionally
+  // would pass that one and fail this one.
+  it('carries neither qualifier when nothing matched', async () => {
+    const result = await runNamed(await seeded(cases(2)))
+    expect(result.report.identicalConfigs).toBeUndefined()
+    expect(result.report.identicalOutputsReported).toBeUndefined()
+    expect(result.markdown).not.toContain('as far as the digest can see')
+    expect(result.markdown).not.toContain('came back byte-identical for')
+    expect(result.report.agents).toHaveLength(1)
+  })
+
+  // The same two inputs under the derived selection, so the pair of tests is
+  // the whole claim: the override is what changed the outcome, not the records.
+  it('still refuses both, agent by agent, on a derived selection', async () => {
+    const digests = await run(await seeded(sameDigest(cases(2))), neverCalled)
+    expect(digests.report.agents).toEqual([])
+    expect(digests.report.identicalConfigs).toBeUndefined()
+    expect(digests.report.refusals?.[0]?.reason).toContain('the same config')
+
+    const outputs = await run(
+      await seeded([
+        ...pair('a', ['same', 'same']),
+        ...pair('b', ['same', 'same']),
+      ]),
+      neverCalled,
+    )
+    expect(outputs.report.agents).toEqual([])
+    expect(outputs.report.identicalOutputsReported).toBeUndefined()
+    expect(outputs.report.refusals?.[0]?.reason).toContain(
+      'came back byte-identical on both arms',
+    )
   })
 })

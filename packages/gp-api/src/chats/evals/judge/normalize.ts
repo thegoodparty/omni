@@ -91,6 +91,29 @@ export interface NormalizedAgent {
   judgeable: NormalizedCase[]
   excluded: ExcludedCase[]
   unpaired: UnpairedRecord[]
+  // What the identical-config refusal would have refused, when the selection
+  // was explicit and it reported instead. `null` on every sweep whose digests
+  // genuinely differed, which is what keeps the report silent about it.
+  identicalConfig: IdenticalConfigNotice | null
+}
+
+// Two arms that hashed alike and were compared anyway. Only reachable on an
+// explicit selection; an `auto` one refuses, so this is always `null` there.
+//
+// NEITHER FIELD IS DERIVABLE FROM THE OTHER, and the report must not read one
+// as the other — see the note on `digestSetsMatch`.
+export interface IdenticalConfigNotice {
+  // Pairs blinded despite the match, so the report can name them rather than
+  // only count them. Empty when every such pair was excluded for some other
+  // reason and only the agent-level check matched.
+  caseIds: readonly string[]
+  // The agent-level check: every digest on one arm is also a digest on the
+  // other. SET equality, not a pair-by-pair match, which is a weaker claim
+  // than it looks — a branch that permuted digests across cases satisfies it
+  // while no single pair matched. So this says the refusal would have fired,
+  // and `caseIds` says which pairs actually hashed alike; the report states
+  // each of them as itself.
+  digestSetsMatch: boolean
 }
 
 // Both arms hashed to the same config, so the agent could not have seen any
@@ -102,7 +125,24 @@ export interface NormalizedAgent {
 // throw is a contract of `blindCase` alone: `normalizeAgent` catches it and
 // excludes just that pair, because one pair hashing alike among pairs that
 // did not is a fact about the pair, not grounds to discard the agent.
+//
+// NEITHER THROW FIRES ON AN EXPLICIT SELECTION. See NormalizeOptions below.
 export class IdenticalConfigError extends Error {}
+
+// WHOSE SWEEP THIS IS. The refusals above are a money guard against a sweep
+// nobody asked for — `auto` selecting an agent because a README in its
+// directory moved — and not a second opinion on a deliberate request. The
+// digest is `sha256(renderedSystemPrompt + sortedToolNames)`, so a branch that
+// changes only the model, the provider, the sampling settings or the code
+// behind a tool whose name did not move hashes identically while being exactly
+// the thing somebody reached for this tool to measure. When a human named the
+// agents, both refusals become a qualifier in the report instead; on `auto`
+// they stay refusals.
+export interface NormalizeOptions {
+  // Turned on only by the judging entry, from the JUDGE_SELECTION the
+  // workflow's selection step published.
+  explicitSelection?: boolean
+}
 
 // A runner handed us two arms of one case with different inputs, so the
 // comparison would not be like for like.
@@ -351,13 +391,17 @@ const outputOf = (record: RunRecord): Payload => {
 export const assignSlots = (rng: Rng): SlotMap =>
   rng() < 0.5 ? { X: 'base', Y: 'candidate' } : { X: 'candidate', Y: 'base' }
 
+const sameConfig = (a: RunRecord, b: RunRecord): boolean =>
+  a.variant.configDigest === b.variant.configDigest
+
 export const blindCase = (
   base: RunRecord,
   candidate: RunRecord,
   rng: Rng,
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+  options: NormalizeOptions = {},
 ): NormalizedCase => {
-  if (base.variant.configDigest === candidate.variant.configDigest) {
+  if (!options.explicitSelection && sameConfig(base, candidate)) {
     throw new IdenticalConfigError(
       `both arms of ${base.agentId}/${base.caseId} hash to config digest ` +
         `"${base.variant.configDigest}", so the agent saw no difference ` +
@@ -458,6 +502,7 @@ export const normalizeAgent = (
   records: readonly RunRecord[],
   rng: Rng,
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+  options: NormalizeOptions = {},
 ): NormalizedAgent => {
   const agentIds = new Set(records.map((r) => r.agentId))
   if (agentIds.size > 1) {
@@ -480,10 +525,9 @@ export const normalizeAgent = (
     )
   const baseDigests = [...digestsOf('base')].sort()
   const candidateDigests = [...digestsOf('candidate')].sort()
-  if (
-    baseDigests.length > 0 &&
-    baseDigests.join() === candidateDigests.join()
-  ) {
+  const digestSetsMatch =
+    baseDigests.length > 0 && baseDigests.join() === candidateDigests.join()
+  if (digestSetsMatch && !options.explicitSelection) {
     throw new IdenticalConfigError(
       `both arms of ${first.agentId} hash to the same config ` +
         `(${baseDigests.join(', ')}), so the agent saw no difference and ` +
@@ -508,6 +552,7 @@ export const normalizeAgent = (
   const judgeable: NormalizedCase[] = []
   const excluded: ExcludedCase[] = []
   const unpaired: UnpairedRecord[] = []
+  const identicalCaseIds: string[] = []
 
   for (const { base, candidate } of groups.values()) {
     if (base === undefined || candidate === undefined) {
@@ -533,8 +578,13 @@ export const normalizeAgent = (
       })
       continue
     }
+    const sameDigest = sameConfig(base, candidate)
     try {
-      judgeable.push(blindCase(base, candidate, rng, config))
+      judgeable.push(blindCase(base, candidate, rng, config, options))
+      // After the push, not before: a pair that blinded alike still has to
+      // survive the input check, and naming a case the report says was judged
+      // when it was not is the one thing a qualifier must not do.
+      if (sameDigest) identicalCaseIds.push(base.caseId)
     } catch (err) {
       if (!(err instanceof IdenticalConfigError)) throw err
       // Reaching here means the agent-level check passed, which it only does
@@ -561,5 +611,14 @@ export const normalizeAgent = (
     judgeable,
     excluded,
     unpaired,
+    // Null unless something actually matched, so the report prints nothing on
+    // the ordinary sweep.
+    identicalConfig:
+      digestSetsMatch || identicalCaseIds.length > 0
+        ? {
+            caseIds: [...new Set(identicalCaseIds)].sort(),
+            digestSetsMatch,
+          }
+        : null,
   }
 }
