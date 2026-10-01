@@ -641,9 +641,11 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       // warns about. The cost is that opted-out rows are paged over before
       // being discarded.
       excludePersonIds: new Set(),
-      // No deadline on this path: the send is already paid for and running off
-      // a queue, so the page-1 pre-flight's speed-for-precision trade is the
-      // wrong way round here. It reads the MATCHED count, and this caller's
+      // No deadline on this path — neither guard: no timeBudgetMs is passed
+      // (nothing is waiting for a response, so a resolution that takes four
+      // minutes is fine) and the pre-flight cap is off. The send is already
+      // paid for and running off a queue, so the page-1 pre-flight's
+      // speed-for-precision trade is the wrong way round here. It reads the MATCHED count, and this caller's
       // matched-minus-resolved gap is routinely the size of the org's opt-out
       // set (scrubbed below rather than in the query), so the pre-flight would
       // refuse sends that resolve well under the cap and complete fine — and a
