@@ -142,7 +142,7 @@ describe('PriorityWorkspace', () => {
             toolCallId: 'tc-status',
             args: {
               steps: [
-                { id: 'define', state: 'settled', summary: 'Maple floods.' },
+                { id: 'evidence', state: 'settled', summary: 'Maple floods.' },
               ],
               nextAction: 'Pick two blocks to walk',
             },
@@ -158,7 +158,7 @@ describe('PriorityWorkspace', () => {
     // Mid-turn: the rail has moved although `done` has not arrived.
     await waitFor(() =>
       expect(
-        within(railRow(PRIORITY_STEP_LABELS.define)).getByText('Done'),
+        within(railRow(PRIORITY_STEP_LABELS.evidence)).getByText('Done'),
       ).toBeInTheDocument(),
     )
     expect(mocks.fetchPriorityStatus).not.toHaveBeenCalled()
@@ -168,7 +168,7 @@ describe('PriorityWorkspace', () => {
     const persisted: PriorityStatus = {
       ...emptyPriorityStatus(),
       steps: emptyPriorityStatus().steps.map((step) =>
-        step.id === 'define'
+        step.id === 'evidence'
           ? { ...step, state: 'stale' as const, caveat: 'Report disagrees.' }
           : step,
       ),
@@ -195,7 +195,7 @@ describe('PriorityWorkspace', () => {
 
     await waitFor(() =>
       expect(
-        within(railRow(PRIORITY_STEP_LABELS.define)).getByText(
+        within(railRow(PRIORITY_STEP_LABELS.evidence)).getByText(
           'Needs another look',
         ),
       ).toBeInTheDocument(),
