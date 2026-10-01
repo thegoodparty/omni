@@ -32,6 +32,27 @@ export const composeFooter = (committeeName?: string | null): string =>
     ? `${paidForByLine(committeeName)}\n${OPT_OUT_FOOTER}`
     : OPT_OUT_FOOTER
 
+// A draft saved before verification was composed with no committee, so its
+// system footer is the opt-out line alone. Resume carries the saved script
+// verbatim (re-composing would double the footer), so only the footer is
+// upgraded once the committee name exists -- the same line scheduling's
+// server-side compliance check demands.
+// Structural, not a phrase search: matching "paid for by" anywhere would
+// also fire on body text and skip the injection, and a trailing footer that
+// names some OTHER committee is left alone so the standards check fails
+// closed instead of a second line being stacked under the first.
+export const upgradeScriptFooter = (
+  script: string,
+  committeeName: string | null,
+): string => {
+  if (!committeeName) return script
+  const upgraded = `\n\n${composeFooter(committeeName)}`
+  if (script.endsWith(upgraded)) return script
+  const bare = `\n\n${OPT_OUT_FOOTER}`
+  if (!script.endsWith(bare)) return script
+  return script.slice(0, script.length - bare.length) + upgraded
+}
+
 // Peerly merges {first_name} from the uploaded list CSV — the same token our
 // own 10DLC identity registration samples use ("Hello {first_name}, this is
 // Jack…"), so the vendor contract already depends on it. Verify the merge on

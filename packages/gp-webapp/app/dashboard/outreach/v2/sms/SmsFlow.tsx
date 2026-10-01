@@ -88,6 +88,7 @@ import {
   identificationIntro,
   SMS_PURPOSES,
   type SmsFlowPurpose,
+  upgradeScriptFooter,
 } from './smsCompose.util'
 import {
   createServeSms,
@@ -704,9 +705,12 @@ export const SmsFlow = ({
     : (tcrCompliance?.committeeName ?? null)
   // A resumed row carries the script exactly as it was saved (intro, body and
   // system footer already joined), so it must not be composed a second time.
+  // Only the system footer is upgraded: a draft saved before verification has
+  // no paid-for-by line, and scheduling's server-side compliance check will
+  // demand it against the committee that exists by resume time.
   const composedMessage =
     resumed && savedDraft?.script
-      ? savedDraft.script
+      ? upgradeScriptFooter(savedDraft.script, committeeName)
       : surface.composeMessage(body, committeeName)
   const composedLength = composedMessage.length
   const rawStandards = checkSmsStandards(composedMessage, {
@@ -715,9 +719,17 @@ export const SmsFlow = ({
     ),
     committeeName,
   })
-  // Win ignores nothing, so this is the raw verdict there.
+  // Win ignores nothing once a committee exists, so this is the raw verdict
+  // there. Without one (build mode -- the campaign is not verified yet) the
+  // paid-for-by line is system-composed off a committee name that does not
+  // exist, so no edit the candidate can make satisfies the rule; it is
+  // dropped here, and the footer upgrade above supplies the line at resume.
+  const ignoredStandardsRules: readonly SmsStandardsRule[] =
+    !surface.isServe && committeeName === null
+      ? [...surface.ignoredStandardsRules, 'paid_for_by']
+      : surface.ignoredStandardsRules
   const standardsFailures = rawStandards.failures.filter(
-    (rule) => !surface.ignoredStandardsRules.includes(rule),
+    (rule) => !ignoredStandardsRules.includes(rule),
   )
   const standards = {
     passed: standardsFailures.length === 0,

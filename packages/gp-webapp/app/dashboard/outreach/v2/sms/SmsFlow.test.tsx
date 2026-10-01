@@ -1116,6 +1116,87 @@ describe('SmsFlow', () => {
       ).not.toBeInTheDocument()
     })
 
+    // QA 2026-09-30: an unverified campaign has no committee yet, so the
+    // system footer cannot carry a paid-for-by line and no edit the
+    // candidate makes can satisfy the rule. It must not block the build.
+    it('does not block build-mode compose on the missing paid-for-by line', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      render(
+        <SmsFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+        />,
+      )
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Persuadable independents'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(900\)/ }),
+      )
+      expect(
+        await screen.findByText(/AI body \(warm\) for introduce_myself/),
+      ).toBeInTheDocument()
+      await attachImage()
+
+      expect(
+        screen.getByText(
+          'Your "Paid for by" line is added once your campaign is verified.',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/keep the "Paid for by" line/),
+      ).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+    })
+
+    // A draft saved before verification carries no paid-for-by line, and
+    // the resume schedules the saved script verbatim -- without the footer
+    // upgrade the server-side compliance gate 400s the conversion.
+    it('upgrades a pre-verification draft footer at resume', async () => {
+      gateRef.set(CLEARED_GATE)
+      const preVerificationScript =
+        'Hello {first_name}, this is Jane, candidate for City Council. ' +
+        'Vote Tuesday.\n\nReply STOP to opt out.'
+      render(
+        <SmsFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          resumeDraft={draftDetail({ script: preVerificationScript })}
+        />,
+      )
+
+      expect(
+        await screen.findByText('When do you want to send it?'),
+      ).toBeInTheDocument()
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await waitFor(() =>
+        expect(vi.mocked(createOutreach)).toHaveBeenCalledWith(
+          expect.objectContaining({
+            draftOutreachId: 88,
+            script:
+              'Hello {first_name}, this is Jane, candidate for City Council. ' +
+              'Vote Tuesday.\n\nPaid for by Friends of Jane.\n' +
+              'Reply STOP to opt out.',
+          }),
+          null,
+        ),
+      )
+    })
+
     it('blocks the resume when the draft list is gone', async () => {
       gateRef.set(CLEARED_GATE)
       api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
