@@ -3,6 +3,8 @@ import { formatISO, isBefore, parseISO } from 'date-fns'
 import {
   MAX_CHECK_RAISES,
   PRIORITY_GATE_STEPS,
+  PRIORITY_LISTEN_GATES,
+  isCheckAnswered,
   PRIORITY_STATUS_VERSION,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
@@ -137,6 +139,24 @@ const refusalFor = (
       'agreeing is not that. Record confirmed or revised only for a check ' +
       'that was out with people or shown in an earlier turn, and put what ' +
       'they said, and who said it, in heard.'
+    )
+  }
+  const closesUnheard = update.steps.find((patch) => {
+    const gate = PRIORITY_LISTEN_GATES[patch.id]
+    if (gate === undefined || patch.state !== STEP_STATE.settled) return false
+    const stored = current.steps.find((step) => step.id === gate)?.check
+    const gatePatch = update.steps.find((step) => step.id === gate)?.check
+    return !isCheckAnswered(
+      mergeStepCheck(stored, gatePatch, '', turn.offered()),
+    )
+  })
+  if (closesUnheard !== undefined) {
+    const gate = PRIORITY_LISTEN_GATES[closesUnheard.id]!
+    return (
+      `${PRIORITY_STEP_LABELS[closesUnheard.id]} stays open until ` +
+      `constituents have answered the check on ${PRIORITY_STEP_LABELS[gate]}` +
+      ', or the official decides not to ask. Leave it open with a caveat ' +
+      'naming who you are waiting on, and keep working.'
     )
   }
   const opening = update.steps.filter(

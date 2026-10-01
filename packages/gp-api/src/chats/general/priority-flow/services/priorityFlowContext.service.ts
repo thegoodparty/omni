@@ -23,7 +23,6 @@ export interface PriorityFlowContext {
   organizationSlug: string
   organization: Organization
   officeTitle: string | null
-  // How a message the agent drafts signs as the official.
   officialFirstName: string | null
   jurisdiction: string | null
   title: string
@@ -76,6 +75,11 @@ export class PriorityFlowContextService extends createPrismaBase(
       conversation.organizationSlug ?? '',
     )
 
+    const official = await this.client.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true },
+    })
+
     return {
       conversationId,
       priorityId: priority.id,
@@ -83,7 +87,7 @@ export class PriorityFlowContextService extends createPrismaBase(
       organizationSlug: electedOffice.organizationSlug,
       organization: electedOffice.organization,
       officeTitle: electedOffice.organization.customPositionName,
-      officialFirstName: electedOffice.user?.firstName ?? null,
+      officialFirstName: official?.firstName?.trim() || null,
       // Only the district resolver knows the jurisdiction; the handler fills
       // it in loadContext when the org's position resolves.
       jurisdiction: null,
@@ -116,7 +120,7 @@ export class PriorityFlowContextService extends createPrismaBase(
   ) {
     const electedOffice = await this.client.electedOffice.findFirst({
       where: { userId, organizationSlug },
-      include: { organization: true, user: { select: { firstName: true } } },
+      include: { organization: true },
     })
     if (!electedOffice) {
       throw new NotFoundException('Elected office not found')

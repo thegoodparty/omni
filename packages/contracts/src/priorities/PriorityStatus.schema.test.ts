@@ -11,6 +11,52 @@ import {
 const NOW = '2026-10-01T12:00:00Z'
 
 describe('parsePriorityStatus', () => {
+  it('reopens a listening step that closed before anyone answered', () => {
+    const status = parsePriorityStatus({
+      version: 2,
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          summary: 'Debris, no plan',
+          check: {
+            state: 'out',
+            who: 'River renters',
+            question: 'Is this it?',
+            raised: 0,
+          },
+        },
+        { id: 'listen_problem', state: 'settled', summary: 'Two calls' },
+      ],
+    })
+    const listen = status.steps.find((step) => step.id === 'listen_problem')
+    expect(listen?.state).toBe('open')
+    expect(listen?.summary).toBe('Two calls')
+  })
+
+  it('keeps a listening step closed once constituents answered', () => {
+    const status = parsePriorityStatus({
+      version: 2,
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          check: {
+            state: 'confirmed',
+            who: 'River renters',
+            question: '',
+            raised: 0,
+            heard: 'Yes, mostly',
+          },
+        },
+        { id: 'listen_problem', state: 'settled' },
+      ],
+    })
+    expect(
+      status.steps.find((step) => step.id === 'listen_problem')?.state,
+    ).toBe('settled')
+  })
+
   it('reads a version 1 row with no checks', () => {
     const status = parsePriorityStatus({
       version: 1,
@@ -75,7 +121,7 @@ describe('parsePriorityStatus', () => {
       ],
     })
     const listen = status.steps.find((step) => step.id === 'listen_problem')
-    expect(listen?.state).toBe('settled')
+    expect(listen?.state).toBe('open')
     expect(listen?.check).toBeUndefined()
   })
 

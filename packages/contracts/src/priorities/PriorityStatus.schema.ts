@@ -247,6 +247,28 @@ export const mergeStepCheck = (
   }
 }
 
+/**
+ * Each listening step collects what came back from one gate's check, so it
+ * cannot be done before people have actually answered it.
+ */
+export const PRIORITY_LISTEN_GATES: Partial<
+  Record<PriorityStepId, PriorityStepId>
+> = {
+  listen_problem: 'define',
+  listen_options: 'options',
+}
+
+/**
+ * Whether a check has an answer a listening step can close on: constituents
+ * replied (confirmed or revised), or the official chose not to ask them.
+ */
+export const isCheckAnswered = (
+  check: PriorityStepCheck | undefined,
+): boolean =>
+  check?.state === 'confirmed' ||
+  check?.state === 'revised' ||
+  check?.state === 'declined'
+
 // Reads heal what earlier builds let through: a check is only meaningful on
 // a gate, and an `asked` that was never stamped as shown was never shown, so
 // it reads as no check at all and the gate asks for it again.
@@ -305,13 +327,24 @@ export const parsePriorityStatus = (value: unknown): PriorityStatus => {
   // Fill in any step the stored value predates, so callers can always index
   // all seven.
   const byId = new Map(parsed.data.steps.map((s) => [s.id, s]))
+  const steps = PRIORITY_STEP_IDS.map((id) => {
+    const step = byId.get(id)
+    return step === undefined
+      ? { id, state: 'open' as const, summary: '' }
+      : healCheck(step)
+  })
+  // Earlier builds let a listening step close before anyone answered; it
+  // reads as still open, with what it settled kept.
+  const checks = new Map(steps.map((step) => [step.id, step.check]))
   return {
     version: parsed.data.version,
-    steps: PRIORITY_STEP_IDS.map((id) => {
-      const step = byId.get(id)
-      return step === undefined
-        ? { id, state: 'open' as const, summary: '' }
-        : healCheck(step)
+    steps: steps.map((step) => {
+      const gate = PRIORITY_LISTEN_GATES[step.id]
+      return gate !== undefined &&
+        step.state === 'settled' &&
+        !isCheckAnswered(checks.get(gate))
+        ? { ...step, state: 'open' as const }
+        : step
     }),
   }
 }

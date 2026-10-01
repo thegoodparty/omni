@@ -658,6 +658,8 @@ export {
   PRIORITY_CHECK_STATES,
   MAX_CHECK_RAISES,
   PRIORITY_GATE_STEPS,
+  PRIORITY_LISTEN_GATES,
+  isCheckAnswered,
   PriorityCheckStateSchema,
   PriorityStepCheckSchema,
   PriorityStepCheckInputSchema,

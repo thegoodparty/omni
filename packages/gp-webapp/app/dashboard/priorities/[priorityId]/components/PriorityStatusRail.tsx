@@ -25,6 +25,8 @@ import {
   type PriorityCheckState,
   type PriorityStatus,
   type PriorityStep,
+  PRIORITY_LISTEN_GATES,
+  isCheckAnswered,
   type PriorityStepCheck,
   type PriorityStepId,
   type PriorityStepState,
@@ -104,25 +106,46 @@ export const STEP_CHECK_LABELS: Record<PriorityCheckState, string> = {
   declined: 'Not checked with constituents',
 }
 
-// One line per step, whichever side it is about: what is waiting on the
-// official comes first, then what is out, then how the main side landed.
+// One line per step, whichever side it is about. The main side leads: once
+// it is out with people, that is the line, even if the other side is still
+// waiting on a yes.
 const checkLineState = (check: PriorityStepCheck): PriorityCheckState => {
-  const sides = [check.state, check.contrast?.state]
-  if (sides.includes('asked')) return 'asked'
-  if (sides.includes('out')) return 'out'
+  if (check.state === 'asked') return 'asked'
+  if (check.state === 'out' || check.contrast?.state === 'out') return 'out'
+  if (check.contrast?.state === 'asked') return 'asked'
   return check.state
+}
+
+// A listening step shows the check it is waiting on, so "Who to hear from"
+// reads "Waiting to hear back" while the problem's check is out.
+const checkShownFor = (
+  step: PriorityStep,
+  steps: PriorityStep[],
+): PriorityStepCheck | undefined => {
+  const gate = PRIORITY_LISTEN_GATES[step.id]
+  if (gate === undefined) return step.check
+  // Only while it is out with people: a yes still owed sits on the gate's own
+  // row, and saying it twice reads as two things to do.
+  const check = steps.find((other) => other.id === gate)?.check
+  return check && !isCheckAnswered(check) && checkLineState(check) === 'out'
+    ? check
+    : undefined
 }
 
 const StepCheckLine = ({
   step,
+  steps,
 }: {
   step: PriorityStep
-}): React.JSX.Element | null =>
-  step.check ? (
+  steps: PriorityStep[]
+}): React.JSX.Element | null => {
+  const check = checkShownFor(step, steps)
+  return check ? (
     <span className="block text-xs text-muted-foreground">
-      {STEP_CHECK_LABELS[checkLineState(step.check)]}
+      {STEP_CHECK_LABELS[checkLineState(check)]}
     </span>
   ) : null
+}
 
 const changedOn = (step: PriorityStep): string | null => {
   if (!step.updatedAt) return null
@@ -136,9 +159,11 @@ const changedOn = (step: PriorityStep): string | null => {
 
 const StepDetail = ({
   step,
+  steps,
   onBack,
 }: {
   step: PriorityStep
+  steps: PriorityStep[]
   onBack: () => void
 }): React.JSX.Element => {
   const changed = changedOn(step)
@@ -167,7 +192,7 @@ const StepDetail = ({
       <p className="text-sm text-muted-foreground">
         {step.summary || 'Nothing here yet.'}
       </p>
-      <StepCheckLine step={step} />
+      <StepCheckLine step={step} steps={steps} />
       {step.caveat ? (
         <div className="rounded-lg border border-warning/40 bg-warning/5 p-3">
           <p className="text-sm text-foreground">{step.caveat}</p>
@@ -196,7 +221,9 @@ const StepList = ({
           type="button"
           onClick={() => onSelect(step.id)}
           aria-labelledby={`step-${step.id}-label step-${step.id}-state`}
-          {...(step.check && { 'aria-describedby': `step-${step.id}-check` })}
+          {...(checkShownFor(step, steps) && {
+            'aria-describedby': `step-${step.id}-check`,
+          })}
           className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/40"
         >
           <StepStateIcon state={step.state} />
@@ -210,7 +237,7 @@ const StepList = ({
               {PRIORITY_STEP_LABELS[step.id]}
             </span>
             <span id={`step-${step.id}-check`} className="block">
-              <StepCheckLine step={step} />
+              <StepCheckLine step={step} steps={steps} />
             </span>
           </span>
           <span id={`step-${step.id}-state`}>
@@ -251,7 +278,11 @@ export const PriorityStatusRail = ({
       <Separator />
       <CardContent className="px-0">
         {selected ? (
-          <StepDetail step={selected} onBack={() => setSelectedId(null)} />
+          <StepDetail
+            step={selected}
+            steps={status.steps}
+            onBack={() => setSelectedId(null)}
+          />
         ) : (
           <StepList steps={status.steps} onSelect={setSelectedId} />
         )}

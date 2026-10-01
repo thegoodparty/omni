@@ -19,7 +19,7 @@ const presentOutreachProposalInput = OutreachProposalSchema.omit({
 // the flow, and the name rule is the one a drafted message kept missing.
 export const OUTREACH_MESSAGE_RULES = [
   'WHAT EACH CHANNEL NEEDS IN THE MESSAGE (the outreach flow checks these):',
-  '- Text: start with who is texting, signed as the official by first name and office, for example "this is Bryan, your Asheville City Council Member." Never sign as a body or an office alone ("this is the City Council"), and never use a placeholder like [Name] or [your name]. Do not write a greeting or an opt-out line: the flow adds "Hi {first_name}," before it and "Reply STOP to opt out" after it. No link shorteners like bit.ly; paste the full web address. Keep it under 300 characters.',
+  '- Text: start with who is texting, signed as the official by first name and office, for example "this is Bryan, your Asheville City Council Member." Never sign as a body or an office alone ("this is the City Council"), and never use a placeholder like [Name] or [your name]. Do not write a greeting or an opt-out line: the flow adds "Hello {{first_name}}," before it and "Reply STOP to opt out" after it. No link shorteners like bit.ly; paste the full web address. Keep it under 300 characters.',
   '- Phone banking: a script a volunteer reads aloud, opening with who they are calling for by the official\'s first name and office, for example "I am calling for Bryan, your Asheville City Council Member." Never a placeholder for the official.',
   "- Social: a post in the official's own voice. No placeholders.",
   '- Door knocking: what to say at the door, in the same voice, naming the official the same way a call does.',
