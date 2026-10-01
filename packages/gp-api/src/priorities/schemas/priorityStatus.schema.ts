@@ -1,5 +1,7 @@
 import {
+  PriorityCheckStateSchema,
   PriorityStatusSchema,
+  PriorityStepCheckInputSchema,
   PriorityStepIdSchema,
   PriorityStepStateSchema,
 } from '@goodparty_org/contracts'
@@ -33,6 +35,41 @@ const PriorityStepUpdateSchema = z.object({
       'Why this step is thin or back in doubt. Omit to keep the stored ' +
         'caveat. Pass an empty string to clear it, which is how you say ' +
         'the doubt is resolved.',
+    ),
+  check: PriorityStepCheckInputSchema.extend({
+    state: PriorityCheckStateSchema.describe(
+      'asked = you put the check to them in this turn and they have not ' +
+        'answered. out = they took it and it is in the field. confirmed = ' +
+        'the people asked backed what the step settled. revised = what they ' +
+        'said changed it; put the change in summary. deferred = not yet; ' +
+        'record it again only when you raised it again and heard not yet ' +
+        'again, because that is what counts the raises. declined = they ' +
+        'chose to settle this without checking.',
+    ),
+    who: z
+      .string()
+      .optional()
+      .describe(
+        'The specific group whose answer would confirm or break this ' +
+          'step, in plain words. Omit to keep what is stored.',
+      ),
+    question: z
+      .string()
+      .optional()
+      .describe('The one question put to them. Omit to keep what is stored.'),
+    when: z
+      .string()
+      .optional()
+      .describe(
+        'On a deferral, what they said about timing, in their words. ' +
+          'Omit to keep what is stored.',
+      ),
+  })
+    .optional()
+    .describe(
+      'Whether what this step settled has been checked with the people it ' +
+        'lands on. Pass it only when the check itself changed; omit it to ' +
+        'keep the stored check.',
     ),
 })
 

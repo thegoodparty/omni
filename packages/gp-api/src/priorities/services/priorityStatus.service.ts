@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import { formatISO } from 'date-fns'
 import {
+  PRIORITY_STATUS_VERSION,
   PriorityStatusSchema,
   PriorityStepStateSchema,
+  mergeStepCheck,
   parsePriorityStatus,
   type PriorityStatus,
   type PriorityStep,
@@ -56,17 +58,20 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
           : patch.caveat === ''
             ? undefined
             : patch.caveat
+      const check = mergeStepCheck(step.check, patch.check, now)
       const next: PriorityStep = {
         id: step.id,
         state: patch.state,
         summary: patch.summary ?? step.summary,
         ...(caveat === undefined ? {} : { caveat }),
         ...(step.updatedAt === undefined ? {} : { updatedAt: step.updatedAt }),
+        ...(check === undefined ? {} : { check }),
       }
       const changed =
         next.state !== step.state ||
         next.summary !== step.summary ||
-        next.caveat !== step.caveat
+        next.caveat !== step.caveat ||
+        next.check !== step.check
       return changed ? { ...next, updatedAt: now } : next
     })
 
@@ -87,7 +92,11 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
           : step,
     )
 
-    const status = PriorityStatusSchema.parse({ ...current, steps })
+    const status = PriorityStatusSchema.parse({
+      ...current,
+      version: Math.max(current.version, PRIORITY_STATUS_VERSION),
+      steps,
+    })
     const firstInState = (state: PriorityStepState) =>
       status.steps.find((step) => step.state === state)?.id ?? null
     const currentStep =

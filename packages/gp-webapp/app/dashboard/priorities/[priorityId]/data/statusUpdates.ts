@@ -1,9 +1,11 @@
 import { z } from 'zod'
 import {
   PRIORITY_STEP_LABELS,
+  PriorityStepCheckInputSchema,
   PriorityStatusSchema,
   PriorityStepIdSchema,
   PriorityStepStateSchema,
+  mergeStepCheck,
   type PriorityStatus,
   type PriorityStep,
   type PriorityStepId,
@@ -21,6 +23,9 @@ const StepPatchSchema = z.object({
   state: PriorityStepStateSchema,
   summary: z.string().optional(),
   caveat: z.string().optional(),
+  // Dropped rather than failing the patch, so a check the model got wrong
+  // never stops the step itself from moving.
+  check: PriorityStepCheckInputSchema.optional().catch(undefined),
 })
 
 export const PriorityStatusUpdateSchema = z.object({
@@ -89,12 +94,15 @@ export const applyStatusUpdate = (
         backwards: step.state === 'settled' && patch.state !== 'settled',
       })
     }
+    const now = new Date().toISOString()
+    const check = mergeStepCheck(step.check, patch.check, now)
     return {
       id: step.id,
       state: patch.state,
       summary: patch.summary ?? step.summary,
       ...(caveat === undefined ? {} : { caveat }),
-      updatedAt: new Date().toISOString(),
+      ...(check === undefined ? {} : { check }),
+      updatedAt: now,
     }
   })
 

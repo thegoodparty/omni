@@ -22,6 +22,7 @@ import {
 import {
   PRIORITY_STEP_LABELS,
   PRIORITY_STEP_PURPOSE,
+  type PriorityCheckState,
   type PriorityStatus,
   type PriorityStep,
   type PriorityStepId,
@@ -91,6 +92,28 @@ const StepStateChip = ({
   )
 }
 
+// Whether the people a step lands on have been heard from. Shown because an
+// unchecked conclusion should never read the same as a checked one.
+export const STEP_CHECK_LABELS: Record<PriorityCheckState, string> = {
+  asked: 'Ready to check with constituents',
+  out: 'Waiting to hear back',
+  confirmed: 'Constituents agreed',
+  revised: 'Changed after hearing from constituents',
+  deferred: 'Checking with constituents later',
+  declined: 'Not checked with constituents',
+}
+
+const StepCheckLine = ({
+  step,
+}: {
+  step: PriorityStep
+}): React.JSX.Element | null =>
+  step.check ? (
+    <span className="block text-xs text-muted-foreground">
+      {STEP_CHECK_LABELS[step.check.state]}
+    </span>
+  ) : null
+
 const changedOn = (step: PriorityStep): string | null => {
   if (!step.updatedAt) return null
   const parsed = new Date(step.updatedAt)
@@ -134,6 +157,7 @@ const StepDetail = ({
       <p className="text-sm text-muted-foreground">
         {step.summary || 'Nothing here yet.'}
       </p>
+      <StepCheckLine step={step} />
       {step.caveat ? (
         <div className="rounded-lg border border-warning/40 bg-warning/5 p-3">
           <p className="text-sm text-foreground">{step.caveat}</p>
@@ -169,6 +193,7 @@ const StepList = ({
             )}
           >
             {PRIORITY_STEP_LABELS[step.id]}
+            <StepCheckLine step={step} />
           </span>
           <StepStateChip state={step.state} />
         </button>

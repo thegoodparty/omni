@@ -121,6 +121,48 @@ describe('PriorityStatusRail', () => {
     expect(screen.getByText(PRIORITY_STEP_PURPOSE.define)).toBeInTheDocument()
   })
 
+  it('says whether a step has been checked with constituents', () => {
+    const base = emptyPriorityStatus()
+    const status: PriorityStatus = {
+      ...base,
+      steps: base.steps.map((step) => {
+        if (step.id === 'define') {
+          return {
+            ...step,
+            state: 'settled',
+            check: { state: 'deferred', who: '', question: '', raised: 0 },
+          }
+        }
+        if (step.id === 'options') {
+          return {
+            ...step,
+            state: 'settled',
+            check: { state: 'confirmed', who: '', question: '', raised: 0 },
+          }
+        }
+        return step
+      }),
+    }
+    render(<PriorityStatusRail status={status} nextAction={null} />)
+
+    const defineRow = screen.getByRole('button', {
+      name: new RegExp(PRIORITY_STEP_LABELS.define, 'i'),
+    })
+    const optionsRow = screen.getByRole('button', {
+      name: new RegExp(PRIORITY_STEP_LABELS.options, 'i'),
+    })
+    const evidenceRow = screen.getByRole('button', {
+      name: new RegExp(PRIORITY_STEP_LABELS.evidence, 'i'),
+    })
+    expect(
+      within(defineRow).getByText('Checking with constituents later'),
+    ).toBeInTheDocument()
+    expect(
+      within(optionsRow).getByText('Constituents agreed'),
+    ).toBeInTheDocument()
+    expect(within(evidenceRow).queryByText(/constituents/i)).toBeNull()
+  })
+
   it('shows the next action when there is one', () => {
     render(
       <PriorityStatusRail

@@ -263,7 +263,83 @@ describe('PriorityFlowHandler', () => {
     expect(names).toContain('describe_filter_dimensions')
     expect(names).toContain('count_contacts')
     expect(names).toContain('crud_saved_filters')
+    expect(names).toContain('list_precincts')
     expect(names).toContain('read_community_issues')
+  })
+
+  const buildWithCrm = () =>
+    new PriorityFlowHandler(
+      store,
+      context,
+      outreach,
+      priorityStatus,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      {
+        getFilterDimensions: vi.fn(() => []),
+        countContacts: vi.fn(),
+        countSegment: vi.fn(),
+      } as never,
+      {} as never,
+    )
+
+  it('offers a stage-gate check even without the list tools', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('CHECKING A STEP WITH THE PEOPLE IT LANDS ON')
+    expect(prompt).toContain('comes back at most 3 times')
+    expect(prompt).not.toContain('HOW TO CHOOSE WHO TO HEAR FROM')
+    expect(prompt).not.toContain('BUILD THE CHECK BEFORE YOU OFFER IT')
+  })
+
+  it('adds the affectedness method and the list work with the CRM tools', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('HOW TO CHOOSE WHO TO HEAR FROM')
+    expect(prompt).toContain('Pick for exposure, not attitude or engagement')
+    expect(prompt).toContain('Never filter on ethnicity')
+    expect(prompt).toContain('BUILD THE CHECK BEFORE YOU OFFER IT')
+    expect(prompt).toContain('present_outreach_proposal')
+    expect(prompt).toContain('/dashboard/door-knocking?listId=ID')
+    expect(prompt).toContain('present_outside_contact')
+    expect(prompt.indexOf('HOW TO CHOOSE WHO TO HEAR FROM')).toBeLessThan(
+      prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT'),
+    )
+  })
+
+  it('renders a step check in the status block', () => {
+    const status = emptyPriorityStatus()
+    const prompt = build().buildSystemPrompt({
+      ...baseCtx(),
+      status: {
+        ...status,
+        steps: status.steps.map((step) =>
+          step.id === 'define'
+            ? {
+                ...step,
+                state: 'settled' as const,
+                summary: 'Cracked slabs on four blocks',
+                check: {
+                  state: 'deferred' as const,
+                  who: 'Households on the four blocks',
+                  question: 'Is the sidewalk what keeps you off it?',
+                  when: 'after the budget hearing',
+                  raised: 1,
+                },
+              }
+            : step,
+        ),
+      },
+    })
+    expect(prompt).toContain(
+      'define (The problem): settled. Cracked slabs on four blocks ' +
+        'Check: deferred. Who: Households on the four blocks. ' +
+        'Question: Is the sidewalk what keeps you off it? ' +
+        'Timing: after the budget hearing. Raised 1 of 3 times.',
+    )
+    expect(prompt).toContain(
+      'evidence (What we know): open. Nothing recorded yet.\n',
+    )
   })
 
   it('sets deepLinkOnly from the channel, not from what the model passed', async () => {

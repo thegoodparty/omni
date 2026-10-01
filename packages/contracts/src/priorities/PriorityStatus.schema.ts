@@ -68,6 +68,80 @@ export const PriorityStepStateSchema = z.enum([
 ])
 export type PriorityStepState = z.infer<typeof PriorityStepStateSchema>
 
+/**
+ * Whether what a step concluded has been checked with the constituents it
+ * lands on. Listening is offered at each stage gate and is never a hard gate,
+ * so every answer is a state worth keeping:
+ *   - asked: the check was put to the official and they have not answered
+ *   - out: they took it, and outreach is in the field
+ *   - confirmed / revised: people answered, and the step held or changed
+ *   - deferred: "not yet", raised again at most MAX_CHECK_RAISES times
+ *   - declined: settled unchecked, on purpose
+ */
+export const PRIORITY_CHECK_STATES = [
+  'asked',
+  'out',
+  'confirmed',
+  'revised',
+  'deferred',
+  'declined',
+] as const
+
+export const PriorityCheckStateSchema = z.enum(PRIORITY_CHECK_STATES)
+export type PriorityCheckState = z.infer<typeof PriorityCheckStateSchema>
+
+/** How many times a deferred check is brought back before it is let go. */
+export const MAX_CHECK_RAISES = 3
+
+export const PriorityStepCheckSchema = z.object({
+  state: PriorityCheckStateSchema,
+  /** The group whose answer would confirm or break the step, in plain words. */
+  who: z.string().default(''),
+  /** The one question put to them. */
+  question: z.string().default(''),
+  /** On a deferral, what the official said about timing, in their words. */
+  when: z.string().optional(),
+  /** Times a deferred check has been raised again. Counted by the server. */
+  raised: z.number().int().nonnegative().default(0),
+  updatedAt: z.string().optional(),
+})
+export type PriorityStepCheck = z.infer<typeof PriorityStepCheckSchema>
+
+/** What the agent writes for a check. Omitted fields keep what is stored. */
+export const PriorityStepCheckInputSchema = z.object({
+  state: PriorityCheckStateSchema,
+  who: z.string().optional(),
+  question: z.string().optional(),
+  when: z.string().optional(),
+})
+export type PriorityStepCheckInput = z.infer<
+  typeof PriorityStepCheckInputSchema
+>
+
+/**
+ * Merge a check patch onto the stored one. Recording "deferred" over a stored
+ * deferral is how the agent says it raised the check again and heard "not
+ * yet" again, so the count lives here rather than with the model. Shared so
+ * the server and the optimistic client merge cannot count differently.
+ */
+export const mergeStepCheck = (
+  stored: PriorityStepCheck | undefined,
+  patch: PriorityStepCheckInput | undefined,
+  now: string,
+): PriorityStepCheck | undefined => {
+  if (patch === undefined) return stored
+  const raisedAgain = stored?.state === 'deferred' && patch.state === 'deferred'
+  const when = patch.when ?? stored?.when
+  return {
+    state: patch.state,
+    who: patch.who ?? stored?.who ?? '',
+    question: patch.question ?? stored?.question ?? '',
+    ...(when === undefined ? {} : { when }),
+    raised: (stored?.raised ?? 0) + (raisedAgain ? 1 : 0),
+    updatedAt: now,
+  }
+}
+
 export const PriorityStepSchema = z.object({
   id: PriorityStepIdSchema,
   state: PriorityStepStateSchema,
@@ -76,10 +150,14 @@ export const PriorityStepSchema = z.object({
   /** Why it is thin or back in doubt. Shown, never silently dropped. */
   caveat: z.string().optional(),
   updatedAt: z.string().optional(),
+  // A check that fails to parse (a newer build's check state, say) drops on
+  // its own instead of failing the step, which would empty the whole status.
+  check: PriorityStepCheckSchema.optional().catch(undefined),
 })
 export type PriorityStep = z.infer<typeof PriorityStepSchema>
 
-export const PRIORITY_STATUS_VERSION = 1
+// 2: steps carry an optional `check`.
+export const PRIORITY_STATUS_VERSION = 2
 
 export const PriorityStatusSchema = z.object({
   version: z.number().int().default(PRIORITY_STATUS_VERSION),

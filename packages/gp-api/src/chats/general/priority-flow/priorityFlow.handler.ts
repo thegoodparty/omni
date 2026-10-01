@@ -39,6 +39,7 @@ import {
   registeredFilterConsumers,
 } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
+import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
@@ -224,6 +225,12 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     if (this.contacts) {
       const crmTools: Record<string, LlmTool> = {}
       crmTools.count_contacts = buildCountContactsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+      })
+      // A stage-gate check is often a few blocks, and precinct is the one
+      // geographic filter describe_filter_dimensions cannot list.
+      crmTools.list_precincts = buildListPrecinctsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })

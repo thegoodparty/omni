@@ -2,7 +2,9 @@ import { useTestService } from '@/test-service'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import {
+  PRIORITY_STATUS_VERSION,
   PRIORITY_STEP_IDS,
+  parsePriorityStatus,
   type PriorityStatus,
   type PriorityStep,
   type PriorityStepId,
@@ -310,6 +312,67 @@ describe('PriorityStatusService.applyUpdate', () => {
     expect(stepOf(result.status, 'define').updatedAt).toBe(definedAt)
     expect(stepOf(result.status, 'evidence').updatedAt).toBeDefined()
     expect(stepOf(result.status, 'options').updatedAt).toBeUndefined()
+  })
+})
+
+describe('PriorityStatusService.applyUpdate checks', () => {
+  it('records a check on a settled step and keeps it on later patches', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          summary: 'Rents, not stock',
+          check: {
+            state: 'asked',
+            who: 'Renters near the transit line',
+            question: 'Is rent the thing pushing you out?',
+          },
+        },
+      ],
+      nextAction: 'Send the check',
+    })
+
+    const result = await statusService.applyUpdate(id, {
+      steps: [{ id: 'define', state: 'settled', summary: 'Rents mostly' }],
+      nextAction: 'Pull the numbers',
+    })
+
+    expect(stepOf(result.status, 'define').check).toMatchObject({
+      state: 'asked',
+      who: 'Renters near the transit line',
+      question: 'Is rent the thing pushing you out?',
+      raised: 0,
+    })
+    expect(result.status.version).toBe(PRIORITY_STATUS_VERSION)
+    const row = await readRow(id)
+    expect(parsePriorityStatus(row.status).steps[0]?.check?.state).toBe('asked')
+  })
+
+  it('counts each deferral recorded over a deferral as a raise', async () => {
+    const id = await createPriority()
+    const defer = (when?: string) =>
+      statusService.applyUpdate(id, {
+        steps: [
+          {
+            id: 'define',
+            state: 'settled',
+            check: { state: 'deferred', ...(when ? { when } : {}) },
+          },
+        ],
+        nextAction: 'Open the evidence',
+      })
+
+    await defer('after the budget hearing')
+    await defer()
+    const result = await defer()
+
+    expect(stepOf(result.status, 'define').check).toMatchObject({
+      state: 'deferred',
+      when: 'after the budget hearing',
+      raised: 2,
+    })
   })
 })
 

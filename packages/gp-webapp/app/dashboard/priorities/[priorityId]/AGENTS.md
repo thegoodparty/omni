@@ -68,6 +68,28 @@ is worse than the move itself.
 in the transcript from an empty status. That is why a reloaded thread reads the
 same as it did live.
 
+## A step carries whether its people were asked
+
+`define`, `options`, `method` and (when it puts something new on people)
+`plan` end with a check: the agent finds the most affected constituents by
+the affectedness method in the prompt (`AFFECTEDNESS_BLOCK` in
+`gp-api/.../priority-flow/priorityFlow.prompt.ts`), builds the saved list,
+writes the one question, and offers it as work already done through the
+`present_outreach_proposal` card (door knocking has no card yet, so it gets a
+`/dashboard/door-knocking?listId=` link). The check is the ask for its stage.
+`listen_problem` and `listen_options` never ask again: they are where the
+answers to the `define` and `options` checks land.
+
+Listening is not a gate. The answer lives on the step as `check`
+(`PriorityStepCheckSchema` in contracts): `asked`, `out`, `confirmed`,
+`revised`, `deferred`, `declined`. A deferral comes back at most
+`MAX_CHECK_RAISES` times, and the count is derived in `mergeStepCheck`
+(recording `deferred` over `deferred` is a raise), shared by the server and
+`applyStatusUpdate` so the two never count differently. A malformed check
+drops on its own, both in the stored status and in a live patch, so it can
+never stop the step itself from moving. The rail prints one line per step
+with a check (`STEP_CHECK_LABELS`).
+
 ## Cards are keyed, not trusted
 
 A card is a tool call rendered inline through `shared/agent-chat/cards/ChatCardRenderer`.

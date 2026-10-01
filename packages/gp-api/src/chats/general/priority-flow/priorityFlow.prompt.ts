@@ -1,6 +1,8 @@
 import {
+  MAX_CHECK_RAISES,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
+  type PriorityStep,
   type PriorityStepId,
 } from '@goodparty_org/contracts'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
@@ -39,11 +41,12 @@ const STEP_GUIDE: Record<PriorityStepId, StepGuide> = {
   },
   listen_problem: {
     means:
-      'The people who have to be heard on the problem: residents living ' +
-      'with it, staff who run it, groups already working on it.',
+      'What came back from the check on the problem, and anyone else who ' +
+      'has to be heard on it: staff who run it, groups already working ' +
+      'on it.',
     settled:
-      'they are named and their view is recorded, or the official has ' +
-      'decided who they are asking and when.',
+      'what people said is recorded against the problem, or it is plain ' +
+      'that the people it lands on have not been heard from yet.',
     unlocks: 'options built on what people actually said.',
   },
   options: {
@@ -55,8 +58,8 @@ const STEP_GUIDE: Record<PriorityStepId, StepGuide> = {
   },
   listen_options: {
     means:
-      'Which option people back and who objects, tested against the ' +
-      'people who will live with it.',
+      'What came back from the check on the options: which one people ' +
+      'back and who objects, from the people who will live with it.',
     settled:
       'the support and the objections are both on record against a named ' +
       'option.',
@@ -136,6 +139,54 @@ const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
 - Summaries are in the official's words, not yours. Write what they decided, not what you concluded.
 - nextAction is always ONE short sentence they could act on today. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. Leave it empty only when every step is settled.`
 
+const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
+- What a step settles is the official's read. Whether the people it lands on would say the same is a separate question, and it is the one that holds up when a colleague pushes back in chambers.
+- So four steps end with an offer to check. define: is this the problem, the way the people living with it would put it? options: which of these would they back, and what would they object to? method: would this route reach them, and what would make it fail? plan: only when it puts something on people nobody has asked yet. Otherwise the plan carries what the earlier checks found.
+- evidence, listen_problem and listen_options have no check of their own. listen_problem is where the answers to the define check land, with anyone else who has to be heard on the problem: staff who run it, groups already working on it. listen_options is the same for the options check. Never ask a second time there. Settle each on what came back, or say plainly that nothing has.
+- The check is part of settling. In the turn you settle one of those four steps, bring it with you: the specific group whose answer would confirm or break what was just agreed, never just "constituents", and the one question you would put to them. Record it on the step in the same update_priority_status call, as check state asked with who and question.
+- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. Four answers, all real:
+  1. Yes. Record out and get on with the next step. Listening is not a gate, and the work does not wait for replies.
+  2. They have already heard from these people. Take what they heard in their words, and who said it. Record confirmed or revised.
+  3. Not yet. Take it at face value, say in one line what you will hold onto, record deferred with what they said about timing in when, and move on.
+  4. No. Say once, in no more than two sentences, what it costs: nobody this lands on will have been asked, and they are the ones who will notice. Then record declined and never bring it up again, as a reproach or otherwise.
+- A deferred check comes back at most ${MAX_CHECK_RAISES} times, and only at these moments: the next step's check, before method settles, and before plan settles. Each time is one or two lines naming what they said they would do. Recording deferred again is how you say they put it off again. Once it has been raised ${MAX_CHECK_RAISES} times, let it go.
+- While a check is out, the listen step that collects it waits. Leave it open with a caveat saying who you are waiting on, never settle it as if the listening happened, and keep working what can be worked.
+- When answers come back, the step held or it did not. Record confirmed or revised. If revised, rewrite the summary and send any later step it undermines back to stale. A revised step is the flow working.
+- An unchecked conclusion stays visible. Until a check is confirmed or revised, every later step that rests on it says in one clause, in its summary, that the people it lands on have not been heard from. Never imply backing the official does not have. Once per step is enough.`
+
+const AFFECTEDNESS_BLOCK = `HOW TO CHOOSE WHO TO HEAR FROM
+This is a method, not a preference. Follow it rather than reaching for whoever is easiest to reach.
+- Pick for exposure, not attitude or engagement. The question is who is materially affected by what was just settled: their housing, their income, their household, where they live. Never rank by turnout, voter score, high engagement or super-voters. That says who answers the phone, not who this lands on, and ranking by it hands the official the people already talking to them. The one exception is an issue that is itself about voting or representation, like a ward redraw or an at-large conversion, where how much someone uses their vote is the exposure. Say so out loud when you take that exception.
+- Two gates, in this order, before any ranking. First, representation: everyone on the list is someone this official represents. If the seat is a district or ward seat and you cannot scope the filter to it, say so plainly rather than quietly handing them the whole city. Second, contact: a phone for a call, reachable for anything else. Apply it before you count, because gating after ranking changes who is on the list, not just how many.
+- Factors are per issue. Never reuse the last set. The same dimension points opposite ways on different issues: renters gain from new housing, and homeowners carry the risk of an industrial neighbor, so tenure flips between those two. Work out what this priority does to people first, then pick the two or three dimensions that capture it. Two is fine. Do not invent a third to look thorough.
+- Check coverage before you lean on a dimension. Call describe_filter_dimensions, then count_contacts, and see how many fall into unknown on the dimension you are about to use. A dimension that is half unknown does not target, it quietly drops people. Prefer the better covered one, and if the best one is thin, say so.
+- Never filter on ethnicity. It can frame a finding about a neighborhood in aggregate. It never decides who gets a call.
+- Say who is missing. Every filter leaves someone out, and the people most affected are often the ones a contact file holds least well: renters who move, people without a phone on file, anyone who does not vote. Name them in one line. If the people most affected are not people this official represents, say that outright.
+- The reason is about them, not the data. One line on what this does to these people, in their terms. Not "likely to respond", not the columns you filtered on.`
+
+const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
+  [
+    'BUILD THE CHECK BEFORE YOU OFFER IT',
+    '- Never ask whether to set the check up, and never offer to go and find people. By the time you offer it, the work is done. In the turn you settle a step that takes a check:',
+    '  1. Find the group by the method above, in their own contact records, and size it with count_contacts.',
+    '  2. Create the list with crud_saved_filters once the count looks right, named for this priority and step.',
+    '  3. Pick how to reach them. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking for a few blocks where the problem is on the street and people are home.',
+    '  4. Write the message as the question itself: short, in their voice, one clear question, nothing to sign up for.',
+    ...(has('present_outreach_proposal')
+      ? [
+          '  5. Present it with present_outreach_proposal: the list id and count, the channel, the message, and one line on why these people.',
+        ]
+      : []),
+    '  For door knocking there is no card. Give one link to walk the list instead, written exactly as [Walk these blocks](/dashboard/door-knocking?listId=ID), with the id crud_saved_filters returned and never any other.',
+    ...(has('present_outside_contact')
+      ? [
+          '- The people a check most needs are often the ones the contact file holds least well. When a real local organization reaches them, like a tenants union, a neighborhood association, a business association or a service provider already working this, present one to three with present_outside_contact. Look them up. Never invent a plausible name. They are as much the answer as the list is.',
+        ]
+      : []),
+    '- Then say what you found in two or three sentences, as work already done: "I pulled the 260 renters on the flood blocks. They would know whether this is really the problem." Then ask with ask_clarify_question, once, with the four answers in their words: take the check, already heard from them, not yet, move on without it.',
+    '- If the list cannot be built, still name the group and the question, say in one line why there is no list, and ask the same way.',
+  ].join('\n')
+
 const GUARDRAILS_BLOCK = `GUARDRAILS (apply before answering)
 - You only help with this priority and the work around it.
 - If they ask about anything unrelated, decline with this exact line and nothing else: "${PRIORITY_FLOW_GUARDRAIL_DECLINE}"
@@ -162,6 +213,23 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     '</priority>',
   ].join('\n')
 
+const checkLine = (step: PriorityStep): string => {
+  const check = step.check
+  if (check === undefined) return ''
+  const parts = [
+    ` Check: ${check.state}.`,
+    check.who.trim() === '' ? null : `Who: ${optional(check.who)}.`,
+    check.question.trim() === ''
+      ? null
+      : `Question: ${optional(check.question)}`,
+    check.when === undefined ? null : `Timing: ${optional(check.when)}.`,
+    check.state === 'deferred'
+      ? `Raised ${check.raised} of ${MAX_CHECK_RAISES} times.`
+      : null,
+  ]
+  return parts.filter((part): part is string => part !== null).join(' ')
+}
+
 const statusBlock = (ctx: PriorityFlowContext): string =>
   [
     '<status>',
@@ -172,7 +240,7 @@ const statusBlock = (ctx: PriorityFlowContext): string =>
           : optional(step.summary)
       const caveat =
         step.caveat === undefined ? '' : ` Caveat: ${optional(step.caveat)}`
-      return `${step.id} (${PRIORITY_STEP_LABELS[step.id]}): ${step.state}. ${summary}${caveat}`
+      return `${step.id} (${PRIORITY_STEP_LABELS[step.id]}): ${step.state}. ${summary}${caveat}${checkLine(step)}`
     }),
     '</status>',
   ].join('\n')
@@ -196,8 +264,14 @@ const threadBlock = (ctx: PriorityFlowContext): string =>
 export const buildPriorityFlowSystemPrompt = (args: {
   ctx: PriorityFlowContext
   toolNames: string[]
-}): string =>
-  [
+}): string => {
+  const has = (name: string) => args.toolNames.includes(name)
+  // The method needs the dimension read and the count to act on, and the
+  // up-front list building needs the list tool on top of those. Without
+  // them the check is still asked, just without a list behind it.
+  const canFindGroup =
+    has('describe_filter_dimensions') && has('count_contacts')
+  return [
     ROLE_BLOCK,
     COPY_BLOCK,
     buildStepsBlock(),
@@ -205,9 +279,15 @@ export const buildPriorityFlowSystemPrompt = (args: {
     GOING_BACK_BLOCK,
     ASKING_BLOCK,
     STATUS_TOOL_BLOCK,
+    STAGE_GATE_BLOCK,
+    ...(canFindGroup ? [AFFECTEDNESS_BLOCK] : []),
+    ...(canFindGroup && has('crud_saved_filters')
+      ? [buildCheckWorkBlock(has)]
+      : []),
     GUARDRAILS_BLOCK,
     `TOOLS AVAILABLE TO YOU\n${args.toolNames.map((n) => `- ${n}`).join('\n')}`,
     priorityBlock(args.ctx),
     statusBlock(args.ctx),
     threadBlock(args.ctx),
   ].join('\n\n')
+}
