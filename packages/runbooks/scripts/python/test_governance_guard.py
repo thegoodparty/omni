@@ -1,5 +1,9 @@
 """Pre-merge governance guard (DATA-2432). In-memory trees only; no git, no network."""
 
+import json
+
+import pytest
+
 import governance_guard as gg
 import sem_anchors as sa
 
@@ -297,3 +301,45 @@ def test_intents_do_not_clear_a_dead_listing():
     head = gg.build_snapshot(tree({}, watchlist=_wl(ROW)))
     remaining, _ = gg.apply_intents([f], base, head)
     assert [x.rule for x in remaining] == ["dead_listing"]
+
+
+def test_evaluate_reports_what_it_examined():
+    base = gg.build_snapshot(tree({SEND: "trackEvent(EVENTS.Settings.Saved)"}))
+    head = gg.build_snapshot(tree({SEND: "noop()"}))
+    report = gg.evaluate(base, head, LEGS, "2026-10-01", renames={})
+    assert [f.rule for f in report.blocks] == ["dead_listing"]
+    assert report.examined["okr_legs"] == 2
+    assert report.examined["sem_copy_date"] == "2026-10-01"
+    assert report.examined["events_compared"] >= 3
+
+
+def test_zero_okr_legs_is_a_guard_error_not_a_pass():
+    snap = gg.build_snapshot(tree({}))
+    with pytest.raises(gg.GuardError):
+        gg.evaluate(snap, snap, {}, None, renames={})
+
+
+def test_markdown_carries_the_marker_the_fix_and_the_examined_counts():
+    base = gg.build_snapshot(tree({SEND: "trackEvent(EVENTS.Settings.Saved)"}))
+    head = gg.build_snapshot(tree({SEND: "noop()"}))
+    md = gg.render_markdown(gg.evaluate(base, head, LEGS, "2026-10-01", renames={}))
+    assert md.startswith("<!-- analytics-guard -->")
+    assert "Settings - Saved" in md and "Delete its key" in md and "Examined" in md
+
+
+def test_cli_exits_1_on_a_bad_ref_and_never_2(tmp_path, capsys):
+    code = gg.main(["check", "--base", "not-a-ref-xyz", "--head", "HEAD",
+                    "--json", str(tmp_path / "out.json")])
+    assert code == 1
+    assert json.loads((tmp_path / "out.json").read_text())["status"] == "error"
+
+
+def test_unmatched_path_legs_are_examined_and_reported_separately():
+    base_no_page = gg.build_snapshot(tree({}))
+    report = gg.evaluate(base_no_page, base_no_page, LEGS, "2026-10-01", renames={})
+    assert report.examined["unmatched_path_legs"] == ["Viewed@/dashboard"]
+
+    page = "packages/gp-webapp/app/dashboard/page.tsx"
+    base_with_page = gg.build_snapshot(tree({page: "export default function P() {}"}))
+    report2 = gg.evaluate(base_with_page, base_with_page, LEGS, "2026-10-01", renames={})
+    assert report2.examined["unmatched_path_legs"] == []

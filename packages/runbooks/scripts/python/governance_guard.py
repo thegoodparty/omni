@@ -455,6 +455,133 @@ def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
     return remaining, cleared
 
 
+class GuardError(Exception):
+    pass
+
+
+@dataclass
+class Report:
+    blocks: list[Finding]
+    warns: list[Finding]
+    cleared: list[Finding]
+    examined: dict[str, object]
+
+
+def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.Leg]],
+             sem_date: str | None, renames: Mapping[str, str]) -> Report:
+    event_legs, path_legs = watched_legs(anchors)
+    if not event_legs and not path_legs:
+        raise GuardError("no watched OKR legs loaded from instrumentation_data/sem; refusing to report a pass")
+    found = (okr_findings(base, head, event_legs, path_legs, renames) + dead_listings(base, head)
+             + stale_surface_paths(base, head) + hubspot_warnings(base, head) + new_key_warnings(base, head))
+    remaining, cleared = apply_intents(found, base, head)
+    # A path leg whose route matches no page is silently unguarded by okr_findings (which only
+    # reacts to a route disappearing between base and head), so surface it explicitly: a
+    # disabled check must not look like a passing one.
+    unmatched = sorted(f"{event}@{route}" for (event, route) in path_legs if route not in base.page_routes)
+    return Report(
+        blocks=[f for f in remaining if f.level == "block"],
+        warns=[f for f in remaining if f.level == "warn"],
+        cleared=cleared,
+        examined={"events_compared": len(base.registered() | head.registered()),
+                  "okr_legs": len(event_legs) + len(path_legs),
+                  "files_scanned": len(head.files), "sem_copy_date": sem_date,
+                  "unmatched_path_legs": unmatched},
+    )
+
+
+_TITLES = {
+    "okr_call_site_lost": "OKR activity lost a call site",
+    "okr_file_unused": "OKR call site no longer runs",
+    "okr_page_removed": "OKR page removed",
+    "dead_listing": "Event removed but still listed",
+    "stale_surface_path": "Registry points at a deleted file",
+    "invalid_intent": "Intent row is not valid",
+    "hubspot_event_removed": "HubSpot event removed",
+    "naming": "Event name",
+    "no_provenance_row": "No provenance row",
+}
+
+
+def render_markdown(report: Report) -> str:
+    lines = ["<!-- analytics-guard -->", "### Analytics guard", ""]
+    if not report.blocks and not report.warns:
+        lines.append("No analytics governance problems found.")
+    for heading, items in (("Blocks merge", report.blocks), ("Warnings", report.warns)):
+        if not items:
+            continue
+        lines += [f"**{heading}**", ""]
+        for f in items:
+            lines += [f"- **{_TITLES.get(f.rule, f.rule)}**: `{f.event}`. {f.detail}",
+                      "", "  " + f.fix.replace("\n", "\n  "), ""]
+    if report.cleared:
+        lines += ["**Cleared by an intent row in this change**", ""]
+        lines += [f"- `{f.event}` ({', '.join(f.metrics)})" for f in report.cleared] + [""]
+    e = report.examined
+    lines.append(f"_Examined {e['events_compared']} events, {e['okr_legs']} OKR legs, "
+                 f"{e['files_scanned']} files. OKR definitions as of {e['sem_copy_date']}._")
+    if e["unmatched_path_legs"]:
+        lines.append("_Path legs with no matching page (not guarded): "
+                     f"{', '.join(e['unmatched_path_legs'])}._")
+    return "\n".join(lines) + "\n"
+
+
+def git_renames(repo: Path, base: str, head: str | None) -> dict[str, str]:
+    args = ["diff", "-M50%", "--name-status", base] + ([head] if head else [])
+    out = {}
+    for line in _git(repo, *args).decode().splitlines():
+        parts = line.split("\t")
+        if parts[0].startswith("R") and len(parts) == 3:
+            out[parts[1]] = parts[2]
+    return out
+
+
+def _run(args: argparse.Namespace) -> Report:
+    repo = Path(args.repo)
+    anchors, sem_date = sa.load_vendored_anchors()
+    anchors = {m: list(legs) for m, legs in anchors.items()}
+    for spec in args.extra_leg:
+        event, _, metric = spec.rpartition("=")
+        anchors.setdefault(metric, []).append(sa.Leg(event))
+    base = build_snapshot(GitTree(repo, args.base))
+    head = build_snapshot(GitTree(repo, args.head) if args.head else WorkTree(repo))
+    return evaluate(base, head, anchors, sem_date, git_renames(repo, args.base, args.head))
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    check = sub.add_parser("check")
+    check.add_argument("--base", required=True)
+    check.add_argument("--head")
+    check.add_argument("--repo", default=str(REPO_ROOT))
+    check.add_argument("--json")
+    check.add_argument("--markdown")
+    check.add_argument("--extra-leg", action="append", default=[])
+    args = parser.parse_args(argv)
+    try:
+        report = _run(args)
+    # Wide on purpose: principle 1 of the design. A guard bug must surface as an error the
+    # workflow can pass loudly, never as a block a developer cannot clear.
+    except Exception as exc:  # noqa: BLE001
+        message = f"GUARD ERROR: {type(exc).__name__}: {exc}"
+        print(message, file=sys.stderr)
+        if args.json:
+            Path(args.json).write_text(json.dumps({"status": "error", "error": message}))
+        return 1
+    md = render_markdown(report)
+    print(md)
+    if args.markdown:
+        Path(args.markdown).write_text(md)
+    if args.json:
+        Path(args.json).write_text(json.dumps({
+            "status": "block" if report.blocks else "pass",
+            "blocks": [asdict(f) for f in report.blocks], "warns": [asdict(f) for f in report.warns],
+            "cleared": [asdict(f) for f in report.cleared], "examined": report.examined,
+        }, indent=1))
+    return 2 if report.blocks else 0
+
+
 def new_key_warnings(base: Snapshot, head: Snapshot) -> list[Finding]:
     out = []
     for name in sorted(head.registered() - base.registered()):
@@ -467,3 +594,7 @@ def new_key_warnings(base: Snapshot, head: Snapshot) -> list[Finding]:
                                "New event with no provenance row.",
                                "Run the instrument-analytics-event skill's provenance upsert step."))
     return out
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
