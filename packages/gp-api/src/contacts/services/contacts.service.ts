@@ -1812,16 +1812,27 @@ export class ContactsService {
       organization,
       filterInput,
     )
-    const { idResolution, contactsMadeIdOverrides } =
+    const { idResolution: criteria, contactsMadeIdOverrides } =
       await this.resolveIdFilterWithContactsMade(organization, filterInput)
-    if (idResolution.kind === 'empty') return null
-    const filters = this.mergeIdFilter(baseFilters, idResolution)
-    const search = filterInput.search || undefined
+    if (criteria.kind === 'empty') return null
     const excludeIds =
       await this.voterFileFilterSampleService.personIdsForOutreaches(
         organization.slug,
         sample.excludeOutreachIds ?? [],
       )
+    // The people already asked leave the scope itself, so the count below is
+    // the real pool. Subtracting their number from the audience assumed they
+    // were all still in it, and drew short when they were not.
+    const idResolution =
+      excludeIds.length === 0
+        ? criteria
+        : intersectIdFilterResolutions(criteria, {
+            kind: 'filter',
+            idFilter: { notIn: excludeIds },
+          })
+    if (idResolution.kind === 'empty') return []
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    const search = filterInput.search || undefined
 
     return this.withOrgDistrictResolution(
       organization,
@@ -1841,18 +1852,16 @@ export class ContactsService {
             groupByHousehold: false,
           }),
         )
-        const audience = pagination.totalResults
-        const remaining = audience - Math.min(excludeIds.length, audience)
+        const pool = pagination.totalResults
         // Widening a sample that already reached nearly everyone takes the
         // rest of them, never the people it already asked.
-        if (remaining <= sample.size && excludeIds.length === 0) return null
-        if (remaining === 0) return []
+        if (pool <= sample.size && excludeIds.length === 0) return null
+        if (pool === 0) return []
         const people = await this.voterQueryService.samplePeople(
           SamplePeopleDTO.create({
             ...scope,
-            size: Math.min(sample.size, remaining),
+            size: Math.min(sample.size, pool),
             seedKey: sample.seedKey,
-            excludeIds,
           }),
         )
         return people.map((person) => person.id)

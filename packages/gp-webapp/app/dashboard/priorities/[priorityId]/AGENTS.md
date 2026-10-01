@@ -190,7 +190,11 @@ The rules live in the prompt (`buildSamplingBlock` and
   high-confidence bar) the agent says the read is thin, does not record the
   side confirmed or revised, and offers to widen: a new proposal to the same
   audience with `widensOutreachIds`, whose list leaves out whoever the
-  earlier samples drew. Nothing calls a result statistically proven; the 2 or
+  earlier samples drew. A side already sent is otherwise never offered again
+  (`checkProposalRefusal`); a widen gets through only when the server finds
+  every named send put out that same side of this priority's check
+  (`PriorityFlowOutreachService.allPutOutCheck`). A proposal whose audience
+  counted nobody is refused outright. Nothing calls a result statistically proven; the 2 or
   3 in 100 who reply choose themselves.
 
 ## Cards are keyed, not trusted

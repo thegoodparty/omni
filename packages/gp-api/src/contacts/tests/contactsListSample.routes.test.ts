@@ -148,6 +148,7 @@ describe('lists saved as a sample', () => {
         voterFileFilterId: first.data.id,
       },
     })
+    const findPeople = stubAudience(58_518)
     const draw = stubDraw([randomUUID()])
 
     const second = await createFilter(slug, {
@@ -157,9 +158,53 @@ describe('lists saved as a sample', () => {
     })
 
     expect(second.status).toBe(HttpStatus.CREATED)
-    expect([...(draw.mock.calls[0]?.[0]?.excludeIds ?? [])].sort()).toEqual(
-      firstDraw,
-    )
+    // Left out of the scope itself, so the count and the draw both read
+    // the pool without them.
+    const excluded = { operator: 'notIn', values: expect.any(Array) }
+    expect(findPeople.mock.calls[0]?.[0]?.filters).toMatchObject({
+      filterOperators: { id: excluded },
+    })
+    expect(
+      [
+        ...(draw.mock.calls[0]?.[0]?.filters?.filterOperators?.id?.values ??
+          []),
+      ].sort(),
+    ).toEqual(firstDraw)
+  })
+
+  // The people an earlier sample reached may have left the audience since.
+  // Subtracting their number from the audience drew short; the pool is what
+  // is actually left once they are taken out.
+  it('draws the full sample when the people left out are no longer in it', async () => {
+    const slug = await setupServeOrg('no-overlap')
+    stubAudience(58_520)
+    stubDraw([randomUUID(), randomUUID()])
+    const first = await createFilter(slug, {
+      name: 'First round',
+      hasCellPhone: true,
+      sample: { size: 2 },
+    })
+    const sent = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: 'text',
+        voterFileFilterId: first.data.id,
+      },
+    })
+    // None of the two already asked are in the audience any more, so the
+    // pool with them taken out is still all three.
+    stubAudience(3)
+    const draw = stubDraw([randomUUID(), randomUUID()])
+
+    const second = await createFilter(slug, {
+      name: 'Second round',
+      hasCellPhone: true,
+      sample: { size: 2, excludeOutreachIds: [sent.id] },
+    })
+
+    expect(second.status).toBe(HttpStatus.CREATED)
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({ size: 2 })
+    expect(await sampleMemberIds(second.data.id)).toHaveLength(2)
   })
 
   it('reads a sample that drew nobody as nobody, never the whole audience', async () => {
@@ -181,6 +226,7 @@ describe('lists saved as a sample', () => {
         voterFileFilterId: created.data.id,
       },
     })
+    stubAudience(0)
     const draw = stubDraw([])
 
     const again = await createFilter(slug, {

@@ -51,6 +51,7 @@ import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideCont
 import {
   buildPriorityOutreachProposalTool,
   checkProposalRefusal,
+  proposalResult,
 } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
@@ -237,16 +238,27 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         execute: async (input: Parameters<typeof propose.execute>[0]) => {
           const unsigned = unsignedDraftReason(input, ctx.officialFirstName)
           if (unsigned !== null) return { error: unsigned }
+          const widens = input.widensOutreachIds ?? []
           const refusal =
             input.stepId === undefined && input.side === undefined
               ? null
               : checkProposalRefusal(
                   input,
                   await this.priorityStatus.read(ctx.priorityId),
+                  widens.length > 0 &&
+                    input.stepId !== undefined &&
+                    input.side !== undefined &&
+                    (await this.outreach.allPutOutCheck(
+                      ctx.priorityId,
+                      input.stepId,
+                      input.side,
+                      widens,
+                    )),
                 )
           if (refusal !== null) return { error: refusal }
-          offeredThisTurn = true
-          return propose.execute(input)
+          const result = proposalResult(input)
+          if (!('error' in result)) offeredThisTurn = true
+          return result
         },
       },
       present_outside_contact: buildPresentOutsideContactTool(),

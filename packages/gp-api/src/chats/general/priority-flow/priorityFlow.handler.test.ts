@@ -612,6 +612,101 @@ describe('PriorityFlowHandler', () => {
     ).toHaveProperty('error')
   })
 
+  // A thin read is widened by asking new people on the same side, which the
+  // already-sent refusal above must not block, and must not let a plain
+  // re-propose through either.
+  it('lets a sent side widen only over sends of that same side', async () => {
+    const status = emptyPriorityStatus()
+    priorityStatus.read = vi.fn(() =>
+      Promise.resolve({
+        ...status,
+        steps: status.steps.map((step) =>
+          step.id === 'define'
+            ? {
+                ...step,
+                state: 'settled' as const,
+                check: {
+                  state: 'out' as const,
+                  who: 'Renters on the flood blocks',
+                  question: 'Is it the drains?',
+                  raised: 0,
+                  sentAt: '2026-09-30T12:00:00Z',
+                  sentProposalKey: '3c9a7e51-0d2b-4f6e-9a18-5b7c2d4e6f80',
+                },
+              }
+            : step,
+        ),
+      }),
+    )
+    const allPutOutCheck = vi.fn(
+      (...args: [string, string, string, number[]]) =>
+        Promise.resolve(args[3].every((id) => id === 501)),
+    )
+    outreach.allPutOutCheck = allPutOutCheck
+    const tool = build().buildTools(baseCtx()).present_outreach_proposal
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    const proposal = {
+      audience: 'Renters on the flood blocks',
+      count: 58_520,
+      channel: 'phoneBanking' as const,
+      message: 'I am calling for Bryan, your City Council Member.',
+      deepLinkOnly: false,
+      stepId: 'define' as const,
+      side: 'main' as const,
+      sampleSize: 80,
+    }
+
+    expect(
+      await tool.execute({ ...proposal, widensOutreachIds: [501] }),
+    ).toEqual({ presented: true, deepLinkOnly: false })
+    expect(allPutOutCheck).toHaveBeenCalledWith(
+      baseCtx().priorityId,
+      'define',
+      'main',
+      [501],
+    )
+    // A send of some other check, or someone else's, does not count.
+    expect(
+      await tool.execute({ ...proposal, widensOutreachIds: [777] }),
+    ).toHaveProperty('error', expect.stringContaining('this same side'))
+    // Without naming what it widens, it is the same people asked twice.
+    expect(await tool.execute(proposal)).toHaveProperty(
+      'error',
+      expect.stringContaining('already went out'),
+    )
+  })
+
+  it('refuses a proposal whose audience counted nobody', async () => {
+    const tool = build().buildTools(baseCtx()).present_outreach_proposal
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    const proposal = {
+      audience: 'Nobody',
+      count: 0,
+      message: 'I am calling for Bryan, your City Council Member.',
+      deepLinkOnly: false,
+      sampleSize: 100,
+    }
+
+    const empty = await tool.execute({
+      ...proposal,
+      channel: 'phoneBanking' as const,
+    })
+    expect(empty).toHaveProperty('error', expect.stringContaining('nobody'))
+    expect(empty).not.toHaveProperty('wholeAudience')
+    // A post has no audience to count.
+    expect(
+      await tool.execute({
+        ...proposal,
+        channel: 'social' as const,
+        sampleSize: undefined,
+      }),
+    ).toEqual({ presented: true, deepLinkOnly: true })
+  })
+
   it('tells the agent a sent side is out on its own and never offered again', () => {
     const status = emptyPriorityStatus()
     const prompt = buildWithCrm().buildSystemPrompt({

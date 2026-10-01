@@ -72,6 +72,28 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     return this.withReplyCounts(rows, 'office')
   }
 
+  // Whether every one of these sends put out this side of this priority's
+  // check. Only then is a proposal for that side a wider sample of the same
+  // ask rather than the same people asked twice.
+  async allPutOutCheck(
+    priorityId: string,
+    stepId: string,
+    side: string,
+    outreachIds: number[],
+  ): Promise<boolean> {
+    const ids = [...new Set(outreachIds)]
+    if (ids.length === 0) return false
+    const matching = await this.count({
+      where: {
+        id: { in: ids },
+        priorityId,
+        priorityStepId: stepId,
+        priorityCheckSide: side,
+      },
+    })
+    return matching === ids.length
+  }
+
   async summarizeAnchors(priorityId: string): Promise<PriorityAnchorSummary[]> {
     const rows = await this.forPriority(priorityId)
     return rows.map((row) => ({

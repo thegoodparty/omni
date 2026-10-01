@@ -49,21 +49,31 @@ const isDeepLinkOnly = (channel: ProposalChannel): boolean =>
   channel !== ProposalChannelSchema.enum.phoneBanking
 
 // The card and the list both read a sample this big as the whole audience,
-// so the agent has to say it that way too.
-const proposalResult = (input: {
+// so the agent has to say it that way too. A post has no audience, so only
+// the other channels can come up empty.
+export const proposalResult = (input: {
   channel: ProposalChannel
   count: number
   sampleSize?: number
-}) => ({
-  presented: true,
-  deepLinkOnly: isDeepLinkOnly(input.channel),
-  ...(input.sampleSize !== undefined &&
-    input.sampleSize >= input.count && {
-      wholeAudience:
-        `The sample is no smaller than the ${input.count} people in ` +
-        'the audience, so all of them get it. Say so.',
-    }),
-})
+}) =>
+  input.count === 0 && input.channel !== 'social'
+    ? {
+        error:
+          'That audience counted nobody, so there is no one to send this ' +
+          'to. Loosen or change the filter, count again, and present it ' +
+          'once it reaches people.',
+      }
+    : {
+        presented: true,
+        deepLinkOnly: isDeepLinkOnly(input.channel),
+        ...(input.sampleSize !== undefined &&
+          input.count > 0 &&
+          input.sampleSize >= input.count && {
+            wholeAudience:
+              `The sample is no smaller than the ${input.count} people in ` +
+              'the audience, so all of them get it. Say so.',
+          }),
+      }
 
 const DESCRIPTION =
   'Present a ready-to-send piece of outreach. Everything must be final: ' +
@@ -93,9 +103,17 @@ export const buildPresentOutreachProposalTool = (): LlmStreamTool<
 
 // Why a priority's proposal may not be shown, or null. A side already sent
 // is out with people, so offering it again would ask them twice.
+// A side that went out can be asked again only as a wider sample: a proposal
+// whose widensOutreachIds the caller has checked are sends of that same side
+// (`widensVerified`), so its list leaves out everyone they already reached.
 export const checkProposalRefusal = (
-  input: { stepId?: string; side?: 'main' | 'contrast' },
+  input: {
+    stepId?: string
+    side?: 'main' | 'contrast'
+    widensOutreachIds?: number[]
+  },
   status: PriorityStatus,
+  widensVerified = false,
 ): string | null => {
   if (input.stepId === undefined && input.side === undefined) return null
   const step = status.steps.find((s) => s.id === input.stepId)
@@ -109,12 +127,21 @@ export const checkProposalRefusal = (
       'this puts out: define, options, method or plan.'
     )
   }
+  if (input.widensOutreachIds?.length && !widensVerified) {
+    return (
+      'widensOutreachIds has to name sends that put out this same side of ' +
+      `the check on ${PRIORITY_STEP_LABELS[step.id]}. Take the ids from ` +
+      'read_past_outreach.'
+    )
+  }
   const sent =
     input.side === 'main' ? step.check?.sentAt : step.check?.contrast?.sentAt
-  return sent === undefined
+  return sent === undefined || widensVerified
     ? null
     : `That side of the check on ${PRIORITY_STEP_LABELS[step.id]} already ` +
-        `went out (${sent}). Do not offer it again; wait for what people say.`
+        `went out (${sent}). Do not offer it again; wait for what people ` +
+        'say. If what came back is too thin to read, widen it with ' +
+        'widensOutreachIds set to the sends that went out.'
 }
 
 // The caller checks a named check with checkProposalRefusal before this runs,
