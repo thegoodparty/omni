@@ -599,11 +599,14 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    already covers the event). For A or C, continue only once the business
    group's ruling is in hand: stop and wait if it is not, and carry on if it is. A rename can hold a C inside a
    B; step 5 is where that surfaces, and it stops there.
-2. **Read both gotchas books** in full: `books/analytics-governance-gotchas.md` here,
-   and gp-data-platform's `.claude/skills/win-analytics-knowledge/references/gotchas.md`
-   (or `serve-…`). After drafting the plan, check it against them row by row and say
-   which rows applied. On DATA-2584 this check found four defects in a plan drafted
-   without it.
+2. **Read every gotchas book** in full: `books/analytics-governance-gotchas.md` here,
+   and **both** of gp-data-platform's `.claude/skills/win-analytics-knowledge/references/gotchas.md`
+   and `serve-analytics-knowledge/references/gotchas.md`, whichever product the metric
+   is. The outreach events are shared, so a trap recorded under one product applies to
+   the other (DATA-2609 needed the Win book's `method = 'unknown'` row for a Serve
+   metric); a shared cross-product book is being split out of the two (path TBD).
+   After drafting the plan, check it against them row by row and say which rows
+   applied. On DATA-2584 this check found four defects in a plan drafted without it.
 3. **Pin the dates** from the warehouse, and the prod release from `release.yml`, not
    from a ticket:
    ```sql
