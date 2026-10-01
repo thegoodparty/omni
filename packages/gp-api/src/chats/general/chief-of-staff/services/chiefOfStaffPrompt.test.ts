@@ -117,6 +117,41 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     },
   }
 
+  it('carries what constituents said on a check they answered', () => {
+    const answered = {
+      ...priorityInFlow,
+      flow: {
+        ...priorityInFlow.flow,
+        checks: [
+          {
+            stepId: 'define' as const,
+            check: {
+              state: 'confirmed' as const,
+              who: 'Renters on Oak',
+              question: '',
+              raised: 0,
+              heard: 'Rent, mostly, said three households',
+              contrast: {
+                state: 'revised' as const,
+                who: '',
+                question: '',
+                heard: 'Owners want the cost shared',
+              },
+            },
+          },
+        ],
+      },
+    }
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ priorities: [answered] }),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain(
+      'constituents said: Rent, mostly, said three households',
+    )
+    expect(prompt).toContain('constituents said: Owners want the cost shared')
+  })
+
   it('carries where each priority stands and points into its flow', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx({ priorities: [priorityInFlow] }),
@@ -125,8 +160,8 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain(
       '- Rents near transit (id: pri-1) on: What we know, next: Pull the ' +
         'rent numbers, constituent checks: The problem: put off, who: ' +
-        'Renters on Oak, asking: Is rent what is pushing you out?, they ' +
-        'said: after the budget hearing, raised 1 of 3 times, least ' +
+        'Renters on Oak, asking: Is rent what is pushing you out?, timing: ' +
+        'after the budget hearing, raised 1 of 3 times, least ' +
         'affected: put off (Owners across town, asking: Would you pay ' +
         'toward this?): Keep renters near the new line.',
     )

@@ -417,9 +417,10 @@ const formatContrast = (contrast: PriorityStepContrast): string => {
     contrast.question.trim() === ''
       ? null
       : `asking: ${optional(contrast.question)}`,
-    contrast.when === undefined
+    contrast.when === undefined ? null : `timing: ${optional(contrast.when)}`,
+    contrast.heard === undefined
       ? null
-      : `they said: ${optional(contrast.when)}`,
+      : `constituents said: ${optional(contrast.heard)}`,
   ].filter((part): part is string => part !== null)
   const line = `least affected: ${CHECK_STATE_LINE[contrast.state]}`
   return detail.length === 0 ? line : `${line} (${detail.join(', ')})`
@@ -433,7 +434,10 @@ const formatCheck = (
     `${PRIORITY_STEP_LABELS[stepId]}: ${CHECK_STATE_LINE[check.state]}`,
     check.who.trim() === '' ? null : `who: ${optional(check.who)}`,
     check.question.trim() === '' ? null : `asking: ${optional(check.question)}`,
-    check.when === undefined ? null : `they said: ${optional(check.when)}`,
+    check.when === undefined ? null : `timing: ${optional(check.when)}`,
+    check.heard === undefined
+      ? null
+      : `constituents said: ${optional(check.heard)}`,
     check.state === 'deferred'
       ? `raised ${check.raised} of ${MAX_CHECK_RAISES} times`
       : null,
