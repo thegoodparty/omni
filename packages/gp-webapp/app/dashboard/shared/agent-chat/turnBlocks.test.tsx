@@ -241,6 +241,12 @@ describe('a question written above the clarify widget', () => {
     expect(withoutTrailingQuestion('Look at the U.S. data first?')).toBe('')
   })
 
+  it('ends a sentence at a short ordinary word', () => {
+    expect(withoutTrailingQuestion('Moving On. Which first?')).toBe(
+      'Moving On.',
+    )
+  })
+
   it('ends a sentence at a link or a decimal', () => {
     expect(
       withoutTrailingQuestion(
