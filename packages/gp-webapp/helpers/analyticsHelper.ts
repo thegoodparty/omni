@@ -235,8 +235,6 @@ export const EVENTS = {
       // Completion only — an uncomplete is a correction, not an activation
       // signal, and an event named Completed must not fire on one.
       TaskCompleted: 'Dashboard - Campaign Task Completed',
-      VoterContactDialogViewed: 'Dashboard - Voter Contact Dialog Viewed',
-      VoterContactRecorded: 'Dashboard - Voter Contact Recorded',
       MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
       StrategicLandscapeRequested:
         'Dashboard - Campaign Plan: Strategic Landscape Requested',
@@ -343,7 +341,6 @@ export const EVENTS = {
     CommitteeCheck: {
       HoverEinHelp:
         'Pro Upgrade - Committee Check Page: Hover "EIN number" help',
-      ClickUpload: 'Pro Upgrade - Committee Check Page: Click Upload ',
     },
     // Agentic Pro Upgrade → 10DLC compliance funnel (ENG-10294). Kept separate
     // from the legacy Modal / SplashPage / CommitteeCheck events above, which
@@ -389,17 +386,13 @@ export const EVENTS = {
       SuccessContinue: 'Pro Upgrade - Success: Click continue',
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
-    // outreach-pro-gating-v2 membership surfaces (Pro upgrade and campaign
-    // verification 2.0). Banner/chip carry `tier` and `texting`; clicks carry
-    // `action`.
     Membership: {
-      BannerViewed: 'Pro Upgrade - Membership Banner Viewed',
-      BannerClicked: 'Pro Upgrade - Membership Banner: Click',
-      ChipViewed: 'Pro Upgrade - Membership Chip Viewed',
-      ChipClicked: 'Pro Upgrade - Membership Chip: Click',
-      PitchViewed: 'Pro Upgrade - Pitch Viewed',
-      PitchJoin: 'Pro Upgrade - Pitch: Click join',
-      PitchDismiss: 'Pro Upgrade - Pitch: Click continue without Pro',
+      // A press of the nav unit (sidebar banner on desktop, top-bar chip on
+      // mobile), one event per thing the unit is asking for. Device filters
+      // tell the two surfaces apart; `path` is the page.
+      BannerClicked: 'Pro Upgrade - Banner Clicked',
+      VerificationBannerClicked: '10DLC - Verification Banner Clicked',
+      PinBannerClicked: '10DLC - PIN Banner Clicked',
     },
     // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
     // campaign verification 2.0).

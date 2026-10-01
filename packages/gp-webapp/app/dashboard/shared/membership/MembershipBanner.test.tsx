@@ -158,7 +158,7 @@ describe('MembershipBanner', () => {
     expect(screen.getByText('pitch:true')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Membership.BannerClicked,
-      { action: 'pitch' },
+      { path: '/' },
     )
   })
 
@@ -174,8 +174,8 @@ describe('MembershipBanner', () => {
 
     expect(router.push).toHaveBeenCalledWith(CAMPAIGN_VERIFICATION_PATH)
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Membership.BannerClicked,
-      { action: 'verify' },
+      EVENTS.ProUpgrade.Membership.VerificationBannerClicked,
+      { path: '/' },
     )
   })
 
@@ -194,6 +194,10 @@ describe('MembershipBanner', () => {
 
     expect(screen.getByText('pin:true')).toBeInTheDocument()
     expect(router.push).not.toHaveBeenCalled()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Membership.PinBannerClicked,
+      { path: '/' },
+    )
   })
 
   it('renders the in-review body with no CTA and no action', async () => {
@@ -244,36 +248,11 @@ describe('MembershipBanner', () => {
     expect(trackEvent).not.toHaveBeenCalled()
   })
 
-  it('reports the membership state when the banner becomes visible', () => {
+  // The banner sits on every dashboard page, so a view would only restate
+  // page views. Only the press is an event.
+  it('fires no event just for rendering', () => {
     setup({ state: membership({ texting: 'awaiting_pin' }) })
 
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Membership.BannerViewed,
-      { tier: 'pro', texting: 'awaiting_pin' },
-    )
-  })
-
-  it('reports one view when texting changes while the banner stays on screen', () => {
-    const { rerender } = setup({
-      state: membership({ texting: 'needs_verification' }),
-    })
-    mockUseMembershipState.mockReturnValue({
-      ready: true,
-      state: membership({ texting: 'awaiting_pin' }),
-      tcrCompliance: { status: 'submitted' },
-    })
-    rerender(<MembershipBanner />)
-
-    const views = vi
-      .mocked(trackEvent)
-      .mock.calls.filter(
-        ([event]) => event === EVENTS.ProUpgrade.Membership.BannerViewed,
-      )
-    expect(views).toEqual([
-      [
-        EVENTS.ProUpgrade.Membership.BannerViewed,
-        { tier: 'pro', texting: 'needs_verification' },
-      ],
-    ])
+    expect(trackEvent).not.toHaveBeenCalled()
   })
 })

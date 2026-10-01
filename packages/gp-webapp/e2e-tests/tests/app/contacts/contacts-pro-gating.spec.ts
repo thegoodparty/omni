@@ -114,14 +114,13 @@ test.describe('Contacts pro gating', () => {
     await expect(input).toBeVisible({ timeout: 20_000 })
     await input.fill('smith')
 
-    // The non-pro contacts upsell modal is ProUpgradeModal variant
-    // Second_NonViable (CrmContactsPage.tsx); its title is stable copy.
+    // The non-pro contacts wall is the Pro pitch dialog (ProPitchDialog,
+    // opened by CrmContactsPage with the voter-data channel); its title is
+    // stable copy.
     const proModalHeading = page.getByRole('heading', {
-      name: 'Get Pro voter data and tools',
+      name: 'Join Pro to unlock voter data and outreach',
     })
     await expect(proModalHeading).toBeVisible({ timeout: 10_000 })
-    // ProUpgradeModal is escape- and backdrop-locked; the X button is the
-    // only dismissal.
     await page.getByRole('button', { name: 'Close' }).click()
     await expect(proModalHeading).toBeHidden({ timeout: 10_000 })
 

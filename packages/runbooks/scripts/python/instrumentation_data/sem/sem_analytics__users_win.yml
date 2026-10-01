@@ -1,5 +1,5 @@
-# Frozen copy for parser tests only. The live copy the guard and tests of the real
-# registry read is instrumentation_data/sem/, refreshed every Monday and Thursday.
+# Refreshed from thegoodparty/gp-data-platform on 2026-10-01 by sem_anchors.py refresh-vendored.
+# Do not edit by hand: the analytics-governance run rewrites it every Monday and Thursday.
 semantic_models:
   - name: users_win
     description: >
