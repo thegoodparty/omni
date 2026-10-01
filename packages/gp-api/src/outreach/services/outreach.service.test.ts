@@ -616,6 +616,36 @@ describe('OutreachService', () => {
         expect(mockRefundPaymentIntent).not.toHaveBeenCalled()
       })
 
+      // The fifth outcome: the winner is still holding the draft when the poll
+      // window runs out. Money is captured and nothing is scheduled yet, but
+      // the winner may still be mid-submission, so this must throw (Stripe
+      // redelivers) and must not touch the money.
+      it('waits out a concurrent finalize, then defers without refunding', async () => {
+        vi.useFakeTimers()
+        try {
+          mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+          mockOutreachFindFirst.mockResolvedValue({
+            status: OutreachStatus.pending,
+            projectId: null,
+          })
+
+          const pending = service.finalizeOutreachPurchase(46, 1, 'cs_live_5')
+          const assertion = expect(pending).rejects.toThrow(
+            /a concurrent finalize is still in flight/,
+          )
+          // 30 polls a second apart, and the claim is never retried: a draft
+          // somebody else still holds is not ours to take.
+          await vi.advanceTimersByTimeAsync(30_000)
+          await assertion
+
+          expect(mockOutreachUpdateMany).toHaveBeenCalledTimes(1)
+          expect(mockStrandedChargeUpsert).not.toHaveBeenCalled()
+          expect(mockRefundPaymentIntent).not.toHaveBeenCalled()
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
       // The one stranded charge we must not give back automatically: a missing
       // draft also covers "this id belongs to another campaign", where a send
       // may have gone out under that campaign.
