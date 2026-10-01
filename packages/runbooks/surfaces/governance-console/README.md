@@ -310,6 +310,11 @@ ambiguity the card's fields resolve, and the explorer's copy should probably fol
 - **The queue is 12 causes, not 174 flags.** `cluster_flagged` groups the flagged set by
   why it fired, so one deploy that stranded 22 name constants is one row. The count on
   the right of a row is how many events sit under it.
+- **Rows are in rank order, except an OKR break goes first.** A cause holding an
+  OKR-watched event at a breaking rank is pulled to the top and marked `needs action`,
+  because that is the rule that makes the Slack digest post it red every run
+  (`digest_triage.is_okr_break`, shared by both). By rank alone, a dormant OKR event (rank
+  6) sat tenth of twelve while the digest called it the one thing to act on.
 - **Two causes can never be dismissed.** `okr_anchor_dormant` means a number the company
   steers by is wrong right now; `counter_blind_spot` means our call-site counter is
   blind, not that the event is dead. `load_cause_dismissals` refuses both and the digest
