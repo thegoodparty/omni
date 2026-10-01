@@ -1,5 +1,5 @@
-"""The committed registry must always be valid. A broken behaviors: block that only failed at
-run time would take the weekly digest down; failing here fails the PR instead."""
+"""The committed registry must always be valid. The Analytics guard CI job runs this suite on
+every PR that touches packages/runbooks, so failing here fails the PR."""
 
 from datetime import date
 from pathlib import Path
@@ -20,10 +20,7 @@ def test_no_behavior_or_row_carries_the_retired_okr_key():
 
 
 def test_every_metric_pointer_names_a_declared_metric():
-    fixtures = Path(aeh.__file__).parent / "fixtures"
-    declared: dict = {}
-    for name in ("sem_analytics__users_win.yml", "sem_analytics__users_serve.yml"):
-        declared.update(sa.parse_anchors((fixtures / name).read_text()))
+    declared, _ = sa.load_vendored_anchors()
     pointed = {m for b in br.load_behaviors(aeh.WATCHLIST) for m in br.metric_list(b)}
     assert pointed <= set(declared), pointed - set(declared)
 
@@ -88,13 +85,11 @@ def test_a_caveat_carries_a_plain_headline():
 UNPOINTED_METRICS = {"win_product_output_users", "activated_serve_users"}
 
 
-def test_committed_registry_has_no_case_1_drift_against_the_fixtures():
-    # Refreshing a fixture after an upstream anchored_on change must come with the
-    # registry edit that follows it; otherwise the scheduled run reports the drift.
-    fixtures = Path(aeh.__file__).parent / "fixtures"
-    anchors: dict = {}
-    for name in ("sem_analytics__users_win.yml", "sem_analytics__users_serve.yml"):
-        anchors.update(sa.parse_anchors((fixtures / name).read_text()))
+def test_committed_registry_has_no_case_1_drift_against_the_okr_copy():
+    # The committed OKR copy is refreshed from upstream twice a week; a refresh that
+    # changes anchored_on must come with the registry edit that follows it, otherwise the
+    # scheduled run reports the drift.
+    anchors, _ = sa.load_vendored_anchors()
     doc = yaml.safe_load(aeh.WATCHLIST.read_text())
     findings = aa.align(
         br.load_behaviors(aeh.WATCHLIST),
@@ -110,3 +105,11 @@ def test_committed_registry_has_no_case_1_drift_against_the_fixtures():
     assert [f for f in findings if f["case"] == 1] == [], findings
     pointed = {m for b in br.load_behaviors(aeh.WATCHLIST) for m in br.metric_list(b)}
     assert set(anchors) - pointed == UNPOINTED_METRICS
+
+
+def test_committed_intents_are_valid():
+    import governance_guard as gg
+    doc = yaml.safe_load(aeh.WATCHLIST.read_text())
+    assert "intents" in doc, "the intents: block is the guard's acknowledgement channel"
+    problems = [p for row in doc["intents"] or [] for p in gg.intent_problems(row)]
+    assert problems == []
