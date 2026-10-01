@@ -14,7 +14,6 @@ import {
 } from '../../generated/prisma'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 import { OutreachNotificationService } from './outreachNotification.service'
-import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 
 // Capture runs after completion (:09,:19,…) records the count, so it sits three
 // minutes later on a slot free of the other robocall crons (send :04, staging
@@ -54,7 +53,6 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
     private readonly orphanedHolds: RobocallOrphanedHoldService,
-    private readonly robocallSingleSend: OutreachRobocallSingleSendService,
     private readonly notification: OutreachNotificationService,
   ) {
     super()
@@ -515,18 +513,5 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
         'robocall receipt milestone emit failed',
       )
     }
-
-    // Single-send email leg (ENG-11035) — best-effort, never throws; see
-    // OutreachRobocallSingleSendService. A HubSpot failure here must never
-    // fail the capture that already moved money.
-    await this.robocallSingleSend.send(
-      EVENTS.Robocall.Receipt,
-      userId,
-      outreachId,
-      {
-        outreach_id: String(outreachId),
-        captured_amount_dollars: String(capturedAmountInDollars),
-      },
-    )
   }
 }

@@ -2,7 +2,7 @@ import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   OfficeLevel,
   OutreachStatus,
@@ -887,6 +887,70 @@ describe('POST /v1/p2p/phone-list (ENG-10801 phone dedup)', () => {
       '00000000-0000-0000-0000-000000000022',
       '00000000-0000-0000-0000-0000000000b1',
     ])
+  })
+})
+
+describe('POST /v1/p2p/phone-list (INC-101 resolution deadline)', () => {
+  beforeEach(() => {
+    stubDistrict()
+  })
+
+  // Date.now is stubbed below and `clearMocks` only clears calls, so put the
+  // real clock back before anything else in this file runs. Restoring this one
+  // spy rather than all of them: `useTestService` stubs auth with spies of its
+  // own, and vi.restoreAllMocks() takes those out too (401s for the rest of
+  // the file).
+  let restoreClock: (() => void) | undefined
+  afterEach(() => {
+    restoreClock?.()
+    restoreClock = undefined
+  })
+
+  it('400s a filter it cannot resolve in time instead of uploading after the gateway has hung up', async () => {
+    await seedWinCampaign()
+    const upload = stubPeerlyUpload()
+
+    // The production shape: 82,000 matched rows — UNDER the 100,000 cap, so
+    // nothing here used to refuse it — at ~1.5s per page of 1000, which is
+    // ~123s against a gateway that hangs up at ~120s. In prod that request
+    // died with no status at 120,038ms and the handler went on to upload the
+    // list to Peerly 45.9s later, so the official saw a failure for a list
+    // that exists. The pages advance the clock; a real one would mean a
+    // two-minute test.
+    let now = 0
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    restoreClock = () => clock.mockRestore()
+    let pageNumber = 0
+    const findPeople = vi
+      .spyOn(service.app.get(VoterQueryService), 'findPeople')
+      .mockImplementation(((dto: { page: number }) => {
+        pageNumber += 1
+        now += pageNumber === 1 ? 3000 : 1500
+        return Promise.resolve({
+          people: Array.from({ length: 1000 }, (_, i) =>
+            personPayload({
+              id: `00000000-0000-0000-${String(dto.page).padStart(4, '0')}-${String(i).padStart(12, '0')}`,
+              cellPhone: `555${String(dto.page).padStart(3, '0')}${String(i).padStart(4, '0')}`,
+            }),
+          ),
+          pagination: { totalResults: 82_000, hasNextPage: true },
+        })
+      }) as never)
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Whole county' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(400)
+    expect(result.data.message).toMatch(/too many to build a phone list/)
+    // Two pages, not 82: the official is told in about 4.5s.
+    expect(findPeople).toHaveBeenCalledTimes(2)
+    // The harm this closes. Nothing reached Peerly, so there is no list the
+    // official was never handed a token for, and no capture row for one.
+    expect(upload).not.toHaveBeenCalled()
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
   })
 })
 
