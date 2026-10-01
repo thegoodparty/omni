@@ -723,10 +723,7 @@ describe('PaymentEventsService', () => {
 
     it('tracks a Subscription Past Due event when the status transitions to past_due', async () => {
       await service.customerSubscriptionUpdatedHandler(
-        updatedEvent(
-          { status: 'past_due' },
-          { status: 'active' },
-        ),
+        updatedEvent({ status: 'past_due' }, { status: 'active' }),
       )
 
       expect(analytics.track).toHaveBeenCalledWith(

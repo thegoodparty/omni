@@ -476,10 +476,8 @@ export class PaymentEventsService {
       cancel_at: cancelAt,
       status,
     } = subscription
-    const {
-      cancel_at: previousCancelAt,
-      status: previousStatus,
-    } = previousAttributes || {}
+    const { cancel_at: previousCancelAt, status: previousStatus } =
+      previousAttributes || {}
 
     if (!subscriptionId) {
       throw new BadRequestException('No subscriptionId found in subscription')
@@ -514,14 +512,10 @@ export class PaymentEventsService {
       previousStatus !== 'past_due'
     ) {
       void this.analytics
-        .track(
-          user.id,
-          EVENTS.Account.SubscriptionPastDue,
-          {
-            subscriptionId,
-            campaignSlug: campaign.slug,
-          },
-        )
+        .track(user.id, EVENTS.Account.SubscriptionPastDue, {
+          subscriptionId,
+          campaignSlug: campaign.slug,
+        })
         .catch(() => undefined)
     }
   }
@@ -882,10 +876,7 @@ export class PaymentEventsService {
         .track(
           user.id,
           EVENTS.Account.SubscriptionCancelledPaymentFailed,
-          {
-            subscriptionId,
-            campaignSlug: campaign.slug,
-          },
+          { subscriptionId, campaignSlug: campaign.slug },
         )
         .catch(() => undefined)
     }
