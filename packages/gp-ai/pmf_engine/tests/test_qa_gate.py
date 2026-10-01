@@ -287,6 +287,10 @@ def test_qa_folder_without_main_py_is_skipped(workspace, gate_base):
     )
     assert isinstance(verdict, Verdict)
     assert verdict.status == "skipped"
+    # A KNOWN zero, not a withheld one. No qa files means no stage ran, so
+    # nothing could have spent — and a reader has to be able to tell that from
+    # an evaluator that ran and could not say what it cost.
+    assert verdict.cost_usd == 0.0
     assert verdict.checks == []
     assert verdict.verdict_version == 1
 
@@ -340,6 +344,8 @@ def test_insufficient_budget_returns_error_without_invoking_main(workspace, gate
     assert not os.path.exists(main_marker), "main.py must not run when budget is insufficient"
     # Surfaces the reason in a discoverable way.
     assert any("insufficient_budget" in v for v in verdict.violations)
+    # This branch exists to avoid spawning anything, so its zero is known too.
+    assert verdict.cost_usd == 0.0
     # Required budget reflects ONLY the deterministic timeout (no agent term).
     assert any("120" in v for v in verdict.violations)
 
@@ -2319,3 +2325,28 @@ def test_read_bounded_keeps_complete_output_when_child_lingers_after_eof(monkeyp
         qa_gate_mod._kill_quietly(proc)
     # The fix killed the lingering child; nothing should be left running.
     assert proc.poll() is not None
+
+
+def test_internal_error_withholds_the_cost_rather_than_claiming_zero(workspace, gate_base, monkeypatch):
+    """The fail-open catch wraps the WHOLE body, including everything after the
+    evaluator is spawned, so whatever was spent before the throw is unknown.
+    The skipped and insufficient-budget returns are provably free and say 0.0;
+    this one must not, because it cannot know."""
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("gate internals blew up")
+
+    monkeypatch.setattr(qa_gate_mod, "_resolve_budgets", boom)
+    verdict = _verdict(
+        run_qa_gate(
+            artifact_bytes=ARTIFACT,
+            qa_envelope=_envelope(files={"eval.md": "judge"}),
+            workspace_dir=workspace,
+            broker_env=_broker_env(),
+            remaining_budget_seconds=BIG_BUDGET,
+            evaluator_runner=_never_called_evaluator,
+            gate_base_dir=gate_base,
+        )
+    )
+    assert verdict.status == "error"
+    assert verdict.cost_usd is None

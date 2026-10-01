@@ -251,6 +251,10 @@ def run_qa_gate(
                 status="skipped",
                 qa_version_ids=qa_version_ids,
                 duration_ms=_elapsed_ms(started),
+                # A KNOWN zero. There are no qa files, so no stage ran and
+                # nothing could have spent — withholding a figure we have
+                # would be the same mistake as inventing one.
+                cost_usd=0.0,
             )
             _log_verdict(verdict, run_id)
             return verdict, None, None
@@ -273,6 +277,9 @@ def run_qa_gate(
                     f"{required}s required for present stages"
                 ],
                 duration_ms=_elapsed_ms(started),
+                # Also a known zero: this branch exists precisely to avoid
+                # spawning anything, so nothing was spent.
+                cost_usd=0.0,
             )
             _log_verdict(verdict, run_id)
             return verdict, None, None
@@ -358,6 +365,12 @@ def run_qa_gate(
             pass_=None,
             violations=[violation],
             duration_ms=_elapsed_ms(started),
+            # NO cost_usd, and that default of None is the right answer here
+            # rather than an oversight: this catches anything thrown anywhere
+            # in the body, including after the evaluator was spawned, so
+            # whatever was spent before the throw is unknown. The two returns
+            # above pass an explicit 0.0 because they provably spawned
+            # nothing.
         )
         _log_verdict(verdict, run_id)
         return verdict, None, None
