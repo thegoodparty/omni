@@ -26,12 +26,28 @@ export const TokenNode = Node.create({
   atom: true,
   selectable: true,
   draggable: true,
+  // Every attribute round-trips through the pill's HTML, because copy and
+  // paste re-parse that HTML: a pill that only carried its id would paste
+  // back with no merge-tag text and drop out of the message.
   addAttributes() {
     return {
-      id: { default: '' },
-      label: { default: '' },
-      text: { default: '' },
-      required: { default: false },
+      id: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-token-id') ?? '',
+      },
+      label: {
+        default: '',
+        parseHTML: (element) => element.textContent ?? '',
+      },
+      text: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-token-text') ?? '',
+      },
+      required: {
+        default: false,
+        parseHTML: (element) =>
+          element.getAttribute('data-token-required') === 'true',
+      },
     }
   },
   parseHTML() {
@@ -42,6 +58,8 @@ export const TokenNode = Node.create({
       'span',
       {
         'data-token-id': node.attrs.id,
+        'data-token-text': node.attrs.text,
+        'data-token-required': String(node.attrs.required),
         class: cn(tokenPillClassName, 'mx-0.5 cursor-grab align-baseline'),
         contenteditable: 'false',
       },

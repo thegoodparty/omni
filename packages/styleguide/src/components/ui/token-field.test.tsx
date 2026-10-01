@@ -153,6 +153,45 @@ describe('TokenField', () => {
     expect(onChange).toHaveBeenLastCalledWith('Before• one\n•  after')
   })
 
+  it('inserts multi-line text beside a locked phrase, but never inside one', async () => {
+    const { editor, ref, onChange, onBlockedEdit } = await mount({
+      value: 'Vote Tuesday. Reply STOP to opt out.',
+    })
+    act(() => {
+      editor.commands.setTextSelection(positionOf(editor, 'Reply'))
+    })
+    act(() => ref.current?.insertText('\n• '))
+    expect(onChange).toHaveBeenLastCalledWith(
+      'Vote Tuesday. \n• Reply STOP to opt out.',
+    )
+
+    onChange.mockClear()
+    act(() => {
+      editor.commands.setTextSelection(positionOf(editor, 'STOP') + 1)
+    })
+    act(() => ref.current?.insertText('x\ny'))
+    await waitFor(() => expect(onBlockedEdit).toHaveBeenCalledWith(OPT_OUT))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('keeps a pasted pill whole: its merge-tag text comes back with it', async () => {
+    const { editor, box, onChange } = await mount({
+      value: 'Hi {first_name}. Reply STOP to opt out.',
+    })
+    const pill = box.querySelector('[data-token-id="first_name"]')
+    if (!pill) throw new Error('no pill')
+    act(() => {
+      editor.commands.setTextSelection(positionOf(editor, '. '))
+      // Paste re-parses the copied HTML through the schema; insertContent
+      // with an HTML string takes the same parse path (jsdom has no
+      // ClipboardEvent for pasteHTML).
+      editor.commands.insertContent(pill.outerHTML)
+    })
+    expect(onChange).toHaveBeenLastCalledWith(
+      'Hi {first_name}{first_name}. Reply STOP to opt out.',
+    )
+  })
+
   it('inserts a token through the ref', async () => {
     const { ref, onChange } = await mount({ value: 'Hi ', protectedRanges: [] })
     act(() => ref.current?.insertToken('first_name'))
