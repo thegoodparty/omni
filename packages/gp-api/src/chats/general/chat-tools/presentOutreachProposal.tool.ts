@@ -39,5 +39,13 @@ export const buildPresentOutreachProposalTool = (): LlmStreamTool<
   execute: (input) => ({
     presented: true,
     deepLinkOnly: isDeepLinkOnly(input.channel),
+    // The card and the list both read a sample this big as the whole
+    // audience, so the agent has to say it that way too.
+    ...(input.sampleSize !== undefined &&
+      input.sampleSize >= input.count && {
+        wholeAudience:
+          `The sample is no smaller than the ${input.count} people in ` +
+          'the audience, so all of them get it. Say so.',
+      }),
   }),
 })

@@ -14,6 +14,7 @@ import {
   VoterFileFilter,
 } from '../../generated/prisma'
 import { VoterFileFilterGeoService } from './voterFileFilterGeo.service'
+import { VoterFileFilterSampleService } from './voterFileFilterSample.service'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
 
@@ -51,7 +52,10 @@ export class VoterFileFilterService extends createPrismaBase(
   // and crashes the app at boot with "Cannot access 'ContactsService'
   // before initialization". The controller owns both and resolves the ids
   // before calling in.
-  constructor(private readonly geo: VoterFileFilterGeoService) {
+  constructor(
+    private readonly geo: VoterFileFilterGeoService,
+    private readonly sampleMembers: VoterFileFilterSampleService,
+  ) {
     super()
   }
 
@@ -150,8 +154,13 @@ export class VoterFileFilterService extends createPrismaBase(
     // Null means no boundary was submitted; every caller without one (the
     // assistant tool, recommended lists) omits it and is unchanged.
     geoMemberIds?: string[] | null,
+    // Who a sampled list drew, already drawn by the caller. Null saves the
+    // live filter, which is also what a sample asked of an audience no
+    // bigger than itself comes back as.
+    sampleMemberIds?: string[] | null,
   ): Promise<VoterFileFilterWithConditions> {
-    const { activityConditions, recommendedFilter, geoPoly, ...rest } = data
+    const { activityConditions, recommendedFilter, geoPoly, sample, ...rest } =
+      data
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
@@ -182,6 +191,9 @@ export class VoterFileFilterService extends createPrismaBase(
             ? {}
             : { geoPoly: geoPoly ?? Prisma.DbNull }),
           ...(geoMemberIds ? { geoMembersResolvedAt: new Date() } : {}),
+          ...(sample && sampleMemberIds
+            ? { sampleSize: sample.size, sampledAt: new Date() }
+            : {}),
           ...(activityConditions
             ? {
                 activityConditions: {
@@ -194,6 +206,9 @@ export class VoterFileFilterService extends createPrismaBase(
       })
       if (geoMemberIds) {
         await this.geo.replaceMembers(tx, created.id, geoMemberIds)
+      }
+      if (sample && sampleMemberIds) {
+        await this.sampleMembers.writeMembers(tx, created.id, sampleMemberIds)
       }
       return created
     })

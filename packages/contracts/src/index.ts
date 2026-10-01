@@ -1147,6 +1147,12 @@ export {
 } from './people/PeopleOverlapCount.schema'
 
 export {
+  MAX_LIST_SAMPLE_SIZE,
+  ListSampleSchema,
+  type ListSample,
+} from './people/ListSample.schema'
+
+export {
   DoorKnockingEvaluateRequestSchema,
   type DoorKnockingEvaluateRequest,
   DoorKnockingEvaluatedPersonSchema,

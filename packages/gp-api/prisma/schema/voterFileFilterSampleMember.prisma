@@ -1,0 +1,15 @@
+/// The people a sampled list drew, frozen when the list was saved: a random
+/// pick within the list's criteria (see `VoterFileFilter.sampleSize`), so a
+/// stage-gate check reaches a few thousand people instead of everyone it
+/// could.
+model VoterFileFilterSampleMember {
+  id                Int             @id @default(autoincrement())
+  createdAt         DateTime        @default(now()) @map("created_at")
+  voterFileFilter   VoterFileFilter @relation(fields: [voterFileFilterId], references: [id], onDelete: Cascade)
+  voterFileFilterId Int             @map("voter_file_filter_id")
+  /// people_db person UUID, as on the geo member table.
+  personId          String          @map("person_id")
+
+  @@unique([voterFileFilterId, personId])
+  @@map("voter_file_filter_sample_member")
+}

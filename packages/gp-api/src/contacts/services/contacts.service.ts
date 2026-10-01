@@ -53,6 +53,7 @@ import { OrganizationsService } from 'src/organizations/services/organizations.s
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { VoterFileFilterGeoService } from '@/voters/services/voterFileFilterGeo.service'
+import { VoterFileFilterSampleService } from '@/voters/services/voterFileFilterSample.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
@@ -280,6 +281,7 @@ export class ContactsService {
   constructor(
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly voterFileFilterGeoService: VoterFileFilterGeoService,
+    private readonly voterFileFilterSampleService: VoterFileFilterSampleService,
     private readonly elections: ElectionsService,
     private readonly campaigns: CampaignsService,
     private readonly organizations: OrganizationsService,
@@ -594,6 +596,22 @@ export class ContactsService {
       : { kind: 'filter', idFilter: { in: personIds } }
   }
 
+  // A sampled list's draw, intersected the same way as a boundary and keyed
+  // the same way: on `sampleSize`, never on the rows, so a sample that drew
+  // nobody resolves to nobody rather than to the whole audience.
+  private async resolveSampleIdFilter(
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    if (filterInput.sampleSize == null) return { kind: 'none' }
+    if (typeof filterInput.id !== 'number') return { kind: 'empty' }
+    const personIds = await this.voterFileFilterSampleService.personIdsFor(
+      filterInput.id,
+    )
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
+  }
+
   // The frozen members of a saved list's drawn boundary, for a caller
   // counting that list's criteria inline (the edit wizard). Scoped through
   // resolveCustomSegment, which 404s an id this organization does not own,
@@ -609,7 +627,10 @@ export class ContactsService {
       String(filterInput.boundaryFromSegmentId),
       organization,
     )
-    return this.resolveGeoIdFilter(segment)
+    return intersectIdFilterResolutions(
+      await this.resolveGeoIdFilter(segment),
+      await this.resolveSampleIdFilter(segment),
+    )
   }
 
   private async resolveIdFilterWithContactsMade(
@@ -632,8 +653,11 @@ export class ContactsService {
     // after it, the boundary would hold on the CSV and the counts and
     // nowhere a holder actually looks.
     const idResolution = intersectIdFilterResolutions(
-      activityResolution,
-      await this.resolveGeoIdFilter(filterInput),
+      intersectIdFilterResolutions(
+        activityResolution,
+        await this.resolveGeoIdFilter(filterInput),
+      ),
+      await this.resolveSampleIdFilter(filterInput),
     )
     if (this.hasElectedOfficeAccess(organization)) {
       // Serve's own dimension takes the Win block's place rather than sitting
@@ -1494,6 +1518,12 @@ export class ContactsService {
             savedIdResolution,
             await this.resolveGeoIdFilter(savedFilter),
           )
+          // A sampled list holds its draw, not its whole audience, for the
+          // same reason.
+          savedIdResolution = intersectIdFilterResolutions(
+            savedIdResolution,
+            await this.resolveSampleIdFilter(savedFilter),
+          )
         } catch (error) {
           this.logger.warn(
             {
@@ -1763,6 +1793,71 @@ export class ContactsService {
       )
 
     return this.withOrgDistrictResolution(organization, fetchSample)
+  }
+
+  // Who a list saved as a sample holds: `size` people drawn at random from
+  // everyone its criteria match, resolved exactly as a count of the same
+  // criteria is. Null when the audience is no bigger than the sample, so the
+  // caller saves it whole, which is what the official was told would happen.
+  async drawListSample(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    sample: {
+      size: number
+      seedKey?: string
+      excludeOutreachIds?: number[]
+    },
+  ): Promise<string[] | null> {
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
+    const { idResolution, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
+    if (idResolution.kind === 'empty') return null
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    const search = filterInput.search || undefined
+    const excludeIds =
+      await this.voterFileFilterSampleService.personIdsForOutreaches(
+        organization.slug,
+        sample.excludeOutreachIds ?? [],
+      )
+
+    return this.withOrgDistrictResolution(
+      organization,
+      async (districtParams) => {
+        const scope = {
+          ...districtParams,
+          filters,
+          idOverrides,
+          contactsMadeIdOverrides,
+          search,
+        }
+        const { pagination } = await this.voterQueryService.findPeople(
+          ListPeopleDTO.create({
+            ...scope,
+            resultsPerPage: 1,
+            page: 1,
+            groupByHousehold: false,
+          }),
+        )
+        const audience = pagination.totalResults
+        const remaining = audience - Math.min(excludeIds.length, audience)
+        // Widening a sample that already reached nearly everyone takes the
+        // rest of them, never the people it already asked.
+        if (remaining <= sample.size && excludeIds.length === 0) return null
+        if (remaining === 0) return []
+        const people = await this.voterQueryService.samplePeople(
+          SamplePeopleDTO.create({
+            ...scope,
+            size: Math.min(sample.size, remaining),
+            seedKey: sample.seedKey,
+            excludeIds,
+          }),
+        )
+        return people.map((person) => person.id)
+      },
+    )
   }
 
   // Lookup a single person in the org's district by phone number.

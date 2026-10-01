@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 
 /**
  * Anchored views: the cards an agent can leave in a chat.
@@ -60,6 +61,21 @@ export const OutreachProposalSchema = z.object({
    * drawn on a map), so the only action is the deep link into the full flow.
    */
   deepLinkOnly: z.boolean().default(false),
+  /**
+   * How many of the audience to reach, picked at random, when a check needs
+   * a read and not everyone. Absent, or no smaller than `count`, means the
+   * whole audience.
+   */
+  sampleSize: z.number().int().positive().max(MAX_LIST_SAMPLE_SIZE).optional(),
+  /** The replies a text sample was sized to bring back. */
+  targetResponses: z.number().int().positive().optional(),
+  /** The reply rate it was sized with, as a fraction: 0.025 is 2.5%. */
+  assumedReplyRate: z.number().positive().max(1).optional(),
+  /**
+   * Earlier sends to a sample of this same audience. Whoever they reached is
+   * left out of this one, so asking again reaches new people.
+   */
+  widensOutreachIds: z.array(z.number().int().positive()).max(20).optional(),
 })
 export type OutreachProposal = z.infer<typeof OutreachProposalSchema>
 
