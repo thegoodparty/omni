@@ -43,3 +43,15 @@ def test_destructured_names_resolve_and_the_declaration_is_not_a_use():
 def test_imports_are_collected():
     src = "import A from './a'\nimport { b } from '@/helpers/b'\nconst c = await import('../c')"
     assert gr.extract(src).imports == ["./a", "@/helpers/b", "../c"]
+
+
+def test_destructuring_declaration_itself_is_not_a_reference():
+    refs = gr.extract("const { Viewed } = EVENTS.Dashboard.CampaignPlan\n")
+    assert refs.key_paths["EVENTS.Dashboard.CampaignPlan"] == 0
+
+
+def test_optional_chaining_in_alias_declaration_resolves_members():
+    src = "const planEvents = EVENTS?.Dashboard?.CampaignPlan\ntrackEvent(planEvents.Viewed)"
+    refs = gr.extract(src)
+    assert refs.key_paths["EVENTS.Dashboard.CampaignPlan.Viewed"] == 1
+    assert refs.key_paths["EVENTS.Dashboard.CampaignPlan"] == 0

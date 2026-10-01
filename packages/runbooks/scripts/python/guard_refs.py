@@ -19,7 +19,7 @@ _TOKEN = re.compile(
 _ID = r"[A-Za-z_$][\w$]*"
 _CHAIN = re.compile(r"(?<![\w$.])EVENTS((?:\s*\??\.\s*" + _ID + r")+)")
 _ALIAS = re.compile(
-    r"(?:const|let|var)\s+(" + _ID + r")\s*=\s*EVENTS((?:\s*\.\s*" + _ID + r")+)(?![\w$])(?!\s*\.)"
+    r"(?:const|let|var)\s+(" + _ID + r")\s*=\s*EVENTS((?:\s*\??\.\s*" + _ID + r")+)(?![\w$])(?!\s*\.)"
 )
 _DESTRUCTURE = re.compile(r"(?:const|let|var)\s*\{([^}]*)\}\s*=\s*EVENTS((?:\s*\.\s*" + _ID + r")*)")
 _LITERAL = re.compile(r"'((?:\\.|[^'\\\n])*)'|\"((?:\\.|[^\"\\\n])*)\"|`([^`\\$]*)`")
@@ -58,6 +58,8 @@ def extract(text: str) -> FileRefs:
         alias_starts.add(m.start(2))
     for m in _DESTRUCTURE.finditer(src):
         base = _dotted(m.group(2)) if m.group(2) else "EVENTS"
+        if m.group(2):
+            alias_starts.add(m.start(2))
         for part in m.group(1).split(","):
             key, _, local = part.strip().partition(":")
             key, local = key.strip(), (local.strip() or key.strip())
