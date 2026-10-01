@@ -124,10 +124,13 @@ export const checkSmsStandards = (
   if (!script.includes('{first_name}')) {
     failures.push('first_name_token')
   }
+  // Whole words, as the composer's lock finds the name: "chen" inside
+  // "kitchen" is not an identification, and a verdict that accepted it
+  // would show the rule met with nothing locked to keep it met.
   const candidateTokens = nameTokensOf(context.candidateNames ?? [])
   if (
     candidateTokens.length > 0 &&
-    !candidateTokens.some((token) => lower.includes(token))
+    !candidateTokens.some((token) => findWords(script, token) !== null)
   ) {
     failures.push('candidate_name')
   }

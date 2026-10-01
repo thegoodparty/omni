@@ -105,7 +105,8 @@ describe('deriveSmsProtectedParts', () => {
   it('matches names as whole words, never inside another word', () => {
     const script = 'Hi {first_name}, the kitchen is open. Reply STOP'
     const context = { candidateNames: ['Lee Chen'] }
-    expect(checkSmsStandards(script, context).failures).not.toContain(
+    // The verdict agrees: no whole-word name is no identification.
+    expect(checkSmsStandards(script, context).failures).toContain(
       'candidate_name',
     )
     expect(textsFor(script, context).candidate_name).toBeUndefined()
