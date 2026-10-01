@@ -102,6 +102,29 @@ describe('TokenField', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  it('does not rebuild the message when the same specs arrive in another order', async () => {
+    const NAME: ProtectedSpec = {
+      id: 'candidate_name',
+      text: 'Hi',
+      reason: 'Your name.',
+    }
+    const { editor, onChange, rerender } = await mount({
+      protectedRanges: [OPT_OUT, NAME],
+    })
+    const before = editor.state.doc
+    rerender(
+      <TokenField
+        aria-label="Message body"
+        value="Hi {first_name}. Reply STOP to opt out."
+        onChange={onChange}
+        tokens={[FIRST_NAME]}
+        protectedRanges={[NAME, OPT_OUT]}
+      />,
+    )
+    await act(async () => undefined)
+    expect(editor.state.doc).toBe(before)
+  })
+
   it('inserts a token through the ref', async () => {
     const { ref, onChange } = await mount({ value: 'Hi ', protectedRanges: [] })
     act(() => ref.current?.insertToken('first_name'))

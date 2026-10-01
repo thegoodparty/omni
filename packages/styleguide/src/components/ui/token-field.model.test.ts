@@ -101,6 +101,25 @@ describe('valueToContent and docToValue', () => {
     expect(ranges[0]?.from).toBe(1)
   })
 
+  it('locks a longer phrase even when a shorter one inside it is listed first', () => {
+    const name: ProtectedSpec = {
+      id: 'candidate_name',
+      text: 'Sarah Chen',
+      reason: 'Your name.',
+    }
+    const disclaimer: ProtectedSpec = {
+      id: 'paid_for_by',
+      text: 'Paid for by Friends of Sarah Chen',
+      reason: 'Campaign finance rules.',
+    }
+    const state = stateFor(
+      'Vote on Nov 3!\nPaid for by Friends of Sarah Chen.',
+      [],
+      [name, disclaimer],
+    )
+    expect(lockedRanges(state.doc).map((r) => r.id)).toEqual(['paid_for_by'])
+  })
+
   it('protects nothing when the span is missing, rather than inventing it', () => {
     expect(lockedRanges(stateFor('Hi there.', [], [OPT_OUT]).doc)).toEqual([])
   })
@@ -146,6 +165,14 @@ describe('findViolation', () => {
       id: 'candidate_name',
       replacement: null,
     })
+  })
+
+  it('lets an extra copy of a required token go, but never the last one', () => {
+    const state = stateFor('{first_name} {first_name} hi')
+    const oneLeft = state.tr.delete(1, 2)
+    expect(findViolation(state.doc, oneLeft.doc)).toBeNull()
+    const noneLeft = state.tr.delete(3, 4).delete(1, 2)
+    expect(findViolation(state.doc, noneLeft.doc)).toBe('first_name')
   })
 
   it('lets an optional token be deleted', () => {
@@ -194,6 +221,18 @@ describe('guardTransaction', () => {
     expect(apply(state, tr)).toBe(
       'New text. {first_name}\nPaid for by Sarah Chen for Council Reply STOP to opt out.',
     )
+  })
+
+  it('spaces new text away from a locked part it lands right after', () => {
+    const state = stateFor(
+      '{first_name}, see you Tuesday.\nReply STOP to opt out.',
+      [FIRST_NAME],
+      [OPT_OUT],
+    )
+    const tr = state.tr
+      .setSelection(new AllSelection(state.doc))
+      .insertText('Vote')
+    expect(apply(state, tr)).toBe('{first_name} Vote\nReply STOP to opt out.')
   })
 
   it('keeps a space between two locked parts when the text between them goes', () => {

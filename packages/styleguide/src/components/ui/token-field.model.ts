@@ -122,7 +122,14 @@ export const valueToContent = (
   const tokenHits = lines.map((line) => findTokens(line, tokens))
   const anchors: ProtectedHit[][] = lines.map(() => [])
 
-  for (const spec of protectedRanges) {
+  // Longest first, as tokens are. A shorter phrase listed first could
+  // otherwise take characters inside a longer one: with the candidate's name
+  // only in the disclaimer, "Sarah Chen" would anchor there and leave "Paid
+  // for by Friends of Sarah Chen" unlocked.
+  const byLength = [...protectedRanges].sort(
+    (a, b) => b.text.length - a.text.length,
+  )
+  for (const spec of byLength) {
     // A span cannot cross a line, and an empty one protects nothing.
     if (spec.text.length === 0 || spec.text.includes('\n')) continue
     let placed = false
@@ -273,8 +280,10 @@ export const findViolation = (
   for (const id of now.protectedText.keys()) {
     if (!was.protectedText.has(id)) return id
   }
+  // Required means at least one, not as many as there were: a second pill
+  // the user inserted is theirs to delete again.
   for (const [id, count] of was.requiredCount) {
-    if ((now.requiredCount.get(id) ?? 0) < count) return id
+    if ((now.requiredCount.get(id) ?? 0) < Math.min(count, 1)) return id
   }
   return null
 }
@@ -400,11 +409,17 @@ export const guardTransaction = (
   if (slice.size > 0) {
     const before = replacement.steps.length
     replacement.replace(first.from, first.from, slice)
-    const end = replacement.mapping.slice(before).map(first.from, 1)
+    let end = replacement.mapping.slice(before).map(first.from, 1)
     const sameLine = state.doc
       .resolve(first.from)
       .sameParent(state.doc.resolve(first.to))
+    // A space on whichever side of the new text a locked part touches, or
+    // they read as one word ("{first_name}Vote", "VoteReply STOP").
     if (sameLine && isLockedStart(first.to)) replacement.insertText(' ', end)
+    if (isLockedEnd(first.from)) {
+      replacement.insertText(' ', first.from)
+      end += 1
+    }
     replacement.setSelection(
       TextSelection.near(replacement.doc.resolve(end), -1),
     )

@@ -95,7 +95,11 @@ function TokenField({
   // What the field last reported. A `value` equal to it is the field's own
   // edit coming back round, not a new message to load.
   const emitted = React.useRef(value)
-  const specKey = JSON.stringify([tokens, protectedRanges])
+  // Order-independent, so the same specs passed in a different order (an
+  // unsorted server list) do not rebuild the document.
+  const byId = <T extends { id: string }>(specs: T[]) =>
+    [...specs].sort((a, b) => a.id.localeCompare(b.id))
+  const specKey = JSON.stringify([byId(tokens), byId(protectedRanges)])
   const loadedSpecKey = React.useRef(specKey)
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const frame = React.useRef(0)
@@ -137,25 +141,10 @@ function TokenField({
     [],
   )
 
-  const editor = useEditor({
-    // Required under Next SSR: create on the client to avoid a hydration
-    // mismatch.
-    immediatelyRender: false,
-    editable: !readOnly,
-    extensions: tokenFieldExtensions({ onBlocked }),
-    content: valueToContent(value, tokens, protectedRanges),
-    onUpdate: ({ editor: current }) => {
-      const next = docToValue(current.state.doc)
-      if (next === emitted.current) return
-      emitted.current = next
-      latest.current.onChange(next)
-    },
-  })
-  editorRef.current = editor
-
   // The accessible textbox is the editable element itself, so its name,
-  // state and styling go on it. `editorProps.attributes` is read once at
-  // creation, so it is kept in sync here.
+  // state and styling go on it. Given at creation so the first paint is
+  // already labelled and styled, then kept in sync by the effect below,
+  // because `editorProps.attributes` is not re-read on its own.
   const attributes = React.useMemo(
     () => ({
       role: 'textbox',
@@ -185,6 +174,23 @@ function TokenField({
       className,
     ],
   )
+
+  const editor = useEditor({
+    // Required under Next SSR: create on the client to avoid a hydration
+    // mismatch.
+    immediatelyRender: false,
+    editable: !readOnly,
+    extensions: tokenFieldExtensions({ onBlocked }),
+    content: valueToContent(value, tokens, protectedRanges),
+    editorProps: { attributes },
+    onUpdate: ({ editor: current }) => {
+      const next = docToValue(current.state.doc)
+      if (next === emitted.current) return
+      emitted.current = next
+      latest.current.onChange(next)
+    },
+  })
+  editorRef.current = editor
 
   React.useEffect(() => {
     if (!editor) return
