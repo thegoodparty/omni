@@ -1248,6 +1248,11 @@ def test_evaluator_runner_raising_is_stage_error_fail_open(workspace, gate_base)
     )
     assert verdict.status == "error"
     assert verdict.pass_ is None
+    # AND THE COST IS UNKNOWN, not zero. The runner raised, so whatever the
+    # evaluator spent before it blew up is exactly what nobody measured —
+    # reporting 0.0 there claims a free run on the one path where the spend is
+    # least knowable.
+    assert verdict.cost_usd is None
 
 
 def test_eval_md_present_without_runner_is_stage_error(workspace, gate_base):
@@ -1450,6 +1455,76 @@ def test_verdict_cost_sums_evaluator_model_cost(workspace, gate_base):
     )
     assert verdict.status == "evaluated"
     assert verdict.cost_usd == pytest.approx(0.0731)
+
+
+def test_verdict_cost_is_none_when_the_evaluator_withheld_it(workspace, gate_base):
+    """An evaluator that cannot say what it spent makes the gate's total
+    UNKNOWN, not unchanged. Summing a missing term as 0 reports the gate as
+    cheaper than it was, and nothing downstream can tell that from a gate that
+    genuinely spent nothing."""
+    fake = FakeEvaluator(
+        fragments=[{"name": "faithfulness", "passed": True}],
+        result=EvaluatorResult(
+            fragments=[{"name": "faithfulness", "passed": True}],
+            cost_usd=None,
+            status="ok",
+        ),
+    )
+    fake.write_file = True
+    verdict = _verdict(
+        run_qa_gate(
+            artifact_bytes=ARTIFACT,
+            qa_envelope=_envelope(files={"main.py": _MAIN_PASS, "eval.md": "judge"}),
+            workspace_dir=workspace,
+            broker_env=_broker_env(),
+            remaining_budget_seconds=BIG_BUDGET,
+            evaluator_runner=fake,
+            gate_base_dir=gate_base,
+        )
+    )
+    assert verdict.status == "evaluated"
+    assert verdict.cost_usd is None
+    # And it stays None on the wire rather than serializing as 0.
+    assert verdict.to_dict()["cost_usd"] is None
+
+
+def test_unknown_evaluator_cost_is_distinguishable_from_a_free_gate(workspace, gate_base):
+    """The two cases that an `or 0` collapses into one. A deterministic-only
+    gate makes no model calls, so its 0.0 is a figure we have; an evaluator
+    that withheld leaves us without one. They must not look the same."""
+    free = _verdict(
+        run_qa_gate(
+            artifact_bytes=ARTIFACT,
+            qa_envelope=_envelope(files={"main.py": _MAIN_PASS}),
+            workspace_dir=workspace,
+            broker_env=_broker_env(),
+            remaining_budget_seconds=BIG_BUDGET,
+            evaluator_runner=_never_called_evaluator,
+            gate_base_dir=gate_base,
+        )
+    )
+    withheld_eval = FakeEvaluator(
+        fragments=[{"name": "faithfulness", "passed": True}],
+        result=EvaluatorResult(
+            fragments=[{"name": "faithfulness", "passed": True}],
+            cost_usd=None,
+            status="ok",
+        ),
+    )
+    withheld_eval.write_file = True
+    unknown = _verdict(
+        run_qa_gate(
+            artifact_bytes=ARTIFACT,
+            qa_envelope=_envelope(files={"eval.md": "judge"}),
+            workspace_dir=workspace,
+            broker_env=_broker_env(),
+            remaining_budget_seconds=BIG_BUDGET,
+            evaluator_runner=withheld_eval,
+            gate_base_dir=gate_base,
+        )
+    )
+    assert free.cost_usd == 0.0
+    assert unknown.cost_usd is None
 
 
 def test_evaluator_fragment_detail_redacts_broker_token(workspace, gate_base):
