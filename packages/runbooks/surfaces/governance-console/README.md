@@ -233,10 +233,9 @@ quick-select chips built from that cause's own data: `all`, `none`, one per dist
 provenance state, and `older than 30d` where it applies. Pick a set, then apply a verb
 to just those events.
 
-Today's `never observed` is why this exists. One click on `not found in code` selects
-34 of its 69 events, which are the Serve and Win outreach names declared in Govern and
-never built. They need a different verb from the thirty instrumented in the last
-fortnight that simply have not fired yet.
+`never observed` is the usual case. On 2026-09-28 it held about thirty events
+instrumented in the last fortnight that simply had not fired yet, and four silent for
+months. `older than 30d` selects the four, which need a different verb from the rest.
 
 A per-event ruling coexists with the cause-level one, so "retire the cluster, except
 these four" is expressible. In the handoff, events ruled together under the same verb
