@@ -73,4 +73,36 @@ describe('BriefingsLanding', () => {
     expect(screen.getByText('Past')).toBeInTheDocument()
     expect(screen.getByText('Old Awaiting Meeting')).toBeInTheDocument()
   })
+
+  it('offers Replace agenda on upcoming ready rows but not on past ones', () => {
+    const featured = summary({
+      id: 'featured-1',
+      meetingName: 'Featured Meeting',
+      scheduledAt: daysFromNow(1),
+    })
+    const upcoming = summary({
+      id: 'upcoming-1',
+      meetingName: 'Upcoming Meeting',
+      scheduledAt: daysFromNow(8),
+    })
+    const past = summary({
+      id: 'past-1',
+      meetingName: 'Past Meeting',
+      scheduledAt: daysFromNow(-10),
+    })
+    render(<BriefingsLanding summaries={[featured, upcoming, past]} />)
+    expect(
+      screen.getByRole('button', {
+        name: 'Replace agenda for Featured Meeting',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', {
+        name: 'Replace agenda for Upcoming Meeting',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Replace agenda for Past Meeting' }),
+    ).not.toBeInTheDocument()
+  })
 })

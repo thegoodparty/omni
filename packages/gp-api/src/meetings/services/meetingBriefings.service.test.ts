@@ -16,6 +16,7 @@ import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { MeetingBriefingsService } from './meetingBriefings.service'
+import { BriefingItemLinksService } from './briefingItemLinks.service'
 
 const service = useTestService()
 
@@ -2576,6 +2577,54 @@ describe('publication gate: ready briefings must show an available agenda', () =
     expect(await rowFor(eo.id)).not.toBeNull()
   })
 
+  it('leaves an existing briefing and its item links alone when the replacement is refused', async () => {
+    // First run: a good briefing lands.
+    const { eo, briefingRun } = await setupRun(
+      readyWith({ agenda_availability: 'full_packet' }),
+    )
+    await complete(briefingRun)
+    const before = await rowFor(eo.id)
+    expect(before).not.toBeNull()
+
+    // Second run for the same meeting: refused. Its artifact must not become
+    // the row, and the projections must not be rebuilt from it.
+    const linksSpy = vi.spyOn(
+      service.app.get(BriefingItemLinksService),
+      'syncLinksFromArtifact',
+    )
+    const replacement = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: (
+          await service.prisma.electedOffice.findUniqueOrThrow({
+            where: { id: eo.id },
+          })
+        ).organizationSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'replacement.json',
+        params: { elected_office_id: eo.id, meetingDate: MEETING_DATE },
+      },
+    })
+    mockS3({
+      'replacement.json': JSON.stringify({
+        meeting_date: MEETING_DATE,
+        meeting_time: '19:00',
+        meeting_timezone: 'America/Chicago',
+        meeting_name: 'City Council',
+        location: 'Council Chambers',
+        sources: [agendaSource()],
+        ...readyWith({ agenda_availability: 'inferred_from_prior' }),
+      }),
+    })
+    await complete(replacement)
+
+    const after = await rowFor(eo.id)
+    expect(after?.experimentRunId).toBe(briefingRun.runId)
+    expect(after?.experimentRunId).not.toBe(replacement.runId)
+    expect(linksSpy).not.toHaveBeenCalled()
+  })
+
   it('still persists the discovered agenda hint when the row is refused', async () => {
     const { eo, briefingRun } = await setupRun(
       readyWith({
@@ -2621,6 +2670,29 @@ describe('publication gate: ready briefings must show an available agenda', () =
           experimentRunId,
         },
       })
+
+    it('finds the upload row by the dispatch date even when the artifact echoes a different day', async () => {
+      // Holiday shift: the official pasted into the Monday slot, the packet
+      // and the artifact say Tuesday. The upload row lives under Monday.
+      const { eo, briefingRun } = await setupRun({
+        ...userProvided({
+          packet_stated_meeting_date: '2026-06-09',
+          packet_date_verification: 'matched',
+        }),
+        meeting_date: '2026-06-09',
+      })
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      const row = await service.prisma.meetingBriefing.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: eo.id,
+            meetingDate: new Date('2026-06-09'),
+          },
+        },
+      })
+      expect(row).not.toBeNull()
+    })
 
     it('writes the row when an upload row for this run exists', async () => {
       const { eo, briefingRun } = await setupRun(userProvided({}))
@@ -2707,6 +2779,57 @@ describe('publication gate: ready briefings must show an available agenda', () =
       await uploadRowFor(eo.id, briefingRun.runId)
       await complete(briefingRun)
       expect(await rowFor(eo.id)).not.toBeNull()
+    })
+
+    it('treats a malformed stated date as unread and writes the row', async () => {
+      const { eo, briefingRun } = await setupRun(
+        userProvided({
+          packet_stated_meeting_date: 'June 1',
+          packet_date_verification: 'matched',
+        }),
+      )
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).not.toBeNull()
+    })
+
+    it('writes no row when the agent reports a mismatch without a readable date', async () => {
+      const { eo, briefingRun } = await setupRun(
+        userProvided({
+          packet_stated_meeting_date: null,
+          packet_date_verification: 'mismatched',
+        }),
+      )
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+      const upload = await service.prisma.userAgendaUpload.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: eo.id,
+            meetingDate: new Date(MEETING_DATE),
+          },
+        },
+      })
+      expect(upload?.refusalReason).toBe(
+        `packet_date_mismatch:unknown:${MEETING_DATE}`,
+      )
+    })
+
+    it('writes no row when the upload row carries neither a link nor a file', async () => {
+      const { eo, briefingRun } = await setupRun(userProvided({}))
+      await service.prisma.userAgendaUpload.create({
+        data: {
+          electedOfficeId: eo.id,
+          meetingDate: new Date(MEETING_DATE),
+          source: 'URL',
+          sourceUrl: null,
+          uploadedByUserId: service.user.id,
+          experimentRunId: briefingRun.runId,
+        },
+      })
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
     })
 
     it('writes the row when the packet date could not be read', async () => {

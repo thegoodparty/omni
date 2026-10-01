@@ -584,7 +584,7 @@ describe('GET /v1/meetings userAgendaStatus derivation', () => {
         sourceUrl: 'https://example.gov/other-meeting.pdf',
         uploadedByUserId: service.user.id,
         experimentRunId: run.runId,
-        refusalReason: 'packet_date_mismatch:2026-05-25:2026-06-08',
+        refusalReason: `packet_date_mismatch:2026-05-25:${date.toISOString().slice(0, 10)}`,
       },
     })
 
@@ -596,7 +596,7 @@ describe('GET /v1/meetings userAgendaStatus derivation', () => {
     )
     expect(meeting?.userAgendaStatus).toBe('rejected')
     expect(meeting?.userAgendaReason).toBe(
-      'packet_date_mismatch:2026-05-25:2026-06-08',
+      `packet_date_mismatch:2026-05-25:${iso}`,
     )
   })
 })

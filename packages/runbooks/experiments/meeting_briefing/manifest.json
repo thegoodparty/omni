@@ -177,10 +177,7 @@
             "required": [
               "agenda_packet_url",
               "source_bundle_retrieved_at",
-              "discovered_agenda_location",
-              "agenda_availability",
-              "packet_stated_meeting_date",
-              "packet_date_verification"
+              "discovered_agenda_location"
             ],
             "properties": {
               "agenda_packet_url": {
@@ -195,7 +192,7 @@
               "agenda_availability": {
                 "type": "string",
                 "enum": ["full_packet", "html_agenda", "partial", "not_published", "inferred_from_prior"],
-                "description": "v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda; gp-api refuses a ready row that carries them."
+                "description": "Fill on every run. v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda; gp-api refuses a ready row that carries them."
               },
               "packet_stated_meeting_date": {
                 "type": ["string", "null"],
@@ -364,10 +361,7 @@
             "required": [
               "agenda_packet_url",
               "source_bundle_retrieved_at",
-              "discovered_agenda_location",
-              "agenda_availability",
-              "packet_stated_meeting_date",
-              "packet_date_verification"
+              "discovered_agenda_location"
             ],
             "properties": {
               "agenda_packet_url": {
@@ -382,7 +376,7 @@
               "agenda_availability": {
                 "type": "string",
                 "enum": ["full_packet", "html_agenda", "partial", "not_published", "inferred_from_prior"],
-                "description": "v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda; gp-api refuses a ready row that carries them."
+                "description": "Fill on every run. v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda; gp-api refuses a ready row that carries them."
               },
               "packet_stated_meeting_date": {
                 "type": ["string", "null"],

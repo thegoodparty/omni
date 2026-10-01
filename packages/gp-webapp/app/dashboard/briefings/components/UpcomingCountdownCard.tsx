@@ -7,6 +7,7 @@ import { Button, buttonVariants, UploadIcon } from '@styleguide'
 import { countdownLabel } from '@shared/briefings/dateHelpers'
 import type { BriefingSummary } from '@shared/briefings/types'
 import AgendaStatusPill from './AgendaStatusPill'
+import ReplaceAgendaButton from './ReplaceAgendaButton'
 import UploadAgendaModal from './UploadAgendaModal'
 
 type Props = {
@@ -59,24 +60,28 @@ export default function UpcomingCountdownCard({
       </div>
 
       {ready ? (
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Link
-            href={`/dashboard/briefings/${summary.slug}`}
-            className={buttonVariants()}
-          >
-            View briefing
-            <ArrowRight className="size-4" aria-hidden />
-          </Link>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={isProcessing}
-            aria-label={`Replace agenda for ${meetingName}`}
-            onClick={() => setOpen(true)}
-          >
-            <UploadIcon className="size-4" aria-hidden />
-            Replace agenda
-          </Button>
+        <div className="flex flex-col items-start gap-3 pt-1">
+          {status === 'processing' || status === 'rejected' ? (
+            <AgendaStatusPill
+              status={status}
+              reason={summary.userAgendaReason}
+            />
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/dashboard/briefings/${summary.slug}`}
+              className={buttonVariants()}
+            >
+              View briefing
+              <ArrowRight className="size-4" aria-hidden />
+            </Link>
+            <ReplaceAgendaButton
+              meetingDate={summary.slug}
+              meetingName={meetingName}
+              disabled={isProcessing}
+              withIcon
+            />
+          </div>
         </div>
       ) : (
         <div className="flex flex-col items-start gap-3 pt-1">

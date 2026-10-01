@@ -1,12 +1,9 @@
-'use client'
-
-import { useState } from 'react'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
-import { Button } from '@styleguide'
 import { formatDayTime, formatShortDate } from '@shared/briefings/dateHelpers'
 import type { BriefingSummary, BriefingStatus } from '@shared/briefings/types'
-import UploadAgendaModal from './UploadAgendaModal'
+import AgendaStatusPill from './AgendaStatusPill'
+import ReplaceAgendaButton from './ReplaceAgendaButton'
 
 type Props = {
   summary: BriefingSummary
@@ -55,12 +52,16 @@ export default function BriefingListRow({
   summary,
   allowReplace = false,
 }: Props): React.JSX.Element {
-  const [replaceOpen, setReplaceOpen] = useState(false)
   const pill = pillFor(summary.status)
   const shortDate = formatShortDate(summary.scheduledAt)
   const dayTime = formatDayTime(summary.scheduledAt)
   const showReplace = allowReplace && summary.status === 'briefing_ready'
   const replaceDisabled = summary.userAgendaStatus === 'processing'
+  // A replacement that is running or was turned down shows its own state in
+  // place of "Briefing ready", otherwise a rejected link would be invisible.
+  const replacementState =
+    summary.userAgendaStatus === 'processing' ||
+    summary.userAgendaStatus === 'rejected'
   const meetingName = summary.meetingName || 'Your meeting'
 
   return (
@@ -87,7 +88,12 @@ export default function BriefingListRow({
           {summary.meetingName}
         </span>
 
-        {pill ? (
+        {replacementState ? (
+          <AgendaStatusPill
+            status={summary.userAgendaStatus}
+            reason={summary.userAgendaReason}
+          />
+        ) : pill ? (
           <span
             className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${pill.className}`}
           >
@@ -102,24 +108,12 @@ export default function BriefingListRow({
       </Link>
 
       {showReplace ? (
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={replaceDisabled}
-            aria-label={`Replace agenda for ${meetingName}`}
-            onClick={() => setReplaceOpen(true)}
-          >
-            Replace agenda
-          </Button>
-          <UploadAgendaModal
-            open={replaceOpen}
-            onOpenChange={setReplaceOpen}
-            meetingDate={summary.slug}
-            meetingName={meetingName}
-          />
-        </>
+        <ReplaceAgendaButton
+          meetingDate={summary.slug}
+          meetingName={meetingName}
+          disabled={replaceDisabled}
+          size="small"
+        />
       ) : null}
     </div>
   )

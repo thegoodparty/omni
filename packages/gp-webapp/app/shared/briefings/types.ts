@@ -14,6 +14,7 @@
  * awaiting-agenda pages or the shared view.
  */
 
+import type { UserAgendaStatus } from 'gpApi/api-endpoints'
 import type {
   MeetingBriefingFull,
   MeetingBriefingPlaceholder,
@@ -112,13 +113,7 @@ export interface BriefingSummary {
    *   `briefing_ready` in the same payload, but this remains as a hint)
    * - `unknown` — server doesn't know what state the run is in
    */
-  userAgendaStatus?:
-    | 'processing'
-    | 'failed'
-    | 'rejected'
-    | 'completed'
-    | 'unknown'
-    | null
+  userAgendaStatus?: UserAgendaStatus | null
   /**
    * Machine reason behind a `rejected` status, as gp-api recorded it, e.g.
    * `packet_date_mismatch:2026-09-21:2026-10-05`. Null otherwise.

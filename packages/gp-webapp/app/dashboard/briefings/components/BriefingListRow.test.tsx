@@ -46,6 +46,20 @@ describe('BriefingListRow', () => {
     ).toBeDisabled()
   })
 
+  it('shows why a replacement was turned down instead of Briefing ready', () => {
+    render(
+      <BriefingListRow
+        summary={summary({
+          userAgendaStatus: 'rejected',
+          userAgendaReason: 'agenda_unavailable:not_published',
+        })}
+        allowReplace
+      />,
+    )
+    expect(screen.getByText('Agenda not available yet')).toBeInTheDocument()
+    expect(screen.queryByText('Briefing ready')).not.toBeInTheDocument()
+  })
+
   it('opens the agenda modal for that meeting date', () => {
     render(<BriefingListRow summary={summary()} allowReplace />)
     fireEvent.click(
