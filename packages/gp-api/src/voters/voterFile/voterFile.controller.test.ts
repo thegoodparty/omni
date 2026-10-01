@@ -174,10 +174,12 @@ describe('VoterFileController', () => {
         mockVoterFileFilterService.filterAccessCheck,
       ).not.toHaveBeenCalled()
       // The third argument is the people a drawn boundary enclosed, resolved
-      // by the controller. A body with no geoPoly resolves nothing.
+      // by the controller, and the fourth who a sample drew. A body with no
+      // geoPoly and no sample resolves neither.
       expect(mockVoterFileFilterService.create).toHaveBeenCalledWith(
         baseOrg.slug,
         body,
+        null,
         null,
       )
       expect(result).toEqual(mockFilter)
