@@ -1,7 +1,8 @@
 # Message composer and outreach disclaimers
 
-Owner: Justin. Status: planned. Wave 0 is in progress; nothing past it is
-built.
+Owner: Justin. Status: waves 0 and 1 built (`Textarea` seamless variant;
+`TokenField`, `TokenPill` and `MERGE_TAGS`, with no call sites yet). Nothing
+past wave 1 is built.
 
 A plan for two things that turn out to be one thing: editable-but-protected
 disclaimers in the SMS and robocall flows, and a reusable composer to hold them.
@@ -90,6 +91,10 @@ plus type then leaves a message containing the disclaimers and the new text,
 which is the right outcome and matches what the prototype does for required
 pills.
 
+As built: the free text between two locked parts collapses to one space
+rather than nothing, and a line break between them is kept, so what survives
+reads as separate phrases on the lines they were on.
+
 This is the one place `filterTransaction` alone is not enough. A plain predicate
 can only accept or reject; preserving spans inside a rejected range needs
 `appendTransaction` or a step rewrite. Worth budgeting for.
@@ -160,38 +165,41 @@ naming, because they are not obvious:
   ability to delete their own name.
 - `opt_out_line` only tests `/reply\s+stop/i`, not the words "to opt out".
 
-### But break a span only where there is a real reason to write inside it
+### A disclaimer is one unit, never split
 
-That is the exception to the principle above. Paid-for-by earns a break:
-several states add requirements to the disclaimer (an address, "not authorized
-by any candidate"), so a candidate genuinely needs to write inside it. The
-opt-out sentence earns none: nothing legitimate goes in the middle of "Reply
-STOP to opt out." So that one stays a single span even though the validator
-would accept less.
+The paid-for-by disclaimer is the phrase and the committee together:
+`Paid for by Friends of Sarah Chen`, one span. It is not broken so that a
+candidate can write inside it, because a gap in the middle lets the wording
+change the meaning ("Paid for by no one at Friends of Sarah Chen") while the
+validator, which only checks that both parts appear, still passes. What a state
+adds (an address, "not authorized by any candidate") goes after the unit,
+which is why the span stops before the period. The opt-out sentence is one
+span for the same reason. This matches the Lovable handoff, which treats the
+footer as a single required string.
 
 ### SMS spans (Win)
 
-| Rule               | Protected span                                  | Editable around it                | Broken because                                                       |
-| ------------------ | ----------------------------------------------- | --------------------------------- | -------------------------------------------------------------------- |
-| `first_name_token` | `{first_name}` atom                             | yes                               | it is a placeholder, so it is a pill, not a span                     |
-| `candidate_name`   | the candidate's name, one anchored instance     | the whole identification sentence | the rule only needs the name present, so the wording is theirs       |
-| `paid_for_by`      | two spans: `Paid for by` and the committee name | before, between, after            | state law adds requirements, so candidates need to write inside this |
-| `opt_out_line`     | `Reply STOP to opt out.`, one span              | before and after                  | nothing goes inside it                                               |
-| `length`           | none                                            | none                              | a counter, not a span                                                |
+| Rule               | Protected span                              | Editable around it                | Broken because                                                 |
+| ------------------ | ------------------------------------------- | --------------------------------- | -------------------------------------------------------------- |
+| `first_name_token` | `{first_name}` atom                         | yes                               | it is a placeholder, so it is a pill, not a span               |
+| `candidate_name`   | the candidate's name, one anchored instance | the whole identification sentence | the rule only needs the name present, so the wording is theirs |
+| `paid_for_by`      | `Paid for by <committee>`, one span         | before and after                  | a gap inside would let wording change what the disclaimer says |
+| `opt_out_line`     | `Reply STOP to opt out.`, one span          | before and after                  | nothing goes inside it                                         |
+| `length`           | none                                        | none                              | a counter, not a span                                          |
 
 Serve SMS: the `{{first_name}}` atom, the name span, the opt-out span. No
 paid-for-by, because there is no committee.
 
 ### Robocall spans
 
-Broken up the same way, and for the same reason: candidates need to add to the
-spoken disclosure.
+Broken into its pieces, so candidates can add to the spoken disclosure
+between them, but each piece stays whole.
 
-| Check                   | Protected spans                                    | Editable around it             |
-| ----------------------- | -------------------------------------------------- | ------------------------------ |
-| `hasSelfIdentification` | the candidate's name; and `candidate for <office>` | yes, the rest of the opener    |
-| `hasOrganization`       | `Paid for by`; and the sponsor name                | yes, before, between and after |
-| `hasCallbackNumber`     | the formatted number                               | yes                            |
+| Check                   | Protected spans                                    | Editable around it          |
+| ----------------------- | -------------------------------------------------- | --------------------------- |
+| `hasSelfIdentification` | the candidate's name; and `candidate for <office>` | yes, the rest of the opener |
+| `hasOrganization`       | `Paid for by <sponsor>`, one span                  | yes, before and after       |
+| `hasCallbackNumber`     | the formatted number                               | yes                         |
 
 Standing caveat: robocall spans are advisory. The gate is the recording verdict,
 not the script. Spans reduce failed recordings; they cannot guarantee a passing
@@ -210,7 +218,7 @@ This also means the list is **per campaign and legitimately sometimes empty**:
   `candidateTokens`, so `candidate_name` never runs and there is nothing to
   protect.
 - With no committee name, `paid_for_by` still demands the phrase but the
-  committee-token half passes vacuously, so only the phrase gets a span.
+  committee-token half passes vacuously, so the span is the phrase alone.
 
 Hand-maintaining this list would get one of those wrong.
 
@@ -473,6 +481,12 @@ Same shape as SMS, with the model out of the loop.
 | 5    | Optional: chat composers, polls                                                   |                                                                 |
 
 Wave 0 stands alone and is worth landing regardless of the rest.
+
+A default message keeps a blank line between the body and the disclaimer,
+as `composeScript` already does today (`smsCompose.util.ts`). The
+disclaimer becomes editable text inside the field in wave 2, so that
+separation has to come from the composed default rather than from the
+field's layout.
 
 ## Merge tags deserve a registry, not just a component
 

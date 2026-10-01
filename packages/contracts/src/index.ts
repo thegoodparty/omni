@@ -852,6 +852,12 @@ export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
 export {
+  MERGE_TAGS,
+  mergeTagToken,
+  type MergeTagChannel,
+  type MergeTagId,
+} from './outreach/MergeTag.const'
+export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
   type OutreachPurpose,
