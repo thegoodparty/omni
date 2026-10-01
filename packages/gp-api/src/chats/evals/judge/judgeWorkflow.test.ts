@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
@@ -52,6 +54,30 @@ const envValue = (body: string, name: string): string | null =>
 const spendsLive = (body: string): boolean =>
   new RegExp(`^ {${ENV_ENTRY}}JUDGE_SPEND: 'true'$`, 'm').test(body)
 
+// A step's `run: |` block, dedented so it can be executed.
+//
+// IT HAS TO STOP AT THE END OF THE BLOCK. A step body here runs to the next
+// `- name:` entry, and `- uses:` steps carry no name — so the body of a step
+// followed by one swallows it and everything after it. Taking the whole tail
+// handed bash the next steps' comments and it died on a stray `-`. The block
+// ends at the first line that is neither blank nor indented to the script.
+const RUN_INDENT = 10
+
+const runBlockOf = (body: string): string => {
+  const after = body.split(/^ {8}run: \|\n/m)[1]
+  if (after === undefined) return ''
+  const lines: string[] = []
+  for (const line of after.split('\n')) {
+    if (line.trim() === '') {
+      lines.push('')
+      continue
+    }
+    if (!line.startsWith(' '.repeat(RUN_INDENT))) break
+    lines.push(line.slice(RUN_INDENT))
+  }
+  return lines.join('\n')
+}
+
 // Steps are the six-space `- name:` entries; a step runs until the next one.
 // Splitting on the marker keeps each step's `env:` and `run:` together, which
 // is the pairing under test.
@@ -87,15 +113,45 @@ describe('judge.yml spend switches', () => {
     ])
   })
 
-  it.each(['JUDGE_SPEND', 'ANTHROPIC_API_KEY'])(
-    'sets %s on every step that starts a judge process',
-    (variable) => {
-      const missing = spending
-        .filter((step) => !setsEnv(step.body, variable))
-        .map((step) => step.name)
-      expect(missing).toEqual([])
-    },
-  )
+  it('sets JUDGE_SPEND on every step that starts a judge process', () => {
+    const missing = spending
+      .filter((step) => !setsEnv(step.body, 'JUDGE_SPEND'))
+      .map((step) => step.name)
+    expect(missing).toEqual([])
+  })
+
+  // THE KEY TRAVELS UNDER A DIFFERENT NAME ON EACH HALF, and the two names
+  // are not interchangeable. The arms run under vitest, whose config applies
+  // `.env.test` over the process environment, and `.env.test` defines
+  // ANTHROPIC_API_KEY as a stub — so the real key has to arrive under a name
+  // that file does not define and be moved into place by modelKey.ts. The
+  // judging step is tsx, nothing loads over it, and it reads the key
+  // directly. The first live sweep set ANTHROPIC_API_KEY on the arms, which
+  // satisfied the previous version of this test and failed every model call
+  // with `invalid x-api-key`.
+  const ARM_STEPS = ['Capture the base arm', 'Capture the candidate arm']
+  const arms = spending.filter((step) => ARM_STEPS.includes(step.name))
+
+  it('passes the real key to both arms under the arm name', () => {
+    expect(arms.map((s) => s.name)).toEqual(ARM_STEPS)
+    const missing = arms
+      .filter((step) => !setsEnv(step.body, 'JUDGE_ANTHROPIC_API_KEY'))
+      .map((step) => step.name)
+    expect(missing).toEqual([])
+  })
+
+  it('does not set ANTHROPIC_API_KEY on an arm, where it is dead', () => {
+    const shadowed = arms
+      .filter((step) => setsEnv(step.body, 'ANTHROPIC_API_KEY'))
+      .map((step) => step.name)
+    expect(shadowed).toEqual([])
+  })
+
+  it('passes the real key to the judging step under its own name', () => {
+    const judging = spending.find((step) => step.name === 'Judge both arms')
+    expect(judging).toBeDefined()
+    expect(setsEnv(judging?.body ?? '', 'ANTHROPIC_API_KEY')).toBe(true)
+  })
 
   it("spends only on the exact string 'true'", () => {
     // `spends()` in sweepEnv.ts compares against 'true' exactly, so a bare
@@ -269,5 +325,77 @@ describe('judge.yml tells every judge process who asked', () => {
     )
     expect(estimate?.body).toMatch(/\| selection \| named in the request/)
     expect(estimate?.body).toMatch(/\| selection \| \\`auto\\`, from the diff/)
+  })
+})
+
+// THE HOSTNAME THE REPOSITORY VARIABLE HOLDS IS NOT THE ONE gp-api WANTS.
+// `vars.DATABRICKS_HOST` is `https://dbc-....cloud.databricks.com`, the form
+// the Python side reads; `resolveDatabricksConnection` wants a bare hostname
+// and @databricks/sql prefixes the scheme itself. Passing it straight through
+// produced `https://https//dbc-...` and `getaddrinfo EAI_AGAIN https`, and
+// the first live sweep ran against an unpinned mart because of it. GitHub
+// expressions have no `replace`, so the strip is bash in one step — which
+// means the strip is code, and this is what tests it.
+describe('judge.yml normalizes the Databricks host', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const normalize = steps.find(
+    (step) => step.name === 'Normalize the Databricks host',
+  )
+
+  it('has the step, and it publishes to the job environment', () => {
+    expect(normalize).toBeDefined()
+    expect(normalize?.body).toContain(
+      'echo "DATABRICKS_SERVER_HOSTNAME=$host" >> "$GITHUB_ENV"',
+    )
+  })
+
+  // The point of doing it once. A step that mapped the variable itself would
+  // reintroduce the scheme no matter what the normalize step did, and there
+  // were three of them.
+  it('leaves no step mapping the raw variable', () => {
+    const raw = steps
+      .filter((step) =>
+        /^ {10}DATABRICKS_SERVER_HOSTNAME: \$\{\{ vars\./m.test(step.body),
+      )
+      .map((step) => step.name)
+    expect(raw).toEqual([])
+  })
+
+  it.each([
+    [
+      'https://dbc-3d8ca484-79f3.cloud.databricks.com',
+      'dbc-3d8ca484-79f3.cloud.databricks.com',
+    ],
+    ['http://dbc-1.cloud.databricks.com', 'dbc-1.cloud.databricks.com'],
+    ['dbc-1.cloud.databricks.com', 'dbc-1.cloud.databricks.com'],
+    ['https://dbc-1.cloud.databricks.com/', 'dbc-1.cloud.databricks.com'],
+    [
+      'https://dbc-1.cloud.databricks.com/sql/1.0',
+      'dbc-1.cloud.databricks.com',
+    ],
+    ['', ''],
+  ])('strips %s down to %s', (given, expected) => {
+    const script = runBlockOf(normalize?.body ?? '')
+    // Run the step's own bash, not a reimplementation of it in JavaScript:
+    // the bug being fixed was in the shell, and a parallel implementation
+    // here would pass while the workflow kept failing.
+    expect(script).toContain('host="${DATABRICKS_HOST#https://}"')
+    const envFile = path.join(
+      mkdtempSync(path.join(tmpdir(), 'judge-host-')),
+      'github-env',
+    )
+    writeFileSync(envFile, '')
+    execFileSync('bash', ['-c', script], {
+      env: {
+        ...process.env,
+        DATABRICKS_HOST: given,
+        GITHUB_ENV: envFile,
+      },
+      encoding: 'utf8',
+    })
+    expect(readFileSync(envFile, 'utf8').trim()).toBe(
+      `DATABRICKS_SERVER_HOSTNAME=${expected}`,
+    )
   })
 })

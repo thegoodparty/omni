@@ -19,6 +19,7 @@ import {
 import {
   cannedVerdict,
   emitReport,
+  ensureFallbackModels,
   judgeSweep,
   type SweepResult,
 } from './sweep'
@@ -826,5 +827,43 @@ describe('a sweep whose agents were named by hand', () => {
     expect(outputs.report.refusals?.[0]?.reason).toContain(
       'came back byte-identical on both arms',
     )
+  })
+})
+
+// The judging step runs under tsx, which loads no `.env` file at all, and
+// LlmService throws on construction without AI_MODELS. The first live sweep
+// hit that after both arms had been billed, so the cost of getting this wrong
+// is a whole paid sweep with no verdict.
+describe('ensureFallbackModels', () => {
+  it.each([undefined, ''])('fills an %p list from the panel seats', (set) => {
+    const env: NodeJS.ProcessEnv = {
+      ...(set !== undefined && { AI_MODELS: set }),
+    }
+    ensureFallbackModels(DEFAULT_JUDGE_CONFIG, env)
+    expect(env.AI_MODELS).toBe(DEFAULT_JUDGE_CONFIG.panel.seats.join(','))
+    // Non-empty, which is the only thing LlmService checks. Asserted against
+    // the config rather than a literal: a seat list that emptied would
+    // otherwise satisfy this test and fail at construction.
+    expect(env.AI_MODELS).not.toBe('')
+  })
+
+  it('carries every seat, not just the first', () => {
+    const env: NodeJS.ProcessEnv = {}
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      panel: { ...DEFAULT_JUDGE_CONFIG.panel, seats: ['seat-a', 'seat-b'] },
+    }
+    ensureFallbackModels(config, env)
+    expect(env.AI_MODELS).toBe('seat-a,seat-b')
+  })
+
+  // The environment wins where it is set: in CI the workflow and `.env.test`
+  // are the source of truth for which models the process may reach, and this
+  // helper exists to cover the case where nothing set it, not to override a
+  // deployment that did.
+  it('leaves a list the environment already set', () => {
+    const env: NodeJS.ProcessEnv = { AI_MODELS: 'from-the-environment' }
+    ensureFallbackModels(DEFAULT_JUDGE_CONFIG, env)
+    expect(env.AI_MODELS).toBe('from-the-environment')
   })
 })

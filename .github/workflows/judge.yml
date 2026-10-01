@@ -1362,6 +1362,29 @@ jobs:
           echo "RECORDS_DIR=$RUNNER_TEMP/judge-records" >> "$GITHUB_ENV"
           echo "records for sweep $SWEEP_ID go in $RUNNER_TEMP/judge-records"
 
+      # DATABRICKS_HOST CARRIES A SCHEME and gp-api's hostname does not.
+      # `vars.DATABRICKS_HOST` is `https://dbc-....cloud.databricks.com`,
+      # which is the form the Python side wants; @databricks/sql prefixes
+      # `https://` itself, so passing it straight through produced
+      # `https://https//dbc-...` and `getaddrinfo EAI_AGAIN https`. The first
+      # live sweep ran unpinned because of it. Stripped once here rather than
+      # at each of the three steps that read it — GitHub expressions have no
+      # `replace`, so this is the only place it can be done once.
+      - name: Normalize the Databricks host
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+        run: |
+          set -euo pipefail
+          host="${DATABRICKS_HOST#https://}"
+          host="${host#http://}"
+          host="${host%%/*}"
+          echo "DATABRICKS_SERVER_HOSTNAME=$host" >> "$GITHUB_ENV"
+          if [ -z "$host" ]; then
+            echo "::warning::DATABRICKS_HOST is empty, so the voter mart cannot be pinned and any agent that queries it runs against the live table. The sweep continues; the report names the runs that queried it."
+          else
+            echo "gp-api will reach Databricks at $host"
+          fi
+
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.plan.outputs.candidate_sha }}
@@ -1408,10 +1431,9 @@ jobs:
         id: mart
         working-directory: ${{ env.WORKSPACE }}
         env:
-          # gp-api reads DATABRICKS_SERVER_HOSTNAME; the repository variable is
-          # DATABRICKS_HOST, which is what the Python side reads. Same mapping
-          # the arm steps below make.
-          DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_HOST }}
+          # DATABRICKS_SERVER_HOSTNAME comes from the job environment, set by
+          # the normalize step above — the repository variable it is derived
+          # from carries a scheme that gp-api must not see.
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
@@ -1534,11 +1556,15 @@ jobs:
           # canned reply, so a garbled value costs a sweep that did not happen
           # rather than one nobody asked for.
           JUDGE_SPEND: 'true'
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # gp-api reads DATABRICKS_SERVER_HOSTNAME; the repository variable is
-          # DATABRICKS_HOST, which is what the Python side reads. Mapped here
-          # rather than adding a second variable holding the same value.
-          DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_HOST }}
+          # NOT ANTHROPIC_API_KEY, and that is not a typo. The arms run under
+          # vitest, whose config applies `.env.test` OVER the process
+          # environment — and `.env.test` defines ANTHROPIC_API_KEY as a stub.
+          # The first live sweep exported the real key here and watched every
+          # call come back `invalid x-api-key`. modelKey.ts moves this value
+          # into place under the name the SDK reads, before the app boots.
+          JUDGE_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # DATABRICKS_SERVER_HOSTNAME comes from the job environment — see
+          # the normalize step near the top of this job.
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
@@ -1588,8 +1614,8 @@ jobs:
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
           JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
           JUDGE_SPEND: 'true'
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_HOST }}
+          # Under the arm name, not ANTHROPIC_API_KEY — see the base arm above.
+          JUDGE_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
@@ -1638,6 +1664,8 @@ jobs:
           # refuses a setting that disagrees with the arms' manifests, which
           # is what turns that into a failure instead of a bill.
           JUDGE_SPEND: 'true'
+          # Under its own name here, unlike the arms: this step is tsx, so
+          # nothing loads `.env.test` over it and the real key survives.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail
