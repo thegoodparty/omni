@@ -54,7 +54,21 @@ export interface JudgeGates {
   practicalMargin: number
   // Share of order-swapped pairs whose two orders must agree. Below it, the
   // judge is reading position rather than quality.
+  //
+  // Only applied once there are `minSwappedPairs` of them: a rate has to have
+  // a denominator before it can fail anything.
   consistencyFloor: number
+  // HOW MANY ORDER-SWAPPED PAIRS THE FLOOR NEEDS before it means anything.
+  // `orderSwap.fraction` is 0.2, so the first live sweep judged 24 pairs and
+  // swapped 5 of them — and "60%" was 3 of 5, which the floor of 0.7 would
+  // have failed a whole sweep on. Below this many, the rate is reported with
+  // its denominator and gates nothing.
+  //
+  // 10 is a floor on sample size, not a statistical guarantee. It is chosen to
+  // be reachable at the scale this config designs for — minCases 20 at
+  // attemptsPerCase 3 is 60 pairs, so 12 swapped — while excluding the
+  // handful that a placeholder case list produces.
+  minSwappedPairs: number
   // Share of judgments allowed to come back cannot_determine.
   cannotDetermineCeiling: number
   // With more than one seat, the share of cases where seats may disagree on
@@ -133,6 +147,7 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     minCases: 20,
     practicalMargin: 0.1,
     consistencyFloor: 0.7,
+    minSwappedPairs: 10,
     cannotDetermineCeiling: 0.25,
     panelDisagreementCeiling: 0.3,
     failOnAllIdenticalOutputs: true,

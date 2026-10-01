@@ -170,6 +170,33 @@ const evidenceLines = (score: AgentScore): string[] => {
   return lines
 }
 
+// THE RATE AND ITS DENOMINATOR, always together. "60%" was 3 of 5 on the
+// first live sweep, and a reader cannot tell that from 60 of 100 — while the
+// 0.7 floor would have failed the whole sweep on it. Below
+// gates.minSwappedPairs the rate is evidence to read, not a gate, and the
+// line says so rather than leaving a number that looks actionable.
+const consistencyLine = (score: AgentScore, config: JudgeConfig): string => {
+  const unstable =
+    score.orderUnstablePairs.length > 0
+      ? `, order-unstable pair(s): ${score.orderUnstablePairs.join(', ')}`
+      : ''
+  if (score.positionConsistency === null || score.swappedPairs === 0) {
+    return 'Position consistency across order-swapped pairs: n/a, none judged'
+  }
+  const agreed = Math.round(score.positionConsistency * score.swappedPairs)
+  const base =
+    'Position consistency across order-swapped pairs: ' +
+    `${agreed} of ${score.swappedPairs} agreed ` +
+    `(${percentOf(score.positionConsistency)})${unstable}`
+  if (score.swappedPairs >= config.gates.minSwappedPairs) return base
+  return (
+    `${base}. Too few swapped pairs to gate on — ` +
+    `${config.gates.minSwappedPairs} are needed, so this is reported and not ` +
+    'applied. Raise the case count or orderSwap.fraction to make it mean ' +
+    'something.'
+  )
+}
+
 const exclusionLine = (score: AgentScore): string => {
   const e = score.exclusions
   const base =
@@ -245,13 +272,7 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
   lines.push('')
   lines.push(exclusionLine(score))
   lines.push('')
-  lines.push(
-    'Position consistency across order-swapped pairs: ' +
-      `${percentOf(score.positionConsistency)}` +
-      (score.orderUnstablePairs.length > 0
-        ? `, order-unstable pair(s): ${score.orderUnstablePairs.join(', ')}`
-        : ''),
-  )
+  lines.push(consistencyLine(score, config))
   if (score.panelDisagreementRate !== null) {
     lines.push(
       'Panel disagreement on direction, per judgment: ' +
