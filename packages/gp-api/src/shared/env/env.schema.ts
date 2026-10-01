@@ -242,16 +242,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID: { tier: 'optional' },
   HUBSPOT_POLL_RESULTS_EMAIL_ID: { tier: 'optional' },
   HUBSPOT_BRIEFING_READY_EMAIL_ID: { tier: 'optional' },
-  // Looked up dynamically off the firing Segment event name
-  // (outreach/services/outreachRobocallSingleSend.service.ts) — the map's
-  // values, not a literal `process.env.X`, so a plain grep misses these too.
-  HUBSPOT_ROBOCALL_SCHEDULED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_ROBOCALL_HOLD_PLACED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_ROBOCALL_HOLD_FAILED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_ROBOCALL_SEND_FAILED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_ROBOCALL_REMINDER_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_ROBOCALL_CANCELED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_ROBOCALL_RECEIPT_EMAIL_ID: { tier: 'optional' },
 
   MAILGUN_API_KEY: { tier: 'optional' },
   MAILGUN_INTERCEPT_EMAIL: { tier: 'optional' },
