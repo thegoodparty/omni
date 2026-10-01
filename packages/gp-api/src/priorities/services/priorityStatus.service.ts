@@ -99,16 +99,20 @@ const checkDueFor = (
   status: PriorityStatus,
   update: UpdatePriorityStatusInput,
 ): string | null => {
-  const due = update.steps.find(
+  const due = update.steps.filter(
     (patch) =>
       isGate(patch.id) &&
       patch.state === STEP_STATE.settled &&
       status.steps.find((step) => step.id === patch.id)?.check === undefined,
   )
-  return due === undefined
-    ? null
-    : `${PRIORITY_STEP_LABELS[due.id]} is settled. Offer its check now, in ` +
-        `this turn, before any work on the next step. ${CHECK_HOW}`
+  if (due.length === 0) return null
+  const labels = due.map((patch) => PRIORITY_STEP_LABELS[patch.id])
+  return due.length === 1
+    ? `${labels[0]} is settled. Offer its check now, in this turn, before ` +
+        `any work on the next step. ${CHECK_HOW}`
+    : `${labels.join(' and ')} are settled. Offer each one's check now, in ` +
+        `this turn, one at a time, before any work on the next step. ` +
+        CHECK_HOW
 }
 
 export interface PriorityStatusResult {

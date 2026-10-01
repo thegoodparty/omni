@@ -492,6 +492,20 @@ describe('update_priority_status holds the check to being offered', () => {
     expect(stepOf(await statusService.read(id), 'define').state).toBe('settled')
   })
 
+  it('names every gate settled in one call without a check', async () => {
+    const id = await createPriority()
+
+    const result = await toolFor(id, () => false).execute({
+      steps: [
+        settleDefine,
+        { id: 'options', state: 'settled', summary: 'Two paths' },
+      ],
+      nextAction: 'Ask about both',
+    })
+
+    expect(JSON.stringify(result)).toContain('The problem and Your options')
+  })
+
   it('refuses to open the next step past a gate with no check', async () => {
     const id = await createPriority()
 

@@ -126,7 +126,8 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       '- Rents near transit (id: pri-1) on: What we know, next: Pull the ' +
         'rent numbers, constituent checks: The problem: put off, who: ' +
         'Renters on Oak, they said: after the budget hearing, raised 1 of 3 ' +
-        'times, least affected: put off: Keep renters near the new line.',
+        'times, least affected: put off (Owners across town): Keep renters ' +
+        'near the new line.',
     )
     expect(prompt).toContain("[the priority's title](/dashboard/priorities/ID)")
     expect(prompt).toContain('Do not run its steps')

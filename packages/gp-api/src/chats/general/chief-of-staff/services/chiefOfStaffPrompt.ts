@@ -13,6 +13,7 @@ import {
   PRIORITY_STEP_LABELS,
   type ChatAnchor,
   type PriorityStepCheck,
+  type PriorityStepContrast,
 } from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { PriorityRecord } from './prioritiesPort'
@@ -410,6 +411,17 @@ const CHECK_STATE_LINE: Record<PriorityStepCheck['state'], string> = {
   declined: 'declined, constituents not asked',
 }
 
+const formatContrast = (contrast: PriorityStepContrast): string => {
+  const detail = [
+    contrast.who.trim() === '' ? null : optional(contrast.who),
+    contrast.when === undefined
+      ? null
+      : `they said: ${optional(contrast.when)}`,
+  ].filter((part): part is string => part !== null)
+  const line = `least affected: ${CHECK_STATE_LINE[contrast.state]}`
+  return detail.length === 0 ? line : `${line} (${detail.join(', ')})`
+}
+
 const formatCheck = (
   stepId: keyof typeof PRIORITY_STEP_LABELS,
   check: PriorityStepCheck,
@@ -421,9 +433,7 @@ const formatCheck = (
     check.state === 'deferred'
       ? `raised ${check.raised} of ${MAX_CHECK_RAISES} times`
       : null,
-    check.contrast === undefined
-      ? null
-      : `least affected: ${CHECK_STATE_LINE[check.contrast.state]}`,
+    check.contrast === undefined ? null : formatContrast(check.contrast),
   ]
   return parts.filter((part): part is string => part !== null).join(', ')
 }
