@@ -48,6 +48,23 @@ export const OUTREACH_MESSAGE_RULES = [
 const isDeepLinkOnly = (channel: ProposalChannel): boolean =>
   channel !== ProposalChannelSchema.enum.phoneBanking
 
+// The card and the list both read a sample this big as the whole audience,
+// so the agent has to say it that way too.
+const proposalResult = (input: {
+  channel: ProposalChannel
+  count: number
+  sampleSize?: number
+}) => ({
+  presented: true,
+  deepLinkOnly: isDeepLinkOnly(input.channel),
+  ...(input.sampleSize !== undefined &&
+    input.sampleSize >= input.count && {
+      wholeAudience:
+        `The sample is no smaller than the ${input.count} people in ` +
+        'the audience, so all of them get it. Say so.',
+    }),
+})
+
 const DESCRIPTION =
   'Present a ready-to-send piece of outreach. Everything must be final: ' +
   'the message goes out under their name exactly as you write it. Never ' +
@@ -71,18 +88,7 @@ export const buildPresentOutreachProposalTool = (): LlmStreamTool<
 > => ({
   description: DESCRIPTION,
   inputSchema: presentOutreachProposalInput,
-  execute: (input) => ({
-    presented: true,
-    deepLinkOnly: isDeepLinkOnly(input.channel),
-    // The card and the list both read a sample this big as the whole
-    // audience, so the agent has to say it that way too.
-    ...(input.sampleSize !== undefined &&
-      input.sampleSize >= input.count && {
-        wholeAudience:
-          `The sample is no smaller than the ${input.count} people in ` +
-          'the audience, so all of them get it. Say so.',
-      }),
-  }),
+  execute: proposalResult,
 })
 
 // Why a priority's proposal may not be shown, or null. A side already sent
@@ -121,8 +127,5 @@ export const buildPriorityOutreachProposalTool = (): LlmStreamTool<
     '\n\nWhen this puts out a check, pass stepId and side, so the check ' +
     'moves to out on its own once the official sends it.',
   inputSchema: priorityProposalInput,
-  execute: (input) => ({
-    presented: true,
-    deepLinkOnly: isDeepLinkOnly(input.channel),
-  }),
+  execute: proposalResult,
 })
