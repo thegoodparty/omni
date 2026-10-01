@@ -51,11 +51,13 @@ export class CallhubPermanentError extends BadGatewayException {
 // topping up the CallHub account unblocks it.
 export const CALLHUB_LOW_CREDIT_DETAIL = 'low_credit'
 
-// The vendor detail is not guaranteed to be normalized (see isRecoverableDetail
-// above), so match case/space-insensitively — a `Low_Credit` variant must not
-// silently skip the operator alert.
+// The vendor detail is not guaranteed to be a normalized string (see
+// isRecoverableDetail above), so guard the type and match
+// case/space-insensitively — a non-string must not throw and a `Low_Credit`
+// variant must not silently skip the operator alert.
 export const isLowCreditDetail = (detail?: string): boolean =>
-  detail?.trim().toLowerCase() === CALLHUB_LOW_CREDIT_DETAIL
+  typeof detail === 'string' &&
+  detail.trim().toLowerCase() === CALLHUB_LOW_CREDIT_DETAIL
 
 // CallHub `detail` codes that arrive on a 4xx but are NOT properties of the
 // request, so the identical call succeeds on the next attempt.
@@ -135,7 +137,7 @@ export class CallhubErrorHandlingService {
         ? new CallhubPermanentError(
             customMessage ?? generic,
             { cause: error },
-            data?.detail,
+            typeof data?.detail === 'string' ? data.detail : undefined,
           )
         : new BadGatewayException(customMessage ?? generic, { cause: error })
     }

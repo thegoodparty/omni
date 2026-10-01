@@ -163,5 +163,11 @@ describe('CallhubErrorHandlingService', () => {
         classifyBody(400, { detail: { code: 'over_cps_limit' } }),
       ).toBeInstanceOf(CallhubPermanentError)
     })
+
+    it('does not store a non-string detail on the permanent error', () => {
+      const thrown = classifyBody(400, { detail: { code: 'x' } })
+      expect(thrown).toBeInstanceOf(CallhubPermanentError)
+      expect((thrown as CallhubPermanentError).callhubDetail).toBeUndefined()
+    })
   })
 })
