@@ -136,7 +136,14 @@ const user = userEvent.setup()
 const openFlow = () => {
   const onClose = vi.fn()
   const onSaved = vi.fn()
-  render(<SocialFlow open onClose={onClose} onSaved={onSaved} />)
+  render(
+    <SocialFlow
+      source="outreach_page"
+      open
+      onClose={onClose}
+      onSaved={onSaved}
+    />,
+  )
   return { onClose, onSaved }
 }
 
@@ -709,6 +716,7 @@ describe('SocialFlow prefill seam', () => {
   const openWithPrefill = (prefill: SocialFlowPrefill) => {
     render(
       <SocialFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onSaved={vi.fn()}
@@ -787,6 +795,7 @@ describe('SocialFlow with the serve surface', () => {
     const onSaved = vi.fn()
     render(
       <SocialFlow
+        source="outreach_page"
         open
         onClose={onClose}
         onSaved={onSaved}

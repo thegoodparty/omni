@@ -299,7 +299,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     await user.click(screen.getByText('Door knocking'))
 
     expect(router.push).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1',
+      '/dashboard/door-knocking?create=1&source=outreach_page',
     )
     expect(
       screen.queryByText('Explain a recent decision'),

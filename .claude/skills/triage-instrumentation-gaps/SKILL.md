@@ -1,13 +1,15 @@
 ---
 name: triage-instrumentation-gaps
-description: Run the weekly instrumentation-governance review over three queues — instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), and registry-vs-semantic-layer alignment findings (anchor_alignment.py) — entered from the Slack governance digest, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest.
+description: Run the weekly instrumentation-governance review over four queues — flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), and registry-vs-semantic-layer alignment findings (anchor_alignment.py) — entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest.
 ---
 
 # Triage instrumentation gaps
 
-Weekly governance review over **three re-nagging queues** that share one reviewer, one
+Weekly governance review over **four re-nagging queues** that share one reviewer, one
 session, and one PR:
 
+- **Queue 0 — flagged causes** (`analytics_event_health.py`): the flagged set grouped by
+  the reason it fired, so a deploy that stranded twenty-two name constants is one ruling.
 - **Queue A — instrumentation gaps** (`instrumentation_gaps.py`): candidate product
   surfaces the weekly sweep thinks are missing an analytics event.
 - **Queue B — watchlist proposals** (`analytics_event_health.py`): catalog events in a
@@ -90,10 +92,63 @@ The reviewer never has to pre-load anything — this skill finds the run itself.
   and message timestamp out of the URL (`p1234567890123456` → `1234567890.123456`),
   `slack_read_thread` on that, then extract `run_date` the same way as step 4 above.
 
+**With a pasted console handoff** — the event health console (DATA-2546) is a page over
+the same snapshot, where the reviewer reads the evidence and picks a verb per row. It
+emits a plain-text batch:
+
+```
+DATA-2546 triage handoff
+run: 2026-09-28
+judgments: 12
+
+## flags
+- govern: call_site_removed@2026-09-01
+  reason: <why>
+  proof: <the commit or PR that deleted the call site>
+- dismiss: orphaned_firing  [overridden]
+  reason: <why>
+  - ticket (34 events): <why these ones>
+      <event name>
+      <event name>
+
+## gaps
+- accept: packages/gp-webapp/app/…#form
+  reason: <why>
+```
+
+Take `run_date` from the `run:` line and skip the Slack read. Everything downstream is
+unchanged: each block names a queue, an item id the queue already keys on, and that
+queue's own verb.
+
+**The console replaces the elicitation half of this skill, not the application half.**
+The reviewer has already looked at the evidence and chosen. Do not re-ask. What is still
+yours is everything after the verb — the per-queue write rules, `is_actioned`, the
+accepted-gap routing between a ClickUp ticket and `instrument-analytics-event`, and
+`ship-pr`.
+
+Reading the blocks:
+
+- `[overridden]` means the reviewer did not take the suggestion. It is informational;
+  the verb is the verb either way.
+- An indented `- <verb> (N events):` block under an item is a ruling on **part** of a
+  cause, with its member events listed beneath. A cause-level verb and a per-event verb
+  can both be present: "retire the cluster, except these four".
+- `proof:` appears only on `govern`, and only because the console refuses to record a
+  Govern write without it. Carry it into the `event-metadata` handoff — it is the
+  code-removal evidence the status write is supposed to embed. A `proof:` beginning
+  `no removal:` is the reviewer declaring this write is **not** a retirement; honour
+  that and do not write a retirement status.
+- A per-event `reviewed` verdict has nowhere to land yet
+  (`analytics_event_health_dispositions.json` is not built). Report it in the PR body
+  and tell the reviewer the digest will raise it again.
+- **Judgments are stamped with a run date.** If a newer run has landed since, a cause's
+  membership may have moved. Re-check membership before applying and report what
+  changed rather than applying a stale ruling silently.
+
 Never post to Slack during this self-load — it's read-only (`slack_read_channel` /
 `slack_read_thread` / `slack_search_public`), never `slack_send_message`.
 
-With `run_date` in hand, load all three queues scoped to that run.
+With `run_date` in hand, load all four queues scoped to that run.
 
 **Read the gotchas book before ruling on anything.** `books/analytics-governance-gotchas.md`
 is a symptom table of the traps that have produced confident, wrong verdicts in this
@@ -101,6 +156,61 @@ process — blank vs zero call-site counts, the rank-0 counter blind spot, a 30-
 straddling a retirement, the rolling baseline absorbing a sustained break. Scanning it
 first is cheaper than re-deriving one of them from scratch, which is what DATA-2575 was
 filed for.
+
+## Queue 0 — flagged causes
+
+**Get the batch:** the digest's **Flagged (by cause)** section, or the console's flags
+queue. `cluster_flagged` groups the flagged set by the reason it fired, so one deploy
+that stranded twenty-two name constants is one ruling rather than twenty-two.
+
+The unit is the **cause key** — the string the digest prints for that line, qualifier
+included (`call_site_removed@2026-09-01`), or the bare key where there is none
+(`orphaned_firing`, `never_observed`, `intent_divergence`, `dormant_elevated`,
+`anomaly_drop`, `counter_blind_spot`, `okr_anchor_dormant`). Get it exactly right: a
+dismissal carrying a mangled qualifier silently matches nothing.
+
+**Verb → action:**
+
+| Verb          | What it means                                  | What you do                                                                                                                                                             |
+| ------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `govern`      | Write the event's status in Amplitude Govern   | Hand each member event to the **`event-metadata`** skill, carrying the handoff's `proof:` as the code-removal evidence the status write embeds. **Not a repo change** — see the PR section. |
+| `dismiss`     | Silence this cause in every future digest      | Append a `cause:` row to `dismissed:` in `monitored_events.yaml` (below).                                                                                               |
+| `ticket`      | Hand it to the backlog                         | File a ClickUp ticket in the Data backlog. See the note below about re-nagging.                                                                                          |
+| `investigate` | Nothing is written yet                         | Drop into **Diagnose** with that cause's member events.                                                                                                                  |
+
+**Dismissing a cause:**
+
+```yaml
+- {cause: "<cause key>", reason: "<reason>", date: "<run_date>"}
+```
+
+- **Check membership first** — skip if the same `cause` is already in `dismissed:`.
+- **`okr_anchor_dormant` and `counter_blind_spot` cannot be dismissed.** The loader
+  refuses both and the digest prints "Dismissal refused" naming the row, so a dismissal
+  written anyway does nothing except tell on itself. A latched OKR anchor clears on
+  recovery or when the metric's `anchored_on` changes upstream; a counter blind spot is
+  fixed in `count_call_sites` in the provenance backfill. The console does not offer a
+  dismiss button on those two rows, so a handoff should never contain one — if it does,
+  say so rather than writing it.
+- A dismissed cause stays in the digest struck through, with its current member count, and
+  stays whole in the JSON report. It is silenced, not deleted, so a cluster that keeps
+  growing after it was settled is still visible.
+
+**`ticket` does not stop the nagging, today.** The only silencing mechanism for a cause
+is the `cause:` dismissal above, and a `reviewed` disposition per event has no home yet
+(`analytics_event_health_dispositions.json` is not built). So a ticketed cause comes
+back next run. Say that out loud and ask whether the reviewer also wants it dismissed
+with the ticket URL as the reason — don't decide it for them, and don't write a
+dismissal they did not ask for.
+
+**A ruling on part of a cause.** A handoff can carry an indented per-event block under a
+cause. Apply the cause-level verb first, then the per-event ones, so "retire the cluster
+except these four" lands in that order. Per-event `govern` goes to `event-metadata` the
+same way. Per-event `reviewed`, `dismiss` and `ticket` have nowhere to land as a silence:
+never turn them into a `cause:` row, which would quiet every event under that cause, and
+never into an `event:` row, which is a watchlist-proposal rejection and silences no flag.
+Record them in the PR body, file the ticket if one was asked for, and tell the reviewer the
+digest will raise them again until the cause stops applying.
 
 ## Queue A — instrumentation gaps
 
@@ -128,8 +238,9 @@ usually the same call, made in seconds.
 
 - **Empty batch** → say so ("no new instrumentation gaps this run") and skip straight
   to Queue B.
-- **Otherwise**, offer **interactive** or **batch**; suggest **batch** once the batch
-  has more than 5 items (walking >5 one-by-one in chat is worse than an editor pass).
+- **Otherwise**, offer **interactive**, **batch**, or — when the reviewer arrived with a
+  console handoff — **apply the handoff**. Suggest **batch** once the batch has more
+  than 5 items (walking >5 one-by-one in chat is worse than an editor pass).
 
 Both modes write dispositions back through the **same path**: a filled review
 artifact loaded via `--load-review`. There is exactly one write path into
@@ -160,6 +271,19 @@ of asking the reviewer to open an editor.
    `- reason:` for each block in their editor, then confirm when done.
 3. Same `--load-review` step as above.
 
+**Apply the handoff** (the reviewer already ruled, in the console):
+
+1. Same `--review-artifact` step as above.
+2. Fill each block from the handoff's `## gaps` section, mapping the verb through the
+   table below. Ids match: the console keys a gap on the same `location#surface_type`
+   this artifact does.
+3. A gap in the artifact that the handoff does not mention stays blank, which the parser
+   reads as "still new" — correct, and what the reviewer meant by not ruling on it.
+4. Same `--load-review` step as above.
+
+The write path does not change in any of the three modes. There is exactly one way into
+`instrumentation_gaps.json`, and it is `--load-review`.
+
 **Verb → disposition mapping** (write the literal value into the artifact's
 `- disposition:` line):
 
@@ -171,6 +295,14 @@ of asking the reviewer to open an editor.
 
 `apply_seed_dispositions` validates against `{new, open, accepted, dismissed}` and
 skips (with a stderr warning) anything else, so don't invent other values.
+
+**This mapping is not optional, and skipping it fails silently.** The verbs above are
+the reviewer's words; the values in the middle column are the storage format. They do
+not overlap — a console handoff says `accept`, `dismiss`, `defer`, and every one of
+those is invalid to the parser. Writing a handoff's verbs straight into the artifact
+drops every Queue A ruling with nothing but a stderr line to show for it, and the next
+digest re-nags the whole batch as though the review never happened. Translate, then
+check the `--load-review` applied count against the number of blocks you filled.
 
 ### Act on accepted gaps
 
@@ -428,33 +560,6 @@ site, do not trust the count.
 
 Never decide a case 3 yourself.
 
-## Settle a whole cause (digest queue)
-
-The digest's **Flagged (by cause)** section groups flags by the reason they fired, so one
-deploy that stranded twenty-two name constants is one ruling rather than twenty-two. When
-the reviewer settles a cause rather than an event, append a `cause:` row to `dismissed:`
-in `monitored_events.yaml`:
-
-```yaml
-- {cause: "<cause key>", reason: "<reason>", date: "<run_date>"}
-```
-
-The cause key is the string the digest prints for that line, qualifier included
-(`call_site_removed@2026-09-01`), or the bare key where there is none (`orphaned_firing`,
-`never_observed`, `intent_divergence`, `dormant_elevated`, `anomaly_drop`).
-
-Rules:
-
-- **Check membership first** — skip if the same `cause` is already in `dismissed:`.
-- **`okr_anchor_dormant` and `counter_blind_spot` cannot be dismissed.** The loader
-  refuses both and the digest prints "Dismissal refused" naming the row, so a dismissal
-  written anyway does nothing except tell on itself. A latched OKR anchor clears on
-  recovery or when the metric's `anchored_on` changes upstream; a counter blind spot is
-  fixed in `count_call_sites` in the provenance backfill.
-- A dismissed cause stays in the digest struck through, with its current member count, and
-  stays whole in the JSON report. It is silenced, not deleted, so a cluster that keeps
-  growing after it was settled is still visible.
-
 ## Diagnose — red/yellow health items
 
 Runs when the digest has a 🔴/🟡 tier and the reviewer wants the story, not just the
@@ -545,7 +650,7 @@ ticket, or the reviewer's own follow-up message.
 
 ## Write back — one PR
 
-Once all three queues are dispositioned:
+Once all four queues are dispositioned:
 
 1. **Propose gotchas-book updates for sign-off.** Same shape as Queue B's watchlist
    proposals: you propose, the reviewer picks, you apply. Never edit the book
@@ -581,6 +686,18 @@ Once all three queues are dispositioned:
      cause key is a row the next person cannot find — see the book's own maintenance rules.
    - **Re-measure before writing a number.** A figure carried over from a ticket or an
      earlier session is exactly the stale fact the Status column exists to flag.
+   - **Check the fix has not already shipped, before proposing any row.** For every row you
+     add or update, fetch the live status of each ticket it cites, and run
+     `git log origin/main --since="$as_of" -- $row_paths`. Set `$as_of` to the first day of
+     the row's `state · as-of YYYY-MM` month (`2026-09-01`) and `$row_paths` to the files
+     the row names (e.g. `packages/runbooks/scripts/python/analytics_event_health.py`);
+     confirm with `ls $row_paths` that they exist, because a path that matches nothing also
+     returns an empty log and reads as "no fix". A
+     row whose ticket is closed, or whose problem a merged PR already fixed, is a warning
+     about something that is fine, and that is worse than no row: delete or correct it
+     instead. A handoff is built from a snapshot, so the console you ruled in can predate
+     the fix. 2026-09-30: two rows were added for problems fixed the day before, and two
+     more still cited a ticket that had closed unbuilt.
 
    If nothing came up, say so in one line and move on. A session with no new traps is the
    normal case.
@@ -588,16 +705,27 @@ Once all three queues are dispositioned:
    **Updates to this book happen only here, with a human in the loop.** The scheduled
    Monday/Thursday runs read the book (it is pasted into both judges' prompts — see
    `governance_gotchas.py`) and never write to it.
-2. `git status` should show at most `instrumentation_gaps.json` and (if Queue B had any
-   accept/dismiss, or Queue C had any case 1 edit or dismissal) `monitored_events.yaml`
-   under `packages/runbooks/scripts/python/instrumentation_data/` /
+2. `git status` should show at most `instrumentation_gaps.json` and (if Queue 0 had any
+   cause dismissal, Queue B had any accept/dismiss, or Queue C had any case 1 edit or
+   dismissal) `monitored_events.yaml` under
+   `packages/runbooks/scripts/python/instrumentation_data/` /
    `packages/runbooks/scripts/python/`, plus `books/analytics-governance-gotchas.md` if
    step 1 added a row.
+
+   **A Queue 0 `govern` produces no file change**, so an empty diff after a session of
+   Govern writes is correct, not a sign the work was skipped. Do not go looking for
+   something to commit.
 3. Stage exactly those files.
 4. Invoke the **`ship-pr`** skill to open one PR against `main`. Title it for the run,
    e.g. `chore(governance): triage <run_date> — gap + watchlist + alignment review`. In
    the body, list:
-   - Queue A: which gap ids were ticketed (with ClickUp links), which were handed to
+   - Queue 0: which causes were dismissed (with reason), which were ticketed (with
+     ClickUp links), which were sent to Diagnose. **List the Govern writes separately
+     and name the events.** A Govern write changes Amplitude, not this repo, so it
+     appears in no diff — a reader who only reads the diff will conclude it did not
+     happen. Record what was written, to which events, and the code-removal proof each
+     one carried. Same for any per-event `reviewed`, which has nowhere to land yet and
+     will be raised again next run. which gap ids were ticketed (with ClickUp links), which were handed to
      `instrument-analytics-event` (with the resulting event name/PR if different from
      this one), which were dismissed (with reason), which were deferred.
    - Queue B: which events were added to the watchlist, which were dismissed (with

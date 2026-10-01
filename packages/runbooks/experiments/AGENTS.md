@@ -64,6 +64,12 @@ that's your experiment id. The id is locked into many downstream places
 (`EXPERIMENT_ID` env var, S3 key, ExperimentRun row, gp-api EXPERIMENT_IDS) so pick
 it carefully and never rename later.
 
+**Never name a directory here `all` or `auto`.** Both are selector keywords to
+the Universal Judge, which derives agent ids from these directory names: `all`
+would turn a one-agent request into a sweep of every agent, and `auto` is the
+selector that does the deriving. The judge's trigger rejects either name with an
+error rather than guessing, so the cost is a red check on the PR that adds it.
+
 ## Subdirectory layout
 
 Each experiment dir holds two required files plus an optional `qa/` folder:

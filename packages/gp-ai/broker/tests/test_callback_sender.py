@@ -264,6 +264,68 @@ class TestCallbackSenderSqsFailureLogging:
         assert record.exc_info is not None
 
 
+class TestCallbackSenderOmitsAnUnmeasuredCost:
+    """`costUsd` is the one envelope field that must be able to say "unknown".
+    Every other field has a meaningful empty value; a cost does not — 0 reads
+    as a free run, and the cost is printed beside a verdict as evidence.
+
+    It is OMITTED rather than sent as null because gp-api's zod field is
+    `z.number().optional()`: a missing key parses, an explicit null does not,
+    and a callback that fails to parse dead-letters and leaves the run row
+    non-terminal forever. Its consumer writes `data.costUsd ?? null`, so the
+    omission lands as a null column — the representation of "unknown" that
+    `AgentRun.schema.ts` already declares.
+    """
+
+    def test_default_omits_the_cost_key(self):
+        sqs = MagicMock()
+        sender = CallbackSender(sqs_client=sqs, queue_url="https://sqs.example.com/q.fifo")
+
+        sender.send_result(
+            run_id="run-no-cost",
+            organization_slug="org-7",
+            experiment_id="voter_targeting",
+            status="failed",
+        )
+
+        body = json.loads(sqs.send_message.call_args[1]["MessageBody"])
+        assert "costUsd" not in body["data"]
+
+    def test_an_explicit_none_omits_the_cost_key(self):
+        """The shape the broker's own endpoints pass through: the runner
+        withheld the figure, so there is nothing to report."""
+        sqs = MagicMock()
+        sender = CallbackSender(sqs_client=sqs, queue_url="https://sqs.example.com/q.fifo")
+
+        sender.send_result(
+            run_id="run-withheld",
+            organization_slug="org-7",
+            experiment_id="voter_targeting",
+            status="failed",
+            cost_usd=None,
+        )
+
+        body = json.loads(sqs.send_message.call_args[1]["MessageBody"])
+        assert "costUsd" not in body["data"]
+
+    def test_an_observed_zero_is_sent(self):
+        """A measured zero is a measurement. Only absence is absent — a falsy
+        guard here would collapse the two back together."""
+        sqs = MagicMock()
+        sender = CallbackSender(sqs_client=sqs, queue_url="https://sqs.example.com/q.fifo")
+
+        sender.send_result(
+            run_id="run-free",
+            organization_slug="org-7",
+            experiment_id="voter_targeting",
+            status="success",
+            cost_usd=0.0,
+        )
+
+        body = json.loads(sqs.send_message.call_args[1]["MessageBody"])
+        assert body["data"]["costUsd"] == 0.0
+
+
 class TestCallbackSenderNoQaVerdictOnCallback:
     """gp-api is DROPPED as a consumer of the QA verdict — its SQS callback
     schema strips qaVerdict, so forwarding it on the callback is dead weight.
@@ -286,6 +348,10 @@ class TestCallbackSenderNoQaVerdictOnCallback:
             status="success",
             artifact_key="voter_targeting/run-qa-1/artifact.json",
             artifact_bucket="gp-agent-artifacts-dev",
+            # `costUsd` is now on the envelope only when a cost was actually
+            # observed, so a fully-populated callback has to pass one for this
+            # to still be the FULL key set.
+            cost_usd=0.21,
         )
 
         body = json.loads(sqs.send_message.call_args[1]["MessageBody"])

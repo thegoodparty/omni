@@ -39,6 +39,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 const mockOutreachCreate = vi.fn()
 const mockOutreachFindMany = vi.fn()
 const mockOutreachUpdateMany = vi.fn()
+const mockOutreachFindFirst = vi.fn()
 const mockOutreachUpdate = vi.fn()
 const mockOutreachFindUniqueOrThrow = vi.fn()
 const mockGetFileBytes = vi.fn()
@@ -110,6 +111,7 @@ describe('OutreachService', () => {
     mockOutreachCreate.mockReset()
     mockOutreachFindMany.mockReset()
     mockOutreachUpdateMany.mockReset()
+    mockOutreachFindFirst.mockReset()
     mockOutreachUpdate.mockReset()
     mockOutreachFindUniqueOrThrow.mockReset()
     mockGetFileBytes.mockReset()
@@ -139,7 +141,7 @@ describe('OutreachService', () => {
       outreach: {
         create: mockOutreachCreate,
         findMany: mockOutreachFindMany,
-        findFirst: vi.fn(),
+        findFirst: mockOutreachFindFirst,
         findFirstOrThrow: vi.fn(),
         findUnique: vi.fn(),
         findUniqueOrThrow: mockOutreachFindUniqueOrThrow,
@@ -420,15 +422,115 @@ describe('OutreachService', () => {
       // The replay path: a Stripe webhook retry loses the pending_payment ->
       // pending race, so finalize returns at the claim. This is what makes the
       // emit exactly-once without its own dedup.
-      // confirmFinalized's findFirst is an un-stubbed vi.fn() returning
-      // undefined, so its poll breaks on the first pass rather than sleeping,
-      // then throws to send the webhook back for a retry. Either way the claim
-      // was lost, so nothing is emitted.
+      // findFirst resolves undefined here, so the watch reports `missing` on
+      // its first pass rather than sleeping, and the claim throws to send the
+      // webhook back for a retry. Either way the claim was lost, so nothing
+      // is emitted.
       mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
 
       await expect(service.finalizeOutreachPurchase(45, 1)).rejects.toThrow()
 
       expect(mockAnalyticsTrack).not.toHaveBeenCalled()
+    })
+
+    // The race behind incident 94: the browser's own complete-checkout-session
+    // call and the Stripe webhook arrive in the same second, the browser wins
+    // the claim, Peerly refuses the candidate's script, and the browser hands
+    // the draft back. What the webhook does with that hand-back decides
+    // whether Stripe is told to redeliver.
+    describe('when the finalize claim is lost', () => {
+      const heldDraft = {
+        id: 46,
+        campaignId: 1,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending,
+        imageUrl: 'https://assets.goodparty.org/outreach/img.png',
+        phoneListId: 100,
+        script: 'hello voter https://bit.ly/abc',
+        identityId: 'ident-1',
+        title: 'P2P Title',
+        name: null,
+        didState: null,
+        didNpaSubset: null,
+        date: new Date('2025-02-01T12:00:00.000Z'),
+        audienceRequest: null,
+        campaignPlanDueDate: null,
+        textCount: 250,
+        billableTextCount: 250,
+        voterFileFilterId: 7,
+        voterFileFilter: null,
+        campaign: { ...mockCampaign, user: mockUser },
+      }
+
+      it('does nothing further once a concurrent finalize stamped a job', async () => {
+        mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+        mockOutreachFindFirst.mockResolvedValue({
+          status: OutreachStatus.pending,
+          projectId: 'job-123',
+        })
+
+        await expect(
+          service.finalizeOutreachPurchase(46, 1),
+        ).resolves.toBeUndefined()
+
+        expect(mockOutreachFindUniqueOrThrow).not.toHaveBeenCalled()
+        expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+      })
+
+      it('takes over a draft the winner handed back and raises the real refusal', async () => {
+        // First claim loses, the watch sees pending_payment, the retake wins.
+        mockOutreachUpdateMany
+          .mockResolvedValueOnce({ count: 0 })
+          .mockResolvedValue({ count: 1 })
+        mockOutreachFindFirst.mockResolvedValue({
+          status: OutreachStatus.pending_payment,
+          projectId: null,
+        })
+        mockOutreachFindUniqueOrThrow.mockResolvedValue(heldDraft)
+        mockGetFileBytes.mockResolvedValue({
+          bytes: Buffer.from('img'),
+          contentType: 'image/png',
+        })
+        mockPeerlyCreateJob.mockRejectedValue(
+          new BadRequestException('Message cannot contain bit.ly links.'),
+        )
+
+        // A content refusal, not a bare retryable failure: the webhook layer
+        // reads BadRequestException as permanent and acknowledges Stripe
+        // instead of collecting redeliveries.
+        await expect(service.finalizeOutreachPurchase(46, 1)).rejects.toThrow(
+          BadRequestException,
+        )
+        expect(mockPeerlyCreateJob).toHaveBeenCalledTimes(1)
+        // The revert must fire: pending -> pending_payment hands the draft
+        // back so the candidate can edit and schedule again. Call 1 = the
+        // claim we lost, call 2 = the takeover claim we won, call 3 = the
+        // revert. Without the third the draft would be stranded at pending
+        // with no Peerly job and nothing able to claim it.
+        expect(mockOutreachUpdateMany).toHaveBeenCalledTimes(3)
+        expect(mockOutreachUpdateMany).toHaveBeenNthCalledWith(3, {
+          where: {
+            id: 46,
+            status: OutreachStatus.pending,
+            projectId: null,
+          },
+          data: { status: OutreachStatus.pending_payment },
+        })
+      })
+
+      it('takes the draft over once, then defers to a redelivery', async () => {
+        mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+        mockOutreachFindFirst.mockResolvedValue({
+          status: OutreachStatus.pending_payment,
+          projectId: null,
+        })
+
+        await expect(service.finalizeOutreachPurchase(46, 1)).rejects.toThrow(
+          /a concurrent finalize failed and the retake lost the claim too/,
+        )
+        expect(mockOutreachUpdateMany).toHaveBeenCalledTimes(2)
+        expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+      })
     })
 
     it('forwards campaignPlanDueDate from the DTO into notifySuccess', async () => {

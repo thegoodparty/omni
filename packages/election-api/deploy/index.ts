@@ -116,7 +116,7 @@ export = async () => {
       HOST: '0.0.0.0',
       LOG_LEVEL: 'debug',
       OTEL_SERVICE_ENVIRONMENT: environment,
-      SECRET_NAMES: Object.keys(secret).join(','),
+      SECRETS_MANAGER_KEYS: Object.keys(secret).join(','),
       CORS_ORIGIN: select({
         dev: 'https://dev.goodparty.org',
         prod: 'https://goodparty.org',

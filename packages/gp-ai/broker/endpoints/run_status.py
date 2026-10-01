@@ -197,16 +197,36 @@ def run_status(
         wire_status = req.status
         wire_reason_code = req.reason_code or ""
 
-    callback_sender.send_result(
-        run_id=ticket.run_id,
-        organization_slug=ticket.organization_slug,
-        experiment_id=ticket.experiment_id,
-        status=wire_status,
-        reason_code=wire_reason_code,
-        detail=req.detail or "",
-        duration_seconds=req.duration_seconds or 0,
-        cost_usd=req.cost_usd or 0,
-    )
+    # Same suppression as the publish path: an eval run has no `experiment_run`
+    # row in gp-api, so a callback would only produce one `Experiment run not
+    # found` error per run. The terminal log line and metric above still fire —
+    # a failed eval run must stay visible to us, it just stays invisible to
+    # gp-api.
+    if ticket.is_eval:
+        logger.info(
+            "results_callback_suppressed reason=eval_run run_id=%s experiment_id=%s status=%s",
+            ticket.run_id,
+            ticket.experiment_id,
+            wire_status,
+        )
+    else:
+        callback_sender.send_result(
+            run_id=ticket.run_id,
+            organization_slug=ticket.organization_slug,
+            experiment_id=ticket.experiment_id,
+            status=wire_status,
+            reason_code=wire_reason_code,
+            detail=req.detail or "",
+            duration_seconds=req.duration_seconds or 0,
+            # Forwarded as-is, NOT `or 0`. The runner withholds cost_usd when
+            # any part of the run's spend was never observed (an unpriced model,
+            # or a terminal ResultMessage that carried no cost), and `or 0`
+            # turned that withholding straight back into a measured-looking
+            # $0.00 — understating a timed-out run's partial spend AND making it
+            # indistinguishable from a genuinely free one. The omission has to
+            # survive to gp-api for the distinction to exist anywhere.
+            cost_usd=req.cost_usd,
+        )
 
     # Delete ticket + run-lock on any terminal state (failed/contract_violation/timeout —
     # the agent is done regardless of what wire_status we emitted). Cleaning up
@@ -234,4 +254,4 @@ def run_status(
                 exc_info=True,
             )
 
-    return RunStatusResponse(callback_sent=True)
+    return RunStatusResponse(callback_sent=not ticket.is_eval)

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
@@ -220,6 +221,8 @@ export interface CreateListSurfaceProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
   // The pack's bounding box, threaded to the draw step's static-map
   // preview card. Null while the pack decodes; the preview omits the image
   // in that window rather than rendering against no rect.
@@ -342,6 +345,7 @@ export default function CreateListSurface({
   onFiltersChange,
   onStepChange,
   onClose,
+  source,
   districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
@@ -535,6 +539,7 @@ export default function CreateListSurface({
         onStepChange(next)
       }}
       onClose={onClose}
+      source={source}
       districtBounds={districtBounds}
       districtHouseholds={districtHouseholds}
       districtHouseholdsPending={districtHouseholdsPending}

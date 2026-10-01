@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
+import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DOOR_KNOCK_STATUSES,
@@ -129,6 +130,8 @@ interface NativeDoorKnockingPageProps {
   // and used to fetch the sibling turfs whose colors seed the picker's
   // default and whose count decides the "Turf N" name default.
   campaignOutreachId?: number
+  // Where the `?create=1` link was pressed.
+  createSource?: OutreachFlowSource
 }
 
 // Where closing the walk should put the candidate back. Each way in has a
@@ -170,6 +173,7 @@ export default function NativeDoorKnockingPage({
   fromOutreachId,
   openCreateFlow,
   campaignOutreachId,
+  createSource,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   const router = useRouter()
@@ -780,6 +784,11 @@ export default function NativeDoorKnockingPage({
   // and navigating to the hub outright. Both land in the same place; `back()`
   // is the better one because it keeps the hub's scroll position.
   const tileOpened = useRef(Boolean(openCreateFlow))
+  // Where the open create flow was started from. The link's own surface for
+  // the flow `?create=1` opened; the page's own button for every one after.
+  const [createFlowSource, setCreateFlowSource] = useState<OutreachFlowSource>(
+    openCreateFlow ? (createSource ?? 'deep_link') : 'door_knocking_page',
+  )
 
   // During a walk, scope the map to just this turf's ring — the neighbors'
   // rings are noise around the route the canvasser is on. The whole saved
@@ -1156,6 +1165,7 @@ export default function NativeDoorKnockingPage({
     // surface's own hub instead.
     if (tileOpened.current) {
       tileOpened.current = false
+      setCreateFlowSource('door_knocking_page')
       router.back()
       return
     }
@@ -1176,6 +1186,7 @@ export default function NativeDoorKnockingPage({
   const leaveFlowForWalk = () => {
     setRing(null)
     tileOpened.current = false
+    setCreateFlowSource('door_knocking_page')
     setFlowStep(null)
     setFilters({})
     setPrecincts([])
@@ -1508,6 +1519,7 @@ export default function NativeDoorKnockingPage({
                   precinctOptions={precinctOptions}
                   onStepChange={changeFlowStep}
                   onClose={closeFlow}
+                  source={createFlowSource}
                   districtBounds={districtBounds}
                   districtHouseholds={filterResult?.households ?? 0}
                   // The count above is derived from the pack, so it reads 0 for

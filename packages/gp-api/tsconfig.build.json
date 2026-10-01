@@ -7,6 +7,15 @@
     "dist",
     "e2e-tests",
     "scripts",
+    // Eval harnesses, not product code. The judge's runners patch a Nest
+    // singleton and a live Databricks provider by assignment, and
+    // assertTestProcess is the only thing standing between that and a real
+    // request — it passes on NODE_ENV=test in ANY process. Nothing outside
+    // src/chats/evals imports them, so leaving them out of the build costs
+    // nothing. This drops them from the type-check program only; what
+    // reaches dist is decided by the SWC emit pass, which globs all of
+    // sourceRoot — see .swcrc.build.json.
+    "src/chats/evals/**",
     "**/*spec.ts",
     "**/*.e2e.ts"
   ]

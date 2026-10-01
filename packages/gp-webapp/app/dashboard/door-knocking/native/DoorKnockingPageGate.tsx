@@ -13,6 +13,7 @@ import {
 } from '@styleguide'
 import { LockIcon } from '@styleguide/components/ui/icons'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
+import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
@@ -35,6 +36,8 @@ interface DoorKnockingPageGateProps {
   // `?campaignOutreachId=` — the drawer's "Add another turf" opening the
   // flow onto an existing campaign.
   campaignOutreachId?: number
+  // `?source=` — where that `?create=1` link was pressed.
+  createSource?: OutreachFlowSource
 }
 
 // Reached by URL or a stale tab rather than the sidebar — DashboardMenu hides
@@ -98,6 +101,7 @@ export default function DoorKnockingPageGate({
   fromOutreachId,
   openCreateFlow,
   campaignOutreachId,
+  createSource,
 }: DoorKnockingPageGateProps) {
   // Exposure belongs to the membership surfaces, not this page.
   const { enabled: gatedInFlow } = useOutreachProGatingV2Flag(false)
@@ -148,6 +152,7 @@ export default function DoorKnockingPageGate({
       fromOutreachId={fromOutreachId}
       openCreateFlow={openCreateFlow}
       campaignOutreachId={campaignOutreachId}
+      createSource={createSource}
     />
   )
 }

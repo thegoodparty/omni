@@ -87,6 +87,13 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
     })
     await NavigationHelper.dismissOverlays(page)
 
+    // The hub is server-rendered, so the cards are clickable before React
+    // hydrates and a click that early does nothing. The Contacts rail item
+    // only resolves after a client query settles, so it marks hydration.
+    await expect(page.locator('#contacts-dashboard')).toBeVisible({
+      timeout: 30_000,
+    })
+
     await page.getByRole('button', { name: 'Social media' }).click()
 
     // Purpose-step copy from serveSocialPurposes.ts. "Explain a recent
@@ -111,6 +118,13 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
+
+    // The hub is server-rendered, so the cards are clickable before React
+    // hydrates and a click that early does nothing. The Contacts rail item
+    // only resolves after a client query settles, so it marks hydration.
+    await expect(page.locator('#contacts-dashboard')).toBeVisible({
+      timeout: 30_000,
+    })
 
     await page.getByRole('button', { name: 'Phone banking' }).click()
 

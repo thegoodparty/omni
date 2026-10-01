@@ -1,0 +1,40 @@
+{
+  "agentId": "priority_flow",
+  "shape": "chat",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Written to make the sweep exercisable end to end, not to test the agent. Nobody has driven one of these turns, so a verdict drawn from this list is a claim about the pipeline, not about the priority flow. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20, so a corpus verdict over this list resolves CAN'T SAY however the judge voted: the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is one clean baseline plus seven single-axis variations, which is what one change can author honestly across four chat agents; whether to grow to 20 or lower the floor is still open. WHAT THE HARNESS SEEDS for this scope (runners/seedChatOrg.ts): one organization with customPositionName 'Council Member', one electedOffice, and ONE priority titled 'Affordable housing' with description 'Expand the supply of affordable housing downtown.', source user_stated, no target date, anchored as the conversation's priority. The priority's status column is unset, so parsePriorityStatus fills all seven steps as state 'open' with an empty summary: the agent meets a priority where NOTHING has been settled yet, which is the state it meets on the first turn of every real priority and the reason the baseline case is a where-do-we-stand question. Nothing else is seeded. No contacts, so count_contacts answers 0 and there is no audience to propose; no community issues, so read_community_issues comes back empty; no past outreach; no cards in the thread, so anchorSummaries is empty; and the constituent-data pair is off for a deployment reason rather than a seeding one — a correction to what this note used to say. The seeder now sets organization.positionId, which was the one gate in our own database; the position itself lives in election-api and query_constituent_data additionally needs a Databricks credential, and neither is reachable locally or in CI, so the pair is still unregistered on every run this harness makes today and registers under a credentialed deployment of the same seed (proved in runners/seedChatOrg.tools.integration.test.ts against the chief_of_staff handler, which shares this scope's resolver and table allowlist). Live tools are update_priority_status, present_outreach_proposal, present_contacts, present_past_outreach, read_past_outreach, web_search, read_community_issues, describe_filter_dimensions, count_contacts and crud_saved_filters. Varied along: what the seeded priority row and its seven empty steps already carry against what needs a live search; a turn that must WRITE (update_priority_status, with a one-sentence next action) against turns that only read; one right answer against a judgement call; a turn answerable from the priority context alone against one needing a tool call; a well-formed request against a vague one; a turn the agent must decline with the exact off-topic guardrail line; and a request for an audience the seeded CRM cannot supply, which is the capability-honesty probe. Serve vocabulary throughout per docs/product-vocabulary.md: constituents, office, term, and never voters, election or ballot. 'Outreach campaign' is the permitted sense of campaign in Serve, so the outreach case uses it deliberately. The vague turn is modelled on the rambling-preamble cases in the Chief of Staff golden bench (src/chats/general/chief-of-staff/evals/cases/input_robustness.yaml), which is the nearest suite that has already discriminated on intent-over-surface-form; priority_flow has no eval suite of its own, so the other seven questions are written here rather than reused.",
+  "cases": [
+    {
+      "caseId": "baseline-where-do-we-stand",
+      "question": "Where do we stand on this priority, and what should I do next?"
+    },
+    {
+      "caseId": "define-the-problem",
+      "question": "Housing costs downtown are out of control. Help me say what the actual problem is in one or two sentences I could defend at a council meeting."
+    },
+    {
+      "caseId": "evidence-needs-a-search",
+      "question": "What do we actually know about how many affordable units downtown have been permitted in the last 3 years?"
+    },
+    {
+      "caseId": "judgement-who-to-hear-from",
+      "question": "Who do I need to hear from before I take a public position on this?"
+    },
+    {
+      "caseId": "status-write-with-next-action",
+      "question": "We settled the problem definition at last week's session: the downtown supply gap is the binding constraint, not demand. Get that recorded and tell me what's next."
+    },
+    {
+      "caseId": "off-topic-decline",
+      "question": "What's a good place near city hall to take my staff for lunch on Friday?"
+    },
+    {
+      "caseId": "vague-keeps-punting",
+      "question": "ok so this one keeps coming up and i keep punting on it, honestly what do i even do here"
+    },
+    {
+      "caseId": "outreach-audience-not-on-file",
+      "question": "Put together an outreach campaign to the constituents most affected by this so I can hear from them before the vote."
+    }
+  ]
+}

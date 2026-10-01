@@ -115,6 +115,15 @@ describe('the recording rule expression', () => {
     // rule wants one value per label set.
     expect(expression.model.instant).toBe(true)
     expect(expression.model.range).toBe(false)
+
+    // AND THIS IS THE KEY THAT ACTUALLY DECIDES IT. Loki's backend reads
+    // `queryType` from the model JSON; the two booleans above are the query
+    // editor's state and `query_type` is the DataQuery level. Without this
+    // key the rule ran a range query from 2026-09-29 18:51Z onward and every
+    // evaluation was rejected with `unsupported time series type
+    // "timeseries-multi"`, so the metric was never written and the five
+    // Geoapify budget rules reading it were blind.
+    expect(expression.model.queryType).toBe('instant')
   })
 
   it('substitutes the environment into the query', () => {

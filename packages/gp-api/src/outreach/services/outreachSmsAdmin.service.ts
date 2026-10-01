@@ -600,6 +600,19 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
 
+    // The vendor refuses a shortened link outright, and the template update is
+    // a destructive overwrite — so an edit carrying one fails at the vendor
+    // with the vendor's wording, after we have already started writing to a
+    // live job. Refuse it here instead. Only this rule is enforced: the rest of
+    // the standards check stays advisory in the console, where the human
+    // approval is the gate.
+    if (checkSmsStandards(input.script).failures.includes('link_shortener')) {
+      throw new BadRequestException(
+        'Links must not use a shortener like bit.ly — paste the full web ' +
+          'address instead',
+      )
+    }
+
     // Peerly's template update is a destructive overwrite, so it always
     // needs the image bytes — a script-only edit re-sends the stored one.
     if (!row.imageUrl) {

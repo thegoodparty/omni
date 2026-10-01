@@ -180,6 +180,10 @@ jobs:
         # `git status` check then simply finds no snapshot change — the live page keeps
         # its last good copy and the rest of the state still lands.
         continue-on-error: true
+        env:
+          # The assembler reads the OKR anchors from gp-data-platform's sem files, like
+          # the monitor above; without it every OKR dormancy check is disabled here.
+          GP_DATA_PLATFORM_READ_TOKEN: ${{ secrets.GP_DATA_PLATFORM_READ_TOKEN }}
         run: |
           set -euo pipefail
           # Non-fatal must not mean invisible: a failure here stops the shared page

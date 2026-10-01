@@ -42,6 +42,44 @@ const tag = (environment: string) => `[${environment.toUpperCase()}]`
 export const buildAlertSummary = (alert: Alert, environment: string): string =>
   [tag(environment), alert.name, alert.summaryDetail].filter(Boolean).join(' ')
 
+/**
+ * The line that tells a reader the numbers above them measured nothing.
+ *
+ * WHY IT IS ON EVERY NOTIFICATION. `grafana.ts` provisions every rule with
+ * `execErrState: 'Alerting'`, so a rule that cannot evaluate fires — which is
+ * deliberate and stays, because a rule that goes quiet when its datasource is
+ * unreachable reports "all clear" precisely when it has stopped looking. The
+ * cost is that the page it sends is written from the rule's own `message`, and
+ * that message describes the fault the rule looks for rather than the fact that
+ * it failed to look. The two are indistinguishable in Slack apart from a state
+ * reason of `Error` and values of `-1`, and nothing told anyone that.
+ *
+ * On 2026-09-28 Grafana Cloud's internal datasource-query service degraded for
+ * 84 minutes and 190 of our 216 rules fired at once, each naming its own
+ * subject. The prod memory page read "System memory utilization has exceeded
+ * 90% for 5 minutes… If the service is at risk of OOM, consider restarting it"
+ * while memory sat at 17%. That guidance, followed, restarts healthy
+ * production — so the absence of this line is not merely noise, it points the
+ * responder at a destructive action.
+ *
+ * Here rather than in each `message` for the same reason the environment tag is
+ * here: it covers the hand-written global alerts and the generated controller
+ * alerts alike, and leaves an alert author nothing to remember.
+ *
+ * Standing rather than conditional, because for most rules there is nothing
+ * honest to condition on. Annotation templating sees `$labels` and `$values`
+ * and never `grafana_state_reason`, which Grafana attaches after evaluation.
+ * The route alerts are the exception and already use it: `whenRouteIsNamed` in
+ * `route-alerts.ts` tests `$labels.request_endpoint`, which is absent exactly
+ * when the rule failed to run, so those pages drop their route prose entirely.
+ * A rule that raises a single unlabelled series — every global alert, including
+ * the memory, health-probe and person-id pages of 2026-09-28 — has no such
+ * label to test, and this is what those get. One line on a page that does not
+ * need it is the cheaper half of that trade.
+ */
+export const EVALUATION_ERROR_NOTE =
+  'If this page carries a state reason of `Error` and values of `-1`, the rule could not evaluate and nothing above was measured — every rule in the estate fires together when the query path breaks. Read *Alert rule evaluations are failing* first, and treat this page as unverified rather than acting on it.'
+
 export const buildAlertDescription = (
   alert: Alert,
   environment: string,
@@ -58,7 +96,7 @@ export const buildAlertDescription = (
     .map((group) => `<!subteam^${SLACK_GROUP_IDS[group]}>`)
     .join(' ')
 
-  return [`${tag(environment)} ${message}`, mention]
+  return [`${tag(environment)} ${message}`, EVALUATION_ERROR_NOTE, mention]
     .filter(Boolean)
     .join('\n\n')
 }

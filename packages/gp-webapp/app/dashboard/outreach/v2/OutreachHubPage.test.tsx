@@ -12,6 +12,7 @@ import type { ComposeRequest } from 'app/dashboard/outreach/components/OutreachC
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OutreachHubPage } from './OutreachHubPage'
 import type { HistoryRow } from './historyStatus.util'
+import { DRAFT_FOOTER_LABELS } from './listDetails/footerMode'
 
 // The desktop history table, scoped so its content isn't confused with the
 // mobile card list (also in the DOM, hidden via CSS) — same convention as
@@ -41,6 +42,8 @@ vi.mock('./phone-banking/PhoneBankingFlow', () => ({
 interface FlowStubProps {
   open: boolean
   resumeDraft?: OutreachDetail | null
+  source?: string
+  resumeCta?: string
 }
 vi.mock('./robocall/RobocallFlow', () => ({
   RobocallFlow: ({ open, resumeDraft }: FlowStubProps) =>
@@ -51,9 +54,9 @@ vi.mock('./robocall/RobocallFlow', () => ({
     ) : null,
 }))
 vi.mock('./sms/SmsFlow', () => ({
-  SmsFlow: ({ open, resumeDraft }: FlowStubProps) =>
+  SmsFlow: ({ open, resumeDraft, source, resumeCta }: FlowStubProps) =>
     open ? (
-      <div data-testid="sms-flow">
+      <div data-testid="sms-flow" data-source={source} data-cta={resumeCta}>
         {resumeDraft ? `resuming ${resumeDraft.id}` : 'fresh'}
       </div>
     ) : null,
@@ -96,9 +99,17 @@ vi.mock('app/dashboard/outreach/components/OutreachComposeDeepLink', () => ({
   }: {
     onCompose: (request: ComposeRequest) => void
   }) => (
-    <button type="button" onClick={() => onCompose({ type: 'text' })}>
-      compose text
-    </button>
+    <>
+      <button type="button" onClick={() => onCompose({ type: 'text' })}>
+        compose text
+      </button>
+      <button
+        type="button"
+        onClick={() => onCompose({ type: 'text', source: 'campaign_tracker' })}
+      >
+        compose text from the plan
+      </button>
+    </>
   ),
 }))
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -422,5 +433,54 @@ describe('OutreachHubPage — a list written while away', () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(router.replace).not.toHaveBeenCalled()
     expect(screen.queryByTestId('details-drawer')).not.toBeInTheDocument()
+  })
+})
+
+describe('OutreachHubPage flow source', () => {
+  beforeEach(() => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseMembershipState.mockReturnValue({
+      ready: true,
+      state: membership({ tier: 'free', texting: 'needs_verification' }),
+      tcrCompliance: null,
+    })
+    mockFetchOutreachDetail.mockReset()
+  })
+
+  it('opens a draft row as a draft, with the footer label that resumed it', async () => {
+    mockFetchOutreachDetail.mockResolvedValue({ id: 99, name: 'Draft blast' })
+    renderHub([draftRow, sentRow])
+
+    await userEvent.click(within(desktopTable()).getByText('Draft blast'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume draft' }),
+    )
+    const flow = await screen.findByTestId('sms-flow')
+
+    expect(flow).toHaveAttribute('data-source', 'draft')
+    expect(flow).toHaveAttribute('data-cta', DRAFT_FOOTER_LABELS.pro)
+  })
+
+  it('opens a compose link with no source as a deep link', async () => {
+    renderHub([sentRow])
+
+    await userEvent.click(screen.getByRole('button', { name: 'compose text' }))
+
+    expect(await screen.findByTestId('sms-flow')).toHaveAttribute(
+      'data-source',
+      'deep_link',
+    )
+  })
+
+  it('reads a campaign tracker compose link as the campaign plan', async () => {
+    renderHub([sentRow])
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'compose text from the plan' }),
+    )
+
+    const flow = await screen.findByTestId('sms-flow')
+    expect(flow).toHaveAttribute('data-source', 'campaign_plan')
+    expect(flow).not.toHaveAttribute('data-cta')
   })
 })
