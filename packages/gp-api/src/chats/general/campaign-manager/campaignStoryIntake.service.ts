@@ -14,6 +14,7 @@ import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStr
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { WebsitesService } from '@/websites/services/websites.service'
 import { isPrismaError } from '@/prisma/util/prismaErrors.util'
+import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
 
 export interface StoryPosition {
   title: string
@@ -36,6 +37,7 @@ export class CampaignStoryIntakeService {
     private readonly websites: WebsitesService,
     private readonly strategy: CampaignStrategyService,
     private readonly campaigns: CampaignsService,
+    private readonly storyCompleted: CampaignStoryCompletedProducer,
   ) {}
 
   // Serializes website-content writes per campaign within this process. Two
@@ -126,6 +128,9 @@ export class CampaignStoryIntakeService {
       where: { campaignId },
       data: { content: nextContent },
     })
+    // The why and positions are two of the three story answers, so this write
+    // may have just completed the story and made the campaign plan stale.
+    await this.storyCompleted.announce(campaignId)
   }
 
   // The existing story page's "Help me rewrite": expand a rough answer via

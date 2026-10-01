@@ -57,7 +57,9 @@ describe('CampaignStrategyService', () => {
   let trackerTasks: {
     bootstrapForCampaign: ReturnType<typeof vi.fn>
     materializeStaticTasks: ReturnType<typeof vi.fn>
+    dispatchGeneration: ReturnType<typeof vi.fn>
   }
+  let storyState: { read: ReturnType<typeof vi.fn> }
   let prisma: {
     campaignStrategy: {
       upsert: ReturnType<typeof vi.fn>
@@ -85,6 +87,7 @@ describe('CampaignStrategyService', () => {
     opportunitiesAttempts: 0,
     raceId: 'br-general',
     previousRaceIds: [],
+    generatedWithStory: false,
     ...overrides,
   })
 
@@ -104,7 +107,11 @@ describe('CampaignStrategyService', () => {
     trackerTasks = {
       bootstrapForCampaign: vi.fn().mockResolvedValue(undefined),
       materializeStaticTasks: vi.fn().mockResolvedValue(0),
+      dispatchGeneration: vi.fn().mockResolvedValue(undefined),
     }
+    // Default: no story, so alignPlanWithStory is a no-op and the existing
+    // cases exercise the unchanged paths.
+    storyState = { read: vi.fn().mockResolvedValue({ complete: false }) }
     prisma = {
       campaignStrategy: {
         upsert: vi.fn().mockResolvedValue(planRow()),
@@ -145,6 +152,7 @@ describe('CampaignStrategyService', () => {
       s3 as never,
       analytics as never,
       trackerTasks as never,
+      storyState as never,
     )
     Object.defineProperty(service, '_prisma', { value: prisma })
     Object.assign(service, {
@@ -882,6 +890,219 @@ describe('CampaignStrategyService', () => {
       )
 
       expect(trackerTasks.bootstrapForCampaign).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('campaign story alignment', () => {
+    const completeStory = () =>
+      storyState.read.mockResolvedValue({ complete: true })
+
+    // Reaching 'ready' reads the sections back; these cases only care about
+    // whether the reset ran, so any shape will do.
+    const sectionsReadable = () =>
+      prisma.campaignStrategy.findUnique.mockResolvedValue({
+        opportunities: [],
+        challenges: [],
+        opponents: [],
+      })
+
+    it('leaves the plan alone while the story is incomplete', async () => {
+      sectionsReadable()
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+
+      await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(prisma.campaignStrategy.updateMany).not.toHaveBeenCalled()
+      expect(
+        prisma.campaignStrategyOpportunity.deleteMany,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('stamps the flag without a reset when the plan has never generated', async () => {
+      completeStory()
+      prisma.campaignStrategy.upsert.mockResolvedValue(planRow())
+      prisma.campaignStrategy.updateMany.mockResolvedValue({ count: 1 })
+      experimentRuns.dispatchRun
+        .mockResolvedValueOnce({ runId: 'opp-run' })
+        .mockResolvedValueOnce({ runId: 'oc-run' })
+
+      await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(prisma.campaignStrategy.updateMany).toHaveBeenCalledWith({
+        where: { id: 42, generatedWithStory: false },
+        data: { generatedWithStory: true },
+      })
+      // Nothing to wipe on a plan that never produced content.
+      expect(
+        prisma.campaignStrategyOpportunity.deleteMany,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('resets content in place and regenerates once the story lands', async () => {
+      completeStory()
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          oppositionRunId: 'old-opp-run',
+          opportunitiesRunId: 'old-oc-run',
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaignStrategy.updateMany.mockResolvedValue({ count: 1 })
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
+        planRow({ generatedWithStory: true }),
+      )
+      experimentRuns.dispatchRun
+        .mockResolvedValueOnce({ runId: 'opp-run' })
+        .mockResolvedValueOnce({ runId: 'oc-run' })
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(prisma.campaignStrategy.updateMany).toHaveBeenCalledWith({
+        where: { id: 42, generatedWithStory: false },
+        data: {
+          generatedWithStory: true,
+          oppositionRunId: null,
+          opportunitiesRunId: null,
+          oppositionPersistedAt: null,
+          opportunitiesPersistedAt: null,
+          generationStartedAt: null,
+        },
+      })
+      expect(
+        prisma.campaignStrategyOpportunity.deleteMany,
+      ).toHaveBeenCalledWith({
+        where: { campaignStrategyId: 42 },
+      })
+      expect(prisma.campaignStrategyOpponent.deleteMany).toHaveBeenCalledWith({
+        where: { campaignStrategyId: 42 },
+      })
+      expect(res).toEqual({ status: 'generating' })
+    })
+
+    it('is a no-op once the plan was already generated with the story', async () => {
+      completeStory()
+      sectionsReadable()
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          generatedWithStory: true,
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+
+      await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(storyState.read).not.toHaveBeenCalled()
+      expect(prisma.campaignStrategy.updateMany).not.toHaveBeenCalled()
+    })
+
+    // The claim is what stops two concurrent polls (the plan endpoint is
+    // polled) from each wiping and re-dispatching the same plan.
+    it('does not delete content when it loses the regeneration claim', async () => {
+      completeStory()
+      sectionsReadable()
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaignStrategy.updateMany.mockResolvedValue({ count: 0 })
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
+        planRow({
+          generatedWithStory: true,
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+
+      await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(
+        prisma.campaignStrategyOpportunity.deleteMany,
+      ).not.toHaveBeenCalled()
+      expect(prisma.campaignStrategyChallenge.deleteMany).not.toHaveBeenCalled()
+      expect(prisma.campaignStrategyOpponent.deleteMany).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('regenerateOnStoryComplete', () => {
+    it('does nothing when the campaign has no plan yet', async () => {
+      storyState.read.mockResolvedValue({ complete: true })
+      prisma.campaignStrategy.findFirst.mockResolvedValue(null)
+
+      await service.regenerateOnStoryComplete(99)
+
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+      expect(trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
+    })
+
+    it('does nothing when the story is still incomplete', async () => {
+      prisma.campaignStrategy.findFirst.mockResolvedValue(planRow())
+
+      await service.regenerateOnStoryComplete(99)
+
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+      expect(trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
+    })
+
+    it('does nothing when the plan already generated with the story', async () => {
+      storyState.read.mockResolvedValue({ complete: true })
+      prisma.campaignStrategy.findFirst.mockResolvedValue(
+        planRow({ generatedWithStory: true }),
+      )
+
+      await service.regenerateOnStoryComplete(99)
+
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+      expect(trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
+    })
+
+    it('regenerates the plan and refreshes the tracker tasks', async () => {
+      storyState.read.mockResolvedValue({ complete: true })
+      prisma.campaignStrategy.findFirst.mockResolvedValue(
+        planRow({
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaign.findUnique.mockResolvedValue(campaign())
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaignStrategy.updateMany.mockResolvedValue({ count: 1 })
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(planRow())
+      experimentRuns.dispatchRun
+        .mockResolvedValueOnce({ runId: 'opp-run' })
+        .mockResolvedValueOnce({ runId: 'oc-run' })
+
+      await service.regenerateOnStoryComplete(99)
+
+      expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(2)
+      expect(trackerTasks.dispatchGeneration).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 99 }),
+        'weekly',
+      )
+    })
+
+    // A story save must never fail because the regeneration could not run.
+    it('swallows a dispatch failure', async () => {
+      storyState.read.mockResolvedValue({ complete: true })
+      prisma.campaignStrategy.findFirst.mockResolvedValue(planRow())
+      prisma.campaign.findUnique.mockRejectedValue(new Error('db down'))
+
+      await expect(
+        service.regenerateOnStoryComplete(99),
+      ).resolves.toBeUndefined()
     })
   })
 

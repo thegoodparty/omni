@@ -83,6 +83,39 @@ story is complete; an incomplete story is routed to the "finish your Campaign
 Story" gate (`CampaignPlanStoryGate`) instead of a tracker stuck on "setting up"
 forever. This keeps the frontend gate aligned with the bootstrap's data gate.
 
+### Regeneration when the story lands
+
+A plan generated without a complete story goes stale the moment the candidate
+finishes one, in a way the `raceId` comparison can't see.
+`CampaignStrategy.generatedWithStory` tracks it, and `alignPlanWithStory` (the
+same shape as `alignPlanWithRace`) wipes the content in place and lets
+`dispatchPending` regenerate when the flag is false and the story is now
+complete. The flag **is** the claim: the plan endpoint is polled, so the
+conditional `updateMany` is what stops two concurrent polls from each
+resetting and double-dispatching. Attempt counters deliberately survive.
+
+That read-path alignment is the backstop; the trigger is the write path, so a
+candidate who finishes their story in the manager chat doesn't have to open the
+plan tab for it to take effect. The story spans three fields across two tables
+(`background` on `campaign_story`; the why and the issues on the website),
+written from the story page, `PUT /v1/websites/mine` and the chat agent — so
+each of those writes enqueues `QueueType.CAMPAIGN_STORY_COMPLETED` through
+`CampaignStoryCompletedProducer`, and the consumer calls
+`CampaignStrategyService.regenerateOnStoryComplete`. Enqueued rather than
+called directly because `campaignStrategy` already depends on both
+`campaignStory` and `websites`, so a direct call would need a module cycle at
+each edge, and because a story autosave should not wait on a regeneration.
+Messages dedupe per campaign, collapsing an autosave burst inside SQS FIFO's
+5-minute window — safe, because the handler is one-shot per campaign anyway.
+
+`regenerateOnStoryComplete` only acts on a plan that **already exists**:
+generation is otherwise user-triggered, and dispatching for a campaign that
+never asked for a plan would bill it. It also dispatches a fresh tracker
+generation, since the tracker takes the story as input too, rather than leaving
+the task list generic until Thursday. It never throws — a story save must not
+fail because a regeneration could not be dispatched, and if the dispatch fails
+after the reset lands, the next plan read dispatches it.
+
 ## Data model
 
 One table, `campaign_tracker_tasks` (`prisma/schema/campaignTrackerTask.prisma`),

@@ -8,6 +8,7 @@ import { Module } from '@nestjs/common'
 import { ChatsModule } from '@/chats/chats.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { WebsitesModule } from '@/websites/websites.module'
+import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
@@ -58,6 +59,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     ElectionsModule,
     CampaignStoryModule,
     WebsitesModule,
+    QueueProducerModule,
     CampaignStrategyModule,
     ContactsModule,
     VotersModule,
