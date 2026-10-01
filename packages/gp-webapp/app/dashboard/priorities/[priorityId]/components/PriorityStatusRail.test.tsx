@@ -7,6 +7,7 @@ import {
   PRIORITY_STEP_PURPOSE,
   emptyPriorityStatus,
   type PriorityStatus,
+  type PriorityStep,
   type PriorityStepId,
   type PriorityStepState,
 } from '@goodparty_org/contracts'
@@ -15,7 +16,12 @@ import { PriorityStatusRail } from './PriorityStatusRail'
 
 const withStep = (
   id: PriorityStepId,
-  patch: { state: PriorityStepState; summary?: string; caveat?: string },
+  patch: {
+    state: PriorityStepState
+    summary?: string
+    caveat?: string
+    check?: PriorityStep['check']
+  },
 ): PriorityStatus => {
   const base = emptyPriorityStatus()
   return {
@@ -45,18 +51,18 @@ describe('PriorityStatusRail', () => {
     const status: PriorityStatus = {
       ...emptyPriorityStatus(),
       steps: emptyPriorityStatus().steps.map((step) => {
-        if (step.id === 'define') return { ...step, state: 'settled' }
-        if (step.id === 'evidence') return { ...step, state: 'stale' }
+        if (step.id === 'evidence') return { ...step, state: 'settled' }
+        if (step.id === 'listen_options') return { ...step, state: 'stale' }
         return step
       }),
     }
     render(<PriorityStatusRail status={status} nextAction={null} />)
 
     const settledRow = screen.getByRole('button', {
-      name: new RegExp(PRIORITY_STEP_LABELS.define, 'i'),
+      name: new RegExp(PRIORITY_STEP_LABELS.evidence, 'i'),
     })
     const staleRow = screen.getByRole('button', {
-      name: new RegExp(PRIORITY_STEP_LABELS.evidence, 'i'),
+      name: new RegExp(PRIORITY_STEP_LABELS.listen_options, 'i'),
     })
     expect(within(settledRow).getByText('Done')).toBeInTheDocument()
     expect(within(staleRow).getByText('Needs another look')).toBeInTheDocument()
@@ -66,10 +72,39 @@ describe('PriorityStatusRail', () => {
   it('counts only settled steps', () => {
     render(
       <PriorityStatusRail
-        status={withStep('define', { state: 'settled' })}
+        status={withStep('evidence', { state: 'settled' })}
         nextAction={null}
       />,
     )
+    expect(screen.getByText('1 of 7 done')).toBeInTheDocument()
+  })
+
+  it('keeps a settled gate in progress until its check has gone out', () => {
+    const asked = withStep('define', {
+      state: 'settled',
+      check: { state: 'asked', who: '', question: '', raised: 0 },
+    })
+    const { unmount } = render(
+      <PriorityStatusRail status={asked} nextAction={null} />,
+    )
+    const row = () =>
+      screen.getByRole('button', {
+        name: new RegExp(PRIORITY_STEP_LABELS.define, 'i'),
+      })
+    expect(within(row()).getByText('Working on it')).toBeInTheDocument()
+    expect(screen.getByText('0 of 7 done')).toBeInTheDocument()
+    unmount()
+
+    render(
+      <PriorityStatusRail
+        status={withStep('define', {
+          state: 'settled',
+          check: { state: 'out', who: '', question: '', raised: 0 },
+        })}
+        nextAction={null}
+      />,
+    )
+    expect(within(row()).getByText('Done')).toBeInTheDocument()
     expect(screen.getByText('1 of 7 done')).toBeInTheDocument()
   })
 

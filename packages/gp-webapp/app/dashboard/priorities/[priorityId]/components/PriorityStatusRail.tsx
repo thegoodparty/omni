@@ -25,6 +25,7 @@ import {
   type PriorityCheckState,
   type PriorityStatus,
   type PriorityStep,
+  PRIORITY_GATE_STEPS,
   PRIORITY_LISTEN_GATES,
   isCheckAnswered,
   type PriorityStepCheck,
@@ -106,15 +107,31 @@ export const STEP_CHECK_LABELS: Record<PriorityCheckState, string> = {
   declined: 'Not checked with constituents',
 }
 
-// One line per step, whichever side it is about. The main side leads: once
-// it is out with people, that is the line, even if the other side is still
-// waiting on a yes.
+// One line per step, whichever side it is about. The main side leads: the
+// other side only shows through when it is out with people and the main side
+// is not, so a yes still owed there never hides what the official decided.
 const checkLineState = (check: PriorityStepCheck): PriorityCheckState => {
   if (check.state === 'asked') return 'asked'
   if (check.state === 'out' || check.contrast?.state === 'out') return 'out'
-  if (check.contrast?.state === 'asked') return 'asked'
   return check.state
 }
+
+// A gate is not done until its check has actually gone out with people, come
+// back, or been turned down. Until then the conclusion is the official's own,
+// so the rail keeps it in progress, whatever the agent recorded.
+const SENT_OR_DECIDED: readonly PriorityCheckState[] = [
+  'out',
+  'confirmed',
+  'revised',
+  'declined',
+]
+
+const shownState = (step: PriorityStep): PriorityStepState =>
+  step.state === 'settled' &&
+  PRIORITY_GATE_STEPS.includes(step.id) &&
+  !(step.check && SENT_OR_DECIDED.includes(step.check.state))
+    ? 'active'
+    : step.state
 
 // A listening step shows the check it is waiting on, so "Who to hear from"
 // reads "Waiting to hear back" while the problem's check is out.
@@ -183,7 +200,7 @@ const StepDetail = ({
           <p className="text-sm font-medium text-foreground">
             {PRIORITY_STEP_LABELS[step.id]}
           </p>
-          <StepStateChip state={step.state} />
+          <StepStateChip state={shownState(step)} />
         </div>
         <p className="text-xs text-muted-foreground">
           {PRIORITY_STEP_PURPOSE[step.id]}
@@ -226,7 +243,7 @@ const StepList = ({
           })}
           className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/40"
         >
-          <StepStateIcon state={step.state} />
+          <StepStateIcon state={shownState(step)} />
           <span
             className={cn(
               'flex-1 text-sm',
@@ -241,7 +258,7 @@ const StepList = ({
             </span>
           </span>
           <span id={`step-${step.id}-state`}>
-            <StepStateChip state={step.state} />
+            <StepStateChip state={shownState(step)} />
           </span>
         </button>
       </li>
@@ -265,7 +282,9 @@ export const PriorityStatusRail = ({
 }): React.JSX.Element => {
   const [selectedId, setSelectedId] = useState<PriorityStepId | null>(null)
   const selected = status.steps.find((step) => step.id === selectedId) ?? null
-  const settled = status.steps.filter((step) => step.state === 'settled').length
+  const settled = status.steps.filter(
+    (step) => shownState(step) === 'settled',
+  ).length
 
   return (
     <Card className={cn('gap-0 py-0', className)}>
