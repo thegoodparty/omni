@@ -232,8 +232,8 @@ behaviors:
     metric: win_activated_users
     asked_by: nate@goodparty.org
     headline: >-
-      Every channel that has a send now records one. Phone banking records nothing, on
-      purpose — nothing is ever sent through us on that channel.
+      Every channel records the moment a candidate reaches voters through us: a send
+      paid for, a door knocked, a call logged, or a walk or call list finished.
     caveats: >-
       `Voter Outreach - Campaign Scheduled` (DATA-2526) is the send terminal for the three
       channels that have one, keyed by `channel` (sms | robocall | social). It is emitted
@@ -245,11 +245,18 @@ behaviors:
       time under the same messageId, days apart and so past Segment's ~24h dedup window. That
       is one send commitment retried, and it must count once. Win only: the
       `Voter Outreach -` prefix classifies to the win_voter_outreach family, so the Serve
-      social route deliberately stays silent. Phone banking is excluded by definition, not
-      by omission (see its surface below). `win_activated_users` declares this event as a leg
-      alongside `Voter Outreach - Campaign Completed`, which since the outreach/v2 rewrite
-      survives only on a completed door-knocking walk and the manual self-report modal
-      (DATA-2343 sweep). `Robocall - Scheduled` is deliberately NOT a leg of that metric: it
+      social route deliberately stays silent. `win_activated_users` declares this event as a
+      leg alongside `Outreach - Campaign Completed` (renamed from `Voter Outreach - Campaign
+      Completed` on 2026-09-29). The client fires it when an sms, robocall or social flow
+      completes, when a door-knocking turf or a phone-banking call list is finished, and
+      from the two self-report modals; the metric excludes the self-report
+      (`method: manual`) and Serve (`product: serve`), and collapses a paid send with its
+      terminal on the shared outreach id. The other two legs fire once per person reached,
+      a door knocked (`Outreach - Door Knocking Door Logged`) and a call logged
+      (`Outreach - Phone Banking Call Logged`), so they count toward whether and when a
+      candidate activated but never toward campaigns sent. Only the door-knocking
+      completion is listed as a surface; the other call sites fire the same event.
+      `Robocall - Scheduled` is deliberately NOT a leg of that metric: it
       is a live instrument and stays on the behavior, but it fires at draft-create on an
       unpaid row, so counting it would activate a candidate who built a draft and never
       paid. That scope call is recorded as a dismissal below, not as a gap.
@@ -270,18 +277,17 @@ behaviors:
       - path: packages/gp-api/src/outreach/services/outreachSocial.service.ts
         label: social_scheduled
         instrumented_by: "Voter Outreach - Campaign Scheduled"
-      # NOT a gap — a definitional exclusion, settled 2026-09-24. Activation means an action
-      # taken through our product. Phone banking has no send: the candidate builds a call list
-      # here and then dials it himself or herself, off-platform, over days. List creation and
-      # call-sheet download are preparation and are already instrumented as such, so there is
-      # nothing further to add and nothing here to fix. Do not re-file this as missing
-      # instrumentation; changing it means changing the definition of activation first.
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx
-        label: phone_banking_no_send_terminal
-        instrumented_by: null
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts
+      # Phone banking has no send, so the call logged in the product is its activation
+      # moment (ruled 2026-09-30). List creation and call-sheet download stay preparation.
+      - path: packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx
+        label: phone_banking_call_logged
+        instrumented_by: "Outreach - Phone Banking Call Logged"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/RecordKnockForm.tsx
+        label: door_knocked
+        instrumented_by: "Outreach - Door Knocking Door Logged"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
         label: door_knocking_walk_completed
-        instrumented_by: "Voter Outreach - Campaign Completed"
+        instrumented_by: "Outreach - Campaign Completed"
       - path: packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx
         label: door_knocking_list_created
         instrumented_by: "Door Knocking - List Created"
@@ -388,9 +394,9 @@ behaviors:
       - path: packages/gp-api/src/outreach/services/outreachRobocall.service.ts
         label: first_value_robocall
         instrumented_by: "Robocall - Scheduled"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
         label: first_value_door_knocking
-        instrumented_by: "Voter Outreach - Campaign Completed"
+        instrumented_by: "Outreach - Campaign Completed"
       - path: packages/gp-webapp/app/dashboard/website
         label: first_value_website
         instrumented_by: "Candidate Website - Published"
@@ -495,9 +501,9 @@ behaviors:
       - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
         label: retention_activity_export
         instrumented_by: "Voter Data - List Exported"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
         label: retention_activity_outreach
-        instrumented_by: "Voter Outreach - Campaign Completed"
+        instrumented_by: "Outreach - Campaign Completed"
     review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
 
   - id: weekly_active_candidates
@@ -720,7 +726,7 @@ behaviors:
 # on recovery or on an upstream anchored_on change, and a counter blind spot is our own
 # tooling. A row naming either is ignored and reported in the digest.
 dismissed:
-  - {metric: win_activated_users, event: "Door Knocking - List Created", reason: "building a walk list is preparation to reach voters, not outreach; the completed walk fires Voter Outreach - Campaign Completed with method native, which is the leg", date: "2026-09-24"}
+  - {metric: win_activated_users, event: "Door Knocking - List Created", reason: "building a walk list is preparation to reach voters, not outreach; the finished turf fires Outreach - Campaign Completed and each knocked door fires Outreach - Door Knocking Door Logged, which are the legs", date: "2026-09-24"}
   - {metric: win_activated_users, event: "Robocall - Scheduled", reason: "fires at robocall draft-create on an unpaid row; activation counts the pay commit, which the shared Voter Outreach - Campaign Scheduled terminal emits", date: "2026-09-24"}
   - {event: "Briefing Assistant - Attachment Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
   - {event: "Pro Upgrade - Texting Setup Banner Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}

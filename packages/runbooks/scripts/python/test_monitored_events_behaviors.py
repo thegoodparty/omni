@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 
 import analytics_event_health as aeh
+import anchor_alignment as aa
 import behavior_registry as br
 import sem_anchors as sa
 
@@ -79,3 +80,25 @@ def test_a_caveat_carries_a_plain_headline():
             jargon.append(b["id"])
     assert missing == [], f"caveats with no plain headline: {missing}"
     assert jargon == [], f"headlines written for engineers: {jargon}"
+
+
+def test_committed_registry_has_no_case_1_drift_against_the_fixtures():
+    # Refreshing a fixture after an upstream anchored_on change must come with the
+    # registry edit that follows it; otherwise the scheduled run reports the drift.
+    fixtures = Path(aeh.__file__).parent / "fixtures"
+    anchors: dict = {}
+    for name in ("sem_analytics__users_win.yml", "sem_analytics__users_serve.yml"):
+        anchors.update(sa.parse_anchors((fixtures / name).read_text()))
+    doc = yaml.safe_load(aeh.WATCHLIST.read_text())
+    findings = aa.align(
+        br.load_behaviors(aeh.WATCHLIST),
+        anchors,
+        records_by_type={},
+        series={},
+        code={},
+        watchlist_events=[r["event"] for r in doc.get("events") or []],
+        latches={},
+        today=date(2026, 10, 1),
+        dismissed=aa.load_dismissals(aeh.WATCHLIST),
+    )
+    assert [f for f in findings if f["case"] == 1] == [], findings

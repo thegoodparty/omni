@@ -1,4 +1,4 @@
-# Event anchors — review queue (2026-09-21)
+# Event anchors — review queue (2026-10-01)
 
 **This file is the review surface.** It lives at
 `packages/runbooks/scripts/python/instrumentation_data/event-anchors-review.md` on `main`,
@@ -609,12 +609,45 @@ its job; it is not an error to fix before accepting.
 
 ---
 
+## Outreach - Campaign Completed
+  evidence:   packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx:110
+  confidence: high
+
+- fires_on: Campaign plan dashboard, submitting the voter-contact count in the manual outreach log modal after marking a task complete
+- url: /dashboard/campaign-plan
+- disposition:
+- reason:
+
+---
+
+## Outreach - Door Knocking Door Logged
+  evidence:   packages/gp-webapp/app/dashboard/door-knocking/native/RecordKnockForm.tsx:161
+  confidence: high
+
+- fires_on: Door knocking turf canvas, saving the outcome after recording a knock for a voter
+- url: /dashboard/door-knocking
+- disposition:
+- reason:
+
+---
+
 ## Outreach - Door Knocking: Complete
   evidence:   packages/gp-webapp/helpers/analyticsHelper.ts:595
   confidence: LOW — dynamic_dispatch
 
 - fires_on: Voter Outreach flow, Door Knocking step, marking the door knocking outreach as complete.
 - url: n/a (dynamic dispatch, no fixed call site)
+- disposition:
+- reason:
+
+---
+
+## Outreach - Phone Banking Call Logged
+  evidence:   packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx:85
+  confidence: high
+
+- fires_on: Phone banking call list page, saving the outcome after logging a call for a voter
+- url: /dashboard/outreach/phone-banking/[listId]
 - disposition:
 - reason:
 
