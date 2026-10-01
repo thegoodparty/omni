@@ -83,6 +83,35 @@ story is complete; an incomplete story is routed to the "finish your Campaign
 Story" gate (`CampaignPlanStoryGate`) instead of a tracker stuck on "setting up"
 forever. This keeps the frontend gate aligned with the bootstrap's data gate.
 
+### The campaign story prompt
+
+Two surfaces, deliberately:
+
+- **A pinned card** above the tracker rail (`CampaignPlanStoryCard`, between
+  the hero and `CampaignStrategySection`), shown while the story is incomplete
+  and **not dismissible**. It is what guarantees the prompt is the first thing
+  on the page.
+- **A real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static` catalog
+  entry) so the prompt flows through the same row machinery as everything else
+  rather than being a bespoke surface, and can be completed, reconciled and
+  rendered like any other task.
+
+The card is needed on top of the task because the task sits in the **active**
+phase, which is a collapsed accordion for a candidate still in Pre-launch.
+
+The task is `phase: 'active'` and dated **today**, not `preLaunch` and not the
+shared upcoming-Monday anchor. `derivePhaseStatuses` reads "happening now" as
+the first phase whose latest task date has arrived and that still has open
+work, so an open pre-launch row dated today would drag a candidate weeks from
+election day back to the start of the rail. Dating it into the current week
+also earns it the navigator's existing "Do this next" badge instead of
+competing with it.
+
+The manager home keeps its own `PersonalizeStoryCard` (the task list there
+renders dynamic rows only, so the static story row never appears in it). Ballot
+access still outranks it: a missed filing deadline cannot be undone. All three
+surfaces share the same title and caption.
+
 ## Data model
 
 One table, `campaign_tracker_tasks` (`prisma/schema/campaignTrackerTask.prisma`),

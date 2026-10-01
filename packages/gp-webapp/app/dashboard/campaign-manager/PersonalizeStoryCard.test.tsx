@@ -21,9 +21,7 @@ describe('PersonalizeStoryCard', () => {
     const user = userEvent.setup()
     render(<PersonalizeStoryCard onPersonalize={onPersonalize} />)
 
-    expect(
-      screen.getByText('Personalize your campaign messaging'),
-    ).toBeInTheDocument()
+    expect(screen.getByText("Tell us why you're running")).toBeInTheDocument()
     await user.click(
       screen.getByRole('button', { name: 'Personalize your campaign' }),
     )
