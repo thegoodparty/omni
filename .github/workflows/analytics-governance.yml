@@ -112,6 +112,7 @@ jobs:
       # definitions, so it never needs the network. The commit step below already adds
       # instrumentation_data/, which carries the refreshed copy into the state PR.
       - name: Refresh vendored OKR definitions
+        id: refresh_okr
         working-directory: packages/runbooks/scripts/python
         continue-on-error: true
         env:
@@ -306,11 +307,12 @@ jobs:
           retention-days: 30
 
       - name: Notify Slack on failure
-        # `continue-on-error` on the snapshot step leaves the job green, so
+        # `continue-on-error` on the snapshot and OKR refresh steps leaves the job green, so
         # `failure()` alone would never see it and the header's promise that failures
-        # reach Slack would quietly stop holding for that one step.
+        # reach Slack would quietly stop holding for those steps.
         if: >-
-          (failure() || steps.explorer_snapshot.outcome == 'failure')
+          (failure() || steps.explorer_snapshot.outcome == 'failure'
+            || steps.refresh_okr.outcome == 'failure')
           && env.SLACK_APP_BOT_TOKEN != ''
           && env.SLACK_EVENT_LIFECYCLE_CHANNEL_ID != ''
         run: |
