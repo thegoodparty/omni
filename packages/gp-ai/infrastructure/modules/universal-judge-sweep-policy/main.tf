@@ -67,10 +67,32 @@ data "aws_region" "current" {}
 #   3. SendMessage on the dispatch queue. Send only: the sweep never receives,
 #      deletes, or changes queue attributes.
 #
+#   4. ListBucket on both buckets, which is NOT about enumeration and is the
+#      one grant here that exists for a reason other than an action the runner
+#      takes. S3 hides key existence from a principal that cannot list: without
+#      s3:ListBucket, GetObject on a key that does not exist returns 403
+#      AccessDenied instead of 404 NoSuchKey. The poll depends on telling those
+#      apart — `ObjectStore.getText` is specified to "resolve undefined for a
+#      key that does not exist yet, the normal state while a run is still
+#      going", and the S3 adapter implements that as `if (!(err instanceof
+#      NoSuchKey)) throw err`. With GetObject alone, every poll of an artifact
+#      that has not landed yet throws AccessDenied and the run aborts seconds
+#      after dispatch, having paid for it. The same 403 hits the first
+#      content-addressed read of a `_judge/` config that has not been staged
+#      before.
+#
+#      On the metadata bucket it carries an `s3:prefix` condition, so it can
+#      only list under `_judge/`. On the artifacts bucket it CANNOT be
+#      conditioned the same way, for the reason given above: the judge marker
+#      is in the run-id segment, not at the head of the key, and `s3:prefix`
+#      matches from the head. So this grant does let the judge see the key
+#      NAMES of real runs on that bucket — agent ids and run ids. It does not
+#      let it read them: GetObject stays restricted to `*/_judge-*/*`. That is
+#      a real widening and it is the price of a poll that can tell "not yet"
+#      from "not allowed"; narrowing it further needs the artifact key layout
+#      to change, which is a runner change rather than a policy one.
+#
 # DELIBERATELY ABSENT, and each omission is a decision:
-#   * No s3:ListBucket anywhere. The runner always fetches an exact key, so
-#     enumeration would only serve something this harness does not do. Same
-#     discipline as the agent-run-inputs module's read policy.
 #   * No write of any kind to the artifacts bucket. The judge reads what a run
 #     produced; the runner and the broker are what write there.
 #   * No s3:DeleteObject anywhere. A sweep that could delete could destroy a
@@ -93,7 +115,7 @@ data "aws_region" "current" {}
 
 resource "aws_iam_policy" "judge_sweep" {
   name        = local.policy_name
-  description = "Universal Judge background sweep: stage an override under _judge/ in ${local.metadata_bucket}, read its own _judge- run artifacts in ${local.artifacts_bucket}, and send to ${local.dispatch_queue}. Attach to the role the judge workflow assumes. dev only."
+  description = "Universal Judge background sweep: stage an override under _judge/ in ${local.metadata_bucket}, read its own _judge- run artifacts in ${local.artifacts_bucket}, send to ${local.dispatch_queue}, and list both buckets so a missing key returns 404 rather than 403. Attach to the role the judge workflow assumes. dev only."
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -109,6 +131,25 @@ resource "aws_iam_policy" "judge_sweep" {
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
         Resource = ["arn:aws:s3:::${local.artifacts_bucket}/*/_judge-*/*"]
+      },
+      # Both ListBucket grants exist so GetObject on a missing key returns 404
+      # rather than 403 — see note 4 above. Neither is here to enumerate.
+      {
+        Sid      = "DistinguishNotYetFromNotAllowedWhenStaging"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = ["arn:aws:s3:::${local.metadata_bucket}"]
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["_judge/*"]
+          }
+        }
+      },
+      {
+        Sid      = "DistinguishNotYetFromNotAllowedWhenPolling"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = ["arn:aws:s3:::${local.artifacts_bucket}"]
       },
       {
         Sid    = "DispatchJudgeRuns"
