@@ -1024,7 +1024,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // OutreachRobocallCancelService, which voids the hold, restores the promo
     // and refuses a run that has already dialed.
     if (outreach.outreachType === OutreachType.robocall) {
-      return this.robocallCancel.cancel(outreachId, campaignId)
+      return this.robocallCancel.cancel(outreachId, campaignId, attribution)
     }
     if (outreach.status === OutreachStatus.canceled) {
       return { outreach, refunded: false }

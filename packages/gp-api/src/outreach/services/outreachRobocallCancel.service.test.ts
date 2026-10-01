@@ -128,12 +128,20 @@ describe('OutreachRobocallCancelService.cancel', () => {
       authorizationIntentId: 'pi_cancel_1',
     })
 
-    await cancel.cancel(outreachId, campaign.id)
+    await cancel.cancel(outreachId, campaign.id, {
+      canceledBy: String(service.user.id),
+      byAdmin: false,
+    })
 
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.cancelled,
     )
-    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe(OutreachStatus.canceled)
+    // The cancel stamps the same audit fields the p2p path does.
+    expect(spine.canceledBy).toBe(String(service.user.id))
+    expect(spine.canceledByAdmin).toBe(false)
+    expect(spine.canceledAt).not.toBeNull()
     expect(voidSpy).toHaveBeenCalledWith('pi_cancel_1')
     expect(recordSpy).toHaveBeenCalledWith(
       'pi_cancel_1',

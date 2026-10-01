@@ -51,6 +51,7 @@ export class OutreachRobocallCancelService extends createPrismaBase(
   async cancel(
     outreachId: number,
     campaignId: number,
+    attribution?: { canceledBy: string; byAdmin: boolean },
   ): Promise<{ outreach: Outreach; refunded: boolean }> {
     const satellite = await this.model.findFirst({
       where: { outreachId, outreach: { campaignId } },
@@ -103,7 +104,7 @@ export class OutreachRobocallCancelService extends createPrismaBase(
       where: { id: satellite.id },
     })
 
-    await this.markSpineCanceled(outreachId)
+    await this.markSpineCanceled(outreachId, attribution)
 
     try {
       await this.promos.restore(outreachId)
@@ -148,11 +149,15 @@ export class OutreachRobocallCancelService extends createPrismaBase(
     return { outreach, refunded: false }
   }
 
-  // Flip the spine → canceled after the satellite cancel. The robocall spine is
-  // `pending_payment` for an unpaid draft or `pending` once the pay step
-  // committed, so guard on both. Best-effort: the satellite cancel already
-  // committed, so a transient failure must not throw.
-  private async markSpineCanceled(outreachId: number): Promise<void> {
+  // Flip the spine → canceled after the satellite cancel, stamping the same
+  // audit fields the p2p cancel does so a canceled robocall records who ended it
+  // and when. The robocall spine is `pending_payment` for an unpaid draft or
+  // `pending` once the pay step committed, so guard on both. Best-effort: the
+  // satellite cancel already committed, so a transient failure must not throw.
+  private async markSpineCanceled(
+    outreachId: number,
+    attribution?: { canceledBy: string; byAdmin: boolean },
+  ): Promise<void> {
     try {
       await this.client.outreach.updateMany({
         where: {
@@ -161,7 +166,12 @@ export class OutreachRobocallCancelService extends createPrismaBase(
             in: [OutreachStatus.pending, OutreachStatus.pending_payment],
           },
         },
-        data: { status: OutreachStatus.canceled },
+        data: {
+          status: OutreachStatus.canceled,
+          canceledAt: new Date(),
+          canceledBy: attribution?.canceledBy ?? null,
+          canceledByAdmin: attribution?.byAdmin ?? false,
+        },
       })
     } catch (err) {
       this.logger.error(
