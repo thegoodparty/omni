@@ -1005,6 +1005,31 @@ describe('CampaignStrategyService', () => {
       expect(prisma.campaignStrategy.updateMany).not.toHaveBeenCalled()
     })
 
+    // Losing the claim means another request already wiped the sections and is
+    // dispatching for them. The wiped row looks exactly like one that needs
+    // dispatching, so without the short-circuit this poll would dispatch too —
+    // doubling the Fargate spend and burning two of the ten lifetime slots the
+    // claim exists to protect.
+    it('reports generating and dispatches nothing when it loses the claim', async () => {
+      completeStory()
+      sectionsReadable()
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaignStrategy.updateMany.mockResolvedValue({ count: 0 })
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
+        planRow({ generatedWithStory: true }),
+      )
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res).toEqual({ status: 'generating' })
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    })
+
     // The claim is what stops two concurrent polls (the plan endpoint is
     // polled) from each wiping and re-dispatching the same plan.
     it('does not delete content when it loses the regeneration claim', async () => {
