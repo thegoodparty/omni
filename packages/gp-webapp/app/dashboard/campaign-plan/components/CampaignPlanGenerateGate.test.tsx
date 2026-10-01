@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import CampaignPlanStoryGate from './CampaignPlanStoryGate'
+import CampaignPlanGenerateGate from './CampaignPlanGenerateGate'
 
 const { mockGetUserWebsite } = vi.hoisted(() => ({
   mockGetUserWebsite: vi.fn(),
@@ -32,60 +32,70 @@ const websiteComplete = {
     },
   },
 }
-// A why but no issues — the candidate still has to add issues.
 const websiteWhyNoIssues = {
   content: { about: { bio: '<p>why answer</p>' } },
 }
+
+const generateButton = (): Promise<HTMLElement> =>
+  screen.findByRole('button', { name: /Generate my Campaign Plan/ })
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockGetUserWebsite.mockResolvedValue(null)
 })
 
-describe('CampaignPlanStoryGate', () => {
-  it('falls through to the complete-your-story prompt (not an endless spinner) when the fetch fails', async () => {
+describe('CampaignPlanGenerateGate', () => {
+  it('offers generation (not an endless spinner) when the story fetch fails', async () => {
     api.mock('GET /v1/campaigns/mine/story', {
       status: 500,
       data: incompleteStory,
     })
 
-    render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
+    render(<CampaignPlanGenerateGate onGenerate={vi.fn()} />)
 
-    expect(
-      await screen.findByRole('link', { name: 'Open your campaign manager' }),
-    ).toBeInTheDocument()
+    expect(await generateButton()).toBeInTheDocument()
   })
 
-  it('prompts to complete the story when the background is incomplete', async () => {
+  it('offers generation when the story has no background', async () => {
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,
       data: incompleteStory,
     })
     mockGetUserWebsite.mockResolvedValue(websiteComplete)
 
-    render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
+    render(<CampaignPlanGenerateGate onGenerate={vi.fn()} />)
 
-    const link = await screen.findByRole('link', {
-      name: 'Open your campaign manager',
-    })
-    expect(link).toHaveAttribute('href', '/dashboard?personalize=1')
-    expect(
-      screen.queryByRole('button', { name: /Generate my Campaign Plan/ }),
-    ).not.toBeInTheDocument()
+    expect(await generateButton()).toBeInTheDocument()
   })
 
-  it('prompts to complete the story when there are no issues', async () => {
+  it('offers generation when there are no issues', async () => {
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,
       data: completeStory,
     })
     mockGetUserWebsite.mockResolvedValue(websiteWhyNoIssues)
 
-    render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
+    render(<CampaignPlanGenerateGate onGenerate={vi.fn()} />)
 
+    expect(await generateButton()).toBeInTheDocument()
+  })
+
+  it('omits the review sections and invites the story when nothing is filled in', async () => {
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: incompleteStory,
+    })
+    mockGetUserWebsite.mockResolvedValue(null)
+
+    render(<CampaignPlanGenerateGate onGenerate={vi.fn()} />)
+
+    expect(await generateButton()).toBeInTheDocument()
+    expect(screen.queryByText('Your why')).not.toBeInTheDocument()
+    expect(screen.queryByText('Your background')).not.toBeInTheDocument()
+    expect(screen.queryByText('Your issues')).not.toBeInTheDocument()
     expect(
-      await screen.findByRole('link', { name: 'Open your campaign manager' }),
-    ).toBeInTheDocument()
+      screen.getByRole('link', { name: 'Add your story' }),
+    ).toHaveAttribute('href', '/dashboard?personalize=1')
   })
 
   it('reviews the answers (why + background + website issues) with an edit link when complete', async () => {
@@ -95,7 +105,7 @@ describe('CampaignPlanStoryGate', () => {
     })
     mockGetUserWebsite.mockResolvedValue(websiteComplete)
 
-    render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
+    render(<CampaignPlanGenerateGate onGenerate={vi.fn()} />)
 
     expect(await screen.findByText('why answer')).toBeInTheDocument()
     expect(screen.getByText('background answer')).toBeInTheDocument()
@@ -120,23 +130,21 @@ describe('CampaignPlanStoryGate', () => {
       },
     })
 
-    render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
+    render(<CampaignPlanGenerateGate onGenerate={vi.fn()} />)
 
     expect(await screen.findByText('fund <$50M')).toBeInTheDocument()
   })
 
-  it('fails open (shows generate, no empty issues section) when the website read errors but the story is complete', async () => {
+  it('fails open (no empty issues section) when the website read errors but the story is complete', async () => {
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,
       data: completeStory,
     })
     mockGetUserWebsite.mockRejectedValue(new Error('network error'))
 
-    render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
+    render(<CampaignPlanGenerateGate onGenerate={vi.fn()} />)
 
-    expect(
-      await screen.findByRole('button', { name: /Generate my Campaign Plan/ }),
-    ).toBeInTheDocument()
+    expect(await generateButton()).toBeInTheDocument()
     // No issues to show, so the section is omitted rather than rendered empty.
     expect(screen.queryByText('Your issues')).not.toBeInTheDocument()
   })
@@ -149,11 +157,9 @@ describe('CampaignPlanStoryGate', () => {
     })
     mockGetUserWebsite.mockResolvedValue(websiteComplete)
 
-    render(<CampaignPlanStoryGate onGenerate={onGenerate} />)
+    render(<CampaignPlanGenerateGate onGenerate={onGenerate} />)
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: /Generate my Campaign Plan/ }),
-    )
+    await userEvent.click(await generateButton())
     // Modal is open; nothing generated until the user confirms.
     expect(onGenerate).not.toHaveBeenCalled()
 

@@ -24,20 +24,17 @@ overview: `docs/features/campaign-tracker-v3.md`.
   keeps history for the weekly agent's prior-task lookup. Consequence: every
   reader must scope to the latest generation. The frontend (`buildTrackerStrategy`)
   and the digest (`weeklyTasksDigestHandler`, a separate `latest_gen` CTE) both do.
-- **Bootstrap is gated on campaign story, then an atomic claim.**
-  `bootstrapTrackerIfPlanComplete` (in `campaignStrategy.service.ts`) only
-  proceeds if a `campaign_story` row exists. The tracker takes the story as
-  input, so story-off (legacy) campaigns generate their plan but never bootstrap
-  the tracker. The gate is on the story _data_ — it never depended on the
-  webapp's `campaign-story` flag (removed in ENG-11013; the legacy cohort is
-  now only reachable by a pre-existing campaign with no story row). Then: two
-  plan sections complete on independent SQS
-  messages, so `bootstrapForCampaign` claims `CampaignStrategy.trackerBootstrapped`
-  with one conditional `updateMany` (false->true); only the winner materializes +
+- **Bootstrap is claimed atomically, and is not gated on the campaign story.**
+  `bootstrapTrackerIfPlanComplete` (in `campaignStrategy.service.ts`) proceeds
+  as soon as both plan sections persist. The story is input that sharpens the
+  tasks, not a precondition — a campaign with no story row gets the same
+  generic rows. Two plan sections complete on independent SQS messages, so
+  `bootstrapForCampaign` claims `CampaignStrategy.trackerBootstrapped` with one
+  conditional `updateMany` (false->true); only the winner materializes +
   dispatches, and the claim is released on failure so a later trigger retries.
 - **Static rows materialize eagerly, at plan-generation start.**
-  `getOrGenerateStrategicLandscape` calls `materializeStaticTasks` (story-gated,
-  best-effort) so the static checklist + outreach render immediately, without
+  `getOrGenerateStrategicLandscape` calls `materializeStaticTasks`
+  (best-effort) so the static checklist + outreach render immediately, without
   waiting for the SQS-driven completion bootstrap (which never fires in local
   dev). The dynamic `dispatchGeneration` still runs only from the completion
   bootstrap (it needs the finished plan). `materializeStaticTasks` is idempotent
