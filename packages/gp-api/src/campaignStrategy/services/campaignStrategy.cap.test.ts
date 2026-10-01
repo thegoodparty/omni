@@ -945,6 +945,9 @@ describe('CampaignStrategyService', () => {
           oppositionPersistedAt: null,
           opportunitiesPersistedAt: null,
           generationStartedAt: null,
+          // Released so the completion handler dispatches a tracker run
+          // against the regenerated plan rather than the wiped one.
+          trackerBootstrapped: false,
         },
       })
       expect(
@@ -1061,10 +1064,36 @@ describe('CampaignStrategyService', () => {
       await service.regenerateOnStoryComplete(99)
 
       expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(2)
-      expect(trackerTasks.dispatchGeneration).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 99 }),
-        'weekly',
+    })
+
+    // The tracker's params are built from the plan in the database, which the
+    // reset has just wiped, so starting a run here would spend a full
+    // generation against a null plan. The released bootstrap claim is what
+    // refreshes it, once the regenerated sections persist.
+    it('does not dispatch the tracker against the plan it just wiped', async () => {
+      storyState.read.mockResolvedValue({ complete: true })
+      prisma.campaignStrategy.findFirst.mockResolvedValue(
+        planRow({
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
       )
+      prisma.campaign.findUnique.mockResolvedValue(campaign())
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaignStrategy.updateMany.mockResolvedValue({ count: 1 })
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(planRow())
+      experimentRuns.dispatchRun
+        .mockResolvedValueOnce({ runId: 'opp-run' })
+        .mockResolvedValueOnce({ runId: 'oc-run' })
+
+      await service.regenerateOnStoryComplete(99)
+
+      expect(trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
     })
 
     // A story save must never fail because the regeneration could not run.

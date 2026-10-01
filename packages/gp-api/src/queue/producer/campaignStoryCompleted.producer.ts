@@ -22,9 +22,14 @@ export class CampaignStoryCompletedProducer {
   // at each edge. It also keeps a story autosave off the regeneration's
   // latency.
   //
-  // Deduplicated per campaign so an autosave burst (the story page saves each
-  // field independently) collapses to one message inside SQS FIFO's 5-minute
-  // window. Safe to collapse: the handler is one-shot per campaign anyway.
+  // Deliberately NOT deduplicated per campaign. The story page saves each
+  // field independently, so a per-campaign dedup id would collapse the whole
+  // burst inside SQS FIFO's 5-minute window and keep the FIRST message — which
+  // is the one written while the story was still incomplete, and which the
+  // handler correctly no-ops on. The write that actually completes the story
+  // would be the one discarded, so the eager path would silently never fire.
+  // Every write gets its own message; the handler is cheap when the story is
+  // incomplete and one-shot when it is not.
   //
   // Best-effort — a story save must never fail because this could not be
   // enqueued. The plan still regenerates on the candidate's next plan read.
@@ -36,7 +41,6 @@ export class CampaignStoryCompletedProducer {
           data: { campaignId },
         },
         MessageGroup.campaignStoryCompleted,
-        { deduplicationId: `campaignStoryCompleted-${campaignId}` },
       )
     } catch (err) {
       this.logger.error(

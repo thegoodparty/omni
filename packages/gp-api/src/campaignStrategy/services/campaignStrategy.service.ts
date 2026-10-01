@@ -899,6 +899,11 @@ export class CampaignStrategyService extends createPrismaBase(
           oppositionPersistedAt: null,
           opportunitiesPersistedAt: null,
           generationStartedAt: null,
+          // Release the tracker's one-shot bootstrap claim so the completion
+          // handler dispatches a fresh task generation once the regenerated
+          // sections persist. Dispatching one here instead would build the
+          // agent's params from the plan we are in the middle of wiping.
+          trackerBootstrapped: false,
         },
       })
       if (count === 0) return
@@ -942,11 +947,14 @@ export class CampaignStrategyService extends createPrismaBase(
 
       // Re-enters the normal generation path, which aligns (claiming the
       // one-shot flag) and then dispatches both sections.
+      //
+      // The tracker is NOT dispatched here. Its params are built from the plan
+      // in the database, which align has just wiped, so a run started now
+      // would cost a full generation against a null plan. Releasing the
+      // bootstrap claim (in alignPlanWithStory) is what refreshes it: the
+      // sections re-persist, the completion handler sees an unclaimed tracker
+      // and dispatches a run against the finished plan.
       await this.getOrGenerateStrategicLandscape(campaign)
-
-      // The tracker takes the story as input too, so refresh the task list now
-      // instead of waiting for the Thursday cron.
-      await this.campaignTrackerTasks.dispatchGeneration(campaign, 'weekly')
     } catch (err) {
       this.logger.error(
         { err, campaignId },
