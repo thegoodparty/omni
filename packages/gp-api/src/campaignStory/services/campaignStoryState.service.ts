@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { WebsitesService } from '@/websites/services/websites.service'
+import { serializeWebsiteBio } from '@/websites/util/serializeWebsiteBio.util'
 import { CampaignStoryService } from './campaignStory.service'
 
 export type StoryField = 'why' | 'background' | 'positions'
@@ -36,7 +37,12 @@ export class CampaignStoryStateService {
       this.websites.getIssuesForCampaign(campaignId),
     ])
     const missing: StoryField[] = []
-    if (!why?.trim()) missing.push('why')
+    // The bio is Quill HTML, so a bare `.trim()` reads an empty editor
+    // (`<p></p>`, `<p>&nbsp;</p>`) as answered. The webapp strips markup before
+    // measuring the same field, so trimming here would let the two sides
+    // disagree about whether a story is finished — which is the exact failure
+    // this one reader exists to prevent.
+    if (!serializeWebsiteBio(why)) missing.push('why')
     if (!story.background?.trim()) missing.push('background')
     if (positions.length === 0) missing.push('positions')
     return {
