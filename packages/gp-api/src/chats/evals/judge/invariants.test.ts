@@ -37,32 +37,42 @@ describe('the chief of staff vocabulary invariant', () => {
   })
 
   // THE EXEMPTION, and it is the half that makes this a rule rather than a
-  // word filter. The prompt allows the agent to match the user's framing for
-  // that answer when the user raised voting themselves.
-  it('allows voters in an answer where the user raised voting', () => {
+  // word filter. The prompt allows the agent to match the user's framing when
+  // the user raised voting, turnout or an election RESULT — an event or a
+  // metric, not a word.
+  it.each([
+    'How did turnout look in the last election?',
+    'Did I win my precinct?',
+    'How many people voted in the primary?',
+  ])('allows voters in an answer to %s', (question) => {
     const found = invariantViolations([
-      withText(BASE, VOTERS, 'How many registered voters are under 30?'),
-      withText(CANDIDATE, VOTERS, 'How many registered voters are under 30?'),
+      withText(BASE, VOTERS, question),
+      withText(CANDIDATE, VOTERS, question),
     ])
     expect(found).toEqual([])
   })
 
-  // The real case list's own probe, checked against the real rule. This case
-  // CANNOT detect the vocabulary regression, because the user says "voters"
-  // in the question and the rule therefore permits the answer to. Asserted so
-  // nobody reads a silent invariant on this case as the agent behaving.
-  it('is exempt on the case list case that asks about registered voters', () => {
+  // THE CASE I GOT WRONG, asserted so nobody repeats it. "Registered voters"
+  // is a population described by its registration status, not an election or
+  // a turnout figure — and the rule pre-empts exactly this, one clause
+  // earlier: "this applies even when the underlying data is a voter file:
+  // report it as constituent data". So the user naming voters does NOT
+  // license the answer to, which makes the case list's own probe a VALID
+  // detector of the vocabulary regression rather than an exempt one.
+  it('does not exempt the case that asks about registered voters', () => {
     const file = path.resolve(__dirname, 'cases', 'chief_of_staff.json')
     const parsed: { cases: { caseId: string; question: string }[] } =
       JSON.parse(readFileSync(file, 'utf8'))
     const probe = parsed.cases.find((c) => c.caseId === 'constituent-count')
     expect(probe).toBeDefined()
-    expect(probe?.question).toMatch(/voters/i)
+    expect(probe?.question).toMatch(/registered voters/i)
     const found = invariantViolations([
-      withText(BASE, VOTERS, probe?.question ?? ''),
+      withText(BASE, CONSTITUENTS, probe?.question ?? ''),
       withText(CANDIDATE, VOTERS, probe?.question ?? ''),
     ])
-    expect(found).toEqual([])
+    expect(found).toHaveLength(1)
+    expect(found[0]?.candidateRuns).toBe(1)
+    expect(found[0]?.baseRuns).toBe(0)
   })
 
   // The prompt says the rule "applies even when the underlying data is a
@@ -165,5 +175,86 @@ describe('the invariant registry', () => {
       },
     )
     expect(found.map((v) => v.invariant)).toEqual(['always-fires'])
+  })
+})
+
+// A MULTI-TURN CASE RENDERS MORE THAN THE USER SAID. `seededTranscript` is a
+// prior conversation the HARNESS wrote, assistant turns included, so checking
+// the exemption against the whole rendered input lets a seeded turn mentioning
+// an election excuse the agent on a case where the user never raised it. The
+// exemption reads `turns` — the user's own turns — and nothing else.
+describe('a seeded conversation does not widen the exemption', () => {
+  const transcript = (
+    record: RunRecord,
+    output: string,
+    turns: string[],
+    seeded?: { role: string; content: string }[],
+  ): RunRecord => ({
+    ...record,
+    output: { kind: 'text', value: output },
+    input: {
+      kind: 'transcript',
+      value: { turns, ...(seeded && { seededTranscript: seeded }) },
+    },
+  })
+
+  it('still reports a violation when only a seeded turn mentioned an election', () => {
+    const found = invariantViolations([
+      transcript(
+        BASE,
+        CONSTITUENTS,
+        ['What are my priorities?'],
+        [
+          { role: 'user', content: 'How did the election go?' },
+          { role: 'assistant', content: 'You won by four points.' },
+        ],
+      ),
+      transcript(
+        CANDIDATE,
+        VOTERS,
+        ['What are my priorities?'],
+        [
+          { role: 'user', content: 'How did the election go?' },
+          { role: 'assistant', content: 'You won by four points.' },
+        ],
+      ),
+    ])
+    expect(found).toHaveLength(1)
+    expect(found[0]?.candidateRuns).toBe(1)
+  })
+
+  // The exemption still works when the user raises it in their OWN turns.
+  it('exempts when a user turn raised the election', () => {
+    const found = invariantViolations([
+      transcript(CANDIDATE, VOTERS, [
+        'What are my priorities?',
+        'And how was turnout?',
+      ]),
+    ])
+    expect(found).toEqual([])
+  })
+})
+
+// `baseRuns: 0` HAS TWO CAUSES and the headline claims one of them. A base
+// arm that produced no answer at all (infraError) cannot have kept a rule —
+// nobody checked. Carried so the report can qualify rather than assert.
+describe('a base arm that never answered', () => {
+  it('is counted apart from a base that kept the rule', () => {
+    const found = invariantViolations([
+      { ...BASE, output: null },
+      withText(CANDIDATE, VOTERS, NEUTRAL),
+    ])
+    expect(found).toHaveLength(1)
+    expect(found[0]?.baseRuns).toBe(0)
+    expect(found[0]?.baseUnknownRuns).toBe(1)
+  })
+
+  it('reports zero unknown runs when both arms answered', () => {
+    const found = invariantViolations([
+      withText(BASE, CONSTITUENTS, NEUTRAL),
+      withText(CANDIDATE, VOTERS, NEUTRAL),
+    ])
+    expect(found[0]?.baseUnknownRuns).toBe(0)
+    expect(found[0]?.candidateUnknownRuns).toBe(0)
   })
 })

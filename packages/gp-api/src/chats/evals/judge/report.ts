@@ -450,10 +450,21 @@ export const invariantLines = (
         'than an opinion.',
     )
     for (const v of newlyBroken) {
+      // "THE BASE KEPT IT" IS A CLAIM, and a base arm that produced no answer
+      // does not support it: nobody checked those runs. Said inline rather
+      // than demoting the finding, because the candidate did break the rule
+      // either way — it is the comparison that is weaker, not the fact.
+      const unchecked =
+        v.baseUnknownRuns > 0
+          ? ` The base produced no answer on ${v.baseUnknownRuns} run(s), so ` +
+            'it may have broken this too — "the base kept it" is unverified ' +
+            'to that extent.'
+          : ''
       lines.push(
         `> - ${v.agentId} / \`${v.invariant}\`: ${v.candidateRuns} ` +
           `candidate run(s), case(s) ${v.candidateCaseIds.join(', ')}. ` +
-          v.describe,
+          v.describe +
+          unchecked,
       )
     }
   }

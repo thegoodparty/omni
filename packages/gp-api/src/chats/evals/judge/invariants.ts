@@ -1,5 +1,6 @@
+import { TranscriptInputSchema } from './cases'
 import { renderPayload } from './normalize'
-import type { RunRecord } from './record'
+import type { Payload, RunRecord } from './record'
 
 // RULES AN AGENT'S OUTPUT MUST SATISFY, checked per arm and reported beside
 // the verdict rather than folded into it.
@@ -31,11 +32,20 @@ export interface Invariant {
 // allowed to mention one.
 const SAYS_VOTERS = /\bvoters?\b/i
 
-// Anything that counts as the user raising the subject. Wider than
-// SAYS_VOTERS on purpose — the exemption turns on the user having opened the
-// topic at all, not on their exact noun.
+// THE ACTIVITY, NOT THE PEOPLE, and the distinction is the rule's own. Its
+// exception is "the user themselves raises voting, turnout, or an election
+// result" — three things, every one of them an event or a metric. "Registered
+// voters" is none of them: it is a population described by its registration
+// status, and the rule pre-empts exactly that case one clause earlier with
+// "this applies even when the underlying data is a voter file: report it as
+// constituent data".
+//
+// So `voter` and `voters` are deliberately ABSENT here. Including them let the
+// exemption swallow the one case the rule names out loud — and it made the
+// case list's `constituent-count` probe look exempt from the rule it was
+// written to probe, which it is not.
 const USER_RAISED_VOTING =
-  /\b(voter|voters|voting|vote|votes|voted|turnout|election|elections|ballot|ballots|primary|precinct)\b/i
+  /\b(voting|vote|votes|voted|turnout|election|elections|ballot|ballots|precinct)\b/i
 
 export const AGENT_INVARIANTS: Readonly<Record<string, readonly Invariant[]>> =
   {
@@ -70,10 +80,34 @@ export interface InvariantViolation {
   candidateRuns: number
   // Distinct cases the candidate broke it on, so a reader can go and look.
   candidateCaseIds: readonly string[]
+  // Runs of each arm that produced NO answer, so no rule could be checked on
+  // them. Carried because `baseRuns: 0` has two very different causes — the
+  // base kept the rule, or the base never answered — and the headline claims
+  // the first.
+  baseUnknownRuns: number
+  candidateUnknownRuns: number
 }
 
 const textOf = (record: RunRecord): string | null =>
   record.output === null ? null : renderPayload(record.output)
+
+// WHAT THE USER ACTUALLY SAID, which is narrower than the rendered input. A
+// multi-turn case renders `seededTranscript` too — a prior conversation the
+// HARNESS wrote, including assistant turns — so checking the exemption against
+// the whole rendering lets a seeded turn that mentions an election excuse the
+// agent on a case where the user never raised it.
+//
+// `turns` is the user's own turns and nothing else. An unrecognised payload
+// kind falls back to the full rendering, which errs toward exempting: a new
+// shape that gains invariants needs an extractor here, and the comment is the
+// reminder.
+const userTextOf = (payload: Payload): string => {
+  if (payload.kind === 'transcript') {
+    const parsed = TranscriptInputSchema.safeParse(payload.value)
+    if (parsed.success) return parsed.data.turns.join('\n')
+  }
+  return renderPayload(payload)
+}
 
 export const invariantViolations = (
   records: readonly RunRecord[],
@@ -89,15 +123,28 @@ export const invariantViolations = (
       candidateCaseIds: Set<string>
     }
   >()
+  // Counted before the rules, because a run with no answer contributes to no
+  // violation and still has to be reported: it is the difference between "the
+  // base kept this rule" and "nobody knows what the base did".
+  const unknown = new Map<string, { base: number; candidate: number }>()
+  for (const record of records) {
+    if (invariants[record.agentId] === undefined) continue
+    if (textOf(record) !== null) continue
+    const seen = unknown.get(record.agentId) ?? { base: 0, candidate: 0 }
+    if (record.arm === 'candidate') seen.candidate += 1
+    else seen.base += 1
+    unknown.set(record.agentId, seen)
+  }
+
   for (const record of records) {
     const rules = invariants[record.agentId]
     if (rules === undefined) continue
     const output = textOf(record)
     // Null output is an infraError — there is no answer to hold to a rule,
     // and counting it as compliant would be as wrong as counting it as a
-    // violation.
+    // violation. Counted into `unknown` above instead.
     if (output === null) continue
-    const input = renderPayload(record.input)
+    const input = userTextOf(record.input)
     for (const invariant of rules) {
       if (!invariant.violated(output, input)) continue
       const key = `${record.agentId}\u0000${invariant.name}`
@@ -117,12 +164,17 @@ export const invariantViolations = (
       byKey.set(key, entry)
     }
   }
-  return [...byKey.values()].map((entry) => ({
-    agentId: entry.agentId,
-    invariant: entry.invariant.name,
-    describe: entry.invariant.describe,
-    baseRuns: entry.baseRuns,
-    candidateRuns: entry.candidateRuns,
-    candidateCaseIds: [...entry.candidateCaseIds].sort(),
-  }))
+  return [...byKey.values()].map((entry) => {
+    const seen = unknown.get(entry.agentId) ?? { base: 0, candidate: 0 }
+    return {
+      agentId: entry.agentId,
+      invariant: entry.invariant.name,
+      describe: entry.invariant.describe,
+      baseRuns: entry.baseRuns,
+      candidateRuns: entry.candidateRuns,
+      candidateCaseIds: [...entry.candidateCaseIds].sort(),
+      baseUnknownRuns: seen.base,
+      candidateUnknownRuns: seen.candidate,
+    }
+  })
 }

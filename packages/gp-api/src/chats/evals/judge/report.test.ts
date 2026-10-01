@@ -1053,6 +1053,8 @@ describe('a rule the candidate broke', () => {
     baseRuns: 0,
     candidateRuns: 2,
     candidateCaseIds: ['capability-inventory-from-context'],
+    baseUnknownRuns: 0,
+    candidateUnknownRuns: 0,
     ...over,
   })
 
@@ -1113,5 +1115,42 @@ describe('a rule the candidate broke', () => {
     expect(report).toContain('new-break')
     expect(report).toContain('broken by BOTH arms')
     expect(report).toContain('this branch fixing it')
+  })
+})
+
+// "The base kept it" is a claim, and a base arm that produced no answer does
+// not support it. The finding stands — the candidate broke the rule — but the
+// comparison behind the headline is weaker, and the line has to say so.
+describe('a base arm that never answered', () => {
+  const render = (over: Partial<InvariantViolation>): string =>
+    renderReport({
+      agents: [],
+      invariantViolations: [
+        {
+          agentId: 'chief_of_staff',
+          invariant: 'constituents-not-voters',
+          describe: 'The people the user serves are constituents.',
+          baseRuns: 0,
+          candidateRuns: 2,
+          candidateCaseIds: ['priorities-on-file'],
+          baseUnknownRuns: 0,
+          candidateUnknownRuns: 0,
+          ...over,
+        },
+      ],
+    })
+
+  it('says the base claim is unverified to that extent', () => {
+    const report = render({ baseUnknownRuns: 3 })
+    expect(report).toContain('The candidate broke a rule the base kept')
+    expect(report).toContain('The base produced no answer on 3 run(s)')
+    expect(report).toContain('unverified')
+  })
+
+  it('says nothing extra when the base answered every run', () => {
+    const report = render({ baseUnknownRuns: 0 })
+    expect(report).toContain('The candidate broke a rule the base kept')
+    expect(report).not.toContain('produced no answer')
+    expect(report).not.toContain('unverified')
   })
 })
