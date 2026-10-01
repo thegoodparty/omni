@@ -333,7 +333,7 @@ def intent_fix(event: str, metrics: Sequence[str]) -> str:
         f"monitored_events.yaml:\n{rows}\n"
         "intent is one of: retire_activity (stop counting it), successor (add successor: "
         '"<event>"), relocated (add route: "/path"), not_a_change (the guard is wrong; '
-        "say why). If the call site moved on purpose, restoring it also clears this."
+        "say why). If you removed it by mistake, restoring it clears this."
     )
 
 
@@ -344,14 +344,15 @@ def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[
     for event, metrics in sorted(event_legs.items()):
         before, after = base.files_for(event), head.files_for(event)
         for path, n in sorted(before.items()):
-            now = after.get(renames.get(path, path), 0)
+            new = renames.get(path, path)
+            now = after.get(new, 0)
             if now < n:
                 out.append(Finding(
                     "okr_call_site_lost", "block", event,
                     f"{path} had {n} call site(s) of this OKR event and now has {now}.",
                     intent_fix(event, metrics), metrics))
-            elif not _is_route_file(path) and path in head.files \
-                    and base.importers(path) and not head.importers(path):
+            elif not _is_route_file(path) and new in head.files \
+                    and base.importers(path) and not head.importers(new):
                 out.append(Finding(
                     "okr_file_unused", "block", event,
                     f"{path} still sends this OKR event, but nothing imports it any more, so it never runs.",
@@ -370,12 +371,31 @@ def _surface_paths(snap: Snapshot) -> set[str]:
             for s in b.get("surfaces") or [] if s.get("path")}
 
 
+def _dir_prefixes(paths: Iterable[str]) -> set[str]:
+    out: set[str] = set()
+    for p in paths:
+        parts = p.split("/")[:-1]
+        prefix = ""
+        for part in parts:
+            prefix = f"{prefix}/{part}" if prefix else part
+            out.add(prefix)
+    return out
+
+
+def _present(path: str, paths: set[str], dirs: set[str]) -> bool:
+    """A surface path from monitored_events.yaml may name a directory (e.g. a whole
+    feature folder), not just one file, so presence is file-or-directory-prefix."""
+    return path in paths or path in dirs
+
+
 def stale_surface_paths(base: Snapshot, head: Snapshot) -> list[Finding]:
+    base_dirs, head_dirs = _dir_prefixes(base.all_paths), _dir_prefixes(head.all_paths)
     return [
         Finding("stale_surface_path", "block", "(registry)",
                 f"monitored_events.yaml declares {p} as a surface, and this change removed that file.",
                 "Update that surface's path: in monitored_events.yaml to where the code lives now.")
-        for p in sorted(_surface_paths(head)) if p in base.all_paths and p not in head.all_paths
+        for p in sorted(_surface_paths(head))
+        if _present(p, base.all_paths, base_dirs) and not _present(p, head.all_paths, head_dirs)
     ]
 
 

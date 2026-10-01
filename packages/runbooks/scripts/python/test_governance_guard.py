@@ -203,3 +203,35 @@ def test_a_new_key_with_a_colon_and_no_provenance_row_warns():
     head = gg.build_snapshot(tree({}, web=web, provenance="event_type\nSettings - Saved\n"))
     rules = sorted(f.rule for f in gg.new_key_warnings(base, head))
     assert rules == ["naming", "no_provenance_row"]
+
+
+def test_a_directory_surface_counts_as_present_by_its_files():
+    story = "packages/gp-webapp/app/dashboard/story"
+    page = f"{story}/Page.tsx"
+    wl = ("behaviors:\n  - id: b\n    surfaces:\n      - path: " + story + "\n"
+          "        label: x\nintents: []\n")
+    base = gg.build_snapshot(tree({page: "x"}, watchlist=wl))
+    head = gg.build_snapshot(tree({}, watchlist=wl))
+    [f] = gg.stale_surface_paths(base, head)
+    assert (f.rule, f.level) == ("stale_surface_path", "block") and story in f.detail
+
+
+def test_a_directory_surface_present_in_both_is_not_stale():
+    story = "packages/gp-webapp/app/dashboard/story"
+    page = f"{story}/Page.tsx"
+    wl = ("behaviors:\n  - id: b\n    surfaces:\n      - path: " + story + "\n"
+          "        label: x\nintents: []\n")
+    base = gg.build_snapshot(tree({page: "x"}, watchlist=wl))
+    head = gg.build_snapshot(tree({page: "x"}, watchlist=wl))
+    assert gg.stale_surface_paths(base, head) == []
+
+
+def test_a_renamed_okr_call_site_file_that_loses_its_importer_blocks():
+    page = "packages/gp-webapp/app/dashboard/door-knocking/page.tsx"
+    moved = "packages/gp-webapp/app/dashboard/door-knocking/WalkV2.tsx"
+    cc = "trackEvent(EVENTS.Outreach.CampaignCompleted)"
+    base = gg.build_snapshot(tree({page: "import Walk from './Walk'", DOOR: cc}))
+    head = gg.build_snapshot(tree({page: "export default function P() {}", moved: cc}))
+    events, paths = gg.watched_legs(LEGS)
+    [f] = gg.okr_findings(base, head, events, paths, renames={DOOR: moved})
+    assert (f.rule, f.event) == ("okr_file_unused", "Voter Outreach - Campaign Completed")
