@@ -108,6 +108,16 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         run: uv sync --frozen
 
+      # The pre-merge guard (DATA-2432) reads only this committed copy of the OKR
+      # definitions, so it never needs the network. The commit step below already adds
+      # instrumentation_data/, which carries the refreshed copy into the state PR.
+      - name: Refresh vendored OKR definitions
+        working-directory: packages/runbooks/scripts/python
+        continue-on-error: true
+        env:
+          GP_DATA_PLATFORM_READ_TOKEN: ${{ secrets.GP_DATA_PLATFORM_READ_TOKEN }}
+        run: uv run sem_anchors.py refresh-vendored
+
       - name: Provenance walk (weekly)
         if: github.event.schedule == '0 11 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.walk)
         working-directory: packages/runbooks/scripts/python

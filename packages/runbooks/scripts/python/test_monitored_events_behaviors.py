@@ -20,10 +20,7 @@ def test_no_behavior_or_row_carries_the_retired_okr_key():
 
 
 def test_every_metric_pointer_names_a_declared_metric():
-    fixtures = Path(aeh.__file__).parent / "fixtures"
-    declared: dict = {}
-    for name in ("sem_analytics__users_win.yml", "sem_analytics__users_serve.yml"):
-        declared.update(sa.parse_anchors((fixtures / name).read_text()))
+    declared, _ = sa.load_vendored_anchors()
     pointed = {m for b in br.load_behaviors(aeh.WATCHLIST) for m in br.metric_list(b)}
     assert pointed <= set(declared), pointed - set(declared)
 
