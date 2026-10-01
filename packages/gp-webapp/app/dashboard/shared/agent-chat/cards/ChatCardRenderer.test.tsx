@@ -206,14 +206,12 @@ describe('OutreachProposalCard', () => {
     })
   })
 
-  // The proposal contract is gaining door knocking; the card routes it the
-  // moment a payload carries it.
   it('opens the door knocking create flow on the saved list', async () => {
     mockNotSent()
 
     renderCard(
       proposalCard({
-        channel: 'doorKnocking' as Proposal['channel'],
+        channel: 'doorKnocking',
         deepLinkOnly: true,
       }),
     )

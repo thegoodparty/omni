@@ -655,6 +655,15 @@ export {
   PRIORITY_STEP_LABELS,
   PRIORITY_STEP_PURPOSE,
   PRIORITY_STATUS_VERSION,
+  PRIORITY_CHECK_STATES,
+  MAX_CHECK_RAISES,
+  PRIORITY_GATE_STEPS,
+  PriorityCheckStateSchema,
+  PriorityStepCheckSchema,
+  PriorityStepCheckInputSchema,
+  PriorityStepContrastSchema,
+  PriorityStepContrastInputSchema,
+  mergeStepCheck,
   PriorityStepIdSchema,
   PriorityStepStateSchema,
   PriorityStepSchema,
@@ -665,6 +674,11 @@ export {
   type PriorityStepState,
   type PriorityStep,
   type PriorityStatus,
+  type PriorityCheckState,
+  type PriorityStepCheck,
+  type PriorityStepCheckInput,
+  type PriorityStepContrast,
+  type PriorityStepContrastInput,
 } from './priorities/PriorityStatus.schema'
 
 export { mintProposalKey } from './chats/proposalKey'

@@ -4,10 +4,7 @@ import type { ProposalHandoff } from 'app/dashboard/constituent-outreach/proposa
 
 const SERVE_OUTREACH_HUB = '/dashboard/constituent-outreach'
 
-// Door knocking is a live channel the proposal contract is gaining. Widened
-// here so the card routes it the day the enum carries it, and compiles both
-// before and after.
-export type CardChannel = ProposalChannel | 'doorKnocking'
+export type CardChannel = ProposalChannel
 
 // The proposal vocabulary is the chat's, the badge vocabulary is outreach's.
 // One map rather than a second copy of the channel labels, so a card and a
@@ -16,12 +13,12 @@ export const PROPOSAL_OUTREACH_TYPE: Record<ProposalChannel, OutreachType> = {
   social: 'socialMedia',
   phoneBanking: 'phoneBanking',
   text: 'text',
+  // The native walk the Serve hub lists, not Win's legacy door-knocking type.
+  doorKnocking: 'nativeDoorKnocking',
 }
 
 export const cardOutreachType = (channel: CardChannel): OutreachType =>
-  channel === 'doorKnocking'
-    ? 'nativeDoorKnocking'
-    : PROPOSAL_OUTREACH_TYPE[channel]
+  PROPOSAL_OUTREACH_TYPE[channel]
 
 /**
  * Into the channel's own flow, where the official reviews and sends. The

@@ -22,6 +22,7 @@ import {
 import {
   PRIORITY_STEP_LABELS,
   PRIORITY_STEP_PURPOSE,
+  type PriorityCheckState,
   type PriorityStatus,
   type PriorityStep,
   type PriorityStepId,
@@ -91,6 +92,45 @@ const StepStateChip = ({
   )
 }
 
+// Whether the people a step lands on have been heard from. Shown because an
+// unchecked conclusion should never read the same as a checked one.
+export const STEP_CHECK_LABELS: Record<PriorityCheckState, string> = {
+  asked: 'Waiting on you: check with constituents',
+  out: 'Waiting to hear back',
+  confirmed: 'Constituents agreed',
+  revised: 'Changed after hearing from constituents',
+  deferred: 'Checking with constituents later',
+  declined: 'Not checked with constituents',
+}
+
+// The other side of the same check: the constituents it touches least.
+export const STEP_CONTRAST_LABELS: Record<PriorityCheckState, string> = {
+  asked: 'Waiting on you: check with the least affected',
+  out: 'Least affected: waiting to hear back',
+  confirmed: 'Least affected agreed',
+  revised: 'Changed after hearing from the least affected',
+  deferred: 'Least affected: checking later',
+  declined: 'Least affected: not asked',
+}
+
+const StepCheckLine = ({
+  step,
+}: {
+  step: PriorityStep
+}): React.JSX.Element | null =>
+  step.check ? (
+    <>
+      <span className="block text-xs text-muted-foreground">
+        {STEP_CHECK_LABELS[step.check.state]}
+      </span>
+      {step.check.contrast ? (
+        <span className="block text-xs text-muted-foreground">
+          {STEP_CONTRAST_LABELS[step.check.contrast.state]}
+        </span>
+      ) : null}
+    </>
+  ) : null
+
 const changedOn = (step: PriorityStep): string | null => {
   if (!step.updatedAt) return null
   const parsed = new Date(step.updatedAt)
@@ -134,6 +174,7 @@ const StepDetail = ({
       <p className="text-sm text-muted-foreground">
         {step.summary || 'Nothing here yet.'}
       </p>
+      <StepCheckLine step={step} />
       {step.caveat ? (
         <div className="rounded-lg border border-warning/40 bg-warning/5 p-3">
           <p className="text-sm text-foreground">{step.caveat}</p>
@@ -156,9 +197,13 @@ const StepList = ({
   <ul className="divide-y divide-border">
     {steps.map((step) => (
       <li key={step.id}>
+        {/* The check line sits under the label visually, but it describes the
+            step rather than naming it, so it is announced after the name. */}
         <button
           type="button"
           onClick={() => onSelect(step.id)}
+          aria-labelledby={`step-${step.id}-label step-${step.id}-state`}
+          {...(step.check && { 'aria-describedby': `step-${step.id}-check` })}
           className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/40"
         >
           <StepStateIcon state={step.state} />
@@ -168,9 +213,16 @@ const StepList = ({
               step.state === 'open' && 'text-muted-foreground',
             )}
           >
-            {PRIORITY_STEP_LABELS[step.id]}
+            <span id={`step-${step.id}-label`}>
+              {PRIORITY_STEP_LABELS[step.id]}
+            </span>
+            <span id={`step-${step.id}-check`} className="block">
+              <StepCheckLine step={step} />
+            </span>
           </span>
-          <StepStateChip state={step.state} />
+          <span id={`step-${step.id}-state`}>
+            <StepStateChip state={step.state} />
+          </span>
         </button>
       </li>
     ))}

@@ -4,6 +4,7 @@ import {
   Injectable,
   Optional,
 } from '@nestjs/common'
+import { formatISO } from 'date-fns'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -39,6 +40,7 @@ import {
   registeredFilterConsumers,
 } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
+import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
@@ -170,13 +172,34 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   }
 
   private assembleTools(ctx: PriorityFlowContext): Record<string, LlmTool> {
+    // Tools are built once per turn, so this flag is "did a card or a question
+    // reach the official in this turn". The status tool refuses to record a
+    // check as asked until one has, which is what makes `asked` mean shown.
+    let offeredThisTurn = false
+    const ask = buildAskClarifyQuestionTool()
+    const propose = buildPresentOutreachProposalTool()
     const tools: Record<string, LlmTool> = {
-      ...this.priorityStatus.buildStatusTool(ctx.priorityId),
+      ...this.priorityStatus.buildStatusTool(ctx.priorityId, {
+        offered: () => offeredThisTurn,
+        startedAt: formatISO(new Date()),
+      }),
       // The answer comes back as an ordinary user turn, so this presents a
       // decision without touching the seven-step status. The agent still
       // decides on its own when a step settles.
-      ask_clarify_question: buildAskClarifyQuestionTool(),
-      present_outreach_proposal: buildPresentOutreachProposalTool(),
+      ask_clarify_question: {
+        ...ask,
+        execute: (input: Parameters<typeof ask.execute>[0]) => {
+          offeredThisTurn = true
+          return ask.execute(input)
+        },
+      },
+      present_outreach_proposal: {
+        ...propose,
+        execute: (input: Parameters<typeof propose.execute>[0]) => {
+          offeredThisTurn = true
+          return propose.execute(input)
+        },
+      },
       present_outside_contact: buildPresentOutsideContactTool(),
       present_past_outreach: buildPresentPastOutreachTool(),
       read_past_outreach: buildReadPastOutreachTool({
@@ -224,6 +247,12 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     if (this.contacts) {
       const crmTools: Record<string, LlmTool> = {}
       crmTools.count_contacts = buildCountContactsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+      })
+      // A stage-gate check is often a few blocks, and precinct is the one
+      // geographic filter describe_filter_dimensions cannot list.
+      crmTools.list_precincts = buildListPrecinctsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })

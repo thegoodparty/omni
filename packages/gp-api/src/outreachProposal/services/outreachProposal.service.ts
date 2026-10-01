@@ -47,9 +47,10 @@ export class OutreachProposalService {
       )
     }
 
-    // Social carries no platforms, and a text lands unpaid behind checkout,
-    // so neither can be completed from a card without choosing something the
-    // official did not. Both render as deep links instead.
+    // Social carries no platforms, a text lands unpaid behind checkout, and
+    // door knocking is cut on a map, so none can be completed from a card
+    // without choosing something the official did not. All render as deep
+    // links instead.
     if (input.channel !== 'phoneBanking') {
       throw new BadRequestException(
         `${input.channel} proposals are opened in their own flow, not sent ` +

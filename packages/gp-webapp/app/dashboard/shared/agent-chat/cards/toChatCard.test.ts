@@ -152,6 +152,14 @@ describe('toChatCard', () => {
     })
     expect(text && 'deepLinkOnly' in text && text.deepLinkOnly).toBe(true)
 
+    const door = toChatCard({
+      toolName: 'present_outreach_proposal',
+      args: { ...proposalArgs, channel: 'doorKnocking', deepLinkOnly: false },
+      toolCallId: TOOL_CALL_ID,
+      conversationId: CONVERSATION_ID,
+    })
+    expect(door && 'deepLinkOnly' in door && door.deepLinkOnly).toBe(true)
+
     const phone = toChatCard({
       toolName: 'present_outreach_proposal',
       args: { ...proposalArgs, channel: 'phoneBanking' },
