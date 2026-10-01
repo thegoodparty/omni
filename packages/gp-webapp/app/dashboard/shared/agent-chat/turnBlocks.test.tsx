@@ -241,6 +241,17 @@ describe('a question written above the clarify widget', () => {
     expect(withoutTrailingQuestion('Look at the U.S. data first?')).toBe('')
   })
 
+  it('ends a sentence at a link or a decimal', () => {
+    expect(
+      withoutTrailingQuestion(
+        'Read the [report](https://example.com). Which first?',
+      ),
+    ).toBe('Read the [report](https://example.com).')
+    expect(withoutTrailingQuestion('The rate is 3.5. Want more?')).toBe(
+      'The rate is 3.5.',
+    )
+  })
+
   it('breaks before a question that opens in lowercase', () => {
     expect(
       withoutTrailingQuestion('The gap is real. do you want to start there?'),

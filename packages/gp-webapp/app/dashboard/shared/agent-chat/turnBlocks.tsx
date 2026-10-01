@@ -22,10 +22,11 @@ export type TurnBlock<Ctx> =
 
 const SENTENCE_BREAK = /[.!?]+[*_]*["')\]]?\s+(?=[*_]*["'([]?[A-Za-z])/g
 // "U.S. Census", "Dr. Smith", "Maple Ave. Housing": a title-case word of 2
-// or 3 letters, or one with an inner dot, before a period is read as an
-// abbreviation. A lone capital ("Option A.") and an all-caps acronym ("ADU.",
-// "FAQ.") end sentences far more often than they abbreviate, so they don't.
-const ABBREVIATION = /(?:^|\s)(?:[A-Z][a-z]{1,2}|\S*\.\S*)\.$/
+// or 3 letters, or single letters joined by dots ("U.S.", "e.g."), before a
+// period is read as an abbreviation. Anything else with a dot in it (a link,
+// a decimal) ends its sentence, and so do a lone capital ("Option A.") and an
+// all-caps acronym ("ADU."), which end sentences far more often than not.
+const ABBREVIATION = /(?:^|\s)(?:[A-Z][a-z]{1,2}|(?:[A-Za-z]\.)+[A-Za-z])\.$/
 
 // The last line goes when it ends in "?". When statements open that line,
 // only the closing run of questions goes, unless the whole line is wrapped in
