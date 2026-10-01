@@ -2,6 +2,8 @@ import { ServeOutreachPurpose } from '@goodparty_org/contracts'
 import {
   FRESH_DRAFT_TARGET_LENGTH,
   IMPROVE_DRAFT_TARGET_LENGTH,
+  SMS_IMPROVE_IDENTIFICATION_RULE,
+  SMS_NO_NAME_PLACEHOLDER_RULE,
   SmsVoiceConfig,
 } from '../services/outreachSmsGeneration.service'
 
@@ -135,8 +137,9 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
   '  your text ("Hi, this is <name>, your <office>."). Do not greet, do',
   '  not name the official, and do not restate the office — an opening',
   '  like "I\'m your City Constable" repeats what the constituent just',
-  '  read. Start with substance. Do NOT add any opt-out language',
-  '  either: the app appends it.',
+  '  read. Do not sign off either. Start with substance. Do NOT add any',
+  '  opt-out language: the app appends it.',
+  SMS_NO_NAME_PLACEHOLDER_RULE,
   "- Ground decisions, priorities, and specifics in the official's own",
   '  materials when they are provided; never invent positions, votes,',
   '  endorsements, statistics, dates, places, or events the materials',
@@ -161,8 +164,8 @@ const SERVE_IMPROVE_SYSTEM_PROMPT = [
   "  Keep the author's line breaks, bullets, and emojis. No hashtags; keep",
   '  any web address the author included, unchanged, and keep any',
   '  square-bracket placeholders like [time] exactly as written.',
-  "- The message opens with the official's identification; keep it",
-  '  intact. Do NOT add any opt-out language: the app appends it.',
+  SMS_IMPROVE_IDENTIFICATION_RULE,
+  '- Do NOT add any opt-out language: the app appends it.',
   '- Never add positions, decisions, endorsements, statistics, dates,',
   '  places, or events the original text does not contain — the',
   "  official's own materials, when provided, are context for tone and",

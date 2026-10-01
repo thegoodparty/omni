@@ -3,10 +3,12 @@ import { SOCIAL_TONE_VALUES, type SocialTone } from '@goodparty_org/contracts'
 import { grammarizeOfficeName } from 'app/polls/onboarding/utils/grammarizeOfficeName'
 import {
   composeScript,
+  ensureSmsIdentification,
   identificationIntro,
   OPT_OUT_FOOTER,
   SERVE_SMS_IDENTIFICATION_FALLBACK,
   serveIdentificationIntro,
+  unfilledBrackets,
   upgradeScriptFooter,
 } from './smsCompose.util'
 
@@ -121,5 +123,109 @@ describe('upgradeScriptFooter', () => {
     const edited = `${draftScript} PS vote early`
     expect(upgradeScriptFooter(edited, 'Jane for Mayor')).toBe(edited)
     expect(edited.includes(OPT_OUT_FOOTER)).toBe(true)
+  })
+})
+
+describe('ensureSmsIdentification', () => {
+  const serveIntro = 'this is Bryan, your Asheville City Council Member.'
+  const serve = {
+    intro: serveIntro,
+    firstName: 'Bryan',
+    candidateNames: ['Bryan Levine'],
+  }
+
+  it('repairs the body that reached the P2P queue with two introductions', () => {
+    // Composed, this read "Hello Sam, this is Bryan, your Asheville City
+    // Council Member. Hi, this is [Your Name] from the City of Asheville. ..."
+    const body =
+      "this is Bryan, your Asheville City Council Member. Hi, this is [Your Name] from the City of Asheville. We're working on the budget."
+    expect(ensureSmsIdentification(body, serve)).toBe(
+      `${serveIntro} We're working on the budget.`,
+    )
+  })
+
+  it('replaces an opener that names the council instead of the person', () => {
+    expect(
+      ensureSmsIdentification(
+        'Hi, this is the Asheville City Council. We want your input on parks.',
+        serve,
+      ),
+    ).toBe(`${serveIntro} We want your input on parks.`)
+  })
+
+  it('replaces a placeholder opener and its "from the City" phrase', () => {
+    expect(
+      ensureSmsIdentification(
+        'Hi, this is [Your Name] from the City of Asheville. Budget hearing Tuesday.',
+        serve,
+      ),
+    ).toBe(`${serveIntro} Budget hearing Tuesday.`)
+  })
+
+  it('prepends the intro to a body with no introduction, dropping its own greeting', () => {
+    expect(
+      ensureSmsIdentification('Hi! Early voting starts Monday.', {
+        intro: identificationIntro('warm', 'Jane', 'City Council'),
+        firstName: 'Jane',
+        candidateNames: ['Jane Doe'],
+      }),
+    ).toBe(
+      'this is Jane, candidate for City Council. Early voting starts Monday.',
+    )
+  })
+
+  it('keeps a sentence that only looks like an opener', () => {
+    expect(
+      ensureSmsIdentification(
+        'This is the last week to vote in our city.',
+        serve,
+      ),
+    ).toBe(`${serveIntro} This is the last week to vote in our city.`)
+  })
+
+  it('fills a sender placeholder in a body that already names the sender', () => {
+    expect(
+      ensureSmsIdentification(
+        `${serveIntro} Reply to reach me. [your name]`,
+        serve,
+      ),
+    ).toBe(`${serveIntro} Reply to reach me. Bryan`)
+  })
+
+  it('reads a bare [Name] as the sender only beside a self-introduction', () => {
+    expect(
+      ensureSmsIdentification("It's [Name] here. Town hall Thursday.", serve),
+    ).toBe(`${serveIntro} Town hall Thursday.`)
+    expect(
+      ensureSmsIdentification(
+        `${serveIntro} Thanks, [Name], for writing in.`,
+        serve,
+      ),
+    ).toBe(`${serveIntro} Thanks, [Name], for writing in.`)
+  })
+
+  it('leaves a body that already passes untouched', () => {
+    const body = 'Hey, Bryan here. Town hall Thursday at [time].'
+    expect(ensureSmsIdentification(body, serve)).toBe(body)
+  })
+
+  it('leaves everything alone with no name to check against', () => {
+    const body = 'Hi, this is [Your Name].'
+    expect(
+      ensureSmsIdentification(body, { ...serve, candidateNames: [] }),
+    ).toBe(body)
+  })
+
+  it('never stacks a second intro on a repeat pass', () => {
+    const once = ensureSmsIdentification('Early voting starts Monday.', serve)
+    expect(ensureSmsIdentification(once, serve)).toBe(once)
+  })
+})
+
+describe('unfilledBrackets', () => {
+  it('lists each bracket once', () => {
+    expect(
+      unfilledBrackets('📅 [Date] | 🕐 [Time] at [Date] | {first_name}'),
+    ).toEqual(['[Date]', '[Time]'])
   })
 })

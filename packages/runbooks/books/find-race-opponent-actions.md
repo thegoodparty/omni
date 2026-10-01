@@ -21,7 +21,7 @@ This is the source runbook for the future `experiments/race_opponent_actions/` P
 - **Up to 5 cards.** Fewer when the field or the platform supports fewer distinct angles. Never pad.
 - **`title` under 100 characters**, action-framed and naming the opponent and issue (e.g. "Stand out against Jeff Groh on housing affordability").
 - **`body` is at most 3 sentences.** Cite the district Haystaq percentages when coverage exists and say that voters care about (or how they lean on) the issue. When coverage is missing, omit numbers cleanly: the body simply carries no statistic and never a made-up or borrowed one.
-- **`sms_message` is at most 320 characters**: plain, factual, first-person, a contrast message the candidate could send as-is. No placeholders to fill in, no links required, no hype.
+- **`sms_message` is at most 320 characters**: plain, factual, first-person, a contrast message the candidate could send as-is. No placeholders to fill in (never [Your Name] or any other name in brackets), no links required, no hype. No greeting, no self-introduction and no sign-off: the app opens every text with "Hello <first name>, this is <candidate>, candidate for <office>." and appends the disclosures, so the message starts with substance.
 - **Every card is distinct**: a different opponent/issue angle per card, and no statistic repeated across cards.
 - **Copy guardrails (hard rules)**:
   - Only facts present in the input summaries and `candidate_platform`, plus the Haystaq numbers you actually queried. Nothing from general knowledge.
