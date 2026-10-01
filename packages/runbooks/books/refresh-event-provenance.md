@@ -88,6 +88,11 @@ there, not that anything sends the event.**
   matching the block rather than each line is what makes a Prettier-wrapped key-path
   (`EVENTS.A.B\n  .C`) visible. Comments are stripped first, so deleting prose that names
   a key-path never stamps a date.
+- `call_site_retired_commit` / `call_site_retired_pr` — that same removing commit and the
+  PR that merged it, so a Govern retirement is handed its code-removal proof. The PR
+  comes from the commit subject, else the merge walk, which skips a branch's own
+  "merge main into me" merges. For grafted history the walk keeps the oldest-merge rule
+  only, because those commits cannot be checked against GitHub; empty beats a guess.
 - `instrumented_author_email` / `retired_author_email` — git author email (`%ae`) of the
   commit that instrumented and the commit that retired the event, for follow-up. Empty when
   the event is still in code (no retirement) or predates the walk window.

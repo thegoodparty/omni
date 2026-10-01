@@ -125,7 +125,8 @@ not a silent break.
 
 This flag's propose-and-confirm flow (never auto-decide):
 
-1. Confirm in git. The row's `call_site_retired_date` already names the day; the CSV's
+1. Confirm in git. The row's `call_site_retired_date` already names the day and
+   `call_site_retired_pr` the PR (the event health console pre-fills it as the proof); the CSV's
    walk is wrap-tolerant, so trust it over your own search. To read the removing diff,
    pickaxe the **leaf key** (`git log -S'CheckGender' -- packages/gp-webapp`) rather than
    the dotted key-path: Prettier wraps a long path across lines, so `-S'EVENTS.<KeyPath>'`
