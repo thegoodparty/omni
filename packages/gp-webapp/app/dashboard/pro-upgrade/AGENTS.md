@@ -291,7 +291,8 @@ this, and neither does the server-side `Account - Pro Subscription Confirmed`.
   task when there is one. See `app/dashboard/outreach/AGENTS.md`'s Analytics
   section.
 - `InterstitialStep` reports its own view and both choices
-  (`Interstitial Viewed` / `Click join` / `Click maybe later`) with `channel`.
+  (`Upgrade Interstitial Viewed` / `Completed` for Join Pro / `Dismissed` for
+  Maybe later) with `channel`.
 
 ## Gotchas
 

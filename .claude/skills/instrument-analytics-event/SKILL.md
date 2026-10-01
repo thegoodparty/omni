@@ -60,6 +60,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    Format: `{Product Area} - {Noun} {Past-Tense Verb}`, in Title Case. Prefer the verbs `Viewed` and `Completed`; reach for `Created`, `Updated`, `Dismissed`, `Blocked`, `Errored` only when those do not fit.
 
+   **One ` - ` separator, and no colons.** The product area is the only prefix. Never add a second segment after a colon, and never name an event after the click: `Pro Upgrade - Upgrade Interstitial Dismissed`, not `Pro Upgrade - Interstitial: Click maybe later`. Whatever the button says belongs in a property (`cta`, `choice`) or in the noun, and the verb says what the candidate did to the noun. Many older events use the `Area - Thing: Click X` shape. It is legacy, not a pattern to copy. Do not rename one just to remove its colon, though: a rename is a supersession that splits the event's history (see `event-metadata`), so it happens only when someone asks for it.
+
    ```
    Briefing Assistant - Briefing Viewed
    Briefing Assistant - Agenda Submitted
@@ -267,6 +269,7 @@ restating it. Skip if the symptom is already a row.
 - Renaming a backend event marked `⚠️ DO NOT MODIFY` — it breaks the HubSpot workflow that triggers on that exact string.
 - `await`-ing a non-critical backend `track` and letting a Segment hiccup block or fail the request — use `void … .catch(() => undefined)` for telemetry.
 - Passing a string literal to `trackEvent` / `track` instead of an `EVENTS` entry — defeats the single source of truth and drifts the catalog.
+- A colon or a `Click X` in the name (`Pitch: Click join`). Name the noun and what happened to it (`Pitch Completed`), and put the button in a property.
 - Minting a new event for what is really a property (one event per outreach channel instead of a `channel` property).
 - Wrong casing — group keys PascalCase, event-name values Title Case, property keys camelCase.
 - Firing a "Viewed" event on every render instead of once in a `useEffect`.
