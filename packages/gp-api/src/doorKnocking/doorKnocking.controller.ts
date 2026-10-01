@@ -18,6 +18,8 @@ import {
   BuildDoorKnockingRouteSchema,
   CreateDoorKnockingTurf,
   CreateDoorKnockingTurfSchema,
+  CreateServeDoorKnockingTurf,
+  CreateServeDoorKnockingTurfSchema,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionSchema,
   RecordDoorKnockInteractionResponseSchema,
@@ -155,15 +157,21 @@ export class DoorKnockingController {
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @ReqOrganization() organization: Organization,
     @ReqUser() user: User,
-    @Body(new ZodValidationPipe(CreateDoorKnockingTurfSchema))
-    input: CreateDoorKnockingTurf,
+    @Body(new ZodValidationPipe(CreateServeDoorKnockingTurfSchema))
+    input: CreateServeDoorKnockingTurf,
   ) {
     await this.contacts.assertProAccess(organization)
+    const { proposalKey, priorityId, stepId, side, ...turf } = input
+    const link = await this.createService.resolveProposalLink(
+      { proposalKey, priorityId, stepId, side },
+      electedOffice.id,
+    )
     return this.createService.create(
       organization,
       { campaignId: null, organizationSlug: electedOffice.organizationSlug },
-      input,
+      turf,
       user.id,
+      link,
     )
   }
 

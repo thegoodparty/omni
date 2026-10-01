@@ -1,5 +1,6 @@
 import type {
   CreateDoorKnockingTurf,
+  CreateServeDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
   BuildDoorKnockingRoute,
   DoorKnockingArchiveRequest,
@@ -1487,10 +1488,11 @@ export type APIEndpoints = {
     Request: CreateDoorKnockingTurf
     Response: DoorKnockingTurf
   }
-  // Serve sibling of the above, for an elected official. Same body; the
-  // envelope it writes is scoped by organization with no campaign.
+  // Serve sibling of the above, for an elected official. Same body, plus a
+  // chat card's proposal link; the envelope it writes is scoped by
+  // organization with no campaign.
   'POST /v1/door-knocking/serve/turfs': {
-    Request: CreateDoorKnockingTurf
+    Request: CreateServeDoorKnockingTurf
     Response: DoorKnockingTurf
   }
   // Every turf in a door-knocking campaign — the anchor Outreach plus every

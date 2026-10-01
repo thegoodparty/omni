@@ -200,15 +200,21 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
       return data.draft
     },
     createList: async ({
-      proposalKey: _proposalKey,
-      priorityId: _priorityId,
-      ...input
+      name,
+      script,
+      sheetCount,
+      purpose,
+      voterFileFilterId,
     }) => {
-      // A proposal link is a Serve chat card's; Win's create is strict.
-      const { data } = await clientRequest(
-        'POST /v1/phone-banking/lists',
-        input as PhoneBankingCreate,
-      )
+      // Named, not rest-spread: a proposal link is a Serve chat card's, and
+      // Win's create is strict, so a link field added later must not leak.
+      const { data } = await clientRequest('POST /v1/phone-banking/lists', {
+        name,
+        script,
+        sheetCount,
+        purpose,
+        voterFileFilterId,
+      } as PhoneBankingCreate)
       return data
     },
   },

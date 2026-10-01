@@ -117,7 +117,8 @@ export const ProposalFlowsProvider = ({
   }, [opened, queryClient])
 
   const openDoorKnocking = useCallback(
-    async (proposal: OutreachProposal) => {
+    async (opened: Opened) => {
+      const { proposal } = opened
       // The map page takes a saved list and nothing else, so this is the
       // latest point the list can be saved: the official has started.
       const audience = proposedAudienceOf(proposal)
@@ -133,11 +134,14 @@ export const ProposalFlowsProvider = ({
               })
             ).data.id
           : null)
-      router.push(
-        listId
-          ? `/dashboard/door-knocking?create=1&listId=${listId}`
-          : '/dashboard/door-knocking?create=1',
-      )
+      // The card's link rides to the walk's own create, which puts the check
+      // out on the server: nothing here survives the navigation to say so.
+      const params = new URLSearchParams({
+        create: '1',
+        ...(listId ? { listId: String(listId) } : {}),
+        ...linkOf(opened),
+      })
+      router.push(`/dashboard/door-knocking?${params.toString()}`)
     },
     [router],
   )
@@ -145,7 +149,10 @@ export const ProposalFlowsProvider = ({
   const open = useCallback(
     (proposal: OutreachProposal, priorityId?: string) => {
       if (proposal.channel === 'doorKnocking') {
-        void openDoorKnocking(proposal)
+        void openDoorKnocking({
+          proposal,
+          ...(priorityId !== undefined && { priorityId }),
+        })
         return
       }
       setOpened({ proposal, ...(priorityId !== undefined && { priorityId }) })

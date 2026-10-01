@@ -5,6 +5,7 @@ import DoorKnockingPageGate from './native/DoorKnockingPageGate'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
 import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
+import { ProposalLinkSchema } from '@goodparty_org/contracts'
 
 // The surfaces that link here with `?create=1` and say where they are.
 // Allowlisted so the query string cannot put an arbitrary value into
@@ -29,6 +30,10 @@ interface PageParams {
     create?: string
     campaignOutreachId?: string
     source?: string
+    proposalKey?: string
+    priorityId?: string
+    stepId?: string
+    side?: string
   }>
 }
 
@@ -46,6 +51,10 @@ export default async function Page({
       create,
       campaignOutreachId,
       source,
+      proposalKey,
+      priorityId,
+      stepId,
+      side,
     },
     campaign,
   ] = await Promise.all([searchParams, fetchUserCampaign()])
@@ -60,6 +69,16 @@ export default async function Page({
   // The hub tile's other carry: a voter data page recommendation not saved
   // yet. Same stance — an unknown variant is dropped, never an error.
   const preselectedRecommendedVariant = parseRecommendedListVariant(recommended)
+
+  // A priority chat card's link, so the walk it starts puts that card's check
+  // out. All or nothing: a link that does not parse is dropped, and the walk
+  // is created as any other.
+  const proposalLink = ProposalLinkSchema.safeParse({
+    proposalKey,
+    priorityId,
+    stepId,
+    side,
+  })
 
   const childProps = {
     pathname: '/dashboard/door-knocking',
@@ -87,6 +106,8 @@ export default async function Page({
     // list/turf ids above; the drawer never sends anything else, and a
     // malformed value is dropped rather than opening a broken flow.
     campaignOutreachId: parsePositiveListId(campaignOutreachId),
+    ...(proposalLink.success &&
+      proposalLink.data.proposalKey && { proposalLink: proposalLink.data }),
   }
 
   return <DoorKnockingPageGate {...childProps} />

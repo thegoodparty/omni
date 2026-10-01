@@ -595,6 +595,7 @@ describe('PriorityFlowHandler', () => {
       'a side sent from its card is recorded as out on its own',
     )
     expect(prompt).toContain('Never present it again')
+    expect(prompt).toContain('say in one line that it is out, once')
     expect(prompt).toContain(`starts with ${PROPOSAL_SENT_MARKER}`)
     expect(prompt).toContain('stepId (the step you just settled) and side main')
     expect(prompt).toContain('with the same stepId and side contrast')

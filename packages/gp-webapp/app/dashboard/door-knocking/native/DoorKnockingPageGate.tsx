@@ -1,5 +1,8 @@
 'use client'
-import type { RecommendedListVariant } from '@goodparty_org/contracts'
+import type {
+  ProposalLink,
+  RecommendedListVariant,
+} from '@goodparty_org/contracts'
 
 import Link from 'next/link'
 import {
@@ -36,6 +39,8 @@ interface DoorKnockingPageGateProps {
   // `?campaignOutreachId=` — the drawer's "Add another turf" opening the
   // flow onto an existing campaign.
   campaignOutreachId?: number
+  // A priority chat card's link, so the walk it starts puts its check out.
+  proposalLink?: ProposalLink
   // `?source=` — where that `?create=1` link was pressed.
   createSource?: OutreachFlowSource
 }
@@ -101,6 +106,7 @@ export default function DoorKnockingPageGate({
   fromOutreachId,
   openCreateFlow,
   campaignOutreachId,
+  proposalLink,
   createSource,
 }: DoorKnockingPageGateProps) {
   // Exposure belongs to the membership surfaces, not this page.
@@ -152,6 +158,7 @@ export default function DoorKnockingPageGate({
       fromOutreachId={fromOutreachId}
       openCreateFlow={openCreateFlow}
       campaignOutreachId={campaignOutreachId}
+      {...(proposalLink && { proposalLink })}
       createSource={createSource}
     />
   )

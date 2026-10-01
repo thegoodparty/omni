@@ -128,7 +128,7 @@ Three more holds, because the model also called the official's own agreement
 - **A real send puts a side out, not the agent.** A proposal names the check
   it puts out (`stepId`, `side`), and the create that sends it carries them.
   Once the send is real (the phone list built, the post saved, the text paid
-  for) `PriorityStatusService.recordOutreachSent` moves that side to `out`
+  for, the walk drawn) `PriorityStatusService.recordOutreachSent` moves that side to `out`
   through the same merge, stamping `sentAt` and `sentProposalKey`; a replay
   of the same proposal records nothing new, and a side constituents already
   answered keeps its answer. The `<status>` block shows `Sent:`, the

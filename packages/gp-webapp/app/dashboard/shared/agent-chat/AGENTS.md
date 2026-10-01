@@ -155,8 +155,9 @@ there is the agent's to say, once, in its message; no card repeats it.
   its builder already filled in (`proposedAudience`) and saves the list when
   the official confirms and names it. Door knocking is the exception: its
   create flow is drawn on its own map page and takes only a saved list, so the
-  card saves the list at the click, the latest point it can, and goes there.
-  Text, phone banking and social carry the card's link on their create
+  card saves the list at the click, the latest point it can, and goes there,
+  carrying the card's link on the URL (`?proposalKey=&priorityId=&stepId=&side=`)
+  to that page's create. Every channel carries the card's link on its create
   (`{ proposalKey, priorityId, stepId, side }`, the check fields only on a
   priority), so the send is linked to the priority, a second completion
   returns the first, and the server moves that side of the check to out once
@@ -166,8 +167,11 @@ there is the agent's to say, once, in its message; no card repeats it.
   `useOnProposalSent` listeners: the chip re-resolves, and the priority
   workspace refetches its rail and sends one hidden turn that opens with
   `PROPOSAL_SENT_MARKER` and ends on the proposal key, filtered from the
-  transcript like the kickoff, so the agent hears about the send once.
-  Chief of Staff has no check to move and sends no such turn. While the SMS flag reads off, a text
+  transcript like the kickoff, so the agent hears about the send once. A
+  walk is finished on another page, so no listener hears it; the server has
+  already put the check out, and the agent reads it in `<status>` on the next
+  turn. Chief of Staff has no check to move and sends no such turn. While the
+  SMS flag reads off, a text
   proposal says texting is not available instead of offering a button.
   `PastOutreachCard` is one row per send, linking to its row's drawer on the
   hub. No compose, edit or send UI lives in a card: the flows own it.
