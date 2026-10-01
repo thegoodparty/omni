@@ -79,3 +79,22 @@ export const STUCK_BUCKET_KEYS: TenDlcStatusBucketKey[] = (
 ).filter((key) => BUCKET_META[key].tone !== 'gray')
 
 export const RADIX_UNSUSPENSION_URL = 'https://abuse.radix.website/unsuspension'
+
+// Chart/mark fills for each tone. Same hues as the Badge colors the page
+// already uses, so a bucket keeps one color everywhere; slate (not pure
+// gray) for the nudge tone so it still reads as a deliberate mark.
+export const TONE_FILL: Record<BucketMeta['tone'], string> = {
+  red: 'var(--red-9)',
+  amber: 'var(--amber-9)',
+  gray: 'var(--slate-8)',
+}
+
+export const TONE_LABEL: Record<BucketMeta['tone'], string> = {
+  red: 'Broken on our side',
+  amber: 'Waiting on Peerly',
+  gray: 'Waiting on the candidate',
+}
+
+export const ALL_BUCKET_KEYS = Object.keys(
+  BUCKET_META
+) as TenDlcStatusBucketKey[]
