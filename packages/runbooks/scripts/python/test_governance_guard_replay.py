@@ -1,6 +1,6 @@
 """Replays the breaks that motivated DATA-2432 against real history. Skips locally when the
 commits are not in the clone (e.g. a shallow checkout); fails under GitHub Actions instead,
-since a skipped acceptance test reads as a pass — the Analytics guard job must check out
+since a skipped acceptance test reads as a pass. The Analytics guard job must check out
 with fetch-depth: 0, and this test is what catches a regression on that."""
 
 import os

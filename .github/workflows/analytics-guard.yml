@@ -52,38 +52,77 @@ jobs:
           echo "base=$base" >> "$GITHUB_OUTPUT"
           uv run governance_guard.py check --base "$base" --head HEAD \
             --markdown "$RUNNER_TEMP/guard.md" --json "$RUNNER_TEMP/guard.json"
-          echo "code=$?" >> "$GITHUB_OUTPUT"
+          code=$?
+          # Normalise. Only 0 (clean) and a 2 that guard.json itself confirms as a real
+          # block are trusted. Everything else collapses to 1 (guard error): argparse's
+          # and uv's own exit code is also 2 with no guard.md ever written, a 0 with no
+          # guard.md means the process died before writing anything, and any other exit
+          # is unanticipated. A mechanical failure must never read as "clean" or "blocks
+          # merge" on a check that forks and Dependabot PRs hit with a read-only token.
+          if [ "$code" = "2" ] && ! jq -e '.status == "block"' "$RUNNER_TEMP/guard.json" > /dev/null 2>&1; then
+            code=1
+          elif [ "$code" = "0" ] && [ ! -f "$RUNNER_TEMP/guard.md" ]; then
+            code=1
+          elif [ "$code" != "0" ] && [ "$code" != "2" ]; then
+            code=1
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
 
       - name: Post or update the guard comment
         if: env.MODE != 'off'
+        # Never fails the job: a comment is a courtesy, not the check. The Verdict step
+        # below is the only place a decision gets made.
+        continue-on-error: true
         run: |
-          set -euo pipefail
+          set -uo pipefail
           code='${{ steps.guard.outputs.code }}'
           body="$RUNNER_TEMP/comment.md"
-          if [ "$code" = "1" ]; then
+          if [ "$code" = "0" ]; then
+            cp "$RUNNER_TEMP/guard.md" "$body" || echo "::warning::could not read guard.md for a clean result"
+          elif [ "$code" = "2" ]; then
+            cp "$RUNNER_TEMP/guard.md" "$body" || echo "::warning::could not read guard.md for a blocking result"
+            if [ "$MODE" != "block" ]; then
+              sed -i 's/^\*\*Blocks merge\*\*$/**Would block merge (shadow mode, not enforced yet)**/' "$body" \
+                || echo "::warning::could not rewrite the shadow-mode line"
+            fi
+          else
             printf '<!-- analytics-guard -->\n### Analytics guard\n\nThe guard could not run on this PR, so it passed without checking. %s\n\n```\n%s\n```\n' \
               "${ALERT:+cc $ALERT}" "$(jq -r .error "$RUNNER_TEMP/guard.json" 2>/dev/null || echo unknown)" > "$body"
-          else
-            cp "$RUNNER_TEMP/guard.md" "$body"
-            if [ "$code" = "2" ] && [ "$MODE" != "block" ]; then
-              sed -i 's/^\*\*Blocks merge\*\*$/**Would block merge (shadow mode, not enforced yet)**/' "$body"
-            fi
           fi
           existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
-            --jq '[.[] | select(.body | startswith("<!-- analytics-guard -->"))][0].id // empty')
+            --jq '[.[] | select(.body | startswith("<!-- analytics-guard -->"))][0].id // empty' 2>/dev/null | head -1)
           if [ -n "$existing" ]; then
-            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -F body=@"$body" > /dev/null
-          elif [ "$code" != "0" ] || grep -q '^\*\*Warnings\*\*' "$body"; then
-            gh pr comment "$PR" --body-file "$body"
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -F body=@"$body" > /dev/null \
+              || echo "::warning::could not update the existing analytics guard comment"
+          elif [ "$code" != "0" ] || grep -q '^\*\*Warnings\*\*' "$body" 2>/dev/null; then
+            gh pr comment "$PR" --body-file "$body" || echo "::warning::could not post the analytics guard comment"
+          fi
+
+      - name: Analytics guard is off
+        if: env.MODE == 'off'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          echo "::warning::Analytics guard is OFF (GOVERNANCE_GUARD_MODE=off); nothing was checked."
+          body="$RUNNER_TEMP/off.md"
+          printf '<!-- analytics-guard -->\n### Analytics guard\n\nThe guard is turned off for this PR (`GOVERNANCE_GUARD_MODE=off`). Nothing was checked.\n' > "$body"
+          existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- analytics-guard -->"))][0].id // empty' 2>/dev/null | head -1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -F body=@"$body" > /dev/null \
+              || echo "::warning::could not update the existing analytics guard comment"
           fi
 
       - name: Runbooks tests (only when the runbooks package changed)
-        if: env.MODE != 'off'
+        if: ${{ !cancelled() && env.MODE != 'off' }}
         working-directory: packages/runbooks/scripts/python
         env:
           SEM_ANCHORS_NO_GH: "1"
         run: |
-          if [ -z "$(git diff --name-only '${{ steps.guard.outputs.base }}' HEAD -- .)" ]; then
+          base='${{ steps.guard.outputs.base }}'
+          if [ -z "$base" ]; then
+            echo "::warning::no merge base; running the runbooks suite anyway"
+          elif [ -z "$(git diff --name-only "$base" HEAD -- .)" ]; then
             echo "No runbooks changes; skipping the suite."
             exit 0
           fi
@@ -97,7 +136,7 @@ jobs:
           uv run pytest -q
 
       - name: Verdict
-        if: env.MODE != 'off'
+        if: ${{ !cancelled() && env.MODE != 'off' }}
         run: |
           code='${{ steps.guard.outputs.code }}'
           case "$code" in
