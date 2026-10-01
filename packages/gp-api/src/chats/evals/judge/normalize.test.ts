@@ -502,3 +502,224 @@ describe('pairing', () => {
     expect(payload.agentId).toBe('chief_of_staff')
   })
 })
+
+// The chat input a case with several turns or a condition records. Read as
+// prose rather than raw JSON because this string is what the judge is handed
+// as `<shared_input>`, and a JSON blob there spends its attention on
+// punctuation.
+describe('rendering a transcript input', () => {
+  it('numbers the turns of a conversation', () => {
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: { turns: ['What are my priorities?', 'Which is oldest?'] },
+      }),
+    ).toBe('Turn 1: What are my priorities?\nTurn 2: Which is oldest?')
+  })
+
+  // A one-turn case that only carries a condition reads as the question it
+  // is, not as "Turn 1 of 1".
+  it('leaves a single turn unnumbered', () => {
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: { turns: ['Am I on the ballot?'], accountState: { pro: false } },
+      }),
+    ).toBe('Am I on the ballot?\n\nCondition: account state pro=false.')
+  })
+
+  it('shows the conversation the harness wrote before the turn', () => {
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: {
+          turns: ['Which is oldest?'],
+          seededTranscript: [
+            { role: 'user', content: 'What are my priorities?' },
+            {
+              role: 'assistant',
+              content: 'Three.',
+              toolCalls: [{ tool: 'crud_priorities', input: {} }],
+            },
+          ],
+        },
+      }),
+    ).toBe(
+      'Conversation so far, written by the harness:\n' +
+        '  user: What are my priorities?\n' +
+        '  assistant: Three. [called crud_priorities({})]\n' +
+        '\n' +
+        'Which is oldest?',
+    )
+  })
+
+  it('names the tool a case forced to fail', () => {
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: {
+          turns: ['How many constituents?'],
+          toolFailure: { tool: 'query_constituent_data', mode: 'timeout' },
+        },
+      }),
+    ).toContain(
+      'Condition: the tool "query_constituent_data" was forced to timeout.',
+    )
+  })
+
+  // Deterministic in every part, or blindCase reports two arms of one case as
+  // having been asked different things. Asserted as the exact string rather
+  // than by rendering two key orders and comparing them: zod rebuilds the
+  // object in SCHEMA order, so both spellings already render alike and that
+  // comparison would pass with the sort removed.
+  it('orders the conditions it prints', () => {
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: { turns: ['q'], accountState: { pro: false, district: true } },
+      }),
+    ).toBe('q\n\nCondition: account state district=true, pro=false.')
+  })
+
+  // LOSSLESS, which is the property the cross-checkout guard rests on:
+  // blindCase compares the rendered TEXT, so a field two arms can differ on
+  // and this renderer drops is a pair compared as like for like.
+  it('renders the delay a forced timeout was given', () => {
+    const withDelay = renderPayload({
+      kind: 'transcript',
+      value: {
+        turns: ['q'],
+        toolFailure: { tool: 't', mode: 'timeout', afterMs: 5_000 },
+      },
+    })
+    const withoutDelay = renderPayload({
+      kind: 'transcript',
+      value: { turns: ['q'], toolFailure: { tool: 't', mode: 'timeout' } },
+    })
+
+    expect(withDelay).toContain('forced to timeout after 5000ms.')
+    expect(withoutDelay).toContain('forced to timeout.')
+    expect(withDelay).not.toBe(withoutDelay)
+  })
+
+  it('renders a seeded tool call in order and with its input', () => {
+    const rendered = renderPayload({
+      kind: 'transcript',
+      value: {
+        turns: ['q'],
+        seededTranscript: [
+          { role: 'user', content: 'ask' },
+          {
+            role: 'assistant',
+            content: 'Two.',
+            toolCalls: [
+              { tool: 'b_tool', input: { action: 'list' } },
+              { tool: 'a_tool', input: { action: 'get' } },
+            ],
+          },
+        ],
+      },
+    })
+
+    // In the order the case wrote them, not sorted: order is part of what the
+    // agent read. And with the input, which is the only part of a seeded call
+    // a newer ref could differ on.
+    expect(rendered).toContain(
+      '[called b_tool({"action":"list"}), a_tool({"action":"get"})]',
+    )
+  })
+
+  it('renders two seeded calls that differ only by input differently', () => {
+    const rendered = (action: string): string =>
+      renderPayload({
+        kind: 'transcript',
+        value: {
+          turns: ['q'],
+          seededTranscript: [
+            { role: 'user', content: 'ask' },
+            {
+              role: 'assistant',
+              content: 'Done.',
+              toolCalls: [{ tool: 't', input: { action } }],
+            },
+          ],
+        },
+      })
+
+    expect(rendered('list')).not.toBe(rendered('archive'))
+  })
+
+  // A shape this build does not recognise is still the input both arms were
+  // given. Refusing to render it would turn an unreadable label into a lost
+  // comparison.
+  it('falls back to JSON rather than losing the comparison', () => {
+    expect(
+      renderPayload({ kind: 'transcript', value: { turns: [] } }),
+    ).toContain('"turns"')
+  })
+
+  // AND THE FALLBACK IS WHAT KEEPS IT LOSSLESS. A field this build has not
+  // heard of — one a newer ref put on the payload — must not be stripped and
+  // silently unrendered, because then two arms driven under different
+  // conditions render alike and blindCase compares them as like for like.
+  // The schema is strict, so such a value falls through to whole-value JSON
+  // and the difference survives.
+  it('keeps a field this build does not know in the rendered text', () => {
+    const rendered = renderPayload({
+      kind: 'transcript',
+      value: { turns: ['q'], fromANewerRef: 'matters' },
+    })
+
+    expect(rendered).toContain('fromANewerRef')
+    expect(rendered).not.toBe(
+      renderPayload({ kind: 'transcript', value: { turns: ['q'] } }),
+    )
+  })
+})
+
+// THE CROSS-CHECKOUT GUARD, end to end. The base arm is a separate checkout
+// at an older commit: it parses the same case list with its own copy of
+// ChatCaseSchema, strips the field it does not know, and drives a plainer
+// run. What must NOT happen is that the two are compared and reported as a
+// verdict about the branch.
+describe('an arm whose checkout did not know a case field', () => {
+  it('refuses the pair rather than comparing two conditions', () => {
+    expect(() =>
+      blindCase(
+        // What an older base ref records: `question` only.
+        { ...BASE, input: { kind: 'question', value: 'Am I on the ballot?' } },
+        {
+          ...CANDIDATE,
+          input: {
+            kind: 'transcript',
+            value: {
+              turns: ['Am I on the ballot?'],
+              accountState: { pro: false },
+            },
+          },
+        },
+        ALWAYS_X_IS_BASE,
+      ),
+    ).toThrow(MismatchedInputError)
+  })
+
+  // And two arms that both honoured it compare normally, which is what makes
+  // the refusal above a signal rather than a blanket.
+  it('compares two arms that both honoured the field', () => {
+    const input = {
+      kind: 'transcript',
+      value: {
+        turns: ['Am I on the ballot?'],
+        accountState: { pro: false },
+      },
+    }
+    const blinded = blindCase(
+      { ...BASE, input },
+      { ...CANDIDATE, input },
+      ALWAYS_X_IS_BASE,
+    )
+    expect(blinded.payload.sharedInput).toContain(
+      'Condition: account state pro=false.',
+    )
+  })
+})

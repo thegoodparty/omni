@@ -732,3 +732,58 @@ describe('a reduced judge panel', () => {
     expect(at.identical).toBeLessThan(at.footer)
   })
 })
+
+// A warning that always appears is a warning readers learn to skip, so this
+// block has to be absent on the ordinary report and present on the one it
+// qualifies. Absence cannot fail by itself, so the pair is asserted together
+// and a renderer that always printed was tried against both.
+describe('the seeded-transcript warning', () => {
+  it('names the agent and the cases whose context was written for it', async () => {
+    const report = renderReport({
+      agents: [await pipeline(sweepRecords(25))],
+      registry: REGISTRY,
+      seededTranscripts: [
+        { agentId: 'chief_of_staff', caseIds: ['mid-conversation', 'follow'] },
+      ],
+    })
+    expect(report).toContain(
+      '**Seeded transcripts:** chief_of_staff (follow, mid-conversation)',
+    )
+    expect(report).toContain('production did not build the whole context')
+  })
+
+  it('prints nothing when production built every context', async () => {
+    expect(
+      renderReport({
+        agents: [await pipeline(sweepRecords(25))],
+        registry: REGISTRY,
+      }),
+    ).not.toContain('Seeded transcripts')
+  })
+
+  // Beside the placeholder warning rather than at the foot: both qualify what
+  // the verdicts above can be read to mean, and a reader who stops after the
+  // first agent section has to have seen whichever applies.
+  it('sits with the placeholder warning, ahead of the refusals', async () => {
+    const report = renderReport({
+      agents: [await pipeline(sweepRecords(25))],
+      registry: REGISTRY,
+      placeholderCases: ['chief_of_staff'],
+      seededTranscripts: [
+        { agentId: 'chief_of_staff', caseIds: ['mid-conversation'] },
+      ],
+      refusals: [{ agentId: 'campaign_assistant', reason: 'identical' }],
+    })
+    const lines = report.split('\n')
+    const placeholderAt = lines.findIndex((line) =>
+      line.includes('Placeholder inputs'),
+    )
+    const seededAt = lines.findIndex((line) =>
+      line.includes('Seeded transcripts'),
+    )
+    const refusalAt = lines.findIndex((line) => line.includes('— refused'))
+    expect(placeholderAt).toBeGreaterThan(-1)
+    expect(seededAt).toBe(placeholderAt + 2)
+    expect(refusalAt).toBeGreaterThan(seededAt)
+  })
+})

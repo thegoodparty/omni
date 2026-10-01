@@ -2,7 +2,9 @@ import { basename } from 'node:path'
 import { AGENTS, type AgentEntry } from './agents'
 import {
   describeIssues,
+  isChatCase,
   loadCaseList,
+  usesSeededTranscript,
   type CaseList,
   type JudgeCase,
 } from './cases'
@@ -207,6 +209,9 @@ const captureAgent = async (
       err instanceof Error ? err : new Error(String(err)),
     )
   }
+  const seeded = list.cases
+    .filter((one) => isChatCase(one) && usesSeededTranscript(one))
+    .map((one) => one.caseId)
   return {
     agentId: agent.agentId,
     // The basename, not the absolute path it was read from: the manifest is
@@ -214,6 +219,7 @@ const captureAgent = async (
     // nobody's business.
     caseList: basename(list.source),
     placeholderCases: list.placeholder,
+    ...(seeded.length > 0 && { seededTranscriptCases: seeded }),
     cases: list.cases.length,
     attempts: attemptsPerCase,
     recordsWritten: progress.recordsWritten,

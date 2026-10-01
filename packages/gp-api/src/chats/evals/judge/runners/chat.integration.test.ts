@@ -5,11 +5,15 @@ import { PRICING_VERSION } from '../pricing'
 import { isComparable, type RunRecord } from '../record'
 import { instrumentDatabricksProvider, type ChatTurnScript } from './chatSeam'
 import {
+  ChatDirectiveError,
   TOOL_BUDGET_FALLBACK_REPLY,
   runChatCase,
   type ChatRunRequest,
 } from './chat'
-import { seedChatOrg } from './seedChatOrg'
+import { CaseListError } from '../cases'
+import { MAX_CHAT_HISTORY_MESSAGES } from '@/chats/services/chatStream.service'
+import { chatOrgSlug, seedChatOrg, seedOptionsFor } from './seedChatOrg'
+import { ChatMessageRole, Prisma } from '../../../../generated/prisma'
 
 // The chat runner against the real app: real routes, real scope handlers, real
 // stream service, real tools, a throwaway Postgres — and a canned model, so
@@ -68,7 +72,13 @@ const runFor = async (
     service.prisma,
     service.user.id,
     agentId,
-    'judge-case',
+    // Keyed on the case id the way the sweep's arm suite keys it, so a test
+    // that drives two cases in one database does not collide on
+    // `organization.slug`.
+    overrides.case?.caseId ?? 'judge-case',
+    // The same translation the sweep's arm suite does, so a case's account
+    // state reaches the seed here exactly the way it reaches it in a sweep.
+    seedOptionsFor(agentId, overrides.case?.accountState),
   )
   return runChatCase(
     { service },
@@ -79,6 +89,24 @@ const runFor = async (
       ...overrides,
     }),
   )
+}
+
+// The rows the routes and the seeder left behind, in order. This is the exact
+// list `listRecentMessagesByConversation` reads for the next turn, which is
+// why asserting on it is what proves a turn was answered against the ones
+// before it rather than against an empty thread.
+const transcriptRows = async (): Promise<
+  { role: ChatMessageRole; content: string; segments: number }[]
+> => {
+  const rows = await service.prisma.chatMessage.findMany({
+    orderBy: { createdAt: Prisma.SortOrder.asc },
+    include: { segments: true },
+  })
+  return rows.map((row) => ({
+    role: row.role,
+    content: row.content,
+    segments: row.segments.length,
+  }))
 }
 
 describe('runChatCase', () => {
@@ -413,6 +441,590 @@ describe('runChatCase', () => {
           }),
         ),
       ).rejects.toThrow('not a chat scope the runner can drive')
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // SEVERAL USER TURNS, ONE CONVERSATION. The point is that nothing here
+  // hand-builds the history: the route persists each turn and replays the
+  // conversation's rows, so turn two is answered the way production would
+  // answer it.
+  it(
+    'posts every user turn to the same conversation, in order',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: {
+          caseId: 'judge-case',
+          turns: ['What are my priorities?', 'Which one is oldest?'],
+        },
+      })
+
+      expect(record.status).toBe('produced')
+      // Exactly the list the second turn's history read returned. Four rows
+      // on one conversation is the proof the second turn saw the first: a
+      // second POST /v1/chats would have produced two conversations and a
+      // two-row history.
+      expect(await transcriptRows()).toEqual([
+        {
+          role: ChatMessageRole.user,
+          content: 'What are my priorities?',
+          segments: 0,
+        },
+        { role: ChatMessageRole.assistant, content: ANSWER, segments: 0 },
+        {
+          role: ChatMessageRole.user,
+          content: 'Which one is oldest?',
+          segments: 0,
+        },
+        { role: ChatMessageRole.assistant, content: ANSWER, segments: 0 },
+      ])
+      expect(await service.prisma.chatConversation.count()).toBe(1)
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'accumulates a conversation rather than reporting its last turn',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: {
+          caseId: 'judge-case',
+          turns: ['What are my priorities?', 'Which one is oldest?'],
+        },
+        script: {
+          steps: [
+            {
+              kind: 'tool',
+              tool: 'crud_priorities',
+              input: { action: 'list' },
+            },
+            { kind: 'text', text: ANSWER },
+          ],
+          usage: TOKENS,
+        },
+      })
+
+      // Every reply, in order, and labelled — not the last one alone.
+      expect(record.output?.value).toBe(
+        `[turn 1]\n${ANSWER}\n\n[turn 2]\n${ANSWER}`,
+      )
+      // One tool step per turn, both counted.
+      expect(record.telemetry.toolCalls).toBe(2)
+      expect(record.telemetry.toolErrors).toBe(0)
+      // Summed, not the last turn's. Reading the capture's usage promise once
+      // at the end would have reported half of this.
+      expect(record.telemetry.tokens.input).toBe(TOKENS.inputTokens * 2)
+      expect(record.telemetry.tokens.output).toBe(TOKENS.outputTokens * 2)
+      expect(record.telemetry.cost?.usdAtCapture ?? NaN).toBeCloseTo(
+        EXPECTED_USD * 2,
+        6,
+      )
+      // One sequence, renumbered. Two turns' traces concatenated unchanged
+      // would carry two step 0s and a reader could not order them.
+      expect(record.trace.map((step) => step.index)).toEqual([0, 1, 2, 3])
+      expect(record.trace.map((step) => step.kind)).toEqual([
+        'tool',
+        'text',
+        'tool',
+        'text',
+      ])
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // STOPS ON A BROKEN TURN, which is money rather than tidiness. The
+  // conversation the case authored is already over — the next turn would be
+  // answered against a history whose last reply is the interrupted sentinel,
+  // and combineChatStatus discards the whole case as infraError anyway — so
+  // every turn after the broken one is real model spend on output nothing
+  // reads.
+  it(
+    'posts no further turn once one has broken',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: {
+          caseId: 'breaks-on-one',
+          turns: ['first?', 'second?', 'third?'],
+        },
+        script: {
+          // A tool this turn never registered. runScript throws while the
+          // route drains the stream, which is the ordinary shape of a turn
+          // that dies mid-generation.
+          steps: [{ kind: 'tool', tool: 'no_such_tool', input: {} }],
+          usage: TOKENS,
+        },
+      })
+
+      expect(record.status).toBe('infraError')
+      // One user row, not three: the two later turns were never posted.
+      const users = (await transcriptRows()).filter(
+        (row) => row.role === ChatMessageRole.user,
+      )
+      expect(users.map((row) => row.content)).toEqual(['first?'])
+      // And the counts say so. Two of the three turns never reported, so the
+      // run is unpriceable and the tokens are not the partial sum of the one
+      // that did — which would read as the whole conversation's usage.
+      expect(record.telemetry.cost).toBeUndefined()
+      expect(record.telemetry.tokens).toEqual({
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      })
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // And a DECLINED turn is not a broken one: a fallback reply is an agent
+  // result, the history is intact, and the conversation has to continue or
+  // the case measures the harness's patience instead of the agent.
+  it(
+    'keeps going after a turn the agent declined',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: { caseId: 'declines-then-answers', turns: ['first?', 'second?'] },
+        script: {
+          steps: [{ kind: 'text', text: TOOL_BUDGET_FALLBACK_REPLY }],
+          usage: TOKENS,
+        },
+      })
+
+      expect(record.status).toBe('blocked')
+      const users = (await transcriptRows()).filter(
+        (row) => row.role === ChatMessageRole.user,
+      )
+      expect(users.map((row) => row.content)).toEqual(['first?', 'second?'])
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'records a multi-turn case under an input the judge can read',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: { caseId: 'judge-case', turns: ['first?', 'second?'] },
+      })
+
+      // NOT `{ kind: 'question' }`. An older base ref that stripped `turns`
+      // and drove one turn records that payload, and the mismatch is what
+      // refuses the pair instead of comparing two different conversations.
+      expect(record.input).toEqual({
+        kind: 'transcript',
+        value: { turns: ['first?', 'second?'] },
+      })
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // A SEEDED PRIOR TRANSCRIPT, THROUGH THE STORE PATH THE LIVE TURN READS.
+  // No route writes an assistant message, so this is the one capability that
+  // has to reach the store directly — and a hand-built row would be the wrong
+  // shape in ways nobody would notice.
+  it(
+    'answers mid-conversation against rows the store wrote',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: {
+          caseId: 'judge-case',
+          question: 'And which of those is oldest?',
+          priorTranscript: [
+            { role: 'user', content: 'What are my priorities?' },
+            {
+              role: 'assistant',
+              content: 'You have three on file.',
+              toolCalls: [
+                { tool: 'crud_priorities', input: { action: 'list' } },
+              ],
+            },
+          ],
+        },
+      })
+
+      expect(record.status).toBe('produced')
+      // The seeded rows come first, the driven turn after — which is what
+      // makes the agent's reply a mid-conversation one.
+      expect(await transcriptRows()).toEqual([
+        {
+          role: ChatMessageRole.user,
+          content: 'What are my priorities?',
+          segments: 0,
+        },
+        // TWO segments: the tool call and the text after it. That count is
+        // the evidence the row went through ChatStreamService's own
+        // persistAssistantText — its rule is to store the structure only when
+        // the turn used a tool or a citation.
+        {
+          role: ChatMessageRole.assistant,
+          content: 'You have three on file.',
+          segments: 2,
+        },
+        {
+          role: ChatMessageRole.user,
+          content: 'And which of those is oldest?',
+          segments: 0,
+        },
+        { role: ChatMessageRole.assistant, content: ANSWER, segments: 0 },
+      ])
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // The other half of the same rule, and the part a hand-built insert would
+  // get wrong: a pure-text turn renders identically from `content`, so
+  // storing a single text segment would be rows no real turn produces.
+  it(
+    'stores no segments for a seeded turn that used no tool',
+    async () => {
+      await runFor('chief_of_staff', {
+        case: {
+          caseId: 'judge-case',
+          question: 'and now?',
+          priorTranscript: [
+            { role: 'user', content: 'hello' },
+            { role: 'assistant', content: 'Hello. How can I help?' },
+          ],
+        },
+      })
+
+      const rows = await transcriptRows()
+      expect(rows[1]).toEqual({
+        role: ChatMessageRole.assistant,
+        content: 'Hello. How can I help?',
+        segments: 0,
+      })
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'marks a seeded case on the record it writes',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: {
+          caseId: 'judge-case',
+          question: 'and now?',
+          priorTranscript: [{ role: 'user', content: 'earlier' }],
+        },
+      })
+
+      expect(record.input).toEqual({
+        kind: 'transcript',
+        value: {
+          turns: ['and now?'],
+          seededTranscript: [{ role: 'user', content: 'earlier' }],
+        },
+      })
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // Refused BEFORE a turn is driven: the rows would be written, the turns
+  // paid for, and the oldest seeded rows then pushed out of the route's
+  // replay window — so the record would claim a mid-conversation condition
+  // the agent was never under.
+  //
+  // Longer than any SCHEMA-valid case can be, on purpose: the authoring
+  // bounds already make this unreachable from a case list (see
+  // 'the authoring bounds cannot overflow the replay window' below), and this
+  // is the runner's own backstop against one of them being raised.
+  it(
+    'refuses a transcript the replay window would drop',
+    async () => {
+      await expect(
+        runFor('chief_of_staff', {
+          case: {
+            caseId: 'judge-case',
+            question: 'and now?',
+            priorTranscript: Array.from(
+              { length: MAX_CHAT_HISTORY_MESSAGES },
+              (_, index) => ({
+                role: 'user' as const,
+                content: `turn ${index}`,
+              }),
+            ),
+          },
+        }),
+      ).rejects.toThrow(/never reach the model/)
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // A FORCED TOOL FAILURE, honoured at the seam that already wrapped every
+  // tool's execute. Compare with 'counts a tool that succeeded': the same
+  // script, the same tool, and only the directive differs.
+  it(
+    'fails the tool a case named, and counts it as a tool error',
+    async () => {
+      const script: ChatTurnScript = {
+        steps: [
+          { kind: 'tool', tool: 'crud_priorities', input: { action: 'list' } },
+          { kind: 'text', text: ANSWER },
+        ],
+        usage: TOKENS,
+      }
+      const forced = await runFor('chief_of_staff', {
+        case: {
+          caseId: 'judge-case',
+          question: 'What are my priorities?',
+          toolFailure: { tool: 'crud_priorities', mode: 'error' },
+        },
+        script,
+      })
+
+      // The answer survives: the AI SDK turns a throwing tool into a
+      // tool-error result and the loop carries on, worse informed.
+      expect(forced.status).toBe('produced')
+      expect(forced.output).toEqual({ kind: 'text', value: ANSWER })
+      expect(forced.telemetry.toolCalls).toBe(1)
+      expect(forced.telemetry.toolErrors).toBe(1)
+      expect(
+        forced.trace.find((step) => step.tool === 'crud_priorities')?.error,
+      ).toContain('forced failure')
+      // AND THE CONSEQUENCE WORTH KNOWING: isComparable is false for any run
+      // that hit a tool error, so a forced-failure pair resolves CAN'T SAY
+      // rather than entering the delta. Telling an injected failure from an
+      // incidental one needs a field record.ts does not have.
+      expect(isComparable(forced)).toBe(false)
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'raises a forced timeout as a timeout rather than a plain failure',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: {
+          caseId: 'judge-case',
+          question: 'What are my priorities?',
+          toolFailure: {
+            tool: 'crud_priorities',
+            mode: 'timeout',
+            afterMs: 5,
+          },
+        },
+        script: {
+          steps: [
+            {
+              kind: 'tool',
+              tool: 'crud_priorities',
+              input: { action: 'list' },
+            },
+            { kind: 'text', text: ANSWER },
+          ],
+          usage: TOKENS,
+        },
+      })
+
+      expect(
+        record.trace.find((step) => step.tool === 'crud_priorities')?.error,
+      ).toContain('TimeoutError')
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // A LOUD REFUSAL, not a silently ignored directive. In the record an
+  // unhonoured directive is indistinguishable from a case the agent simply
+  // never needed the tool for, so the verdict would be about a condition
+  // nobody applied.
+  it(
+    'refuses a forced failure naming a tool the turn never registered',
+    async () => {
+      const run = runFor('chief_of_staff', {
+        case: {
+          caseId: 'judge-case',
+          question: 'What are my priorities?',
+          toolFailure: { tool: 'query_voter_file', mode: 'error' },
+        },
+      })
+
+      await expect(run).rejects.toThrow(/registered no such tool/)
+      // NOT a CaseListError. That class is about a file that would not parse,
+      // and this reason reaches the arm manifest and a public summary — where
+      // "the case list is wrong" is the wrong thing to say about a run that
+      // may also have failed to reach the app.
+      await expect(run).rejects.toBeInstanceOf(ChatDirectiveError)
+      await expect(run).rejects.not.toBeInstanceOf(CaseListError)
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // AN ACCOUNT STATE IS VERIFIED, NOT TRUSTED. The state is seeded by the
+  // runner's caller, so the runner is handed a directive and a slug and has
+  // no way to know the two agree — and a caller that forgot would produce a
+  // record claiming a condition the agent was never under.
+  it(
+    'drives a case whose declared account state the seed matches',
+    async () => {
+      const record = await runFor('campaign_assistant', {
+        case: {
+          caseId: 'judge-case',
+          question: 'Am I on the ballot?',
+          accountState: { pro: false },
+        },
+      })
+
+      expect(record.status).toBe('produced')
+      expect(record.input).toEqual({
+        kind: 'transcript',
+        value: {
+          turns: ['Am I on the ballot?'],
+          accountState: { pro: false },
+        },
+      })
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'refuses a case whose declared account state the seed does not match',
+    async () => {
+      const seeded = await seedChatOrg(
+        service.prisma,
+        service.user.id,
+        'campaign_assistant',
+        'judge-case',
+      )
+
+      await expect(
+        runChatCase(
+          { service },
+          request({
+            agentId: 'campaign_assistant',
+            organizationSlug: seeded.organizationSlug,
+            case: {
+              caseId: 'judge-case',
+              question: 'Am I on the ballot?',
+              // Seeded Pro, declared not Pro.
+              accountState: { pro: false },
+            },
+          }),
+        ),
+      ).rejects.toThrow(/pro is false but campaign.isPro is true/)
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // MEASURED AGAINST THE DEFAULT SEED, not against a regex. configDigest is
+  // a hash of the rendered prompt plus the tool names the turn offered, so
+  // two digests that differ is the evidence the state reached the model —
+  // `toMatch(/^sha256:/)` would have passed whatever the seed did.
+  it(
+    'changes what the agent was offered when Pro is taken away',
+    async () => {
+      const question = 'How many voters can I text?'
+      const withPro = await runFor('campaign_assistant', {
+        case: { caseId: 'judge-case', question },
+      })
+      const without = await runFor('campaign_assistant', {
+        case: {
+          caseId: 'judge-case-2',
+          question,
+          accountState: { pro: false },
+        },
+      })
+
+      expect(without.status).toBe('produced')
+      expect(without.variant.configDigest).not.toBe(
+        withPro.variant.configDigest,
+      )
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // NOT ASSERTED AS A DIGEST CHANGE, and that is a property of this
+  // environment rather than of the state. `districtFilters` gates only the
+  // constituent-data pair, and the provider factory returns null without a
+  // Databricks credential — so the pair is unregistered locally and in CI
+  // WHATEVER positionId says, and the digest is identical either way. The
+  // same deployment gap the case lists' notes already record.
+  //
+  // What IS ours, and what this asserts, is the row: the seed leaves
+  // positionId null, which is the one gate in our own database, and
+  // resolveByOrgSlug refuses on it before it asks election-api anything.
+  it(
+    'seeds no position when a case asks for no district',
+    async () => {
+      const record = await runFor('chief_of_staff', {
+        case: {
+          caseId: 'no-district',
+          question: 'What can you see about my office?',
+          accountState: { district: false },
+        },
+      })
+
+      expect(record.status).toBe('produced')
+      const organization = await service.prisma.organization.findFirst({
+        where: { slug: chatOrgSlug('chief_of_staff', 'no-district') },
+      })
+      expect(organization?.positionId).toBeNull()
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'takes get_ballot_requirements away with the campaign details',
+    async () => {
+      const question = 'What does filing need?'
+      const withDetails = await runFor('campaign_assistant', {
+        case: { caseId: 'judge-case', question },
+      })
+      const without = await runFor('campaign_assistant', {
+        case: {
+          caseId: 'judge-case-2',
+          question,
+          accountState: { campaignDetails: false },
+        },
+      })
+
+      expect(without.status).toBe('produced')
+      expect(without.variant.configDigest).not.toBe(
+        withDetails.variant.configDigest,
+      )
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'refuses an ordinance step the anchor did not open on',
+    async () => {
+      const seeded = await seedChatOrg(
+        service.prisma,
+        service.user.id,
+        'ordinance_flow',
+        'judge-case',
+      )
+
+      await expect(
+        runChatCase(
+          { service },
+          request({
+            agentId: 'ordinance_flow',
+            organizationSlug: seeded.organizationSlug,
+            ...(seeded.anchor && { anchor: seeded.anchor }),
+            case: {
+              caseId: 'judge-case',
+              question: 'Draft it.',
+              accountState: { ordinanceStep: 'draft' },
+            },
+          }),
+        ),
+      ).rejects.toThrow(/ordinanceStep is "draft"/)
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'drives the ordinance step a case asked for',
+    async () => {
+      const record = await runFor('ordinance_flow', {
+        case: {
+          caseId: 'judge-case',
+          question: 'Draft it.',
+          accountState: { ordinanceStep: 'draft' },
+        },
+      })
+
+      expect(record.status).toBe('produced')
     },
     TURN_TIMEOUT_MS,
   )

@@ -2,7 +2,13 @@ import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { AGENTS, findAgent, requireAgent } from './agents'
-import { CASES_DIR, caseListPath, loadCaseList } from './cases'
+import {
+  CASES_DIR,
+  caseListPath,
+  caseTurns,
+  isChatCase,
+  loadCaseList,
+} from './cases'
 
 // The four chat lists. Named here rather than derived from the registry,
 // because deriving them would make this file agree with whatever the registry
@@ -66,12 +72,16 @@ describe('the authored chat case lists', () => {
     expect(new Set(ids).size).toBe(CASES_PER_LIST)
 
     for (const one of list.cases) {
-      if (!('question' in one)) {
-        throw new Error(`${agentId}/${one.caseId} carries no question`)
+      if (!isChatCase(one)) {
+        throw new Error(`${agentId}/${one.caseId} is not a chat case`)
       }
       // A blank turn is an agent asked nothing, which reads downstream as a
-      // case that ran rather than a case that was never written.
-      expect(one.question.trim().length, one.caseId).toBeGreaterThan(0)
+      // case that ran rather than a case that was never written. Read through
+      // `caseTurns` so the check covers both spellings: a list that grows a
+      // multi-turn case must not fall out of this assertion.
+      for (const turn of caseTurns(one)) {
+        expect(turn.trim().length, one.caseId).toBeGreaterThan(0)
+      }
     }
   })
 })

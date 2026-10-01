@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { chatOrgSlug } from './seedChatOrg'
+import type { ChatAccountState } from '../cases'
+import {
+  assertAccountStateSupported,
+  chatOrgSlug,
+  seedOptionsFor,
+} from './seedChatOrg'
 
 // The slug this derives is `organization.slug`, the table's primary key, and
 // the sweep seeds one organization per case PER ATTEMPT — so two attempts
@@ -47,5 +52,92 @@ describe('chatOrgSlug', () => {
     expect(chatOrgSlug('chief_of_staff', `${LONG_CASE}-1`)).toMatch(
       /^judge-chief-of-staff-constituent/,
     )
+  })
+})
+
+// AN UNRECOGNISED STATE MUST REFUSE, NOT PROCEED, and this is the half the
+// schema cannot catch: a state that IS defined but means nothing for this
+// scope. `ChatAccountStateSchema.strict()` refuses a state nobody defined;
+// this refuses asking a Chief of Staff office to lose Pro, where no campaign
+// row exists to carry the flag. Seeding nothing and recording the directive
+// anyway would put a condition on the record the agent was never under.
+describe('seedOptionsFor', () => {
+  it('asks the seeder for nothing when the case declared nothing', () => {
+    expect(seedOptionsFor('chief_of_staff')).toEqual({})
+  })
+
+  it('maps the ordinance step onto the anchor the seeder opens', () => {
+    expect(
+      seedOptionsFor('ordinance_flow', { ordinanceStep: 'draft' }),
+    ).toEqual({ step: 'draft' })
+  })
+
+  it('maps the campaign states the Win scope can express', () => {
+    expect(
+      seedOptionsFor('campaign_assistant', {
+        pro: false,
+        campaignDetails: false,
+        district: false,
+      }),
+    ).toEqual({ pro: false, campaignDetails: false, district: false })
+  })
+
+  // No campaign row on a Serve scope, so `isPro` is a flag with nowhere to
+  // live.
+  it('refuses Pro on a scope with no campaign', () => {
+    expect(() => seedOptionsFor('chief_of_staff', { pro: false })).toThrow(
+      /chief_of_staff cannot express the account state pro/,
+    )
+  })
+
+  it('refuses campaign details on a scope with no campaign', () => {
+    expect(() =>
+      seedOptionsFor('priority_flow', { campaignDetails: false }),
+    ).toThrow(/priority_flow cannot express the account state campaignDetails/)
+  })
+
+  // An ordinance step on a scope with no ordinance anchor is a step nothing
+  // would open on.
+  it('refuses an ordinance step on a scope with no ordinance', () => {
+    expect(() =>
+      seedOptionsFor('chief_of_staff', { ordinanceStep: 'draft' }),
+    ).toThrow(/ordinanceStep/)
+  })
+
+  it('names the states the scope CAN express, so the fix is obvious', () => {
+    expect(() => seedOptionsFor('priority_flow', { pro: false })).toThrow(
+      /the states it can express are district/,
+    )
+  })
+
+  // Every scope seeds an organization, and positionId is a column on it.
+  it('allows the district state on every scope', () => {
+    for (const agentId of [
+      'chief_of_staff',
+      'campaign_assistant',
+      'ordinance_flow',
+      'priority_flow',
+    ]) {
+      expect(() =>
+        assertAccountStateSupported(agentId, { district: false }),
+      ).not.toThrow()
+    }
+  })
+
+  // THE EXHAUSTIVENESS GUARD, and the reason the account vocabulary's several
+  // copies cannot silently disagree. STATES_BY_SCOPE is keyed on
+  // `keyof ChatAccountState`, so a fifth state added to the schema is in no
+  // scope's list until somebody puts it there — and until then every case
+  // declaring it is refused, rather than seeded as nothing while the record
+  // claims the condition.
+  it('refuses a state no scope has been told it can express', () => {
+    expect(() =>
+      // Cast on purpose: the state being described is one the schema knows
+      // and the seeder has not been taught, which no valid ChatAccountState
+      // can name today.
+      assertAccountStateSupported('chief_of_staff', {
+        unwired: true,
+      } as ChatAccountState),
+    ).toThrow(/cannot express the account state unwired/)
   })
 })

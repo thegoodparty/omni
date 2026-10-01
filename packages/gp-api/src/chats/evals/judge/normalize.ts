@@ -1,3 +1,4 @@
+import { TranscriptInputSchema } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
   isComparable,
@@ -120,10 +121,82 @@ const renderJson: PayloadRenderer = (payload) =>
     ? payload.value
     : JSON.stringify(payload.value, null, 2)
 
+// A chat case whose input is more than one question: several user turns, and
+// whatever conditions the case put the agent under. Rendered as prose rather
+// than as raw JSON because this string is what the judge reads as
+// `<shared_input>`, and a JSON blob there spends the judge's attention on
+// punctuation.
+//
+// Deterministic in every part, which is what it has to be: the same value
+// renders to the same text or `blindCase` reports two arms of one case as
+// having been asked different things.
+//
+// AND LOSSLESS, which is the harder half. `blindCase` compares the RENDERED
+// text, not the payload, so any field this omits is a field two arms can
+// differ on while rendering identically — and the whole cross-checkout
+// protection is that an older base ref which stripped a case field records a
+// payload that does not match. Every field `TranscriptInputSchema` carries
+// reaches the text below, and the schema is `.strict()` so a field it has not
+// heard of falls this renderer back to whole-value JSON rather than dropping
+// it silently.
+const renderTranscript: PayloadRenderer = (payload) => {
+  const parsed = TranscriptInputSchema.safeParse(payload.value)
+  // Falls back to pretty JSON rather than throwing. A shape this build does
+  // not recognise is still the input both arms were given, and refusing to
+  // render it would turn an unreadable label into a lost comparison.
+  if (!parsed.success) return renderJson(payload)
+  const { turns, seededTranscript, toolFailure, accountState } = parsed.data
+  const lines: string[] = []
+  if (seededTranscript !== undefined) {
+    lines.push('Conversation so far, written by the harness:')
+    for (const turn of seededTranscript) {
+      // Every call, IN ORDER and WITH ITS INPUT. Order is part of what the
+      // agent read, and the input is the only part of a seeded call a newer
+      // ref could differ on — see the lossless rule above.
+      const calls = (turn.toolCalls ?? [])
+        .map((call) => `${call.tool}(${JSON.stringify(call.input)})`)
+        .join(', ')
+      lines.push(
+        `  ${turn.role}: ${turn.content}` +
+          (calls.length > 0 ? ` [called ${calls}]` : ''),
+      )
+    }
+    lines.push('')
+  }
+  lines.push(
+    ...turns.map((turn, index) =>
+      turns.length === 1 ? turn : `Turn ${index + 1}: ${turn}`,
+    ),
+  )
+  if (toolFailure !== undefined) {
+    // `afterMs` reaches the line for the lossless reason above: a base ref
+    // whose schema predates it strips it and drives the default instead, and
+    // a renderer that dropped it would make the two arms' inputs render
+    // byte-identically and the pair compare as like for like.
+    const after =
+      toolFailure.afterMs === undefined ? '' : ` after ${toolFailure.afterMs}ms`
+    lines.push(
+      '',
+      `Condition: the tool "${toolFailure.tool}" was forced to ` +
+        `${toolFailure.mode}${after}.`,
+    )
+  }
+  if (accountState !== undefined) {
+    const described = Object.entries(accountState)
+      .map(([key, value]) => `${key}=${String(value)}`)
+      .sort()
+      .join(', ')
+    lines.push('', `Condition: account state ${described}.`)
+  }
+  return lines.join('\n')
+}
+
 export const RENDERERS: Readonly<Record<string, PayloadRenderer>> = {
   // Chat: the input is a question and the output is prose.
   question: renderJson,
   text: renderJson,
+  // Chat, when the case is more than one question — see renderTranscript.
+  transcript: renderTranscript,
   // Background: the input is a params object and the output an artifact.
   params: renderJson,
   artifact: renderJson,

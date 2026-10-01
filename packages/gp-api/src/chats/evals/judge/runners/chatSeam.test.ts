@@ -20,14 +20,18 @@ import {
   configDigest,
   installLlmCapture,
   instrumentDatabricksProvider,
+  instrumentTools,
   parseStreamEvents,
   pinDeltaVersion,
   readTurnTokens,
+  toolFailureRefusal,
   type ChatTurnScript,
   traceErrorText,
   type StreamEvent,
   type ToolOutcome,
+  type TurnCapture,
 } from './chatSeam'
+import type { ToolFailure } from '../cases'
 
 const stubAnthropicFactory: AnthropicProviderFactory = () =>
   ({
@@ -788,5 +792,250 @@ describe('installLlmCapture', () => {
     const result = await llm.streamChatCompletion(optionsWith({}))
 
     expect(await drain(result.textStream)).toBe('real')
+  })
+})
+
+// FORCING A TOOL TO FAIL, at the one seam that already wrapped every tool's
+// execute. The capability was there; what was missing was a way for a case to
+// name the tool and the mode.
+describe('a forced tool failure', () => {
+  const ran: string[] = []
+  const watchedTool = {
+    description: 'watched',
+    inputSchema: z.object({}),
+    execute: () => {
+      ran.push('called')
+      return 'ok'
+    },
+  } satisfies LlmTool
+
+  const wrap = (
+    failure: ToolFailure,
+    tools: Record<string, LlmTool> = { watched: watchedTool },
+  ): { outcomes: ToolOutcome[]; tools: Record<string, LlmTool> } => {
+    const outcomes: ToolOutcome[] = []
+    const wrapped = instrumentTools(tools, { outcomes, failure })
+    if (!wrapped) throw new Error('nothing wrapped')
+    return { outcomes, tools: wrapped }
+  }
+
+  const execute = async (
+    tools: Record<string, LlmTool>,
+    name: string,
+  ): Promise<unknown> => {
+    const tool = tools[name]
+    if (!tool || !('execute' in tool)) {
+      throw new Error(`${name} is not executable`)
+    }
+    return tool.execute({})
+  }
+
+  // The real tool is NOT called. An ordinance present_* tool commits its own
+  // record, and a case that says the tool failed must not leave that write
+  // behind.
+  it('rejects without running the real tool', async () => {
+    ran.length = 0
+    const { tools } = wrap({ tool: 'watched', mode: 'error' })
+
+    await expect(execute(tools, 'watched')).rejects.toThrow(/forced failure/)
+    expect(ran).toEqual([])
+  })
+
+  it('records the step as a tool error, the way a real failure is', async () => {
+    const { outcomes, tools } = wrap({ tool: 'watched', mode: 'error' })
+
+    await expect(execute(tools, 'watched')).rejects.toThrow()
+    expect(outcomes).toEqual([
+      { tool: 'watched', error: expect.stringContaining('forced failure') },
+    ])
+  })
+
+  // Named so a forced timeout is the same failure CLASS a real one is.
+  it('raises a timeout as a TimeoutError after its delay', async () => {
+    const { outcomes, tools } = wrap({
+      tool: 'watched',
+      mode: 'timeout',
+      afterMs: 5,
+    })
+    const started = Date.now()
+
+    await expect(execute(tools, 'watched')).rejects.toThrow(/forced timeout/)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(4)
+    expect(outcomes[0]?.error).toContain('TimeoutError')
+  })
+
+  // One tool named, one tool failed. A directive that took every tool down
+  // would measure a dead agent rather than a missing capability.
+  it('leaves every other tool alone', async () => {
+    ran.length = 0
+    const { outcomes, tools } = wrap(
+      { tool: 'watched', mode: 'error' },
+      { watched: watchedTool, other: watchedTool },
+    )
+
+    await expect(execute(tools, 'other')).resolves.toBe('ok')
+    expect(ran).toEqual(['called'])
+    expect(outcomes).toEqual([{ tool: 'other' }])
+  })
+})
+
+// A directive naming a tool the turn never registered has to be a LOUD
+// refusal. In the record it is indistinguishable from a case the agent simply
+// never needed the tool for, so a silently ignored one produces a verdict
+// about a condition nobody applied.
+describe('toolFailureRefusal', () => {
+  it('passes a directive naming a tool the turn offered', () => {
+    expect(
+      toolFailureRefusal({ tool: 'get_briefing', mode: 'error' }, [
+        'get_briefing',
+        'list_briefings',
+      ]),
+    ).toBeUndefined()
+  })
+
+  it('refuses a tool the turn never registered, and says what it had', () => {
+    const reason = toolFailureRefusal({ tool: 'get_brief', mode: 'error' }, [
+      'list_briefings',
+      'get_briefing',
+    ])
+    expect(reason).toContain('get_brief')
+    expect(reason).toContain('get_briefing, list_briefings')
+  })
+
+  // A turn with no tools at all is exactly a turn where every named tool is
+  // unknown, and it never reaches the wrapper — which is why this check lives
+  // outside instrumentTools.
+  it('refuses when the turn registered no tools at all', () => {
+    expect(toolFailureRefusal({ tool: 'anything', mode: 'error' }, [])).toMatch(
+      /registered no such tool/,
+    )
+  })
+
+  it('passes when the case named no tool to fail', () => {
+    expect(toolFailureRefusal(undefined, [])).toBeUndefined()
+  })
+})
+
+describe('installLlmCapture with a tool-failure directive', () => {
+  const script: ChatTurnScript = {
+    steps: [{ kind: 'tool', tool: 'ok_tool', input: {} }],
+    usage: { inputTokens: 10, outputTokens: 1 },
+  }
+
+  it('refuses a directive naming a tool the turn never had', async () => {
+    const { llm } = buildLlm()
+    const installed = installLlmCapture(llm, {
+      script,
+      toolFailure: { tool: 'no_such_tool', mode: 'error' },
+    })
+
+    await expect(
+      llm.streamChatCompletion(optionsWith({ ok_tool: okTool })),
+    ).rejects.toThrow(/registered no such tool/)
+    installed.restore()
+
+    // THE THROW IS WHAT KEEPS THE TURN FROM BEING PAID FOR, and these two
+    // fields are the evidence. Both are assigned only AFTER the stream
+    // returns, so undefined means the refusal landed before it — which
+    // `streamTextFn` could not have told us, since a scripted turn never
+    // calls it either way.
+    expect(installed.capture.model).toBeUndefined()
+    expect(installed.capture.readUsage).toBeUndefined()
+  })
+
+  it('records the refusal as well as throwing it', async () => {
+    const { llm } = buildLlm()
+    const installed = installLlmCapture(llm, {
+      script,
+      toolFailure: { tool: 'no_such_tool', mode: 'error' },
+    })
+
+    await expect(
+      llm.streamChatCompletion(optionsWith({ ok_tool: okTool })),
+    ).rejects.toThrow()
+    installed.restore()
+
+    // The record is what lets the runner NAME the mistake: the chat route
+    // catches a throw out of the seam and writes an error chunk, so on the
+    // throw alone the run would come back as an ordinary infraError.
+    expect(installed.capture.directiveError).toMatch(/no_such_tool/)
+  })
+
+  it('says nothing when the directive names a tool the turn has', async () => {
+    const { llm } = buildLlm()
+    const installed = installLlmCapture(llm, {
+      script,
+      toolFailure: { tool: 'ok_tool', mode: 'error' },
+    })
+
+    const result = await llm.streamChatCompletion(
+      optionsWith({ ok_tool: okTool }),
+    )
+    await drain(result.textStream)
+    installed.restore()
+
+    expect(installed.capture.directiveError).toBeUndefined()
+    expect(installed.capture.outcomes).toEqual([
+      { tool: 'ok_tool', error: expect.stringContaining('forced failure') },
+    ])
+  })
+})
+
+// A multi-turn case is ONE install across SEVERAL turns, and the capture's
+// usage promise is replaced by each turn. Read once at the end it would
+// report the last turn's tokens as the whole conversation's.
+describe('readTurnTokens across several turns', () => {
+  const capture = (): TurnCapture => ({
+    toolNames: [],
+    turnsPriced: 0,
+    outcomes: [],
+  })
+
+  it('accumulates the turns it is given and counts them', async () => {
+    const one = capture()
+    one.readUsage = () =>
+      Promise.resolve({ inputTokens: 100, outputTokens: 10, totalTokens: 110 })
+    await readTurnTokens(one)
+    one.readUsage = () =>
+      Promise.resolve({ inputTokens: 250, outputTokens: 20, totalTokens: 270 })
+    await readTurnTokens(one)
+
+    expect(one.tokens).toEqual({ input: 350, output: 30 })
+    expect(one.turnsPriced).toBe(2)
+  })
+
+  // Called twice on one turn — which the runner does not do, but a partial
+  // failure path could — the same numbers must not be folded in twice.
+  it('folds one turn in once however often it is read', async () => {
+    const one = capture()
+    one.readUsage = () =>
+      Promise.resolve({ inputTokens: 100, outputTokens: 10, totalTokens: 110 })
+    await readTurnTokens(one)
+    await readTurnTokens(one)
+
+    expect(one.tokens).toEqual({ input: 100, output: 10 })
+    expect(one.turnsPriced).toBe(1)
+  })
+
+  // A turn whose usage promise rejected leaves the count behind the turns
+  // driven, which is what makes the run unpriceable rather than cheap.
+  it('leaves the count short when a turn never reported', async () => {
+    const one = capture()
+    one.readUsage = () =>
+      Promise.resolve({ inputTokens: 100, outputTokens: 10, totalTokens: 110 })
+    await readTurnTokens(one)
+    one.readUsage = () => Promise.reject(new Error('stream aborted'))
+    await expect(readTurnTokens(one)).rejects.toThrow('stream aborted')
+
+    expect(one.turnsPriced).toBe(1)
+    expect(one.tokens).toEqual({ input: 100, output: 10 })
+  })
+
+  it('reports nothing at all when no turn reported', async () => {
+    const one = capture()
+    await readTurnTokens(one)
+
+    expect(one.tokens).toBeUndefined()
+    expect(one.turnsPriced).toBe(0)
   })
 })

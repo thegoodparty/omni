@@ -523,3 +523,56 @@ describe('s3PortFromClient.listKeys', () => {
     ).toEqual(['a.json'])
   })
 })
+
+// A CROSS-CHECKOUT CONTRACT. The base arm writes its manifest with the BASE
+// REF's copy of ArmAgentSchema and the judging step parses it with the
+// candidate's, so the two are different builds of the same schema. That is
+// why `seededTranscriptCases` is optional and why MANIFEST_SCHEMA_VERSION did
+// not move for it: a required field would read, on any base ref predating it,
+// as a corrupt manifest rather than as version skew.
+describe('the seeded-transcript mark on a manifest', () => {
+  const withAgent = (over: object): ArmManifest =>
+    manifest({
+      agents: [
+        {
+          agentId: BASE.agentId,
+          caseList: 'chief_of_staff.json',
+          placeholderCases: false,
+          cases: 2,
+          attempts: 1,
+          recordsWritten: 2,
+          ...over,
+        },
+      ],
+    })
+
+  it('parses a manifest that names the seeded cases', () => {
+    const parsed = ArmManifestSchema.parse(
+      withAgent({ seededTranscriptCases: ['mid-conversation'] }),
+    )
+    expect(parsed.agents[0]?.seededTranscriptCases).toEqual([
+      'mid-conversation',
+    ])
+  })
+
+  // The version marker question, answered: an older base ref writes exactly
+  // this manifest, and the judging step has to read it rather than refuse it.
+  it('parses a manifest from a ref that never knew the field', () => {
+    const parsed = ArmManifestSchema.parse(withAgent({}))
+    expect(parsed.agents[0]?.seededTranscriptCases).toBeUndefined()
+    // A LITERAL, not the constant. Compared against
+    // MANIFEST_SCHEMA_VERSION this could not notice a bump, because a bump
+    // moves the fixture and the expectation together — and "the version did
+    // not have to move for this field" is the whole claim.
+    expect(parsed.schemaVersion).toBe(2)
+  })
+
+  // Absent means "nothing seeded". An empty array would be a third reading of
+  // the same fact, and sweep.ts unions across arms — so one arm writing `[]`
+  // and the other writing nothing would look like disagreement.
+  it('refuses an empty list rather than accepting a third spelling', () => {
+    expect(() =>
+      ArmManifestSchema.parse(withAgent({ seededTranscriptCases: [] })),
+    ).toThrow(/expected array to have >=1 items/)
+  })
+})
