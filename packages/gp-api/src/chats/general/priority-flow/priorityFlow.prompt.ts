@@ -239,7 +239,7 @@ const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
     `- Count the replies on each side before you treat them as an answer. Under about ${CHECK_MIN_REPLIES}, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
     ...(has('present_outreach_proposal')
       ? [
-          `- Then offer to widen it: a new present_outreach_proposal to the same audience, sized for the replies still missing, with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
+          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized for the replies still missing, with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
         ]
       : []),
     `- Past ${CHECK_MIN_REPLIES}, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.`,

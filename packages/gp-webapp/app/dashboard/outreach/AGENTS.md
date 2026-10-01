@@ -55,8 +55,13 @@ banking's `initialName`, and `proposedAudience` on phone banking and SMS, an
 audience the agent counted but did not save. That one opens the audience step
 in the builder already filled in (`useOutreachAudience`'s reset seeds it), so
 the list is saved where the flow always saves one: when the official confirms
-and names it. Phone banking with a preselected list and an `initialScript`
-lands on the script step once the list resolves.
+and names it. A proposal that asks a sample (`sampleSize` under its `count`)
+carries `proposedAudience.sample`, and the save posts it as the list's
+`sample` along with the count overlay, so the list is the frozen draw of
+people this channel can reach rather than the live filter; the builder's
+count, and so "Continue (N)", reads the sample's size. A reset clears it with
+the other builder fields. Phone banking with a preselected list and an
+`initialScript` lands on the script step once the list resolves.
 
 The voter data page's "Choose a channel" picker (`contacts/crm/shared/channelPicker/`)
 links here with the flow named — `?compose=text|robocall|phoneBanking|social&source=voter_data`

@@ -146,7 +146,9 @@ there is the agent's to say, once, in its message; no card repeats it.
   intro when the only miss is their name), phone banking's name, and the
   audience. A card from before `audienceFilters` points at a saved list; a
   current one carries the filter the agent counted with, and the flow opens
-  its builder already filled in (`proposedAudience`) and saves the list when
+  its builder already filled in (`proposedAudience`, with the proposal's
+  sample when it asks one: "Text 4,000 of 58,520, picked at random" on the
+  card, the frozen draw in the saved list) and saves the list when
   the official confirms and names it. Door knocking is the exception: its
   create flow is drawn on its own map page and takes only a saved list, so the
   card saves the list at the click, the latest point it can, and goes there.
