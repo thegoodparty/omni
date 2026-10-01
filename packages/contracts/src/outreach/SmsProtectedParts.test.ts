@@ -119,7 +119,16 @@ describe('deriveSmsProtectedParts', () => {
     ).toBe('Élodie')
   })
 
-  it('locks nothing for a name with no word of three letters or more', () => {
+  it('locks a short name only when it is written in full, and the verdict agrees', () => {
+    const context = { candidateNames: ['Al Bo'] }
+    expect(
+      checkSmsStandards("Hi {first_name}, it's Al Bo. Reply STOP", context)
+        .failures,
+    ).not.toContain('candidate_name')
+    expect(
+      checkSmsStandards('Hi {first_name}, vote! Reply STOP', context).failures,
+    ).toContain('candidate_name')
+
     const script = "Hi {first_name}, it's Al Bo. Reply STOP"
     expect(textsFor(script, { candidateNames: ['Al Bo'] }).candidate_name).toBe(
       'Al Bo',

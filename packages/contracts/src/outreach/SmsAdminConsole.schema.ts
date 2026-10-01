@@ -55,7 +55,8 @@ export type SmsStandardsVerdict = z.infer<typeof SmsStandardsVerdictSchema>
 // Pure and shared (compose advisory, server-side verdict, queue chip).
 // Name rules match on TOKENS ("Jane" satisfies "Jane Doe"), since real
 // scripts identify by first name while filings carry the full one. The
-// candidate_name rule only runs when a name to match is supplied; the
+// candidate_name rule only runs when a name to match is supplied, and a
+// name with no word of 3+ letters must then appear in full; the
 // paid_for_by rule always requires the phrase, and additionally a
 // committee token when the committee name is known (every campaign that
 // can schedule an SMS has one, per the 10DLC requirement). Advisory in
@@ -127,11 +128,17 @@ export const checkSmsStandards = (
   // Whole words, as the composer's lock finds the name: "chen" inside
   // "kitchen" is not an identification, and a verdict that accepted it
   // would show the rule met with nothing locked to keep it met.
-  const candidateTokens = nameTokensOf(context.candidateNames ?? [])
-  if (
-    candidateTokens.length > 0 &&
-    !candidateTokens.some((token) => findWords(script, token) !== null)
-  ) {
+  // The full name first, then its words of 3+ letters, exactly as the lock
+  // looks for it. A short name ("Al Bo") has no such words, so it must
+  // appear in full: before, it passed this rule with no name in the script.
+  const candidateNames = (context.candidateNames ?? [])
+    .map((name) => name.trim())
+    .filter(Boolean)
+  const candidateTokens = nameTokensOf(candidateNames)
+  const namesCandidate =
+    candidateNames.some((name) => findWords(script, name) !== null) ||
+    candidateTokens.some((token) => findWords(script, token) !== null)
+  if (candidateNames.length > 0 && !namesCandidate) {
     failures.push('candidate_name')
   }
   const committeeTokens = nameTokensOf([context.committeeName])
@@ -164,8 +171,8 @@ export const checkSmsStandards = (
 // still passed. Anything a state adds goes after the unit.
 //
 // A rule the script already fails yields no part: there is nothing to lock,
-// and the verdict is what tells the candidate. So does a rule with nothing
-// to match (a name with no word of 3+ letters, `length`).
+// and the verdict is what tells the candidate. `length` never yields one:
+// it is a count, not text.
 export type SmsProtectedPart =
   | {
       rule: 'first_name_token'
