@@ -79,6 +79,7 @@ import { OutreachRobocallStagingService } from './services/outreachRobocallStagi
 import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
 import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
 import { OutreachRobocallWebhookService } from './services/outreachRobocallWebhook.service'
+import { OutreachRobocallCancelService } from './services/outreachRobocallCancel.service'
 import { OutreachRobocallCompletionService } from './services/outreachRobocallCompletion.service'
 import { OutreachRobocallCaptureService } from './services/outreachRobocallCapture.service'
 import { OutreachRobocallFreshChargeService } from './services/outreachRobocallFreshCharge.service'
@@ -214,6 +215,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachRobocallSendService,
     OutreachRobocallHoldFailureService,
     OutreachRobocallWebhookService,
+    OutreachRobocallCancelService,
     OutreachRobocallCompletionService,
     OutreachRobocallCaptureService,
     OutreachRobocallFreshChargeService,
