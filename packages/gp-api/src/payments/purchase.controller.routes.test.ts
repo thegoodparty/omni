@@ -490,6 +490,29 @@ describe('POST /v1/payments/purchase/create-checkout-session — p2p pricing', (
     )
   })
 
+  it('takes a fully scrubbed p2p list to the $0 path without minting a paid session', async () => {
+    const { campaign, draft } = await seedP2pDraft()
+    stubPeerlyCounts()
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'getPhoneListDetails',
+    ).mockImplementation((async () => ({
+      leads_loaded: 0,
+    })) as unknown as PeerlyPhoneListService['getPhoneListDetails'])
+    const checkout = spyOnCustomCheckout()
+
+    const res = await createSession(campaign.organizationSlug, {
+      outreachType: 'p2p',
+      outreachId: draft.id,
+      contactCount: 0,
+      audienceSize: 0,
+    })
+
+    expect(res.status).toBe(201)
+    expect(res.data).toMatchObject({ amount: 0, clientSecret: '' })
+    expect(checkout).not.toHaveBeenCalled()
+  })
+
   it('400s a p2p checkout that names no draft, without minting a session', async () => {
     const { campaign } = await seedP2pDraft()
     stubPeerlyCounts()

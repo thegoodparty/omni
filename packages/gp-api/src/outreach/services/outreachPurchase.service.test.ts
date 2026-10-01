@@ -176,10 +176,11 @@ describe('calcTextAmountInCents', () => {
 
 describe('OutreachPurchaseHandlerService', () => {
   describe('validatePurchase', () => {
-    it('throws when contactCount is missing', async () => {
+    it('throws when contactCount is missing on a client-priced type', async () => {
       await expect(
         service.validatePurchase({
           ...baseMetadata,
+          outreachType: 'text',
           contactCount: 0,
         }),
       ).rejects.toThrow(BadRequestException)

@@ -30,8 +30,11 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
 
   async validatePurchase({
     contactCount,
+    outreachType,
   }: OutreachPurchaseMetadata): Promise<void> {
-    if (!contactCount) {
+    // p2p bills a server-derived count, where a Peerly-confirmed 0 is a
+    // valid $0 send. Only types priced off the client count need one here.
+    if (outreachType !== 'p2p' && !contactCount) {
       throw new BadRequestException('contactCount is required')
     }
   }
