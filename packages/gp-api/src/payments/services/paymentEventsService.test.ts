@@ -750,6 +750,17 @@ describe('PaymentEventsService', () => {
       expect(analytics.track).not.toHaveBeenCalled()
     })
 
+    it('does not track past_due when the subscription is already past_due and a different field changed', async () => {
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent(
+          { status: 'past_due', cancel_at: 1_760_000_000 },
+          { cancel_at: 1_790_000_000 },
+        ),
+      )
+
+      expect(analytics.track).not.toHaveBeenCalled()
+    })
+
     // The id this lookup reads is written by our own fulfillment, seconds after
     // checkout, and Stripe delivers a subscription's sibling events
     // concurrently with that write. Acknowledging a miss this young would drop

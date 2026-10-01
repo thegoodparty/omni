@@ -508,7 +508,11 @@ export class PaymentEventsService {
         formatDate(new Date((cancelAt as number) * 1000), DateFormats.usDate),
       ))
 
-    if (status === 'past_due' && previousStatus !== 'past_due') {
+    if (
+      status === 'past_due' &&
+      previousStatus !== undefined &&
+      previousStatus !== 'past_due'
+    ) {
       void this.analytics
         .track(
           user.id,
