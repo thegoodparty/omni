@@ -649,6 +649,11 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    ```
    Macro-derived readers pick up a new leg on their own. Anything that names the event
    literally, keys on one of its properties, or pins the leg list in a test does not.
+   **Tests that assert something about the metric are readers too**: an
+   `expression_is_true` on `is_activated` encodes the old definition as surely as a
+   literal does, and only fails in the CI build. Grep the yaml for the metric's flag
+   and its columns (`git grep -n -e 'is_activated' -e 'total_campaigns_sent' -- '*.yml' '*.yaml'`)
+   and read each test against the new rule.
    Then **measure the gap**: users whose only qualifying event since the cutover is the
    new name, split into headcount lost (never qualified otherwise) and activity lost.
 7. **Plan the PRs in the SOP's order** and show the plan. gp-data-platform branches are
@@ -670,6 +675,10 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
         `private_*` schema whenever an object of that name exists there, even a
         stale hand-made one, and says nothing. Grep the compiled SQL for `private_`
         and point each hit at `dbt` before running it.
+      - **Know what prod cannot show you.** A model that reads a column the sem
+        change itself recomputes upstream (the win_activity rollups read
+        `is_recurrent` from the event catalog) runs against a stale prod copy of
+        that column. Validate it in the CI build, and say so in the PR.
    2. **Sem PR.** Before editing any `sem_*.yml`, ask the reviewer, as its own question
       and nothing else: "This will change the semantic layer and notify people. Are you
       sure?" Then add the new leg, keep the old one with
@@ -678,11 +687,20 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
       `<!-- semantic-value: <metric> = <count> -->` in the body for each metric whose
       build moved, computed by query under the new legs. `description` and `known_gaps`
       change only if the rule's wording is now wrong; the rename itself belongs in the
-      leg comment.
+      leg comment. Then, from `analytics/diagnostics`, run
+      `uv run python -m semantic_catalog.cli --write` and commit the regenerated
+      `canonical_metrics.md` projections, or the blocking catalog-freshness gate
+      fails. Open it as a **draft**: a draft posts nothing, and the review groups
+      are only notified when it is marked ready, which the reviewer decides.
    3. **Mart docs PR**, alone.
    4. **omni PR**: `monitored_events.yaml` (case 1 edits, per the kinds above),
       `instrumentation_data/event_anchors.json`, the fixture copy of the sem file under
       `scripts/python/fixtures/`, and tests naming the old leg.
+   **Watching CI.** Read the dbt Cloud run itself
+   (`/api/v2/accounts/<acct>/runs/<run>/?include_related=["run_steps"]`, token in
+   `~/.dbt/dbt_cloud.yml`, never printed): the GitHub badge lags the run by minutes
+   and names no failing node. Write the watch so a GitHub API error retries rather
+   than ending the loop, or a blip reads as silence.
 8. **After merge, verify:** the ratification follow-up PR opened, the catalog
    regenerated, the prod value matches the `semantic-value` line, the digest's
    `okr_anchor_dormant` latch for the old leg cleared, and anything predicted during
