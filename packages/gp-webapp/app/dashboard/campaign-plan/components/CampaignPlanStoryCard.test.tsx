@@ -9,8 +9,12 @@ vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 const mockHook = vi.mocked(useCampaignStoryComplete)
 
-const setStory = (isComplete: boolean, isLoading = false): void => {
-  mockHook.mockReturnValue({ isComplete, isLoading, isError: false })
+const setStory = (
+  isComplete: boolean,
+  isLoading = false,
+  isError = false,
+): void => {
+  mockHook.mockReturnValue({ isComplete, isLoading, isError })
 }
 
 describe('CampaignPlanStoryCard', () => {
@@ -40,6 +44,19 @@ describe('CampaignPlanStoryCard', () => {
   // Otherwise it flashes in for a candidate whose story is already finished.
   it('renders nothing while the story state is still loading', () => {
     setStory(false, true)
+
+    render(<CampaignPlanStoryCard />)
+
+    expect(
+      screen.queryByRole('heading', { name: "Tell us why you're running" }),
+    ).not.toBeInTheDocument()
+  })
+
+  // The hook fails closed on a story-fetch error, so without this the card
+  // would tell a candidate who already wrote their story to add it, forever,
+  // with no way to dismiss it.
+  it('renders nothing when the story fetch errored', () => {
+    setStory(false, false, true)
 
     render(<CampaignPlanStoryCard />)
 
