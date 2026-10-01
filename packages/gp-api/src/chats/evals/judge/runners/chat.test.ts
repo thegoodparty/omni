@@ -566,4 +566,15 @@ describe('directiveFailureText', () => {
     expect(text).toContain('no such tool: x')
     expect(text).toContain('returned 502')
   })
+
+  // The infrastructure failure FIRST. This sentence goes in front of a person
+  // through the arm manifest, and one that leads with the case list sends
+  // them to fix a file when the turn never reached the app.
+  it('leads with the run failure, not with the case list', () => {
+    const text = directiveFailureText('a', 'b', 'no such tool: x', 'got 502')
+    expect(text.indexOf('got 502')).toBeLessThan(
+      text.indexOf('no such tool: x'),
+    )
+    expect(text).toMatch(/^a\/b: the run did not complete/)
+  })
 })

@@ -638,21 +638,35 @@ export const turnTokens = (
   }
 }
 
-// BOTH REASONS, NOT ONE INSTEAD OF THE OTHER. The directive refusal and a
-// route or transport failure are independent: the seam refuses before the
-// model is called, so a `driveCase` throw is something else going wrong in
-// the same run. Reporting only the directive sends the reader to fix a case
-// list when the turn also failed to reach the app at all.
+// A run that could not honour a directive. NOT a CaseListError: that class is
+// about a file that would not parse, and this skip reason ends up in the arm
+// manifest and from there in a public summary — where "the case list is
+// wrong" is the wrong thing to say about a run that also failed to reach the
+// app. The two causes are independent, because the seam refuses before the
+// model is called, so a `driveCase` throw is a second thing going wrong in
+// the same run.
+export class ChatDirectiveError extends Error {}
+
+// BOTH REASONS, AND THE INFRASTRUCTURE ONE FIRST when there is one. A reader
+// sent to fix a case list will not find the 502 that actually ended the run,
+// and the directive is the cheaper of the two to fix once they have.
 export const directiveFailureText = (
   agentId: string,
   caseId: string,
   directiveError: string,
   driveError?: string,
 ): string =>
-  `${agentId}/${caseId}: ${directiveError}` +
-  (driveError === undefined
-    ? ''
-    : ` (the run also failed to complete: ${driveError})`)
+  driveError === undefined
+    ? `${agentId}/${caseId}: ${directiveError}`
+    : `${agentId}/${caseId}: the run did not complete — ${driveError} — ` +
+      `and its directive could not be honoured either: ${directiveError}`
+
+// NOT A RECORD, whatever else went wrong. A run whose condition was never
+// applied has no comparable result to store: an infraError record for it is a
+// quiet exclusion the report counts and moves past, so the next sweep repeats
+// the same unhonourable directive and pays for it again. The throw is what
+// puts the agent and the reason in the manifest instead, and `captureArm`
+// keeps every record the agent had already written.
 
 export const runChatCase = async (
   ports: ChatRunnerPorts,
@@ -751,7 +765,7 @@ export const runChatCase = async (
   // would report a verdict about a condition nobody applied. Nothing was
   // spent — the seam refuses before the model is called.
   if (llm.capture.directiveError !== undefined) {
-    throw new CaseListError(
+    throw new ChatDirectiveError(
       directiveFailureText(
         request.agentId,
         request.case.caseId,

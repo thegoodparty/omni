@@ -5,10 +5,12 @@ import { PRICING_VERSION } from '../pricing'
 import { isComparable, type RunRecord } from '../record'
 import { instrumentDatabricksProvider, type ChatTurnScript } from './chatSeam'
 import {
+  ChatDirectiveError,
   TOOL_BUDGET_FALLBACK_REPLY,
   runChatCase,
   type ChatRunRequest,
 } from './chat'
+import { CaseListError } from '../cases'
 import { MAX_CHAT_HISTORY_MESSAGES } from '@/chats/services/chatStream.service'
 import { chatOrgSlug, seedChatOrg, seedOptionsFor } from './seedChatOrg'
 import { ChatMessageRole, Prisma } from '../../../../generated/prisma'
@@ -827,15 +829,21 @@ describe('runChatCase', () => {
   it(
     'refuses a forced failure naming a tool the turn never registered',
     async () => {
-      await expect(
-        runFor('chief_of_staff', {
-          case: {
-            caseId: 'judge-case',
-            question: 'What are my priorities?',
-            toolFailure: { tool: 'query_voter_file', mode: 'error' },
-          },
-        }),
-      ).rejects.toThrow(/registered no such tool/)
+      const run = runFor('chief_of_staff', {
+        case: {
+          caseId: 'judge-case',
+          question: 'What are my priorities?',
+          toolFailure: { tool: 'query_voter_file', mode: 'error' },
+        },
+      })
+
+      await expect(run).rejects.toThrow(/registered no such tool/)
+      // NOT a CaseListError. That class is about a file that would not parse,
+      // and this reason reaches the arm manifest and a public summary — where
+      // "the case list is wrong" is the wrong thing to say about a run that
+      // may also have failed to reach the app.
+      await expect(run).rejects.toBeInstanceOf(ChatDirectiveError)
+      await expect(run).rejects.not.toBeInstanceOf(CaseListError)
     },
     TURN_TIMEOUT_MS,
   )
