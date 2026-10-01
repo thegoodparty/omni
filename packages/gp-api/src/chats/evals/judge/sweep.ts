@@ -355,11 +355,23 @@ export const ensureFallbackModels = (
   env: NodeJS.ProcessEnv = process.env,
 ): void => {
   const existing = env.AI_MODELS
-  if (existing !== undefined && existing !== '') return
-  env.AI_MODELS = config.panel.seats.join(',')
+  if (existing !== undefined && existing.trim() !== '') return
+  // Derived AND checked, because an empty seat list joins to the empty
+  // string — the exact value the guard above reads as unset. Assigning it
+  // would leave this function having "filled" the variable and LlmService
+  // throwing the same message, after both arms were billed.
+  const seats = config.panel.seats.filter((seat) => seat.trim() !== '')
+  if (seats.length === 0) {
+    throw new Error(
+      'The judge panel has no seats, so there is no model to name in ' +
+        'AI_MODELS and no seat to ask for a verdict. Fix panel.seats in ' +
+        'config.ts before running a sweep.',
+    )
+  }
+  env.AI_MODELS = seats.join(',')
 }
 
-const anthropicJudge = (config: JudgeConfig): JsonJudgeModel => {
+export const anthropicJudge = (config: JudgeConfig): JsonJudgeModel => {
   if (process.env.CI !== 'true') overrideEnvForEvals()
   ensureFallbackModels(config)
   return new LlmService(new PinoLogger({ pinoHttp: {} }))

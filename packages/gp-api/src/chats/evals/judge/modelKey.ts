@@ -11,8 +11,6 @@ export const ARM_KEY_ENV = 'JUDGE_ANTHROPIC_API_KEY'
 
 export const KEY_ENV = 'ANTHROPIC_API_KEY'
 
-// Puts the real key where LlmService looks, for a spending arm only.
-//
 // MUST BE CALLED AT MODULE SCOPE, before `useTestService()`'s beforeAll boots
 // the Nest app: LlmService reads the key when it is constructed, and by the
 // time a test body runs the app is already holding the stub.
@@ -29,8 +27,10 @@ export const restoreRealModelKey = (
     throw new Error(
       `This arm spends (${SPEND_ENV}=true) but ${ARM_KEY_ENV} is not set, ` +
         `so it would run against the ${KEY_ENV} stub in .env.test and every ` +
-        'call would fail authentication. The workflow passes the real key ' +
-        `under ${ARM_KEY_ENV}; locally, export it from your own .env.`,
+        'call would fail authentication. judge.yml passes the real key ' +
+        `under ${ARM_KEY_ENV}; locally, export it in the shell you run the ` +
+        'sweep from. A `.env` file will not do it: nothing on this path ' +
+        'loads one — vitest loads `.env.test` and only that.',
     )
   }
   env[KEY_ENV] = passed

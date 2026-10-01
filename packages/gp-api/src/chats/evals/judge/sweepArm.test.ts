@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { AgentEntry } from './agents'
+import { ARM_KEY_ENV } from './modelKey'
 import type { CaseList } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { CHAT_PAIR } from './fixtures/records'
@@ -140,14 +141,26 @@ describe('scrubReason', () => {
   // DATABRICKS_CLIENT_SECRET is an opaque OAuth secret with no shape to match
   // on, and it is in the arm step's environment. A shape list alone would
   // write it into the manifest file and from there into a public job summary.
-  it('redacts an opaque secret by its value', () => {
+  // EVERY NAME THE LIST CLAIMS TO COVER, because a reason travels through a
+  // file into another process and from there into a job summary and S3 — so
+  // a name missing from SECRET_VARS is a plaintext credential in a public
+  // log, not a cosmetic gap. ARM_KEY_ENV is the one that matters most: on a
+  // dry run the direct name still holds the stub, so redacting that alone
+  // would redact the stub and leave the real value in the clear.
+  it.each([
+    'ANTHROPIC_API_KEY',
+    ARM_KEY_ENV,
+    'DATABRICKS_CLIENT_SECRET',
+    'DATABRICKS_CLIENT_ID',
+    'DATABASE_URL',
+  ])('redacts %s by its value', (name) => {
     const value = 'Zk3rQv8pLm2wXt6bNc1yEa'
     const scrubbed = scrubReason(
-      `Databricks rejected client secret ${value} for the judge principal`,
-      { DATABRICKS_CLIENT_SECRET: value },
+      `the warehouse rejected ${value} for the judge principal`,
+      { [name]: value },
     )
     expect(scrubbed).not.toContain(value)
-    expect(scrubbed).toContain('[redacted DATABRICKS_CLIENT_SECRET]')
+    expect(scrubbed).toContain(`[redacted ${name}]`)
     expect(scrubbed).toContain('for the judge principal')
   })
 

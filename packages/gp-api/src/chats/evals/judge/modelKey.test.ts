@@ -75,6 +75,35 @@ describe('restoreRealModelKey', () => {
     expect(envTest).toMatch(new RegExp(`^${KEY_ENV}=`, 'm'))
     expect(envTest).not.toMatch(new RegExp(`^${ARM_KEY_ENV}=`, 'm'))
   })
+
+  // THE PREMISE, asserted rather than assumed. The whole reason ARM_KEY_ENV
+  // exists is that vitest applies `.env.test` over the process environment —
+  // and `STUB` above is just a literal that resembles the real one. This
+  // reads it out of the running process, so the day `vitest.config.ts`
+  // stops doing that, this test says the workaround can go instead of
+  // leaving somebody to guess.
+  it('is running in an environment .env.test has already shadowed', () => {
+    expect(process.env[KEY_ENV]).toBe(STUB)
+  })
+
+  // THE CALL FORM PRODUCTION USES, and the only one the tests above do not:
+  // the arm suite calls this with no argument. A default changed to `{}`
+  // would leave every assertion above green and move the key nowhere.
+  it('defaults to the real process environment', () => {
+    const had = { spend: process.env[SPEND_ENV], arm: process.env[ARM_KEY_ENV] }
+    try {
+      process.env[SPEND_ENV] = SPEND_VALUE
+      process.env[ARM_KEY_ENV] = REAL
+      expect(restoreRealModelKey()).toBe(true)
+      expect(process.env[KEY_ENV]).toBe(REAL)
+    } finally {
+      process.env[KEY_ENV] = STUB
+      if (had.spend === undefined) delete process.env[SPEND_ENV]
+      else process.env[SPEND_ENV] = had.spend
+      if (had.arm === undefined) delete process.env[ARM_KEY_ENV]
+      else process.env[ARM_KEY_ENV] = had.arm
+    }
+  })
 })
 
 // THE ONE HOP NOTHING ELSE COVERS. Every assertion above is about the
@@ -105,7 +134,10 @@ describe('the arm suite applies it before the app boots', () => {
     expect(call).toBeLessThan(boot)
     // Not nested inside anything: a module-scope statement starts at column
     // zero, and a call indented under a describe or an it would satisfy the
-    // ordering check above while running after the hooks.
-    expect(source).toMatch(/^if \(process\.env\.JUDGE_ARM !== undefined\)/m)
+    // ordering check above while running after the hooks. The condition is
+    // deliberately not pinned — the suite is free to gate this on its own
+    // `sweepRequested` const — only that the call is reached from an
+    // unindented statement.
+    expect(source).toMatch(/^if \(.+\) restoreRealModelKey\(\)$/m)
   })
 })

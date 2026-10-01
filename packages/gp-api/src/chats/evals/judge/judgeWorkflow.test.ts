@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
 // The sweep's three processes each read their spend switch from their own
@@ -129,28 +130,45 @@ describe('judge.yml spend switches', () => {
   // directly. The first live sweep set ANTHROPIC_API_KEY on the arms, which
   // satisfied the previous version of this test and failed every model call
   // with `invalid x-api-key`.
-  const ARM_STEPS = ['Capture the base arm', 'Capture the candidate arm']
-  const arms = spending.filter((step) => ARM_STEPS.includes(step.name))
+  //
+  // DERIVED FROM THE COMMAND, not from a list of step names. A fourth step
+  // running the arm suite under a name nobody added to an allowlist would
+  // otherwise be filtered out of every assertion below, and the only test to
+  // complain would be the step-name one — which a developer clears by adding
+  // the name, never noticing that the key checks skipped it.
+  const [ARM_COMMAND, JUDGING_COMMAND] = SPENDING_COMMANDS
+  const arms = spending.filter((step) => step.body.includes(ARM_COMMAND ?? ''))
+  const judging = spending.filter((step) =>
+    step.body.includes(JUDGING_COMMAND ?? ''),
+  )
+
+  // The value, not only the name. `${{ secrets.ANTHROPIC_API_KEY_OLD }}` and
+  // `${{ vars.ANTHROPIC_API_KEY }}` both satisfy a name-only check, and the
+  // preflight step reads the correct secret itself — so a wrong expression
+  // here is only discovered after both arms have been billed.
+  const SECRET = '${{ secrets.ANTHROPIC_API_KEY }}'
 
   it('passes the real key to both arms under the arm name', () => {
-    expect(arms.map((s) => s.name)).toEqual(ARM_STEPS)
-    const missing = arms
-      .filter((step) => !setsEnv(step.body, 'JUDGE_ANTHROPIC_API_KEY'))
-      .map((step) => step.name)
-    expect(missing).toEqual([])
+    expect(arms).toHaveLength(2)
+    expect(arms.map((step) => envValue(step.body, ARM_KEY_ENV))).toEqual([
+      SECRET,
+      SECRET,
+    ])
   })
 
   it('does not set ANTHROPIC_API_KEY on an arm, where it is dead', () => {
+    // Asserted first, because an absence cannot fail by the subject being
+    // empty: `arms` filtered down to nothing would satisfy the rest for free.
+    expect(arms).toHaveLength(2)
     const shadowed = arms
-      .filter((step) => setsEnv(step.body, 'ANTHROPIC_API_KEY'))
+      .filter((step) => setsEnv(step.body, KEY_ENV))
       .map((step) => step.name)
     expect(shadowed).toEqual([])
   })
 
   it('passes the real key to the judging step under its own name', () => {
-    const judging = spending.find((step) => step.name === 'Judge both arms')
-    expect(judging).toBeDefined()
-    expect(setsEnv(judging?.body ?? '', 'ANTHROPIC_API_KEY')).toBe(true)
+    expect(judging).toHaveLength(1)
+    expect(envValue(judging[0]?.body ?? '', KEY_ENV)).toBe(SECRET)
   })
 
   it("spends only on the exact string 'true'", () => {
@@ -362,31 +380,45 @@ describe('judge.yml normalizes the Databricks host', () => {
     expect(raw).toEqual([])
   })
 
+  const HOST = 'dbc-3d8ca484-79f3.cloud.databricks.com'
+
   it.each([
-    [
-      'https://dbc-3d8ca484-79f3.cloud.databricks.com',
-      'dbc-3d8ca484-79f3.cloud.databricks.com',
-    ],
-    ['http://dbc-1.cloud.databricks.com', 'dbc-1.cloud.databricks.com'],
-    ['dbc-1.cloud.databricks.com', 'dbc-1.cloud.databricks.com'],
-    ['https://dbc-1.cloud.databricks.com/', 'dbc-1.cloud.databricks.com'],
-    [
-      'https://dbc-1.cloud.databricks.com/sql/1.0',
-      'dbc-1.cloud.databricks.com',
-    ],
+    [`https://${HOST}`, HOST],
+    [`http://${HOST}`, HOST],
+    [HOST, HOST],
+    [`https://${HOST}/`, HOST],
+    [`https://${HOST}/sql/1.0/warehouses/18583d8b`, HOST],
     ['', ''],
-  ])('strips %s down to %s', (given, expected) => {
+    // EVERYTHING BELOW SURVIVES THE STRIPS AND IS NON-EMPTY, so a step that
+    // only asked "did we get something" would pass each one through and
+    // reproduce the getaddrinfo failure. They have to come out empty, which
+    // is what routes them into the warning instead of into the job.
+    [`HTTPS://${HOST}`, ''],
+    [` https://${HOST}`, ''],
+    [`https://user:pw@${HOST}`, ''],
+    // The one that is not merely a wrong host: $GITHUB_ENV is line-oriented
+    // and `%%/*` does not strip a newline, so this would otherwise inject
+    // INJECTED=1 into every later step of the job.
+    [`https://${HOST}\nINJECTED=1`, ''],
+  ])('strips %j down to %j', (given, expected) => {
     const script = runBlockOf(normalize?.body ?? '')
     // Run the step's own bash, not a reimplementation of it in JavaScript:
     // the bug being fixed was in the shell, and a parallel implementation
     // here would pass while the workflow kept failing.
-    expect(script).toContain('host="${DATABRICKS_HOST#https://}"')
+    // Guards the extraction without pinning the script's text: a quoted
+    // line reds out on every edit to the step, which is a trip-wire rather
+    // than a test. These three say "this is the real block" and survive a
+    // rewrite of what is inside it. A `run: |-` would yield '' and fail here
+    // loudly rather than passing vacuously.
+    expect(script).not.toBe('')
+    expect(script.split('\n')[0]).toBe('set -euo pipefail')
+    expect(script).toContain('>> "$GITHUB_ENV"')
     const envFile = path.join(
       mkdtempSync(path.join(tmpdir(), 'judge-host-')),
       'github-env',
     )
     writeFileSync(envFile, '')
-    execFileSync('bash', ['-c', script], {
+    const stdout = execFileSync('bash', ['-c', script], {
       env: {
         ...process.env,
         DATABRICKS_HOST: given,
@@ -394,8 +426,92 @@ describe('judge.yml normalizes the Databricks host', () => {
       },
       encoding: 'utf8',
     })
+    // The WHOLE file, not a substring: this is what catches the newline
+    // case, where a second line would otherwise inject a variable into every
+    // later step of the job.
     expect(readFileSync(envFile, 'utf8').trim()).toBe(
       `DATABRICKS_SERVER_HOSTNAME=${expected}`,
     )
+    // AND SOMEBODY IS TOLD. The `case` filter above sends every malformed
+    // host into the empty branch, so without this the tests would prove the
+    // value came out empty and nothing would prove the sweep says it ran
+    // against an unpinned mart.
+    expect(stdout.includes('::warning::')).toBe(expected === '')
+  })
+})
+
+// THE BASE ARM RUNS THE BASE REF'S CODE, not this branch's. The workflow is
+// resolved from the default branch, so it exports the arm key name to both
+// arms — but only a suite that calls `restoreRealModelKey` moves that into
+// the name the SDK reads, and `.env.test`'s stub shadows the direct name on
+// the base side exactly as it does on the candidate side. A ref predating the
+// handoff therefore authenticates with the stub and fails every turn, after
+// the OTHER arm has been billed in full. Both sides are refused before any
+// install; these tests are what keep the sentinel the workflow greps for and
+// the call the suite actually makes from drifting apart.
+describe('judge.yml refuses a ref that cannot reach the model', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  // Workflow-level `env:` sits at two spaces, not the ten a step's entry
+  // does, so this needs its own matcher rather than `envValue`.
+  const sentinel = /^ {2}ARM_KEY_CALL: (.+)$/m.exec(yaml)?.[1]
+
+  it('declares the sentinel at the workflow level', () => {
+    // Not inside a job: the plan job and the sweep job both read it, and a
+    // job-scoped value would be invisible to one of them.
+    expect(sentinel).toBeDefined()
+  })
+
+  // DERIVED FROM THE FUNCTION, not merely compared against the suite's text.
+  // "Does the suite contain the sentinel" is satisfied by any substring the
+  // file happens to carry — `import`, `const`, a brace — and a sentinel that
+  // loose makes the guard pass for every ref forever, which is the whole
+  // failure mode it exists to prevent. Reading the name off the function also
+  // means a rename breaks in one place.
+  it('greps for the call the arm suite makes, spelled exactly', () => {
+    expect(sentinel).toBe(`${restoreRealModelKey.name}()`)
+    const suite = readFileSync(
+      path.resolve(__dirname, 'sweep.eval.test.ts'),
+      'utf8',
+    )
+    expect(suite).toContain(sentinel)
+  })
+
+  it('checks the base ref in the step that creates its worktree', () => {
+    const base = steps.find((step) =>
+      step.name.startsWith('Check out the base arm'),
+    )
+    expect(base).toBeDefined()
+    // Both halves: the sentinel is useless without the read, and the read is
+    // useless without the grep.
+    expect(base?.body).toContain('grep -qF "$ARM_KEY_CALL"')
+    expect(base?.body).toContain(
+      'git cat-file -p "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE"',
+    )
+    expect(base?.body).toMatch(/::error::.*does not call \$ARM_KEY_CALL/)
+  })
+
+  // THE CANDIDATE SIDE, which is the expensive direction: the base arm runs
+  // first, so a head that predates the handoff means a fully paid base arm
+  // and then a candidate that fails every turn. Refused in the plan job,
+  // before the comment promises a sweep.
+  it('checks the candidate ref before the plan promises a sweep', () => {
+    const cli = steps.find((step) =>
+      step.name.startsWith('Check the judge CLI'),
+    )
+    expect(cli?.body).toContain('grep -qF "$ARM_KEY_CALL" "$SWEEP_SUITE"')
+    expect(cli?.body).toContain('sweep_capable=false')
+  })
+
+  // BEFORE THE MONEY. A guard that runs after an arm has dialled is worth
+  // nothing, and step order inside a job is the only thing deciding that.
+  it('refuses before either arm spends', () => {
+    const names = steps.map((step) => step.name)
+    const guard = names.findIndex((name) =>
+      name.startsWith('Check out the base arm'),
+    )
+    const firstSpend = names.findIndex((name) => name.startsWith('Capture the'))
+    expect(guard).toBeGreaterThan(-1)
+    expect(firstSpend).toBeGreaterThan(guard)
   })
 })
