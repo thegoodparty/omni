@@ -277,3 +277,15 @@ def test_the_committed_vendored_copy_loads():
     anchors, refreshed = sa.load_vendored_anchors()
     assert anchors, "the vendored sem copy must declare at least one governed metric"
     assert refreshed is not None
+
+
+def test_vendored_texts_parse_with_the_oldest_refresh_date():
+    """The guard reads the vendored copy from the merge base through git, so parsing has to
+    work on texts as well as on the directory."""
+    body = FIXTURE.read_text()
+    anchors, refreshed = sa.parse_vendored_texts([
+        "# Refreshed from x on 2026-09-28 by sem_anchors.py refresh-vendored.\n" + body,
+        "# Refreshed from x on 2026-10-01 by sem_anchors.py refresh-vendored.\nmetrics: []\n",
+    ])
+    assert refreshed == "2026-09-28"
+    assert "win_active_candidates_30d" in anchors

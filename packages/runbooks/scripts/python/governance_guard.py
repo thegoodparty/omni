@@ -6,15 +6,21 @@ change that silently breaks an OKR instrument or leaves a dead event listing beh
 Blocks: any file losing a call site of a watched OKR leg; the page behind a path-qualified
 leg removed; an OKR call-site file no longer imported; an event's last call site removed
 while its registry key survives; a monitored_events.yaml surface path this change made
-stale. Warns: a HubSpot-used backend event removed from the registry; a new event key with
-a malformed name or no provenance row.
+stale; a monitored_events.yaml this change made unparseable. Warns: a HubSpot-used backend
+event removed from the registry; a new event key with a malformed name or no provenance
+row; an intent row added in this change that clears nothing.
+
+OKR legs are read from the merge base's vendored sem copy, so a PR cannot drop the leg it
+breaks.
 
 Exit codes: 0 nothing blocking, 2 blocking findings, 1 the guard itself failed. A guard
 failure must never block a merge: CI and the hook both treat 1 as pass-with-alert.
 
 Usage:
-    uv run governance_guard.py check --base <ref> [--head <ref>] [--markdown out.md] [--json out.json]
-    (no --head: compare against the working tree)
+    uv run governance_guard.py check --base <ref> [--head <ref>] [--markdown out.md]
+        [--summary full.md] [--json out.json]
+    (no --head: compare against the working tree; --markdown is capped for a PR comment,
+    --summary is the uncapped report)
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Protocol
 
@@ -44,6 +51,10 @@ WEB_REGISTRY = "packages/gp-webapp/helpers/analyticsHelper.ts"
 API_REGISTRY = "packages/gp-api/src/vendors/segment/segment.types.ts"
 WATCHLIST = "packages/runbooks/scripts/python/monitored_events.yaml"
 PROVENANCE = "packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv"
+SEM_DIR = "packages/runbooks/scripts/python/instrumentation_data/sem"
+# GitHub rejects an issue comment over 65,536 characters; leave room for the shadow-mode
+# rewrite and the truncation note.
+COMMENT_LIMIT = 60_000
 SCAN_ROOTS = ("packages/gp-webapp/", "packages/gp-api/", "packages/gp-admin/")
 SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".jsx")
 # Same exclusions as the provenance walk and the anchor locator, so the guard and the
@@ -54,6 +65,10 @@ _TEST_PREFIXES = ("test-", "test_")
 _ROUTE_FILE_STEMS = frozenset({"page", "layout", "template", "default", "error", "loading",
                                "not-found", "route", "global-error"})
 _WEB_APP = "packages/gp-webapp/app/"
+
+
+class GuardError(Exception):
+    pass
 
 
 class Tree(Protocol):
@@ -199,6 +214,7 @@ class Snapshot:
     watchlist: dict
     provenance_events: set[str]
     page_routes: set[str]
+    watchlist_error: str | None = None
     _by_literal: dict[str, dict[str, int]] = field(default_factory=dict, repr=False)
     _by_key: dict[tuple[str, str], dict[str, int]] = field(default_factory=dict, repr=False)
 
@@ -254,15 +270,32 @@ def build_snapshot(tree: Tree) -> Snapshot:
     api_text = texts.get(API_REGISTRY, "")
     provenance = {row["event_type"] for row in csv.DictReader(io.StringIO(texts.get(PROVENANCE, "")))
                   if row.get("event_type")}
+    registries = {}
+    for scope, reg in (("web", WEB_REGISTRY), ("api", API_REGISTRY)):
+        registries[scope] = prov.parse_events_map(texts.get(reg, ""))
+        # Zero events from a registry that exists is the parser failing to read it, and
+        # would report every call site as unregistered.
+        if reg in texts and not registries[scope]:
+            raise GuardError(f"{reg} exists but no events parsed from it; refusing to compare")
+    watchlist: dict = {}
+    watchlist_error = None
+    try:
+        loaded = yaml.safe_load(texts.get(WATCHLIST, "")) or {}
+        if isinstance(loaded, dict):
+            watchlist = loaded
+        else:
+            watchlist_error = f"the top level is a {type(loaded).__name__}, not a mapping"
+    except yaml.YAMLError as exc:
+        watchlist_error = str(exc).replace("\n", " ")
     return Snapshot(
         files={p: gr.extract(texts[p]) for p in scan if p in texts},
         all_paths=paths,
-        registries={"web": prov.parse_events_map(texts.get(WEB_REGISTRY, "")),
-                    "api": prov.parse_events_map(api_text)},
+        registries=registries,
         hubspot=hubspot_protected(api_text),
-        watchlist=yaml.safe_load(texts.get(WATCHLIST, "")) or {},
+        watchlist=watchlist,
         provenance_events=provenance,
         page_routes={r for p in paths if (r := page_route(p))},
+        watchlist_error=watchlist_error,
     )
 
 
@@ -279,7 +312,10 @@ class Finding:
 _RETIRE_FIX = (
     "Delete its key from the EVENTS registry in this PR, then follow the "
     "instrument-analytics-event skill's 'When a change removes an event' steps "
-    "(provenance upsert --direction retire, event-metadata RETIRE)."
+    "(provenance upsert --direction retire, event-metadata RETIRE). If the event still "
+    "fires in a way the guard cannot see, add "
+    '`- {event: "<name>", intent: not_a_change, reason: "<why>", date: "YYYY-MM-DD"}` '
+    "to intents: instead; triage reviews it as a guard bug."
 )
 
 
@@ -322,15 +358,22 @@ def watched_legs(anchors: Mapping[str, Sequence[sa.Leg]]
             {k: tuple(sorted(m)) for k, m in paths.items()})
 
 
-def intent_fix(event: str, metrics: Sequence[str]) -> str:
+_CHOOSE_INTENT = "<relocated|not_a_change|successor|retire_activity>"
+
+
+def intent_fix(event: str, metrics: Sequence[str], head_count: int) -> str:
+    """Suggests retire_activity only when nothing sends the event any more. While it still
+    fires elsewhere the right kind is a judgment, so the row carries a placeholder that
+    validation refuses until someone picks one."""
+    kind = "retire_activity" if head_count == 0 else _CHOOSE_INTENT
     rows = "\n".join(
-        f'  - {{metric: {m}, event: "{event}", intent: retire_activity, reason: "<why>", date: "YYYY-MM-DD"}}'
+        f'  - {{metric: {m}, event: "{event}", intent: {kind}, reason: "<why>", date: "YYYY-MM-DD"}}'
         for m in metrics
     )
     return (
         "This event counts toward an OKR, so say what is happening to the activity. Add one "
         "line per metric to the intents: block of packages/runbooks/scripts/python/"
-        f"monitored_events.yaml:\n{rows}\n"
+        f"monitored_events.yaml:\n```yaml\n{rows}\n```\n"
         "intent is one of: retire_activity (stop counting it), successor (add successor: "
         '"<event>"), relocated (add route: "/path"), not_a_change (the guard is wrong; '
         "say why). If you removed it by mistake, restoring it clears this."
@@ -343,6 +386,7 @@ def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[
     out = []
     for event, metrics in sorted(event_legs.items()):
         before, after = base.files_for(event), head.files_for(event)
+        fix = intent_fix(event, metrics, head.count(event))
         for path, n in sorted(before.items()):
             new = renames.get(path, path)
             now = after.get(new, 0)
@@ -350,25 +394,29 @@ def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[
                 out.append(Finding(
                     "okr_call_site_lost", "block", event,
                     f"{path} had {n} call site(s) of this OKR event and now has {now}.",
-                    intent_fix(event, metrics), metrics))
+                    fix, metrics))
             elif not _is_route_file(path) and new in head.files \
                     and base.importers(path) and not head.importers(new):
+                moved = f" (renamed from {path})" if new != path else ""
                 out.append(Finding(
                     "okr_file_unused", "block", event,
-                    f"{path} still sends this OKR event, but nothing imports it any more, so it never runs.",
-                    intent_fix(event, metrics), metrics))
+                    f"{new}{moved} still sends this OKR event, but nothing imports it any more, "
+                    "so it never runs.",
+                    fix, metrics))
     for (event, route), metrics in sorted(path_legs.items()):
         if route in base.page_routes and route not in head.page_routes:
             out.append(Finding(
                 "okr_page_removed", "block", event,
                 f"The page for {route} was removed or moved; this OKR counts '{event}' on that path.",
-                intent_fix(event, metrics), metrics))
+                intent_fix(event, metrics, head.count(event)), metrics))
     return out
 
 
-def _surface_paths(snap: Snapshot) -> set[str]:
-    return {s["path"] for b in snap.watchlist.get("behaviors") or []
-            for s in b.get("surfaces") or [] if s.get("path")}
+def _surface_paths(snap: Snapshot) -> list[tuple[str, str, str]]:
+    """(behavior id, surface label, path) for every surface that names a path."""
+    return sorted({(str(b.get("id")), str(s.get("label")), str(s["path"]))
+                   for b in snap.watchlist.get("behaviors") or [] if isinstance(b, Mapping)
+                   for s in b.get("surfaces") or [] if isinstance(s, Mapping) and s.get("path")})
 
 
 def _dir_prefixes(paths: Iterable[str]) -> set[str]:
@@ -391,24 +439,62 @@ def _present(path: str, paths: set[str], dirs: set[str]) -> bool:
 def stale_surface_paths(base: Snapshot, head: Snapshot) -> list[Finding]:
     base_dirs, head_dirs = _dir_prefixes(base.all_paths), _dir_prefixes(head.all_paths)
     return [
-        Finding("stale_surface_path", "block", "(registry)",
-                f"monitored_events.yaml declares {p} as a surface, and this change removed that file.",
-                "Update that surface's path: in monitored_events.yaml to where the code lives now.")
-        for p in sorted(_surface_paths(head))
+        Finding("stale_surface_path", "block", bid,
+                f"monitored_events.yaml behavior {bid}, surface '{label}', points at {p}, "
+                "and this change removed it.",
+                "Move the surface's path: to where the code lives now, or delete the surface "
+                "entry if the feature is gone.")
+        for bid, label, p in _surface_paths(head)
         if _present(p, base.all_paths, base_dirs) and not _present(p, head.all_paths, head_dirs)
     ]
 
 
+def watchlist_findings(base: Snapshot, head: Snapshot) -> list[Finding]:
+    """A watchlist this change breaks blocks: it is how intent rows and surfaces reach the
+    guard, so a broken one would silently disable both. One already broken on main is not
+    this PR's doing."""
+    if not head.watchlist_error:
+        return []
+    level = "warn" if base.watchlist_error else "block"
+    return [Finding("watchlist_unparseable", level, "monitored_events.yaml",
+                    f"monitored_events.yaml no longer parses: {head.watchlist_error}",
+                    "Fix the YAML. A row added under intents: must sit on its own line as "
+                    "`  - {...}`, and the block must not still read `intents: []`.")]
+
+
 INTENT_KINDS = frozenset({"retire_activity", "successor", "relocated", "not_a_change"})
 _INTENT_REQUIRED = ("metric", "event", "intent", "reason", "date")
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _iso_date(value: object) -> bool:
+    if not _ISO_DATE.fullmatch(str(value)):
+        return False
+    try:
+        date.fromisoformat(str(value))
+    except ValueError:
+        return False
+    return True
 
 
 def intent_problems(row: Mapping) -> list[str]:
+    """metric is optional only for not_a_change: that row reports a dead listing the guard
+    got wrong, which no metric owns."""
     if not isinstance(row, Mapping):
         return [f"intent row is not a mapping: {row!r}"]
-    problems = [f"intent row for {row.get('event')!r} is missing {k}"
-                for k in _INTENT_REQUIRED if not str(row.get(k) or "").strip()]
     kind = row.get("intent")
+    required = [k for k in _INTENT_REQUIRED if not (k == "metric" and kind == "not_a_change")]
+    problems = [f"intent row for {row.get('event')!r} is missing {k}"
+                for k in required if not str(row.get(k) or "").strip()]
+    for k in ("metric", "event", "reason", "date", "successor", "route"):
+        value = str(row.get(k) or "")
+        if "<" in value or value == "YYYY-MM-DD":
+            problems.append(f"intent row for {row.get('event')!r} still has the placeholder "
+                            f"{k}: {value!r}; replace it with the real value")
+    if str(row.get("date") or "").strip() and "<" not in str(row["date"]) \
+            and str(row["date"]) != "YYYY-MM-DD" and not _iso_date(row["date"]):
+        problems.append(f"intent row for {row.get('event')!r} has date {row['date']!r}; "
+                        "use YYYY-MM-DD")
     if kind and kind not in INTENT_KINDS:
         problems.append(f"intent {kind!r} is not one of {sorted(INTENT_KINDS)}")
     if kind == "successor" and not row.get("successor"):
@@ -423,7 +509,8 @@ def _intent_rows(snap: Snapshot) -> list[Mapping]:
 
 
 def _row_key(row: Mapping) -> tuple:
-    return tuple(str(row.get(k)) for k in ("metric", "event", "intent", "successor", "route", "reason"))
+    """Identity only. Rewording an old row's reason or date on main is not a new decision."""
+    return tuple(str(row.get(k)) for k in ("metric", "event", "intent", "successor", "route"))
 
 
 def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
@@ -445,18 +532,30 @@ def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
                                      "Fix the row in monitored_events.yaml intents:.") for p in problems)
         else:
             usable.append(row)
+    used: set[int] = set()
     for f in findings:
         if f.rule.startswith("okr_"):
-            covered = {str(r["metric"]) for r in usable if r["event"] == f.event}
-            if set(f.metrics) <= covered:
+            rows = [i for i, r in enumerate(usable)
+                    if r.get("metric") and r["event"] == f.event and str(r["metric"]) in f.metrics]
+            used.update(rows)
+            if set(f.metrics) <= {str(usable[i]["metric"]) for i in rows}:
+                cleared.append(f)
+                continue
+        if f.rule == "dead_listing":
+            rows = [i for i, r in enumerate(usable) if not r.get("metric")
+                    and r["intent"] == "not_a_change" and r["event"] == f.event]
+            if rows:
+                used.update(rows)
                 cleared.append(f)
                 continue
         remaining.append(f)
+    remaining.extend(
+        Finding("intent_unused", "warn", str(r.get("event")),
+                "This intent row was added in this change but matches no guard finding, so it "
+                "clears nothing.",
+                "Delete the row, or make its event and metric match the block it was meant to clear.")
+        for i, r in enumerate(usable) if i not in used)
     return remaining, cleared
-
-
-class GuardError(Exception):
-    pass
 
 
 @dataclass
@@ -473,7 +572,8 @@ def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.L
     if not event_legs and not path_legs:
         raise GuardError("no watched OKR legs loaded from instrumentation_data/sem; refusing to report a pass")
     found = (okr_findings(base, head, event_legs, path_legs, renames) + dead_listings(base, head)
-             + stale_surface_paths(base, head) + hubspot_warnings(base, head) + new_key_warnings(base, head))
+             + stale_surface_paths(base, head) + watchlist_findings(base, head)
+             + hubspot_warnings(base, head) + new_key_warnings(base, head))
     remaining, cleared = apply_intents(found, base, head)
     # A path leg whose route matches no page is silently unguarded by okr_findings (which only
     # reacts to a route disappearing between base and head), so surface it explicitly: a
@@ -496,38 +596,63 @@ _TITLES = {
     "okr_page_removed": "OKR page removed",
     "dead_listing": "Event removed but still listed",
     "stale_surface_path": "Registry points at a deleted file",
+    "watchlist_unparseable": "monitored_events.yaml does not parse",
     "invalid_intent": "Intent row is not valid",
+    "intent_unused": "Intent row clears nothing",
     "hubspot_event_removed": "HubSpot event removed",
     "naming": "Event name",
     "no_provenance_row": "No provenance row",
 }
 
 
-def render_markdown(report: Report) -> str:
+def _grouped(items: Sequence[Finding]) -> list[str]:
+    """One heading per rule, and each distinct fix printed once under the events it fixes:
+    twenty dead listings share one fix, and repeating it twenty times buries the list."""
+    lines: list[str] = []
+    by_rule: dict[str, dict[str, list[Finding]]] = defaultdict(lambda: defaultdict(list))
+    for f in items:
+        by_rule[f.rule][f.fix].append(f)
+    for rule, by_fix in by_rule.items():
+        lines += [f"#### {_TITLES.get(rule, rule)}", ""]
+        for fix, group in by_fix.items():
+            lines += [f"- `{f.event}`: {f.detail}" for f in group]
+            lines += ["", fix, ""]
+    return lines
+
+
+_TRUNCATED = ("_This comment was cut at {limit:,} characters. The full report is in this "
+              "check's job summary._")
+
+
+def render_markdown(report: Report, limit: int | None = None) -> str:
     lines = ["<!-- analytics-guard -->", "### Analytics guard", ""]
     if not report.blocks and not report.warns:
         lines.append("No analytics governance problems found.")
     for heading, items in (("Blocks merge", report.blocks), ("Warnings", report.warns)):
         if not items:
             continue
-        lines += [f"**{heading}**", ""]
-        for f in items:
-            lines += [f"- **{_TITLES.get(f.rule, f.rule)}**: `{f.event}`. {f.detail}",
-                      "", "  " + f.fix.replace("\n", "\n  "), ""]
+        lines += [f"**{heading}**", ""] + _grouped(items)
     if report.cleared:
         lines += ["**Cleared by an intent row in this change**", ""]
-        lines += [f"- `{f.event}` ({', '.join(f.metrics)})" for f in report.cleared] + [""]
+        lines += [f"- `{f.event}` ({', '.join(f.metrics) or 'not_a_change'})" for f in report.cleared] + [""]
     e = report.examined
-    lines.append(f"_Examined {e['events_compared']} events, {e['okr_legs']} OKR legs, "
-                 f"{e['files_scanned']} files. OKR definitions as of {e['sem_copy_date']}._")
+    footer = [f"_Examined {e['events_compared']} events, {e['okr_legs']} OKR legs, "
+              f"{e['files_scanned']} files. OKR definitions as of {e['sem_copy_date']}._"]
     if e["unmatched_path_legs"]:
-        lines.append("_Path legs with no matching page (not guarded): "
-                     f"{', '.join(e['unmatched_path_legs'])}._")
-    return "\n".join(lines) + "\n"
+        footer.append("_Path legs with no matching page (not guarded): "
+                      f"{', '.join(e['unmatched_path_legs'])}._")
+    text = "\n".join(lines + footer) + "\n"
+    if limit is None or len(text) <= limit:
+        return text
+    tail = "\n".join(["", _TRUNCATED.format(limit=limit), ""] + footer) + "\n"
+    body = "\n".join(lines)
+    return body[:max(0, limit - len(tail))].rsplit("\n", 1)[0] + "\n" + tail
 
 
 def git_renames(repo: Path, base: str, head: str | None) -> dict[str, str]:
-    args = ["diff", "-M50%", "--name-status", base] + ([head] if head else [])
+    # -l0: no rename limit, or a large move PR silently loses rename detection and every
+    # moved call site reads as lost.
+    args = ["diff", "-M50%", "-l0", "--name-status", base] + ([head] if head else [])
     out = {}
     for line in _git(repo, *args).decode().splitlines():
         parts = line.split("\t")
@@ -536,14 +661,25 @@ def git_renames(repo: Path, base: str, head: str | None) -> dict[str, str]:
     return out
 
 
+def load_base_anchors(base: Tree) -> tuple[dict[str, list[sa.Leg]], str | None]:
+    """OKR legs as the merge base declares them, not as the PR's own copy does: a PR that
+    deleted a leg from its vendored copy would otherwise dodge the block it causes. History
+    from before the copy existed falls back to the copy on disk."""
+    texts = base.read_many(f"{SEM_DIR}/{name}" for name in sa.VENDORED_NAMES)
+    if texts:
+        return sa.parse_vendored_texts(texts[k] for k in sorted(texts))
+    return sa.load_vendored_anchors()
+
+
 def _run(args: argparse.Namespace) -> Report:
     repo = Path(args.repo)
-    anchors, sem_date = sa.load_vendored_anchors()
+    base_tree = GitTree(repo, args.base)
+    anchors, sem_date = load_base_anchors(base_tree)
     anchors = {m: list(legs) for m, legs in anchors.items()}
     for spec in args.extra_leg:
         event, _, metric = spec.rpartition("=")
         anchors.setdefault(metric, []).append(sa.Leg(event))
-    base = build_snapshot(GitTree(repo, args.base))
+    base = build_snapshot(base_tree)
     head = build_snapshot(GitTree(repo, args.head) if args.head else WorkTree(repo))
     return evaluate(base, head, anchors, sem_date, git_renames(repo, args.base, args.head))
 
@@ -557,6 +693,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     check.add_argument("--repo", default=str(REPO_ROOT))
     check.add_argument("--json")
     check.add_argument("--markdown")
+    check.add_argument("--summary")
     check.add_argument("--extra-leg", action="append", default=[])
     args = parser.parse_args(argv)
     try:
@@ -572,7 +709,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     md = render_markdown(report)
     print(md)
     if args.markdown:
-        Path(args.markdown).write_text(md)
+        Path(args.markdown).write_text(render_markdown(report, limit=COMMENT_LIMIT))
+    if args.summary:
+        Path(args.summary).write_text(md)
     if args.json:
         Path(args.json).write_text(json.dumps({
             "status": "block" if report.blocks else "pass",

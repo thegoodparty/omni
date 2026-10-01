@@ -111,20 +111,24 @@ _INTENT_ACTIONS = {
 def intent_findings(watchlist_path: Path, anchors: Mapping[str, Sequence[Any]]) -> list[dict]:
     """Intent rows written to clear a pre-merge guard block (DATA-2432). Each is a decision
     already taken in omni that the semantic layer has not caught up with, which is case 2.
-    Once the metric stops declaring the event, the row has done its job."""
+    Once the metric stops watching the event (no leg, or only a historical one, which the
+    guard does not watch either), the row has done its job.
+
+    A row with no metric is a dead-listing false positive a PR reported, not a metric
+    change, so it is skipped here; the triage skill reviews those as guard bugs."""
     path = Path(watchlist_path)
     if not path.exists():
         return []
     doc = yaml.safe_load(path.read_text()) or {}
     out = []
     for row in doc.get("intents") or []:
-        if not isinstance(row, Mapping):
+        if not isinstance(row, Mapping) or not row.get("metric"):
             continue
         metric, event = str(row.get("metric")), str(row.get("event"))
-        declared = {leg.event for leg in anchors.get(metric, [])}
-        if anchors and event not in declared:
+        watched = {leg.event for leg in anchors.get(metric, []) if leg.watched}
+        if anchors and event not in watched:
             out.append(_finding(1, "intent_row_resolved", metric=metric, event_key=event,
-                                headline=f"'{metric}' no longer declares {event}, so its intent row in "
+                                headline=f"'{metric}' no longer watches {event}, so its intent row in "
                                          "monitored_events.yaml has done its job. Delete the row."))
             continue
         action = _INTENT_ACTIONS.get(str(row.get("intent")), "review").format(

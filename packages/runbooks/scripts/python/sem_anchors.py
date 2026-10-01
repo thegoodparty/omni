@@ -20,6 +20,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -278,18 +279,23 @@ def refresh_vendored(directory: Path = VENDORED_DIR, token: str | None = None,
     return problems
 
 
-def load_vendored_anchors(directory: Path = VENDORED_DIR) -> tuple[dict[str, list[Leg]], str | None]:
+VENDORED_NAMES = tuple(path.rsplit("/", 1)[-1] for path in SEM_PATHS)
+
+
+def parse_vendored_texts(texts: Iterable[str]) -> tuple[dict[str, list[Leg]], str | None]:
+    """Anchors across vendored copies, plus the oldest refresh date among them."""
     anchors: dict[str, list[Leg]] = {}
     dates: list[str] = []
-    for path in SEM_PATHS:
-        file = directory / path.rsplit("/", 1)[-1]
-        if not file.exists():
-            continue
-        text = file.read_text()
+    for text in texts:
         anchors.update(parse_anchors(text))
         if m := _REFRESHED.search(text):
             dates.append(m.group(1))
     return anchors, (min(dates) if dates else None)
+
+
+def load_vendored_anchors(directory: Path = VENDORED_DIR) -> tuple[dict[str, list[Leg]], str | None]:
+    files = [directory / name for name in VENDORED_NAMES]
+    return parse_vendored_texts(f.read_text() for f in files if f.exists())
 
 
 def load_metric_labels(token: str | None = None) -> dict[str, str]:
