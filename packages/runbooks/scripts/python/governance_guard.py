@@ -301,3 +301,93 @@ def hubspot_warnings(base: Snapshot, head: Snapshot) -> list[Finding]:
                 "Check the HubSpot workflow that triggers on it (see segment.types.ts) before merging.")
         for name in sorted(base.hubspot) if not head.has_key(name)
     ]
+
+
+def watched_legs(anchors: Mapping[str, Sequence[sa.Leg]]
+                 ) -> tuple[dict[str, tuple[str, ...]], dict[tuple[str, str], tuple[str, ...]]]:
+    """Event legs are guarded by call site; path legs by the page that serves the path. A
+    path leg like `Viewed` on `/dashboard` is a generic page event, so counting its name
+    across the codebase would measure nothing."""
+    events: dict[str, set[str]] = defaultdict(set)
+    paths: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for metric, legs in anchors.items():
+        for leg in legs:
+            if not leg.watched:
+                continue
+            if leg.path:
+                paths[(leg.event, leg.path)].add(metric)
+            else:
+                events[leg.event].add(metric)
+    return ({e: tuple(sorted(m)) for e, m in events.items()},
+            {k: tuple(sorted(m)) for k, m in paths.items()})
+
+
+def intent_fix(event: str, metrics: Sequence[str]) -> str:
+    rows = "\n".join(
+        f'  - {{metric: {m}, event: "{event}", intent: retire_activity, reason: "<why>", date: "YYYY-MM-DD"}}'
+        for m in metrics
+    )
+    return (
+        "This event counts toward an OKR, so say what is happening to the activity. Add one "
+        "line per metric to the intents: block of packages/runbooks/scripts/python/"
+        f"monitored_events.yaml:\n{rows}\n"
+        "intent is one of: retire_activity (stop counting it), successor (add successor: "
+        '"<event>"), relocated (add route: "/path"), not_a_change (the guard is wrong; '
+        "say why). If the call site moved on purpose, restoring it also clears this."
+    )
+
+
+def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[str, ...]],
+                 path_legs: Mapping[tuple[str, str], tuple[str, ...]],
+                 renames: Mapping[str, str]) -> list[Finding]:
+    out = []
+    for event, metrics in sorted(event_legs.items()):
+        before, after = base.files_for(event), head.files_for(event)
+        for path, n in sorted(before.items()):
+            now = after.get(renames.get(path, path), 0)
+            if now < n:
+                out.append(Finding(
+                    "okr_call_site_lost", "block", event,
+                    f"{path} had {n} call site(s) of this OKR event and now has {now}.",
+                    intent_fix(event, metrics), metrics))
+            elif not _is_route_file(path) and path in head.files \
+                    and base.importers(path) and not head.importers(path):
+                out.append(Finding(
+                    "okr_file_unused", "block", event,
+                    f"{path} still sends this OKR event, but nothing imports it any more, so it never runs.",
+                    intent_fix(event, metrics), metrics))
+    for (event, route), metrics in sorted(path_legs.items()):
+        if route in base.page_routes and route not in head.page_routes:
+            out.append(Finding(
+                "okr_page_removed", "block", event,
+                f"The page for {route} was removed or moved; this OKR counts '{event}' on that path.",
+                intent_fix(event, metrics), metrics))
+    return out
+
+
+def _surface_paths(snap: Snapshot) -> set[str]:
+    return {s["path"] for b in snap.watchlist.get("behaviors") or []
+            for s in b.get("surfaces") or [] if s.get("path")}
+
+
+def stale_surface_paths(base: Snapshot, head: Snapshot) -> list[Finding]:
+    return [
+        Finding("stale_surface_path", "block", "(registry)",
+                f"monitored_events.yaml declares {p} as a surface, and this change removed that file.",
+                "Update that surface's path: in monitored_events.yaml to where the code lives now.")
+        for p in sorted(_surface_paths(head)) if p in base.all_paths and p not in head.all_paths
+    ]
+
+
+def new_key_warnings(base: Snapshot, head: Snapshot) -> list[Finding]:
+    out = []
+    for name in sorted(head.registered() - base.registered()):
+        if ":" in name or re.search(r"\bClick\b", name):
+            out.append(Finding("naming", "warn", name,
+                               "New event names use 'Area - Object Action' with no colon and no 'Click'.",
+                               "Rename it per the instrument-analytics-event skill before it ships."))
+        if name not in head.provenance_events:
+            out.append(Finding("no_provenance_row", "warn", name,
+                               "New event with no provenance row.",
+                               "Run the instrument-analytics-event skill's provenance upsert step."))
+    return out
