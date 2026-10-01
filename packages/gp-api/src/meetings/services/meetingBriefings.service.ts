@@ -121,6 +121,24 @@ const extractDiscoveredAgendaLocation = (artifact: unknown): string | null => {
   )
 }
 
+// agenda_availability values under which a ready artifact may become a row.
+// partial, not_published, and inferred_from_prior mean this meeting's agenda
+// was not read; the instruction maps them to awaiting_agenda and this file
+// refuses them if the agent did not.
+const PUBLISHABLE_AGENDA_AVAILABILITY: ReadonlySet<string> = new Set([
+  'full_packet',
+  'html_agenda',
+])
+// Source types that count as evidence an agenda was read. government_website
+// covers the agenda page itself when the PDF packet sits behind a sign-in wall.
+const AGENDA_EVIDENCE_SOURCE_TYPES: ReadonlySet<string> = new Set([
+  'agenda_packet',
+  'government_website',
+])
+// A user-pasted packet whose stated date is this far from the target meeting
+// is treated as a different meeting. Holiday shifts of a day or two pass.
+const PACKET_DATE_TOLERANCE_DAYS = 3
+
 // Identifies the daily-briefing cron in the cron_run lease table.
 const DAILY_BRIEFINGS_CRON_JOB = 'dispatchDailyBriefings'
 
@@ -1216,6 +1234,27 @@ export class MeetingBriefingsService extends createPrismaBase(
       return
     }
 
+    const refusal = await this.assessPublishability(
+      run,
+      electedOffice.id,
+      briefingStatus,
+      dateString,
+      artifact,
+    )
+    if (refusal) {
+      this.logger.warn(
+        { runId: run.runId, briefingStatus, refusal },
+        'meeting_briefing artifact cannot be published as ready; skipping row write so the slot stays open',
+      )
+      await this.trackAgendaNotCreated(
+        run,
+        electedOffice,
+        'awaiting_agenda',
+        artifact,
+      )
+      return
+    }
+
     const resolved = this.resolveMeetingTimeFields(
       artifact,
       briefingStatus === 'agenda_provided_by_user',
@@ -1259,6 +1298,100 @@ export class MeetingBriefingsService extends createPrismaBase(
       meetingTime,
       meetingTimezone,
     })
+  }
+
+  /**
+   * Decide whether a ready or user-provided artifact may become a briefing
+   * row. Returns null when it may, otherwise a short machine-readable reason.
+   *
+   * The agent's own agenda_availability value is the principal signal: the
+   * instruction forbids a ready briefing when this meeting's agenda was
+   * unavailable, and this is where that rule is enforced rather than trusted.
+   * The remaining checks are the evidence gp-api can observe for itself: at
+   * least one agenda or government-website source with text, an upload row
+   * for the user-provided path, and the date the packet states.
+   *
+   * Two allowances are deliberate and temporary: an artifact without
+   * agenda_availability (produced before the field existed) is published with
+   * an info log, and an empty agenda_packet_url is a warning. Both become
+   * refusals once every live run records the new fields.
+   */
+  private async assessPublishability(
+    run: ExperimentRun,
+    electedOfficeId: string,
+    briefingStatus: 'briefing_ready' | 'agenda_provided_by_user',
+    dateString: string,
+    artifact: PrismaJson.MeetingBriefingArtifact,
+  ): Promise<string | null> {
+    const runMetadata = artifact.run_metadata
+    const availability = readStringField(runMetadata, 'agenda_availability')
+    if (availability === null) {
+      this.logger.info(
+        { runId: run.runId },
+        'meeting_briefing artifact predates agenda_availability; publishing without the availability check',
+      )
+    } else if (!PUBLISHABLE_AGENDA_AVAILABILITY.has(availability)) {
+      return `agenda_unavailable:${availability}`
+    }
+
+    const sources = Array.isArray(artifact.sources) ? artifact.sources : []
+    const hasAgendaEvidence = sources.some(
+      (source) =>
+        AGENDA_EVIDENCE_SOURCE_TYPES.has(String(source?.source_type ?? '')) &&
+        typeof source?.retrieved_text_or_snapshot === 'string' &&
+        source.retrieved_text_or_snapshot.trim().length > 0,
+    )
+    if (!hasAgendaEvidence) {
+      return 'no_agenda_evidence'
+    }
+
+    const packetUrl = readStringField(runMetadata, 'agenda_packet_url')
+    if (!packetUrl || packetUrl.trim().length === 0) {
+      this.logger.warn(
+        { runId: run.runId, briefingStatus },
+        'meeting_briefing published with an empty agenda_packet_url',
+      )
+    }
+
+    if (briefingStatus === 'agenda_provided_by_user') {
+      const upload = await this.client.userAgendaUpload.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId,
+            meetingDate: parseIsoDateAsUTC(dateString),
+          },
+        },
+        select: { experimentRunId: true, sourceUrl: true, uploadKey: true },
+      })
+      if (
+        !upload ||
+        upload.experimentRunId !== run.runId ||
+        (!upload.sourceUrl && !upload.uploadKey)
+      ) {
+        return 'no_user_agenda_upload_for_run'
+      }
+      const statedDate = readStringField(
+        runMetadata,
+        'packet_stated_meeting_date',
+      )
+      const verification = readStringField(
+        runMetadata,
+        'packet_date_verification',
+      )
+      const statedDateIsFarOff =
+        statedDate !== null &&
+        /^\d{4}-\d{2}-\d{2}$/.test(statedDate) &&
+        Math.abs(
+          differenceInCalendarDays(
+            parseIsoDateAsUTC(statedDate),
+            parseIsoDateAsUTC(dateString),
+          ),
+        ) > PACKET_DATE_TOLERANCE_DAYS
+      if (verification === 'mismatched' || statedDateIsFarOff) {
+        return `packet_date_mismatch:${statedDate ?? 'unknown'}:${dateString}`
+      }
+    }
+    return null
   }
 
   // The lookup's target date comes from the dispatch params (the

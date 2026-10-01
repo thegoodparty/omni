@@ -177,7 +177,10 @@
             "required": [
               "agenda_packet_url",
               "source_bundle_retrieved_at",
-              "discovered_agenda_location"
+              "discovered_agenda_location",
+              "agenda_availability",
+              "packet_stated_meeting_date",
+              "packet_date_verification"
             ],
             "properties": {
               "agenda_packet_url": {
@@ -188,6 +191,21 @@
                 "type": ["string", "null"],
                 "maxLength": 2000,
                 "description": "Best current prose describing where future agenda packets will likely be found for this body, persisted by gp-api as a hint for subsequent runs. Prefer a URL to the PARENT page that lists meetings (e.g. the streaming platform's calendar, the city's agendas index, a CDN directory) — not the deep link to today's specific packet PDF. Prose with multi-step navigation is allowed when no single URL captures it. Emit even on awaiting_agenda / no_meeting_found runs when the parent page was still reachable; set to null only when no plausible future-run starting point exists."
+              },
+              "agenda_availability": {
+                "type": "string",
+                "enum": ["full_packet", "html_agenda", "partial", "not_published", "inferred_from_prior"],
+                "description": "v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda; gp-api refuses a ready row that carries them."
+              },
+              "packet_stated_meeting_date": {
+                "type": ["string", "null"],
+                "format": "date",
+                "description": "The meeting date the agenda document itself states, read from its cover or header. null when no date could be read."
+              },
+              "packet_date_verification": {
+                "type": "string",
+                "enum": ["matched", "mismatched", "unavailable"],
+                "description": "matched: packet_stated_meeting_date is within three days of meeting_date. mismatched: it is further off. unavailable: no date could be read from the document. Recorded so a missing date is a known state, not a silent pass."
               },
               "source_bundle_retrieved_at": {
                 "type": "string",
@@ -346,7 +364,10 @@
             "required": [
               "agenda_packet_url",
               "source_bundle_retrieved_at",
-              "discovered_agenda_location"
+              "discovered_agenda_location",
+              "agenda_availability",
+              "packet_stated_meeting_date",
+              "packet_date_verification"
             ],
             "properties": {
               "agenda_packet_url": {
@@ -357,6 +378,21 @@
                 "type": ["string", "null"],
                 "maxLength": 2000,
                 "description": "Best current prose describing where future agenda packets will likely be found for this body, persisted by gp-api as a hint for subsequent runs. Prefer a URL to the PARENT page that lists meetings (e.g. the streaming platform's calendar, the city's agendas index, a CDN directory) — not the deep link to today's specific packet PDF. Prose with multi-step navigation is allowed when no single URL captures it. Emit even on awaiting_agenda / no_meeting_found runs when the parent page was still reachable; set to null only when no plausible future-run starting point exists."
+              },
+              "agenda_availability": {
+                "type": "string",
+                "enum": ["full_packet", "html_agenda", "partial", "not_published", "inferred_from_prior"],
+                "description": "v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda; gp-api refuses a ready row that carries them."
+              },
+              "packet_stated_meeting_date": {
+                "type": ["string", "null"],
+                "format": "date",
+                "description": "The meeting date the agenda document itself states, read from its cover or header. null when no date could be read."
+              },
+              "packet_date_verification": {
+                "type": "string",
+                "enum": ["matched", "mismatched", "unavailable"],
+                "description": "matched: packet_stated_meeting_date is within three days of meeting_date. mismatched: it is further off. unavailable: no date could be read from the document. Recorded so a missing date is a known state, not a silent pass."
               },
               "source_bundle_retrieved_at": {
                 "type": "string",

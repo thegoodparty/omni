@@ -613,6 +613,147 @@ def _framing_leak(text: str, strict: bool):
     return _CONSTITUENT_TERM_RE.search(text) if strict else None
 
 
+_READY_STATUSES = frozenset({"briefing_ready", "agenda_provided_by_user"})
+_REFUSED_AVAILABILITY = frozenset({"partial", "not_published", "inferred_from_prior"})
+_AGENDA_EVIDENCE_TYPES = frozenset({"agenda_packet", "government_website"})
+# Audit phrases only. Coarse on purpose: this check observes, it never gates.
+_UNAVAILABLE_AGENDA_PHRASES = (
+    "not yet published",
+    "prior packet",
+    "packet_access_partial",
+    "no_agenda_yet",
+)
+_MONTHS = {
+    m: i
+    for i, m in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1
+    )
+}
+_MONTH_DATE_RE = re.compile(
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})",
+    re.IGNORECASE,
+)
+_ISO_DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+_NUMERIC_DATE_RE = re.compile(r"(?<!\d)(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})(?!\d)")
+
+
+def _dates_in_text(text: str) -> set[date]:
+    """Every calendar date mentioned in text, in the forms agendas actually use."""
+    found: set[date] = set()
+    for m in _MONTH_DATE_RE.finditer(text):
+        try:
+            found.add(date(int(m.group(3)), _MONTHS[m.group(1)[:3].lower()], int(m.group(2))))
+        except (ValueError, KeyError):
+            pass
+    for m in _ISO_DATE_RE.finditer(text):
+        try:
+            found.add(date(int(m.group(1)), int(m.group(2)), int(m.group(3))))
+        except ValueError:
+            pass
+    for m in _NUMERIC_DATE_RE.finditer(text):
+        mm, dd, yy = (int(x) for x in m.groups())
+        yy = yy + 2000 if yy < 100 else yy
+        try:
+            found.add(date(yy, mm, dd))
+        except ValueError:
+            pass
+    return found
+
+
+def check_agenda_availability_consistency(artifact: dict, findings: list[Finding]) -> None:
+    """A ready briefing must be able to show it used an available agenda.
+
+    Mirrors the gp-api publication gate: ready or user-provided status with an
+    availability value that says the agenda was unavailable is an error, and so
+    is a ready artifact that cites no agenda or government-website source with
+    text at all. An empty agenda_packet_url on a ready artifact is a warning for
+    now; it becomes an error once every live run records one.
+    """
+    status = artifact.get("briefing_status")
+    if status not in _READY_STATUSES:
+        return
+    rm = artifact.get("run_metadata") or {}
+    availability = rm.get("agenda_availability")
+    if availability in _REFUSED_AVAILABILITY:
+        findings.append(Finding(
+            "agenda_availability.ready_without_agenda",
+            "error",
+            f"briefing_status='{status}' but run_metadata.agenda_availability='{availability}'. "
+            "A briefing built without this meeting's agenda cannot be ready; set briefing_status "
+            "to 'awaiting_agenda' so the slot stays open.",
+        ))
+    sources = artifact.get("sources") or []
+    evidence = [
+        s for s in sources
+        if s.get("source_type") in _AGENDA_EVIDENCE_TYPES
+        and (s.get("retrieved_text_or_snapshot") or "").strip()
+    ]
+    if not evidence:
+        findings.append(Finding(
+            "agenda_availability.no_agenda_evidence",
+            "error",
+            f"briefing_status='{status}' but no agenda_packet or government_website source carries "
+            "retrieved text. Nothing in the artifact shows an agenda was read.",
+        ))
+    if not (rm.get("agenda_packet_url") or "").strip():
+        findings.append(Finding(
+            "agenda_packet_url.empty_on_ready",
+            "warning",
+            f"briefing_status='{status}' with an empty run_metadata.agenda_packet_url. For an HTML "
+            "agenda, set it to the page the items were read from.",
+        ))
+
+
+def check_agenda_sources_dated_to_meeting(artifact: dict, findings: list[Finding]) -> None:
+    """Audit check, warning only: do the cited agenda documents mention this meeting's date?
+
+    Publication dates, revision dates, fiscal years, and multi-session meetings
+    all defeat this heuristic, so it observes and never gates.
+    """
+    status = artifact.get("briefing_status")
+    if status not in _READY_STATUSES:
+        return
+    meeting_date_raw = artifact.get("meeting_date")
+    try:
+        meeting_date = date.fromisoformat(str(meeting_date_raw))
+    except (TypeError, ValueError):
+        return
+    agenda_sources = [
+        s for s in (artifact.get("sources") or []) if s.get("source_type") == "agenda_packet"
+    ]
+    if not agenda_sources:
+        return
+    for s in agenda_sources:
+        text = f"{s.get('name') or ''} {(s.get('retrieved_text_or_snapshot') or '')[:3000]}"
+        if any(abs((d - meeting_date).days) <= 3 for d in _dates_in_text(text)):
+            return
+    findings.append(Finding(
+        "agenda_sources.not_dated_to_meeting",
+        "warning",
+        f"None of the {len(agenda_sources)} agenda_packet sources mention a date within three days "
+        f"of meeting_date {meeting_date.isoformat()}. Worth a look: the documents may be for another meeting.",
+    ))
+
+
+def check_run_decisions_admit_unavailable_agenda(artifact: dict, findings: list[Finding]) -> None:
+    """Audit check, warning only: a ready artifact whose decision trail says the agenda was unavailable."""
+    status = artifact.get("briefing_status")
+    if status not in _READY_STATUSES:
+        return
+    decisions = (artifact.get("run_metadata") or {}).get("run_decisions") or []
+    for d in decisions:
+        text = f"{d.get('decision') or ''} {d.get('reason') or ''}".lower()
+        hit = next((p for p in _UNAVAILABLE_AGENDA_PHRASES if p in text), None)
+        if hit:
+            findings.append(Finding(
+                "run_decisions.admits_unavailable_agenda",
+                "warning",
+                f"briefing_status='{status}' but a decision-trail entry says '{hit}' "
+                f"(decision='{d.get('decision')}'). Check agenda_availability and briefing_status.",
+            ))
+            return
+
+
 def check_no_data_internals_in_candidate_text(artifact: dict, findings: list[Finding]) -> None:
     """Candidate-facing text must never expose data-source internals, nor the
     instruction's own "posture override" directive. Unambiguous internals (hs_*,
@@ -702,5 +843,8 @@ CHECKS = [
     check_run_decisions_meaningful,
     check_awaiting_agenda_discovery_depth,
     check_discovered_agenda_location,
+    check_agenda_availability_consistency,
+    check_agenda_sources_dated_to_meeting,
+    check_run_decisions_admit_unavailable_agenda,
     check_no_data_internals_in_candidate_text,
 ]

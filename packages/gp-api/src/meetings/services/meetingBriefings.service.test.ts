@@ -511,6 +511,13 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
         meeting_timezone: 'America/Chicago',
         meeting_name: 'City Council',
         location: 'Council Chambers',
+        sources: [
+          {
+            id: 'src_001',
+            source_type: 'agenda_packet',
+            retrieved_text_or_snapshot: 'Agenda for the June 8 meeting.',
+          },
+        ],
       }),
     })
 
@@ -637,6 +644,16 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
         params: { elected_office_id: eo.id },
       },
     })
+    await service.prisma.userAgendaUpload.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: new Date('2026-06-08'),
+        source: 'URL',
+        sourceUrl: 'https://example.gov/special-session.pdf',
+        uploadedByUserId: service.user.id,
+        experimentRunId: briefingRun.runId,
+      },
+    })
     mockS3({
       'briefing.json': JSON.stringify({
         briefing_status: 'agenda_provided_by_user',
@@ -644,6 +661,13 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
         meeting_time: '',
         meeting_timezone: '',
         meeting_name: 'Special Session',
+        sources: [
+          {
+            id: 'src_001',
+            source_type: 'agenda_packet',
+            retrieved_text_or_snapshot: 'Special session agenda text.',
+          },
+        ],
       }),
     })
 
@@ -989,6 +1013,13 @@ describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)
         meeting_name: 'City Council',
         location: 'Council Chambers',
         executive_summary: { lead_in: 'Big vote tonight.' },
+        sources: [
+          {
+            id: 'src_001',
+            source_type: 'agenda_packet',
+            retrieved_text_or_snapshot: 'Agenda for the June 8 meeting.',
+          },
+        ],
       }),
     })
     return { eo, briefingRun }
@@ -2408,5 +2439,255 @@ describe('MeetingBriefingsService location hints', () => {
       },
     })
     expect(row).toBeNull()
+  })
+})
+
+describe('publication gate: ready briefings must show an available agenda', () => {
+  const MEETING_DATE = '2026-06-08'
+
+  const agendaSource = (overrides: Record<string, unknown> = {}) => ({
+    id: 'src_001',
+    name: 'Council Agenda',
+    url: 'https://example.gov/agenda.pdf',
+    source_type: 'agenda_packet',
+    retrieved_text_or_snapshot: 'Agenda for the June 8, 2026 regular meeting.',
+    ...overrides,
+  })
+
+  const setupRun = async (artifact: Record<string, unknown>) => {
+    const orgSlug = `eo-gate-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: service.user.id },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'briefing.json',
+        params: { elected_office_id: eo.id, meetingDate: MEETING_DATE },
+      },
+    })
+    mockS3({
+      'briefing.json': JSON.stringify({
+        meeting_date: MEETING_DATE,
+        meeting_time: '19:00',
+        meeting_timezone: 'America/Chicago',
+        meeting_name: 'City Council',
+        location: 'Council Chambers',
+        sources: [agendaSource()],
+        ...artifact,
+      }),
+    })
+    return { eo, briefingRun }
+  }
+
+  const complete = (run: ExperimentRun) =>
+    service.app.get(MeetingBriefingsService).onExperimentRunCompleted(run)
+
+  const rowFor = (electedOfficeId: string) =>
+    service.prisma.meetingBriefing.findUnique({
+      where: {
+        electedOfficeId_meetingDate: {
+          electedOfficeId,
+          meetingDate: new Date(MEETING_DATE),
+        },
+      },
+    })
+
+  const readyWith = (runMetadata: Record<string, unknown>) => ({
+    briefing_status: 'briefing_ready',
+    run_metadata: {
+      agenda_packet_url: 'https://example.gov/agenda.pdf',
+      discovered_agenda_location: 'https://example.gov/agendas',
+      ...runMetadata,
+    },
+  })
+
+  it.each(['partial', 'not_published', 'inferred_from_prior'])(
+    'writes no row when a ready artifact reports agenda_availability=%s',
+    async (availability) => {
+      const { eo, briefingRun } = await setupRun(
+        readyWith({ agenda_availability: availability }),
+      )
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+    },
+  )
+
+  it.each(['full_packet', 'html_agenda'])(
+    'writes the row when a ready artifact reports agenda_availability=%s',
+    async (availability) => {
+      const { eo, briefingRun } = await setupRun(
+        readyWith({ agenda_availability: availability }),
+      )
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).not.toBeNull()
+    },
+  )
+
+  it('writes the row when agenda_availability is absent (artifact predates the field)', async () => {
+    const { eo, briefingRun } = await setupRun(readyWith({}))
+    await complete(briefingRun)
+    expect(await rowFor(eo.id)).not.toBeNull()
+  })
+
+  it('writes no row when a ready artifact cites no agenda or government-website source with text', async () => {
+    const { eo, briefingRun } = await setupRun({
+      ...readyWith({ agenda_availability: 'full_packet' }),
+      sources: [
+        agendaSource({ source_type: 'news' }),
+        agendaSource({ id: 'src_002', retrieved_text_or_snapshot: '   ' }),
+      ],
+    })
+    await complete(briefingRun)
+    expect(await rowFor(eo.id)).toBeNull()
+  })
+
+  it('accepts an HTML agenda page cited as a government website', async () => {
+    const { eo, briefingRun } = await setupRun({
+      ...readyWith({
+        agenda_availability: 'html_agenda',
+        agenda_packet_url: 'https://portal.example.gov/event/1',
+      }),
+      sources: [
+        agendaSource({
+          source_type: 'government_website',
+          url: 'https://portal.example.gov/event/1',
+        }),
+      ],
+    })
+    await complete(briefingRun)
+    expect(await rowFor(eo.id)).not.toBeNull()
+  })
+
+  it('still writes the row when the packet URL is empty (warning only for now)', async () => {
+    const { eo, briefingRun } = await setupRun(
+      readyWith({
+        agenda_availability: 'html_agenda',
+        agenda_packet_url: null,
+      }),
+    )
+    await complete(briefingRun)
+    expect(await rowFor(eo.id)).not.toBeNull()
+  })
+
+  it('still persists the discovered agenda hint when the row is refused', async () => {
+    const { eo, briefingRun } = await setupRun(
+      readyWith({
+        agenda_availability: 'not_published',
+        discovered_agenda_location: 'https://example.gov/agendas',
+      }),
+    )
+    await complete(briefingRun)
+    expect(await rowFor(eo.id)).toBeNull()
+    const hint = await service.prisma.meetingResourceLocation.findUnique({
+      where: {
+        electedOfficeId_type: {
+          electedOfficeId: eo.id,
+          type: MeetingResourceLocationType.AGENDA,
+        },
+      },
+    })
+    expect(hint?.description).toBe('https://example.gov/agendas')
+  })
+
+  describe('user-provided agendas', () => {
+    const userProvided = (runMetadata: Record<string, unknown>) => ({
+      briefing_status: 'agenda_provided_by_user',
+      run_metadata: {
+        agenda_packet_url: 'https://example.gov/pasted.pdf',
+        discovered_agenda_location: null,
+        agenda_availability: 'full_packet',
+        ...runMetadata,
+      },
+    })
+
+    const uploadRowFor = (
+      electedOfficeId: string,
+      experimentRunId: string | null,
+    ) =>
+      service.prisma.userAgendaUpload.create({
+        data: {
+          electedOfficeId,
+          meetingDate: new Date(MEETING_DATE),
+          source: 'URL',
+          sourceUrl: 'https://example.gov/pasted.pdf',
+          uploadedByUserId: service.user.id,
+          experimentRunId,
+        },
+      })
+
+    it('writes the row when an upload row for this run exists', async () => {
+      const { eo, briefingRun } = await setupRun(userProvided({}))
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).not.toBeNull()
+    })
+
+    it('writes no row when no upload row exists for the meeting', async () => {
+      const { eo, briefingRun } = await setupRun(userProvided({}))
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+    })
+
+    it('writes no row when the upload row belongs to a different run', async () => {
+      const { eo, briefingRun } = await setupRun(userProvided({}))
+      await uploadRowFor(eo.id, null)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+    })
+
+    it('writes no row when the packet states a date two weeks from the target', async () => {
+      const { eo, briefingRun } = await setupRun(
+        userProvided({
+          packet_stated_meeting_date: '2026-05-25',
+          packet_date_verification: 'mismatched',
+        }),
+      )
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+    })
+
+    it('writes no row on a stated-date mismatch even when the agent called it matched', async () => {
+      const { eo, briefingRun } = await setupRun(
+        userProvided({
+          packet_stated_meeting_date: '2026-05-25',
+          packet_date_verification: 'matched',
+        }),
+      )
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+    })
+
+    it('writes the row when the packet states a date one day off (holiday shift)', async () => {
+      const { eo, briefingRun } = await setupRun(
+        userProvided({
+          packet_stated_meeting_date: '2026-06-09',
+          packet_date_verification: 'matched',
+        }),
+      )
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).not.toBeNull()
+    })
+
+    it('writes the row when the packet date could not be read', async () => {
+      const { eo, briefingRun } = await setupRun(
+        userProvided({
+          packet_stated_meeting_date: null,
+          packet_date_verification: 'unavailable',
+        }),
+      )
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).not.toBeNull()
+    })
   })
 })
