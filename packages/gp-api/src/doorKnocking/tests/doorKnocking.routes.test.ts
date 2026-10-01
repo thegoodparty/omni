@@ -5761,8 +5761,8 @@ describe('door-knocking routes', () => {
       // The head lands ahead of the people-db call, not just ahead of its
       // result, so wait for the build to actually be in flight before
       // releasing it. Resolved from inside the call rather than polled for:
-      // the district resolve in front of it reaches election-api over the
-      // network, which on a loaded runner outlasts vi.waitFor's 1s default.
+      // the two interaction reads in front of it are Postgres round trips,
+      // which on a loaded runner outlast vi.waitFor's 1s default.
       await buildStarted
       finishBuild(packBytes)
       await ended
@@ -5831,9 +5831,8 @@ describe('door-knocking routes', () => {
         (res.data as Readable).once('data', () => resolve()),
       )
       // The head is pushed before the build starts, so the first chunk above
-      // says nothing about the build being in flight. What separates the two
-      // is a district resolve (an election-api round trip) plus the two
-      // interaction reads, which a loaded runner does not reliably finish
+      // says nothing about the build being in flight. What separates the two is
+      // the interaction reads, which a loaded runner does not reliably finish
       // inside vi.waitFor's 1s default — so this waits on the call itself.
       const buildSignal = await buildStarted
       expect(buildSignal).toBeDefined()
@@ -5848,6 +5847,48 @@ describe('door-knocking routes', () => {
         buildSignal?.addEventListener('abort', () => resolve(), { once: true })
       })
       expect(buildSignal?.aborted).toBe(true)
+    })
+
+    // The 2026-09-30 page: an organization with no office and no district
+    // override asked for its map, the resolve failed in under a millisecond,
+    // and because it ran INSIDE the build the answer had to be an error frame
+    // under a 200 — which is the mid-response build-failure alert, for a
+    // request that was never answerable. Eligibility is decidable about the
+    // request, so it belongs in front of the envelope, and this pins the
+    // ordering at the wire: a status the client can act on, and no bytes.
+    it('refuses an organization with no district before writing anything', async () => {
+      const suffix = Date.now()
+      const slug = `campaign-dk-nodistrict-${suffix}`
+      await service.prisma.organization.create({
+        data: { slug, ownerId: service.user.id },
+      })
+      // Pro, so the refusal below can only be the missing district.
+      await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: `dk-campaign-nodistrict-${suffix}`,
+          organizationSlug: slug,
+          isPro: true,
+        },
+      })
+      const packSpy = vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      )
+
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        headers: { 'x-organization-slug': slug },
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(res.status).toBe(400)
+      // Not a truncated 200: the envelope never opened, so the decoder is never
+      // handed a response whose only frame is an error.
+      expect(
+        Buffer.from(res.data as ArrayBuffer).toString('ascii'),
+      ).not.toContain(PACK_STREAM_MAGIC)
+      expect(packSpy).not.toHaveBeenCalled()
     })
   })
 
