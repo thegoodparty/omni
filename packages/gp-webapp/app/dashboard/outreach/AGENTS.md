@@ -317,7 +317,7 @@ draft rows only.
 
 **Analytics for all of this is `EVENTS.Outreach.Draft` and
 `EVENTS.Outreach.Gate`** (`helpers/analyticsHelper.ts`), and every one of the
-six carries `channel` in the gate's own vocabulary (`GateChannel`: `sms`, not
+seven carries `channel` in the gate's own vocabulary (`GateChannel`: `sms`, not
 `text` — `OutreachHubPage`'s `GATE_CHANNEL` translates). `Draft.Saved` fires
 from each flow's `handleSaveDraft` on the 201 only, never on the 409 (that
 wrote nothing). `Draft.Resumed` fires once, in the hub's `openChannel` — the
@@ -331,7 +331,10 @@ screen is not a second view), `Gate.ExplainerViewed` once per open, and
 `Gate.ExplainerCta` on every footer button including the "Later" dismiss,
 naming it in `cta` (`upgrade` | `verify` | `pin` | `dismiss`) — the dialog's
 X is not a footer button and reports nothing, so a `'pro'` explainer, whose
-only way out is the X, has no dismiss event. The deep link's own
+only way out is the X, has no dismiss event. `Gate.InReviewViewed` fires from `OutreachGate` each
+time the in-review notice opens, with `channel` only (its requirement is
+always `in_review`); the gate's Pro, verification and PIN screens report
+through `ProUpgradeFlow`, `CampaignVerificationSteps` and `PinDialog`. The deep link's own
 `ClickCreate` carries `resumed: true` when the arrival will resume a saved
 row, which the hub answers through its `resumesDraft` prop — the deep link
 cannot see the history itself, and without it a resume counts as a create.

@@ -57,8 +57,8 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | deprecating | set | last fire on/before `retired_date`, within 30d holding window | informational (fresh retirees land here even while pre-retirement traffic still sits in the 30d count) |
 | orphaned_firing | set | last fire *after* `retired_date` (+ small grace for deploy/pipeline lag) | highest severity, escalate |
 | retired | set | quiet 30d+ | none |
-| code_unknown | no provenance row | any | auto-tracked or brand-new; anomaly-watched only |
-| instrumented_never_observed | present, not retired | never in catalog | possible broken instrumentation; flag |
+| code_unknown | no provenance row, or a blank one | any | auto-tracked, fired from outside this repo, or never built; anomaly-watched only |
+| instrumented_never_observed | found in code, not retired | never in catalog | possible broken instrumentation; flag |
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); anomaly-watched, never a status flag |
 
 Severity ranks (0 = loudest): 0 OKR anchor dormant (latched), see DATA-2421, or counter

@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { AGENTS, AgentEntrySchema, coverage, findAgent } from './agents'
 
@@ -51,11 +53,48 @@ describe('the agent registry', () => {
 describe('coverage', () => {
   it('excludes blocked agents from the denominator', () => {
     const { wired, judgeable, blocked } = coverage()
-    // Briefing annotation has no handler yet, so it cannot be judged. It is
-    // named rather than dropped so the gap stays visible.
-    expect(blocked.map((a) => a.agentId)).toEqual(['briefing_annotation'])
-    expect(judgeable).toBe(20)
+    // Both are named rather than dropped, so the gap stays visible: briefing
+    // annotation has no handler yet, and compliance_setup must not be swept
+    // at all.
+    expect(blocked.map((a) => a.agentId).sort()).toEqual([
+      'briefing_annotation',
+      'compliance_setup',
+    ])
+    expect(judgeable).toBe(19)
     expect(wired).toBe(0)
+  })
+
+  // THE ONE EXPERIMENT THAT BYPASSES PERMISSION PROMPTS, and the reason this
+  // is a control rather than bookkeeping: captureArm skips a blocked agent,
+  // so `all` cannot reach it and neither can a request that names it. The
+  // assertion is against the manifest rather than a hardcoded list, so an
+  // experiment that gains bypassPermissions later fails here instead of
+  // quietly becoming sweepable.
+  it('blocks every experiment whose manifest bypasses permissions', () => {
+    const dir = path.resolve(
+      __dirname,
+      '../../../../../..',
+      'packages/runbooks/experiments',
+    )
+    const bypassing = readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && e.name !== '_schema')
+      .filter((e) => {
+        const file = path.join(dir, e.name, 'manifest.json')
+        if (!existsSync(file)) return false
+        const manifest: { permission_mode?: string } = JSON.parse(
+          readFileSync(file, 'utf8'),
+        )
+        return manifest.permission_mode === 'bypassPermissions'
+      })
+      .map((e) => e.name)
+
+    // Guards the scan: a moved directory would make the rest vacuous.
+    expect(bypassing.length).toBeGreaterThan(0)
+    for (const agentId of bypassing) {
+      const entry = findAgent(agentId)
+      expect(entry, `${agentId} is not in the registry`).toBeDefined()
+      expect(entry?.status, `${agentId} is sweepable`).toBe('blocked')
+    }
   })
 
   it('counts a wired agent', () => {

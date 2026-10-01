@@ -2492,3 +2492,58 @@ def test_alignment_alone_does_not_force_a_post(monkeypatch):
         {"case": 2, "kind": "k", "behavior_id": "b", "metric": "m", "surface_label": None,
          "event_key": "Old", "suggested": "New", "evidence": {}, "headline": "case two"}])
     assert eh.build_slack_triage(result, _NO_CHANGES, state_path=None, gap=None) is None
+
+
+# --------------------------------------------------------------------------- #
+# A blank provenance row is not proof of code (DATA-2508)
+# --------------------------------------------------------------------------- #
+
+_BLANK_CODE_ROW = {
+    "event_type": "", "event_type_slug": "", "instrumented_commit": "", "instrumented_pr": "",
+    "instrumented_date": "", "instrumented_author_email": "", "retired_commit": "", "retired_pr": "",
+    "retired_date": "", "retired_author_email": "", "last_code_change_date": "", "call_site_count": "",
+    "call_site_retired_date": "", "updated_at": "2026-09-21T11:07:29",
+}
+
+
+def _blank(event_type):
+    return _BLANK_CODE_ROW | {"event_type": event_type, "event_type_slug": event_type.lower()}
+
+
+def test_has_code_provenance_reads_csv_blanks_as_absent():
+    assert not eh.has_code_provenance(_blank("Pro Upgrade - Pitch Viewed"))
+    assert eh.has_code_provenance(_blank("X") | {"instrumented_date": "2026-01-01"})
+    assert eh.has_code_provenance(_blank("X") | {"call_site_count": "0"})
+
+
+def test_reconcile_never_fired_blank_row_is_code_unknown_not_never_observed():
+    # The nine Pro Upgrade events: declared in Govern, never written, never fired. They reach
+    # the never-observed loop (no catalog row), so that loop is where the code axis is read.
+    code = {
+        "Pro Upgrade - Pitch Viewed": _blank("Pro Upgrade - Pitch Viewed"),
+        "Built Never Fired": _blank("Built Never Fired") | {"instrumented_date": "2026-05-01"},
+    }
+    result = eh.reconcile([], [], code, TODAY)
+
+    by = {r["event_type"]: r for r in result["records"]}
+    assert by["Pro Upgrade - Pitch Viewed"]["status"] == "code_unknown"
+    assert by["Built Never Fired"]["status"] == "instrumented_never_observed"
+    assert [r["event_type"] for r in result["flagged"]] == ["Built Never Fired"]
+
+
+def test_reconcile_fired_blank_row_is_code_unknown():
+    catalog = [_cat("Fires Without Code", "other", None), _cat("Quiet Without Code", "other", None, cnt30=0)]
+    code = {e: _blank(e) for e in ("Fires Without Code", "Quiet Without Code")}
+
+    by = {r["event_type"]: r for r in eh.reconcile(catalog, [], code, TODAY)["records"]}
+
+    assert by["Fires Without Code"]["status"] == "code_unknown"
+    assert by["Quiet Without Code"]["status"] == "code_unknown"
+
+
+def test_reconcile_blank_row_on_auto_tracked_event_stays_system():
+    catalog = [_cat("page", "amplitude_autotrack", None)]
+
+    by = {r["event_type"]: r for r in eh.reconcile(catalog, [], {"page": _blank("page")}, TODAY)["records"]}
+
+    assert by["page"]["status"] == "system"

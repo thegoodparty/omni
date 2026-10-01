@@ -130,8 +130,9 @@ type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
 // per sweep. A registry entry is the same either way on purpose: the
 // difference belongs to the case list and the sweep, not to the denominator.
 //
-// compliance_setup is the one background agent still without a list. That is
-// a pending decision about what its inputs should be, not an unwritten file.
+// compliance_setup is absent on purpose, the same way briefing_annotation is
+// above: it is blocked, so a case list would be inputs for a sweep that must
+// not run.
 //
 // All fifteen are placeholder lists — see the `note` in each file — so status
 // stays `pending`. `wired` means an agent has produced a real verdict at
@@ -154,12 +155,31 @@ const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
   trending_issues: 'trending_issues.json',
 }
 
-const BACKGROUND_AGENTS: AgentEntry[] = BACKGROUND_AGENT_IDS.map((agentId) => ({
-  agentId,
-  shape: 'background' as const,
-  cases: BACKGROUND_CASE_LISTS[agentId] ?? null,
-  status: 'pending' as const,
-}))
+// Keyed by the id union, so dropping an experiment without dropping its
+// reason is a typecheck failure — the same shape as CHAT_BLOCKED_REASONS.
+const BACKGROUND_BLOCKED_REASONS: Partial<Record<BackgroundAgentId, string>> = {
+  compliance_setup:
+    'The only experiment with permission_mode bypassPermissions, verified ' +
+    'against every manifest under packages/runbooks/experiments. A judge ' +
+    'arm of it would make whatever changes the agent decided to make, with ' +
+    'no prompt to stop it, against a real organization — and the broker ' +
+    'reaches gp-api through a proxy that does not read ticket.is_eval, so ' +
+    'nothing downstream would mark those writes as a test. Blocked rather ' +
+    'than left without a case list: captureArm skips a blocked agent, which ' +
+    'makes this a control instead of a gap waiting for someone to fill it.',
+}
+
+const BACKGROUND_AGENTS: AgentEntry[] = BACKGROUND_AGENT_IDS.map((agentId) => {
+  const blockedReason = BACKGROUND_BLOCKED_REASONS[agentId]
+  return {
+    agentId,
+    shape: 'background' as const,
+    cases: BACKGROUND_CASE_LISTS[agentId] ?? null,
+    ...(blockedReason === undefined
+      ? { status: 'pending' as const }
+      : { status: 'blocked' as const, blockedReason }),
+  }
+})
 
 // Readonly: nine build tracks import this, and a coverage number that any
 // one of them could push onto is not a number anyone should trust.

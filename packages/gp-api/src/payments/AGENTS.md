@@ -72,6 +72,15 @@ Where Pro state lives (all of it — there is no subscription table):
   user. Written only by `createProCheckoutSession`, cleared by the completion
   and expiry webhooks.
 
+**Failed renewals reach the candidate through Segment, not email code.**
+`customer.subscription.updated` fires `Account - Pro Subscription Past Due`
+when the status first moves to `past_due`, and `customer.subscription.deleted`
+fires `Account - Pro Subscription Ended` with Stripe's
+`cancellationReason` (`payment_failed` when the retries ran out). HubSpot
+workflows on those events send the emails. Whether Stripe cancels at all after
+the last failed retry is a Stripe dashboard setting (Billing > Revenue
+recovery), not code.
+
 **Account deletion stops billing before it deletes anything.**
 `UsersService.deleteUser` cancels the subscription on EVERY campaign the user
 owns, from inside the deletion transaction and before it commits. `Campaign`

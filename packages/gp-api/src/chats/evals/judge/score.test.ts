@@ -282,17 +282,44 @@ describe('the order-swap subsample', () => {
     expect(result.positionConsistency).toBeCloseTo(2 / 3, 10)
   })
 
+  // TEN SWAPPED PAIRS, because the gate now needs a denominator before it can
+  // fail anything. Six of ten agree, under the 0.7 floor.
   it("gates to CAN'T SAY when the orders disagree too often", () => {
-    const result = score(
-      [
-        ...swapPair('a', 'X', 'X'),
-        ...swapPair('b', 'X', 'X'),
-        ...swapPair('c', 'X', 'Y'),
-      ],
-      noFloor(),
+    // ('X', 'Y') is the CONSISTENT pair: the slots flip between orders, so
+    // naming the same letter twice names opposite arms.
+    const agreeing = [1, 2, 3, 4, 5, 6].flatMap((n) =>
+      swapPair(`ok${n}`, 'X', 'Y'),
     )
+    const conflicting = [1, 2, 3, 4].flatMap((n) =>
+      swapPair(`bad${n}`, 'X', 'X'),
+    )
+    const result = score([...agreeing, ...conflicting], noFloor())
+    expect(result.swappedPairs).toBe(10)
+    expect(result.positionConsistency).toBeCloseTo(0.6, 10)
     expect(result.label).toBe("CAN'T SAY")
     expect(result.labelNote).toMatch(/reading position/)
+  })
+
+  // WHAT THE FIRST LIVE SWEEP ACTUALLY PRODUCED: 24 pairs, orderSwap.fraction
+  // 0.2, so a stride of 5 and five swapped pairs. Three of five agreed, and
+  // the 0.7 floor would have failed a whole sweep on a sample that cannot
+  // distinguish a biased judge from a coin. The rate is still reported — it
+  // just does not decide anything.
+  it('does not gate on a sample too small to mean anything', () => {
+    const agreeing = [1, 2, 3].flatMap((n) => swapPair(`ok${n}`, 'X', 'Y'))
+    const conflicting = [1, 2].flatMap((n) => swapPair(`bad${n}`, 'X', 'X'))
+    const result = score([...agreeing, ...conflicting], noFloor())
+    expect(result.swappedPairs).toBe(5)
+    expect(result.positionConsistency).toBeCloseTo(0.6, 10)
+    expect(result.labelNote ?? '').not.toMatch(/reading position/)
+  })
+
+  it('carries the denominator so a rate can be read', () => {
+    const result = score(
+      [...swapPair('a', 'X', 'Y'), ...swapPair('b', 'X', 'X')],
+      noFloor(),
+    )
+    expect(result.swappedPairs).toBe(2)
   })
 })
 
