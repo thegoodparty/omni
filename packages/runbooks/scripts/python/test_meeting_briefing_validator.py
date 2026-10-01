@@ -498,3 +498,148 @@ class TestTalkingPointsShapeScan:
         findings: list = []
         v.check_no_data_internals_in_candidate_text(artifact, findings)
         assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# agenda_availability: a ready briefing must show it used an available agenda
+# ---------------------------------------------------------------------------
+
+
+def _agenda_source(name: str = "Council Agenda — June 1, 2026", text: str = "Agenda for the June 1, 2026 regular meeting. Item 1 ...", url: str | None = "https://example.gov/agenda.pdf", source_type: str = "agenda_packet") -> dict:
+    return {
+        "id": "src_001",
+        "name": name,
+        "url": url,
+        "source_type": source_type,
+        "retrieved_at": "2026-05-30T00:00:00Z",
+        "retrieved_text_or_snapshot": text,
+    }
+
+
+def _ready_artifact(availability: str = "full_packet", *, sources: list[dict] | None = None, packet_url: str | None = "https://example.gov/agenda.pdf", decisions: list[dict] | None = None, status: str = "briefing_ready") -> dict:
+    return {
+        "briefing_status": status,
+        "meeting_date": "2026-06-01",
+        "sources": [_agenda_source()] if sources is None else sources,
+        "run_metadata": {
+            "agenda_availability": availability,
+            "agenda_packet_url": packet_url,
+            "run_decisions": decisions or [],
+        },
+    }
+
+
+class TestAgendaAvailabilityConsistency:
+    @pytest.mark.parametrize("value", ["partial", "not_published", "inferred_from_prior"])
+    def test_ready_with_unavailable_agenda_is_an_error(self, value):
+        v = _load_validator()
+        findings: list = []
+        v.check_agenda_availability_consistency(_ready_artifact(value), findings)
+        errors = [f for f in findings if f.severity == "error"]
+        assert [f.check for f in errors] == ["agenda_availability.ready_without_agenda"]
+
+    @pytest.mark.parametrize("value", ["full_packet", "html_agenda"])
+    def test_ready_with_available_agenda_passes(self, value):
+        v = _load_validator()
+        findings: list = []
+        v.check_agenda_availability_consistency(_ready_artifact(value), findings)
+        assert findings == []
+
+    def test_user_provided_with_unavailable_agenda_is_an_error(self):
+        v = _load_validator()
+        findings: list = []
+        v.check_agenda_availability_consistency(
+            _ready_artifact("inferred_from_prior", status="agenda_provided_by_user"), findings
+        )
+        assert [f.check for f in findings if f.severity == "error"] == ["agenda_availability.ready_without_agenda"]
+
+    def test_awaiting_agenda_is_ignored(self):
+        v = _load_validator()
+        findings: list = []
+        v.check_agenda_availability_consistency(_ready_artifact("not_published", status="awaiting_agenda"), findings)
+        assert findings == []
+
+    def test_ready_with_no_agenda_evidence_is_an_error(self):
+        v = _load_validator()
+        findings: list = []
+        news_only = [_agenda_source(source_type="news")]
+        v.check_agenda_availability_consistency(_ready_artifact("full_packet", sources=news_only), findings)
+        assert [f.check for f in findings if f.severity == "error"] == ["agenda_availability.no_agenda_evidence"]
+
+    def test_html_agenda_cited_as_government_website_counts_as_evidence(self):
+        v = _load_validator()
+        findings: list = []
+        gov_page = [_agenda_source(source_type="government_website", url="https://portal.example.gov/event/1")]
+        v.check_agenda_availability_consistency(
+            _ready_artifact("html_agenda", sources=gov_page, packet_url="https://portal.example.gov/event/1"), findings
+        )
+        assert findings == []
+
+    def test_empty_packet_url_on_ready_is_a_warning_not_an_error(self):
+        v = _load_validator()
+        findings: list = []
+        v.check_agenda_availability_consistency(_ready_artifact("html_agenda", packet_url=None), findings)
+        assert [(f.check, f.severity) for f in findings] == [("agenda_packet_url.empty_on_ready", "warning")]
+
+
+class TestAgendaSourcesDatedToMeeting:
+    def test_source_dated_to_meeting_passes(self):
+        v = _load_validator()
+        findings: list = []
+        v.check_agenda_sources_dated_to_meeting(_ready_artifact(), findings)
+        assert findings == []
+
+    def test_abbreviated_month_without_comma_counts(self):
+        v = _load_validator()
+        findings: list = []
+        src = [_agenda_source(name="Board Meeting - Jun 1 2026 - Agenda Packet", text="Items ...")]
+        v.check_agenda_sources_dated_to_meeting(_ready_artifact(sources=src), findings)
+        assert findings == []
+
+    def test_holiday_shift_within_three_days_counts(self):
+        v = _load_validator()
+        findings: list = []
+        src = [_agenda_source(name="Council Agenda", text="Regular meeting of June 2, 2026.")]
+        v.check_agenda_sources_dated_to_meeting(_ready_artifact(sources=src), findings)
+        assert findings == []
+
+    def test_only_other_dates_is_a_warning(self):
+        v = _load_validator()
+        findings: list = []
+        src = [_agenda_source(name="Council Minutes — May 4, 2026", text="Minutes of the May 4, 2026 meeting.")]
+        v.check_agenda_sources_dated_to_meeting(_ready_artifact(sources=src), findings)
+        assert [(f.check, f.severity) for f in findings] == [("agenda_sources.not_dated_to_meeting", "warning")]
+
+    def test_undated_sources_is_a_warning(self):
+        v = _load_validator()
+        findings: list = []
+        src = [_agenda_source(name="Staff Report — Item 6.E", text="Staff recommends approval.")]
+        v.check_agenda_sources_dated_to_meeting(_ready_artifact(sources=src), findings)
+        assert [f.severity for f in findings] == ["warning"]
+
+    def test_no_agenda_sources_is_left_to_the_evidence_check(self):
+        v = _load_validator()
+        findings: list = []
+        v.check_agenda_sources_dated_to_meeting(_ready_artifact(sources=[]), findings)
+        assert findings == []
+
+
+class TestRunDecisionsAdmitUnavailableAgenda:
+    def test_admission_on_ready_is_a_warning(self):
+        v = _load_validator()
+        findings: list = []
+        decisions = [{"timestamp": "2026-05-30T00:00:00Z", "decision": "packet_access_partial", "reason": "Only one document was reachable."}]
+        v.check_run_decisions_admit_unavailable_agenda(_ready_artifact(decisions=decisions), findings)
+        assert [(f.check, f.severity) for f in findings] == [("run_decisions.admits_unavailable_agenda", "warning")]
+
+    def test_clean_trail_passes(self):
+        v = _load_validator()
+        findings: list = []
+        decisions = [{"timestamp": "2026-05-30T00:00:00Z", "decision": "channel_0_confirmed_agenda_found", "reason": "Packet downloaded."}]
+        v.check_run_decisions_admit_unavailable_agenda(_ready_artifact(decisions=decisions), findings)
+        assert findings == []
+
+    def test_new_checks_are_registered(self):
+        v = _load_validator()
+        names = {c.__name__ for c in v.CHECKS}
+        assert {"check_agenda_availability_consistency", "check_agenda_sources_dated_to_meeting", "check_run_decisions_admit_unavailable_agenda"} <= names
