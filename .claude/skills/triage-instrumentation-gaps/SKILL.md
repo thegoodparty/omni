@@ -648,9 +648,10 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    rule is **drift C**: stop and take it to the reviewer. So is a **new key that splits
    the population** (`product: win|serve`, `fanout`) where the old event could not tell
    the groups apart: counting it as before is the status quo, but it is now a choice,
-   and the reviewer makes it. The macros compile only a
-   `method` exclusion (`is_outreach_activation_event`, `product_output_predicate`), so a
-   group separable only by another property cannot be excluded without a macro change.
+   and the reviewer makes it. Once the business group has ruled, carry on from step 6
+   with the ruling as part of the plan. The macros compile only `method` and `product`
+   exclusions (`is_outreach_activation_event`, `product_output_predicate`), so a group
+   separable only by another property cannot be excluded without a macro change.
 6. **Find every reader, more than one way**, in both repos:
    ```bash
    # gp-data-platform
@@ -706,8 +707,9 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
       `uv run python -m semantic_catalog.cli --write` and commit the regenerated
       `canonical_metrics.md` projections, or the blocking catalog-freshness gate
       fails. Open it as a **draft**: a draft posts nothing, and the review groups
-      are only notified when it is marked ready, which the reviewer decides.
-      After marking it ready, check `requested_reviewers`. While DATA-2593 is open
+      are only notified when it is marked ready. **Never mark it ready yourself.**
+      Ask the reviewer, as its own question, whether to mark it ready, and stop until
+      they answer. Once it is marked ready, check `requested_reviewers`. While DATA-2593 is open
       the `routing` job cannot request teams (it fails with a 404), so add by hand
       exactly the teams its lane summary names, and no others:
       `gh pr edit <n> --add-reviewer thegoodparty/semantic-layer-data` and/or
