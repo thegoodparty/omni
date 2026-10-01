@@ -108,6 +108,13 @@ export interface CandidateRow {
 // "No plan yet" is the absence of BOTH persisted sections rather than the
 // absence of the row: a campaign whose generation failed half way has a row
 // with one marker set, and it should be picked up too.
+//
+// "Not passed" is GREATEST of the dates, not COALESCE. The service refuses
+// only when EVERY stored date has passed (`electionHasPassed`), so a returning
+// candidate carrying last cycle's general date alongside an upcoming primary
+// is still generable — and COALESCE, which prefers the general, would read
+// that campaign as expired and quietly leave it out of the cohort. GREATEST
+// ignores a NULL branch, so a campaign with only one date still works.
 export const selectCandidates = (
   prisma: PrismaService,
 ): Promise<CandidateRow[]> =>
@@ -116,26 +123,34 @@ export const selectCandidates = (
       c.id,
       c.organization_slug AS "organizationSlug",
       u.email,
-      COALESCE(
-        c.details->>'electionDate',
-        c.details->>'primaryElectionDate'
-      ) AS "electionDate"
+      -- The date that keeps the campaign live, so the dry run does not print
+      -- a stale general for a candidate whose primary is still ahead.
+      GREATEST(
+        CASE
+          WHEN c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
+          THEN (c.details->>'electionDate')::date
+        END,
+        CASE
+          WHEN c.details->>'primaryElectionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
+          THEN (c.details->>'primaryElectionDate')::date
+        END
+      )::text AS "electionDate"
     FROM campaign c
     LEFT JOIN "user" u ON u.id = c.user_id
     LEFT JOIN campaign_strategy s ON s.campaign_id = c.id
     WHERE c.is_active = true
       AND c.is_demo = false
       AND COALESCE(c.details->>'raceId', '') <> ''
-      AND COALESCE(
-        c.details->>'electionDate',
-        c.details->>'primaryElectionDate'
-      ) ~ '^\\d{4}-\\d{2}-\\d{2}'
-      AND (
-        COALESCE(
-          c.details->>'electionDate',
-          c.details->>'primaryElectionDate'
-        )
-      )::date >= NOW()::date
+      AND GREATEST(
+        CASE
+          WHEN c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
+          THEN (c.details->>'electionDate')::date
+        END,
+        CASE
+          WHEN c.details->>'primaryElectionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
+          THEN (c.details->>'primaryElectionDate')::date
+        END
+      ) >= NOW()::date
       AND (
         s.id IS NULL
         OR s.opposition_persisted_at IS NULL
