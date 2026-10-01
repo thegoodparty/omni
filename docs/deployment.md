@@ -276,6 +276,19 @@ another agent, add its `login[bot]` to `GATED_AUTHORS`. The agents' GitHub Apps
 hold no `workflows` permission, which is what stops them editing the file to
 make it pass; never grant one that permission.
 
+### Analytics guard
+
+`.github/workflows/analytics-guard.yml` runs `governance_guard.py` (DATA-2432) on every
+PR, with no path filter, and posts or updates one PR comment naming the exact fix. The
+Actions variable `GOVERNANCE_GUARD_MODE` (`block` | `warn` | `off`, unset means `warn`)
+sets whether a blocking finding fails the check or only warns; `GOVERNANCE_GUARD_ALERT`
+names who gets cc'd in the comment when the guard itself errors. The job never fails a
+PR for a mechanical reason: a setup step or a comment-posting failure passes with a
+warning rather than blocking, and `MODE=off` prints a warning and checks nothing. The
+runbooks suite (only when `packages/runbooks` changed) runs in the same job; its guard
+replay tests fail, rather than skip, when the Actions checkout is missing the history
+they replay against, since a skipped acceptance test would otherwise read as a pass.
+
 ### Dependency caching
 
 `setup-node-workspace` caches the root workspace install under a single

@@ -560,6 +560,12 @@ site, do not trust the count.
 
 Never decide a case 3 yourself.
 
+Rows of kind `declared_leg_changed_by_pr` come from `intents:` rows a PR wrote to clear
+an analytics guard block. Draft the `anchored_on` change the headline names, exactly like
+any case 2. `intent_row_resolved` means the upstream change landed: delete that `intents:`
+row in this triage PR. Every `not_a_change` row is a possible guard false positive: check
+the PR, and if the guard was wrong, file the fix.
+
 ## Diagnose — red/yellow health items
 
 Runs when the digest has a 🔴/🟡 tier and the reviewer wants the story, not just the
@@ -732,6 +738,9 @@ Once all four queues are dispositioned:
      reason), which were deferred.
    - Queue C: which findings were edited in omni (behavior and surface), which produced a
      gp-data-platform PR (link), which were dismissed (with reason), which were deferred.
+5. For each finding cleared this session, record in the PR body which analytics guard rule
+   would have caught it at PR time, or `escaped`. A cause that escapes twice becomes a
+   proposed guard rule in the same PR.
 
 `ship-pr` handles branch creation, pre-flight, delegate convergence, and the check
 gate — this skill's job ends at "stage the right files and describe the run."

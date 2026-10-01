@@ -25,7 +25,10 @@ runs and for the stage-2 code investigation, which is agent work the schedule ca
   alignment check) disables itself for the run, and the digest says so with a red "OKR
   dormancy checks degraded" line rather than failing. A laptop run without the token
   now reads the sem files through the reviewer's own `gh` auth first, so it degrades
-  only when that also has no access.
+  only when that also has no access. `sem_anchors.py refresh-vendored` writes a committed
+  copy to `instrumentation_data/sem/` on every Monday/Thursday run; the pre-merge
+  **Analytics guard** (`governance_guard.py`, DATA-2432) reads only that copy, never the
+  network, so a PR check stays fast.
 - **Tools**: `uv`, `git`, `ripgrep` (`rg`), a clone of the omni monorepo (this package lives in it).
 - **Setup**: `cd scripts/python && uv sync`.
 - **Code axis**: `scripts/python/instrumentation_data/amplitude_event_provenance.csv` must be

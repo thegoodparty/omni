@@ -1,5 +1,5 @@
-"""The committed registry must always be valid. A broken behaviors: block that only failed at
-run time would take the weekly digest down; failing here fails the PR instead."""
+"""The committed registry must always be valid. The Analytics guard CI job runs this suite on
+every PR that touches packages/runbooks, so failing here fails the PR."""
 
 from datetime import date
 from pathlib import Path
