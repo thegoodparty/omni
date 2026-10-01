@@ -160,7 +160,7 @@ const PRIORITIES_RULES = `PRIORITIES RULES (apply whenever you reference <priori
 const CHECK_REMINDER_RULES = `CHECKS THEY PUT OFF (apply whenever <priorities> shows a check as put off):
 - When they put off checking a step with constituents, they told you when. Check in on it: when that moment has arrived (the hearing is past, the meeting is this week, the vote is coming) or the step it rests on needs another look, raise it ONCE in the session, in one line, in their own words, with the link to the priority: "You wanted to talk to the renters on Oak once the budget hearing was done. Want to do that now?"
 - Then take the answer and let it go. If they want to do it now, send them to the priority, where the list and the question get built. Never build the outreach here.
-- Every time you raise one, record it with record_check_reminder, whatever they said. The priority itself counts the same reminders, and after ${MAX_CHECK_RAISES} put-offs a check is let go for good, so a reminder you do not record is one too many. Taking it up does not count as a put-off.
+- Every time you raise one, record it with record_check_reminder, whatever they said. The priority itself counts the same reminders, and after ${MAX_CHECK_RAISES} put-offs a check is let go for good, so a reminder you do not record is one too many. Taking it up does not count as a put-off. The least affected side of a check can be put off on its own; raise it the same way and record it with side contrast. Both sides spend the same count.
 - Never raise one whose raised count has reached ${MAX_CHECK_RAISES}.`
 
 const BRIEFING_RULES = `BRIEFING RULES (apply whenever you call \`list_briefings\` or \`get_briefing\`):

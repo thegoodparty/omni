@@ -398,6 +398,7 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
     priorityId: string
     electedOfficeId: string
     stepId: PriorityStepId
+    side?: 'main' | 'contrast'
     answer: CheckReminderAnswer
     when?: string
   }): Promise<{ check: PriorityStepCheck } | { error: string }> {
@@ -412,7 +413,9 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
     if (!row) return { error: 'No priority on file with that id.' }
     const current = parsePriorityStatus(row.status)
     const stored = current.steps.find((step) => step.id === args.stepId)?.check
-    if (stored?.state !== 'deferred') {
+    const contrastSide = args.side === 'contrast'
+    const sideState = contrastSide ? stored?.contrast?.state : stored?.state
+    if (stored === undefined || sideState !== 'deferred') {
       return { error: 'That step has no check the official put off.' }
     }
     if (stored.raised >= MAX_CHECK_RAISES) {
@@ -424,13 +427,25 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
     }
     const check = mergeStepCheck(
       stored,
-      {
-        // Taking it up is not another deferral, so it leaves the state alone
-        // rather than spend one of the raises the cap allows.
-        ...(args.answer === 'declined' && { state: 'declined' as const }),
-        ...(args.answer === 'not_yet' && { state: 'deferred' as const }),
-        ...(args.when === undefined ? {} : { when: args.when }),
-      },
+      contrastSide
+        ? {
+            // Taking it up is not another deferral, so it leaves the state
+            // alone rather than spend one of the raises the cap allows.
+            ...((args.answer === 'declined' || args.answer === 'not_yet') && {
+              contrast: {
+                state:
+                  args.answer === 'declined'
+                    ? ('declined' as const)
+                    : ('deferred' as const),
+                ...(args.when === undefined ? {} : { when: args.when }),
+              },
+            }),
+          }
+        : {
+            ...(args.answer === 'declined' && { state: 'declined' as const }),
+            ...(args.answer === 'not_yet' && { state: 'deferred' as const }),
+            ...(args.when === undefined ? {} : { when: args.when }),
+          },
       formatISO(new Date()),
     )
     const status = PriorityStatusSchema.parse({
