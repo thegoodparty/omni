@@ -55,11 +55,7 @@ events:
   - {event: "Onboarding - Magic Link Sent",             product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Magic Link Clicked",          product: win, family: win_onboarding, floor: null, owner: TBD}
 
-  # ---- Win · activation: dashboard ----
-  - {event: "Dashboard - Campaign Plan Generation Completed", product: win, family: win_dashboard, floor: null, owner: TBD}
-
   # ---- Win · activation: voter outreach (campaign sent) ----
-  - {event: "Schedule Text Campaign - Audience: Enter Audience Request", product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
   - {event: "Schedule Text Campaign: Submit",           product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
   - {event: "Voter Outreach - 10DLC Compliance PIN Sent", product: win, family: win_voter_outreach, floor: null, owner: TBD}
 
@@ -99,7 +95,6 @@ events:
   - {event: "Pro Upgrade - Value Prop: Click Get Pro", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   - {event: "Pro Upgrade - EIN: Click continue", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   - {event: "Org Switcher - Run For Office Clicked", product: serve, family: serve, floor: null, owner: TBD}
-  - {event: "Dashboard - Campaign Plan: Campaign Manager Clicked", product: win, family: win_dashboard, floor: null, owner: TBD}
   - {event: "Briefing Assistant - Agenda Not Created", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Pro Upgrade - Candidate Profile Submitted", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   - {event: "Onboarding V2 - Pledge Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
