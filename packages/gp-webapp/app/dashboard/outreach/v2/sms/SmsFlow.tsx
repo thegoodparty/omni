@@ -718,8 +718,11 @@ export const SmsFlow = ({
     ensureSmsIdentification(text, identificationFor(t))
   // The seed lands in the open effect, before the sender's name may be
   // known: Win waits on the campaign (a Campaign Manager's own session name
-  // is not the candidate's), Serve on the user.
-  const identificationReady = surface.isServe ? Boolean(user) : campaign != null
+  // is not the candidate's), Serve on the user, and both on a name to check
+  // against, since an empty list would wave the seed through unchecked.
+  const identificationReady =
+    (surface.isServe ? Boolean(user) : campaign != null) &&
+    identificationNames.length > 0
   useEffect(() => {
     if (!open || !seedUncheckedRef.current || !identificationReady) return
     seedUncheckedRef.current = false
