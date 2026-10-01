@@ -584,9 +584,10 @@ Keep `.to_string()`: pandas otherwise elides columns, and the elided column is u
 the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api_events`;
 `:` property paths are case-insensitive.
 
-1. **Name the drift** (A, B or C, per the SOP). Arriving from a case 2 accept, it is
-   B: confirm and continue. For a case 3 yes or a standalone drift, name it now, and
-   for A or C stop until the business group has ruled. A rename can hold a C inside a
+1. **Name the drift** (A, B or C, per the SOP). Arriving from a case 2 accept, or from
+   a case 3 yes already classified as B (the `business_rule` covers the new event), it
+   is B: confirm and continue. For a standalone drift, name it now, and for A or C stop
+   until the business group has ruled. A rename can hold a C inside a
    B; step 5 is where that surfaces, and it stops there.
 2. **Read both gotchas books** in full: `books/analytics-governance-gotchas.md` here,
    and gp-data-platform's `.claude/skills/win-analytics-knowledge/references/gotchas.md`
@@ -716,7 +717,11 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
       first. After merge the publish run should print "nothing recorded; no PR to open",
       because the hand-authored entry already holds the sign-off. gp-data-platform #1123 (DATA-2584) is
       the worked example.
-   3. **Mart docs PR**, alone.
+   3. **Mart docs PR**, only when an `m_*.yaml` description is now wrong (it names
+      the old event, or describes the old rule). Open it after the sem PR merges, so
+      the descriptions match what shipped, and keep it to `m_*.yaml` descriptions:
+      it is alone because CI full-refreshes everything downstream of a changed mart
+      (the 1,720 nodes above). It does not gate the omni PR.
    4. **omni PR**, from a fresh worktree off `origin/main`, after the sem PR merges:
       - **Refresh the fixture first.** Copy the merged sem file into
         `scripts/python/fixtures/` under its header comment. Then
