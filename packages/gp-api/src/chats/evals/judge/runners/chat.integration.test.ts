@@ -559,6 +559,16 @@ describe('runChatCase', () => {
         (row) => row.role === ChatMessageRole.user,
       )
       expect(users.map((row) => row.content)).toEqual(['first?'])
+      // And the counts say so. Two of the three turns never reported, so the
+      // run is unpriceable and the tokens are not the partial sum of the one
+      // that did — which would read as the whole conversation's usage.
+      expect(record.telemetry.cost).toBeUndefined()
+      expect(record.telemetry.tokens).toEqual({
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      })
     },
     TURN_TIMEOUT_MS,
   )
