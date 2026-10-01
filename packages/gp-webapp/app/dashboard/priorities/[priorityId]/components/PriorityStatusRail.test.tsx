@@ -171,6 +171,14 @@ describe('PriorityStatusRail', () => {
     ).toBeInTheDocument()
     expect(within(defineRow).queryByText(/least affected/i)).toBeNull()
     expect(within(evidenceRow).queryByText(/constituents/i)).toBeNull()
+    expect(defineRow).toHaveAccessibleName(
+      new RegExp(`^${PRIORITY_STEP_LABELS.define}\\s+\\S`),
+    )
+    expect(defineRow).not.toHaveAccessibleName(/constituents/i)
+    expect(defineRow).toHaveAccessibleDescription(
+      'Checking with constituents later',
+    )
+    expect(evidenceRow).not.toHaveAttribute('aria-describedby')
   })
 
   it('says an offered check is waiting on the official', () => {

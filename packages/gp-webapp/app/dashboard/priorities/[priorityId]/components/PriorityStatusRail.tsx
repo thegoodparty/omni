@@ -197,9 +197,13 @@ const StepList = ({
   <ul className="divide-y divide-border">
     {steps.map((step) => (
       <li key={step.id}>
+        {/* The check line sits under the label visually, but it describes the
+            step rather than naming it, so it is announced after the name. */}
         <button
           type="button"
           onClick={() => onSelect(step.id)}
+          aria-labelledby={`step-${step.id}-label step-${step.id}-state`}
+          {...(step.check && { 'aria-describedby': `step-${step.id}-check` })}
           className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/40"
         >
           <StepStateIcon state={step.state} />
@@ -209,10 +213,16 @@ const StepList = ({
               step.state === 'open' && 'text-muted-foreground',
             )}
           >
-            {PRIORITY_STEP_LABELS[step.id]}
-            <StepCheckLine step={step} />
+            <span id={`step-${step.id}-label`}>
+              {PRIORITY_STEP_LABELS[step.id]}
+            </span>
+            <span id={`step-${step.id}-check`} className="block">
+              <StepCheckLine step={step} />
+            </span>
           </span>
-          <StepStateChip state={step.state} />
+          <span id={`step-${step.id}-state`}>
+            <StepStateChip state={step.state} />
+          </span>
         </button>
       </li>
     ))}
