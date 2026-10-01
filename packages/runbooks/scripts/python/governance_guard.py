@@ -664,11 +664,17 @@ def git_renames(repo: Path, base: str, head: str | None) -> dict[str, str]:
 def load_base_anchors(base: Tree) -> tuple[dict[str, list[sa.Leg]], str | None]:
     """OKR legs as the merge base declares them, not as the PR's own copy does: a PR that
     deleted a leg from its vendored copy would otherwise dodge the block it causes. History
-    from before the copy existed falls back to the copy on disk."""
+    from before the copy existed falls back to the copy on disk, file by file, so a base
+    holding only one of the two files never silently drops the other file's legs."""
     texts = base.read_many(f"{SEM_DIR}/{name}" for name in sa.VENDORED_NAMES)
-    if texts:
-        return sa.parse_vendored_texts(texts[k] for k in sorted(texts))
-    return sa.load_vendored_anchors()
+    if not texts:
+        return sa.load_vendored_anchors()
+    for name in sa.VENDORED_NAMES:
+        key = f"{SEM_DIR}/{name}"
+        disk = sa.VENDORED_DIR / name
+        if key not in texts and disk.exists():
+            texts[key] = disk.read_text()
+    return sa.parse_vendored_texts(texts[k] for k in sorted(texts))
 
 
 def _run(args: argparse.Namespace) -> Report:

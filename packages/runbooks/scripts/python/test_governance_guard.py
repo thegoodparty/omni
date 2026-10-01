@@ -375,6 +375,12 @@ def test_okr_legs_come_from_the_base_tree():
     assert date == "2026-09-30"
 
 
+def test_a_base_with_one_of_the_two_files_keeps_the_other_files_legs():
+    anchors, _ = gg.load_base_anchors(gg.DictTree({SEM_WIN: SEM_TEXT}))
+    serve_only = set(sa.parse_anchors((sa.VENDORED_DIR / "sem_analytics__users_serve.yml").read_text()))
+    assert serve_only and serve_only <= set(anchors)
+
+
 def test_okr_legs_fall_back_to_disk_when_the_base_has_no_copy():
     anchors, _ = gg.load_base_anchors(gg.DictTree({}))
     assert anchors == sa.load_vendored_anchors()[0]
