@@ -105,16 +105,29 @@ each of those writes enqueues `QueueType.CAMPAIGN_STORY_COMPLETED` through
 called directly because `campaignStrategy` already depends on both
 `campaignStory` and `websites`, so a direct call would need a module cycle at
 each edge, and because a story autosave should not wait on a regeneration.
-Messages dedupe per campaign, collapsing an autosave burst inside SQS FIFO's
-5-minute window — safe, because the handler is one-shot per campaign anyway.
+Messages are deliberately **not** deduped per campaign. The story page saves
+each field independently, and a per-campaign dedup id would collapse the burst
+inside SQS FIFO's 5-minute window and keep the *first* message — the one
+written while the story was still incomplete, which the handler correctly
+no-ops on. The write that actually completes the story would be the one
+discarded, so the eager path would silently never fire. Every write gets its
+own message; the handler is cheap when the story is incomplete and one-shot
+when it is not.
 
 `regenerateOnStoryComplete` only acts on a plan that **already exists**:
 generation is otherwise user-triggered, and dispatching for a campaign that
-never asked for a plan would bill it. It also dispatches a fresh tracker
-generation, since the tracker takes the story as input too, rather than leaving
-the task list generic until Thursday. It never throws — a story save must not
+never asked for a plan would bill it. It never throws — a story save must not
 fail because a regeneration could not be dispatched, and if the dispatch fails
 after the reset lands, the next plan read dispatches it.
+
+It does **not** dispatch the tracker itself. The tracker agent's params are
+built from the plan in the database, which the reset has just wiped, so a run
+started there would spend a full generation against a null plan. Instead the
+reset **releases `trackerBootstrapped`**, so when the regenerated sections
+persist the completion handler finds an unclaimed tracker and dispatches a run
+against the finished plan. That also covers the case where a concurrent plan
+poll wins the `generatedWithStory` claim first: whoever wins releases the
+tracker claim, so the refresh happens either way.
 
 ## Data model
 
