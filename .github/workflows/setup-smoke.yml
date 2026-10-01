@@ -19,6 +19,8 @@ name: setup-smoke
 on:
   pull_request:
     paths:
+      - .github/workflows/setup-smoke.yml
+      - scripts/dev.sh
       - scripts/setup.sh
       - scripts/setup-config.sh
       - scripts/setup/**
@@ -34,6 +36,8 @@ on:
   push:
     branches: [main]
     paths:
+      - .github/workflows/setup-smoke.yml
+      - scripts/dev.sh
       - scripts/setup.sh
       - scripts/setup-config.sh
       - scripts/setup/**
