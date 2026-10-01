@@ -18,7 +18,7 @@ import { OutreachRobocallPromoService } from './outreachRobocallPromo.service'
 // dialing/dialed/settling/captured/charged are excluded on purpose — those runs
 // have dialed or are settling, cannot be un-dialed, and their capture must
 // proceed.
-const NOT_YET_DIALED_STATES = [
+export const NOT_YET_DIALED_STATES = [
   RobocallSettleState.pending_payment,
   RobocallSettleState.authorized,
   RobocallSettleState.hold_pending,
