@@ -1,6 +1,7 @@
 import { useEffect, type MutableRefObject } from 'react'
 import { format } from 'date-fns'
 import type {
+  ProposalLink,
   RecommendedList,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
@@ -117,6 +118,7 @@ export interface UseServeSmsSendInput {
   // event unjoinable to its task the moment the hub wires one up, and
   // `trackerTaskId`/`phase` travel together or not at all.
   tracker?: OutreachTrackerOrigin
+  proposalLink?: ProposalLink
   create: ServeSmsCreateFn | undefined
   setStepId: (step: 'schedule') => void
   setDraftOutreachId: (id: number) => void
@@ -151,6 +153,7 @@ export const useServeSmsSend = ({
   draftOutreachId,
   audience,
   tracker,
+  proposalLink,
   create,
   setStepId,
   setDraftOutreachId,
@@ -228,6 +231,7 @@ export const useServeSmsSend = ({
           // way toISOString() would.
           scheduledLocalDate: format(scheduledAt, 'yyyy-MM-dd'),
           voterFileFilterId: selectedListId,
+          ...proposalLink,
         })
         // A create that started before the draft was discarded (Back off
         // review) must not resurrect its id — checkout would then charge for

@@ -1,5 +1,9 @@
 import { z } from 'zod'
 import { SupportStatusRollupSchema } from '../generated/enums'
+import {
+  PriorityCheckSideSchema,
+  PriorityStepIdSchema,
+} from '../priorities/PriorityStatus.schema'
 import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 
 /**
@@ -117,6 +121,12 @@ export const OutreachProposalSchema = z.object({
    */
   deepLinkOnly: z.boolean().default(false),
   /**
+   * The check this outreach puts out, on a priority: the gate step and which
+   * side of it. A real send moves that side to out.
+   */
+  stepId: PriorityStepIdSchema.optional(),
+  side: PriorityCheckSideSchema.optional(),
+  /**
    * How many of the audience to reach, picked at random, when a check needs
    * a read and not everyone. Absent, or no smaller than `count`, means the
    * whole audience.
@@ -138,14 +148,23 @@ export type OutreachProposal = z.infer<typeof OutreachProposalSchema>
  * What a channel's own create carries when a proposal card handed the
  * official into it: the card's derived key, so a second completion returns
  * the first outreach instead of making another, and the priority it was
- * proposed under. Both optional, because the same create serves every other
- * way into the flow.
+ * proposed under, with the check on it that the send puts out. All optional,
+ * because the same create serves every other way into the flow.
  */
 export const ProposalLinkSchema = z.object({
   proposalKey: z.string().uuid().optional(),
   priorityId: z.string().min(1).optional(),
+  stepId: PriorityStepIdSchema.optional(),
+  side: PriorityCheckSideSchema.optional(),
 })
 export type ProposalLink = z.infer<typeof ProposalLinkSchema>
+
+/**
+ * Opens the hidden turn the app sends when the official finishes outreach a
+ * card opened, so the agent hears about the send and the transcript can
+ * leave it out. The proposal key follows it, so a reload sends it once.
+ */
+export const PROPOSAL_SENT_MARKER = '[Sent from a card]'
 
 /** A prior send worth looking at, resolved live from the outreach history. */
 export const PastOutreachRefSchema = z.object({

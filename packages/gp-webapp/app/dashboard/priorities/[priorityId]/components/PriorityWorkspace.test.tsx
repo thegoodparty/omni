@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   PRIORITY_STEP_LABELS,
   emptyPriorityStatus,
   mintProposalKey,
+  PROPOSAL_SENT_MARKER,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
@@ -20,6 +21,9 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   streamMessage: vi.fn(),
   fetchPriorityStatus: vi.fn(),
+  sentListener: null as
+    | null
+    | ((proposal: Record<string, string | number | boolean>) => void),
 }))
 
 vi.mock('../data/chat-api', () => ({
@@ -82,6 +86,11 @@ vi.mock('../../../shared/agent-chat/cards/proposalFlows', () => ({
   ProposalFlowsProvider: ({ children }: { children: React.ReactNode }) =>
     children,
   useProposalFlows: () => null,
+  useOnProposalSent: (
+    listener: (proposal: Record<string, string | number | boolean>) => void,
+  ) => {
+    mocks.sentListener = listener
+  },
 }))
 
 const deferred = (): { promise: Promise<void>; resolve: () => void } => {
@@ -307,7 +316,7 @@ describe('PriorityWorkspace', () => {
     )
   })
 
-  it('opens a card in the rail, in place of the steps, and Back returns to them', async () => {
+  it('opens a card in a sheet over the page, leaving the rail, and the X closes it', async () => {
     mocks.listMessages.mockResolvedValue([
       {
         id: 'a1',
@@ -339,34 +348,32 @@ describe('PriorityWorkspace', () => {
     const chip = await screen.findByRole('button', { name: /Mark Matheny/ })
     const rail = screen.getByRole('complementary')
     expect(
-      within(rail).getByText(PRIORITY_STEP_LABELS.evidence),
-    ).toBeInTheDocument()
-    expect(
       screen.queryByText('Calling about the Maple Street drains.'),
     ).toBeNull()
 
+    chip.focus()
     fireEvent.click(chip)
 
+    const sheet = await screen.findByRole('dialog')
     expect(
-      await within(rail).findByText('Calling about the Maple Street drains.'),
+      within(sheet).getByText('Calling about the Maple Street drains.'),
     ).toBeInTheDocument()
-    expect(within(rail).getByRole('link', { name: /Call/ })).toHaveAttribute(
+    expect(within(sheet).getByRole('link', { name: /Call/ })).toHaveAttribute(
       'href',
       'tel:8285550100',
     )
-    expect(within(rail).queryByText(PRIORITY_STEP_LABELS.evidence)).toBeNull()
+    expect(
+      within(rail).getByText(PRIORITY_STEP_LABELS.evidence),
+    ).toBeInTheDocument()
     expect(chip).toHaveAttribute('aria-expanded', 'true')
 
-    fireEvent.click(
-      within(rail).getByRole('button', { name: /Where this stands/ }),
-    )
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }))
 
-    expect(
-      await within(rail).findByText(PRIORITY_STEP_LABELS.evidence),
-    ).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(
       screen.queryByText('Calling about the Maple Street drains.'),
     ).toBeNull()
+    await waitFor(() => expect(chip).toHaveFocus())
   })
 
   it('renders a clarify question, and answering it sends an ordinary turn', async () => {
@@ -528,5 +535,43 @@ describe('PriorityWorkspace', () => {
 
     expect(await screen.findByText('Counting constituents')).toBeInTheDocument()
     expect(screen.queryByTestId('chat-card')).not.toBeInTheDocument()
+  })
+
+  // The check already moved on the server; the rail catches up and the agent
+  // hears about it once, without the official seeing a message they never
+  // typed.
+  it('refetches the rail and tells the agent once when a card’s outreach is sent', async () => {
+    const proposalKey = mintProposalKey(CONVERSATION_ID, 'tc-proposal')
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: 'Here is the check.',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [{ kind: 'text', text: 'Here is the check.' }],
+      } satisfies ChatMessageDto,
+    ])
+    renderWorkspace()
+    await screen.findByText('Here is the check.')
+    mocks.fetchPriorityStatus.mockClear()
+
+    const proposal = { ...proposalArgs, proposalKey, deepLinkOnly: false }
+    act(() => mocks.sentListener?.(proposal))
+    act(() => mocks.sentListener?.(proposal))
+
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+    expect(mocks.streamMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: CONVERSATION_ID,
+        content: expect.stringMatching(
+          new RegExp(
+            `^\\${PROPOSAL_SENT_MARKER.slice(0, -1)}\\].*412 people.*${proposalKey}$`,
+          ),
+        ),
+      }),
+    )
+    expect(mocks.fetchPriorityStatus).toHaveBeenCalledWith('pri-1')
+    expect(screen.queryByText(new RegExp(proposalKey))).toBeNull()
   })
 })

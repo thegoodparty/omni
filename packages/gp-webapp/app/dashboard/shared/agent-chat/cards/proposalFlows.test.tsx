@@ -8,7 +8,11 @@ import type {
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
-import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
+import {
+  ProposalFlowsProvider,
+  useOnProposalSent,
+  useProposalFlows,
+} from './proposalFlows'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -61,6 +65,11 @@ const Opener = ({ card }: { card: Proposal }) => {
       Start
     </button>
   )
+}
+
+const Listener = ({ sent }: { sent: string[] }) => {
+  useOnProposalSent((card) => sent.push(card.proposalKey))
+  return null
 }
 
 const mockAudience = () => {
@@ -143,9 +152,11 @@ describe('ProposalFlowsProvider', () => {
       }
     })
 
+    const sent: string[] = []
     render(
       <ProposalFlowsProvider>
-        <Opener card={proposal()} />
+        <Opener card={proposal({ stepId: 'define', side: 'contrast' })} />
+        <Listener sent={sent} />
       </ProposalFlowsProvider>,
     )
     await user.click(screen.getByRole('button', { name: 'Start' }))
@@ -182,7 +193,10 @@ describe('ProposalFlowsProvider', () => {
       voterFileFilterId: 88,
       proposalKey: PROPOSAL_KEY,
       priorityId: 'priority-1',
+      stepId: 'define',
+      side: 'contrast',
     })
+    await waitFor(() => expect(sent).toEqual([PROPOSAL_KEY]))
     expect(navigatedToOutreach()).toEqual([])
   })
 

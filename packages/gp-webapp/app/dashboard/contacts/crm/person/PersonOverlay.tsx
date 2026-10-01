@@ -413,6 +413,7 @@ export const PersonRecord: React.FC<{
   statusRow?: ReactNode
   topIssues?: ReactNode
   activityFeed?: ReactNode
+  showMap?: boolean
 }> = ({
   person,
   isServe,
@@ -420,6 +421,7 @@ export const PersonRecord: React.FC<{
   statusRow,
   topIssues,
   activityFeed,
+  showMap = true,
 }) => {
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
@@ -491,7 +493,7 @@ export const PersonRecord: React.FC<{
               </>
             }
           />
-          {person.address.latitude && person.address.longitude && (
+          {showMap && person.address.latitude && person.address.longitude && (
             <Map
               places={[
                 {

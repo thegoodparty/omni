@@ -1360,9 +1360,15 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // out of either product's chat, and a Serve row carries no campaign at all.
   // No legacy null-slug branch the way setArchived needs one — proposalKey
   // only exists on rows written after the column did.
+  // A text holds its key from the draft on, and is not sent until it is
+  // paid for, so an unpaid draft reads as nothing sent yet.
   async findByProposalKey(proposalKey: string, organizationSlug: string) {
     return this.model.findFirst({
-      where: { proposalKey, organizationSlug },
+      where: {
+        proposalKey,
+        organizationSlug,
+        status: { not: OutreachStatus.pending_payment },
+      },
       include: { voterFileFilter: true },
     })
   }

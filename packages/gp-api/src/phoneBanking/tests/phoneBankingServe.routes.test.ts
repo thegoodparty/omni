@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  parsePriorityStatus,
   Person,
   SERVE_PHONE_BANKING_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
@@ -316,6 +317,114 @@ describe('serve phone banking routes', () => {
           where: { organizationSlug: eoSlug },
         }),
       ).toBe(1)
+    })
+
+    // The proposal named the check it puts out, so the list going out is
+    // that side going out, recorded once however many times it completes.
+    it('puts the side of the check it was proposed for out, once', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770005' })])
+      const priority = await officePriority()
+      await service.prisma.priority.update({
+        where: { id: priority.id },
+        data: {
+          status: {
+            version: 3,
+            steps: [
+              {
+                id: 'define',
+                state: 'settled',
+                summary: 'The crosswalk is the problem.',
+                check: {
+                  state: 'asked',
+                  who: 'Parents on Main',
+                  question: 'Is the crosswalk the problem?',
+                  raised: 0,
+                  offeredAt: '2026-09-30T12:00:00Z',
+                },
+              },
+            ],
+          },
+        },
+      })
+      const body = buildBody({
+        proposalKey: PROPOSAL_KEY,
+        priorityId: priority.id,
+        stepId: 'define',
+        side: 'main',
+      })
+
+      const first = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        body,
+        eoHeaders(),
+      )
+      expect(first.status).toBe(201)
+      const afterFirst = parsePriorityStatus(
+        (
+          await service.prisma.priority.findUniqueOrThrow({
+            where: { id: priority.id },
+          })
+        ).status,
+      ).steps.find((step) => step.id === 'define')?.check
+      expect(afterFirst).toMatchObject({
+        state: 'out',
+        who: 'Parents on Main',
+        sentProposalKey: PROPOSAL_KEY,
+      })
+      expect(afterFirst?.sentAt).toEqual(expect.any(String))
+      expect(
+        await service.prisma.outreach.findUnique({
+          where: { proposalKey: PROPOSAL_KEY },
+        }),
+      ).toMatchObject({ priorityStepId: 'define', priorityCheckSide: 'main' })
+
+      await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        body,
+        eoHeaders(),
+      )
+      const afterSecond = parsePriorityStatus(
+        (
+          await service.prisma.priority.findUniqueOrThrow({
+            where: { id: priority.id },
+          })
+        ).status,
+      ).steps.find((step) => step.id === 'define')?.check
+      expect(afterSecond?.sentAt).toBe(afterFirst?.sentAt)
+    })
+
+    it('refuses a check on a step that carries none', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770006' })])
+      const priority = await officePriority()
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({
+          proposalKey: PROPOSAL_KEY,
+          priorityId: priority.id,
+          stepId: 'evidence',
+          side: 'main',
+        }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(400)
+    })
+
+    it('refuses a check with no priority behind it', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770007' })])
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({
+          proposalKey: PROPOSAL_KEY,
+          stepId: 'define',
+          side: 'main',
+        }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(400)
     })
 
     it('refuses a priority that belongs to another office', async () => {
