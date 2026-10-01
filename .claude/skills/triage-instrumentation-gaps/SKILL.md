@@ -708,7 +708,7 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
       hand-authors the entries in
       `analytics/diagnostics/semantic_catalog/config/ratifications.yml`: each half's
       `approved:` is the date that group's first human approval lands, `approved_by_pr`
-      is the new PR, `rule_sha`/`build_sha`/`value_at_signing` come from the merged
+      is the ratification PR you are opening (never the sem PR that merged early), `rule_sha`/`build_sha`/`value_at_signing` come from the merged
       change, and a comment says why it is hand-authored. Request both teams. Merge only
       when each group has a human approval from a current member
       (`gh pr view <n> --json reviews` against
@@ -762,8 +762,9 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    `latches` in the committed `analytics_event_health_state.json` before and after the
    first scheduled run past the merge, not from the digest text alone. Compare each
    table's `last_altered` against the merge time first: a mart can rebuild before an
-   upstream it reads, and then it still shows the old value. Then update the docs
-   that describe the metric, and move the ticket to done with a resolution comment.
+   upstream it reads, and then it still shows the old value. Confirm the mart docs PR
+   (step 7.3) merged, or say why no `m_*.yaml` description needed it. Then update the
+   docs that describe the metric, and move the ticket to done with a resolution comment.
 
 ## Diagnose — red/yellow health items
 
