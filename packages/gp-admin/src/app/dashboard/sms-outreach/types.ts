@@ -30,6 +30,8 @@ export const STANDARDS_RULE_LABELS: Record<SmsStandardsRule, string> = {
   candidate_name: "Message doesn't include the candidate's name",
   paid_for_by: 'Missing "Paid for by <committee>" disclaimer',
   length: 'Message exceeds the vendor length cap',
+  link_shortener:
+    'Contains a shortened link (e.g. bit.ly), which the vendor rejects',
 }
 
 export type QueueTab = 'awaiting' | 'booked' | 'sent' | 'denied' | 'canceled'
