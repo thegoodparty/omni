@@ -106,8 +106,22 @@ VERB_EFFECTS = {
             "Stop the digest ever raising this cause again. There is no expiry and "
             "nothing revisits it."
         ),
-        "ticket": "File it in the Data backlog, and stop the digest nagging about it.",
+        "ticket": (
+            "File it in the Data backlog. The digest keeps raising it until the cause "
+            "clears or is dismissed."
+        ),
         "investigate": "Leave it open, on the record that you are looking into it.",
+        # Variants for a ruling on events picked out of a cause. Silencing works per
+        # cause only: there is no per-event record yet, so a subset cannot be quieted
+        # without quieting the whole cause, and these sentences must not promise it.
+        "dismiss:event": (
+            "Note these as fine for this review only. Nothing is silenced: they are "
+            "raised again next run, and leave this cause on their own once it stops "
+            "applying to them."
+        ),
+        "ticket:event": (
+            "File these in the Data backlog. They are raised again next run."
+        ),
     },
     "gaps": {
         "accept": (
@@ -310,14 +324,14 @@ CAUSE_CAVEATS = {
         "not the event. These events are alive, and this is a fault in our tooling "
         "rather than a problem with the product.",
         "A second, quite different situation lands here looking identical: an event "
-        "whose code really was deleted, but where we could not work out when. Six "
-        "events are in that state today, and there is an open ticket to fix it.",
-        "Look at the other events grouped with this one. If they carry a removal date "
-        "and this one does not, its code probably was deleted and we simply could not "
-        "date it. Before deciding our search has a new blind spot, search the code "
-        "history for the event's full dotted name as one unbroken string: our counter "
-        "copes with that name being split across lines and the history search does not.",
-        f"call_site_count, count_call_sites, git log -S (DATA-2577). "
+        "whose code really was deleted, but where we could not work out when. The "
+        "common case of that was fixed on 2026-09-29, but the fix only reaches an "
+        "event at the next weekly history walk, so one deleted shortly before then "
+        "can still sit here until it runs.",
+        "Look at the other events grouped with this one. If they were deleted in the "
+        "same change and carry a removal date while this one does not, its code was "
+        "probably deleted too and the date is still to come.",
+        f"call_site_count, count_call_sites, call_site_retired_date (DATA-2577). "
         f"Full triage in {HEALTH_BOOK} section 'Rank 0'",
     ),
     "orphaned_firing": _caveat(
@@ -357,12 +371,14 @@ CAUSE_CAVEATS = {
         "shipped last Thursday and has not fired yet.",
         "The group mixes three unrelated things. Counted on 2026-09-28, of 69 events: "
         "34 were never built at all, about 32 shipped too recently to judge, and 4 are "
-        "the real finding.",
+        "the real finding. An event that was never built stays here even after it is "
+        "deleted from Amplitude, and ruling on some events here does not stop them "
+        "coming back next run; an event leaves on its own the first time it fires.",
         "Split it before ruling on it, which the buttons above the table do for you. "
         "'not found in code' selects the ones nobody ever built, and the age column "
         "separates what shipped in the last fortnight from what has been silent for "
         "months.",
-        "instrumented_never_observed, DATA-2573, DATA-2508",
+        "instrumented_never_observed, DATA-2508, DATA-2587, DATA-2588",
     ),
     "dormant": _caveat(
         "Nothing fired in the last 30 days.",
@@ -383,8 +399,10 @@ CAUSE_CAVEATS = {
         "The same 30-day blindness as the ordinary dormant group. Watching an event "
         "more closely raises how loudly this gets reported; it does not give us any "
         "better idea of how often the event ought to fire.",
-        "Look at when it last fired and ask whether that gap is unusual for this "
-        "particular event.",
+        "Check another event on the same page. If that one still fires, the page "
+        "works and this action is simply rare. If nothing on the page fires, check "
+        "the page is still reachable: code can survive inside a screen nobody can "
+        "open any more.",
         "event_count_30d, is_elevated",
     ),
     "okr_anchor_dormant": _caveat(
@@ -399,9 +417,10 @@ CAUSE_CAVEATS = {
         "break. After about a month of being broken, the broken level becomes the "
         "normal one and the alarm switches itself off. That is how a wrong OKR ran "
         "unnoticed for a month.",
-        "Do not read the absence of this warning as health for anything outside the "
-        "semantic layer. For those, compare the weekly numbers against a level from "
-        "before the break, never against the recent average.",
+        "Do not read the absence of this warning as health, inside the semantic layer "
+        "or out. It only catches a break that starts while it is watching: one older "
+        "than about nine weeks never raises it. Compare the weekly numbers against a "
+        "level from before any suspected break, never against the recent average.",
         "okr_latch.py, anchored_on (DATA-2421)",
     ),
     "anomaly_drop": _caveat(

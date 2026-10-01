@@ -206,7 +206,11 @@ dismissal they did not ask for.
 **A ruling on part of a cause.** A handoff can carry an indented per-event block under a
 cause. Apply the cause-level verb first, then the per-event ones, so "retire the cluster
 except these four" lands in that order. Per-event `govern` goes to `event-metadata` the
-same way; per-event `reviewed` has nowhere to land and goes in the PR body as a note.
+same way. Per-event `reviewed`, `dismiss` and `ticket` have nowhere to land as a silence:
+never turn them into a `cause:` row, which would quiet every event under that cause, and
+never into an `event:` row, which is a watchlist-proposal rejection and silences no flag.
+Record them in the PR body, file the ticket if one was asked for, and tell the reviewer the
+digest will raise them again until the cause stops applying.
 
 ## Queue A — instrumentation gaps
 

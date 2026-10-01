@@ -1521,10 +1521,13 @@
   // to know before pressing it.
   const NOT_A_RETIREMENT = /^no removal:\s*/i
 
-  const effectOf = (queue, verdict, proof) => {
+  const effectOf = (queue, verdict, proof, scope) => {
     const effects = (DATA.verb_effects || {})[queue] || {}
     if (proof && NOT_A_RETIREMENT.test(proof) && effects[verdict + ':correction']) {
       return effects[verdict + ':correction']
+    }
+    if (scope === 'event' && effects[verdict + ':event']) {
+      return effects[verdict + ':event']
     }
     return effects[verdict] || ''
   }
@@ -1889,6 +1892,7 @@
     Object.entries(item.verbs || {}).forEach(([verdict, label]) => {
       const btn = el('button', null, label)
       btn.type = 'button'
+      btn.title = effectOf(item.queue, verdict, undefined, 'event')
       btn.addEventListener('click', () => apply(verdict))
       // Hovering or focusing the one verb that needs proof reveals the box, so the
       // requirement is visible before the click rather than after it.
@@ -2226,7 +2230,7 @@
     add(
       node,
       el('p', 'review-effect',
-        effectOf(block.queue, block.verdict, block.proof) ||
+        effectOf(block.queue, block.verdict, block.proof, n ? 'event' : undefined) ||
           block.verdict_label || block.verdict),
     )
     add(
