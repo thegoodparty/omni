@@ -515,7 +515,7 @@ CARD_FIELDS = (
     "display_name", "area", "description", "status", "fires_on", "url",
     "fires_on_source", "anchor_confidence", "anchor_flag_reason",
     "count_30d", "count_total", "last_seen", "first_seen", "series",
-    "tags", "okr", "supersession", "declared_intent", "watchlist_status",
+    "tags", "okr", "okr_metrics", "supersession", "declared_intent", "watchlist_status",
     "questions", "used_by", "provenance",
 )
 
@@ -924,6 +924,7 @@ def build_snapshot(
         # 20 KB of the same four sentences.
         "verb_effects": VERB_EFFECTS,
         "series_weeks": explorer.get("series_weeks") or [],
+        "okr_labels": explorer.get("okr_labels") or {},
         "event_cards": cards,
         "queues": queues,
         "settled": _settled_gaps(gaps),

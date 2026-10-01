@@ -34,6 +34,7 @@ CARD_SENTENCES = (
     "Display name · a label, changeable",
     "Event type · the identifier, fixed",
     "times in the last 30 days, most recently",
+    "Feeds OKR metrics",
 )
 
 

@@ -173,6 +173,21 @@ const EventCard = (() => {
     return box
   }
 
+  // Every governed metric the event feeds, by the semantic layer's own label. A snapshot
+  // from before `okr_metrics` existed carries only the single `okr` id.
+  const okrText = (card) => {
+    const labels = DATA.okr_labels || {}
+    const ms = card.okr_metrics || (card.okr ? [{ metric: card.okr }] : [])
+    return ms
+      .map(
+        (m) =>
+          (labels[m.metric] || m.metric) +
+          (m.qualifier ? ' (' + m.qualifier + ')' : '') +
+          (m.historical ? ' (historical leg)' : ''),
+      )
+      .join('; ')
+  }
+
   const cardField = (label, value) => {
     const node = el('div', 'field')
     add(node, el('div', 'fieldlbl', label))
@@ -381,7 +396,7 @@ const EventCard = (() => {
     const ids = el('div', 'fields prov')
     add(ids, cardField('Product area', card.area))
     add(ids, cardField('Tags', (card.tags || []).join(', ')))
-    add(ids, cardField('OKR anchor', card.okr))
+    add(ids, cardField('Feeds OKR metrics', okrText(card)))
     add(ids, cardField('Declared intent', card.declared_intent))
     add(ids, cardField('Watchlist', card.watchlist_status))
     add(ids, cardField('All-time count', num(card.count_total)))

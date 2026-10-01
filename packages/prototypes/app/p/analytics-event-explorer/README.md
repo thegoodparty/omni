@@ -35,6 +35,13 @@ this page knows (caveats, resolved lineage, browser-or-server, product) through 
 `opts`; the row badges take their words from `EventCard.verdictFor` too, so a row and its
 card cannot disagree.
 
+**OKR tags come from the semantic layer.** `okr_metrics` on each event lists every
+governed metric it feeds, read from the `anchored_on` legs in gp-data-platform's
+`sem_analytics__users_*.yml`, with the leg's qualifier and whether it is historical;
+`okr_labels` carries each metric's label. It is deliberately not the assembler's `okr`
+column, which serves the dormancy watch and so keeps one current, unqualified metric per
+event.
+
 **`standalone/template.html` is also the product map's template.** The map build
 (`packages/runbooks/surfaces/product-map/build.py`) renders it with `DATA.page = 'map'`,
 which puts the map's tree (`ProductMap`, from `map.js` there) where the events table sits
@@ -47,9 +54,14 @@ and branch on `MAP` only where the map genuinely differs.
 ```
 analytics-governance.yml, Mon + Thu 11:00 UTC        run ends ~11:19, state PR merges ~11:40
   └─ event_explorer_snapshot.py  ->  data/event-explorer.json, committed in the state PR
-        └─ routine "Republish the analytics events explorer", Mon + Thu 12:00 and 13:00 UTC
-              └─ standalone/build.py  ->  publish to the same artifact URL
+        └─ routine "Republish the analytics events explorer and product map",
+           Mon + Thu 12:00 and 13:00 UTC
+              ├─ standalone/build.py  ->  publish to the explorer's artifact URL
+              └─ surfaces/product-map/build.py  ->  publish to the map's artifact URL
 ```
+
+Each page is checked and published on its own, so a map that is already current never
+stops the explorer, and the reverse.
 
 It fires twice because the merge is reliable but not guaranteed: across the eight runs
 measured, the state PR was created 11:12-11:19 and merged 19-26 minutes later. When the
