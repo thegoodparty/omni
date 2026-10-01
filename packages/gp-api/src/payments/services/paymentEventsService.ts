@@ -877,7 +877,7 @@ export class PaymentEventsService {
     try {
       await this.analytics.track(
         user.id,
-        EVENTS.Account.ProSubscriptionCanceled,
+        EVENTS.Account.ProSubscriptionEnded,
         {
           subscriptionId,
           cancellationReason: subscription.cancellation_details?.reason ?? null,

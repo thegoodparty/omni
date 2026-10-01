@@ -894,7 +894,7 @@ describe('PaymentEventsService', () => {
 
       expect(analytics.track).toHaveBeenCalledExactlyOnceWith(
         mockUser.id,
-        EVENTS.Account.ProSubscriptionCanceled,
+        EVENTS.Account.ProSubscriptionEnded,
         {
           subscriptionId: 'sub_test_unmatched',
           cancellationReason: 'payment_failed',
