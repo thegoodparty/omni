@@ -147,7 +147,7 @@ const refusalFor = (
     const stored = current.steps.find((step) => step.id === gate)?.check
     const gatePatch = update.steps.find((step) => step.id === gate)?.check
     return !isCheckAnswered(
-      mergeStepCheck(stored, gatePatch, '', turn.offered()),
+      mergeStepCheck(stored, gatePatch, turn.startedAt, turn.offered()),
     )
   })
   if (closesUnheard !== undefined) {
@@ -170,7 +170,12 @@ const refusalFor = (
     const patch = patches.get(step.id)
     return {
       state: patch?.state ?? step.state,
-      check: mergeStepCheck(step.check, patch?.check, '', turn.offered()),
+      check: mergeStepCheck(
+        step.check,
+        patch?.check,
+        turn.startedAt,
+        turn.offered(),
+      ),
     }
   }
   const gatesBefore = current.steps.filter(
