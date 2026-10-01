@@ -564,7 +564,11 @@ Rows of kind `declared_leg_changed_by_pr` come from `intents:` rows a PR wrote t
 an analytics guard block. Draft the `anchored_on` change the headline names, exactly like
 any case 2. `intent_row_resolved` means the upstream change landed: delete that `intents:`
 row in this triage PR. Every `not_a_change` row is a possible guard false positive: check
-the PR, and if the guard was wrong, file the fix.
+the PR, and if the guard was wrong, file the fix. An `intents:` row with no `metric:` is a
+PR reporting a dead listing the guard got wrong; it is not a metric change, so Queue C
+never shows it. Whenever this PR touches `monitored_events.yaml`, look for such rows: file
+the guard fix, then delete the row. An `intent_row_resolved` also appears when the metric
+keeps the event only as a historical leg, since the guard no longer watches it either.
 
 ## Diagnose — red/yellow health items
 

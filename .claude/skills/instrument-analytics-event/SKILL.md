@@ -245,12 +245,18 @@ A hook runs `governance_guard.py` after every edit to code that sends events, an
   then add one `intents:` row per metric to `monitored_events.yaml` in the same change:
   `retire_activity`, `successor` (+ `successor:`), `relocated` (+ `route:`), or
   `not_a_change`, always with a reason. Never write a row without the human's reason.
+  When the event still fires elsewhere, the suggested row carries
+  `intent: <relocated|not_a_change|successor|retire_activity>`: that placeholder, a
+  `"<why>"` reason and a `YYYY-MM-DD` date are all refused until replaced with real values.
 - **An event's last call site is removed but its `EVENTS` key stays.** Delete the key
-  and follow "When a change removes an event" below.
+  and follow "When a change removes an event" below. If the event in fact still fires in
+  a way the guard cannot see, add `- {event: "<name>", intent: not_a_change, reason: "<why>", date: "YYYY-MM-DD"}`
+  (no `metric:`) to `intents:` instead; triage reviews it as a guard bug.
 
 Before finishing any change that touches events, run it yourself:
 `cd packages/runbooks/scripts/python && uv run governance_guard.py check --base $(git merge-base origin/main HEAD)`.
-Exit 2 means fix it now; the report says exactly what to add.
+Exit 2 means fix it now; the report says exactly what to add. Exit 1 means the guard
+itself could not run; nothing was checked, and CI will run it on the PR.
 
 ## When a change removes an event
 

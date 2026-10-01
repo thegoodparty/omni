@@ -283,8 +283,11 @@ PR, with no path filter, and posts or updates one PR comment naming the exact fi
 Actions variable `GOVERNANCE_GUARD_MODE` (`block` | `warn` | `off`, unset means `warn`)
 sets whether a blocking finding fails the check or only warns; `GOVERNANCE_GUARD_ALERT`
 names who gets cc'd in the comment when the guard itself errors. The job never fails a
-PR for a mechanical reason: a setup step or a comment-posting failure passes with a
-warning rather than blocking, and `MODE=off` prints a warning and checks nothing. The
+PR for a mechanical reason: a failed uv setup or `uv sync` makes the guard report that it
+could not run and skips the runbooks suite with a warning, a comment-posting failure only
+warns, and `MODE=off` prints a warning and checks nothing. The full report (or the error)
+always goes to the job summary too, because the comment is capped at 60,000 characters.
+OKR legs come from the vendored sem copy at the PR's merge base, not the PR's own copy. The
 runbooks suite (only when `packages/runbooks` changed) runs in the same job; its guard
 replay tests fail, rather than skip, when the Actions checkout is missing the history
 they replay against, since a skipped acceptance test would otherwise read as a pass.
