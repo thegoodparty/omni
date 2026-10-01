@@ -698,9 +698,29 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
       `gh pr edit <n> --add-reviewer thegoodparty/semantic-layer-data` and/or
       `thegoodparty/semantic-layer-business`.
    3. **Mart docs PR**, alone.
-   4. **omni PR**: `monitored_events.yaml` (case 1 edits, per the kinds above),
-      `instrumentation_data/event_anchors.json`, the fixture copy of the sem file under
-      `scripts/python/fixtures/`, and tests naming the old leg.
+   4. **omni PR**, from a fresh worktree off `origin/main`, after the sem PR merges:
+      - **Refresh the fixture first.** Copy the merged sem file into
+        `scripts/python/fixtures/` under its header comment. Then
+        `test_committed_registry_has_no_case_1_drift_against_the_fixtures` lists every
+        case 1 finding the next scheduled run would raise, offline. Edit until it passes.
+      - **Case 1 edits** in `monitored_events.yaml`, per the kinds above. A rename can
+        move the call site as well as the name, so read each new event's call sites at
+        HEAD and repoint `path`, not just `instrumented_by`.
+      - **Then grep the whole yaml for every old name.** Queue C only compares
+        behaviors that carry a `metric:` pointer, so a behavior without one keeps
+        pointing at the old event and the old file, and nothing reports it. Repoint
+        those too; they are the same edit.
+      - **Rewrite any caveat or surface the ruling overturned.** A surface with
+        `instrumented_by: null` and a comment saying a channel is excluded by
+        definition is exactly what a definition change makes false.
+      - **Tests naming the old leg stay** while the leg is declared `era: historical`;
+        they are still true. Add one for any new qualifier the parser has to keep.
+      - **Anchors:** keep the old names' rows, and draft the new names with
+        `event_anchors.py --only "<new names>"` (`ANTHROPIC_API_KEY`), then
+        `--review-artifact`. They land queued, not accepted. For an event with several
+        call sites, check the judge's `evidence` against the metric's exclusions: it can
+        pick the one call site the metric excludes (the self-report modal, on
+        DATA-2584).
    **Watching CI.** Read the dbt Cloud run itself
    (`/api/v2/accounts/<acct>/runs/<run>/?include_related=["run_steps"]`, token in
    `~/.dbt/dbt_cloud.yml`, never printed): the GitHub badge lags the run by minutes
@@ -709,7 +729,11 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
 8. **After merge, verify:** the ratification follow-up PR opened, the catalog
    regenerated, the prod value matches the `semantic-value` line, the digest's
    `okr_anchor_dormant` latch for the old leg cleared, and anything predicted during
-   planning (no step at the cutover, no double count) re-measured. Then update the docs
+   planning (no step at the cutover, no double count) re-measured. Read the latch from
+   `latches` in the committed `analytics_event_health_state.json` before and after the
+   first scheduled run past the merge, not from the digest text alone. Compare each
+   table's `last_altered` against the merge time first: a mart can rebuild before an
+   upstream it reads, and then it still shows the old value. Then update the docs
    that describe the metric, and move the ticket to done with a resolution comment.
 
 ## Diagnose — red/yellow health items
