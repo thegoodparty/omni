@@ -16,6 +16,7 @@ import {
   type ProposalLink,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { useSnackbar } from 'helpers/useSnackbar'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { transformVoterFileFiltersForBackend } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import {
@@ -98,6 +99,7 @@ export const ProposalFlowsProvider = ({
   const sms = useServeSmsFlag(false)
   const signSms = useServeSmsSignedBody()
   const [opened, setOpened] = useState<Opened | null>(null)
+  const { errorSnackbar } = useSnackbar()
 
   const listeners = useRef(new Set<SentListener>())
   const listen = useCallback((listener: SentListener) => {
@@ -122,18 +124,25 @@ export const ProposalFlowsProvider = ({
       // The map page takes a saved list and nothing else, so this is the
       // latest point the list can be saved: the official has started.
       const audience = proposedAudienceOf(proposal)
-      const listId =
-        proposal.savedFilterId ??
-        (audience
-          ? (
-              await clientRequest('POST /v1/voters/voter-file/filter', {
-                name: audience.name,
-                ...transformVoterFileFiltersForBackend(audience.filters),
-                supportStatus: audience.supportStatus,
-                precincts: audience.precincts,
-              })
-            ).data.id
-          : null)
+      let listId = proposal.savedFilterId ?? null
+      if (listId === null && audience) {
+        try {
+          const { data } = await clientRequest(
+            'POST /v1/voters/voter-file/filter',
+            {
+              name: audience.name,
+              ...transformVoterFileFiltersForBackend(audience.filters),
+              supportStatus: audience.supportStatus,
+              precincts: audience.precincts,
+            },
+          )
+          listId = data.id
+        } catch {
+          // The card's button stays live, so pressing it again retries.
+          errorSnackbar("We couldn't save this list. Try again.")
+          return
+        }
+      }
       // The card's link rides to the walk's own create, which puts the check
       // out on the server: nothing here survives the navigation to say so.
       const params = new URLSearchParams({
@@ -143,7 +152,7 @@ export const ProposalFlowsProvider = ({
       })
       router.push(`/dashboard/door-knocking?${params.toString()}`)
     },
-    [router],
+    [router, errorSnackbar],
   )
 
   const open = useCallback(

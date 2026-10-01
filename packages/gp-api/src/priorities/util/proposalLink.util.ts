@@ -17,8 +17,9 @@ export type ProposalOutreachLink = {
 }
 
 // A send moves the check it names to out, so the check has to be one this
-// office's priority carries: a gate step, both halves given, on a priority
-// in the caller's own office.
+// office's priority carries: a gate step, both halves given, with the card's
+// key, on a priority in the caller's own office. A priority alone is fine:
+// the agent can propose outreach on a priority that puts out no check.
 export const resolveProposalLink = async (
   client: Pick<PrismaClient, 'priority'>,
   { proposalKey, priorityId, stepId, side }: ProposalLink,
@@ -29,6 +30,11 @@ export const resolveProposalLink = async (
   }
   if (stepId !== undefined && priorityId === undefined) {
     throw new BadRequestException('stepId needs the priority it belongs to')
+  }
+  // The send is recorded against the check by its proposal key, so a check
+  // with no key could never move.
+  if (stepId !== undefined && proposalKey === undefined) {
+    throw new BadRequestException('stepId needs the proposal key it came from')
   }
   if (stepId !== undefined && !PRIORITY_GATE_STEPS.includes(stepId)) {
     throw new BadRequestException(`${stepId} does not carry a check`)
