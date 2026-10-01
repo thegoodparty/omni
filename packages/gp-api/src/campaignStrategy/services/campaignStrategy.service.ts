@@ -30,6 +30,7 @@ import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
+import { CampaignStoryStateService } from '@/campaignStory/services/campaignStoryState.service'
 import { isTestCampaign } from '@/users/util/users.util'
 import { isDateTodayOrFuture } from 'src/shared/util/date.util'
 
@@ -145,6 +146,7 @@ export class CampaignStrategyService extends createPrismaBase(
     private readonly s3: S3Service,
     private readonly analytics: AnalyticsService,
     private readonly campaignTrackerTasks: CampaignTrackerTasksService,
+    private readonly storyState: CampaignStoryStateService,
   ) {
     super()
   }
@@ -191,9 +193,11 @@ export class CampaignStrategyService extends createPrismaBase(
     // Resolve raceId synchronously so a 400 surfaces to this call rather than
     // a dispatch with no race.
     const brHashId = resolveRaceId(campaign.details)
-    const plan = await this.alignPlanWithRace(
-      await this.upsertForCampaign(campaign.id, brHashId),
-      brHashId,
+    const plan = await this.alignPlanWithStory(
+      await this.alignPlanWithRace(
+        await this.upsertForCampaign(campaign.id, brHashId),
+        brHashId,
+      ),
     )
 
     const [opposition, opportunities] = await Promise.all([
@@ -846,6 +850,109 @@ export class CampaignStrategyService extends createPrismaBase(
     }
 
     return updated
+  }
+
+  // Bring the plan in line with the CURRENT campaign story. The story is
+  // optional, so a plan can be generated without one; when the candidate later
+  // finishes their story that plan is stale in a way the raceId comparison
+  // can't see. Same shape as alignPlanWithRace: wipe the content in place and
+  // let the caller's dispatchPending regenerate it, so the row survives and the
+  // user sees skeletons rather than a vanished plan.
+  //
+  // `generatedWithStory` doubles as the claim. The plan endpoint is polled, so
+  // without a conditional update two concurrent polls would each reset and
+  // double-dispatch. Attempt counters deliberately survive — they bound
+  // lifetime Fargate spend per campaign.
+  private async alignPlanWithStory(
+    plan: CampaignStrategy,
+  ): Promise<CampaignStrategy> {
+    if (plan.generatedWithStory) return plan
+
+    const { complete } = await this.storyState.read(plan.campaignId)
+    if (!complete) return plan
+
+    // Never generated yet (first visit, or a reset already in flight): there is
+    // no stale content to wipe, so just stamp the flag. The dispatch that
+    // follows picks the story up as params, which is the whole point.
+    const neverGenerated =
+      !plan.oppositionPersistedAt &&
+      !plan.opportunitiesPersistedAt &&
+      !plan.oppositionRunId &&
+      !plan.opportunitiesRunId
+    if (neverGenerated) {
+      const { count } = await this.model.updateMany({
+        where: { id: plan.id, generatedWithStory: false },
+        data: { generatedWithStory: true },
+      })
+      return count === 0
+        ? this.model.findUniqueOrThrow({ where: { id: plan.id } })
+        : { ...plan, generatedWithStory: true }
+    }
+
+    await this.client.$transaction(async (tx) => {
+      const { count } = await tx.campaignStrategy.updateMany({
+        where: { id: plan.id, generatedWithStory: false },
+        data: {
+          generatedWithStory: true,
+          oppositionRunId: null,
+          opportunitiesRunId: null,
+          oppositionPersistedAt: null,
+          opportunitiesPersistedAt: null,
+          generationStartedAt: null,
+        },
+      })
+      if (count === 0) return
+      await tx.campaignStrategyOpportunity.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      })
+      await tx.campaignStrategyChallenge.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      })
+      await tx.campaignStrategyOpponent.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      })
+    })
+
+    return this.model.findUniqueOrThrow({ where: { id: plan.id } })
+  }
+
+  // Eager regeneration for the campaign-story write paths, so a candidate who
+  // finishes their story in the chat does not have to open the plan tab for it
+  // to take effect. Only acts on a plan that already exists: generation is
+  // otherwise user-triggered, and dispatching here would bill a candidate who
+  // never asked for a plan.
+  //
+  // Non-throwing by contract — a story save must not fail because a
+  // regeneration could not be dispatched. If the dispatch does fail after the
+  // reset lands, the next plan read sees unpersisted sections and dispatches,
+  // so the plan self-heals rather than staying wiped.
+  async regenerateOnStoryComplete(campaignId: number): Promise<void> {
+    try {
+      const plan = await this.findFirst({ where: { campaignId } })
+      if (!plan || plan.generatedWithStory) return
+
+      const { complete } = await this.storyState.read(campaignId)
+      if (!complete) return
+
+      const campaign = await this.client.campaign.findUnique({
+        where: { id: campaignId },
+        include: { user: true },
+      })
+      if (!campaign) return
+
+      // Re-enters the normal generation path, which aligns (claiming the
+      // one-shot flag) and then dispatches both sections.
+      await this.getOrGenerateStrategicLandscape(campaign)
+
+      // The tracker takes the story as input too, so refresh the task list now
+      // instead of waiting for the Thursday cron.
+      await this.campaignTrackerTasks.dispatchGeneration(campaign, 'weekly')
+    } catch (err) {
+      this.logger.error(
+        { err, campaignId },
+        'story-complete plan regeneration failed',
+      )
+    }
   }
 
   // Pure read for consumers that must NEVER trigger (paid) generation or the
