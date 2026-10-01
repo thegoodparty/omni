@@ -241,6 +241,18 @@ describe('a question written above the clarify widget', () => {
     expect(withoutTrailingQuestion('Look at the U.S. data first?')).toBe('')
   })
 
+  it('reads civic titles as abbreviations', () => {
+    expect(withoutTrailingQuestion('Notify Gov. Smith. Which zone?')).toBe(
+      'Notify Gov. Smith.',
+    )
+  })
+
+  it('keeps a lone bolded line that carries its own context', () => {
+    expect(withoutTrailingQuestion('**Context. Which first?**')).toBe(
+      '**Context. Which first?**',
+    )
+  })
+
   it('ends a sentence at a short ordinary word', () => {
     expect(withoutTrailingQuestion('Moving On. Which first?')).toBe(
       'Moving On.',

@@ -21,12 +21,12 @@ export type TurnBlock<Ctx> =
   | { kind: 'widget'; key?: string; instance: WidgetInstance<Ctx> }
 
 const SENTENCE_BREAK = /[.!?]+[*_]*["')\]]?\s+(?=[*_]*["'([]?[A-Za-z])/g
-// "U.S. Census", "Dr. Smith", "Maple Ave. Housing": a known title or street
-// abbreviation, or single letters joined by dots ("U.S.", "e.g."), before a
+// "U.S. Census", "Dr. Smith", "Gov. Stein", "Maple Ave. Housing": a known
+// title, office or street abbreviation, or single letters joined by dots ("U.S.", "e.g."), before a
 // period is read as an abbreviation. Every other word ends its sentence, since
 // a short word like "On." does far more often than not.
 const ABBREVIATION =
-  /(?:^|\s)(?:Dr|Mr|Ms|Mrs|St|Mt|Ave|Blvd|Rd|Ln|Jr|Sr|(?:[A-Za-z]\.)+[A-Za-z])\.$/
+  /(?:^|\s)(?:Dr|Mr|Ms|Mrs|St|Mt|Ave|Blvd|Rd|Ln|Jr|Sr|Gov|Sen|Rep|Dept|vs|(?:[A-Za-z]\.)+[A-Za-z])\.$/
 
 // The last line goes when it ends in "?". When statements open that line,
 // only the closing run of questions goes, unless the whole line is wrapped in
@@ -43,7 +43,13 @@ export const withoutTrailingQuestion = (text: string): string => {
       if (ABBREVIATION.test(line.slice(0, match.index + 1))) continue
       cut = match.index + match[0].length
     }
+  } else if (lineStart === 0 && line.search(SENTENCE_BREAK) !== -1) {
+    // A bolded line that carries context ahead of its question, with nothing
+    // above it to keep: cutting inside would leave an unclosed marker, and
+    // dropping it would lose the context, so it stays whole.
+    return text
   }
+
   return (trimmed.slice(0, lineStart) + line.slice(0, cut)).trimEnd()
 }
 
