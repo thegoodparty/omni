@@ -100,6 +100,23 @@ describe('upgradeScriptFooter', () => {
     expect(upgradeScriptFooter(verified, 'Another Committee')).toBe(verified)
   })
 
+  // The delegate-caught case: the guard must be structural, because a body
+  // can legitimately say "paid for by" without being the system footer.
+  it('still upgrades when the body itself says "paid for by"', () => {
+    const script = composeScript(
+      'this is Jane, candidate for Mayor. This run is paid for by ' +
+        'neighbors like you.',
+      null,
+    )
+    expect(upgradeScriptFooter(script, 'Jane for Mayor')).toBe(
+      composeScript(
+        'this is Jane, candidate for Mayor. This run is paid for by ' +
+          'neighbors like you.',
+        'Jane for Mayor',
+      ),
+    )
+  })
+
   it('leaves a script that does not end with the system footer alone', () => {
     const edited = `${draftScript} PS vote early`
     expect(upgradeScriptFooter(edited, 'Jane for Mayor')).toBe(edited)

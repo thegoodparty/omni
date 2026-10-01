@@ -37,16 +37,20 @@ export const composeFooter = (committeeName?: string | null): string =>
 // verbatim (re-composing would double the footer), so only the footer is
 // upgraded once the committee name exists -- the same line scheduling's
 // server-side compliance check demands.
+// Structural, not a phrase search: matching "paid for by" anywhere would
+// also fire on body text and skip the injection, and a trailing footer that
+// names some OTHER committee is left alone so the standards check fails
+// closed instead of a second line being stacked under the first.
 export const upgradeScriptFooter = (
   script: string,
   committeeName: string | null,
 ): string => {
-  if (!committeeName || /paid\s+for\s+by/i.test(script)) return script
-  if (!script.endsWith(OPT_OUT_FOOTER)) return script
-  return (
-    script.slice(0, script.length - OPT_OUT_FOOTER.length) +
-    composeFooter(committeeName)
-  )
+  if (!committeeName) return script
+  const upgraded = `\n\n${composeFooter(committeeName)}`
+  if (script.endsWith(upgraded)) return script
+  const bare = `\n\n${OPT_OUT_FOOTER}`
+  if (!script.endsWith(bare)) return script
+  return script.slice(0, script.length - bare.length) + upgraded
 }
 
 // Peerly merges {first_name} from the uploaded list CSV — the same token our
