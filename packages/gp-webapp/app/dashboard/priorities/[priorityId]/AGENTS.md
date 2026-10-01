@@ -90,6 +90,21 @@ a settled gate that has no check, and answers a gate settled without one with
 `checkDue`: offer it now, before any next-step work. So `asked` means shown,
 and the rail reads it as waiting on the official.
 
+Three more holds, because the model also called the official's own agreement
+"constituents agreed":
+
+- **Recording `asked` while something was offered stamps `offeredAt` on the
+  server** (`mergeStepCheck`'s `offered` argument, which only the server
+  passes). Reads heal earlier rows: `parsePriorityStatus` drops an `asked`
+  with no `offeredAt`, and any check on a step that is not a gate. The gate
+  then counts as bare and asks again.
+- **`confirmed` and `revised` need evidence.** The side has to have been `out`,
+  or shown in an earlier turn (`offeredAt` before the handler's turn
+  `startedAt`), and `heard` has to say what constituents said. A check patch
+  on a step that is not a gate is refused, and the client merge ignores one.
+- **An unanswered `asked` lets one step open past its gate, and no further.**
+  After that, the agent has to ask again or record the answer.
+
 Listening is not a gate. The answer lives on the step as `check`
 (`PriorityStepCheckSchema` in contracts): `asked`, `out`, `confirmed`,
 `revised`, `deferred`, `declined`, with the least-affected side nested as

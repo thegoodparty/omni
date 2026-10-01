@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { formatISO } from 'date-fns'
+import { formatISO, isBefore, parseISO } from 'date-fns'
 import {
   MAX_CHECK_RAISES,
   PRIORITY_GATE_STEPS,
@@ -41,6 +41,10 @@ const sameCheck = (
     a.question === b.question &&
     a.when === b.when &&
     a.raised === b.raised &&
+    a.offeredAt === b.offeredAt &&
+    a.heard === b.heard &&
+    a.contrast?.offeredAt === b.contrast?.offeredAt &&
+    a.contrast?.heard === b.contrast?.heard &&
     a.contrast?.state === b.contrast?.state &&
     a.contrast?.who === b.contrast?.who &&
     a.contrast?.question === b.contrast?.question &&
@@ -53,22 +57,87 @@ const CHECK_HOW =
   'each, ask with ask_clarify_question, and only then record the check as ' +
   'asked.'
 
+export interface StatusTurn {
+  // Whether a card or a question reached the official in the calling turn,
+  // which only the chat handler can see.
+  offered: () => boolean
+  // When the calling turn began. An offer stamped before it was shown in an
+  // earlier turn, so the official has had the chance to answer it.
+  startedAt: string
+}
+
+const NO_TURN: StatusTurn = { offered: () => false, startedAt: '' }
+
+type CheckSide = {
+  state: PriorityStepCheck['state']
+  offeredAt?: string
+  heard?: string
+}
+
+// Answers need evidence. The official agreeing is not constituents agreeing,
+// so confirmed and revised need what constituents said, and a side that was
+// really put to people: out in the field, or shown in an earlier turn.
+const lacksEvidence = (
+  stored: CheckSide | undefined,
+  patch: { state?: CheckSide['state']; heard?: string } | undefined,
+  turn: StatusTurn,
+): boolean => {
+  const next = patch?.state
+  if (next !== 'confirmed' && next !== 'revised') return false
+  if (next === stored?.state) return false
+  const heard = (patch?.heard ?? stored?.heard ?? '').trim()
+  const shownBefore =
+    stored?.offeredAt !== undefined &&
+    turn.startedAt !== '' &&
+    isBefore(parseISO(stored.offeredAt), parseISO(turn.startedAt))
+  return heard === '' || !(stored?.state === 'out' || shownBefore)
+}
+
 // Why the agent may not make a move yet, or null. The check is the step's
 // one ask for its stage, and a model left to itself records it and moves on
-// without ever showing it, so two moves wait on it: recording `asked` before
-// anything was put in front of the official this turn, and opening a step
-// past a settled gate that carries no check at all.
+// without ever showing it, or calls the official's own agreement a
+// constituent answer. So the moves that wait on it are: a check on a step
+// that is not a gate; recording `asked` before anything was put in front of
+// the official this turn; recording an answer nobody gave; opening a step
+// past a settled gate that has no check (an `asked` never shown reads as
+// none); and going more than one step past a gate still waiting on the
+// official's yes.
 const refusalFor = (
   current: PriorityStatus,
   update: UpdatePriorityStatusInput,
-  offeredThisTurn: boolean,
+  turn: StatusTurn,
 ): string | null => {
+  const offGate = update.steps.find(
+    (step) => step.check !== undefined && !isGate(step.id),
+  )
+  if (offGate !== undefined) {
+    return (
+      `${PRIORITY_STEP_LABELS[offGate.id]} does not carry a check. Checks ` +
+      'live on The problem, Your options, The path and The plan; record ' +
+      'what came back on the check it answers.'
+    )
+  }
   const recordsAsked = update.steps.some(
     (step) =>
       step.check?.state === 'asked' || step.check?.contrast?.state === 'asked',
   )
-  if (recordsAsked && !offeredThisTurn) {
+  if (recordsAsked && !turn.offered()) {
     return `Nothing has been put in front of the official yet. ${CHECK_HOW}`
+  }
+  const unanswered = update.steps.find((patch) => {
+    const stored = current.steps.find((step) => step.id === patch.id)?.check
+    return (
+      lacksEvidence(stored, patch.check, turn) ||
+      lacksEvidence(stored?.contrast, patch.check?.contrast, turn)
+    )
+  })
+  if (unanswered !== undefined) {
+    return (
+      'Only constituents can confirm or revise a check, and the official ' +
+      'agreeing is not that. Record confirmed or revised only for a check ' +
+      'that was out with people or shown in an earlier turn, and put what ' +
+      'they said, and who said it, in heard.'
+    )
   }
   const opening = update.steps.filter(
     (step) => step.state === STEP_STATE.active,
@@ -77,20 +146,42 @@ const refusalFor = (
   if (openingId === undefined) return null
   const openingAt = PRIORITY_STEP_IDS.indexOf(openingId)
   const patches = new Map(update.steps.map((step) => [step.id, step]))
-  const bare = current.steps.find((step) => {
-    if (!isGate(step.id) || PRIORITY_STEP_IDS.indexOf(step.id) >= openingAt) {
-      return false
-    }
+  const after = (step: PriorityStep) => {
     const patch = patches.get(step.id)
-    const state = patch?.state ?? step.state
-    const check = mergeStepCheck(step.check, patch?.check, '')
-    return state === STEP_STATE.settled && check === undefined
+    return {
+      state: patch?.state ?? step.state,
+      check: mergeStepCheck(step.check, patch?.check, '', turn.offered()),
+    }
+  }
+  const gatesBefore = current.steps.filter(
+    (step) => isGate(step.id) && PRIORITY_STEP_IDS.indexOf(step.id) < openingAt,
+  )
+  const bare = gatesBefore.find((step) => {
+    const { state, check } = after(step)
+    return (
+      state === STEP_STATE.settled &&
+      (check === undefined ||
+        (check.state === 'asked' && check.offeredAt === undefined))
+    )
   })
-  return bare === undefined
+  if (bare !== undefined) {
+    return (
+      `${PRIORITY_STEP_LABELS[bare.id]} is settled but its check was never ` +
+      `shown. Offer it now, before ${PRIORITY_STEP_LABELS[openingId]}: ` +
+      CHECK_HOW
+    )
+  }
+  const waiting = gatesBefore.find(
+    (step) =>
+      after(step).check?.state === 'asked' &&
+      openingAt >= PRIORITY_STEP_IDS.indexOf(step.id) + 2,
+  )
+  return waiting === undefined
     ? null
-    : `${PRIORITY_STEP_LABELS[bare.id]} is settled but its check was never ` +
-        `offered. Offer it now, before ${PRIORITY_STEP_LABELS[openingId]}: ` +
-        CHECK_HOW
+    : `The check on ${PRIORITY_STEP_LABELS[waiting.id]} is still waiting on ` +
+        "the official's answer, and nothing is out with constituents yet. " +
+        'Ask it again, with the cards, or record their answer (out, ' +
+        `deferred or declined) before ${PRIORITY_STEP_LABELS[openingId]}.`
 }
 
 // A gate settled in this call with no check yet: the tool result says what
@@ -137,6 +228,7 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
   async applyUpdate(
     priorityId: string,
     update: UpdatePriorityStatusInput,
+    offered = false,
   ): Promise<PriorityStatusResult> {
     const current = await this.read(priorityId)
     const now = formatISO(new Date())
@@ -153,7 +245,7 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
           : patch.caveat === ''
             ? undefined
             : patch.caveat
-      const merged = mergeStepCheck(step.check, patch.check, now)
+      const merged = mergeStepCheck(step.check, patch.check, now, offered)
       const check = sameCheck(merged, step.check) ? step.check : merged
       const next: PriorityStep = {
         id: step.id,
@@ -267,11 +359,9 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
     return check === undefined ? { error: 'Nothing recorded.' } : { check }
   }
 
-  // `offeredThisTurn` reads whether a card or a question went out in the turn
-  // that is calling, which only the chat handler can see.
   buildStatusTool(
     priorityId: string,
-    offeredThisTurn: () => boolean = () => false,
+    turn: StatusTurn = NO_TURN,
   ): Record<string, LlmTool> {
     const updateStatus: LlmStreamTool<typeof UpdatePriorityStatusInputSchema> =
       {
@@ -293,13 +383,13 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
           'today.',
         inputSchema: UpdatePriorityStatusInputSchema,
         execute: async (input) => {
-          const refusal = refusalFor(
-            await this.read(priorityId),
-            input,
-            offeredThisTurn(),
-          )
+          const refusal = refusalFor(await this.read(priorityId), input, turn)
           if (refusal !== null) return { error: refusal }
-          const result = await this.applyUpdate(priorityId, input)
+          const result = await this.applyUpdate(
+            priorityId,
+            input,
+            turn.offered(),
+          )
           const checkDue = checkDueFor(result.status, input)
           return checkDue === null ? result : { ...result, checkDue }
         },

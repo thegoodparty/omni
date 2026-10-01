@@ -39,11 +39,14 @@ const PriorityStepUpdateSchema = z.object({
     ),
   check: PriorityStepCheckInputSchema.extend({
     state: PriorityCheckStateSchema.optional().describe(
-      'The most-affected side. asked = you put the check to them in this ' +
-        'turn and they have not answered. out = they took it and it is in ' +
-        'the field. confirmed = the people asked backed what the step ' +
-        'settled. revised = what they said changed it; put the change in ' +
-        'summary. deferred = not yet; record it again only when you raised ' +
+      'The most-affected side. asked = the cards and the question are in ' +
+        'front of the official in this turn and they have not answered; ' +
+        'nothing is out with constituents yet. out = they took it and it ' +
+        'is in the field. confirmed = constituents who were asked backed ' +
+        'what the step settled; put what they said in heard. revised = ' +
+        'what constituents said changed it; put the change in summary and ' +
+        'what they said in heard. The official agreeing is never confirmed. ' +
+        'deferred = not yet; record it again only when you raised ' +
         'it again and heard not yet again, because that is what counts the ' +
         'raises. declined = they chose to settle this without checking. ' +
         'Omit to keep what is stored, for example when only contrast moved.',
@@ -66,9 +69,18 @@ const PriorityStepUpdateSchema = z.object({
         'On a deferral, what they said about timing, in their words. ' +
           'Omit to keep what is stored.',
       ),
+    heard: z
+      .string()
+      .optional()
+      .describe(
+        'What constituents on this side actually said, and who said it, ' +
+          'from the replies or from what the official reports hearing from ' +
+          'them. Required for confirmed and revised.',
+      ),
     contrast: PriorityStepContrastInputSchema.optional().describe(
       'The least-affected side, asked the same way: state uses the same ' +
-        'values, who is that group, question is what you put to them. ' +
+        'values, who is that group, question is what you put to them, ' +
+        'heard is what they said. ' +
         'declined means the official chose not to ask them. Omit to keep ' +
         'what is stored.',
     ),

@@ -4,6 +4,7 @@ import {
   Injectable,
   Optional,
 } from '@nestjs/common'
+import { formatISO } from 'date-fns'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -178,10 +179,10 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const ask = buildAskClarifyQuestionTool()
     const propose = buildPresentOutreachProposalTool()
     const tools: Record<string, LlmTool> = {
-      ...this.priorityStatus.buildStatusTool(
-        ctx.priorityId,
-        () => offeredThisTurn,
-      ),
+      ...this.priorityStatus.buildStatusTool(ctx.priorityId, {
+        offered: () => offeredThisTurn,
+        startedAt: formatISO(new Date()),
+      }),
       // The answer comes back as an ordinary user turn, so this presents a
       // decision without touching the seven-step status. The agent still
       // decides on its own when a step settles.

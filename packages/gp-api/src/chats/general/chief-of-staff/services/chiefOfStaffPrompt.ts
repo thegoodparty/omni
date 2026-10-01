@@ -403,7 +403,7 @@ const officeContextBlock = (ctx: ChiefOfStaffContext): string =>
   ].join('\n')
 
 const CHECK_STATE_LINE: Record<PriorityStepCheck['state'], string> = {
-  asked: 'check offered, no answer yet',
+  asked: 'offered to them, waiting on their yes, nothing out with constituents',
   out: 'out with constituents, waiting on answers',
   confirmed: 'constituents agreed',
   revised: 'changed after hearing from constituents',

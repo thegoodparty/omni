@@ -63,6 +63,44 @@ describe('parsePriorityStatus', () => {
     expect(status.steps[0]?.check).toBeUndefined()
   })
 
+  it('heals a check on a step that is not a gate', () => {
+    const status = parsePriorityStatus({
+      version: 2,
+      steps: [
+        {
+          id: 'listen_problem',
+          state: 'settled',
+          check: { state: 'confirmed' },
+        },
+      ],
+    })
+    const listen = status.steps.find((step) => step.id === 'listen_problem')
+    expect(listen?.state).toBe('settled')
+    expect(listen?.check).toBeUndefined()
+  })
+
+  it('reads an asked that was never shown as no check at all', () => {
+    const status = parsePriorityStatus({
+      version: 2,
+      steps: [
+        { id: 'define', state: 'settled', check: { state: 'asked' } },
+        {
+          id: 'options',
+          state: 'settled',
+          check: {
+            state: 'asked',
+            offeredAt: NOW,
+            contrast: { state: 'asked' },
+          },
+        },
+      ],
+    })
+    expect(status.steps[0]?.check).toBeUndefined()
+    const options = status.steps.find((step) => step.id === 'options')
+    expect(options?.check?.state).toBe('asked')
+    expect(options?.check?.contrast).toBeUndefined()
+  })
+
   it('degrades a garbage value to every step open', () => {
     const status = parsePriorityStatus('nope')
     expect(status.version).toBe(PRIORITY_STATUS_VERSION)
@@ -156,6 +194,22 @@ describe('mergeStepCheck', () => {
     })
     expect(status.steps[0]?.check?.state).toBe('out')
     expect(status.steps[0]?.check?.contrast).toBeUndefined()
+  })
+
+  it('stamps offeredAt only when the server says it was shown', () => {
+    const patch = {
+      state: 'asked' as const,
+      contrast: { state: 'asked' as const },
+    }
+    const unshown = mergeStepCheck(undefined, patch, NOW)
+    expect(unshown?.offeredAt).toBeUndefined()
+    expect(unshown?.contrast?.offeredAt).toBeUndefined()
+    const shown = mergeStepCheck(undefined, patch, NOW, true)
+    expect(shown?.offeredAt).toBe(NOW)
+    expect(shown?.contrast?.offeredAt).toBe(NOW)
+    expect(
+      mergeStepCheck(shown, { state: 'out' }, 'later', false)?.offeredAt,
+    ).toBe(NOW)
   })
 
   it('never counts past the cap', () => {

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  PRIORITY_GATE_STEPS,
   PRIORITY_STEP_LABELS,
   PriorityStepCheckInputSchema,
   PriorityStatusSchema,
@@ -95,7 +96,11 @@ export const applyStatusUpdate = (
       })
     }
     const now = new Date().toISOString()
-    const check = mergeStepCheck(step.check, patch.check, now)
+    // The server refuses a check on a step that is not a gate, so the rail
+    // never shows one either.
+    const check = PRIORITY_GATE_STEPS.includes(step.id)
+      ? mergeStepCheck(step.check, patch.check, now)
+      : step.check
     return {
       id: step.id,
       state: patch.state,

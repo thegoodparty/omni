@@ -114,6 +114,10 @@ export const PriorityStepContrastSchema = z.object({
   who: z.string().default(''),
   question: z.string().default(''),
   when: z.string().optional(),
+  /** Stamped by the server when this side was really put to the official. */
+  offeredAt: z.string().optional(),
+  /** What constituents on this side said, and who said it. */
+  heard: z.string().optional(),
 })
 export type PriorityStepContrast = z.infer<typeof PriorityStepContrastSchema>
 
@@ -128,6 +132,14 @@ export const PriorityStepCheckSchema = z.object({
   /** Times a deferred check has been raised again. Counted by the server. */
   raised: z.number().int().nonnegative().default(0),
   updatedAt: z.string().optional(),
+  /**
+   * Stamped by the server, never written by the agent, when the check was
+   * recorded as asked in a turn where a card or a question really went out.
+   * An `asked` without it was never shown and counts as no check at all.
+   */
+  offeredAt: z.string().optional(),
+  /** What constituents said, and who said it. Required to confirm or revise. */
+  heard: z.string().optional(),
   /** The least-affected group. Dropped on its own if it fails to parse. */
   contrast: PriorityStepContrastSchema.optional().catch(undefined),
 })
@@ -138,6 +150,7 @@ export const PriorityStepContrastInputSchema = z.object({
   who: z.string().optional(),
   question: z.string().optional(),
   when: z.string().optional(),
+  heard: z.string().optional(),
 })
 export type PriorityStepContrastInput = z.infer<
   typeof PriorityStepContrastInputSchema
@@ -153,23 +166,44 @@ export const PriorityStepCheckInputSchema = z.object({
   who: z.string().optional(),
   question: z.string().optional(),
   when: z.string().optional(),
+  heard: z.string().optional(),
   contrast: PriorityStepContrastInputSchema.optional(),
 })
 export type PriorityStepCheckInput = z.infer<
   typeof PriorityStepCheckInputSchema
 >
 
+// Only the server knows a card or a question really went out this turn, so
+// only the server passes `offered`; the client merge keeps what is stored.
+const offeredAtFor = (
+  stored: string | undefined,
+  recordsAsked: boolean,
+  offered: boolean,
+  now: string,
+): string | undefined => (recordsAsked && offered ? now : stored)
+
 const mergeContrast = (
   stored: PriorityStepContrast | undefined,
   patch: PriorityStepContrastInput | undefined,
+  now: string,
+  offered: boolean,
 ): PriorityStepContrast | undefined => {
   if (patch === undefined) return stored
   const when = patch.when ?? stored?.when
+  const heard = patch.heard ?? stored?.heard
+  const offeredAt = offeredAtFor(
+    stored?.offeredAt,
+    patch.state === 'asked',
+    offered,
+    now,
+  )
   return {
     state: patch.state,
     who: patch.who ?? stored?.who ?? '',
     question: patch.question ?? stored?.question ?? '',
     ...(when === undefined ? {} : { when }),
+    ...(offeredAt === undefined ? {} : { offeredAt }),
+    ...(heard === undefined ? {} : { heard }),
   }
 }
 
@@ -184,11 +218,19 @@ export const mergeStepCheck = (
   stored: PriorityStepCheck | undefined,
   patch: PriorityStepCheckInput | undefined,
   now: string,
+  offered = false,
 ): PriorityStepCheck | undefined => {
   if (patch === undefined) return stored
   const raisedAgain = stored?.state === 'deferred' && patch.state === 'deferred'
   const when = patch.when ?? stored?.when
-  const contrast = mergeContrast(stored?.contrast, patch.contrast)
+  const heard = patch.heard ?? stored?.heard
+  const offeredAt = offeredAtFor(
+    stored?.offeredAt,
+    patch.state === 'asked',
+    offered,
+    now,
+  )
+  const contrast = mergeContrast(stored?.contrast, patch.contrast, now, offered)
   return {
     state: patch.state ?? stored?.state ?? 'asked',
     who: patch.who ?? stored?.who ?? '',
@@ -199,8 +241,28 @@ export const mergeStepCheck = (
       (stored?.raised ?? 0) + (raisedAgain ? 1 : 0),
     ),
     updatedAt: now,
+    ...(offeredAt === undefined ? {} : { offeredAt }),
+    ...(heard === undefined ? {} : { heard }),
     ...(contrast === undefined ? {} : { contrast }),
   }
+}
+
+// Reads heal what earlier builds let through: a check is only meaningful on
+// a gate, and an `asked` that was never stamped as shown was never shown, so
+// it reads as no check at all and the gate asks for it again.
+const healCheck = (step: PriorityStep): PriorityStep => {
+  const check = step.check
+  if (check === undefined) return step
+  if (!PRIORITY_GATE_STEPS.includes(step.id)) {
+    return { ...step, check: undefined }
+  }
+  if (check.state === 'asked' && check.offeredAt === undefined) {
+    return { ...step, check: undefined }
+  }
+  const contrast = check.contrast
+  return contrast?.state === 'asked' && contrast.offeredAt === undefined
+    ? { ...step, check: { ...check, contrast: undefined } }
+    : step
 }
 
 export const PriorityStepSchema = z.object({
@@ -245,8 +307,11 @@ export const parsePriorityStatus = (value: unknown): PriorityStatus => {
   const byId = new Map(parsed.data.steps.map((s) => [s.id, s]))
   return {
     version: parsed.data.version,
-    steps: PRIORITY_STEP_IDS.map(
-      (id) => byId.get(id) ?? { id, state: 'open' as const, summary: '' },
-    ),
+    steps: PRIORITY_STEP_IDS.map((id) => {
+      const step = byId.get(id)
+      return step === undefined
+        ? { id, state: 'open' as const, summary: '' }
+        : healCheck(step)
+    }),
   }
 }

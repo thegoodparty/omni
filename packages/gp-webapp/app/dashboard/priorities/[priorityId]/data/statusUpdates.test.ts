@@ -81,6 +81,21 @@ describe('applyStatusUpdate', () => {
     })
   })
 
+  it('never shows a check on a step that is not a gate', () => {
+    const { status } = applyStatusUpdate(emptyPriorityStatus(), {
+      steps: [
+        {
+          id: 'listen_problem',
+          state: 'settled',
+          check: { state: 'confirmed' },
+        },
+      ],
+    })
+    const listen = status.steps.find((s) => s.id === 'listen_problem')
+    expect(listen?.state).toBe('settled')
+    expect(listen?.check).toBeUndefined()
+  })
+
   it('still moves the step when the check is malformed', () => {
     expect(
       parseStatusUpdate({

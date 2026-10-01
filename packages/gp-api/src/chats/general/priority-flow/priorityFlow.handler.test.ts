@@ -241,13 +241,17 @@ describe('PriorityFlowHandler', () => {
     ])
     expect(priorityStatus.buildStatusTool).toHaveBeenCalledWith(
       'pri-1',
-      expect.any(Function),
+      expect.objectContaining({
+        offered: expect.any(Function),
+        startedAt: expect.any(String),
+      }),
     )
   })
 
   it('tells the status tool when a card or a question went out this turn', async () => {
     const tools = build().buildTools(baseCtx())
     const offered = vi.mocked(priorityStatus.buildStatusTool).mock.calls[0]?.[1]
+      ?.offered
     if (offered === undefined) throw new Error('expected the offer reader')
     expect(offered()).toBe(false)
 
@@ -265,7 +269,7 @@ describe('PriorityFlowHandler', () => {
     const fresh = build()
     fresh.buildTools(baseCtx())
     const nextTurn = vi.mocked(priorityStatus.buildStatusTool).mock
-      .calls[1]?.[1]
+      .calls[1]?.[1]?.offered
     expect(nextTurn?.()).toBe(false)
   })
 
@@ -329,6 +333,8 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain(
       'do the check in that same turn before any work on the next step',
     )
+    expect(prompt).toContain('never counts as constituents agreeing')
+    expect(prompt).toContain('never say a check is out')
     expect(prompt).toContain(
       'has been offered a check with the people the plan lands on',
     )

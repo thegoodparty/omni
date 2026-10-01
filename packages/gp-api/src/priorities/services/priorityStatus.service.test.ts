@@ -2,6 +2,7 @@ import { useTestService } from '@/test-service'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { asSchema } from 'ai'
+import { addMinutes, formatISO } from 'date-fns'
 import {
   MAX_CHECK_RAISES,
   PRIORITY_STATUS_VERSION,
@@ -321,21 +322,25 @@ describe('PriorityStatusService.applyUpdate', () => {
 describe('PriorityStatusService.applyUpdate checks', () => {
   it('records a check on a settled step and keeps it on later patches', async () => {
     const id = await createPriority()
-    await statusService.applyUpdate(id, {
-      steps: [
-        {
-          id: 'define',
-          state: 'settled',
-          summary: 'Rents, not stock',
-          check: {
-            state: 'asked',
-            who: 'Renters near the transit line',
-            question: 'Is rent the thing pushing you out?',
+    await statusService.applyUpdate(
+      id,
+      {
+        steps: [
+          {
+            id: 'define',
+            state: 'settled',
+            summary: 'Rents, not stock',
+            check: {
+              state: 'asked',
+              who: 'Renters near the transit line',
+              question: 'Is rent the thing pushing you out?',
+            },
           },
-        },
-      ],
-      nextAction: 'Send the check',
-    })
+        ],
+        nextAction: 'Send the check',
+      },
+      true,
+    )
 
     const result = await statusService.applyUpdate(id, {
       steps: [{ id: 'define', state: 'settled', summary: 'Rents mostly' }],
@@ -361,7 +366,7 @@ describe('PriorityStatusService.applyUpdate checks', () => {
           id: 'define' as const,
           state: 'settled' as const,
           check: {
-            state: 'asked' as const,
+            state: 'out' as const,
             who: 'Renters near the transit line',
             question: 'Is rent the thing pushing you out?',
           },
@@ -382,20 +387,24 @@ describe('PriorityStatusService.applyUpdate checks', () => {
 
   it('records the least-affected side on its own', async () => {
     const id = await createPriority()
-    await statusService.applyUpdate(id, {
-      steps: [
-        {
-          id: 'define',
-          state: 'settled',
-          check: {
-            state: 'deferred',
-            who: 'Renters near the line',
-            contrast: { state: 'asked', who: 'Owners across town' },
+    await statusService.applyUpdate(
+      id,
+      {
+        steps: [
+          {
+            id: 'define',
+            state: 'settled',
+            check: {
+              state: 'deferred',
+              who: 'Renters near the line',
+              contrast: { state: 'asked', who: 'Owners across town' },
+            },
           },
-        },
-      ],
-      nextAction: 'Open the evidence',
-    })
+        ],
+        nextAction: 'Open the evidence',
+      },
+      true,
+    )
 
     const result = await statusService.applyUpdate(id, {
       steps: [
@@ -463,11 +472,15 @@ describe('PriorityStatusService.applyUpdate checks', () => {
 })
 
 describe('update_priority_status holds the check to being offered', () => {
-  const toolFor = (id: string, offered: () => boolean) => {
-    const tool = statusService.buildStatusTool(
-      id,
+  const toolFor = (
+    id: string,
+    offered: () => boolean,
+    startedAt = formatISO(new Date()),
+  ) => {
+    const tool = statusService.buildStatusTool(id, {
       offered,
-    ).update_priority_status
+      startedAt,
+    }).update_priority_status
     if (!tool || !('execute' in tool)) {
       throw new Error('expected an executable update_priority_status tool')
     }
@@ -556,6 +569,199 @@ describe('update_priority_status holds the check to being offered', () => {
     const status = await statusService.read(id)
     expect(stepOf(status, 'evidence').state).toBe('active')
     expect(stepOf(status, 'define').check?.contrast?.state).toBe('asked')
+  })
+})
+
+describe('update_priority_status only lets constituents answer a check', () => {
+  const later = () => formatISO(addMinutes(new Date(), 1))
+  const toolAt = (id: string, offered: boolean, startedAt: string) => {
+    const tool = statusService.buildStatusTool(id, {
+      offered: () => offered,
+      startedAt,
+    }).update_priority_status
+    if (!tool || !('execute' in tool)) {
+      throw new Error('expected an executable update_priority_status tool')
+    }
+    return tool
+  }
+  const offerDefine = (id: string) =>
+    toolAt(id, true, formatISO(new Date())).execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          summary: 'Plastic in the river',
+          check: {
+            state: 'asked',
+            who: 'River corridor residents',
+            contrast: { state: 'asked', who: 'Residents uphill' },
+          },
+        },
+      ],
+      nextAction: 'Wait for their answer',
+    })
+
+  it('refuses a check on a step that is not a gate', async () => {
+    const id = await createPriority()
+    await offerDefine(id)
+
+    const result = await toolAt(id, false, later()).execute({
+      steps: [
+        {
+          id: 'listen_problem',
+          state: 'settled',
+          check: { state: 'confirmed', heard: 'They agreed' },
+        },
+      ],
+      nextAction: 'Weigh the options',
+    })
+
+    expect(result).toHaveProperty('error')
+    const status = await statusService.read(id)
+    expect(stepOf(status, 'listen_problem').state).toBe('open')
+    expect(stepOf(status, 'listen_problem').check).toBeUndefined()
+  })
+
+  it('refuses confirmed when nothing was ever put to people', async () => {
+    const id = await createPriority()
+
+    const result = await toolAt(id, false, later()).execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          check: { state: 'confirmed', heard: 'That matches what I see' },
+        },
+      ],
+      nextAction: 'Pull the numbers',
+    })
+
+    expect(result).toHaveProperty('error')
+    expect(stepOf(await statusService.read(id), 'define').check).toBeUndefined()
+  })
+
+  it('refuses confirmed in the turn the check was offered', async () => {
+    const id = await createPriority()
+    await offerDefine(id)
+
+    const result = await toolAt(id, true, formatISO(new Date())).execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          check: { state: 'confirmed', heard: 'Residents said yes' },
+        },
+      ],
+      nextAction: 'Pull the numbers',
+    })
+
+    expect(result).toHaveProperty('error')
+  })
+
+  it('needs what constituents said to confirm an offered check', async () => {
+    const id = await createPriority()
+    await offerDefine(id)
+    const tool = toolAt(id, false, later())
+
+    const bare = await tool.execute({
+      steps: [
+        { id: 'define', state: 'settled', check: { state: 'confirmed' } },
+      ],
+      nextAction: 'Pull the numbers',
+    })
+    expect(bare).toHaveProperty('error')
+
+    const heard = await tool.execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          check: {
+            state: 'confirmed',
+            heard: 'Six residents on the river said cleanup is the problem',
+          },
+        },
+      ],
+      nextAction: 'Pull the numbers',
+    })
+    expect(heard).not.toHaveProperty('error')
+    expect(stepOf(await statusService.read(id), 'define').check).toMatchObject({
+      state: 'confirmed',
+      heard: expect.stringContaining('Six residents'),
+    })
+  })
+
+  it('confirms a side that was out with people', async () => {
+    const id = await createPriority()
+    await offerDefine(id)
+    const tool = toolAt(id, false, formatISO(new Date()))
+    await tool.execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          check: { state: 'out', contrast: { state: 'declined' } },
+        },
+      ],
+      nextAction: 'Wait for replies',
+    })
+
+    const result = await tool.execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          check: { state: 'revised', heard: 'Replies said it is the dumping' },
+        },
+      ],
+      nextAction: 'Rewrite the problem',
+    })
+
+    expect(result).not.toHaveProperty('error')
+  })
+
+  it('reads a stale asked that was never shown as no check at all', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          check: { state: 'asked', who: 'River corridor residents' },
+        },
+      ],
+      nextAction: 'Pull the numbers',
+    })
+
+    const result = await toolAt(id, false, later()).execute({
+      steps: [{ id: 'evidence', state: 'active' }],
+      nextAction: 'Pull the numbers',
+    })
+
+    expect(result).toHaveProperty('error')
+    expect(JSON.stringify(result)).toContain('never shown')
+  })
+
+  it('lets one step open past an unanswered check, and no further', async () => {
+    const id = await createPriority()
+    await offerDefine(id)
+    const tool = toolAt(id, false, later())
+
+    const evidence = await tool.execute({
+      steps: [{ id: 'evidence', state: 'active' }],
+      nextAction: 'Pull the numbers',
+    })
+    expect(evidence).not.toHaveProperty('error')
+
+    const listen = await tool.execute({
+      steps: [
+        { id: 'evidence', state: 'settled' },
+        { id: 'listen_problem', state: 'active' },
+      ],
+      nextAction: 'Hear from people',
+    })
+    expect(listen).toHaveProperty('error')
+    expect(JSON.stringify(listen)).toContain('still waiting')
   })
 })
 

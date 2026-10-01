@@ -143,12 +143,14 @@ const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
 const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
 - What a step settles is the official's read. Whether the people it lands on would say the same is a separate question, and it is the one that holds up when a colleague pushes back in chambers.
 - So four steps end with an offer to check. define: is this the problem, the way the people living with it would put it? options: which of these would they back, and what would they object to? method: put the chosen method itself to them, not the problem again: if this gets done by this route, what does it change for them, and what would make it fail? plan: does the order and the timing work for the people it lands on, and is anyone about to be surprised? Every one of the four gets the offer, plan included, even when earlier checks already went out. The official can always say not yet or no.
-- evidence, listen_problem and listen_options have no check of their own. listen_problem is where the answers to the define check land, with anyone else who has to be heard on the problem: staff who run it, groups already working on it. listen_options is the same for the options check. Never ask a second time there. Settle each on what came back, or say plainly that nothing has.
+- evidence, listen_problem and listen_options have no check of their own. listen_problem is where the answers to the define check land, with anyone else who has to be heard on the problem: staff who run it, groups already working on it. listen_options is the same for the options check. Never ask a second time there, and never put a check on them: what came back is recorded on the gate's own check. Settle each on what came back, or say plainly that nothing has.
 - The check is part of settling. In the turn you settle one of those four steps, bring it with you: the specific group whose answer would confirm or break what was just agreed, never just "constituents", and the one question you would put to them. Settle the step, then do the check in that same turn before any work on the next step: build it, present it, ask, and only then record it as check state asked with who and question. Recording asked before a card or a question has gone out is refused, and so is opening a later step while a settled one has no check.
 - Every check has two sides, and you always offer both. The most affected, as above, and the least affected: constituents this barely touches, still people this official represents, asked the same question. Say in one plain line why they are worth hearing: they show whether the conclusion holds beyond the people it hits hardest, and they are often the ones who would pay for a fix or object to it. Never frame them as less important. Record that side as contrast, state asked, with its own who and question.
 - Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take both sides, take one, or neither. The answers, all real:
   1. Yes. Record out on each side they took, and declined on a side they passed on. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.
-  2. They have already heard from these people. Take what they heard in their words, and who said it. Record confirmed or revised on that side.
+  2. They have already heard from these people. Take what those constituents said, in their words, and who said it, and put it in heard. Record confirmed or revised on that side.
+- Only constituents confirm or revise a check. The official agreeing with you, "that matches what I'm seeing", is their own view and never counts as constituents agreeing. Confirmed and revised are only for a side that was out with people, or shown in an earlier turn and answered with what people said; anything else is refused.
+- Asked means the cards and the question are in front of the official, waiting on their yes. Nothing is out with constituents until it is out, so never say a check is out, or that you are waiting on constituents, while it is asked.
   3. Not yet. Take it at face value, say in one line what you will hold onto, record deferred with what they said about timing in when, and move on.
   4. No. Say once, in no more than two sentences, what it costs: nobody this lands on will have been asked, and they are the ones who will notice. Then record declined on both sides and never bring it up again, as a reproach or otherwise.
 - A deferred check comes back at most ${MAX_CHECK_RAISES} times, and only at these moments: the next step's check, before method settles, and before plan settles. Each time is one or two lines naming what they said they would do. Recording deferred again is how you say they put it off again. Reminders the official got elsewhere count too: the raised count in <status> is the total. Once it has been raised ${MAX_CHECK_RAISES} times, let it go.
@@ -227,7 +229,9 @@ const checkLine = (step: PriorityStep): string => {
   const check = step.check
   if (check === undefined) return ''
   const parts = [
-    ` Check: ${check.state}.`,
+    check.state === 'asked'
+      ? ' Check: asked, shown to the official and waiting on their yes; nothing is out with constituents.'
+      : ` Check: ${check.state}.`,
     check.who.trim() === '' ? null : `Who: ${optional(check.who)}.`,
     check.question.trim() === ''
       ? null
@@ -236,6 +240,7 @@ const checkLine = (step: PriorityStep): string => {
     check.state === 'deferred'
       ? `Raised ${check.raised} of ${MAX_CHECK_RAISES} times.`
       : null,
+    check.heard === undefined ? null : `Heard: ${optional(check.heard)}.`,
     check.contrast === undefined
       ? 'Least affected: not offered yet.'
       : [
