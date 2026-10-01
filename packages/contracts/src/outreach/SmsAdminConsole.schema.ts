@@ -102,12 +102,22 @@ const LINK_SHORTENER_PATTERN = new RegExp(
   'i',
 )
 
-const nameTokensOf = (names: (string | null | undefined)[]): string[] =>
+// A name's words of 3+ letters, in their original case. Whole-word
+// matching (`findWords`) is already case-insensitive, and lowercasing first
+// is not safe for it: "İ".toLowerCase() is two characters ("i" plus a
+// combining dot), so "İlker" lowercased no longer matches "İlker" in a
+// script.
+const nameWordsOf = (names: (string | null | undefined)[]): string[] =>
   names
     .filter((name): name is string => !!name)
     .flatMap((name) => name.split(/\s+/))
-    .map((token) => token.trim().toLowerCase())
+    .map((token) => token.trim())
     .filter((token) => token.length >= 3)
+
+// Lowercased, for the substring checks that compare against a lowercased
+// script (the committee half of paid_for_by).
+const nameTokensOf = (names: (string | null | undefined)[]): string[] =>
+  nameWordsOf(names).map((token) => token.toLowerCase())
 
 export const checkSmsStandards = (
   script: string,
@@ -134,7 +144,7 @@ export const checkSmsStandards = (
   const candidateNames = (context.candidateNames ?? [])
     .map((name) => name.trim())
     .filter(Boolean)
-  const candidateTokens = nameTokensOf(candidateNames)
+  const candidateTokens = nameWordsOf(candidateNames)
   const namesCandidate =
     candidateNames.some((name) => findWords(script, name) !== null) ||
     candidateTokens.some((token) => findWords(script, token) !== null)
@@ -286,7 +296,7 @@ export const deriveSmsProtectedParts = (
     const names = (context.candidateNames ?? []).filter(Boolean)
     const text =
       names.map((name) => findWords(outside, name.trim())).find(Boolean) ??
-      nameTokensOf(names)
+      nameWordsOf(names)
         .map((token) => findWords(outside, token))
         .find(Boolean)
     if (text) parts.push({ rule: 'candidate_name', kind: 'phrase', text })

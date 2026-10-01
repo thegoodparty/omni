@@ -119,6 +119,15 @@ describe('deriveSmsProtectedParts', () => {
     ).toBe('Élodie')
   })
 
+  it('matches a name whose letters change length when lowercased', () => {
+    const context = { candidateNames: ['İlker Doğan'] }
+    const script = 'Merhaba {first_name}, ben İlker. Reply STOP'
+    expect(checkSmsStandards(script, context).failures).not.toContain(
+      'candidate_name',
+    )
+    expect(textsFor(script, context).candidate_name).toBe('İlker')
+  })
+
   it('locks a short name only when it is written in full, and the verdict agrees', () => {
     const context = { candidateNames: ['Al Bo'] }
     expect(
