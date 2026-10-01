@@ -18,7 +18,7 @@ nearest reference wrapper.
 | `streaming.ts` | `LiveSegment` + `segmentsToLive` (project a persisted turn into segments for rendering) + `useSmoothReveal`. |
 | `chatClient.ts` | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface, and this one also implements the optional `setMessageFeedback` / `clearMessageFeedback` calls. |
 | `chatTypes.ts` | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat. |
-| `ClarifyQuestionWidget.tsx` | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. |
+| `ClarifyQuestionWidget.tsx` | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. With `multiSelect` the cards are checkboxes and one button sends the set; see "Multi-select answers" below. |
 | `widgetRegistry.ts` + `turnBlocks.tsx` | **Tool calls rendered as widgets.** See "Widgets" below. |
 | `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. The copy is Serve copy (`SERVE_*`); Win's Campaign Manager mounts the Chief of Staff body but its agent has none of these tools. |
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`. |
@@ -99,6 +99,21 @@ other tool, and a label map that falls back to the raw tool name would put
 Staff's `show_list_map` is deliberately not on one: its map renders after the
 turn's prose and only once per turn, and a registry entry would move it to
 where the tool fired.
+
+## Multi-select answers
+
+`multiSelect` on the question (default false, so older threads parse as single
+choice) is for questions where more than one answer can be true: options to
+pursue together, symptoms of one problem. Single choice still answers on the
+first click and renders exactly as before.
+
+The answer is still one ordinary user turn, so no surface needed a change. The
+widget sends the checked labels in option order, not click order, as one line:
+`A`, `A and B`, `A, B, and C` (`formatClarifyChoices`). On reload
+`parseClarifyChoices` maps that line back to the set by matching whole labels in
+option order, so a label holding a comma or an "and" still parses. Anything
+that is not exactly such a line is a written-in answer and shows as written.
+The ordinance flow's stored `clarifyAnswers[].answer` holds the same line.
 
 ## Reference wrappers — copy the closest
 

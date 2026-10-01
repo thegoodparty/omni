@@ -323,6 +323,18 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('one option per choice')
   })
 
+  it('puts the options step to them as one multi-select question', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('as one multiSelect ask_clarify_question')
+    expect(prompt).toContain('Never list the options in prose')
+    expect(prompt).toContain(
+      'Set multiSelect when more than one answer can be true',
+    )
+    expect(prompt).toContain(
+      'Leave it off when the answers rule each other out',
+    )
+  })
+
   it('takes an answer that picks several options as one problem', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('One problem can show up as several symptoms')

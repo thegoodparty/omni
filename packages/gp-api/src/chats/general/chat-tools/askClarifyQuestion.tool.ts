@@ -12,7 +12,10 @@ export const buildAskClarifyQuestionTool = (): LlmStreamTool<
     'options; a factual option should cite a source, a pure-judgment option ' +
     'need not. The UI always adds an "Or write your own..." freeform option, ' +
     'so never add one yourself. Do not ask the next question until this one is ' +
-    'answered.',
+    'answered. Set multiSelect when more than one answer can be true, such as ' +
+    'options the user could pursue together or symptoms of one problem; the ' +
+    'options become checkboxes and the answer comes back as the chosen labels ' +
+    'joined into one line. Leave it off when the answers rule each other out.',
   inputSchema: ChatClarifyQuestionSchema,
   execute: ({ questionId }) => ({ asked: true, questionId }),
 })
