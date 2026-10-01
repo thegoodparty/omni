@@ -492,3 +492,10 @@ def test_a_bare_intents_key_loads_as_no_rows(tmp_path):
     wl = tmp_path / "w.yaml"
     wl.write_text("intents:\n")
     assert aa.intent_findings(wl, {"win_activated_users": [sa.Leg("X")]}) == []
+
+
+def test_intent_rows_are_not_reported_when_the_anchors_could_not_be_read(tmp_path):
+    wl = tmp_path / "w.yaml"
+    wl.write_text('intents:\n  - {metric: win_activated_users, event: "Door Knocking - Door Logged", '
+                  'intent: retire_activity, reason: "r", date: "2026-10-01"}\n')
+    assert aa.intent_findings(wl, {}) == []

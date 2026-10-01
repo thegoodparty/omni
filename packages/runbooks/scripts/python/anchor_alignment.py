@@ -116,6 +116,10 @@ def intent_findings(watchlist_path: Path, anchors: Mapping[str, Sequence[Any]]) 
 
     A row with no metric is a dead-listing false positive a PR reported, not a metric
     change, so it is skipped here; the triage skill reviews those as guard bugs."""
+    if not anchors:
+        # Same as align(): without the declaration nothing can be compared, and the
+        # monitor already reports the read failure in red.
+        return []
     path = Path(watchlist_path)
     if not path.exists():
         return []
