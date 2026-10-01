@@ -241,6 +241,15 @@ describe('a question written above the clarify widget', () => {
     expect(withoutTrailingQuestion('Look at the U.S. data first?')).toBe('')
   })
 
+  it('breaks before a question that opens in lowercase', () => {
+    expect(
+      withoutTrailingQuestion('The gap is real. do you want to start there?'),
+    ).toBe('The gap is real.')
+    expect(withoutTrailingQuestion('See e.g. the code. which first?')).toBe(
+      'See e.g. the code.',
+    )
+  })
+
   it('keeps an exclamation that ends in an interrobang', () => {
     expect(withoutTrailingQuestion('Really!? Which first?')).toBe('Really!?')
   })

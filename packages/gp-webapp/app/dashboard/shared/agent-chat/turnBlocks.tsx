@@ -20,7 +20,7 @@ export type TurnBlock<Ctx> =
   | { kind: 'segments'; key?: string; segments: LiveSegment[] }
   | { kind: 'widget'; key?: string; instance: WidgetInstance<Ctx> }
 
-const SENTENCE_BREAK = /[.!?]+[*_]*["')\]]?\s+(?=[*_]*["'([]?[A-Z])/g
+const SENTENCE_BREAK = /[.!?]+[*_]*["')\]]?\s+(?=[*_]*["'([]?[A-Za-z])/g
 // "U.S. Census", "Dr. Smith", "Maple Ave. Housing": a title-case word of 2
 // or 3 letters, or one with an inner dot, before a period is read as an
 // abbreviation. A lone capital ("Option A.") and an all-caps acronym ("ADU.",
