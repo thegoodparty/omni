@@ -404,7 +404,17 @@ export class Nightly10DlcReportService extends createPrismaBase(
   // verbatim with the gp-admin 10DLC status page (getAdminStatusSnapshot) so
   // the two can't drift. Pure read: no Slack posts, no escalation claims —
   // those stay in handleNightlyReport and the escalation job.
-  async collectStatusSnapshot(now: Date) {
+  //
+  // awaitingPinFloorDays is the one knob the two consumers disagree on: the
+  // report nudges staff only once a PIN has sat >7d, while the admin page
+  // lists every issued PIN so staff can find-and-resend before the nudge
+  // window (close to an election, candidates ask within days — ENG-11210).
+  // It floors only the awaiting-PIN bucket; cvUnissued keeps the nudge
+  // window on both surfaces.
+  async collectStatusSnapshot(
+    now: Date,
+    { awaitingPinFloorDays = AWAITING_PIN_NUDGE_DAYS } = {},
+  ) {
     const proOnly = { campaign: reportableCampaign }
     const billingBlockScope = notActivelyBillingBlocked(now)
 
@@ -489,14 +499,20 @@ export class Nightly10DlcReportService extends createPrismaBase(
               PeerlyCvVerificationStatus.IN_REVIEW,
             ],
           },
-          // Coarse floor only: a record created less than the nudge window
-          // ago cannot have been waiting longer than it, so this can never
-          // over-exclude. The precise clock is applied per section in code
-          // below — the two sections measure different things, and the
-          // `updatedAt` this filter used to key off is bumped by *any* write
-          // to the row (including the nightly poll's own status write), which
-          // silently reset the age.
-          createdAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
+          // Coarse floor only: a record created less than the window ago
+          // cannot have been waiting longer than it, so this can never
+          // over-exclude. It has to be the smaller of the two sections'
+          // windows, since both populate from this one query; the precise
+          // clock is applied per section in code below — the two sections
+          // measure different things, and the `updatedAt` this filter used
+          // to key off is bumped by *any* write to the row (including the
+          // nightly poll's own status write), which silently reset the age.
+          createdAt: {
+            lt: subDays(
+              now,
+              Math.min(awaitingPinFloorDays, AWAITING_PIN_NUDGE_DAYS),
+            ),
+          },
         },
         include: { campaign: true },
       }),
@@ -666,6 +682,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
         : null,
     }))
 
+    const awaitingPinCutoff = subDays(now, awaitingPinFloorDays)
     const nudgeCutoff = subDays(now, AWAITING_PIN_NUDGE_DAYS)
     // When the PIN went out: the detection sweep's stamp, else when CV reached
     // APPROVED (Peerly issues the PIN on that transition). Never `updatedAt` —
@@ -690,7 +707,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       const sentAt = pinSentAt(record)
       return record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED &&
         sentAt !== null &&
-        isBefore(sentAt, nudgeCutoff)
+        isBefore(sentAt, awaitingPinCutoff)
         ? [{ record, sentAt }]
         : []
     })
@@ -741,7 +758,11 @@ export class Nightly10DlcReportService extends createPrismaBase(
   // pings, not a triage queue.
   async getAdminStatusSnapshot(): Promise<TenDlcStatusSnapshot> {
     const now = new Date()
-    const snapshot = await this.collectStatusSnapshot(now)
+    // Floor 0: the page lists every issued PIN so staff can resend on the
+    // first "my PIN never arrived" report, not after the report's 7d nudge.
+    const snapshot = await this.collectStatusSnapshot(now, {
+      awaitingPinFloorDays: 0,
+    })
     const assignedPas = await this.assignedPasByCampaign([
       ...[
         ...snapshot.stuckSubmissions.map(({ record }) => record),

@@ -1022,6 +1022,14 @@ describe('Nightly10DlcReportService', () => {
             803,
             PeerlyCvVerificationStatus.IN_REVIEW,
           ),
+          // A PIN out for only 2d: listed on the admin page (floor 0,
+          // ENG-11210) but still below this report's 7d nudge floor.
+          proRecord('tcr-f', 'fresh-pin-camp', 804, {
+            peerlyIdentityId: 'ident-804',
+            peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+            pinSentDetectedAt: subDays(new Date(), 2),
+            createdAt: subDays(new Date(), 3),
+          }),
         ],
         [],
         [],
@@ -1045,6 +1053,7 @@ describe('Nightly10DlcReportService', () => {
       expect(blocksText([nudge!])).toContain('PIN out 9d')
       expect(blocksText([nudge!])).not.toContain('requested-camp')
       expect(blocksText([nudge!])).not.toContain('in-review-camp')
+      expect(blocksText(blocks)).not.toContain('fresh-pin-camp')
 
       expect(blocksText([unissued!])).toContain('requested-camp (campaign 802)')
       expect(blocksText([unissued!])).toContain('in-review-camp (campaign 803)')
@@ -2115,6 +2124,60 @@ describe('Nightly10DlcReportService', () => {
         'hs-ownerless',
       )
       expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledTimes(2)
+    })
+
+    // ENG-11210: close to an election candidates report missing PINs within
+    // days, so the page lists every issued PIN for find-and-resend — only
+    // the Slack report keeps the 7d nudge floor. The no-PIN bucket keeps the
+    // floor everywhere: fresh IN_REVIEW is the normal pipeline, not a stall.
+    it('lists every issued PIN while the no-PIN bucket keeps its 7d floor', async () => {
+      const freshPinSentAt = subDays(new Date(), 1)
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [
+          snapshotRecord('tcr-fresh-pin', 'fresh-pin-camp', 500, {
+            peerlyIdentityId: 'ident-500',
+            peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+            pinSentDetectedAt: freshPinSentAt,
+            createdAt: subDays(new Date(), 2),
+          }),
+          snapshotRecord('tcr-fresh-unissued', 'fresh-unissued-camp', 600, {
+            peerlyIdentityId: 'ident-600',
+            peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+            peerlySubmissionStartedAt: subDays(new Date(), 2),
+            createdAt: subDays(new Date(), 2),
+          }),
+          snapshotRecord('tcr-old-unissued', 'old-unissued-camp', 700, {
+            peerlyIdentityId: 'ident-700',
+            peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+            peerlySubmissionStartedAt: subDays(new Date(), 12),
+            createdAt: subDays(new Date(), 20),
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      const snapshot = await service.getAdminStatusSnapshot()
+
+      const bucket = (key: string) =>
+        snapshot.buckets.find((candidate) => candidate.key === key)?.entries ??
+        []
+      expect(bucket('awaitingPin')).toEqual([
+        expect.objectContaining({
+          campaignId: 500,
+          since: freshPinSentAt.toISOString(),
+        }),
+      ])
+      expect(bucket('cvUnissued').map((row) => row.campaignSlug)).toEqual([
+        'old-unissued-camp',
+      ])
     })
   })
 })
