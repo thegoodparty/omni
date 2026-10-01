@@ -1246,6 +1246,12 @@ export class MeetingBriefingsService extends createPrismaBase(
         { runId: run.runId, briefingStatus, refusal },
         'meeting_briefing artifact cannot be published as ready; skipping row write so the slot stays open',
       )
+      await this.recordUploadRefusal(
+        electedOffice.id,
+        dateString,
+        run.runId,
+        refusal,
+      )
       await this.trackAgendaNotCreated(
         run,
         electedOffice,
@@ -1297,6 +1303,27 @@ export class MeetingBriefingsService extends createPrismaBase(
       dateString,
       meetingTime,
       meetingTimezone,
+    })
+  }
+
+  /**
+   * Leave the refusal reason on the user's upload row for this run, so the
+   * Briefings page can say why the pasted agenda did not become a briefing.
+   * Automatic runs have no upload row and this is a no-op for them.
+   */
+  private async recordUploadRefusal(
+    electedOfficeId: string,
+    dateString: string,
+    runId: string,
+    reason: string,
+  ): Promise<void> {
+    await this.client.userAgendaUpload.updateMany({
+      where: {
+        electedOfficeId,
+        meetingDate: parseIsoDateAsUTC(dateString),
+        experimentRunId: runId,
+      },
+      data: { refusalReason: reason.slice(0, 200) },
     })
   }
 
