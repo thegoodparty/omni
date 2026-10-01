@@ -1,11 +1,35 @@
 // The product map's tree: products -> areas -> flows and pages -> steps, with the events
 // that fire on each step. Inlined only into the product map build, which renders the
 // explorer template with this in place of the events table, so the map page carries
-// the explorer's search, filters and cards and its own tree. It reads `DATA.map.ev`
-// (data/product-map.json) and the shared `EventCard`, `USAGE` from the page.
+// the explorer's search, filters and cards and its own tree. It reads the page's
+// `DATA.events` (the explorer snapshot), `DATA.map.anchor_state` from build.py, and the
+// shared `EventCard`, `USAGE` from the page.
 var ProductMap = (function () {
   'use strict'
-  const EV = DATA.map.ev
+  // One row per event, from the same snapshot the cards render, so a step's status and
+  // volume can never disagree with the card that opens under it. Positional because the
+  // renderers below were written against the seeded rows:
+  // [status, count_30d, count_total, series, url, description, fires_on, pr,
+  //  instrumented_date, last_seen, anchor_state, (unused), display_name if it differs]
+  const EV = {}
+  ;(DATA.events || []).forEach((e) => {
+    const p = e.provenance || {}
+    EV[e.event_type] = [
+      e.status,
+      e.count_30d,
+      e.count_total,
+      e.series,
+      e.url,
+      e.description,
+      e.fires_on,
+      (p.instrumented_pr || '').replace(/\/+$/, '').split('/').pop(),
+      p.instrumented_date || '',
+      e.last_seen,
+      (DATA.map.anchor_state || {})[e.event_type] || 'none',
+      0,
+      e.display_name !== e.event_type ? e.display_name : '',
+    ]
+  })
 
   const WIN_ONBOARDING = {
     kind: 'flow',
@@ -824,10 +848,6 @@ var ProductMap = (function () {
       e = EV[name]
     slot.appendChild(EventCard.render(name))
     const extras = []
-    if (e && e[11])
-      extras.push(
-        '<div class="mnote warn"><span class="mk">Newer</span><span>This event postdates the explorer snapshot, so it has no card and no weekly series yet. Its counts come from the 2026-09-28 health run.</span></div>',
-      )
     const A = e && ANCHOR[e[10]]
     if (A)
       extras.push(
@@ -900,7 +920,6 @@ var ProductMap = (function () {
       tags.push(['drift', 'legacy'])
     const A = ANCHOR[e[10]]
     if (A) tags.push([A[0], A[1]])
-    if (e[11]) tags.push(['ok', 'new since snapshot'])
     if (st !== 'active') tags.push(['mute', st.replace(/_/g, ' ')])
     const clean =
       !forceUnclean &&
@@ -1213,7 +1232,7 @@ var ProductMap = (function () {
     <li><b>Eleven flows are placed but not yet drawn.</b> Each sits under its area above with a "Still being built" tag and opens to the file its steps live in; each needs its step list read out of the code once.</li>
     <li><b>Page zones are inferred.</b> A flow's steps are declared in code; a page's zones are not, so on Campaign Manager and Campaign Tracker the grouping is a reading of each event's own description, not a fact.</li>
     <li><b>Per-step volume on the outreach wizards</b> needs a property breakdown in Amplitude that the snapshot does not hold, so those steps show the event's total, not the step's.</li>
-    <li><b>Refresh is manual.</b> The explorer refreshes itself twice a week; this page does not yet, so its snapshot date is the one to trust.</li>
+    <li><b>Steps are drawn by hand.</b> Event numbers refresh with the explorer twice a week; the steps themselves are read from each flow's code once and do not yet notice when a flow changes.</li>
   </ul>
 </div>
 <p class="mapfoot">Coverage here is a best guess. An event missing from a step can mean uninstrumented, instrumented
@@ -1293,7 +1312,17 @@ var ProductMap = (function () {
     return { html: body, flows }
   }
 
-  const ON_MAP = new Set(Object.keys(EV))
+  // Every event the tree names, so search can say which matches are not on a drawn flow.
+  const ON_MAP = new Set(
+    TREE.flatMap((p) => p.areas)
+      .flatMap((a) => a.surfaces)
+      .filter((f) => !f.building)
+      .flatMap((f) => [
+        ...nodesOf(f).flatMap(stepNames),
+        ...((f.offstep || {}).evs || []),
+        ...((f.unplaced || {}).evs || []),
+      ]),
+  )
 
   return {
     render,

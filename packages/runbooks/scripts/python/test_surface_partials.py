@@ -100,3 +100,41 @@ def test_inline_refuses_an_unknown_page_part():
 
     with pytest.raises(SystemExit, match="__NOT_A_PART__"):
         inline("<title>__PAGE_TITLE__</title>", {"__NOT_A_PART__": "x"})
+
+
+# Named on the map, and newer than the committed explorer snapshot (2026-09-24). The next
+# scheduled snapshot carries them; delete an entry once it does. Never add one to make
+# this pass: a name missing from the snapshot is a step the map says is instrumented
+# while the page has nothing to show for it.
+MAP_EVENTS_NEWER_THAN_SNAPSHOT = {
+    "Onboarding V2 - Manual Office Viewed",
+    "Voter Outreach - Flow Step Completed",
+    "Voter Outreach - Flow Step Viewed",
+}
+
+
+def _map_event_names() -> set[str]:
+    js = (SURFACES / "product-map/map.js").read_text()
+    string = r"'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\""
+
+    def strings(block: str) -> list[str]:
+        return [(a or b).replace("\\'", "'") for a, b in re.findall(string, block)]
+
+    names: set[str] = set()
+    for block in re.findall(r"\bevs:\s*\[(.*?)\]", js, re.S):
+        names.update(strings(block))
+    for block in re.findall(r"\bshared:\s*\[((?:\s*\[[^\]]*\]\s*,?)*)\s*\]", js, re.S):
+        names.update(strings(pair)[0] for pair in re.findall(r"\[([^\]]*)\]", block))
+    return names
+
+
+def test_every_event_the_map_draws_is_in_the_snapshot():
+    import json
+
+    snapshot = json.loads(
+        (PACKAGES / "prototypes/app/p/analytics-event-explorer/data/event-explorer.json").read_text()
+    )
+    known = {e["event_type"] for e in snapshot["events"]}
+    names = _map_event_names()
+    assert len(names) > 50, "the map.js parser found almost nothing; it has drifted from map.js"
+    assert names - known <= MAP_EVENTS_NEWER_THAN_SNAPSHOT
