@@ -12,11 +12,16 @@ import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampai
 // story is the fix.
 //
 // Renders nothing while the story state is still resolving, so it never
-// flashes in on an already-complete story.
+// flashes in on an already-complete story — and nothing on an error either.
+// `useCampaignStoryComplete` fails closed on a story-fetch error (the data
+// stays undefined, so `isComplete` is false forever), which on an
+// undismissable card would mean telling a candidate who already wrote their
+// story to go add it, permanently. Staying silent is the safer miss: the
+// tracker's own story task still carries the prompt.
 export default function CampaignPlanStoryCard(): React.JSX.Element | null {
-  const { isComplete, isLoading } = useCampaignStoryComplete(true)
+  const { isComplete, isLoading, isError } = useCampaignStoryComplete(true)
 
-  if (isLoading || isComplete) return null
+  if (isLoading || isError || isComplete) return null
 
   return (
     <Card className="mb-4 flex flex-col items-start gap-3 p-5 lg:p-6">

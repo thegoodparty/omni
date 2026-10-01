@@ -304,6 +304,35 @@ describe('buildTrackerStrategy with the campaign story task', () => {
     expect(tasks.find((t) => t.id === 'story')?.isNext).toBe(true)
   })
 
+  // The tracker used to hardcode "Open" for any row with a link, so the story
+  // task's own CTA never reached the screen and the rail disagreed with the
+  // card above it.
+  it('labels the link with the row own CTA', () => {
+    const data = buildTrackerStrategy([storyRow({ cta: 'Add your story' })], {
+      electionDate: null,
+      today,
+    })
+    const tasks =
+      data.phases
+        .find((p) => p.key === 'active')
+        ?.weeks?.flatMap((w) => w.tasks) ?? []
+    expect(tasks.find((t) => t.id === 'story')?.hrefLabel).toBe(
+      'Add your story',
+    )
+  })
+
+  it('falls back to Open for a row with a link and no CTA', () => {
+    const data = buildTrackerStrategy([storyRow({ cta: null })], {
+      electionDate: null,
+      today,
+    })
+    const tasks =
+      data.phases
+        .find((p) => p.key === 'active')
+        ?.weeks?.flatMap((w) => w.tasks) ?? []
+    expect(tasks.find((t) => t.id === 'story')?.hrefLabel).toBe('Open')
+  })
+
   it('keeps the story row visible alongside a newer dynamic generation', () => {
     const data = buildTrackerStrategy(
       [
