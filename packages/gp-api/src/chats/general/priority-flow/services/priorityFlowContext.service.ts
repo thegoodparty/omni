@@ -23,6 +23,7 @@ export interface PriorityFlowContext {
   organizationSlug: string
   organization: Organization
   officeTitle: string | null
+  officialFirstName: string | null
   jurisdiction: string | null
   title: string
   description: string
@@ -74,6 +75,11 @@ export class PriorityFlowContextService extends createPrismaBase(
       conversation.organizationSlug ?? '',
     )
 
+    const official = await this.client.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true },
+    })
+
     return {
       conversationId,
       priorityId: priority.id,
@@ -81,6 +87,7 @@ export class PriorityFlowContextService extends createPrismaBase(
       organizationSlug: electedOffice.organizationSlug,
       organization: electedOffice.organization,
       officeTitle: electedOffice.organization.customPositionName,
+      officialFirstName: official?.firstName?.trim() || null,
       // Only the district resolver knows the jurisdiction; the handler fills
       // it in loadContext when the org's position resolves.
       jurisdiction: null,

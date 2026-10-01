@@ -43,6 +43,7 @@ const baseCtx = (): PriorityFlowContext => ({
   organizationSlug: ORG,
   organization: { slug: ORG } as Organization,
   officeTitle: 'City Council Member',
+  officialFirstName: 'Bryan',
   jurisdiction: null,
   title: 'Sidewalk repairs on Maple Ave',
   description: 'Cracked sidewalks are unsafe for residents with strollers.',
@@ -316,6 +317,12 @@ describe('PriorityFlowHandler', () => {
       {} as never,
     )
 
+  it('counts a text audience by cell phone and asks options as choices', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('Has Cell Phone for a text')
+    expect(prompt).toContain('one option per choice')
+  })
+
   it('takes an answer that picks several options as one problem', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('One problem can show up as several symptoms')
@@ -438,6 +445,39 @@ describe('PriorityFlowHandler', () => {
     ).toEqual({ presented: true, deepLinkOnly: false })
     expect(
       await tool.execute({ ...proposal, channel: 'doorKnocking' as const }),
+    ).toEqual({ presented: true, deepLinkOnly: true })
+  })
+
+  it('refuses a draft that is not signed by the official', async () => {
+    const tool = build().buildTools(baseCtx()).present_outreach_proposal
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    const text = {
+      audience: 'Maple Ave households',
+      count: 312,
+      channel: 'text' as const,
+      why: 'These are the households on the blocks being repaired.',
+      deepLinkOnly: false,
+    }
+    expect(
+      await tool.execute({
+        ...text,
+        message: 'Hi, this is [Your Name] from the city. Is the sidewalk it?',
+      }),
+    ).toHaveProperty('error')
+    expect(
+      await tool.execute({
+        ...text,
+        message: 'Hi, this is the City Council. Is the sidewalk it?',
+      }),
+    ).toHaveProperty('error')
+    expect(
+      await tool.execute({
+        ...text,
+        message:
+          'Hi, this is Bryan, your City Council Member. Is the sidewalk it?',
+      }),
     ).toEqual({ presented: true, deepLinkOnly: true })
   })
 

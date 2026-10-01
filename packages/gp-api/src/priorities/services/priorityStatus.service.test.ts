@@ -519,6 +519,32 @@ describe('update_priority_status holds the check to being offered', () => {
     expect(JSON.stringify(result)).toContain('The problem and Your options')
   })
 
+  it('keeps the listening step open while the check is out', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        {
+          ...settleDefine,
+          check: { state: 'out', who: 'Renters', question: 'Is it rent?' },
+        },
+        { id: 'evidence', state: 'settled', summary: 'Rents up 30%' },
+        { id: 'listen_problem', state: 'active' },
+      ],
+      nextAction: 'Wait for replies',
+    })
+
+    const result = await toolFor(id, () => false).execute({
+      steps: [{ id: 'listen_problem', state: 'settled', summary: 'Asked' }],
+      nextAction: 'Build options',
+    })
+
+    expect(result).toHaveProperty('error')
+    expect(JSON.stringify(result)).toContain('stays open until')
+    expect(stepOf(await statusService.read(id), 'listen_problem').state).toBe(
+      'active',
+    )
+  })
+
   it('refuses to open the next step past a gate with no check', async () => {
     const id = await createPriority()
 

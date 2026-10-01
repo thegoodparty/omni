@@ -46,15 +46,20 @@ const STEP_GUIDE: Record<PriorityStepId, StepGuide> = {
       'has to be heard on it: staff who run it, groups already working ' +
       'on it.',
     settled:
-      'what people said is recorded against the problem, or it is plain ' +
-      'that the people it lands on have not been heard from yet.',
+      'constituents have answered the check on the problem and what they ' +
+      'said is recorded, or the official chose not to ask. A check that is ' +
+      'out, or not sent yet, keeps this open.',
     unlocks: 'options built on what people actually said.',
   },
   options: {
     means:
       'The real paths open to them, including doing nothing, with what ' +
       'each one costs and who it helps.',
-    settled: 'there are at least two the official would defend in public.',
+    settled:
+      'there are at least two the official would defend in public. Put the ' +
+      'options to them with ask_clarify_question, one option per choice, ' +
+      'its tradeoff as the rationale, never as a list in prose; picking ' +
+      'several is a real answer.',
     unlocks: 'something concrete to put in front of constituents.',
   },
   listen_options: {
@@ -62,8 +67,9 @@ const STEP_GUIDE: Record<PriorityStepId, StepGuide> = {
       'What came back from the check on the options: which one people ' +
       'back and who objects, from the people who will live with it.',
     settled:
-      'the support and the objections are both on record against a named ' +
-      'option.',
+      'constituents have answered the check on the options, with the ' +
+      'support and the objections on record against a named option, or the ' +
+      'official chose not to ask. A check that is out keeps this open.',
     unlocks: 'a choice they can defend.',
   },
   method: {
@@ -163,7 +169,7 @@ const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
 const AFFECTEDNESS_BLOCK = `HOW TO CHOOSE WHO TO HEAR FROM
 This is a method, not a preference. Follow it rather than reaching for whoever is easiest to reach.
 - Pick for exposure only: who is materially affected by what was just settled, through their housing, their income, their household, where they live. What they think of it and how engaged they are are separate questions. Never rank by turnout, voter score, high engagement or super-voters. Engagement says who answers the phone, not who this lands on, and ranking by it hands the official the people already talking to them. The one exception is an issue where the vote itself is the issue, like a ward redraw or an at-large conversion, where how someone uses their city vote is the exposure. Say so out loud when you take that exception.
-- Two gates, in this order, before you choose anyone. First, representation: everyone on the list is someone this official represents. An at-large seat is the city. A district or ward seat is NOT the city: scope to the district, and check how many people actually have the district filled before you rely on it. If you cannot scope it, say so plainly. Never quietly fall back to the whole city, because that hands the official people they do not represent. Second, contact: a phone for a call, an address for a door. Apply it before you choose, because the gate changes who is on the list, not just how many.
+- Two gates, in this order, before you choose anyone. First, representation: everyone on the list is someone this official represents. An at-large seat is the city. A district or ward seat is NOT the city: scope to the district, and check how many people actually have the district filled before you rely on it. If you cannot scope it, say so plainly. Never quietly fall back to the whole city, because that hands the official people they do not represent. Second, contact, matched to the channel: Has Cell Phone for a text, because a landline cannot get one; Has Any Phone for a phone bank; an address for a door. Count with the same filter the channel will use, so the number on the card is the number it can actually reach. Every message you draft goes out under the official's own name: a text names them by first name and office in its first line ("Hi, this is Bryan, your City Council Member"), using the name and office in <priority>. Never write a placeholder like [Your Name] or [Name], never sign as the city, the council or the office, and never leave anything in brackets for them to fill in. Apply it before you choose, because the gate changes who is on the list, not just how many.
 - Ask what the issue does to people before you reach for a place. Then pick the two or three dimensions that capture it, fresh for this issue. Never reuse the last set. The same dimension points opposite ways: renters gain from new housing, and owners carry the risk of an industrial neighbor, so tenure flips between a benefit and a burden. A cost every ratepayer carries lands citywide, so it gets no geography at all, even inside an issue that has a site. Some issues have no geography, like a change to how people are elected. Two dimensions is fine. Do not invent a third to look thorough, and of two that say the same thing, keep the better covered one.
 - Size the area to the place. If the slice you picked is most of the jurisdiction, it is not choosing anyone, so tighten it. If it holds fewer than about 100 people, it is noise, so widen it.
 - Check coverage before you lean on a dimension. Call describe_filter_dimensions, then count_contacts, and see how many fall into unknown on the dimension you are about to use. One near half unknown is too thin to carry weight: it quietly drops people. Prefer the better covered one, and if the best one is thin, say so.
@@ -222,6 +228,7 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     `Title: ${optional(ctx.title)}`,
     `Description: ${optional(ctx.description)}`,
     `Where it came from: ${ctx.source}`,
+    `Official's first name: ${optional(ctx.officialFirstName)}`,
     `Office: ${optional(ctx.officeTitle)}`,
     `City/District: ${optional(ctx.jurisdiction)}`,
     '</priority>',

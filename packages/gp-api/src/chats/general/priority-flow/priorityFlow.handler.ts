@@ -5,6 +5,10 @@ import {
   Optional,
 } from '@nestjs/common'
 import { formatISO } from 'date-fns'
+import {
+  checkSmsStandards,
+  type ProposalChannel,
+} from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -61,6 +65,32 @@ export const PRIORITY_FLOW_MODELS = [
   'claude-sonnet-4-6',
   'claude-opus-4-7',
 ] as const
+
+// Every draft goes out under the official's name, and the drawer refuses one
+// that does not carry it, so a card that lands there with a placeholder or an
+// unsigned text opens on an error. Text and phone scripts are spoken as the
+// official; social and door knocking are not checked for a name.
+const PLACEHOLDER = /\[[^\]\n]{1,40}\]/
+
+const unsignedDraftReason = (
+  input: { channel: ProposalChannel; message: string },
+  firstName: string | null,
+): string | null => {
+  if (PLACEHOLDER.test(input.message)) {
+    return (
+      'The message has a placeholder in brackets. Write it out in full, ' +
+      "signed with the official's first name and office from <priority>."
+    )
+  }
+  if (input.channel !== 'text' || firstName === null) return null
+  const { failures } = checkSmsStandards(input.message, {
+    candidateNames: [firstName],
+  })
+  return failures.includes('candidate_name')
+    ? `A text has to name the official. Open it with "Hi, this is ` +
+        `${firstName}, your" and their office, then present it again.`
+    : null
+}
 
 @Injectable()
 export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext> {
@@ -196,6 +226,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       present_outreach_proposal: {
         ...propose,
         execute: (input: Parameters<typeof propose.execute>[0]) => {
+          const unsigned = unsignedDraftReason(input, ctx.officialFirstName)
+          if (unsigned !== null) return { error: unsigned }
           offeredThisTurn = true
           return propose.execute(input)
         },
