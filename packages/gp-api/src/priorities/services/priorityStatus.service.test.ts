@@ -889,6 +889,54 @@ describe('PriorityStatusService.recordCheckReminder', () => {
     expect(result).toMatchObject({ check: { state: 'deferred', raised: 0 } })
   })
 
+  it('reminds about a least-affected side put off on its own', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          summary: 'Rents, not stock',
+          check: {
+            state: 'out',
+            who: 'Renters near the line',
+            contrast: { state: 'deferred', who: 'Owners across town' },
+          },
+        },
+        { id: 'evidence', state: 'active' },
+      ],
+      nextAction: 'Pull the rent numbers',
+    })
+    const { electedOfficeId } = await service.prisma.priority.findUniqueOrThrow(
+      { where: { id }, select: { electedOfficeId: true } },
+    )
+
+    expect(
+      await statusService.recordCheckReminder({
+        priorityId: id,
+        electedOfficeId,
+        stepId: 'define',
+        answer: 'not_yet',
+      }),
+    ).toHaveProperty('error')
+    const result = await statusService.recordCheckReminder({
+      priorityId: id,
+      electedOfficeId,
+      stepId: 'define',
+      side: 'contrast',
+      answer: 'not_yet',
+      when: 'after the vote',
+    })
+
+    expect(result).toMatchObject({
+      check: {
+        state: 'out',
+        raised: 1,
+        contrast: { state: 'deferred', when: 'after the vote' },
+      },
+    })
+  })
+
   it('records a decline', async () => {
     const { id, electedOfficeId } = await deferDefine()
 
