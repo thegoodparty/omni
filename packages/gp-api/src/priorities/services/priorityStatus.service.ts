@@ -5,6 +5,7 @@ import {
   PRIORITY_GATE_STEPS,
   PRIORITY_LISTEN_GATES,
   isCheckAnswered,
+  openListenBefore,
   PRIORITY_STATUS_VERSION,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
@@ -157,6 +158,25 @@ const refusalFor = (
       `constituents have answered the check on ${PRIORITY_STEP_LABELS[gate]}` +
       ', or the official decides not to ask. Leave it open with a caveat ' +
       'naming who you are waiting on, and keep working.'
+    )
+  }
+  const afterUpdate = current.steps.map((step) => ({
+    id: step.id,
+    state:
+      update.steps.find((patch) => patch.id === step.id)?.state ?? step.state,
+  }))
+  const settlesPastListening = update.steps.find(
+    (patch) =>
+      patch.state === STEP_STATE.settled &&
+      openListenBefore(afterUpdate, patch.id) !== undefined,
+  )
+  if (settlesPastListening !== undefined) {
+    const listen = openListenBefore(afterUpdate, settlesPastListening.id)!
+    return (
+      `You can work on ${PRIORITY_STEP_LABELS[settlesPastListening.id]} ` +
+      `now, but it cannot be done until ${PRIORITY_STEP_LABELS[listen]} ` +
+      'closes, because it rests on what people have not said yet. Keep it ' +
+      'active, and say plainly what it is waiting on.'
     )
   }
   const opening = update.steps.filter(
