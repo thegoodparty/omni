@@ -306,6 +306,11 @@ describe('judge.yml pins both arms to one voter-mart version', () => {
 // to the ONE plan-job output rather than to three expressions that agree by
 // coincidence.
 describe('judge.yml tells every judge process who asked', () => {
+  // The plan job's `outputs:` entries sit at six spaces, so the indent is what
+  // tells a published output from a mention of one in a comment.
+  const PUBLISHES_SELECTION =
+    /^ {6}selection: \$\{\{ steps\.select\.outputs\.selection \}\}$/m
+
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const steps = stepsOf(yaml)
   const spending = steps.filter((step) =>
@@ -340,7 +345,15 @@ describe('judge.yml tells every judge process who asked', () => {
   // refuses again with this file fully green. JUDGE_DATA_VERSION needs no
   // equivalent — it is a same-job `steps.*.outputs.*` read.
   it('has the plan job publish what the sweep job reads', () => {
-    expect(yaml).toContain('selection: ${{ steps.select.outputs.selection }}')
+    // Anchored at the job-output indent, not matched as a substring, for the
+    // reason the spend-switch scan above gives at length: `toContain` is
+    // satisfied by `# selection: ...`, and commenting a line out is the exact
+    // shape this is written to catch.
+    expect(yaml).toMatch(PUBLISHES_SELECTION)
+    // The matcher itself, against what an editor most plausibly leaves behind.
+    expect(
+      '      # selection: ${{ steps.select.outputs.selection }}',
+    ).not.toMatch(PUBLISHES_SELECTION)
   })
 
   it('resolves it once, in the step that knows the difference', () => {
