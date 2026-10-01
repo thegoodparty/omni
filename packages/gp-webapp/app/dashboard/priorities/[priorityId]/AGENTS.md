@@ -138,8 +138,10 @@ omit `state` to move only the contrast. A deferral comes back at most
 shared by the server and `applyStatusUpdate` so the two never count
 differently. A malformed check, or contrast, drops on its own, in the stored
 status, in a live patch and in the server's tool input, so it never stops the
-step itself from moving. The rail prints one line per side
-(`STEP_CHECK_LABELS`, `STEP_CONTRAST_LABELS`).
+step itself from moving. The rail prints one line per step,
+not one per side (`STEP_CHECK_LABELS`): anything waiting on the official wins,
+then anything out, then how the main side landed. Who each side is lives in
+the conversation, not the rail.
 
 Chief of Staff reads the same state (current step, next action, checks)
 through its priorities context and points into this flow without running it.
