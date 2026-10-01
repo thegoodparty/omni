@@ -409,6 +409,7 @@ describe('provenance', () => {
       dimensions: {},
       regressions: [],
       exclusions: {
+        ungradedReasons: [],
         toolError: 0,
         infraError: 0,
         identicalConfig: 0,
@@ -951,5 +952,57 @@ describe('the all-identical-outputs qualifier', () => {
       ],
     })
     expect(report).toContain('qualified above rather than read as SAME')
+  })
+})
+
+// A COUNT WITHOUT A CAUSE SENT SOMEBODY BACK TO REPRODUCE THE RUN. The first
+// live sweep's report said "29 ungraded judgment(s)" and stopped there; the
+// reason was on every judgment and never reached the page.
+describe('ungraded judgments say why', () => {
+  const withUngraded = async (
+    ungraded: number,
+    ungradedReasons: readonly string[],
+  ): Promise<string> => {
+    const base = await pipeline(sweepRecords(3))
+    return renderReport({
+      agents: [
+        {
+          ...base,
+          exclusions: { ...base.exclusions, ungraded, ungradedReasons },
+        },
+      ],
+    })
+  }
+
+  it('prints the reason beside the count', async () => {
+    const report = await withUngraded(29, [
+      'seat claude-sonnet-4-6 returned no verdict for task_success',
+    ])
+    expect(report).toContain('29 ungraded judgment(s)')
+    expect(report).toContain(
+      'Why: seat claude-sonnet-4-6 returned no verdict for task_success',
+    )
+  })
+
+  it('joins several distinct reasons', async () => {
+    const report = await withUngraded(2, ['rate limited', 'no verdict'])
+    expect(report).toContain('Why: rate limited | no verdict')
+  })
+
+  // Nothing failed, so there is nothing to explain and the clause would be
+  // noise on every clean report.
+  it('says nothing when no judgment was ungraded', async () => {
+    const report = await withUngraded(0, [])
+    expect(report).toContain('0 ungraded judgment(s)')
+    expect(report).not.toContain('Why:')
+  })
+
+  // The opposite defect: a reason list that somehow arrives non-empty with a
+  // zero count must not print either, or a clean sweep grows a dangling
+  // explanation for a failure that did not happen.
+  it('says nothing when the count is zero even if reasons survive', async () => {
+    const report = await withUngraded(0, ['stale reason'])
+    expect(report).not.toContain('Why:')
+    expect(report).not.toContain('stale reason')
   })
 })

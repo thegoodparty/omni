@@ -906,6 +906,7 @@ describe('exclusion counts', () => {
     }
     const result = score([], noFloor(), agent)
     expect(result.exclusions).toEqual({
+      ungradedReasons: [],
       toolError: 1,
       infraError: 1,
       identicalConfig: 0,
@@ -1019,5 +1020,61 @@ describe('a panel that lost a seat', () => {
     )
     expect(result.degradedPanel).toBeNull()
     expect(result.exclusions.ungraded).toBe(1)
+  })
+})
+
+// A COUNT IS NOT ACTIONABLE. The first live sweep reported "29 ungraded
+// judgment(s)" and nothing else, and recovering the cause meant reproducing
+// the whole run — the one thing a report exists to make unnecessary. The
+// reasons are already on the judgments, so carrying them costs nothing.
+describe('ungraded reasons reach the score', () => {
+  const ungraded = (caseId: string, reason: string): Judgment => ({
+    kind: 'ungraded',
+    key: { caseId, attempt: 1, order: 'primary' },
+    reason,
+  })
+
+  const agent = (): NormalizedAgent => normalizeAgent(CHAT_PAIR, () => 0)
+
+  it('carries the reason, not only the count', () => {
+    const result = score(
+      [ungraded('a', 'seat claude-sonnet-4-6 returned no verdict')],
+      noFloor(),
+      agent(),
+    )
+    expect(result.exclusions.ungraded).toBe(1)
+    expect(result.exclusions.ungradedReasons).toEqual([
+      'seat claude-sonnet-4-6 returned no verdict',
+    ])
+  })
+
+  // Deduplicated, because the failure that matters is "every seat threw the
+  // same sentence" and printing it 29 times buries the report.
+  it('deduplicates one reason repeated across every pair', () => {
+    const same = 'seat claude-sonnet-4-6 returned no verdict'
+    const result = score(
+      [ungraded('a', same), ungraded('b', same), ungraded('c', same)],
+      noFloor(),
+      agent(),
+    )
+    expect(result.exclusions.ungraded).toBe(3)
+    expect(result.exclusions.ungradedReasons).toEqual([same])
+  })
+
+  it('keeps two different reasons apart', () => {
+    const result = score(
+      [ungraded('a', 'rate limited'), ungraded('b', 'no verdict')],
+      noFloor(),
+      agent(),
+    )
+    expect(result.exclusions.ungradedReasons).toEqual([
+      'rate limited',
+      'no verdict',
+    ])
+  })
+
+  it('is empty when nothing was ungraded', () => {
+    const result = score([], noFloor(), agent())
+    expect(result.exclusions.ungradedReasons).toEqual([])
   })
 })
