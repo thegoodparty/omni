@@ -4,12 +4,13 @@ import Link from 'next/link'
 import { Button, Card, ScrollTextIcon } from '@styleguide'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 
-// Pinned above the tracker rail while the Campaign Story is unfinished. The
-// tracker also carries a "Tell us why you're running" task row, but that row
-// sits in the Active phase, which is a collapsed accordion for a candidate
-// still in Pre-launch — so the card is what guarantees the prompt is the first
-// thing on the page. Not dismissible: a generic plan is the symptom and the
-// story is the fix.
+// Pinned above the tracker rail while the Campaign Story is unfinished, and
+// sized like the dashboard's Pro banner: one card, one CTA, no competing
+// actions. The tracker carries a story task too, but that row sits at the end
+// of pre-launch, so the card is what makes this the first thing on the page
+// and says plainly why it is worth doing.
+//
+// Not dismissible: a generic plan is the symptom and the story is the fix.
 //
 // Renders nothing while the story state is still resolving, so it never
 // flashes in on an already-complete story — and nothing on an error either.
@@ -24,21 +25,25 @@ export default function CampaignPlanStoryCard(): React.JSX.Element | null {
   if (isLoading || isError || isComplete) return null
 
   return (
-    <Card className="mb-4 flex flex-col items-start gap-3 p-5 lg:p-6">
-      <ScrollTextIcon className="size-6 text-primary" aria-hidden />
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-card-foreground">
-          Tell us why you&apos;re running
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Your plan gets sharper once we know your why, your background, and the
-          issues you care about.
-        </p>
+    <Card className="relative mb-4 gap-0 overflow-hidden p-6">
+      <div className="flex flex-col items-start gap-3">
+        <ScrollTextIcon className="size-8 text-primary" aria-hidden />
+        <div className="flex flex-col gap-1">
+          <h2 className="font-opensans text-lg font-semibold text-card-foreground">
+            Tell us your campaign story
+          </h2>
+          <p className="font-opensans text-sm text-card-foreground">
+            Share your why, your background, and the issues you care about to
+            sharpen your plan.
+          </p>
+        </div>
+        <div className="pt-3">
+          <Button asChild>
+            {/* The manager auto-launches the story intake chat on this param. */}
+            <Link href="/dashboard?personalize=1">Add your story</Link>
+          </Button>
+        </div>
       </div>
-      <Button asChild className="rounded-full">
-        {/* The manager auto-launches the story intake chat on this param. */}
-        <Link href="/dashboard?personalize=1">Add your story</Link>
-      </Button>
     </Card>
   )
 }

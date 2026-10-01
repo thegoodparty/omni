@@ -53,8 +53,8 @@ export default function PersonalizeStoryCard({
     // differently. The CTA label stays as-is: it mirrors the manager's own
     // "Personalize your campaign" starter chip, which opens the same flow.
     <ManagerPromptCard
-      title="Tell us why you're running"
-      description="Your plan gets sharper once we know your why, your background, and the issues you care about."
+      title="Tell us your campaign story"
+      description="Share your why, your background, and the issues you care about to sharpen your plan."
       ctaLabel="Personalize your campaign"
       onCta={onPersonalize}
       onSkip={onSkip}

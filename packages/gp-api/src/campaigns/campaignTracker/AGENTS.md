@@ -45,26 +45,37 @@ overview: `docs/features/campaign-tracker-v3.md`.
   (`TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY`), because the plan endpoint is polled
   and the count-check alone isn't atomic, so the eager call and the bootstrap
   call can't double-insert the catalog.
-- **The story task mirrors story state, and is the one row the tracker
-  reasserts.** The catalog's `Campaign story` category
-  (`CAMPAIGN_STORY_CATEGORY` in contracts) holds one `static` task that only
-  exists while the candidate's Campaign Story is unfinished.
+- **The story task mirrors story state through its completion, not its
+  existence.** The catalog's `Campaign story` category
+  (`CAMPAIGN_STORY_CATEGORY` in contracts) holds one `static` task, materialized
+  for every campaign and never deleted. `completed` tracks whether the Campaign
+  Story is finished, in both directions:
   `reconcileCampaignStoryTask` (same advisory lock as the ballot-access
-  reconcile, called from `dispatchGeneration`) adds it when missing, deletes it
-  once the story is complete, and **reopens it if it was checked off while the
-  story is still unfinished** — the row tracks data, not intent, and a checkbox
-  that disagrees with the card pinned above the rail is worse than one the
-  tracker reasserts. Two non-obvious details: it is built by its own
-  `buildCampaignStoryTrackerTaskRows` (excluded from `buildStaticTrackerTaskRows`)
-  because it is dated to **today** rather than the shared upcoming-Monday
-  anchor and carries `link`/`cta`, which the catalog schema does not model; and
-  its phase is **`active`, not `preLaunch`**, because the webapp reads
-  "happening now" as the first phase whose latest date has arrived and that
-  still has open work — an open pre-launch row dated today drags a candidate
-  weeks from election day back to the start of the rail (there is a test
-  asserting exactly that trap in `buildTrackerStrategy.test.ts`). Dating it
-  into the current week is also what earns it the navigator's "Do this next"
-  badge.
+  reconcile, called from `dispatchGeneration`) ticks it when the story is
+  complete and reopens it when the story is emptied again, so the row can never
+  disagree with the card pinned above the rail. The row is the record of the
+  work; making it vanish would lose that.
+- **The tracker read ticks it too.** The story is finished on other surfaces —
+  the story page, the manager chat — so `completeCampaignStoryTaskIfDone` runs
+  on `GET /campaigns/tracker-tasks` and closes the task there rather than
+  leaving the list stale until the next generation. It is the open->complete
+  direction only, and it short-circuits on an indexed count when the row is
+  already ticked, so polling the list does not pay for a story read it cannot
+  use. The full reconcile still owns the reverse.
+- **It sits at the end of pre-launch.** `phase: 'preLaunch'` with `preLaunch`
+  timing, which resolves a week past the block's anchor, alongside the two
+  catalog rows that close the phase out. `buildCampaignStoryTrackerTaskRows`
+  exists separately from `buildStaticTrackerTaskRows` only because the row
+  carries `link`/`cta`, which the catalog schema does not model. When the
+  reconcile re-adds it to a campaign materialized long ago it recovers that
+  campaign's original anchor from its earliest pre-launch row rather than
+  taking a fresh one, so the row lands with its siblings instead of a week out
+  from today.
+  Known consequence, tracked separately: an open pre-launch row dated in the
+  present pulls a mid-campaign candidate's rail back to Pre-launch, because the
+  webapp decides "happening now" from task dates. Ticking the row does not
+  rescue it — the date is what pulls the phase in. That is the date-driven
+  phase model needing a rethink, not this row's placement.
 - **Ballot access is gated on the candidate's ballot stage.** The catalog's
   `Ballot access` category (`BALLOT_ACCESS_CATEGORY` in contracts) is dropped at
   materialization for a candidate who answered onboarding's "Are you already on

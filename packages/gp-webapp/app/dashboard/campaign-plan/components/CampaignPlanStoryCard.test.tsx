@@ -24,7 +24,7 @@ describe('CampaignPlanStoryCard', () => {
     render(<CampaignPlanStoryCard />)
 
     expect(
-      screen.getByRole('heading', { name: "Tell us why you're running" }),
+      screen.getByRole('heading', { name: 'Tell us your campaign story' }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Add your story' }),
@@ -37,7 +37,7 @@ describe('CampaignPlanStoryCard', () => {
     render(<CampaignPlanStoryCard />)
 
     expect(
-      screen.queryByRole('heading', { name: "Tell us why you're running" }),
+      screen.queryByRole('heading', { name: 'Tell us your campaign story' }),
     ).not.toBeInTheDocument()
   })
 
@@ -48,7 +48,7 @@ describe('CampaignPlanStoryCard', () => {
     render(<CampaignPlanStoryCard />)
 
     expect(
-      screen.queryByRole('heading', { name: "Tell us why you're running" }),
+      screen.queryByRole('heading', { name: 'Tell us your campaign story' }),
     ).not.toBeInTheDocument()
   })
 
@@ -61,7 +61,7 @@ describe('CampaignPlanStoryCard', () => {
     render(<CampaignPlanStoryCard />)
 
     expect(
-      screen.queryByRole('heading', { name: "Tell us why you're running" }),
+      screen.queryByRole('heading', { name: 'Tell us your campaign story' }),
     ).not.toBeInTheDocument()
   })
 

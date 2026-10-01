@@ -213,26 +213,30 @@ describe('CampaignTrackerTasksService.materializeStaticTasks', () => {
     }
   })
 
-  it('omits the story row once the story is complete', async () => {
+  // The row is the record of the work either way; only its completion
+  // mirrors the story.
+  it('still materializes the story row when the story is complete, ticked', async () => {
     h.storyState.read.mockResolvedValue({ complete: true })
-    await h.service.materializeStaticTasks(campaign())
-    const titles = titlesFromFirstCreateMany()
-    for (const title of CAMPAIGN_STORY_TASK_TITLES) {
-      expect(titles).not.toContain(title)
-    }
-  })
-
-  // Dated today, not the shared upcoming-Monday anchor: the row has to land in
-  // the current week for the week navigator to badge it "Do this next".
-  it('dates the story row to today and gives it a link', async () => {
     await h.service.materializeStaticTasks(campaign())
     const rows = firstOrThrow(
       h.prisma.campaignTrackerTask.createMany.mock.calls,
-    )[0].data as { title: string; date: Date; link?: string }[]
+    )[0].data as { title: string; completed?: boolean }[]
     const story = rows.find((row) =>
       CAMPAIGN_STORY_TASK_TITLES.includes(row.title),
     )
-    expect(story?.date).toEqual(startOfDay(new Date()))
+    expect(story).toBeDefined()
+    expect(story?.completed).toBe(true)
+  })
+
+  it('leaves the story row open while the story is unfinished', async () => {
+    await h.service.materializeStaticTasks(campaign())
+    const rows = firstOrThrow(
+      h.prisma.campaignTrackerTask.createMany.mock.calls,
+    )[0].data as { title: string; completed?: boolean; link?: string }[]
+    const story = rows.find((row) =>
+      CAMPAIGN_STORY_TASK_TITLES.includes(row.title),
+    )
+    expect(story?.completed).toBe(false)
     expect(story?.link).toBe('/dashboard?personalize=1')
   })
 })
@@ -255,18 +259,32 @@ describe('CampaignTrackerTasksService.reconcileCampaignStoryTask', () => {
     expect(h.prisma.campaignTrackerTask.deleteMany).not.toHaveBeenCalled()
   })
 
-  it('deletes the story row once the story is complete', async () => {
+  // Never deleted: the task is the record of the work, so finishing the story
+  // ticks it rather than making it vanish.
+  it('ticks the story row once the story is complete', async () => {
     h.storyState.read.mockResolvedValue({ complete: true })
+    h.prisma.campaignTrackerTask.findMany.mockResolvedValue([
+      { id: 't1', completed: false },
+    ])
 
     await h.service.reconcileCampaignStoryTask(campaign())
 
-    expect(h.prisma.campaignTrackerTask.deleteMany).toHaveBeenCalledWith({
-      where: {
-        campaignId: 42,
-        isDefaultTask: true,
-        title: { in: CAMPAIGN_STORY_TASK_TITLES },
-      },
+    expect(h.prisma.campaignTrackerTask.deleteMany).not.toHaveBeenCalled()
+    expect(h.prisma.campaignTrackerTask.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['t1'] } },
+      data: { completed: true },
     })
+  })
+
+  it('leaves an already-ticked row alone when the story is still complete', async () => {
+    h.storyState.read.mockResolvedValue({ complete: true })
+    h.prisma.campaignTrackerTask.findMany.mockResolvedValue([
+      { id: 't1', completed: true },
+    ])
+
+    await h.service.reconcileCampaignStoryTask(campaign())
+
+    expect(h.prisma.campaignTrackerTask.updateMany).not.toHaveBeenCalled()
   })
 
   it('adds the story row when it is missing and the story is unfinished', async () => {
@@ -304,6 +322,51 @@ describe('CampaignTrackerTasksService.reconcileCampaignStoryTask', () => {
       where: { id: { in: ['t1'] } },
       data: { completed: false },
     })
+  })
+})
+
+describe('CampaignTrackerTasksService.completeCampaignStoryTaskIfDone', () => {
+  let h: ReturnType<typeof makeService>
+  beforeEach(() => {
+    h = makeService()
+  })
+
+  // This is what makes the tracker the one place to trust: the story is
+  // finished elsewhere, and the task has to reflect that on the next read
+  // rather than at the next generation.
+  it('ticks the open row when the story is now complete', async () => {
+    h.prisma.campaignTrackerTask.count.mockResolvedValue(1)
+    h.storyState.read.mockResolvedValue({ complete: true })
+    h.prisma.campaignTrackerTask.updateMany.mockResolvedValue({ count: 1 })
+
+    await expect(
+      h.service.completeCampaignStoryTaskIfDone(campaign()),
+    ).resolves.toBe(true)
+    expect(h.prisma.campaignTrackerTask.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ campaignId: 42, completed: false }),
+      data: { completed: true },
+    })
+  })
+
+  // The read is polled, so it must not pay for a story lookup it cannot use.
+  it('does not read story state when there is no open row', async () => {
+    h.prisma.campaignTrackerTask.count.mockResolvedValue(0)
+
+    await expect(
+      h.service.completeCampaignStoryTaskIfDone(campaign()),
+    ).resolves.toBe(false)
+    expect(h.storyState.read).not.toHaveBeenCalled()
+    expect(h.prisma.campaignTrackerTask.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('leaves the row open while the story is unfinished', async () => {
+    h.prisma.campaignTrackerTask.count.mockResolvedValue(1)
+    h.storyState.read.mockResolvedValue({ complete: false })
+
+    await expect(
+      h.service.completeCampaignStoryTaskIfDone(campaign()),
+    ).resolves.toBe(false)
+    expect(h.prisma.campaignTrackerTask.updateMany).not.toHaveBeenCalled()
   })
 })
 
