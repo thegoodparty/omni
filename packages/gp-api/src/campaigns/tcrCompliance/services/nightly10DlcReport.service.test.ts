@@ -25,6 +25,7 @@ import {
   PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
 } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
 import { REGISTRANT_STAMPING_UNIVERSAL_FROM } from './complianceState.service'
@@ -177,10 +178,16 @@ describe('Nightly10DlcReportService', () => {
     getIdentityProfile: ReturnType<typeof vi.fn>
   }
   let mockAnalytics: { track: ReturnType<typeof vi.fn> }
+  let mockCrmCampaigns: { getCrmCompanyOwnerName: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
     mockSlack = { message: vi.fn().mockResolvedValue('ok') }
+    // The CRM helper returns '' for an ownerless company — the snapshot must
+    // normalize that to null.
+    mockCrmCampaigns = {
+      getCrmCompanyOwnerName: vi.fn().mockResolvedValue(''),
+    }
     mockModel = {
       findMany: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
@@ -213,6 +220,7 @@ describe('Nightly10DlcReportService', () => {
         { provide: QueueProducerService, useValue: mockQueue },
         { provide: SlackService, useValue: mockSlack },
         { provide: PeerlyIdentityService, useValue: mockPeerlyIdentity },
+        { provide: CrmCampaignsService, useValue: mockCrmCampaigns },
         { provide: AnalyticsService, useValue: mockAnalytics },
         { provide: PinoLogger, useValue: createMockLogger() },
         Nightly10DlcReportService,
@@ -2041,6 +2049,82 @@ describe('Nightly10DlcReportService', () => {
       expect(campaignIds).not.toContain(1300)
       expect(mockSlack.message).not.toHaveBeenCalled()
       expect(mockModel.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('resolves Assigned to from the HubSpot owner, best-effort and deduped', async () => {
+      const ownedCampaign = (id: number, slug: string, hubspotId: string) => ({
+        id,
+        slug,
+        isPro: true,
+        userId: id + 1,
+        data: { hubspotId },
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [
+          snapshotRecord('tcr-owned', 'owned-camp', 100, {
+            kickoffSentAt: subDays(new Date(), 3),
+            campaign: ownedCampaign(100, 'owned-camp', 'hs-owned'),
+          }),
+          snapshotRecord('tcr-no-hubspot', 'no-hubspot-camp', 200, {
+            kickoffSentAt: subDays(new Date(), 3),
+          }),
+          snapshotRecord('tcr-crm-down', 'crm-down-camp', 300, {
+            kickoffSentAt: subDays(new Date(), 3),
+            campaign: ownedCampaign(300, 'crm-down-camp', 'hs-down'),
+          }),
+          snapshotRecord('tcr-ownerless', 'ownerless-camp', 400, {
+            kickoffSentAt: subDays(new Date(), 3),
+            campaign: ownedCampaign(400, 'ownerless-camp', 'hs-ownerless'),
+          }),
+        ],
+        [
+          snapshotRecord('tcr-same-owner', 'same-owner-camp', 500, {
+            status: TcrComplianceStatus.error,
+            campaign: ownedCampaign(500, 'same-owner-camp', 'hs-owned'),
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+      ])
+      mockCrmCampaigns.getCrmCompanyOwnerName.mockImplementation(
+        (hubspotId: string) =>
+          hubspotId === 'hs-owned'
+            ? Promise.resolve(' Jane Smith ')
+            : hubspotId === 'hs-ownerless'
+              ? Promise.resolve('')
+              : Promise.reject(new Error('hubspot down')),
+      )
+
+      const snapshot = await service.getAdminStatusSnapshot()
+
+      const assignedBySlug = new Map(
+        snapshot.buckets.flatMap((candidate) =>
+          candidate.entries.map((row) => [row.campaignSlug, row.assignedPa]),
+        ),
+      )
+      expect(assignedBySlug.get('owned-camp')).toBe('Jane Smith')
+      expect(assignedBySlug.get('no-hubspot-camp')).toBeNull()
+      expect(assignedBySlug.get('crm-down-camp')).toBeNull()
+      expect(assignedBySlug.get('ownerless-camp')).toBeNull()
+      expect(assignedBySlug.get('same-owner-camp')).toBe('Jane Smith')
+      // One read per HubSpot company: the shared owner is fetched once, and
+      // the hubspotId-less campaign never reaches the CRM at all.
+      expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledWith(
+        'hs-owned',
+      )
+      expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledWith(
+        'hs-down',
+      )
+      expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledWith(
+        'hs-ownerless',
+      )
+      expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledTimes(3)
     })
   })
 })

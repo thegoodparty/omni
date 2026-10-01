@@ -32,6 +32,7 @@ import {
   QueueType,
 } from '../../../queue/queue.types'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
+import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import {
   SlackChannel,
   SlackMessageBlock,
@@ -269,6 +270,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
   constructor(
     private readonly queueService: QueueProducerService,
     private readonly slack: SlackService,
+    private readonly crmCampaigns: CrmCampaignsService,
   ) {
     super()
   }
@@ -740,6 +742,22 @@ export class Nightly10DlcReportService extends createPrismaBase(
   async getAdminStatusSnapshot(): Promise<TenDlcStatusSnapshot> {
     const now = new Date()
     const snapshot = await this.collectStatusSnapshot(now)
+    const assignedPas = await this.assignedPasByCampaign([
+      ...[
+        ...snapshot.stuckSubmissions.map(({ record }) => record),
+        ...snapshot.errorRecords,
+        ...snapshot.rejectedRecords,
+        ...snapshot.billingBlocked,
+        ...snapshot.inReviewToEscalate,
+        ...snapshot.waitingToFinalizeToEscalate,
+        ...snapshot.deferredDispatch,
+        ...snapshot.agingAwaitingPin.map(({ record }) => record),
+        ...snapshot.agingCvUnissued.map(({ record }) => record),
+      ].map((record) => record.campaign),
+      ...[...snapshot.stuckDomains, ...snapshot.heldDomains].map(
+        (domain) => domain.website.campaign,
+      ),
+    ])
     const keys = TenDlcStatusBucketKeySchema.enum
     const entry = (
       record: RecordWithCampaign,
@@ -750,6 +768,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       campaignSlug: record.campaign.slug,
       userId: record.campaign.userId,
       committeeName: record.committeeName,
+      assignedPa: assignedPas.get(record.campaignId) ?? null,
       peerlyIdentityId: record.peerlyIdentityId,
       filingUrl: record.filingUrl,
       since: since?.toISOString() ?? null,
@@ -768,6 +787,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       campaignSlug: domain.website.campaign.slug,
       userId: domain.website.campaign.userId,
       committeeName: null,
+      assignedPa: assignedPas.get(domain.website.campaignId) ?? null,
       peerlyIdentityId: null,
       filingUrl: null,
       since: domain.createdAt.toISOString(),
@@ -857,6 +877,47 @@ export class Nightly10DlcReportService extends createPrismaBase(
         },
       ],
     }
+  }
+
+  // The campaign's assigned success person is its HubSpot company owner —
+  // the same live, best-effort read the SMS console's queue makes (one read
+  // per company, any failure renders the entry unassigned rather than
+  // failing the snapshot). Admin-snapshot only: the nightly Slack report
+  // never pays this CRM cost.
+  private async assignedPasByCampaign(
+    campaigns: Campaign[],
+  ): Promise<Map<number, string | null>> {
+    const hubspotIdByCampaign = new Map<number, string | undefined>(
+      campaigns.map((campaign) => [campaign.id, campaign.data?.hubspotId]),
+    )
+    const nameByHubspotId = new Map<string, Promise<string | null>>()
+    const ownerName = (hubspotId: string) => {
+      const pending =
+        nameByHubspotId.get(hubspotId) ??
+        this.crmCampaigns
+          .getCrmCompanyOwnerName(hubspotId)
+          .then((name) => (name?.trim() ? name.trim() : null))
+          .catch((err: Error) => {
+            this.logger.warn(
+              { err, hubspotId },
+              'Status snapshot: HubSpot owner read failed; ' +
+                'rendering unassigned',
+            )
+            return null
+          })
+      nameByHubspotId.set(hubspotId, pending)
+      return pending
+    }
+    const byCampaign = new Map<number, string | null>()
+    await Promise.all(
+      [...hubspotIdByCampaign].map(async ([campaignId, hubspotId]) => {
+        byCampaign.set(
+          campaignId,
+          hubspotId ? await ownerName(hubspotId) : null,
+        )
+      }),
+    )
+    return byCampaign
   }
 
   // Returns false (SQS redelivery) when the Slack post fails, so a missed
