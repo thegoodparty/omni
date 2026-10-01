@@ -69,7 +69,7 @@ export const PRIORITY_FLOW_MODELS = [
 // Every draft goes out under the official's name, and the drawer refuses one
 // that does not carry it, so a card that lands there with a placeholder or an
 // unsigned text opens on an error. Text and phone scripts are spoken as the
-// official; social and door knocking are not checked for a name.
+// official, or on their behalf; social and door knocking are not checked.
 const PLACEHOLDER = /\[[^\]\n]{1,40}\]/
 
 const unsignedDraftReason = (
@@ -82,14 +82,19 @@ const unsignedDraftReason = (
       "signed with the official's first name and office from <priority>."
     )
   }
-  if (input.channel !== 'text' || firstName === null) return null
+  const voiced = input.channel === 'text' || input.channel === 'phoneBanking'
+  if (!voiced || firstName === null) return null
   const { failures } = checkSmsStandards(input.message, {
     candidateNames: [firstName],
   })
-  return failures.includes('candidate_name')
+  if (!failures.includes('candidate_name')) return null
+  // A caller may be a volunteer, so the script names the official without
+  // claiming to be them.
+  return input.channel === 'text'
     ? `A text has to name the official. Open it with "Hi, this is ` +
         `${firstName}, your" and their office, then present it again.`
-    : null
+    : `A phone script has to name the official. Have the caller say who ` +
+        `they are calling for: "${firstName}, your" and their office.`
 }
 
 @Injectable()
