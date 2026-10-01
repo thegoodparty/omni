@@ -1248,6 +1248,8 @@ export {
   type GeoJsonPolygon,
   CreateDoorKnockingTurfSchema,
   type CreateDoorKnockingTurf,
+  CreateServeDoorKnockingTurfSchema,
+  type CreateServeDoorKnockingTurf,
   UpdateDoorKnockingTurfSchema,
   type UpdateDoorKnockingTurf,
   DoorKnockingTurfSchema,

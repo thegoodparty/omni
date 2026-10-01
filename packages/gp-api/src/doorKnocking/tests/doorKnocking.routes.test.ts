@@ -19,6 +19,7 @@ import {
   PACK_STREAM_MAGIC_BYTES,
   ROUTE_TARGET_ACTIVITY_LIMIT,
   ROUTE_TARGET_NOTE_LIMIT,
+  parsePriorityStatus,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -34,6 +35,7 @@ import {
   OrganizationRole,
   OutreachStatus,
   OutreachType,
+  PrioritySource,
   VoterFileFilter,
 } from '../../generated/prisma'
 
@@ -1796,6 +1798,101 @@ describe('door-knocking routes', () => {
         outreachType: OutreachType.nativeDoorKnocking,
         status: OutreachStatus.in_progress,
       })
+    })
+
+    // A walk drawn from a priority's check card is that check going out. The
+    // card's link rides on the anchor envelope, and a second walk drawn from
+    // the same card is its own campaign and records nothing new.
+    it('puts the check a card proposed out when its walk is drawn, once', async () => {
+      const { slug, filterId, headers } = await serveOrg('proposal')
+      const office = await service.prisma.electedOffice.findFirstOrThrow({
+        where: { organizationSlug: slug },
+      })
+      const priority = await service.prisma.priority.create({
+        data: {
+          electedOfficeId: office.id,
+          title: 'Fix the flooding on Maple',
+          description: 'The drains back up every storm.',
+          source: PrioritySource.user_stated,
+          status: {
+            version: 3,
+            steps: [
+              {
+                id: 'method',
+                state: 'settled',
+                summary: 'A drainage bond.',
+                check: {
+                  state: 'asked',
+                  who: 'Owners on the flood blocks',
+                  question: 'Would you back the bond?',
+                  raised: 0,
+                  offeredAt: '2026-09-30T12:00:00Z',
+                },
+              },
+            ],
+          },
+        },
+      })
+      const proposalKey = '7d2e4c90-1a3b-4c5d-8e6f-a0b1c2d3e4f5'
+      const walk = () =>
+        service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'Maple blocks',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            proposalKey,
+            priorityId: priority.id,
+            stepId: 'method',
+            side: 'main',
+          },
+          { ...headers, validateStatus: () => true },
+        )
+      const methodCheck = async () =>
+        parsePriorityStatus(
+          (
+            await service.prisma.priority.findUniqueOrThrow({
+              where: { id: priority.id },
+            })
+          ).status,
+        ).steps.find((step) => step.id === 'method')?.check
+
+      const first = await walk()
+      expect(first.status).toBe(201)
+      expect(
+        await service.prisma.outreach.findFirstOrThrow({
+          where: { doorKnockingTurfId: first.data.id },
+        }),
+      ).toMatchObject({
+        proposalKey,
+        priorityId: priority.id,
+        priorityStepId: 'method',
+        priorityCheckSide: 'main',
+      })
+      const sent = await methodCheck()
+      expect(sent).toMatchObject({
+        state: 'out',
+        sentProposalKey: proposalKey,
+        sentAt: expect.any(String),
+      })
+
+      const second = await walk()
+      expect(second.status).toBe(201)
+      expect(
+        await service.prisma.outreach.findFirstOrThrow({
+          where: { doorKnockingTurfId: second.data.id },
+        }),
+      ).toMatchObject({ proposalKey: null, priorityStepId: null })
+      expect((await methodCheck())?.sentAt).toBe(sent?.sentAt)
+    })
+
+    it('keeps a proposal link off the Win create', async () => {
+      const res = await postTurf({
+        proposalKey: '7d2e4c90-1a3b-4c5d-8e6f-a0b1c2d3e4f5',
+      })
+
+      expect(res.status).toBe(400)
     })
 
     // A campaign has no row of its own — it is the anchor envelope plus

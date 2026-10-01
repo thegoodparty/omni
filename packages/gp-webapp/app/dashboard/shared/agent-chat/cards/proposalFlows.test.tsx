@@ -200,6 +200,43 @@ describe('ProposalFlowsProvider', () => {
     expect(navigatedToOutreach()).toEqual([])
   })
 
+  // The walk is drawn on its own page, so the card's link rides the URL to
+  // that page's create, which puts the check out on the server.
+  it('carries the card’s link to door knocking, saving the list at the click', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 77, name: 'Flood block renters' },
+    })
+
+    render(
+      <ProposalFlowsProvider>
+        <Opener
+          card={proposal({
+            channel: 'doorKnocking',
+            stepId: 'method',
+            side: 'main',
+          })}
+        />
+      </ProposalFlowsProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+
+    await waitFor(() => expect(router.push).toHaveBeenCalled())
+    const url = new URL(
+      String(router.push?.mock.calls[0]?.[0]),
+      'https://app.test',
+    )
+    expect(url.pathname).toBe('/dashboard/door-knocking')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      create: '1',
+      listId: '77',
+      proposalKey: PROPOSAL_KEY,
+      priorityId: 'priority-1',
+      stepId: 'method',
+      side: 'main',
+    })
+  })
+
   // A check asks a sample, so the list the drawer saves is the draw, not the
   // live filter, and the count it promises is the sample's.
   it('saves a sampled proposal as that fixed sample', async () => {

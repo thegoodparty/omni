@@ -927,7 +927,10 @@ remembered on the `hold_failed` row for the retry.
   not sent. Each create (and each replay) calls
   `PriorityStatusService.recordOutreachSent`, the text from the purchase
   handler once paid and enqueued, which moves that side of the priority's
-  check to out. Door knocking does not take a key; see
+  check to out. Door knocking takes the link on `POST
+  /door-knocking/serve/turfs` (`CreateServeDoorKnockingTurfSchema`) and
+  writes it on a new campaign's anchor envelope only; a key this org already
+  spent on a walk leaves the next walk unlinked. See
   `gp-webapp/app/dashboard/shared/agent-chat/AGENTS.md` ("Cards").
 - Tone vocabulary (`util/messageTone.util.ts`) is shared across every
   stateless compose endpoint — don't redefine `TONE_STYLES` per channel.

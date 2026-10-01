@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common'
 import { Injectable } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
@@ -8,6 +12,12 @@ import {
   GeoJsonPolygon,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import {
+  resolveProposalLink,
+  type ProposalOutreachLink,
+} from '@/priorities/util/proposalLink.util'
+import type { ProposalLink } from '@goodparty_org/contracts'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import {
@@ -203,8 +213,37 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // Lazy: the assignment check reaches OutreachModule, which imports this
     // module back through the door-knocking detail block.
     private readonly moduleRef: ModuleRef,
+    private readonly priorityStatus: PriorityStatusService,
   ) {
     super()
+  }
+
+  resolveProposalLink(link: ProposalLink, electedOfficeId: string) {
+    return resolveProposalLink(this.client, link, electedOfficeId)
+  }
+
+  // A chat card's link goes on the anchor envelope only: a campaign is one
+  // walk, and a sibling turf joins it. A key this org already spent on a walk
+  // means the check is already out, so a second walk from the same card is
+  // its own campaign and records nothing.
+  private async anchorLink(
+    organizationSlug: string,
+    input: CreateDoorKnockingTurf,
+    link: ProposalOutreachLink,
+  ): Promise<ProposalOutreachLink> {
+    if (input.campaignOutreachId !== undefined || !link.proposalKey) return {}
+    const holder = await this.client.outreach.findUnique({
+      where: { proposalKey: link.proposalKey },
+      select: { organizationSlug: true, outreachType: true },
+    })
+    if (!holder) return link
+    if (
+      holder.organizationSlug !== organizationSlug ||
+      holder.outreachType !== OutreachType.nativeDoorKnocking
+    ) {
+      throw new ConflictException('Proposal key is already in use')
+    }
+    return {}
   }
 
   // A Serve org's scope is no longer a reason to skip the envelope — it is
@@ -216,6 +255,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     scope: DoorKnockingOutreachScope,
     input: CreateDoorKnockingTurf,
     actorUserId: number,
+    link: ProposalOutreachLink = {},
   ): Promise<DoorKnockingTurf> {
     // Which product's words a create failure speaks in. The `eo-` prefix is
     // the whole rule, the same way every other Serve answer resolves it.
@@ -301,6 +341,8 @@ export class DoorKnockingCreateService extends createPrismaBase(
       excludePersonIds,
     })
     const stops = this.buildStops(people, input.geoPoly, isServe)
+
+    const envelopeLink = await this.anchorLink(organization.slug, input, link)
 
     const turfId = await this.client.$transaction(
       async (tx) => {
@@ -447,6 +489,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
             // Null on a solo turf; the anchor Outreach id when this turf
             // joins an existing campaign (validated above).
             campaignOutreachId: input.campaignOutreachId ?? null,
+            ...envelopeLink,
           },
         })
 
@@ -461,6 +504,16 @@ export class DoorKnockingCreateService extends createPrismaBase(
     void this.stats
       .emitCanvassingTotals(actorUserId, organization.slug)
       .catch(() => undefined)
+
+    // Drawing the walk is when a door-knocking check is out, the way a phone
+    // list being built is for a call.
+    if (envelopeLink.proposalKey) {
+      const envelope = await this.client.outreach.findUniqueOrThrow({
+        where: { proposalKey: envelopeLink.proposalKey },
+        select: { id: true },
+      })
+      await this.priorityStatus.recordOutreachSent(envelope.id)
+    }
 
     // Read back outside the transaction so the response is built by the one
     // function that builds every turf response, counts included — the new
