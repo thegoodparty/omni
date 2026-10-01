@@ -95,7 +95,11 @@ touches nothing else: a pill between the text and the widget, or any other
 widget, leaves the prose alone. The prompts forbid the duplicate too; this is
 the backstop for when the model slips. On the live turn the question can show
 for a beat before the widget lands, since the widget appears only once the
-reveal reaches its seam.
+reveal reaches its seam. A surface that renders its live clarify widget below
+the turn blocks instead of as one of them (the ordinance flow) applies
+`dropTrailingQuestion` to the live blocks while a clarify call is pending. A
+short capitalized word or a dotted one before a period ("Dr.", "U.S.") is read
+as an abbreviation, not a sentence break, so a cut never leaves a fragment.
 
 A block whose data is not in the tool args (the Priorities status marker reads
 a replay held in state) is not a registry entry. Hand it to

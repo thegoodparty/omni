@@ -27,6 +27,7 @@ import {
 import { segmentsTextLength } from '../../shared/agent-chat/streaming'
 import {
   TurnBlocks,
+  dropTrailingQuestion,
   liveTurnBlocks,
   persistedTurnBlocks,
   type PositionedWidget,
@@ -531,11 +532,12 @@ export default function OrdinanceFlowChat({
   // fired: the lead-in text types out, the card appears there and stays, and any
   // following prose types out below it.
   const revealedTextLength = segmentsTextLength(visibleSegments)
-  const turnBlocks = liveTurnBlocks(
+  const liveBlocks = liveTurnBlocks(
     visibleSegments,
     liveWidgets,
     revealedTextLength,
   )
+  const turnBlocks = liveClarify ? dropTrailingQuestion(liveBlocks) : liveBlocks
   const showWidgets = liveWidgets.some(
     (w) => revealedTextLength >= w.appearAfter,
   )

@@ -21,6 +21,11 @@ export type TurnBlock<Ctx> =
   | { kind: 'widget'; key?: string; instance: WidgetInstance<Ctx> }
 
 const SENTENCE_BREAK = /[.!?]["')\]]?\s+(?=["'([]?[A-Z])/g
+// "U.S. Census", "Dr. Smith", "Maple Ave. Housing": a capitalized word of up
+// to 3 letters, or one with an inner dot, before a period is read as an
+// abbreviation. Misreading "OK." costs the context; misreading "Dr." leaves a
+// fragment above the widget, which is worse.
+const ABBREVIATION = /(?:^|\s)(?:[A-Z][A-Za-z]{0,2}|\S*\.\S*)\.$/
 
 // The last line goes when it ends in "?". When statements open that line,
 // only the closing run of questions goes, unless the line is wrapped in
@@ -33,10 +38,27 @@ export const withoutTrailingQuestion = (text: string): string => {
   let cut = 0
   if (!/[*_]$/.test(line)) {
     for (const match of line.matchAll(SENTENCE_BREAK)) {
-      if (!match[0].startsWith('?')) cut = match.index + match[0].length
+      if (match[0].startsWith('?')) continue
+      if (ABBREVIATION.test(line.slice(0, match.index + 1))) continue
+      cut = match.index + match[0].length
     }
   }
   return (trimmed.slice(0, lineStart) + line.slice(0, cut)).trimEnd()
+}
+
+const dropTrailingQuestionFrom = <Ctx,>(
+  block: TurnBlock<Ctx>,
+): TurnBlock<Ctx>[] => {
+  if (block.kind !== 'segments') return [block]
+  const last = block.segments[block.segments.length - 1]
+  if (last?.kind !== 'text') return [block]
+  const text = withoutTrailingQuestion(last.text)
+  if (text === last.text) return [block]
+  const kept = block.segments.slice(0, -1)
+  const segments: LiveSegment[] = text
+    ? [...kept, { kind: 'text', text }]
+    : kept
+  return segments.length > 0 ? [{ ...block, segments }] : []
 }
 
 // The clarify widget shows its own question, so prose that also asks it puts
@@ -47,23 +69,21 @@ const dropQuestionsAboveClarify = <Ctx,>(
 ): TurnBlock<Ctx>[] =>
   blocks.flatMap((block, i): TurnBlock<Ctx>[] => {
     const next = blocks[i + 1]
-    if (
-      block.kind !== 'segments' ||
-      next?.kind !== 'widget' ||
-      next.instance.toolName !== CLARIFY_TOOL
-    ) {
-      return [block]
-    }
-    const last = block.segments[block.segments.length - 1]
-    if (last?.kind !== 'text') return [block]
-    const text = withoutTrailingQuestion(last.text)
-    if (text === last.text) return [block]
-    const kept = block.segments.slice(0, -1)
-    const segments: LiveSegment[] = text
-      ? [...kept, { kind: 'text', text }]
-      : kept
-    return segments.length > 0 ? [{ ...block, segments }] : []
+    return next?.kind === 'widget' && next.instance.toolName === CLARIFY_TOOL
+      ? dropTrailingQuestionFrom(block)
+      : [block]
   })
+
+// For a surface that renders its clarify widget below the turn blocks rather
+// than as one of them (the ordinance flow's live turn).
+export const dropTrailingQuestion = <Ctx,>(
+  blocks: TurnBlock<Ctx>[],
+): TurnBlock<Ctx>[] => {
+  const last = blocks[blocks.length - 1]
+  return last
+    ? [...blocks.slice(0, -1), ...dropTrailingQuestionFrom(last)]
+    : blocks
+}
 
 // Live turn: splice each shown widget into the revealed segments at its text
 // position (`appearAfter`). Gated on a fixed threshold (not the moving

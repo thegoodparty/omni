@@ -5,6 +5,7 @@ import {
   TurnBlocks,
   liveTurnBlocks,
   persistedTurnBlocks,
+  dropTrailingQuestion,
   withoutTrailingQuestion,
   type TurnBlock,
 } from './turnBlocks'
@@ -238,6 +239,31 @@ describe('a question written above the clarify widget', () => {
 
   it('does not split on an abbreviation inside the question', () => {
     expect(withoutTrailingQuestion('Look at the U.S. data first?')).toBe('')
+  })
+
+  it('does not leave a fragment after an abbreviation before a name', () => {
+    expect(withoutTrailingQuestion('Ask Dr. Smith. Which first?')).toBe(
+      'Ask Dr. Smith.',
+    )
+    expect(withoutTrailingQuestion('Read the U.S. Census. Want it?')).toBe(
+      'Read the U.S. Census.',
+    )
+    expect(withoutTrailingQuestion('Maple Ave. Housing is up. Next?')).toBe(
+      'Maple Ave. Housing is up.',
+    )
+  })
+
+  it('drops the trailing question of the last block for a widget rendered outside the blocks', () => {
+    expect(
+      dropTrailingQuestion([
+        {
+          kind: 'segments',
+          segments: [{ kind: 'text', text: 'Two paths. Which first?' }],
+        },
+      ]),
+    ).toEqual([
+      { kind: 'segments', segments: [{ kind: 'text', text: 'Two paths.' }] },
+    ])
   })
 
   it('drops the question on the live turn once the widget shows', () => {
