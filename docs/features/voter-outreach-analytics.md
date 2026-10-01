@@ -258,7 +258,7 @@ diagnostics: the door-knocking one carries route geometry (`stops`, `loop`,
 (`listSize`, `filtersApplied`). Neither is comparable across channels; this one
 is, which is what makes a created → contacted → completed funnel countable.
 
-### `Door Knocking - Door Logged` / `Outreach - Phone Banking: Call Logged`
+### `Outreach - Door Knocking Door Logged` / `Outreach - Phone Banking Call Logged`
 
 One door, one call. Both keep every property they had and gain `medium`,
 `fanout` and the parent `listId`. On a one-to-one channel these are the
