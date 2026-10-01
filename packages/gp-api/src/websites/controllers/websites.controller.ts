@@ -450,9 +450,13 @@ export class WebsitesController {
     }
 
     // The bio and issues are two of the three Campaign Story answers (the
-    // story page writes them here), so a write that touches `about` may have
+    // story page writes them here), so a write that touches either may have
     // just completed the story and made the campaign plan stale.
-    if (body.about !== undefined) {
+    //
+    // Narrower than `body.about`, which also carries `committee`: that is not
+    // a story answer, and announcing on it would wipe and regenerate a
+    // complete-story campaign's whole plan for an unrelated edit.
+    if (body.about?.bio !== undefined || body.about?.issues !== undefined) {
       await this.storyCompleted.announce(campaignId)
     }
 
