@@ -107,3 +107,11 @@ def test_committed_registry_has_no_case_1_drift_against_the_fixtures():
     assert [f for f in findings if f["case"] == 1] == [], findings
     pointed = {m for b in br.load_behaviors(aeh.WATCHLIST) for m in br.metric_list(b)}
     assert set(anchors) - pointed == UNPOINTED_METRICS
+
+
+def test_committed_intents_are_valid():
+    import governance_guard as gg
+    doc = yaml.safe_load(aeh.WATCHLIST.read_text())
+    assert "intents" in doc, "the intents: block is the guard's acknowledgement channel"
+    problems = [p for row in doc["intents"] or [] for p in gg.intent_problems(row)]
+    assert problems == []

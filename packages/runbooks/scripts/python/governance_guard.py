@@ -399,6 +399,62 @@ def stale_surface_paths(base: Snapshot, head: Snapshot) -> list[Finding]:
     ]
 
 
+INTENT_KINDS = frozenset({"retire_activity", "successor", "relocated", "not_a_change"})
+_INTENT_REQUIRED = ("metric", "event", "intent", "reason", "date")
+
+
+def intent_problems(row: Mapping) -> list[str]:
+    if not isinstance(row, Mapping):
+        return [f"intent row is not a mapping: {row!r}"]
+    problems = [f"intent row for {row.get('event')!r} is missing {k}"
+                for k in _INTENT_REQUIRED if not str(row.get(k) or "").strip()]
+    kind = row.get("intent")
+    if kind and kind not in INTENT_KINDS:
+        problems.append(f"intent {kind!r} is not one of {sorted(INTENT_KINDS)}")
+    if kind == "successor" and not row.get("successor"):
+        problems.append(f"successor intent for {row.get('event')!r} needs successor:")
+    if kind == "relocated" and not row.get("route"):
+        problems.append(f"relocated intent for {row.get('event')!r} needs route:")
+    return problems
+
+
+def _intent_rows(snap: Snapshot) -> list[Mapping]:
+    return [r for r in snap.watchlist.get("intents") or [] if isinstance(r, Mapping)]
+
+
+def _row_key(row: Mapping) -> tuple:
+    return tuple(str(row.get(k)) for k in ("metric", "event", "intent", "successor", "route", "reason"))
+
+
+def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
+                  ) -> tuple[list[Finding], list[Finding]]:
+    """Only rows this change adds can clear a finding. A row left on main from an earlier
+    retirement would otherwise pre-approve every later break of the same event."""
+    on_base = {_row_key(r) for r in _intent_rows(base)}
+    added = [r for r in _intent_rows(head) if _row_key(r) not in on_base]
+    remaining: list[Finding] = []
+    cleared: list[Finding] = []
+    usable = []
+    for row in added:
+        problems = intent_problems(row)
+        if row.get("intent") == "successor" and row.get("successor") and head.count(str(row["successor"])) == 0:
+            problems.append(f"successor {row['successor']!r} has no call site in this change, so nothing "
+                            "would carry the activity forward")
+        if problems:
+            remaining.extend(Finding("invalid_intent", "block", str(row.get("event")), p,
+                                     "Fix the row in monitored_events.yaml intents:.") for p in problems)
+        else:
+            usable.append(row)
+    for f in findings:
+        if f.rule.startswith("okr_"):
+            covered = {str(r["metric"]) for r in usable if r["event"] == f.event}
+            if set(f.metrics) <= covered:
+                cleared.append(f)
+                continue
+        remaining.append(f)
+    return remaining, cleared
+
+
 def new_key_warnings(base: Snapshot, head: Snapshot) -> list[Finding]:
     out = []
     for name in sorted(head.registered() - base.registered()):

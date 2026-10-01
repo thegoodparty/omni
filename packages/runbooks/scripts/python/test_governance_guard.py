@@ -235,3 +235,65 @@ def test_a_renamed_okr_call_site_file_that_loses_its_importer_blocks():
     events, paths = gg.watched_legs(LEGS)
     [f] = gg.okr_findings(base, head, events, paths, renames={DOOR: moved})
     assert (f.rule, f.event) == ("okr_file_unused", "Voter Outreach - Campaign Completed")
+
+
+def _okr_finding():
+    return gg.Finding("okr_call_site_lost", "block", "Voter Outreach - Campaign Completed",
+                      "x", "fix", ("win_activated_users",))
+
+
+def _wl(rows: str) -> str:
+    return "behaviors: []\nintents:\n" + rows if rows else "behaviors: []\nintents: []\n"
+
+
+ROW = ('  - {metric: win_activated_users, event: "Voter Outreach - Campaign Completed", '
+       'intent: retire_activity, reason: "Scheduling flow retired", date: "2026-10-01"}\n')
+
+
+def test_an_intent_added_in_this_change_clears_the_okr_finding():
+    base = gg.build_snapshot(tree({}, watchlist=_wl("")))
+    head = gg.build_snapshot(tree({}, watchlist=_wl(ROW)))
+    remaining, cleared = gg.apply_intents([_okr_finding()], base, head)
+    assert remaining == [] and len(cleared) == 1
+
+
+def test_an_intent_already_on_main_does_not_clear_a_new_finding():
+    base = gg.build_snapshot(tree({}, watchlist=_wl(ROW)))
+    head = gg.build_snapshot(tree({}, watchlist=_wl(ROW)))
+    remaining, cleared = gg.apply_intents([_okr_finding()], base, head)
+    assert [f.rule for f in remaining] == ["okr_call_site_lost"] and cleared == []
+
+
+def test_every_metric_of_a_shared_leg_needs_its_own_row():
+    f = gg.Finding("okr_call_site_lost", "block", "Voter Outreach - Campaign Completed", "x", "fix",
+                   ("win_activated_users", "win_product_output_users"))
+    base = gg.build_snapshot(tree({}, watchlist=_wl("")))
+    head = gg.build_snapshot(tree({}, watchlist=_wl(ROW)))
+    remaining, _ = gg.apply_intents([f], base, head)
+    assert [x.rule for x in remaining] == ["okr_call_site_lost"]
+
+
+def test_a_successor_with_no_call_site_is_refused():
+    row = ('  - {metric: win_activated_users, event: "Voter Outreach - Campaign Completed", '
+           'intent: successor, successor: "Outreach - Campaign Completed", reason: "renamed", date: "2026-10-01"}\n')
+    base = gg.build_snapshot(tree({}, watchlist=_wl("")))
+    head = gg.build_snapshot(tree({}, watchlist=_wl(row)))
+    remaining, _ = gg.apply_intents([_okr_finding()], base, head)
+    assert sorted(f.rule for f in remaining) == ["invalid_intent", "okr_call_site_lost"]
+
+
+def test_a_row_missing_its_reason_is_an_invalid_intent():
+    row = ('  - {metric: win_activated_users, event: "Voter Outreach - Campaign Completed", '
+           'intent: retire_activity, reason: "", date: "2026-10-01"}\n')
+    base = gg.build_snapshot(tree({}, watchlist=_wl("")))
+    head = gg.build_snapshot(tree({}, watchlist=_wl(row)))
+    remaining, _ = gg.apply_intents([], base, head)
+    assert [f.rule for f in remaining] == ["invalid_intent"]
+
+
+def test_intents_do_not_clear_a_dead_listing():
+    f = gg.Finding("dead_listing", "block", "Voter Outreach - Campaign Completed", "x", "fix")
+    base = gg.build_snapshot(tree({}, watchlist=_wl("")))
+    head = gg.build_snapshot(tree({}, watchlist=_wl(ROW)))
+    remaining, _ = gg.apply_intents([f], base, head)
+    assert [x.rule for x in remaining] == ["dead_listing"]
