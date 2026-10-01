@@ -31,14 +31,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A setup failure is mechanical, so it must not fail the check: the guard step then
+      # cannot find uv, its exit normalises to 1, and the comment says it could not run.
       - name: Set up uv
+        id: setup_uv
         if: env.MODE != 'off'
+        continue-on-error: true
         uses: astral-sh/setup-uv@v3
         with:
           version: latest
 
       - name: Install deps
+        id: install_deps
         if: env.MODE != 'off'
+        continue-on-error: true
         working-directory: packages/runbooks/scripts/python
         run: uv sync --frozen
 
@@ -51,7 +57,8 @@ jobs:
           base=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
           echo "base=$base" >> "$GITHUB_OUTPUT"
           uv run governance_guard.py check --base "$base" --head HEAD \
-            --markdown "$RUNNER_TEMP/guard.md" --json "$RUNNER_TEMP/guard.json"
+            --markdown "$RUNNER_TEMP/guard.md" --summary "$RUNNER_TEMP/guard-full.md" \
+            --json "$RUNNER_TEMP/guard.json"
           code=$?
           # Normalise. Only 0 (clean) and a 2 that guard.json itself confirms as a real
           # block are trusted. Everything else collapses to 1 (guard error): argparse's
@@ -67,6 +74,15 @@ jobs:
             code=1
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
+          # The summary always gets the full report (the comment is capped) or the error,
+          # so the result is readable even when the comment could not be posted.
+          if [ -f "$RUNNER_TEMP/guard-full.md" ]; then
+            cat "$RUNNER_TEMP/guard-full.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            # shellcheck disable=SC2016 # literal markdown backticks, not an expansion
+            printf '### Analytics guard\n\nThe guard could not run, so nothing was checked.\n\n```\n%s\n```\n' \
+              "$(jq -r '.error // "unknown"' "$RUNNER_TEMP/guard.json" 2>/dev/null || echo unknown)" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Post or update the guard comment
         if: env.MODE != 'off'
@@ -86,8 +102,9 @@ jobs:
                 || echo "::warning::could not rewrite the shadow-mode line"
             fi
           else
+            # shellcheck disable=SC2016 # literal markdown backticks, not an expansion
             printf '<!-- analytics-guard -->\n### Analytics guard\n\nThe guard could not run on this PR, so it passed without checking. %s\n\n```\n%s\n```\n' \
-              "${ALERT:+cc $ALERT}" "$(jq -r .error "$RUNNER_TEMP/guard.json" 2>/dev/null || echo unknown)" > "$body"
+              "${ALERT:+cc $ALERT}" "$(jq -r '.error // "unknown"' "$RUNNER_TEMP/guard.json" 2>/dev/null || echo unknown)" > "$body"
           fi
           existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
             --jq '[.[] | select(.body | startswith("<!-- analytics-guard -->"))][0].id // empty' 2>/dev/null | head -1)
@@ -105,6 +122,7 @@ jobs:
           set -uo pipefail
           echo "::warning::Analytics guard is OFF (GOVERNANCE_GUARD_MODE=off); nothing was checked."
           body="$RUNNER_TEMP/off.md"
+          # shellcheck disable=SC2016 # literal markdown backticks, not an expansion
           printf '<!-- analytics-guard -->\n### Analytics guard\n\nThe guard is turned off for this PR (`GOVERNANCE_GUARD_MODE=off`). Nothing was checked.\n' > "$body"
           existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
             --jq '[.[] | select(.body | startswith("<!-- analytics-guard -->"))][0].id // empty' 2>/dev/null | head -1)
@@ -119,6 +137,10 @@ jobs:
         env:
           SEM_ANCHORS_NO_GH: "1"
         run: |
+          if [ "${{ steps.setup_uv.outcome }}" != "success" ] || [ "${{ steps.install_deps.outcome }}" != "success" ]; then
+            echo "::warning::could not install the runbooks Python environment; suite not run"
+            exit 0
+          fi
           base='${{ steps.guard.outputs.base }}'
           if [ -z "$base" ]; then
             echo "::warning::no merge base; running the runbooks suite anyway"
@@ -143,7 +165,7 @@ jobs:
             0) echo "Analytics guard: clean." ;;
             1) echo "::warning::Analytics guard could not run; passing without checking (see PR comment)." ;;
             2) if [ "$MODE" = "block" ]; then
-                 echo "::error::Analytics guard found blocking problems. The PR comment says exactly what to add."
+                 echo "::error::Analytics guard found blocking problems. The PR comment (or this job's summary) says exactly what to add."
                  exit 1
                fi
                echo "::warning::Analytics guard would block this PR (shadow mode)." ;;
