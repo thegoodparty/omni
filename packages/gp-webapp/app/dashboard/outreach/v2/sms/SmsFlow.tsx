@@ -17,6 +17,7 @@ import type {
 import type { TcrCompliance } from 'helpers/types'
 import {
   checkSmsStandards,
+  deriveSmsProtectedParts,
   SMS_COMPOSED_MAX_LENGTH,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
@@ -480,8 +481,18 @@ export const SmsFlow = ({
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsFlowPurpose | null>(null)
   const [tone, setTone] = useState<SocialTone>('warm')
-  const [body, setBody] = useState('')
+  // The whole message as sent. The greeting, disclaimer and opt-out line
+  // live in it as locked parts rather than around it as separate regions.
+  const [message, setMessage] = useState('')
+  // The message as the system last wrote it (a draft, a seed, an undo).
+  // Locks are found in this, not in what is being typed, so a name the
+  // candidate is halfway through typing never locks under their cursor.
+  const [lockSource, setLockSource] = useState('')
   const [manuallyEdited, setManuallyEdited] = useState(false)
+  // Whether the words are the candidate's (typed, seeded or polished) rather
+  // than an untouched fresh draft. Picks the one AI action: Regenerate, or
+  // Improve with AI.
+  const [ownWords, setOwnWords] = useState(false)
   const [undoText, setUndoText] = useState<string | null>(null)
   const [toneDrafts, setToneDrafts] = useState<
     Partial<Record<SocialTone, string>>
@@ -625,8 +636,13 @@ export const SmsFlow = ({
     )
     setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
-    setBody(initialScript ?? '')
+    const seeded = initialScript
+      ? surface.composeMessage(initialScript, null)
+      : ''
+    setMessage(seeded)
+    setLockSource(seeded)
     setManuallyEdited(Boolean(initialScript))
+    setOwnWords(Boolean(initialScript))
     setUndoText(null)
     setToneDrafts({})
     resetAudience()
@@ -654,6 +670,7 @@ export const SmsFlow = ({
     initialScript,
     preselectedRecommendedVariant,
     resumeDraft,
+    surface,
   ])
 
   // Object URL lifecycle for the image preview.
@@ -711,12 +728,31 @@ export const SmsFlow = ({
   const composedMessage =
     resumed && savedDraft?.script
       ? upgradeScriptFooter(savedDraft.script, committeeName)
-      : surface.composeMessage(body, committeeName)
+      : message
   const composedLength = composedMessage.length
+  const loadMessage = (next: string) => {
+    setMessage(next)
+    setLockSource(next)
+  }
+  // The committee resolves after the flow opens, so a message composed
+  // before it has the opt-out line alone. Same upgrade a resumed draft gets.
+  useEffect(() => {
+    const upgraded = upgradeScriptFooter(message, committeeName)
+    if (upgraded === message) return
+    setMessage(upgraded)
+    setLockSource(upgraded)
+  }, [message, committeeName])
+  // The message with nothing written between its locked parts.
+  const emptyMessage = surface.composeMessage('', committeeName)
+  const hasWrittenBody =
+    message.replace(/\s+/g, '') !== '' &&
+    message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
+  const candidateNames = [
+    candidateFullName,
+    tcrCompliance?.candidateName,
+  ].filter((name): name is string => !!name)
   const rawStandards = checkSmsStandards(composedMessage, {
-    candidateNames: [candidateFullName, tcrCompliance?.candidateName].filter(
-      (name): name is string => !!name,
-    ),
+    candidateNames,
     committeeName,
   })
   // Win ignores nothing once a committee exists, so this is the raw verdict
@@ -735,6 +771,12 @@ export const SmsFlow = ({
     passed: standardsFailures.length === 0,
     failures: standardsFailures,
   }
+  const protectedParts = deriveSmsProtectedParts(lockSource, {
+    candidateNames,
+    committeeName,
+    channel: surface.isServe ? 'serve' : 'peerly',
+    ignoredRules: ignoredStandardsRules,
+  })
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
   // gate), so the send floor is the hard 48-hour scheduling window.
@@ -830,7 +872,7 @@ export const SmsFlow = ({
   const requestDraft = (
     nextPurpose: SmsFlowPurpose | null,
     nextTone: SocialTone,
-    priorBody: string,
+    priorMessage: string,
     priorManuallyEdited: boolean,
     currentDraft?: string,
   ) => {
@@ -847,18 +889,28 @@ export const SmsFlow = ({
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
           if (priorManuallyEdited) {
-            setUndoText(priorBody)
+            setUndoText(priorMessage)
             setManuallyEdited(false)
           }
-          // Fresh drafts open with the identification (design model: it is
-          // the message's editable first sentence); improve mode polishes a
-          // message that already carries it.
+          // The model writes the body only, so a fresh draft is composed
+          // around it here: greeting, the identification (the body's
+          // editable first sentence), disclaimer and opt-out. Improve sends
+          // the whole message and gets the whole message back, its locked
+          // parts restored server-side.
           const full =
             currentDraft === undefined
-              ? `${introFor(nextTone)} ${generated}`
+              ? surface.composeMessage(
+                  `${introFor(nextTone)} ${generated}`,
+                  committeeName,
+                )
               : generated
-          setBody(full)
-          setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
+          loadMessage(full)
+          setOwnWords(currentDraft !== undefined)
+          // Only fresh drafts are remembered per tone: a polish is of the
+          // candidate's words, which a tone switch must not swap away.
+          if (currentDraft === undefined) {
+            setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
+          }
         },
       },
     )
@@ -869,7 +921,11 @@ export const SmsFlow = ({
     setTone('warm')
     setManuallyEdited(false)
     setUndoText(null)
-    setBody('')
+    // A custom message starts as its locked parts, written between.
+    const start =
+      selected === 'custom' ? surface.composeMessage('', committeeName) : ''
+    loadMessage(start)
+    setOwnWords(selected === 'custom')
     setToneDrafts({})
     resetDraftMutation()
     setStepId('audience')
@@ -877,44 +933,60 @@ export const SmsFlow = ({
 
   const handleToneChange = (nextTone: SocialTone) => {
     if (nextTone === tone) return
+    // The candidate's own words are polished in the new tone, never
+    // replaced by a fresh draft in it.
+    if (ownWords) {
+      setTone(nextTone)
+      if (hasWrittenBody) {
+        requestDraft(purpose, nextTone, message, manuallyEdited, message)
+      }
+      return
+    }
     if (!purpose || purpose === 'custom') {
       setTone(nextTone)
       return
     }
-    // A blank body (first generation still in flight) must neither be
+    // A blank message (first generation still in flight) must neither be
     // cached for the outgoing tone nor treated as a memory hit for the
     // incoming one — restoring '' would blank the editor and skip the fetch.
     const remembered = toneDrafts[nextTone]
-    if (body.trim().length > 0) {
-      setToneDrafts((prev) => ({ ...prev, [tone]: body }))
+    if (message.trim().length > 0) {
+      setToneDrafts((prev) => ({ ...prev, [tone]: message }))
     }
     setTone(nextTone)
     if (remembered !== undefined && remembered.trim().length > 0) {
       draftRequestRef.current += 1
       resetDraftMutation()
-      setBody(remembered)
+      loadMessage(remembered)
       setManuallyEdited(false)
       return
     }
-    requestDraft(purpose, nextTone, body, manuallyEdited)
+    requestDraft(purpose, nextTone, message, manuallyEdited)
   }
 
-  const handleBodyChange = (value: string) => {
-    setBody(value)
+  const handleMessageChange = (value: string) => {
+    setMessage(value)
     setManuallyEdited(true)
+    setOwnWords(true)
     if (draftMutation.isError) resetDraftMutation()
   }
 
-  const handleImprove = () => {
-    if (body.trim().length === 0) return
-    requestDraft(purpose, tone, body, manuallyEdited, body)
+  const aiAction = ownWords ? 'improve' : 'regenerate'
+  const handleAiAction = () => {
+    if (aiAction === 'regenerate') {
+      requestDraft(purpose, tone, message, manuallyEdited)
+      return
+    }
+    if (!hasWrittenBody) return
+    requestDraft(purpose, tone, message, manuallyEdited, message)
   }
 
   const handleUndo = () => {
     if (undoText === null) return
-    setBody(undoText)
+    loadMessage(undoText)
     setUndoText(null)
     setManuallyEdited(true)
+    setOwnWords(true)
   }
 
   // Name-step continue: create the list through the shared audience hook
@@ -1078,7 +1150,8 @@ export const SmsFlow = ({
   // First compose entry generates the initial draft (custom writes its own).
   useEffect(() => {
     if (stepId !== 'compose' || !open) return
-    if (purpose === 'custom' || body.trim() || draftMutation.isPending) return
+    if (purpose === 'custom' || message.trim() || draftMutation.isPending)
+      return
     requestDraft(purpose, tone, '', false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId, open])
@@ -1380,7 +1453,7 @@ export const SmsFlow = ({
                       onClick: () =>
                         setStepId(buildMode ? 'schedule' : 'review'),
                       disabled:
-                        body.trim().length === 0 ||
+                        !hasWrittenBody ||
                         !standards.passed ||
                         composedLength > SMS_COMPOSED_MAX_LENGTH ||
                         // Win only: Peerly rejects an imageless text/p2p send.
@@ -1672,17 +1745,18 @@ export const SmsFlow = ({
           standardsFailures={standards.failures}
           identificationExample={introFor(tone)}
           committeeName={committeeName}
-          body={body}
-          onBodyChange={handleBodyChange}
+          message={message}
+          onMessageChange={handleMessageChange}
+          protectedParts={protectedParts}
+          mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
+          hasWrittenBody={hasWrittenBody}
           composedLength={composedLength}
-          onRegenerate={() => requestDraft(purpose, tone, body, manuallyEdited)}
-          onImprove={handleImprove}
-          canImprove={manuallyEdited && body.trim().length > 0}
+          aiAction={aiAction}
+          onAiAction={handleAiAction}
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
           canUndo={undoText !== null}
           onUndo={handleUndo}
-          isCustomPurpose={purpose === 'custom'}
           image={image}
           imagePreviewUrl={imagePreviewUrl}
           onImageChange={setImage}

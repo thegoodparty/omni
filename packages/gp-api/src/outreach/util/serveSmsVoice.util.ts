@@ -1,4 +1,5 @@
 import { ServeOutreachPurpose } from '@goodparty_org/contracts'
+import { PROTECTED_MARKER_RULE } from './smsProtectedImprove.util'
 import {
   FRESH_DRAFT_TARGET_LENGTH,
   IMPROVE_DRAFT_TARGET_LENGTH,
@@ -148,7 +149,7 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
 
 const SERVE_IMPROVE_SYSTEM_PROMPT = [
   'You are a writing assistant helping a local elected official polish',
-  'the body of one SMS they wrote themselves.',
+  'one SMS they wrote themselves.',
   'This is a light edit, NOT a rewrite. Rules:',
   '- Every concrete detail in the original MUST appear in your output:',
   '  dates, deadlines, places, events, times, names, numbers, asks.',
@@ -161,8 +162,7 @@ const SERVE_IMPROVE_SYSTEM_PROMPT = [
   "  Keep the author's line breaks, bullets, and emojis. No hashtags; keep",
   '  any web address the author included, unchanged, and keep any',
   '  square-bracket placeholders like [time] exactly as written.',
-  "- The message opens with the official's identification; keep it",
-  '  intact. Do NOT add any opt-out language: the app appends it.',
+  PROTECTED_MARKER_RULE,
   '- Never add positions, decisions, endorsements, statistics, dates,',
   '  places, or events the original text does not contain — the',
   "  official's own materials, when provided, are context for tone and",

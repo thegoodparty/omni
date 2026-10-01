@@ -310,9 +310,11 @@ describe('SmsFlow (Serve surface)', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/^Hello First name,/),
+    )
     expect(screen.getByText(SMS_GREETING_PREVIEW.caption)).toBeInTheDocument()
     expect(screen.queryByText('Greeting First Name')).toBeNull()
     expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()

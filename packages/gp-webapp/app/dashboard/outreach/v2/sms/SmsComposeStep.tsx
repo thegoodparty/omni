@@ -1,8 +1,12 @@
 'use client'
 
-import { useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
+  MERGE_TAGS,
+  type MergeTagChannel,
+  mergeTagToken,
+  type SmsProtectedPart,
   type SmsStandardsRule,
   SOCIAL_TONE_VALUES,
   type SocialTone,
@@ -15,7 +19,10 @@ import {
   FilterPill,
   FilterPillGroup,
   IconButton,
-  Textarea,
+  type ProtectedSpec,
+  TokenField,
+  type TokenFieldRef,
+  type TokenSpec,
 } from '@styleguide'
 import {
   ClockIcon,
@@ -30,15 +37,38 @@ import {
   TargetIcon,
   XMarkIcon,
 } from '@styleguide/components/ui/icons'
-import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
+import {
+  type DictationStatus,
+  useDictation,
+} from 'app/dashboard/shared/dictation/useDictation'
 import { Intro } from '../social/Intro'
 import { ThinkingStream } from '../social/ThinkingStream'
 import {
-  composeFooter,
   IMAGE_ACCEPT,
   IMAGE_MAX_BYTES,
   SMS_GREETING_PREVIEW,
 } from './smsCompose.util'
+
+// Why each locked part cannot change, shown when an edit runs into it. Both
+// surfaces read the same words: none of them names voters or constituents.
+// Partial because link_shortener forbids text rather than requiring it, so
+// nothing is ever locked for it.
+const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
+  first_name_token: 'Keep the first name. Each person sees their own.',
+  candidate_name: 'Your name has to stay in the message.',
+  paid_for_by: 'The "Paid for by" line has to stay in the message.',
+  opt_out_line: 'The opt-out line has to stay in the message.',
+}
+
+const LOCKED_FALLBACK = 'This part has to stay in the message.'
+const FIRST_NAME_TAG = MERGE_TAGS[0]
+
+const ACTIVE_DICTATION: ReadonlySet<DictationStatus> = new Set([
+  'requesting_mic',
+  'connecting',
+  'recording',
+  'stopping',
+])
 
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
@@ -74,17 +104,23 @@ interface SmsComposeStepProps {
   standardsFailures: SmsStandardsRule[]
   identificationExample: string
   committeeName: string | null
-  body: string
-  onBodyChange: (body: string) => void
+  // The whole message as sent: greeting, body, disclaimer and opt-out.
+  message: string
+  onMessageChange: (message: string) => void
+  // The parts of `message` nobody may change, from deriveSmsProtectedParts.
+  protectedParts: SmsProtectedPart[]
+  mergeTagChannel: MergeTagChannel
+  // Whether the candidate has written anything between the locked parts.
+  hasWrittenBody: boolean
   composedLength: number
-  onRegenerate: () => void
-  onImprove: () => void
-  canImprove: boolean
+  // The one AI action: a fresh draft while the words are still the AI's,
+  // a polish once they are the candidate's own.
+  aiAction: 'regenerate' | 'improve'
+  onAiAction: () => void
   isDrafting: boolean
   isDraftError: boolean
   canUndo: boolean
   onUndo: () => void
-  isCustomPurpose: boolean
   image: File | null
   imagePreviewUrl: string | null
   onImageChange: (file: File | null) => void
@@ -121,17 +157,18 @@ export const SmsComposeStep = ({
   standardsFailures,
   identificationExample,
   committeeName,
-  body,
-  onBodyChange,
+  message,
+  onMessageChange,
+  protectedParts,
+  mergeTagChannel,
+  hasWrittenBody,
   composedLength,
-  onRegenerate,
-  onImprove,
-  canImprove,
+  aiAction,
+  onAiAction,
   isDrafting,
   isDraftError,
   canUndo,
   onUndo,
-  isCustomPurpose,
   image,
   imagePreviewUrl,
   onImageChange,
@@ -139,12 +176,47 @@ export const SmsComposeStep = ({
   onImageError,
 }: SmsComposeStepProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const dictation = useDictationAppend({
+  const fieldRef = useRef<TokenFieldRef>(null)
+  const [lockReason, setLockReason] = useState<string | null>(null)
+  // Dictation lands at the cursor, not at the end: the end of the message is
+  // the opt-out line, and nothing may follow it.
+  const dictation = useDictation({
     analyticsLabel: 'outreach-sms-compose',
-    value: body,
-    onChange: onBodyChange,
+    onFinalTranscript: (text) => {
+      if (text) fieldRef.current?.insertText(` ${text}`)
+    },
   })
   const isRecording = dictation.status === 'recording'
+  const dictationBusy = ACTIVE_DICTATION.has(dictation.status) && !isRecording
+  const toggleDictation = useCallback(async () => {
+    if (ACTIVE_DICTATION.has(dictation.status)) await dictation.stop()
+    else await dictation.start()
+  }, [dictation])
+
+  const firstNameText = mergeTagToken(FIRST_NAME_TAG.id, mergeTagChannel)
+  const tokens: TokenSpec[] = [
+    {
+      id: FIRST_NAME_TAG.id,
+      label: FIRST_NAME_TAG.label,
+      text: firstNameText,
+      required: protectedParts.some((part) => part.kind === 'token'),
+    },
+  ]
+  const protectedRanges: ProtectedSpec[] = protectedParts.flatMap((part) =>
+    part.kind === 'phrase'
+      ? [
+          {
+            id: part.rule,
+            text: part.text,
+            reason: LOCK_REASONS[part.rule] ?? LOCKED_FALLBACK,
+          },
+        ]
+      : [],
+  )
+  const isImprove = aiAction === 'improve'
+  useEffect(() => {
+    setLockReason(null)
+  }, [message])
   const overLimit = composedLength > SMS_COMPOSED_MAX_LENGTH
   const segments = Math.max(1, Math.ceil(composedLength / 160))
 
@@ -167,7 +239,7 @@ export const SmsComposeStep = ({
       <Intro
         channel="text"
         title="What do you want to say?"
-        body="Start from a draft, dictate your own, or improve with AI. We add the greeting and the opt-out line automatically."
+        body="Start from a draft, dictate your own, or improve with AI."
       />
 
       <FilterPillGroup
@@ -184,30 +256,9 @@ export const SmsComposeStep = ({
       </FilterPillGroup>
 
       <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
-            Suggested for {audienceName || 'your list'}
-          </p>
-          <div className="flex items-center gap-2">
-            {!isCustomPurpose && (
-              <Button
-                type="button"
-                variant="link"
-                size="small"
-                className="h-auto gap-1.5 px-0 no-underline"
-                disabled={isDrafting}
-                onClick={onRegenerate}
-              >
-                {isDrafting ? (
-                  <Loader2Icon className="size-4 animate-spin" />
-                ) : (
-                  <RefreshIcon className="size-4" />
-                )}
-                Regenerate
-              </Button>
-            )}
-          </div>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          Suggested for {audienceName || 'your list'}
+        </p>
 
         {isDraftError && (
           <Card className="items-start gap-3 border-destructive p-4">
@@ -215,17 +266,13 @@ export const SmsComposeStep = ({
               We couldn&apos;t draft your message just now. Try again, or write
               your own below.
             </p>
-            <Button
-              type="button"
-              size="small"
-              onClick={isCustomPurpose ? onImprove : onRegenerate}
-            >
+            <Button type="button" size="small" onClick={onAiAction}>
               Try again
             </Button>
           </Card>
         )}
 
-        {isDrafting && !body.trim() ? (
+        {isDrafting && !message.trim() ? (
           <ThinkingStream />
         ) : (
           <Card className="gap-0 p-4">
@@ -292,25 +339,30 @@ export const SmsComposeStep = ({
                 {composedLength} chars · {segments} SMS
               </span>
             </div>
-            <div className="mb-2">
-              <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
-                {SMS_GREETING_PREVIEW.greeting}
-              </span>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {SMS_GREETING_PREVIEW.caption}
-              </p>
-            </div>
-            <Textarea
-              value={body}
-              onChange={(e) => onBodyChange(e.target.value)}
+            <TokenField
+              ref={fieldRef}
+              value={message}
+              onChange={onMessageChange}
+              tokens={tokens}
+              protectedRanges={protectedRanges}
+              onBlockedEdit={(target) =>
+                setLockReason(
+                  'reason' in target
+                    ? target.reason
+                    : (LOCK_REASONS.first_name_token ?? LOCKED_FALLBACK),
+                )
+              }
               placeholder="Write your message…"
               aria-label="Message body"
               aria-invalid={overLimit}
               variant="seamless"
-              className="min-h-[140px] resize-none [field-sizing:content]"
+              className="min-h-[140px]"
             />
-            <p className="mt-3 text-xs text-muted-foreground whitespace-pre-line">
-              {composeFooter(committeeName)}
+            <p className="mt-1 text-xs text-muted-foreground">
+              {SMS_GREETING_PREVIEW.caption}
+            </p>
+            <p role="status" className="mt-1 min-h-4 text-xs text-foreground">
+              {lockReason}
             </p>
             {!isServe && committeeName === null && (
               <p className="mt-1 text-xs text-muted-foreground">
@@ -331,26 +383,23 @@ export const SmsComposeStep = ({
                   Undo
                 </Button>
               )}
-              {canImprove && (
+              {(!isImprove || hasWrittenBody) && (
                 <Button
                   type="button"
                   variant="ghost"
                   size="small"
                   className="text-muted-foreground"
                   disabled={isDrafting}
-                  onClick={onImprove}
+                  onClick={onAiAction}
                 >
                   {isDrafting ? (
-                    <>
-                      <Loader2Icon className="size-4 animate-spin" />
-                      Improving…
-                    </>
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : isImprove ? (
+                    <SparklesIcon className="size-4" />
                   ) : (
-                    <>
-                      <SparklesIcon className="size-4" />
-                      Improve with AI
-                    </>
+                    <RefreshIcon className="size-4" />
                   )}
+                  {isImprove ? 'Improve with AI' : 'Regenerate'}
                 </Button>
               )}
               <IconButton
@@ -360,11 +409,11 @@ export const SmsComposeStep = ({
                 aria-label={isRecording ? 'Stop dictation' : 'Dictate message'}
                 disabled={isDrafting || dictation.status === 'stopping'}
                 onClick={() => {
-                  void dictation.toggle()
+                  void toggleDictation()
                 }}
                 className={cn(!isRecording && 'text-muted-foreground')}
               >
-                {dictation.busy && !isRecording ? (
+                {dictationBusy ? (
                   <Loader2Icon className="size-4 animate-spin" aria-hidden />
                 ) : isRecording ? (
                   <SquareIcon className="size-4 fill-current" aria-hidden />
@@ -382,7 +431,7 @@ export const SmsComposeStep = ({
           </p>
         )}
         {imageError && <p className="text-xs text-destructive">{imageError}</p>}
-        {body.trim().length > 0 &&
+        {hasWrittenBody &&
           standardsFailures
             .filter((rule) => rule !== 'length')
             .map((rule) => (

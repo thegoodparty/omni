@@ -21,9 +21,10 @@ export const smsPurposeLabel = (purpose: string): string =>
 
 export const OPT_OUT_FOOTER = 'Reply STOP to opt out.'
 
-// Compliance: the "Paid for by <committee>" disclaimer is system-owned, like
-// the opt-out line — appended deterministically to every message (product
-// decision 2026-09-02), never left to the candidate or the LLM.
+// Compliance: the "Paid for by <committee>" disclaimer, like the opt-out
+// line, is composed into every fresh message and then locked inside it: the
+// candidate writes around it, and Improve sends it masked so the model never
+// sees it (docs/features/message-composer.md).
 export const paidForByLine = (committeeName: string): string =>
   `Paid for by ${committeeName}.`
 

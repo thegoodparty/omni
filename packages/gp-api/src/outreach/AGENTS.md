@@ -856,6 +856,22 @@ remembered on the `hold_failed` row for the retry.
   — around 190 files. `OutreachServeSmsPurchaseHandlerService` is why
   `QueueProducerModule` is in this module's imports. Run the WHOLE suite after
   a module change; a green `src/outreach` proves very little.
+- **SMS Improve rewrites the whole message and never sees its locked
+  parts.** With `currentDraft`, `POST /outreach/sms/draft` and
+  `POST /outreach/serve/sms/draft` receive the full message as sent
+  (greeting, body, paid-for-by, opt-out), not a body: the webapp's compose
+  field holds all of it, with those parts locked. `OutreachSmsGenerationService`
+  swaps each part contracts `deriveSmsProtectedParts` would lock for a `⟦n⟧`
+  marker (`util/smsProtectedImprove.util.ts`), accepts a reply only if every
+  marker comes back exactly once and in order, puts the text back, and refuses
+  a reply that fails a `checkSmsStandards` rule the original passed. Two
+  tries, then 502, which the webapp shows as its "try again". The controllers
+  pass the names and committee scheduling checks against (Win: the campaign
+  owner plus `tcr_compliance`, as `requireCompliantScript` reads them; Serve:
+  the official, paid-for-by ignored). A fresh draft is still the body only and
+  the webapp composes around it. This reverses the 2026-09-02 rule that the
+  footer is appended out of the model's and candidate's reach
+  (`docs/features/message-composer.md`).
 - **The candidate a message identifies is the campaign OWNER, never the
   requester.** With team accounts, `@ReqUser()` can be a Campaign Manager, so
   the Win draft/generate endpoints (sms, social, phone banking, robocall,

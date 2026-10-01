@@ -169,6 +169,17 @@ export class OutreachServeSmsController {
         String(user.id),
         context,
         SERVE_SMS_VOICE,
+        // Serve locks what its surface checks: the official's name, the
+        // double-brace merge tag and the opt-out line. It has no committee,
+        // so paid_for_by is ignored, as the Serve SMS surface ignores it.
+        input.currentDraft
+          ? {
+              candidateNames: [electedOfficialName(user)].filter(Boolean),
+              committeeName: null,
+              channel: 'serve',
+              ignoredRules: ['paid_for_by'],
+            }
+          : undefined,
       ),
     }
   }
