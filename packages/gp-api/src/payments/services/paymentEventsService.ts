@@ -474,8 +474,12 @@ export class PaymentEventsService {
       id: subscriptionId,
       canceled_at: canceledAt,
       cancel_at: cancelAt,
+      status,
     } = subscription
-    const { cancel_at: previousCancelAt } = previousAttributes || {}
+    const {
+      cancel_at: previousCancelAt,
+      status: previousStatus,
+    } = previousAttributes || {}
 
     if (!subscriptionId) {
       throw new BadRequestException('No subscriptionId found in subscription')
@@ -503,6 +507,19 @@ export class PaymentEventsService {
         user,
         formatDate(new Date((cancelAt as number) * 1000), DateFormats.usDate),
       ))
+
+    if (status === 'past_due' && previousStatus !== 'past_due') {
+      void this.analytics
+        .track(
+          user.id,
+          EVENTS.Account.SubscriptionPastDue,
+          {
+            subscriptionId,
+            campaignSlug: campaign.slug,
+          },
+        )
+        .catch(() => undefined)
+    }
   }
 
   async checkoutSessionCompletedHandler(
@@ -853,6 +870,21 @@ export class PaymentEventsService {
       subscriptionCanceledAt: Date.now(),
     })
     await this.sendProCancellationSlackMessage(user, campaign)
+
+    const cancellationReason =
+      subscription.cancellation_details?.reason
+    if (cancellationReason === 'payment_failed') {
+      void this.analytics
+        .track(
+          user.id,
+          EVENTS.Account.SubscriptionCancelledPaymentFailed,
+          {
+            subscriptionId,
+            campaignSlug: campaign.slug,
+          },
+        )
+        .catch(() => undefined)
+    }
   }
 
   async sendProCancellationSlackMessage(user: User, campaign: Campaign) {
