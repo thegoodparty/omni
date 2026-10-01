@@ -1,6 +1,8 @@
 'use client'
 
+import { useEffect } from 'react'
 import { Button, ProBadge } from '@styleguide'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   INTERSTITIAL_COPY,
   type GateChannel,
@@ -19,6 +21,26 @@ const InterstitialStep = (): React.JSX.Element => {
   // the safest fallback shape (the two-step texting-plus-verification copy).
   const gateChannel: GateChannel = channel ?? 'sms'
 
+  useEffect(() => {
+    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, {
+      channel: gateChannel,
+    })
+  }, [gateChannel])
+
+  const handleJoin = (): void => {
+    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialCompleted, {
+      channel: gateChannel,
+    })
+    goToNextStep()
+  }
+
+  const handleMaybeLater = (): void => {
+    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialDismissed, {
+      channel: gateChannel,
+    })
+    exit()
+  }
+
   return (
     // Centered in the sheet's column (design: renderSgModal stacks and
     // centers the pause screen); the host stretches this to the body height.
@@ -32,7 +54,7 @@ const InterstitialStep = (): React.JSX.Element => {
         <Button
           size="large"
           className="w-full sm:w-auto sm:min-w-[360px]"
-          onClick={goToNextStep}
+          onClick={handleJoin}
         >
           {INTERSTITIAL_COPY.cta}
         </Button>
@@ -40,7 +62,7 @@ const InterstitialStep = (): React.JSX.Element => {
           variant="ghost"
           size="large"
           className="w-full sm:w-auto"
-          onClick={exit}
+          onClick={handleMaybeLater}
         >
           {INTERSTITIAL_COPY.dismiss}
         </Button>

@@ -90,7 +90,7 @@ describe('ChannelPickerSheet', () => {
     )
     expect(rowNamed(/^Door knocking/)).toHaveAttribute(
       'href',
-      '/dashboard/door-knocking?create=1&listId=42',
+      '/dashboard/door-knocking?create=1&source=voter_data&listId=42',
     )
     expect(rowNamed(/^Social media/)).toHaveTextContent('Free')
     expect(rowNamed(/^Social media/)).toHaveAttribute(

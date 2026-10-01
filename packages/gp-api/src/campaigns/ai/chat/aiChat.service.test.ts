@@ -602,6 +602,35 @@ describe('AiChatService.streamChat', () => {
     expect(stored.followups).toHaveLength(2)
   })
 
+  // THE SCHEMA IS ALSO THE MODEL'S CONSTRAINT, and that is what makes an
+  // optional key expensive. `followups` carried `.default([])`, so the JSON
+  // schema handed to the provider listed it as not required — the model may
+  // omit it, and when it does the user sees no follow-up chips and nothing
+  // distinguishes that from an answer that genuinely suggested none.
+  //
+  // Asserted against the schema the service actually passed, not against an
+  // exported copy of it: every other test here mocks `jsonCompletion`
+  // wholesale and so never parses through the schema at all, which is how
+  // this survived.
+  it('requires the model to return followups', async () => {
+    streamChatCompletion.mockResolvedValue(makeStreamResult(['answer']))
+    jsonCompletion.mockResolvedValue({ object: { followups: [] } })
+
+    await collect(service.streamChat(CAMPAIGN, asBody({ message: 'hi' }), null))
+
+    const schema = firstOrThrow(jsonCompletion.mock.calls)[0].schema
+    expect(schema).toBeDefined()
+    // An absent key is a schema that did not ask.
+    expect(schema.safeParse({}).success).toBe(false)
+    // An empty list is a real answer, and must stay one: a length floor here
+    // would make it a parse failure, and LlmService retries a rejected object
+    // three times — four paid calls behind a user waiting for a reply.
+    expect(schema.safeParse({ followups: [] }).success).toBe(true)
+    expect(
+      schema.safeParse({ followups: ['How do I find volunteers?'] }).success,
+    ).toBe(true)
+  })
+
   it('persists a generated title for a new thread', async () => {
     streamChatCompletion.mockResolvedValue(makeStreamResult(['answer']))
     jsonCompletion.mockResolvedValue({

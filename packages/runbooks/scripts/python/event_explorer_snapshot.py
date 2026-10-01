@@ -31,6 +31,7 @@ import analytics_event_health as aeh          # noqa: E402
 import behavior_coverage as bcov              # noqa: E402
 import behavior_registry as brg               # noqa: E402
 import event_state_assembler as esa           # noqa: E402
+import sem_anchors                            # noqa: E402
 
 ANCHORS = PY / "instrumentation_data" / "event_anchors.json"
 
@@ -136,7 +137,31 @@ def load_accepted_anchors() -> dict[str, dict]:
     return {k: v for k, v in state.items() if v.get("disposition") == "accepted"}
 
 
-def build_events(rows: list[dict], anchors: dict, series: dict) -> list[dict]:
+def okr_legs(sem: dict) -> dict[str, list[dict]]:
+    """event_type -> every governed metric it feeds, from the semantic layer's legs.
+
+    Keyed on the leg's plain event name, not its series key. The assembler's `okr`
+    column serves the dormancy watch, so it drops historical legs, keys a qualified leg
+    as `Event[excluding method=manual]` (which matches no event) and keeps one metric
+    per event. That is right for an alarm and wrong for "does this feed an OKR": it
+    left Campaign Completed, which feeds two metrics, with none.
+    """
+    out: dict[str, list[dict]] = collections.defaultdict(list)
+    for metric, legs in sem.items():
+        for leg in legs:
+            quals = [f"on {leg.path}"] if leg.path else []
+            quals += [f"excluding {prop}={', '.join(vals)}" for prop, vals in leg.excluding]
+            out[leg.event].append({
+                "metric": metric,
+                "qualifier": "; ".join(quals),
+                "historical": not leg.watched,
+            })
+    return dict(out)
+
+
+def build_events(rows: list[dict], anchors: dict, series: dict,
+                 okr: dict[str, list[dict]] | None = None) -> list[dict]:
+    okr = okr or {}
     out = []
     for r in rows:
         name = r["event"]
@@ -165,6 +190,7 @@ def build_events(rows: list[dict], anchors: dict, series: dict) -> list[dict]:
             "series": series.get(r["event_type"], []),
             "tags": tags,
             "okr": r["okr"],
+            "okr_metrics": okr.get(r["event_type"], []),
             "supersession": r["supersession"],
             "declared_intent": r["declared_intent"],
             "watchlist_status": r["watchlist_status"],
@@ -220,9 +246,11 @@ def fetch_series() -> tuple[list[str], dict[str, list[int]]]:
     sparkline exists to show. Densify against the full week axis."""
     from datetime import timedelta
 
-    from databricks_query import execute_query
+    # The monitor's OAuth client, not the PAT one: CI holds only the service principal,
+    # so the PAT client failed every scheduled run and the page silently stayed stale.
+    import databricks_oauth as dbc
 
-    rows = aeh.fetch_weekly(execute_query)
+    rows = aeh.fetch_weekly(dbc.run_query)
     monday = date.today() - timedelta(days=date.today().weekday())
     raw = aeh.weekly_series(rows, monday)
     weeks = sorted({w for pairs in raw.values() for w, _ in pairs})
@@ -262,7 +290,10 @@ def main() -> int:
             print(f"  SERIES FAILED: {exc}", file=sys.stderr, flush=True)
             return 1
 
-    events = build_events(rows, anchors, series)
+    sem, problems = sem_anchors.load_anchors()
+    for problem in problems:
+        print(f"  OKR legs: {problem}", file=sys.stderr, flush=True)
+    events = build_events(rows, anchors, series, okr_legs(sem))
     by_type = {e["event_type"]: {"status": e["status"]} for e in events}
     questions = build_questions(by_type)
     areas = build_areas(events)
@@ -276,6 +307,7 @@ def main() -> int:
         "events": events,
         "questions": questions,
         "areas": areas,
+        "okr_labels": sem_anchors.load_metric_labels(),
     }
     Path(args.out).write_text(json.dumps(doc, indent=1))
     kb = Path(args.out).stat().st_size / 1024
@@ -287,6 +319,7 @@ def main() -> int:
           str(dict(collections.Counter(q['coverage'] for q in questions))))
     print(f"  areas     {len(areas)}")
     print(f"  series    {'yes' if series else 'no'}")
+    print(f"  okr       {sum(1 for e in events if e['okr_metrics'])} events feed a governed metric")
     return 0
 
 

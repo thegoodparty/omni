@@ -5,19 +5,24 @@
 ```bash
 git clone --recurse-submodules git@github.com:thegoodparty/omni.git
 cd omni
-npm run setup -- --from <path-to-a-working-checkout>
+npm run setup
 ```
 
 `scripts/setup.sh` (`npm run setup`) is the one-command bootstrap: it checks
 `.nvmrc`/docker/the `ai-rules` submodule, fills in gp-api's and gp-webapp's
-local `.env`/`.env.local` from `--from` (a teammate's working checkout — real
-vendor keys never live in this repo, see `docs/secrets.md`) plus this repo's
-own local-only defaults and `.env.example` placeholders, runs `npm ci` and the
-Prisma/contracts builds, brings up Postgres, migrates + seeds, and launches
-`scripts/dev.sh`, polling until gp-api and gp-webapp are both healthy. It's
-idempotent — re-run it any time; it skips whatever's already valid and prompts
-before wiping a non-empty local DB. Without `--from` and with no existing env
-files, it refuses rather than boot with nothing to work from. election-api and
+local `.env`/`.env.local` — by default via the GitHub device flow (authorize
+in the browser as any active `thegoodparty` org member; dev-grade values are
+vended by dev gp-api, real vendor keys never live in this repo, see
+`docs/secrets.md`), or from `--from <path-to-a-working-checkout>` (a
+teammate's checkout, kept as the escape hatch and taking precedence when
+given) — plus this repo's own local-only defaults and `.env.example`
+placeholders, runs `npm ci` and the Prisma/contracts builds, brings up
+Postgres, migrates + seeds, and launches `scripts/dev.sh`, polling until
+gp-api and gp-webapp are both healthy. It's idempotent — re-run it any time;
+it skips whatever's already valid and prompts before wiping a non-empty local
+DB. When the device flow is denied or unavailable and no `--from` or existing
+env files exist, it fails closed rather than boot with nothing to work from.
+election-api and
 gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
 election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.
 
@@ -27,12 +32,20 @@ Once the stack is healthy, it finishes by seeding a login: a QA fixture user
 to the terminal (URL, email, password — never written to a file or log).
 This needs `LOCAL_SETUP_CLERK_MACHINE_SECRET` set in `packages/gp-api/.env`
 (a dedicated local-setup Clerk machine, vended in the LOCAL_DEV_ENV bundle);
-absent, that step just prints a skip note and the run still exits 0.
+absent, that step just prints a skip note and the run still exits 0. Secret
+mechanics (what `LOCAL_DEV_ENV` is, what it's allowed to vend, and the
+two-place rotation rule) are in `docs/secrets.md`.
 
 If you'd rather set up by hand: `nvm use`, `npm install` (runs a `postinstall`
 that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, run
 `git submodule update --init --recursive ai-rules`), then copy each app's
 `.env.example` / `.env.local` template before starting it.
+
+**Fast tier — UI-only work.** If the change doesn't touch gp-api or real data,
+skip this whole stack: `npm run dev -w packages/prototypes` boots
+`packages/prototypes` on `:4002` with zero env by design (no backend, no DB,
+no secrets). Use it for UI/UX iteration and hand off to the full stack only
+once the change needs real data or an endpoint.
 
 ## Run the core loop
 

@@ -23,15 +23,6 @@ import {
 } from '../utils/knockStatus.util'
 import { PACK_BUILD_FAILED_EVENT, streamPack } from '../utils/packStream.util'
 
-/**
- * What a build learns that its caller did not already know.
- *
- * Exists so the failure log can name the district without the resolve moving
- * out of the build. Deliberately not a return value: the build's failure path
- * is a rejection, and a rejection carries no partial result.
- */
-type PackBuildContext = { districtId?: string }
-
 @Injectable()
 export class DoorKnockingPackService extends createPrismaBase(
   MODELS.ContactInteractionDoorKnock,
@@ -45,32 +36,40 @@ export class DoorKnockingPackService extends createPrismaBase(
     super()
   }
 
-  // Returns immediately with a live stream rather than a resolved buffer: the
-  // knock read and the district scan below both happen after the response has
-  // already been committed, so the connection is never idle waiting on them.
-  stream(organization: Organization): Readable {
-    // The district is resolved inside the build (it has to be — resolving it
-    // is a query, and doing it here would put back the idle gap the envelope
-    // exists to remove), but the failure log is written out here. So the build
-    // reports it back through this, and `districtId` is absent in the log when
-    // the resolve itself was what failed — which is true, and is a different
-    // failure from a scan that timed out.
-    //
-    // It is in the log because the scan's cost is a property of the district
-    // and of nothing else: the same org fails every time on a district too
-    // large for the current query plan, and succeeds immediately after it is
-    // reassigned. Without this field that pattern is invisible, and each
-    // firing reads as a fresh unexplained failure.
-    const context: PackBuildContext = {}
+  // Resolves the district (and with it the voter-data eligibility gate) BEFORE
+  // handing back a stream, then returns immediately: the knock reads and the
+  // district scan still happen after the response has been committed, so the
+  // connection is never idle waiting on the expensive part.
+  //
+  // The resolve is awaited out here because an organization with no district is
+  // not a failed build — it is a request that should never have been answered,
+  // and every other voter-data read answers it with a 4xx the client can act
+  // on. Once the envelope's first bytes are out the status line is 200 forever,
+  // so a resolve left inside the build could only be reported as a map that
+  // died halfway through being drawn, which pages the on-call team for an
+  // organization that was simply never eligible. Measured in prod (trace
+  // 9cdb3d0a4b2e0bc573129f499233c554) this costs ~32ms of idle socket — two
+  // election-api position reads plus two small Postgres reads — against the
+  // gateway's 120s idle timeout. The gap the envelope exists to remove is the
+  // district scan, which is 12.7-43.5s.
+  async stream(organization: Organization): Promise<Readable> {
+    const districtId =
+      await this.contacts.resolveEligibleDistrictId(organization)
 
     return streamPack({
-      build: (signal) => this.build(organization, signal, context),
+      build: (signal) => this.build(organization, districtId, signal),
+      // `districtId` is always present here now, and that is the point: the
+      // scan's cost is a property of the district and of nothing else, so the
+      // same org fails every time on a district too large for the current query
+      // plan and succeeds immediately after it is reassigned. Without this
+      // field that pattern is invisible and each firing reads as a fresh
+      // unexplained failure.
       onFailure: (err, elapsedMs) =>
         this.logger.error(
           {
             event: PACK_BUILD_FAILED_EVENT,
             organizationSlug: organization.slug,
-            districtId: context.districtId,
+            districtId,
             elapsedMs,
             err,
           },
@@ -89,21 +88,18 @@ export class DoorKnockingPackService extends createPrismaBase(
   // function of `districtId`, which is the property a per-district pack cache
   // would rest on (docs/perf/voter-pack-headroom.md). A per-organization read
   // that moved into `VoterPackService` would take it away.
+  //
+  // `districtId` is a parameter rather than something this resolves: the
+  // resolve is also the eligibility check, and it belongs in front of the
+  // response head (see `stream`), so an ineligible organization never reaches
+  // this method and never has its interaction history read at all.
   async build(
     organization: Organization,
+    districtId: string,
     signal?: AbortSignal,
-    context?: PackBuildContext,
   ): Promise<Buffer> {
-    const districtId =
-      await this.contacts.resolveEligibleDistrictId(organization)
-    // Recorded before the two reads below, so a failure in either of them
-    // still reports the district it was reading for.
-    if (context) context.districtId = districtId
-
-    // Concurrent, but only after the district resolve: that call is also the
-    // eligibility check, and an ineligible organization should not have had
-    // its interaction history read at all. These two are independent of each
-    // other, and both are small next to the district scan they precede.
+    // Concurrent: these two are independent of each other, and both are small
+    // next to the district scan they precede.
     const [buckets, interactions, doNotKnockIds, notAVoterIds] =
       await Promise.all([
         this.contactsMade.contactsMadeBuckets(

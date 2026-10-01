@@ -799,6 +799,33 @@ describe('DomainsService', () => {
         expect(result.candidates).toHaveLength(5)
       })
 
+      it('keeps verdicts a batch already settled when one sibling is still in flight', async () => {
+        // The regression: the batch used to be raced as one unit, so a single
+        // candidate still in Route53 backoff discarded the four its siblings
+        // had already priced, and a search that had found four domains 502'd.
+        vi.useFakeTimers()
+        let calls = 0
+        mockRoute53.checkDomainAvailability.mockImplementation(() => {
+          calls++
+          // Four of the first batch of five answer immediately; the fifth
+          // hangs the way a throttled check in adaptive-retry backoff does.
+          return calls <= 4
+            ? Promise.resolve({ Availability: DomainAvailability.AVAILABLE })
+            : new Promise<never>(() => undefined)
+        })
+        mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+        const promise = service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['voteoneill'],
+          10,
+        )
+        await vi.advanceTimersByTimeAsync(21_000)
+        const result = await promise
+
+        expect(result.candidates).toHaveLength(4)
+      })
+
       it('rejects 502 when the budget expires before anything is verified', async () => {
         vi.useFakeTimers()
         mockRoute53.checkDomainAvailability.mockImplementation(

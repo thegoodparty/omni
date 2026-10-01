@@ -36,6 +36,46 @@ Regenerate the committed Amplitude event git-provenance dataset (the curated sum
 
 Core columns produced by the backfill walk:
 
+- `retired_date` / `retired_commit` / `retired_pr` — when the event's **name** left the
+  codebase. Written only when the name string is absent from the instrumentation paths
+  at HEAD and the walk has history for it (`classify_code_status` returning `removed`).
+  It is silent about whether anything still *calls* that name.
+### Removing an event is two steps, and these columns report different ones
+
+Read `retired_date` and `call_site_count` together or neither makes sense. They are not
+two views of one fact; they are two stages of the same removal.
+
+1. **The call site goes.** `call_site_count` drops from 1+ to `0`, and
+   `call_site_retired_date` gets the date. The name is still in the registry.
+2. **The name goes.** Now there is no key-path left to count, so `call_site_count`
+   becomes **empty** — not `0` — and `retired_date` / `retired_commit` / `retired_pr`
+   are written.
+
+`retired_date` is therefore set only when the event's **name** has left the
+instrumentation paths at HEAD (`classify_code_status` returning `removed`). It says
+nothing about whether anything still calls that name.
+
+**The two can never both be set.** A zero count beside an empty `retired_date` is a
+half-finished removal, not a conflict. Measured 2026-09-29 over 664 rows:
+
+| `call_site_count` | `retired_date` | rows | stage |
+| --- | --- | --- | --- |
+| 1+ | empty | 372 | live |
+| `0` | empty | 39 | call site gone, name left behind |
+| empty | set | 162 | both gone |
+| empty | empty | 91 | no resolvable key-path (dynamic dispatch, fired outside this repo, or never built) |
+
+**Never read an empty `retired_date` as evidence the instrument is live.**
+`classify_status` does exactly that — `if retired_date is None: return "active" if
+firing_recent else "dormant"` — so all 39 stage-1 events are classified as *code
+present* and can never reach `retired`. That is the blind spot DATA-2046 opened rank 2
+to close. Worked example 2026-09-29: `Onboarding V2 - Strategic Landscape Displayed` is
+declared at `packages/gp-webapp/helpers/analyticsHelper.ts:799` and its caller was
+deleted in `e5e863545` (2026-09-01).
+
+The plain-words version, for searching: **"still in the code" means the name is still
+there, not that anything sends the event.**
+
 - `call_site_count` — number of `EVENTS.X.Y` call sites at the deploy ref (non-test
   instrumentation paths). Key-paths resolve from BOTH registries — `gp-webapp`'s
   `helpers/analyticsHelper.ts` and `gp-api`'s `src/vendors/segment/segment.types.ts` —
@@ -48,6 +88,11 @@ Core columns produced by the backfill walk:
   matching the block rather than each line is what makes a Prettier-wrapped key-path
   (`EVENTS.A.B\n  .C`) visible. Comments are stripped first, so deleting prose that names
   a key-path never stamps a date.
+- `call_site_retired_commit` / `call_site_retired_pr` — that same removing commit and the
+  PR that merged it, so a Govern retirement is handed its code-removal proof. The PR
+  comes from the commit subject, else the merge walk, which skips a branch's own
+  "merge main into me" merges. For grafted history the walk keeps the oldest-merge rule
+  only, because those commits cannot be checked against GitHub; empty beats a guess.
 - `instrumented_author_email` / `retired_author_email` — git author email (`%ae`) of the
   commit that instrumented and the commit that retired the event, for follow-up. Empty when
   the event is still in code (no retirement) or predates the walk window.

@@ -1,5 +1,5 @@
 <meta charset="utf-8" />
-<title>Analytics Events Explorer</title>
+<title>__PAGE_TITLE__</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link
@@ -7,71 +7,7 @@
   href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700&family=IBM+Plex+Mono:wght@400;500&display=swap"
 />
 <style>
-  :root {
-    --bg: #f4f6f7;
-    --surface: #ffffff;
-    --surface-2: #eef1f3;
-    --ink: #14181b;
-    --ink-2: #4b555d;
-    --ink-3: #78848c;
-    --line: #dde3e6;
-    --line-2: #c6d0d5;
-    --accent: #0f5f61;
-    --accent-ink: #ffffff;
-    --good: #1c6b45;
-    --good-bg: #dff0e6;
-    --warn: #8a5a09;
-    --warn-bg: #fbeed3;
-    --crit: #a32c22;
-    --crit-bg: #fadedb;
-    --shadow:
-      0 1px 2px rgba(20, 24, 27, 0.06), 0 1px 1px rgba(20, 24, 27, 0.04);
-    --sans:
-      'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
-      sans-serif;
-    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme='light']) {
-      --bg: #0f1315;
-      --surface: #171c1f;
-      --surface-2: #1f262a;
-      --ink: #e8edef;
-      --ink-2: #aeb9bf;
-      --ink-3: #7d8a91;
-      --line: #2a3338;
-      --line-2: #3a464c;
-      --accent: #4bb3b0;
-      --accent-ink: #07211f;
-      --good: #6fd39b;
-      --good-bg: #123024;
-      --warn: #e0b45c;
-      --warn-bg: #362a10;
-      --crit: #f08a7e;
-      --crit-bg: #3a1a17;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-    }
-  }
-  :root[data-theme='dark'] {
-    --bg: #0f1315;
-    --surface: #171c1f;
-    --surface-2: #1f262a;
-    --ink: #e8edef;
-    --ink-2: #aeb9bf;
-    --ink-3: #7d8a91;
-    --line: #2a3338;
-    --line-2: #3a464c;
-    --accent: #4bb3b0;
-    --accent-ink: #07211f;
-    --good: #6fd39b;
-    --good-bg: #123024;
-    --warn: #e0b45c;
-    --warn-bg: #362a10;
-    --crit: #f08a7e;
-    --crit-bg: #3a1a17;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-  }
-
+  /* __THEME_CSS__ */
   body {
     background: var(--bg);
     color: var(--ink);
@@ -562,45 +498,9 @@
     color: var(--ink-2);
   }
 
-  /* ---- detail ------------------------------------------------------------- */
-  .detail {
-    background: var(--surface-2);
-    padding: 14px 12px 18px;
-  }
-  .verdictrow {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    align-items: center;
-  }
-  .lineage {
-    margin-top: 12px;
-    padding: 10px 12px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-  }
-  .fields {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 14px;
-    margin-top: 14px;
-  }
-  .field .v {
-    margin-top: 2px;
-    overflow-wrap: anywhere;
-  }
-  .links {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 7px;
-    margin-top: 14px;
-  }
-  .prov {
-    margin-top: 14px;
-    border-top: 1px solid var(--line);
-    padding-top: 11px;
-  }
+  /* __CARD_CSS__ */
+  /* __NAV_CSS__ */
+  /* __MAP_CSS__ */
   .mono {
     font-family: var(--mono);
     font-size: 12px;
@@ -663,6 +563,13 @@
   }
   #usage {
     margin-top: 30px;
+  }
+  /* Links only the page's owner should see: usage.js adds is-owner once it knows. */
+  [data-owner-only] {
+    display: none !important;
+  }
+  body.is-owner [data-owner-only] {
+    display: inline-flex !important;
   }
   .usagegrid {
     display: grid;
@@ -796,6 +703,23 @@
   thead th button.sorter[data-on='1'] {
     color: var(--ink);
   }
+  .okrtag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    vertical-align: 1px;
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+  .okrtag.old {
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+  }
   .answeredby {
     display: inline-flex;
     align-items: center;
@@ -813,7 +737,7 @@
 <div class="wrap">
   <header class="bar">
     <div class="titlerow">
-      <h1>Analytics Events Explorer</h1>
+      <h1>__PAGE_TITLE__</h1>
       <span class="freshness" id="freshness"></span>
     </div>
     <div class="searchwrap">
@@ -871,10 +795,31 @@
     var DATA = JSON.parse(document.getElementById('snapshot').textContent)
     var SLACK = 'https://goodpartyorg.slack.com/archives/C0BECEK0603'
     var FORM = DATA.request_form_url || ''
+    // The product map is this page with its tree (ProductMap, surfaces/product-map/map.js)
+    // in place of the events table; everything above that section is shared.
+    var MAP = DATA.page === 'map'
+    // The governed metrics each event feeds, read from the semantic layer's legs. An
+    // older snapshot carries only the single `okr` string, so fall back to that.
+    var OKR_LABELS = DATA.okr_labels || {}
+    function okrOf(e) {
+      if (e.okr_metrics) return e.okr_metrics
+      return e.okr ? [{ metric: e.okr, qualifier: '', historical: false }] : []
+    }
+    function okrLabel(m) {
+      return OKR_LABELS[m] || m
+    }
     var EVENTS = DATA.events,
       QUESTIONS = DATA.questions,
       AREAS = DATA.areas,
       WEEKS = DATA.series_weeks || []
+    // The shared card reads the catalog as {event_type: card}.
+    DATA.event_cards = {}
+    EVENTS.forEach(function (e) {
+      DATA.event_cards[e.event_type] = e
+    })
+
+    // __CARD_JS__
+    // __NAV_JS__
 
     // ---- product: the tag is authoritative, the code path only fills gaps ----------
     // CreateListWizard.tsx fires a Win event and a Serve event from the same file, so a
@@ -981,85 +926,24 @@
             timeZone: 'UTC',
           })
     }
-    function verdict(e) {
-      var p = e.provenance || {}
-      switch (e.status) {
-        case 'active':
-          return [
-            'good',
-            'Working',
-            'Fired ' +
-              fmt(e.count_30d) +
-              ' times in the last 30 days, most recently ' +
-              shortDate(e.last_seen) +
-              '.',
-          ]
-        case 'dormant':
-          return [
-            'warn',
-            'Silent',
-            'The code is still there but nothing has fired for 30 days. Either nobody uses this feature or the instrument broke.',
-          ]
-        case 'deprecating':
-          return [
-            'warn',
-            'Being removed',
-            'The code was removed ' +
-              shortDate(p.retired_date) +
-              '. Still firing inside the 30-day window, which is expected.',
-          ]
-        case 'orphaned_firing':
-          return [
-            'crit',
-            'Do not trust this',
-            'The code was removed ' +
-              shortDate(p.retired_date) +
-              ' but events are still arriving. Something is firing that we no longer control.',
-          ]
-        case 'retired':
-          // supersession is prose, not a name: resolve it or say nothing (the Lineage
-          // block shows the raw note). Dumping it reads "replaced by superseded by X".
-          var rl = lineage(e)
-          var successor = rl.replacedBy
-            ? rl.replacedBy.display_name
-            : rl.replacedByName
-              ? rl.replacedByName
-              : rl.replacedByArea
-                ? 'the ' + rl.replacedByArea + ' family'
-                : ''
-          return [
-            'mute',
-            'Retired',
-            'Removed ' +
-              shortDate(p.retired_date) +
-              (successor
-                ? ' and replaced by ' + successor + '.'
-                : rl.unparsed
-                  ? '.'
-                  : ' and quiet since. Nothing replaced it.'),
-          ]
-        case 'instrumented_never_observed':
-          return [
-            'crit',
-            'Never seen',
-            'Recorded as being in the code, but Amplitude has never received it. Either the instrumentation is broken or the code axis is wrong.',
-          ]
-        case 'code_unknown':
-          return [
-            'mute',
-            'Unknown',
-            'We cannot tell whether this is still in the code. Usually auto-tracked, or too new to have a provenance record.',
-          ]
-        case 'system':
-          return [
-            'mute',
-            'Auto-tracked',
-            'Amplitude records this automatically. It is never health-flagged.',
-          ]
-        default:
-          return ['mute', e.status, '']
-      }
+    // Tones and sentences come from the shared card, so the table badge and the card
+    // never say different things about one event. `mute` is the badge for `low`.
+    var TONE_BADGE = { good: 'good', warn: 'warn', crit: 'crit', low: 'mute' }
+    function successorOf(e) {
+      var l = lineage(e)
+      return l.replacedBy
+        ? l.replacedBy.display_name
+        : l.replacedByName
+          ? l.replacedByName
+          : l.replacedByArea
+            ? 'the ' + l.replacedByArea + ' family'
+            : ''
     }
+    function verdict(e) {
+      var v = EventCard.verdictFor(e, successorOf(e))
+      return [TONE_BADGE[v[0]] || 'mute', v[1], v[2]]
+    }
+
     var COVERAGE = {
       covered: [
         'good',
@@ -1370,6 +1254,7 @@
       products: [],
       origins: [],
       statuses: [],
+      okrs: [],
       question: null,
       open: {},
       sections: {},
@@ -1592,12 +1477,13 @@
       )
     }
 
+    // The shared card (surfaces/shared/card.js), plus what only this page knows: the
+    // caveats from the question layer, the lineage resolved against the whole catalog,
+    // browser-or-server from the code path, and the product verdict.
     function detail(e) {
-      var v = verdict(e),
-        p = e.provenance || {},
-        l = lineage(e),
+      var l = lineage(e),
         cav = caveatsFor(e)
-      var lineageHtml = ''
+      var lineageNode = null
       if (
         l.replacedBy ||
         l.replacedByArea ||
@@ -1646,139 +1532,51 @@
             ) +
             '</div>'
         if (l.reason) inner += '<div class="note">' + esc(l.reason) + '</div>'
-        lineageHtml =
-          '<div class="lineage"><div class="fieldlbl">Lineage</div>' +
-          inner +
-          '</div>'
+        lineageNode = document.createElement('div')
+        lineageNode.className = 'lineage'
+        lineageNode.innerHTML = '<div class="fieldlbl">Lineage</div>' + inner
       }
-      function field(lbl, val) {
-        return (
-          '<div class="field"><div class="fieldlbl">' +
-          lbl +
-          '</div><div class="v">' +
-          (val || '<span class="muted">&mdash;</span>') +
-          '</div></div>'
-        )
-      }
+      var before = cav.map(function (c) {
+        var d = document.createElement('div')
+        d.innerHTML = caveatBlock(c)
+        return d.firstChild
+      })
       var psrc =
         e._psrc === 'tag'
           ? 'tagged'
           : e._psrc === 'path'
             ? 'inferred from the code path'
             : 'not recorded'
-      return (
-        '<div class="detail">' +
-        '<div class="verdictrow">' +
-        badge(v[0], v[1]) +
-        '<span>' +
-        esc(v[2]) +
-        '</span></div>' +
-        cav.map(caveatBlock).join('') +
-        lineageHtml +
-        '<div class="fields">' +
-        field('What it is', esc(e.description)) +
-        field(
-          'Where it fires',
-          (e._fires
-            ? '<span class="muted">' +
-              (e._fires === 'browser' ? 'Browser' : 'Server') +
-              ' \u00b7 </span>'
-            : '') +
-            esc(e.fires_on) +
-            (e.fires_on_source === 'anchor'
-              ? ' <span class="badge b-mute">drafted' +
-                (e.anchor_confidence === 'low'
-                  ? ', low confidence' +
-                    (e.anchor_flag_reason
-                      ? ': ' + esc(e.anchor_flag_reason)
-                      : '')
-                  : '') +
-                '</span>'
-              : ''),
-        ) +
-        field(
-          'Weekly volume (9 weeks)',
-          sparkline(e.series, 96, 24) +
-            ' <span class="muted mono" style="font-size:11px">' +
-            fmt(e.count_30d) +
-            ' / 30d</span>',
-        ) +
-        '</div>' +
-        '<div class="fields">' +
-        field(
-          'Added to the code',
-          p.instrumented_date
-            ? '<span class="mono">' + esc(p.instrumented_date) + '</span>'
-            : '<span class="muted">no commit could be attributed</span>',
-        ) +
-        field(
-          'Removed from the code',
-          p.retired_date
-            ? '<span class="mono">' + esc(p.retired_date) + '</span>'
-            : '<span class="muted">still in the code</span>',
-        ) +
-        field(
-          'Last fired',
-          p ? '<span class="mono">' + esc(e.last_seen) + '</span>' : '',
-        ) +
-        field(
-          'Product',
-          esc(
-            {
-              win: 'Win',
-              serve: 'Serve',
-              shared: 'Shared',
-              unknown: 'Unknown',
-            }[e._p],
-          ) +
-            ' <span class="muted">(' +
-            psrc +
-            ')</span>',
-        ) +
-        '</div>' +
-        usedBy(e) +
-        '<div class="links">' +
-        '<a class="btn" href="' +
-        amplitudeUrl(e.event_type) +
-        '" target="_blank" rel="noreferrer">Open in Amplitude</a>' +
-        (e.url && e.url.indexOf('n/a') !== 0
-          ? '<a class="btn" href="' +
-            esc(e.url) +
-            '" target="_blank" rel="noreferrer">' +
-            esc(e.url) +
-            '</a>'
-          : '') +
-        (p.instrumented_pr
-          ? '<a class="btn" href="' +
-            esc(prUrl(p.instrumented_pr)) +
-            '" target="_blank" rel="noreferrer">Instrumenting PR</a>'
-          : '') +
-        '</div>' +
-        '<div class="prov"><div class="fieldlbl">Provenance and identifiers</div><div class="fields" style="margin-top:6px">' +
-        field(
-          'event_type',
-          '<span class="mono">' + esc(e.event_type) + '</span>',
-        ) +
-        field('Product area', esc(e.area)) +
-        field('Tags', esc((e.tags || []).join(', '))) +
-        field('OKR anchor', esc(e.okr)) +
-        field('Declared intent', esc(e.declared_intent)) +
-        field(
-          'All-time count',
-          '<span class="mono">' + fmt(e.count_total) + '</span>',
-        ) +
-        field('Instrumented by', esc(p.instrumented_author_email)) +
-        field('Removed by', esc(p.retired_author_email)) +
-        '</div></div></div>'
-      )
+      var product =
+        { win: 'Win', serve: 'Serve', shared: 'Shared', unknown: 'Unknown' }[
+          e._p
+        ] +
+        ' (' +
+        psrc +
+        ')'
+      var used = null
+      var ub = usedBy(e)
+      if (ub) {
+        used = document.createElement('div')
+        used.innerHTML = ub
+      }
+      return EventCard.render(e.event_type, {
+        successor: successorOf(e),
+        before: before,
+        lineage: lineageNode,
+        firesPrefix: e._fires
+          ? (e._fires === 'browser' ? 'Browser' : 'Server') + ' \u00b7 '
+          : '',
+        extraFields: [['Product', product]],
+        usedBy: used,
+      }).outerHTML
     }
 
     function usedBy(e) {
       var qs = e.questions || [],
         ub = e.used_by || []
       if (!qs.length && !ub.length) return ''
-      var out =
-        '<div style="margin-top:14px"><div class="fieldlbl">Used by</div>'
+      var out = '<div>'
       if (qs.length) {
         out +=
           '<ul style="margin:4px 0 0;padding-left:18px">' +
@@ -1872,6 +1670,31 @@
       return out
     }
 
+    function okrTag(e) {
+      var ms = okrOf(e)
+      if (!ms.length) return ''
+      var live = ms.filter(function (m) {
+        return !m.historical
+      })
+      return (
+        ' <span class="okrtag' +
+        (live.length ? '' : ' old') +
+        '" title="' +
+        esc(
+          'Feeds ' +
+            ms
+              .map(function (m) {
+                return (
+                  okrLabel(m.metric) +
+                  (m.qualifier ? ' (' + m.qualifier + ')' : '') +
+                  (m.historical ? ' (historical)' : '')
+                )
+              })
+              .join(', '),
+        ) +
+        '">OKR</span>'
+      )
+    }
     function eventTable(list) {
       if (!list.length)
         return '<div class="empty">No events match these filters.</div>'
@@ -1899,6 +1722,7 @@
             '<td style="width:22px"><span class="chev">›</span></td>' +
             '<td><div class="evname">' +
             esc(e.display_name) +
+            okrTag(e) +
             '</div>' +
             (e.description
               ? '<div class="evdesc">' + esc(e.description) + '</div>'
@@ -1970,10 +1794,10 @@
       )
     }
 
-    function dropdown(key, label, selected, opts, attr) {
+    function dropdown(key, label, selected, opts, attr, allText) {
       var summary =
         selected.length === 0
-          ? 'All ' + label.toLowerCase()
+          ? allText || 'All ' + label.toLowerCase()
           : selected.length === 1
             ? (opts.filter(function (o) {
                 return o[0] === selected[0]
@@ -2053,6 +1877,13 @@
           return false
         if (state.origins.length && state.origins.indexOf(e._fires) < 0)
           return false
+        if (
+          state.okrs.length &&
+          !okrOf(e).some(function (m) {
+            return state.okrs.indexOf(m.metric) >= 0
+          })
+        )
+          return false
         if (state.statuses.length) {
           var ok = STATUS_GROUPS.some(function (g) {
             return (
@@ -2093,12 +1924,19 @@
           SLACK,
           'Open #product-analytics',
         ],
-        [
-          'Dig into an area',
-          'See every event, gap and question for one product area in one place.',
-          '',
-          'Coming soon',
-        ],
+        MAP
+          ? [
+              'Search every event',
+              'The map draws the flows people walk through. The explorer lists every event, including the ones not on a flow yet.',
+              '__EXPLORER_URL__',
+              'Open the explorer',
+            ]
+          : [
+              'See it on the product map',
+              'The same events laid over the product as people walk through it: each flow, each step, and the steps where nothing fires.',
+              '__MAP_URL__',
+              'Open the product map',
+            ],
       ]
       if (USAGE.canComment()) {
         acts.splice(2, 0, [
@@ -2142,17 +1980,33 @@
     function render() {
       // header bits
       var fresh = document.getElementById('freshness')
-      fresh.innerHTML =
-        EVENTS.length +
-        ' events · ' +
-        QUESTIONS.length +
-        ' questions · ' +
-        AREAS.length +
-        ' areas · data as of <b>' +
-        esc(fmtWhen(DATA.refreshed_at)) +
-        '</b> · next refresh <b>' +
-        esc(fmtWhen(nextRun())) +
-        '</b>'
+      // The map is republished by hand, so it has no next refresh to promise.
+      if (MAP) {
+        var surf = ProductMap.surfaces()
+        var drawn = surf.filter(function (f) {
+          return !f.building
+        }).length
+        fresh.innerHTML =
+          drawn +
+          ' flows and pages drawn · ' +
+          (surf.length - drawn) +
+          ' still being built · ' +
+          EVENTS.length +
+          ' events · data as of <b>' +
+          esc(fmtWhen(DATA.refreshed_at)) +
+          '</b>'
+      } else
+        fresh.innerHTML =
+          EVENTS.length +
+          ' events · ' +
+          QUESTIONS.length +
+          ' questions · ' +
+          AREAS.length +
+          ' areas · data as of <b>' +
+          esc(fmtWhen(DATA.refreshed_at)) +
+          '</b> · next refresh <b>' +
+          esc(fmtWhen(nextRun())) +
+          '</b>'
 
       var counts = {}
       EVENTS.forEach(function (e) {
@@ -2255,6 +2109,8 @@
           '<div class="areagrid">' +
             AREAS.slice(0, 20).map(areaCard).join('') +
             '</div>',
+          // On the map the tree is the answer, so the cards start folded above it.
+          !MAP,
         )
         var qs = state.products.length
           ? QUESTIONS.filter(function (q) {
@@ -2368,6 +2224,26 @@
         }),
         'fires',
       )
+      var okrCounts = {}
+      EVENTS.forEach(function (e) {
+        okrOf(e).forEach(function (m) {
+          okrCounts[m.metric] = (okrCounts[m.metric] || 0) + 1
+        })
+      })
+      var okrDD = Object.keys(okrCounts).length
+        ? dropdown(
+            'okrs',
+            'OKR metrics',
+            state.okrs,
+            Object.keys(okrCounts)
+              .sort()
+              .map(function (m) {
+                return [m, okrLabel(m), okrCounts[m]]
+              }),
+            'okr',
+            'OKR metric',
+          )
+        : ''
       var dateIn =
         '<label class="inlabel">Added after <input class="datein" type="date" id="addedafter" value="' +
         esc(state.addedAfter) +
@@ -2382,6 +2258,7 @@
         stateDD +
         firesDD +
         prodDD +
+        okrDD +
         dateIn +
         volIn +
         (activeQ
@@ -2389,19 +2266,74 @@
           : '') +
         '</span>'
 
-      out += section(
-        'events',
-        activeQ
-          ? 'Events answering this question'
-          : searching
-            ? 'Events'
-            : 'All events',
-        shown.length,
-        aside,
-        eventTable(shown),
-      )
+      if (MAP) {
+        // The search and filters above pick events exactly as they do on the explorer;
+        // the map then keeps the flows those events are on, plus any step, flow or area
+        // whose own name matches, so a step with nothing firing is still findable.
+        var filtering = !!(activeQ || searching || filtersOn())
+        var phrase = norm(state.q).trim(),
+          words = phrase.split(/\s+/).filter(function (t) {
+            return t && !STOP[t]
+          })
+        if (!words.length) words = phrase.split(/\s+/).filter(Boolean)
+        var drawnMap = ProductMap.render(
+          filtering
+            ? {
+                hit: new Set(
+                  shown.map(function (e) {
+                    return e.event_type
+                  }),
+                ),
+                text:
+                  searching && words.length
+                    ? function (s) {
+                        return (
+                          score([[norm(s), 1]], words, phrase, res.partial) > 0
+                        )
+                      }
+                    : null,
+              }
+            : null,
+        )
+        out += section(
+          'map',
+          activeQ
+            ? 'On the map, for this question'
+            : filtering
+              ? 'On the map'
+              : 'Product map',
+          drawnMap.flows,
+          aside,
+          drawnMap.html,
+        )
+        var offMap = filtering
+          ? shown.filter(function (e) {
+              return !ProductMap.has(e.event_type)
+            })
+          : []
+        if (offMap.length)
+          out += section(
+            'offmap',
+            'Matching events not on the map yet',
+            offMap.length,
+            '<span class="note" style="margin:0">not placed on a drawn flow yet</span>',
+            eventTable(offMap),
+            false,
+          )
+      } else
+        out += section(
+          'events',
+          activeQ
+            ? 'Events answering this question'
+            : searching
+              ? 'Events'
+              : 'All events',
+          shown.length,
+          aside,
+          eventTable(shown),
+        )
 
-      if (scope && scope.related.length) {
+      if (!MAP && scope && scope.related.length) {
         var rel = narrow(scope.related)
         out += section(
           'related',
@@ -2422,6 +2354,7 @@
         state.products.length ||
         state.origins.length ||
         state.statuses.length ||
+        state.okrs.length ||
         state.question ||
         state.addedAfter ||
         state.minVolume
@@ -2453,369 +2386,9 @@
       return d.toISOString()
     }
 
-    // ---- usage and feedback (DATA-2506) ---------------------------------------------
-    // This page is the trial's only instrument. It has no server of its own, so what
-    // people do here goes to the artifact's own store, one document per visit, and is
-    // read back later. Rows carry the viewer's opaque id and never a name: names differ
-    // per viewer and go stale, so they are resolved at render time instead.
-    var USAGE = (function () {
-      var udb = null,
-        uuser = null,
-        ucomments = null
-      var me = null,
-        owner = false,
-        ref = null,
-        doc = null
-      var timer = null,
-        saving = false,
-        again = false,
-        dead = false,
-        fails = 0,
-        lastQ = ''
-      // db codes where the contract says retrying cannot succeed.
-      var TERMINAL = [
-        'quota_exceeded',
-        'invalid_argument',
-        'revoked',
-        'not_granted',
-        'capability_disabled',
-        'capability_removed',
-        'transform_error',
-      ]
-
-      function newId() {
-        return (
-          new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) +
-          '-' +
-          Math.random().toString(36).slice(2, 8)
-        )
-      }
-
-      function schedule() {
-        if (dead || !ref) return
-        clearTimeout(timer)
-        timer = setTimeout(flush, 1500)
-      }
-
-      // One write at a time per document. Memory is the source of truth and the document
-      // is its projection, so a full set() never has to read-modify-write a counter.
-      function flush() {
-        if (dead || !ref) return
-        if (saving) {
-          again = true
-          return
-        }
-        saving = true
-        doc.last_at = new Date().toISOString()
-        ref.set(doc).then(
-          function () {
-            saving = false
-            fails = 0
-            if (again) {
-              again = false
-              schedule()
-            }
-          },
-          function (e) {
-            saving = false
-            // Only the codes the contract calls terminal stop this visit recording.
-            // Everything else — `unavailable` above all, the one documented as
-            // retryable — gets another attempt, bounded so a persistent refusal
-            // cannot spin. Killing tracking on any error meant one permission refusal
-            // on the first write lost the whole visit.
-            if (TERMINAL.indexOf((e && e.code) || '') >= 0) dead = true
-            else if (++fails >= 3) dead = true
-            else schedule()
-          },
-        )
-      }
-
-      function capped(arr, n, v) {
-        if (arr.length < n) arr.push(v)
-      }
-
-      function init() {
-        if (!window.claude || !claude.use) return
-        Promise.all([
-          claude.use('user'),
-          claude.use('db'),
-          claude.use('comments'),
-        ]).then(
-          function (caps) {
-            uuser = caps[0]
-            udb = caps[1]
-            ucomments = caps[2]
-            if (ucomments) {
-              renderNext()
-              render()
-            }
-            var who = uuser
-              ? Promise.all([uuser.id(), uuser.isOwner()])
-              : Promise.resolve([null, false])
-            return who.then(function (r) {
-              me = r[0]
-              owner = r[1]
-              if (udb) {
-                ref = udb.collection('sessions').doc(newId())
-                doc = {
-                  viewer: me || '',
-                  started_at: new Date().toISOString(),
-                  last_at: new Date().toISOString(),
-                  snapshot: DATA.refreshed_at || '',
-                  searches: [],
-                  events: [],
-                  questions: [],
-                  clicks: {},
-                  feedback: 0,
-                }
-                flush() // a visit with no interaction is still a visit
-              }
-              if (owner && udb) panel()
-            })
-          },
-          function () {
-            /* no viewer answered; the page is unchanged */
-          },
-        )
-      }
-
-      // ---- what gets recorded ----
-      function search(q, total, question, partial) {
-        q = (q || '').trim()
-        if (!doc || q.length < 2 || q === lastQ) return
-        lastQ = q
-        capped(doc.searches, 150, {
-          q: q,
-          total: total,
-          question: !!question,
-          partial: !!partial,
-        })
-        schedule()
-      }
-      function opened(name) {
-        if (!doc || doc.events.indexOf(name) >= 0) return
-        capped(doc.events, 200, name)
-        schedule()
-      }
-      function picked(qid) {
-        if (!doc || doc.questions.indexOf(qid) >= 0) return
-        capped(doc.questions, 60, qid)
-        schedule()
-      }
-      // Classify by destination rather than by tagging every builder: a link added later
-      // is counted without anyone remembering to mark it.
-      function kindOf(href) {
-        if (href.indexOf('amplitude.com') >= 0) return 'amplitude'
-        if (href.indexOf('github.com') >= 0) return 'github'
-        if (href.indexOf('/v/fm/') >= 0) return 'form'
-        if (href.indexOf('clickup.com') >= 0) return 'ticket'
-        if (href.indexOf('slack.com') >= 0) return 'slack'
-        if (href.indexOf('claude.ai') >= 0) return 'answer'
-        if (href.indexOf('goodparty.org') >= 0) return 'product'
-        return 'other'
-      }
-      function clicked(href) {
-        if (!doc) return
-        var k = kindOf(href)
-        doc.clicks[k] = (doc.clicks[k] || 0) + 1
-        schedule()
-      }
-
-      // ---- feedback: the shell's own composer, so nothing is posted by the page ----
-      function feedback(el) {
-        if (!ucomments) return
-        if (doc) {
-          doc.feedback = (doc.feedback || 0) + 1
-          schedule()
-        }
-        ucomments.openComposer({ element: el }).then(
-          function (r) {
-            if (!r || r.opened) return
-            el.setAttribute(
-              'data-note',
-              'finish the comment you already started',
-            )
-          },
-          function () {
-            ucomments = null
-            renderNext()
-            render()
-          },
-        )
-      }
-
-      // ---- owner-only read-out ----
-      function panel() {
-        var host = document.getElementById('usage')
-        if (!host) return
-        host.hidden = false
-        host.innerHTML =
-          '<div class="sechead"><span class="sectoggle">Usage</span>' +
-          '<span class="note" style="margin:0">only you see this panel</span></div><p class="note">reading…</p>'
-        udb
-          .collection('sessions')
-          .orderBy('started_at', 'desc')
-          .limit(300)
-          .get()
-          .then(function (snap) {
-            var rows = snap.docs.map(function (d) {
-              return d.data()
-            })
-            var people = {},
-              queries = {},
-              clicks = {},
-              feedback = 0
-            rows.forEach(function (r) {
-              var v = r.viewer || 'unknown'
-              var p =
-                people[v] ||
-                (people[v] = { visits: 0, searches: 0, events: 0, last: '' })
-              p.visits++
-              p.searches += (r.searches || []).length
-              p.events += (r.events || []).length
-              if ((r.last_at || '') > p.last) p.last = r.last_at || ''
-              feedback += r.feedback || 0
-              Object.keys(r.clicks || {}).forEach(function (k) {
-                clicks[k] = (clicks[k] || 0) + (r.clicks[k] || 0)
-              })
-              ;(r.searches || []).forEach(function (s) {
-                var key = (s.q || '').toLowerCase()
-                var q =
-                  queries[key] ||
-                  (queries[key] = { q: s.q, n: 0, empty: 0, partial: 0 })
-                q.n++
-                if (!s.total) q.empty++
-                if (s.partial) q.partial++
-              })
-            })
-            var ids = Object.keys(people).filter(function (v) {
-              return v !== 'unknown'
-            })
-            var profs = uuser ? uuser.profiles(ids) : Promise.resolve({})
-            return profs.then(function (ps) {
-              var order = Object.keys(people).sort(function (a, b) {
-                return people[b].visits - people[a].visits
-              })
-              var who = order
-                .map(function (v) {
-                  var pr = ps[v] || {},
-                    p = people[v]
-                  var label =
-                    pr.name || (v === 'unknown' ? 'not signed in' : 'someone')
-                  return (
-                    '<tr><td>' +
-                    esc(label) +
-                    (pr.email
-                      ? ' <span class="muted mono">' + esc(pr.email) + '</span>'
-                      : '') +
-                    '</td><td class="num">' +
-                    p.visits +
-                    '</td><td class="num">' +
-                    p.searches +
-                    '</td><td class="num">' +
-                    p.events +
-                    '</td><td class="date">' +
-                    esc(shortDate(p.last)) +
-                    '</td></tr>'
-                  )
-                })
-                .join('')
-              var qs = Object.keys(queries)
-                .map(function (k) {
-                  return queries[k]
-                })
-                .sort(function (a, b) {
-                  return b.empty - a.empty || b.n - a.n
-                })
-                .slice(0, 40)
-                .map(function (q) {
-                  var flag = q.empty
-                    ? badge('crit', 'found nothing')
-                    : q.partial
-                      ? badge('warn', 'closest matches')
-                      : ''
-                  return (
-                    '<tr><td>' +
-                    esc(q.q) +
-                    '</td><td class="num">' +
-                    q.n +
-                    '</td><td>' +
-                    flag +
-                    '</td></tr>'
-                  )
-                })
-                .join('')
-              var ck =
-                Object.keys(clicks)
-                  .sort(function (a, b) {
-                    return clicks[b] - clicks[a]
-                  })
-                  .map(function (k) {
-                    return esc(k) + ' ' + clicks[k]
-                  })
-                  .join(' · ') || 'none yet'
-              host.innerHTML =
-                '<div class="sechead"><span class="sectoggle">Usage</span>' +
-                '<span class="note" style="margin:0">only you see this panel</span></div>' +
-                '<p class="note" style="margin-top:0">' +
-                rows.length +
-                ' visits · ' +
-                order.length +
-                ' people · ' +
-                feedback +
-                ' feedback comments opened · links out: ' +
-                ck +
-                '</p>' +
-                '<div class="usagegrid">' +
-                '<div class="tablewrap"><table><thead><tr><th>Who</th><th>Visits</th><th>Searches</th><th>Events opened</th><th>Last seen</th></tr></thead><tbody>' +
-                (who ||
-                  '<tr><td colspan="5" class="muted">nobody yet</td></tr>') +
-                '</tbody></table></div>' +
-                '<div class="tablewrap"><table><thead><tr><th>What they searched</th><th>Times</th><th></th></tr></thead><tbody>' +
-                (qs ||
-                  '<tr><td colspan="3" class="muted">no searches yet</td></tr>') +
-                '</tbody></table></div>' +
-                '</div>' +
-                '<p class="note">Stored with the page, so anyone here who opens it could read these rows. ' +
-                'Names are resolved as you view them and are never written down.</p>'
-            })
-          })
-          .then(null, function () {
-            host.innerHTML =
-              '<div class="sechead"><span class="sectoggle">Usage</span></div>' +
-              '<p class="note">could not read the usage store</p>'
-          })
-      }
-
-      return {
-        init: init,
-        search: search,
-        opened: opened,
-        picked: picked,
-        clicked: clicked,
-        feedback: feedback,
-        canComment: function () {
-          return !!ucomments
-        },
-      }
-    })()
-
+    // __USAGE_JS__
+    // __MAP_JS__
     // ---- events ----------------------------------------------------------------------
-    document.addEventListener(
-      'click',
-      function (ev) {
-        var fb = ev.target.closest('[data-feedback]')
-        if (fb) {
-          ev.preventDefault()
-          USAGE.feedback(fb)
-          return
-        }
-        var a = ev.target.closest('a[href^="http"]')
-        if (a) USAGE.clicked(a.getAttribute('href'))
-      },
-      true,
-    )
-
     document.addEventListener('click', function (ev) {
       var sum = ev.target.closest('details.dd > summary')
       if (sum) {
@@ -2824,7 +2397,7 @@
         return // let <details> toggle itself; no re-render, so the menu stays put
       }
       var t = ev.target.closest(
-        '[data-sec],[data-area],[data-prod],[data-fires],[data-status],[data-qsel],[data-ev],[data-clear],[data-sort],#clearf,#clearq,#clearq2',
+        '[data-sec],[data-area],[data-prod],[data-fires],[data-status],[data-okr],[data-qsel],[data-ev],[data-clear],[data-sort],#clearf,#clearq,#clearq2',
       )
       if (!t) return
       ev.preventDefault()
@@ -2836,6 +2409,7 @@
         state.products = []
         state.origins = []
         state.statuses = []
+        state.okrs = []
         state.question = null
         state.addedAfter = ''
         state.minVolume = ''
@@ -2848,6 +2422,7 @@
       else if (t.dataset.prod) toggleIn(state.products, t.dataset.prod)
       else if (t.dataset.fires) toggleIn(state.origins, t.dataset.fires)
       else if (t.dataset.status) toggleIn(state.statuses, t.dataset.status)
+      else if (t.dataset.okr) toggleIn(state.okrs, t.dataset.okr)
       else if (t.dataset.qsel) {
         state.question =
           state.question === t.dataset.qsel ? null : t.dataset.qsel
@@ -2857,6 +2432,7 @@
         if (state.open[t.dataset.ev]) USAGE.opened(t.dataset.ev)
       } else if (t.dataset.clear) {
         if (t.dataset.clear === 'status') state.statuses = []
+        else if (t.dataset.clear === 'okr') state.okrs = []
         else if (t.dataset.clear === 'fires') state.origins = []
         else state.products = []
       } else if (t.dataset.sort) {
@@ -2903,13 +2479,16 @@
     })
     document.getElementById('tryrow').innerHTML =
       'Try: ' +
-      [
-        'voter file export',
-        'onboarding drop off',
-        'pro upgrade',
-        'campaign plan',
-        'text campaign',
-      ]
+      (MAP
+        ? ['office', 'pro upgrade', 'pledge', 'text message', 'poll']
+        : [
+            'voter file export',
+            'onboarding drop off',
+            'pro upgrade',
+            'campaign plan',
+            'text campaign',
+          ]
+      )
         .map(function (s) {
           return (
             '<button class="pill" data-try="' +
@@ -2930,8 +2509,16 @@
       logSearch()
     })
 
+    SurfaceNav.mount(MAP ? 'map' : 'explorer', { feedback: true })
     renderNext()
     render()
-    USAGE.init()
+    USAGE.init({
+      snapshot: DATA.refreshed_at || '',
+      onCaps: function () {
+        renderNext()
+        render()
+        SurfaceNav.showFeedback(USAGE.canComment())
+      },
+    })
   })()
 </script>

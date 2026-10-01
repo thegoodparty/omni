@@ -483,6 +483,13 @@ describe('CvPinStatus', () => {
           'Hold cleared — the next sweep will resubmit'
         )
       )
+      // The hold view is still mounted (no refreshed state in this test) —
+      // the button must stay dead so a second click can't queue another
+      // paid run before the refresh lands.
+      expect(
+        screen.getByRole('button', { name: 'Hold cleared' })
+      ).toBeDisabled()
+      expect(mockOverrideCvValidationAndResubmit).toHaveBeenCalledTimes(1)
     })
 
     it('reports a retry failure and still refreshes to the cleared state', async () => {

@@ -21,6 +21,7 @@ import {
 } from '@/shared/test-utils/mockData.util'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
+import { Nightly10DlcReportService } from './services/nightly10DlcReport.service'
 
 function getGuards(methodName: keyof CampaignTcrComplianceController) {
   return (
@@ -64,6 +65,9 @@ describe('CampaignTcrComplianceController', () => {
   }
   let mockComplianceStateService: {
     findStateForCampaign: ReturnType<typeof vi.fn>
+  }
+  let mockNightlyReportService: {
+    getAdminStatusSnapshot: ReturnType<typeof vi.fn>
   }
   let mockSendSingleSend: ReturnType<typeof vi.fn>
 
@@ -113,6 +117,13 @@ describe('CampaignTcrComplianceController', () => {
       }),
     }
 
+    mockNightlyReportService = {
+      getAdminStatusSnapshot: vi.fn().mockResolvedValue({
+        generatedAt: new Date().toISOString(),
+        buckets: [],
+      }),
+    }
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         { provide: UsersService, useValue: mockUserService },
@@ -131,6 +142,10 @@ describe('CampaignTcrComplianceController', () => {
         {
           provide: HubspotSingleSendService,
           useValue: { sendSingleSend: mockSendSingleSend },
+        },
+        {
+          provide: Nightly10DlcReportService,
+          useValue: mockNightlyReportService,
         },
         CampaignTcrComplianceController,
       ],
@@ -599,6 +614,30 @@ describe('CampaignTcrComplianceController', () => {
         mockComplianceStateService.findStateForCampaign,
       ).toHaveBeenCalledWith(99)
       expect(result).toEqual(expectedState)
+    })
+  })
+
+  describe('getTenDlcStatusSnapshot (admin)', () => {
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('getTenDlcStatusSnapshot').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('delegates to the nightly report service snapshot', async () => {
+      const snapshot = { generatedAt: new Date().toISOString(), buckets: [] }
+      mockNightlyReportService.getAdminStatusSnapshot.mockResolvedValue(
+        snapshot,
+      )
+
+      const result = await controller.getTenDlcStatusSnapshot()
+
+      expect(
+        mockNightlyReportService.getAdminStatusSnapshot,
+      ).toHaveBeenCalledOnce()
+      expect(result).toEqual(snapshot)
     })
   })
 

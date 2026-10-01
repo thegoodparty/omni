@@ -397,7 +397,7 @@ const gotoAudience = async (
   purposeLabel = 'Persuade likely voters',
   onClose: () => void = vi.fn(),
 ) => {
-  render(<RobocallFlow open onClose={onClose} />)
+  render(<RobocallFlow source="outreach_page" open onClose={onClose} />)
   fireEvent.click(screen.getByText(purposeLabel))
 }
 
@@ -487,6 +487,7 @@ describe('RobocallFlow', () => {
     })
     gateRef.set({
       enabled: false,
+      resolved: true,
       requirement: null,
       twoStep: false,
       membership: null,
@@ -496,7 +497,7 @@ describe('RobocallFlow', () => {
 
   it('opens on the purpose step with the robocall purposes', () => {
     mockSavedLists()
-    render(<RobocallFlow open onClose={vi.fn()} />)
+    render(<RobocallFlow source="outreach_page" open onClose={vi.fn()} />)
     expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
     expect(screen.getByText('Persuade likely voters')).toBeInTheDocument()
   })
@@ -763,7 +764,9 @@ describe('RobocallFlow', () => {
   it('resets to the purpose step when reopened after cancelling mid-flow', async () => {
     mockSavedLists()
     const onClose = vi.fn()
-    const { rerender } = render(<RobocallFlow open onClose={onClose} />)
+    const { rerender } = render(
+      <RobocallFlow source="outreach_page" open onClose={onClose} />,
+    )
 
     // Advance off the purpose step so a resume would be observable.
     fireEvent.click(screen.getByText('Persuade likely voters'))
@@ -774,8 +777,10 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
 
     // Close (cancel), then reopen — the open effect must reset the flow.
-    rerender(<RobocallFlow open={false} onClose={onClose} />)
-    rerender(<RobocallFlow open onClose={onClose} />)
+    rerender(
+      <RobocallFlow source="outreach_page" open={false} onClose={onClose} />,
+    )
+    rerender(<RobocallFlow source="outreach_page" open onClose={onClose} />)
 
     expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
     expect(
@@ -2166,6 +2171,7 @@ describe('RobocallFlow', () => {
 
     const FREE_GATE: OutreachGateState = {
       enabled: true,
+      resolved: true,
       requirement: 'pro',
       twoStep: false,
       membership: {
@@ -2179,6 +2185,7 @@ describe('RobocallFlow', () => {
 
     const PRO_GATE: OutreachGateState = {
       enabled: true,
+      resolved: true,
       requirement: null,
       twoStep: false,
       membership: {
@@ -2247,7 +2254,7 @@ describe('RobocallFlow', () => {
       mockDraft()
       mockSavedLists()
       mockFreeAudience()
-      render(<RobocallFlow open onClose={onClose} />)
+      render(<RobocallFlow source="outreach_page" open onClose={onClose} />)
       fireEvent.click(screen.getByText('Persuade likely voters'))
       await userEvent.click(await screen.findByText('Persuadable independents'))
       await userEvent.click(
@@ -2280,7 +2287,7 @@ describe('RobocallFlow', () => {
       mockDraft()
       mockSavedLists()
       mockFreeAudience()
-      render(<RobocallFlow open onClose={vi.fn()} />)
+      render(<RobocallFlow source="outreach_page" open onClose={vi.fn()} />)
 
       fireEvent.click(screen.getByText('Persuade likely voters'))
       await userEvent.click(await screen.findByText('Persuadable independents'))
@@ -2335,7 +2342,7 @@ describe('RobocallFlow', () => {
         status: 200,
         data: { id: 71, name: 'Undecided persuadables' },
       })
-      render(<RobocallFlow open onClose={vi.fn()} />)
+      render(<RobocallFlow source="outreach_page" open onClose={vi.fn()} />)
 
       fireEvent.click(screen.getByText('Persuade likely voters'))
       // A card with no saved list behind it opens the naming drawer, and its
@@ -2371,7 +2378,7 @@ describe('RobocallFlow', () => {
       mockSavedLists()
       mockFreeAudience()
       const onClose = vi.fn()
-      render(<RobocallFlow open onClose={onClose} />)
+      render(<RobocallFlow source="outreach_page" open onClose={onClose} />)
 
       fireEvent.click(screen.getByText('Persuade likely voters'))
       await userEvent.click(await screen.findByText('Persuadable independents'))
@@ -2493,7 +2500,12 @@ describe('RobocallFlow', () => {
       ])
 
       render(
-        <RobocallFlow open onClose={vi.fn()} resumeDraft={draftDetail()} />,
+        <RobocallFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          resumeDraft={draftDetail()}
+        />,
       )
 
       await screen.findByLabelText('Campaign name')
@@ -2519,7 +2531,12 @@ describe('RobocallFlow', () => {
       api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
 
       render(
-        <RobocallFlow open onClose={vi.fn()} resumeDraft={draftDetail()} />,
+        <RobocallFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          resumeDraft={draftDetail()}
+        />,
       )
 
       expect(
@@ -2560,7 +2577,12 @@ describe('RobocallFlow', () => {
       })
 
       render(
-        <RobocallFlow open onClose={vi.fn()} resumeDraft={draftDetail()} />,
+        <RobocallFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          resumeDraft={draftDetail()}
+        />,
       )
 
       await screen.findByLabelText('Campaign name')
@@ -2639,7 +2661,7 @@ describe('RobocallFlow', () => {
       mockDraft()
       mockSavedLists()
       mockListDetail(80)
-      render(<RobocallFlow open onClose={vi.fn()} />)
+      render(<RobocallFlow source="outreach_page" open onClose={vi.fn()} />)
       fireEvent.click(screen.getByText('Persuade likely voters'))
       await userEvent.click(await screen.findByText('Choose a voter list'))
       await userEvent.click(await screen.findByText('Renters in 98103'))

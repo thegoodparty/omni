@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { CampaignStrategyPhaseKey } from '@goodparty_org/contracts'
 import { PRO_UPGRADE_ENTRY_PATH } from 'app/shared/experiments/proUpgrade3Flag'
 
 // Where the press that entered the wizard happened. Only `Pro Upgrade - Flow
@@ -12,6 +13,15 @@ export const ProUpgradeSourceSchema = z.enum([
   'opponent_research',
   'contacts',
   'direct',
+  // An outreach flow's own source (`OutreachFlowSource`), carried into the
+  // wizard its Pro gate embeds.
+  'outreach_page',
+  'draft',
+  'campaign_plan',
+  'campaign_manager',
+  'voter_data',
+  'door_knocking_page',
+  'deep_link',
 ])
 export type ProUpgradeSource = z.infer<typeof ProUpgradeSourceSchema>
 
@@ -33,6 +43,10 @@ export type ProUpgradeAttribution = {
   channel: ProUpgradeChannel
   // The literal label on the button that was pressed.
   cta?: string
+  // The tracker task an outreach flow was launched from, under the names the
+  // outreach events already use, so the two join.
+  trackerTaskId?: string
+  phase?: CampaignStrategyPhaseKey
 }
 
 // The CTA is free text off the URL, so it is capped rather than allowlisted.

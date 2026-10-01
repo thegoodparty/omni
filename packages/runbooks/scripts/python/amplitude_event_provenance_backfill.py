@@ -350,6 +350,7 @@ def compute_call_site_fields(
     events_map: Mapping[str, Sequence[str]],
     file_texts: Sequence[str],
     retired_lookup: Callable[[str], str | None],
+    removal_lookup: Callable[[str], Commit | None] | None = None,
 ) -> dict[str, dict]:
     """Per-event call-site fields: count at the ref, plus a retirement date for dead ones.
 
@@ -368,6 +369,12 @@ def compute_call_site_fields(
         count = sum(counts.get(path, 0) for path in paths)
         retired = next((r for p in paths if (r := retired_lookup(p))), None) if count == 0 else None
         out[name] = {"call_site_count": count, "call_site_retired_date": retired}
+        # The commit that took the count to zero, so a reviewer retiring the event is
+        # handed the proof rather than sent to find it.
+        if removal_lookup is not None:
+            commit = next((c for p in paths if (c := removal_lookup(p))), None) if count == 0 else None
+            out[name]["call_site_retired_commit"] = commit["commit"] if commit else None
+            out[name]["call_site_retired_pr"] = commit["pr"] if commit else None
     return out
 
 
@@ -543,6 +550,8 @@ PROVENANCE_COLUMNS = [
     "last_code_change_date",
     "call_site_count",
     "call_site_retired_date",
+    "call_site_retired_commit",
+    "call_site_retired_pr",
     "updated_at",
 ]
 
@@ -580,6 +589,8 @@ def build_provenance_row(
         "last_code_change_date": last_change["date"] if last_change else None,
         "call_site_count": None,
         "call_site_retired_date": None,
+        "call_site_retired_commit": None,
+        "call_site_retired_pr": None,
         "updated_at": updated_at,
     }
     if code_status == "removed" and retired:
@@ -664,17 +675,33 @@ def collect_provenance(
 # ancestry path to that introducing merge and parse its subject. Pure git, offline, and aligned
 # with omni's merge-commit workflow (commits/{sha}/pulls returns nothing for this repo).
 
-_PR_FIELDS = (("instrumented_commit", "instrumented_pr"), ("retired_commit", "retired_pr"))
+_PR_FIELDS = (
+    ("instrumented_commit", "instrumented_pr"),
+    ("retired_commit", "retired_pr"),
+    ("call_site_retired_commit", "call_site_retired_pr"),
+)
 
 
-def _pick_introducing_merge(rev_list_output: str) -> str | None:
-    """From ``git rev-list --ancestry-path --merges <sha>..<ref>`` output, the introducing merge.
+def _pick_introducing_pr(merge_subjects: str, oldest_only: bool = False) -> str | None:
+    """The PR that brought a commit in, from its ancestry path's merge subjects (newest first).
 
-    rev-list emits newest-first, so the merge that actually brought the commit into the ref
-    is the *oldest* on the ancestry path (later lines are subsequent merges on the mainline).
+    The oldest merge on the path is not always the PR merge: a branch that pulled main in
+    before merging ("Merge remote-tracking branch 'origin/main' into ...") puts its own merge
+    first, and that subject names no PR. So take the oldest merge that does name one. Found
+    on DATA-2546: #1636's removal commit resolved to no PR through exactly this.
+
+    ``oldest_only`` keeps the stricter rule for grafted history, where the predecessor
+    repo's commit cannot be checked against GitHub: there a later merge naming a PR is not
+    evidence enough, so no PR is better than a guessed one.
     """
-    shas = rev_list_output.split()
-    return shas[-1] if shas else None
+    subjects = merge_subjects.splitlines()
+    if oldest_only:
+        return parse_pr_number(subjects[-1]) if subjects else None
+    for subject in reversed(subjects):
+        pr = parse_pr_number(subject)
+        if pr:
+            return pr
+    return None
 
 
 def resolve_pr_gaps(
@@ -889,6 +916,21 @@ def parse_call_site_removals(lines: Iterable[str]) -> dict[str, Commit]:
     return out
 
 
+def make_call_site_removal_lookup(
+    root: str, ref: str, paths: Sequence[str]
+) -> Callable[[str], Commit | None]:
+    """``key_path -> the commit that took it to zero``, via the same single history walk."""
+    commits: dict[str, Commit] | None = None
+
+    def lookup(key_path: str) -> Commit | None:
+        nonlocal commits
+        if commits is None:
+            commits = parse_call_site_removals(run_git_log(root, None, paths, ref))
+        return commits.get(key_path)
+
+    return lookup
+
+
 def make_call_site_retired_lookup(
     root: str, ref: str, paths: Sequence[str]
 ) -> Callable[[str], str | None]:
@@ -952,12 +994,16 @@ def augment_call_site_columns(
         )
         return
     file_texts = git_call_site_file_texts(root, paths, ref)
-    lookup = make_call_site_retired_lookup(root, ref, paths)
-    fields = compute_call_site_fields(events_map, file_texts, lookup)
+    removal = make_call_site_removal_lookup(root, ref, paths)
+    fields = compute_call_site_fields(
+        events_map, file_texts, lambda p: (c := removal(p)) and c["date"], removal
+    )
     for row in rows:
-        f = fields.get(row["event_type"])
-        row["call_site_count"] = f["call_site_count"] if f else None
-        row["call_site_retired_date"] = f["call_site_retired_date"] if f else None
+        f = fields.get(row["event_type"]) or {}
+        row["call_site_count"] = f.get("call_site_count")
+        row["call_site_retired_date"] = f.get("call_site_retired_date")
+        row["call_site_retired_commit"] = f.get("call_site_retired_commit")
+        row["call_site_retired_pr"] = f.get("call_site_retired_pr")
 
 
 def git_head_sha(root: str, ref: str = "HEAD") -> str:
@@ -1010,27 +1056,22 @@ def git_fetch(root: str, ref: str) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def git_merge_pr(root: str, sha: str, deploy_ref: str) -> str | None:
+def git_merge_pr(root: str, sha: str, deploy_ref: str, grafted: bool = False) -> str | None:
     """PR number for the merge commit that introduced ``sha`` into ``deploy_ref``, else None.
 
     Walks the ancestry path from the commit to the deploy ref, takes the introducing merge,
     and parses its subject. None when the commit reached the ref without a merge (e.g. a
     direct push) or is not an ancestor of the ref.
     """
-    rev_list = subprocess.run(
-        ["git", "-C", root, "rev-list", "--ancestry-path", "--merges", f"{sha}..{deploy_ref}"],
+    log = subprocess.run(
+        ["git", "-C", root, "log", "--ancestry-path", "--merges", "--format=%s",
+         f"{sha}..{deploy_ref}"],
         capture_output=True,
         text=True,
     )
-    if rev_list.returncode != 0:
+    if log.returncode != 0:
         return None
-    merge_sha = _pick_introducing_merge(rev_list.stdout)
-    if not merge_sha:
-        return None
-    subject = subprocess.run(
-        ["git", "-C", root, "log", "-1", "--format=%s", merge_sha], capture_output=True, text=True
-    ).stdout
-    return parse_pr_number(subject)
+    return _pick_introducing_pr(log.stdout, oldest_only=grafted)
 
 
 def build_pr_origin_map(root: str, deploy_ref: str = DEPLOY_REF) -> dict[str, str]:
@@ -1073,9 +1114,16 @@ def build_pr_origin_map(root: str, deploy_ref: str = DEPLOY_REF) -> dict[str, st
     return origin
 
 
-def make_merge_walk_resolver(root: str, deploy_ref: str) -> Callable[[str], str | None]:
-    """A ``sha -> PR`` resolver bound to a checkout + deploy ref, for ``resolve_pr_gaps``."""
-    return lambda sha: git_merge_pr(root, sha, deploy_ref)
+def make_merge_walk_resolver(
+    root: str, deploy_ref: str, pr_origin: Mapping[str, str] | None = None
+) -> Callable[[str], str | None]:
+    """A ``sha -> PR`` resolver bound to a checkout + deploy ref, for ``resolve_pr_gaps``.
+
+    ``pr_origin`` (from ``build_pr_origin_map``) marks grafted commits, which resolve by
+    the stricter oldest-merge rule.
+    """
+    origin = pr_origin or {}
+    return lambda sha: git_merge_pr(root, sha, deploy_ref, grafted=sha in origin)
 
 
 # --------------------------------------------------------------------------- #
@@ -1186,6 +1234,8 @@ def upsert_provenance_row(
         row["retired_author_email"] = None
         row["call_site_count"] = None
         row["call_site_retired_date"] = None
+        row["call_site_retired_commit"] = None
+        row["call_site_retired_pr"] = None
     else:
         # Symmetric with the add guard, including its PR carve-out (DATA-2525): preserve the
         # first retirement attribution so a double-fire (retry, reprocessing) does not replace
@@ -1334,11 +1384,13 @@ def run_backfill(
     rows = collect_provenance(events, lines, grep_text, updated_at)
     _carry_forward_provisional(rows, read_provenance_rows(csv_path), present_at_head(events, grep_text))
 
+    # Call-site columns first, so the merge walk also fills the PR of a call-site removal
+    # whose commit subject carries no "(#N)".
+    augment_call_site_columns(rows, root, ref)
     _, filled = resolve_pr_gaps(rows, pr_resolver)
     if pr_resolver is not None:
         print(f"Merge-walk PR backfill: filled {filled} *_pr gaps", file=sys.stderr)
 
-    augment_call_site_columns(rows, root, ref)
     write_provenance(rows, csv_path, pr_origin)
     write_watermark(
         state_path,
@@ -1527,8 +1579,8 @@ def _run_walk(args: argparse.Namespace) -> None:
     if not args.no_fetch:
         print(f"Fetching {args.ref} ...", file=sys.stderr)
         git_fetch(root, args.ref)
-    pr_resolver = None if args.no_pr_resolve else make_merge_walk_resolver(root, args.ref)
     pr_origin = build_pr_origin_map(root, args.ref)
+    pr_resolver = None if args.no_pr_resolve else make_merge_walk_resolver(root, args.ref, pr_origin)
     if pr_origin:
         repos = sorted(set(pr_origin.values()))
         print(

@@ -4,6 +4,12 @@ import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import DoorKnockingPageGate from './native/DoorKnockingPageGate'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
+import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
+
+// The surfaces that link here with `?create=1` and say where they are.
+// Allowlisted so the query string cannot put an arbitrary value into
+// analytics.
+const CREATE_SOURCES: OutreachFlowSource[] = ['outreach_page', 'voter_data']
 
 const meta = pageMetaData({
   title: 'Door Knocking | GoodParty.org',
@@ -22,6 +28,7 @@ interface PageParams {
     outreachId?: string
     create?: string
     campaignOutreachId?: string
+    source?: string
   }>
 }
 
@@ -31,7 +38,15 @@ export default async function Page({
   await candidateAccess()
 
   const [
-    { listId, recommended, walkTurfId, outreachId, create, campaignOutreachId },
+    {
+      listId,
+      recommended,
+      walkTurfId,
+      outreachId,
+      create,
+      campaignOutreachId,
+      source,
+    },
     campaign,
   ] = await Promise.all([searchParams, fetchUserCampaign()])
 
@@ -64,6 +79,9 @@ export default async function Page({
     // Exactly `'1'` — anything else is somebody's stray query string, and the
     // page it would open a modal over is perfectly usable without one.
     openCreateFlow: create === '1',
+    // Where the `?create=1` link was pressed, for the flow's stage events and
+    // its Pro gate.
+    createSource: CREATE_SOURCES.find((value) => value === source),
     // "Add another turf" from the campaign drawer — the id of the anchor
     // Outreach the new turf should join. Same positive-integer rule as the
     // list/turf ids above; the drawer never sends anything else, and a

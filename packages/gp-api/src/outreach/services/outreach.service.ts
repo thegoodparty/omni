@@ -89,6 +89,9 @@ const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
   candidate_name: "include the candidate's name",
   paid_for_by: 'include "Paid for by <your committee name>"',
   length: 'shorten the message to fit the length limit',
+  link_shortener:
+    'use the full link instead of a shortener like bit.ly — our texting ' +
+    'provider rejects shortened links',
 }
 
 @Injectable()
@@ -410,29 +413,30 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   /**
    * Submits a paid draft to Peerly. Invoked by the TEXT post-purchase handler,
    * which runs from BOTH the client's complete-checkout-session call and the
-   * Stripe webhook — the status claim below is the DB lock that makes the race
-   * harmless. Throwing here is deliberate: completeCheckoutSession only stamps
-   * its idempotency marker after handler success, so a throw makes Stripe
-   * retry, and the revert re-arms the claim for that retry. campaignId scopes
-   * the claim to the paying campaign — outreachId arrives via client-influenced
-   * checkout metadata and must not finalize another campaign's draft.
+   * Stripe webhook — the status claim in claimDraftForFinalize is the DB lock
+   * that makes the race harmless. Throwing here is deliberate:
+   * completeCheckoutSession only stamps its idempotency marker after handler
+   * success, so a throw makes Stripe retry, and the revert re-arms the claim
+   * for that retry. campaignId scopes the claim to the paying campaign —
+   * outreachId arrives via client-influenced checkout metadata and must not
+   * finalize another campaign's draft.
    */
   async finalizeOutreachPurchase(
     outreachId: number,
     campaignId: number,
+    // What paid for this send: the Stripe checkout session on the paid path, a
+    // free-purchase marker on the zero-amount one. Carried only so the failure
+    // line below names it. Whoever answers the paid-but-not-scheduled alert has
+    // to decide whether to refund, and the draft row does not record a charge
+    // that never produced a send.
+    chargeRef?: string,
   ): Promise<void> {
-    const claimed = await this.model.updateMany({
-      where: {
-        id: outreachId,
-        campaignId,
-        status: OutreachStatus.pending_payment,
-      },
-      data: { status: OutreachStatus.pending },
-    })
-    if (claimed.count === 0) {
-      await this.confirmFinalized(outreachId, campaignId)
-      return
-    }
+    const claimed = await this.claimDraftForFinalize(
+      outreachId,
+      campaignId,
+      chargeRef,
+    )
+    if (!claimed) return
 
     const outreach = await this.model.findUniqueOrThrow({
       where: { id: outreachId },
@@ -459,7 +463,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         data: { status: OutreachStatus.pending_payment },
       })
       this.logger.error(
-        { err, outreachId, campaignId: campaign.id },
+        { err, outreachId, campaignId: campaign.id, chargeRef },
         'P2P outreach finalize failed after payment',
       )
       if (user) {
@@ -568,17 +572,79 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   }
 
   /**
-   * A lost claim does NOT mean the work happened: the winner may still be
-   * mid-Peerly, may have failed and reverted the row, or the id may not match
-   * any draft of this campaign at all. Only a stamped projectId proves
-   * fulfillment — everything else throws, so the payment layer never marks
-   * the purchase processed on the strength of a lost race and Stripe keeps
-   * retrying.
+   * Takes the draft, or explains why this call has no work to do.
+   *
+   * True means this call owns the draft and must submit it. False means a
+   * concurrent finalize already stamped a Peerly job, so the purchase is
+   * fulfilled. Anything else throws, because a lost claim is not evidence the
+   * work happened and the payment layer must not mark the purchase processed
+   * on the strength of a lost race.
+   *
+   * The takeover is the case that used to be reported as a bare retryable
+   * failure. A draft handed back to pending_payment means the winner failed
+   * and released it, and the release is indistinguishable from a winner that
+   * died mid-submission — so the old code threw an error naming neither, the
+   * webhook answered Stripe 502, and the redelivery a few seconds later took
+   * the draft and produced the real answer. Taking it here instead gets that
+   * real answer in the same request: a vendor refusing the candidate's script
+   * is permanent and acknowledges the webhook, while a genuinely transient
+   * failure still throws and is still redelivered (ENG incident 94).
    */
-  private async confirmFinalized(
+  private async claimDraftForFinalize(
     outreachId: number,
     campaignId: number,
-  ): Promise<void> {
+    chargeRef?: string,
+  ): Promise<boolean> {
+    // One takeover only. A second lost claim means something else is racing
+    // us, and a redelivery is a better place to resolve that than a loop.
+    for (let takeovers = 0; ; takeovers++) {
+      const claimed = await this.model.updateMany({
+        where: {
+          id: outreachId,
+          campaignId,
+          status: OutreachStatus.pending_payment,
+        },
+        data: { status: OutreachStatus.pending },
+      })
+      if (claimed.count > 0) return true
+
+      const observed = await this.awaitConcurrentFinalize(
+        outreachId,
+        campaignId,
+      )
+      if (observed === 'finalized') return false
+      if (observed === 'rearmed' && takeovers === 0) continue
+
+      this.logger.error(
+        { outreachId, campaignId, observed, chargeRef },
+        'P2P outreach finalize failed after payment',
+      )
+      throw new OutreachStepError(
+        'peerlyJobCreation',
+        new Error(
+          `Outreach ${outreachId} was not finalized (${observed}): ` +
+            (observed === 'missing'
+              ? `no draft with this id belongs to campaign ${campaignId}`
+              : observed === 'rearmed'
+                ? 'a concurrent finalize failed and the retake lost the claim too'
+                : 'a concurrent finalize is still in flight'),
+        ),
+      )
+    }
+  }
+
+  /**
+   * Watches the draft while whoever won the claim works on it.
+   *
+   * `finalized` — a stamped projectId, the only proof of fulfillment.
+   * `rearmed`   — back at pending_payment: the winner failed and released it.
+   * `missing`   — no such draft for this campaign (a client-supplied id).
+   * `inFlight`  — still held after the poll window.
+   */
+  private async awaitConcurrentFinalize(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<'finalized' | 'rearmed' | 'missing' | 'inFlight'> {
     // Covers the winner's inline Peerly submission (~10s worst case observed).
     const POLL_ATTEMPTS = 30
     const POLL_INTERVAL_MS = 1000
@@ -588,26 +654,13 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         where: { id: outreachId, campaignId },
         select: { status: true, projectId: true },
       })
-      if (!row || row.status === OutreachStatus.pending_payment) {
-        break
-      }
-      if (row.projectId) {
-        return
-      }
+      if (!row) return 'missing'
+      if (row.projectId) return 'finalized'
+      if (row.status === OutreachStatus.pending_payment) return 'rearmed'
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
     }
 
-    this.logger.error(
-      { outreachId, campaignId },
-      'P2P outreach finalize failed after payment',
-    )
-    throw new OutreachStepError(
-      'peerlyJobCreation',
-      new Error(
-        `Outreach ${outreachId} was not finalized: missing, not owned by ` +
-          `campaign ${campaignId}, or a concurrent finalize failed`,
-      ),
-    )
+    return 'inFlight'
   }
 
   private async submitDraftToPeerly(

@@ -298,6 +298,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       await this.outreachService.finalizeOutreachPurchase(
         outreachId,
         campaignId,
+        paymentIntentId,
       )
       this.logger.info(
         `Outreach ${outreachId} finalized after payment ${paymentIntentId}`,

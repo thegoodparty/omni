@@ -148,6 +148,7 @@ const openServeFlow = (
       onClose={vi.fn()}
       onScheduled={onScheduled}
       surface={SERVE_SMS_SURFACE}
+      source="outreach_page"
       {...extra}
     />,
   )
@@ -572,6 +573,7 @@ describe('SmsFlow win send path (unchanged)', () => {
   it('still derives a phone list, creates via createOutreach, and checks out as TEXT', async () => {
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}

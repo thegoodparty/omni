@@ -591,8 +591,15 @@ candidate when it is PERMANENT — a request we can never make succeed by retryi
 (a 4xx/validation reject: bad audio format, a malformed campaign, a rejected
 launch). The signal is typed at the vendor layer: `CallhubErrorHandlingService`
 throws `CallhubPermanentError` (a `BadGatewayException` subclass, still a 502
-externally so no other caller's behavior changes) for a non-429 4xx, and a plain
-`BadGatewayException` for everything transient (429, 5xx, a lost response). A
+externally so no other caller's behavior changes) for a non-recoverable 4xx, and a
+plain `BadGatewayException` for everything transient (401/408/429, 5xx, a lost
+response). Permanence is decided by the status EXCEPT for the `detail` codes in
+`RECOVERABLE_4XX_DETAILS`, which are recoverable conditions CallHub reports on an
+otherwise-permanent status: `over_cps_limit`, its calls-per-second throttle,
+arrives as a 400 rather than a 429 and is the same "ask again later" condition, so
+it stays transient. That distinction is load-bearing here and nowhere else — a
+throttle read as permanent voids the candidate's hold and discards a staged, paid,
+compliance-passed run (outreachIds 83747 and 83982, 2026-09-29/30). A
 second permanent shape is a `ZodError` parsing the CallHub response: a wrong
 response shape a retry can never fix. Its dial-safety differs by slice. STAGING never
 dials — it only creates a PAUSED campaign — so BOTH a 4xx (`CallhubPermanentError`)

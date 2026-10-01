@@ -235,3 +235,25 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
             "dormancy check is DISABLED this run."
         )
     return anchors, problems
+
+
+def load_metric_labels(token: str | None = None) -> dict[str, str]:
+    """``{metric_name: label}`` across the governed sem files, for display only.
+
+    Best effort, unlike ``load_anchors``: a missing label costs a page its readable name
+    and nothing else, so a failed read returns what it has and the page shows the id.
+    """
+    token = token if token is not None else os.environ.get(TOKEN_ENV)
+    use_gh = not token and not os.environ.get(GH_FALLBACK_ENV)
+    if not token and not use_gh:
+        return {}
+    labels: dict[str, str] = {}
+    for path in SEM_PATHS:
+        try:
+            text = _fetch_via_gh(path) if use_gh else _fetch(path, token)
+            for metric in (yaml.safe_load(text) or {}).get("metrics") or []:
+                if metric.get("name") and metric.get("label"):
+                    labels[metric["name"]] = str(metric["label"])
+        except Exception:  # noqa: BLE001 - display-only; see docstring
+            continue
+    return labels
