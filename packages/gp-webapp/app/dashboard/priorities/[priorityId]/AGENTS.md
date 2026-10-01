@@ -68,17 +68,15 @@ is worse than the move itself.
 in the transcript from an empty status. That is why a reloaded thread reads the
 same as it did live.
 
-## Cards are compact, and a card's detail takes the rail
+## Cards are compact, and a card's detail opens over the page
 
 Every card is one row in the stream; see "Cards" in
-`shared/agent-chat/AGENTS.md`. The people cards open their detail in a panel,
-and on this page **the panel is the right rail**: `PriorityAside` swaps the
-status rail for the detail (widened to door knocking's 430px) with a Back
-control named for the rail, rather than stacking a third column. Below `lg`
-the detail is a bottom sheet (`PriorityDetailSheet`), the same treatment the
-status rail gets. `PriorityWorkspace` wraps everything in
-`CardDetailProvider`, so a panel opened on the live turn stays open when the
-turn settles and the persisted copy of the card replaces it.
+`shared/agent-chat/AGENTS.md`. The people cards open their detail in the
+shared `CardDetailSheetHost`, the same right-side sheet a constituent opens
+in on the contacts page and in Chief of Staff; the status rail stays where it
+is. `PriorityWorkspace` wraps everything in `CardDetailProvider`, so a panel
+opened on the live turn stays open when the turn settles and the persisted
+copy of the card replaces it.
 
 Outreach cards never open a panel. A proposal's button opens that channel's
 own flow over this conversation (`ProposalFlowsProvider`, mounted here
@@ -127,6 +125,16 @@ Three more holds, because the model also called the official's own agreement
   on a step that is not a gate is refused, and the client merge ignores one.
 - **An unanswered `asked` lets one step open past its gate, and no further.**
   After that, the agent has to ask again or record the answer.
+- **A real send puts a side out, not the agent.** A proposal names the check
+  it puts out (`stepId`, `side`), and the create that sends it carries them.
+  Once the send is real (the phone list built, the post saved, the text paid
+  for) `PriorityStatusService.recordOutreachSent` moves that side to `out`
+  through the same merge, stamping `sentAt` and `sentProposalKey`; a replay
+  of the same proposal records nothing new, and a side constituents already
+  answered keeps its answer. The `<status>` block shows `Sent:`, the
+  proposal tool refuses to offer a sent side again, and the workspace tells
+  the agent with one hidden `PROPOSAL_SENT_MARKER` turn (see "Cards" in
+  `shared/agent-chat/AGENTS.md`).
 
 Listening is not a gate. The answer lives on the step as `check`
 (`PriorityStepCheckSchema` in contracts): `asked`, `out`, `confirmed`,

@@ -138,6 +138,44 @@ export const serveIdentificationIntro = (
     office || SERVE_SMS_IDENTIFICATION_FALLBACK.office,
   )
 
+// A sender-name placeholder a draft left for someone to fill in.
+const SENDER_PLACEHOLDER =
+  /\[\s*(?:your|sender'?s?|official'?s?)?\s*(?:first\s+|full\s+)?name\s*\]/gi
+
+// An opening sentence that says who is texting: "Hi, this is ...", "This is
+// the City Council.", "Bryan here from the City ...".
+const SELF_INTRO =
+  /^(?:(?:hi|hello|hey)(?:\s+there)?[,!]?\s+)?(?:(?:this is|it's|it is)\b|[^.!?]{1,40}?\bhere\b(?:,|\s+(?:from|with|at)\b))/i
+
+const FIRST_SENTENCE = /^[^.!?]*[.!?]+(?:\s+|$)/
+
+// A greeting the draft opens with. The template already greets.
+const LEADING_GREETING = /^(?:hi|hello|hey)(?:\s+there)?\s*[,!.]?\s+/i
+
+/**
+ * A Serve text written outside the compose step (a chat card's draft),
+ * signed the way the step signs its own: the draft's own self-introduction
+ * and any greeting come off, sender-name placeholders become the official's
+ * first name, and `intro` (serveIdentificationIntro) opens it. The template
+ * adds "Hello {{first_name}}," ahead of it, so the result never greets twice.
+ * Callers run it only on a body that fails the name rule.
+ */
+export const signServeSmsDraft = (
+  body: string,
+  { intro, firstName }: { intro: string; firstName: string },
+): string => {
+  const trimmed = body.trim()
+  const opening = trimmed.match(FIRST_SENTENCE)?.[0]
+  const rest =
+    opening !== undefined && SELF_INTRO.test(opening)
+      ? trimmed.slice(opening.length)
+      : trimmed
+  const named = firstName ? rest.replace(SENDER_PLACEHOLDER, firstName) : rest
+  return [intro, named.replace(LEADING_GREETING, '').trim()]
+    .filter(Boolean)
+    .join(' ')
+}
+
 // The submitted script is the concatenation of the system regions around
 // the user's message (which opens with the identification) — the backend
 // has no region concept and sends the script to the vendor verbatim

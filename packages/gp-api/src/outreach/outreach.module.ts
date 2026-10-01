@@ -22,6 +22,7 @@ import { ContactsModule } from '../contacts/contacts.module'
 import { OrganizationsModule } from '../organizations/organizations.module'
 import { PeopleQueryModule } from '../peopleDb/peopleQuery.module'
 import { PaymentsModule } from '../payments/payments.module'
+import { PrioritiesModule } from '../priorities/priorities.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { QueueProducerModule } from '../queue/producer/queueProducer.module'
 import { VotersModule } from '../voters/voters.module'
@@ -133,6 +134,9 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     // uses to enqueue `outreachTextSend` from its post-purchase step. The
     // producer module imports nothing, so this edge adds no cycle.
     QueueProducerModule,
+    // For PriorityStatusService: a send that came out of a priority's check
+    // puts that check out.
+    forwardRef(() => PrioritiesModule),
     // For VoterQueryService, which OutreachSmsRepliesService uses to put a
     // first name on each reply. PeopleQueryModule imports only HttpModule and
     // ClerkModule, so this edge adds no cycle and needs no forwardRef.

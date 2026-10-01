@@ -4,6 +4,7 @@ import {
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
   emptyPriorityStatus,
+  PROPOSAL_SENT_MARKER,
 } from '@goodparty_org/contracts'
 import { ChatScope, type Organization } from '../../../generated/prisma'
 import { ChatScopeRegistry } from '../services/chatScopeRegistry.service'
@@ -490,6 +491,96 @@ describe('PriorityFlowHandler', () => {
         message: 'this is Bryan, your City Council Member. Is the sidewalk it?',
       }),
     ).toEqual({ presented: true, deepLinkOnly: true })
+  })
+
+  // A side that went out has been asked; offering it again would ask the
+  // same people twice.
+  it('refuses to offer a side of a check that already went out', async () => {
+    const status = emptyPriorityStatus()
+    priorityStatus.read = vi.fn(() =>
+      Promise.resolve({
+        ...status,
+        steps: status.steps.map((step) =>
+          step.id === 'define'
+            ? {
+                ...step,
+                state: 'settled' as const,
+                check: {
+                  state: 'out' as const,
+                  who: 'Renters on the flood blocks',
+                  question: 'Is it the drains?',
+                  raised: 0,
+                  sentAt: '2026-09-30T12:00:00Z',
+                  sentProposalKey: '3c9a7e51-0d2b-4f6e-9a18-5b7c2d4e6f80',
+                },
+              }
+            : step,
+        ),
+      }),
+    )
+    const tool = build().buildTools(baseCtx()).present_outreach_proposal
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    const proposal = {
+      audience: 'Renters on the flood blocks',
+      count: 260,
+      channel: 'phoneBanking' as const,
+      message: 'I am calling for Bryan, your City Council Member.',
+      deepLinkOnly: false,
+      stepId: 'define' as const,
+    }
+
+    expect(await tool.execute({ ...proposal, side: 'main' })).toHaveProperty(
+      'error',
+      expect.stringContaining('already went out'),
+    )
+    expect(await tool.execute({ ...proposal, side: 'contrast' })).toEqual({
+      presented: true,
+      deepLinkOnly: false,
+    })
+    expect(
+      await tool.execute({
+        ...proposal,
+        stepId: 'evidence' as const,
+        side: 'main',
+      }),
+    ).toHaveProperty('error')
+  })
+
+  it('tells the agent a sent side is out on its own and never offered again', () => {
+    const status = emptyPriorityStatus()
+    const prompt = buildWithCrm().buildSystemPrompt({
+      ...baseCtx(),
+      status: {
+        ...status,
+        steps: status.steps.map((step) =>
+          step.id === 'define'
+            ? {
+                ...step,
+                state: 'settled' as const,
+                check: {
+                  state: 'out' as const,
+                  who: 'Renters',
+                  question: 'Is it the drains?',
+                  raised: 0,
+                  sentAt: '2026-09-30T12:00:00Z',
+                },
+              }
+            : step,
+        ),
+      },
+    })
+    expect(prompt).toContain(
+      'Check: out. Who: Renters. Question: Is it the drains? Sent: 2026-09-30T12:00:00Z.',
+    )
+    expect(prompt).toContain(
+      'a side sent from its card is recorded as out on its own',
+    )
+    expect(prompt).toContain('Never present it again')
+    expect(prompt).toContain(`starts with ${PROPOSAL_SENT_MARKER}`)
+    expect(prompt).toContain('stepId (the step you just settled) and side main')
+    expect(prompt).toContain('with the same stepId and side contrast')
   })
 
   it('asks a structured question without touching the status', async () => {

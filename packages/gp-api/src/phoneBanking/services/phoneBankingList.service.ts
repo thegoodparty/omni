@@ -4,7 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { assertPriorityInOffice } from '@/priorities/util/assertPriorityInOffice.util'
+import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import {
+  resolveProposalLink,
+  type ProposalOutreachLink,
+} from '@/priorities/util/proposalLink.util'
 import {
   IdOverrides,
   PHONE_BANKING_SHEET_SIZE,
@@ -16,6 +20,7 @@ import {
   PhoneBankingListPerson,
   Person,
   ServePhoneBankingCreate,
+  type ProposalLink,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
@@ -97,7 +102,7 @@ type PersonName = { personId: string; name: string; firstName: string | null }
 // ElectedOffice's org. A null scope (Win's continueIfNotFound case — no
 // Campaign row) writes no envelope at all, same as before this change.
 //
-// proposalKey/priorityId ride along when the list was created from a chat
+// The proposal link rides along when the list was created from a chat
 // card. The key goes into the envelope's INSERT rather than onto it
 // afterwards: its unique index is what makes two simultaneous sends of the
 // same proposal produce one list instead of two, and a post-create stamp
@@ -105,9 +110,7 @@ type PersonName = { personId: string; name: string; firstName: string | null }
 export type PhoneBankingScope = {
   campaignId: number | null
   organizationSlug: string
-  proposalKey?: string
-  priorityId?: string
-}
+} & ProposalOutreachLink
 
 const formatAddress = (address: Person['address']): string | null => {
   const cityState = [address.city, address.state].filter(Boolean).join(', ')
@@ -125,12 +128,13 @@ export class PhoneBankingListService extends createPrismaBase(
     private readonly contactStatus: ContactStatusService,
     private readonly voterQuery: VoterQueryService,
     private readonly access: PhoneBankingAccessService,
+    private readonly priorityStatus: PriorityStatusService,
   ) {
     super()
   }
 
-  async assertPriorityInOffice(priorityId: string, electedOfficeId: string) {
-    await assertPriorityInOffice(this.client, priorityId, electedOfficeId)
+  resolveProposalLink(link: ProposalLink, electedOfficeId: string) {
+    return resolveProposalLink(this.client, link, electedOfficeId)
   }
 
   // A create carrying a proposal key is idempotent on it: the official can
@@ -146,6 +150,26 @@ export class PhoneBankingListService extends createPrismaBase(
     if (!scope || proposalKey === undefined) {
       return this.build(organization, scope, input)
     }
+    const created = await this.createOnce(
+      organization,
+      scope,
+      proposalKey,
+      input,
+    )
+    // A replay records it too, so a status write that failed the first time
+    // heals on the next completion.
+    if (created.outreachId !== null) {
+      await this.priorityStatus.recordOutreachSent(created.outreachId)
+    }
+    return created
+  }
+
+  private async createOnce(
+    organization: Organization,
+    scope: PhoneBankingScope,
+    proposalKey: string,
+    input: PhoneBankingCreate | ServePhoneBankingCreate,
+  ): Promise<PhoneBankingCreateResponse> {
     const existing = await this.replayProposal(proposalKey, scope)
     if (existing) return existing
     try {
@@ -556,6 +580,8 @@ export class PhoneBankingListService extends createPrismaBase(
               organizationSlug: scope.organizationSlug,
               proposalKey: scope.proposalKey,
               priorityId: scope.priorityId,
+              priorityStepId: scope.priorityStepId,
+              priorityCheckSide: scope.priorityCheckSide,
               outreachType: OutreachType.nativePhoneBanking,
               status: OutreachStatus.in_progress,
               name: input.name,

@@ -8,10 +8,13 @@ import {
   PRIORITY_STATUS_VERSION,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
+  PriorityCheckSideSchema,
   PriorityStatusSchema,
+  PriorityStepIdSchema,
   PriorityStepStateSchema,
   mergeStepCheck,
   parsePriorityStatus,
+  type PriorityCheckSide,
   type PriorityStatus,
   type PriorityStep,
   type PriorityStepCheck,
@@ -226,6 +229,46 @@ const checkDueFor = (
         CHECK_HOW
 }
 
+const ANSWERED: readonly PriorityStepCheck['state'][] = ['confirmed', 'revised']
+
+// The check with one side moved to out by a real send, or the same object
+// when there is nothing to record.
+const withSend = (
+  stored: PriorityStepCheck | undefined,
+  side: PriorityCheckSide,
+  send: { proposalKey: string; who: string; now: string },
+): PriorityStepCheck | undefined => {
+  const sideStored = side === 'main' ? stored : stored?.contrast
+  if (
+    sideStored?.sentProposalKey === send.proposalKey ||
+    (sideStored !== undefined && ANSWERED.includes(sideStored.state))
+  ) {
+    return stored
+  }
+  const who = sideStored?.who || send.who
+  // A contrast sent before the main side was recorded: the cards were in
+  // front of the official, so main reads as shown rather than as no check,
+  // which a read would otherwise drop along with the contrast.
+  const merged = mergeStepCheck(
+    stored,
+    side === 'main'
+      ? { state: 'out', who }
+      : {
+          ...(stored === undefined && { state: 'asked' as const }),
+          contrast: { state: 'out', who },
+        },
+    send.now,
+    stored === undefined,
+  )
+  if (merged === undefined) return stored
+  const stamp = { sentAt: send.now, sentProposalKey: send.proposalKey }
+  return side === 'main'
+    ? { ...merged, ...stamp }
+    : merged.contrast === undefined
+      ? merged
+      : { ...merged, contrast: { ...merged.contrast, ...stamp } }
+}
+
 export interface PriorityStatusResult {
   status: PriorityStatus
   currentStep: PriorityStepId | null
@@ -377,6 +420,60 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
       data: { status },
     })
     return check === undefined ? { error: 'Nothing recorded.' } : { check }
+  }
+
+  /**
+   * An outreach that came out of a priority's check actually went out: the
+   * side it was proposed for moves to out, through the same merge the agent's
+   * writes take, stamped with when and from which proposal. Called once the
+   * send is real (a list built, a post saved, a text paid for) and again on
+   * every replay of that send, so a failure here heals on the next one;
+   * nothing changes when the stamp already names this proposal.
+   *
+   * A side constituents already answered keeps its answer: a later send is
+   * not news about what they said.
+   */
+  async recordOutreachSent(outreachId: number): Promise<void> {
+    const outreach = await this.client.outreach.findUnique({
+      where: { id: outreachId },
+      select: {
+        name: true,
+        proposalKey: true,
+        priorityId: true,
+        priorityStepId: true,
+        priorityCheckSide: true,
+      },
+    })
+    const stepId = PriorityStepIdSchema.safeParse(outreach?.priorityStepId)
+    const side = PriorityCheckSideSchema.safeParse(outreach?.priorityCheckSide)
+    if (
+      !outreach?.proposalKey ||
+      !outreach.priorityId ||
+      !stepId.success ||
+      !side.success ||
+      !isGate(stepId.data)
+    ) {
+      return
+    }
+    const current = await this.read(outreach.priorityId)
+    const step = current.steps.find((s) => s.id === stepId.data)
+    const check = withSend(step?.check, side.data, {
+      proposalKey: outreach.proposalKey,
+      who: outreach.name ?? '',
+      now: formatISO(new Date()),
+    })
+    if (!step || check === step.check) return
+    const status = PriorityStatusSchema.parse({
+      ...current,
+      version: Math.max(current.version, PRIORITY_STATUS_VERSION),
+      steps: current.steps.map((s) =>
+        s.id === step.id ? { ...s, check, updatedAt: check?.updatedAt } : s,
+      ),
+    })
+    await this.model.update({
+      where: { id: outreach.priorityId },
+      data: { status },
+    })
   }
 
   buildStatusTool(

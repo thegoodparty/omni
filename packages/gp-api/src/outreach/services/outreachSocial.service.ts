@@ -4,11 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { assertPriorityInOffice } from '@/priorities/util/assertPriorityInOffice.util'
+import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import {
+  resolveProposalLink,
+  type ProposalOutreachLink,
+} from '@/priorities/util/proposalLink.util'
 import {
   DoorKnockingOutreachDetail,
   OutreachDetail,
   PhoneBankingOutreachDetail,
+  ProposalLink,
   ServeSocialSaveRequest,
   SocialSaveRequest,
 } from '@goodparty_org/contracts'
@@ -41,12 +46,7 @@ type OutreachWithSocial = Prisma.OutreachGetPayload<{
 // Serve also carries a chat card's proposal link, when the save came from one.
 export type OutreachSocialSaveScope =
   | { campaignId: number; organizationSlug: string | null; userId: number }
-  | {
-      campaignId: null
-      organizationSlug: string
-      proposalKey?: string
-      priorityId?: string
-    }
+  | ({ campaignId: null; organizationSlug: string } & ProposalOutreachLink)
 
 export type OutreachSocialDetailScope =
   | { campaignId: number }
@@ -91,12 +91,13 @@ export class OutreachSocialService extends createPrismaBase(
   constructor(
     private readonly doorKnockingCounts: DoorKnockingTurfCountsService,
     private readonly analytics: AnalyticsService,
+    private readonly priorityStatus: PriorityStatusService,
   ) {
     super()
   }
 
-  async assertPriorityInOffice(priorityId: string, electedOfficeId: string) {
-    await assertPriorityInOffice(this.client, priorityId, electedOfficeId)
+  resolveProposalLink(link: ProposalLink, electedOfficeId: string) {
+    return resolveProposalLink(this.client, link, electedOfficeId)
   }
 
   private async replayProposal(
@@ -136,7 +137,11 @@ export class OutreachSocialService extends createPrismaBase(
     const proposalKey = serveScope?.proposalKey
     if (serveScope && proposalKey !== undefined) {
       const existing = await this.replayProposal(proposalKey, serveScope)
-      if (existing) return toOutreachDetail(existing)
+      if (existing) {
+        // Recorded on a replay too, so a failed status write heals here.
+        await this.priorityStatus.recordOutreachSent(existing.id)
+        return toOutreachDetail(existing)
+      }
     }
 
     const outreach = await this.client
@@ -151,6 +156,8 @@ export class OutreachSocialService extends createPrismaBase(
             ...(serveScope && {
               proposalKey: serveScope.proposalKey,
               priorityId: serveScope.priorityId,
+              priorityStepId: serveScope.priorityStepId,
+              priorityCheckSide: serveScope.priorityCheckSide,
             }),
           },
         })
@@ -224,6 +231,10 @@ export class OutreachSocialService extends createPrismaBase(
           'social campaign scheduled emit failed',
         )
       }
+    }
+
+    if (proposalKey !== undefined) {
+      await this.priorityStatus.recordOutreachSent(outreach.id)
     }
 
     return toOutreachDetail(outreach)

@@ -1,4 +1,5 @@
 import {
+  PROPOSAL_SENT_MARKER,
   SupportStatusRollupSchema,
   type OutreachProposal,
   type ProposalChannel,
@@ -28,6 +29,29 @@ export const SERVE_PROPOSAL_CTA: Record<ProposalChannel, string> = {
   social: 'Start the post',
   doorKnocking: 'Start the walk',
 }
+
+const SENT_CHANNEL: Record<ProposalChannel, string> = {
+  text: 'the text',
+  phoneBanking: 'the calls',
+  social: 'the post',
+  doorKnocking: 'the walk',
+}
+
+/**
+ * The hidden turn that tells the agent a card's outreach went out. Ends on
+ * the proposal key, which is how a reload knows it was already sent.
+ */
+export const proposalSentMessage = (
+  proposal: Pick<
+    OutreachProposal,
+    'channel' | 'count' | 'audience' | 'proposalKey'
+  >,
+): string =>
+  `${PROPOSAL_SENT_MARKER} I sent ${SENT_CHANNEL[proposal.channel]} to ` +
+  `${proposal.audience} (${proposal.count} people). ${proposal.proposalKey}`
+
+export const isProposalSentMessage = (content: string): boolean =>
+  content.startsWith(PROPOSAL_SENT_MARKER)
 
 /** What the list is called once the official saves it. */
 export const proposalListName = (

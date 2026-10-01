@@ -48,7 +48,7 @@ import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
-import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import { buildPriorityOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import {
@@ -208,7 +208,9 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     // check as asked until one has, which is what makes `asked` mean shown.
     let offeredThisTurn = false
     const ask = buildAskClarifyQuestionTool()
-    const propose = buildPresentOutreachProposalTool()
+    const propose = buildPriorityOutreachProposalTool(() =>
+      this.priorityStatus.read(ctx.priorityId),
+    )
     const tools: Record<string, LlmTool> = {
       ...this.priorityStatus.buildStatusTool(ctx.priorityId, {
         offered: () => offeredThisTurn,
@@ -226,11 +228,12 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       },
       present_outreach_proposal: {
         ...propose,
-        execute: (input: Parameters<typeof propose.execute>[0]) => {
+        execute: async (input: Parameters<typeof propose.execute>[0]) => {
           const unsigned = unsignedDraftReason(input, ctx.officialFirstName)
           if (unsigned !== null) return { error: unsigned }
-          offeredThisTurn = true
-          return propose.execute(input)
+          const result = await propose.execute(input)
+          if (!('error' in result)) offeredThisTurn = true
+          return result
         },
       },
       present_outside_contact: buildPresentOutsideContactTool(),

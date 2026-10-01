@@ -11,10 +11,8 @@ import {
   SheetTitle,
   SheetTrigger,
   Skeleton,
-  cn,
 } from '@styleguide'
-import { ArrowLeftIcon, ListChecksIcon } from '@styleguide/components/ui/icons'
-import { useIsMobile } from '@styleguide/hooks/use-mobile'
+import { ListChecksIcon } from '@styleguide/components/ui/icons'
 import {
   parsePriorityStatus,
   type ChatAnchor,
@@ -41,10 +39,17 @@ import {
   cardWidgetTools,
   type CardWidgetContext,
 } from '../../../shared/agent-chat/cards/cardWidgets'
-import { ProposalFlowsProvider } from '../../../shared/agent-chat/cards/proposalFlows'
+import {
+  ProposalFlowsProvider,
+  useOnProposalSent,
+} from '../../../shared/agent-chat/cards/proposalFlows'
+import {
+  isProposalSentMessage,
+  proposalSentMessage,
+} from '../../../shared/agent-chat/cards/proposalPresentation'
 import {
   CardDetailProvider,
-  useCardDetailHost,
+  CardDetailSheetHost,
 } from '../../../shared/agent-chat/cards/cardDetail'
 import {
   CLARIFY_TOOL,
@@ -93,82 +98,6 @@ const statusMarker = (
 })
 
 const RAIL_TITLE = 'Where this stands'
-
-// A card's detail takes the rail over rather than opening a third column: the
-// conversation keeps its width, and Back returns to the steps.
-const PriorityAside = ({
-  status,
-  nextAction,
-}: {
-  status: PriorityStatus
-  nextAction: string | null
-}) => {
-  const { active, close, setContainer } = useCardDetailHost()
-  const isMobile = useIsMobile()
-  const showDetail = active !== null && !isMobile
-  const asideRef = useRef<HTMLElement>(null)
-  const activeKey = active?.key
-  useEffect(() => {
-    if (asideRef.current) asideRef.current.scrollTop = 0
-  }, [activeKey])
-
-  return (
-    <aside
-      ref={asideRef}
-      className={cn(
-        'hidden shrink-0 overflow-y-auto border-l border-border lg:block',
-        showDetail ? 'w-[430px]' : 'w-80 p-4',
-      )}
-    >
-      {showDetail ? (
-        <>
-          <div className="sticky top-0 z-10 border-b border-border bg-background px-3 py-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="small"
-              className="gap-1"
-              onClick={close}
-            >
-              <ArrowLeftIcon className="size-4" aria-hidden />
-              {RAIL_TITLE}
-            </Button>
-          </div>
-          <div ref={setContainer} className="p-5" />
-        </>
-      ) : (
-        <PriorityStatusRail status={status} nextAction={nextAction} />
-      )}
-    </aside>
-  )
-}
-
-// Below lg the rail is already a sheet, so a card's detail is one too.
-const PriorityDetailSheet = () => {
-  const { active, close, setContainer } = useCardDetailHost()
-  const isMobile = useIsMobile()
-  return (
-    <Sheet
-      open={active !== null && isMobile}
-      onOpenChange={(next) => {
-        if (!next) close()
-      }}
-    >
-      <SheetContent
-        side="bottom"
-        className="max-h-[85dvh]"
-        aria-describedby={undefined}
-      >
-        <SheetTitle asChild>
-          <span className="sr-only">{active?.title ?? ''}</span>
-        </SheetTitle>
-        <SheetBody className="pt-10">
-          <div ref={setContainer} />
-        </SheetBody>
-      </SheetContent>
-    </Sheet>
-  )
-}
 
 type PriorityWorkspaceProps = {
   priorityId: string
@@ -321,6 +250,41 @@ const PriorityWorkspaceBody = ({
     sendRef.current = send
   }, [send])
 
+  // Outreach a card opened was just sent. The server has already moved its
+  // check to out, so the rail refetches; the agent hears it through a hidden
+  // turn, sent once per proposal (the key it ends on survives a reload) and
+  // held until any turn in flight is done.
+  const pendingSent = useRef<string[]>([])
+  const toldKeys = useRef(new Set<string>())
+  const [sentTick, setSentTick] = useState(0)
+  const messagesRef = useRef(messages)
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+  useOnProposalSent(
+    useCallback(
+      (proposal) => {
+        void reconcile()
+        const content = proposalSentMessage(proposal)
+        const told =
+          toldKeys.current.has(proposal.proposalKey) ||
+          messagesRef.current.some((m) =>
+            m.content.includes(proposal.proposalKey),
+          )
+        if (told) return
+        toldKeys.current.add(proposal.proposalKey)
+        pendingSent.current.push(content)
+        setSentTick((tick) => tick + 1)
+      },
+      [reconcile],
+    ),
+  )
+  useEffect(() => {
+    if (sending || phase !== 'ready' || !conversationId) return
+    const next = pendingSent.current.shift()
+    if (next) send(next, { hidden: true })
+  }, [sending, phase, conversationId, sentTick, send])
+
   useEffect(() => {
     let cancelled = false
     const init = async (): Promise<void> => {
@@ -378,13 +342,25 @@ const PriorityWorkspaceBody = ({
       }
       const reply = messages
         .slice(index + 1)
-        .find((later) => later.role === 'user' && later.content !== KICKOFF)
+        .find(
+          (later) =>
+            later.role === 'user' &&
+            later.content !== KICKOFF &&
+            !isProposalSentMessage(later.content),
+        )
       if (reply) answers[message.id] = reply.content
     })
     return answers
   }, [messages])
   const visibleMessages = useMemo(
-    () => messages.filter((m) => !(m.role === 'user' && m.content === KICKOFF)),
+    () =>
+      messages.filter(
+        (m) =>
+          !(
+            m.role === 'user' &&
+            (m.content === KICKOFF || isProposalSentMessage(m.content))
+          ),
+      ),
     [messages],
   )
 
@@ -561,8 +537,10 @@ const PriorityWorkspaceBody = ({
         </div>
       </div>
 
-      <PriorityAside status={status} nextAction={nextAction} />
-      <PriorityDetailSheet />
+      <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border p-4 lg:block">
+        <PriorityStatusRail status={status} nextAction={nextAction} />
+      </aside>
+      <CardDetailSheetHost />
     </div>
   )
 }

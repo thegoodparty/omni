@@ -2,7 +2,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -36,8 +38,13 @@ type OutreachProposal = Extract<ChatCard, { kind: 'outreach_proposal' }>
 
 type Opened = { proposal: OutreachProposal; priorityId?: string }
 
+type SentListener = (proposal: OutreachProposal) => void
+
 type ProposalFlows = {
   open: (proposal: OutreachProposal, priorityId?: string) => void
+  // The conversation listens for a send finishing, to refresh what it shows
+  // and tell the agent.
+  listen: (listener: SentListener) => () => void
   // Whether text can be opened here; while the SMS flag is off there is no
   // text flow to open.
   textAvailable: boolean
@@ -49,9 +56,28 @@ const ProposalFlowsContext = createContext<ProposalFlows | null>(null)
 export const useProposalFlows = (): ProposalFlows | null =>
   useContext(ProposalFlowsContext)
 
+/** Called with the proposal each time outreach a card opened is finished. */
+export const useOnProposalSent = (listener: SentListener): void => {
+  const flows = useContext(ProposalFlowsContext)
+  const latest = useRef(listener)
+  useEffect(() => {
+    latest.current = listener
+  }, [listener])
+  const listen = flows?.listen
+  useEffect(() => listen?.((proposal) => latest.current(proposal)), [listen])
+}
+
+// The check rides along only on a priority, where there is one to put out.
 const linkOf = ({ proposal, priorityId }: Opened): ProposalLink => ({
   proposalKey: proposal.proposalKey,
-  ...(priorityId !== undefined && { priorityId }),
+  ...(priorityId !== undefined && {
+    priorityId,
+    ...(proposal.stepId !== undefined &&
+      proposal.side !== undefined && {
+        stepId: proposal.stepId,
+        side: proposal.side,
+      }),
+  }),
 })
 
 /**
@@ -73,12 +99,21 @@ export const ProposalFlowsProvider = ({
   const signSms = useServeSmsSignedBody()
   const [opened, setOpened] = useState<Opened | null>(null)
 
+  const listeners = useRef(new Set<SentListener>())
+  const listen = useCallback((listener: SentListener) => {
+    listeners.current.add(listener)
+    return () => {
+      listeners.current.delete(listener)
+    }
+  }, [])
+
   const close = useCallback(() => setOpened(null), [])
   const settled = useCallback(() => {
     if (!opened) return
     void queryClient.invalidateQueries({
       queryKey: proposalOutreachQueryKey(opened.proposal.proposalKey),
     })
+    listeners.current.forEach((listener) => listener(opened.proposal))
   }, [opened, queryClient])
 
   const openDoorKnocking = useCallback(
@@ -121,10 +156,11 @@ export const ProposalFlowsProvider = ({
   const value = useMemo(
     () => ({
       open,
+      listen,
       textAvailable: sms.ready && sms.enabled,
       textResolved: sms.ready,
     }),
-    [open, sms.ready, sms.enabled],
+    [open, listen, sms.ready, sms.enabled],
   )
 
   const proposal = opened?.proposal
@@ -178,6 +214,7 @@ export const ProposalFlowsProvider = ({
           initialScript={signSms(proposal.message)}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
+          proposalLink={linkOf(opened)}
           source="deep_link"
         />
       ) : null}

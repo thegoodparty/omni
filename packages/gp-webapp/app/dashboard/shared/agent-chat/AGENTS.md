@@ -117,14 +117,16 @@ there is the agent's to say, once, in its message; no card repeats it.
   `PersonRecord`, the presentational half of `PersonOverlay` extracted for
   this. The three parts of the record that read the contacts table's own
   queries (the Win status row, top issues, the activity feed) come in as
-  slots, and the chat omits them; the person query uses the contacts page's
+  slots, and the chat omits them, along with the map (`showMap={false}`;
+  the address already says where they live); the person query uses the contacts page's
   own key (`['person', org, id]`) so the follow-up switch updates both. Both
   render through `CardDetail` (`cards/cardDetail.tsx`), which portals the
-  detail into whatever host the surface mounted, so it stays in the card's
-  React tree. Hosts: `CardDetailSheetHost` (a right-side sheet in
-  `PersonOverlay`'s shell; Chief of Staff) or a surface's own (Priorities
-  takes over its right rail). A card outside any `CardDetailProvider` falls
-  back to its own sheet. The detail key is the tool call id (`cardWidgets.tsx`),
+  detail into the surface's `CardDetailSheetHost`, so it stays in the card's
+  React tree. Every surface mounts that one host: a sheet flying in from the
+  right over the page in `PersonOverlay`'s shell, with its X, closed by the X
+  or Escape, handing focus back to the chip that opened it. Nothing on the
+  page is replaced. A card outside any `CardDetailProvider` falls back to its
+  own sheet. The detail key is the tool call id (`cardWidgets.tsx`),
   which the live and persisted copies of one call share, so a panel opened
   mid-turn survives the turn settling. Each card registers its key with the
   provider, and the panel closes once no mounted card owns the open key (a
@@ -142,18 +144,30 @@ there is the agent's to say, once, in its message; no card repeats it.
   changes, so closing or finishing it leaves the official in the thread where
   they were. The flow is filled in with what the card carries: the message
   (`initialScript`; for SMS first run through `useServeSmsSignedBody`, the
-  compose step's own `checkSmsStandards` check, which prepends the official's
-  intro when the only miss is their name), phone banking's name, and the
+  compose step's own `checkSmsStandards` check: a draft that misses the
+  official's name goes through `signServeSmsDraft` in `smsCompose.util.ts`,
+  which replaces the draft's own self-introduction and any greeting with the
+  official's intro and fills sender placeholders, because persisted cards
+  from before the server guard still carry "Hi, this is [Your Name]...";
+  a draft that names them is left alone), phone banking's name, and the
   audience. A card from before `audienceFilters` points at a saved list; a
   current one carries the filter the agent counted with, and the flow opens
   its builder already filled in (`proposedAudience`) and saves the list when
   the official confirms and names it. Door knocking is the exception: its
   create flow is drawn on its own map page and takes only a saved list, so the
   card saves the list at the click, the latest point it can, and goes there.
-  Phone banking and social carry `{ proposalKey, priorityId }` on their create,
-  so the send is linked to the priority and a second completion returns the
-  first. The card resolves by that key, so a sent proposal reads as sent and
-  links to its row on the outreach page. While the SMS flag reads off, a text
+  Text, phone banking and social carry the card's link on their create
+  (`{ proposalKey, priorityId, stepId, side }`, the check fields only on a
+  priority), so the send is linked to the priority, a second completion
+  returns the first, and the server moves that side of the check to out once
+  the send is real. The card resolves by that key, so a sent proposal reads
+  as sent and links to its row on the outreach page; a text reads as sent
+  only once paid for. When a flow finishes, the provider calls the surface's
+  `useOnProposalSent` listeners: the chip re-resolves, and the priority
+  workspace refetches its rail and sends one hidden turn that opens with
+  `PROPOSAL_SENT_MARKER` and ends on the proposal key, filtered from the
+  transcript like the kickoff, so the agent hears about the send once.
+  Chief of Staff has no check to move and sends no such turn. While the SMS flag reads off, a text
   proposal says texting is not available instead of offering a button.
   `PastOutreachCard` is one row per send, linking to its row's drawer on the
   hub. No compose, edit or send UI lives in a card: the flows own it.

@@ -178,19 +178,16 @@ export class OutreachServeSocialController {
       input.purpose,
       input.assets.map((asset) => asset.platform),
     )
-    const { proposalKey, priorityId, ...save } = input
-    if (priorityId !== undefined) {
-      await this.socialService.assertPriorityInOffice(
-        priorityId,
-        electedOffice.id,
-      )
-    }
+    const { proposalKey, priorityId, stepId, side, ...save } = input
+    const link = await this.socialService.resolveProposalLink(
+      { proposalKey, priorityId, stepId, side },
+      electedOffice.id,
+    )
     return this.socialService.saveSocialOutreach(
       {
         campaignId: null,
         organizationSlug: electedOffice.organizationSlug,
-        ...(proposalKey !== undefined && { proposalKey }),
-        ...(priorityId !== undefined && { priorityId }),
+        ...link,
       },
       save,
     )

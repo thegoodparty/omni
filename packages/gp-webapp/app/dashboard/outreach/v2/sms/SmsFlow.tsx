@@ -13,6 +13,7 @@ import type {
   SmsPurpose,
   SmsStandardsRule,
   SocialTone,
+  ProposalLink,
 } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
 import {
@@ -87,6 +88,7 @@ import {
   composeScript,
   composeServeScript,
   identificationIntro,
+  signServeSmsDraft,
   SMS_PURPOSES,
   type SmsFlowPurpose,
 } from './smsCompose.util'
@@ -269,10 +271,11 @@ export const SERVE_SMS_SURFACE: SmsFlowSurface = {
 
 // A Serve message written outside this flow (a chat card's proposal), made
 // ready for the compose step before it opens: the same standards check that
-// step runs over the same composed script, and, when the only miss is the
-// official's name, the same intro this flow's own drafts open with. Anything
-// else is left for the compose step to flag, the way it flags a typed edit.
-// The name resolves the way the flow resolves it below.
+// step runs over the same composed script, and, when it misses the
+// official's name, signed by signServeSmsDraft with the intro this flow's own
+// drafts open with. Anything else is left for the compose step to flag, the
+// way it flags a typed edit. The name resolves the way the flow resolves it
+// below.
 export const useServeSmsSignedBody = (): ((body: string) => string) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
@@ -281,16 +284,15 @@ export const useServeSmsSignedBody = (): ((body: string) => string) => {
     (campaign == null
       ? `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
       : '')
-  const introFor = useServeSmsIdentification(fullName.split(' ')[0] ?? '')
+  const firstName = fullName.split(' ')[0] ?? ''
+  const introFor = useServeSmsIdentification(firstName)
   return (body: string) => {
-    const failures = checkSmsStandards(
+    const { failures } = checkSmsStandards(
       SERVE_SMS_SURFACE.composeMessage(body, null),
       { candidateNames: fullName ? [fullName] : [], committeeName: null },
-    ).failures.filter(
-      (rule) => !SERVE_SMS_SURFACE.ignoredStandardsRules.includes(rule),
     )
-    return failures.length === 1 && failures[0] === 'candidate_name'
-      ? `${introFor('warm')} ${body}`
+    return failures.includes('candidate_name')
+      ? signServeSmsDraft(body, { intro: introFor('warm'), firstName })
       : body
   }
 }
@@ -324,6 +326,10 @@ interface SmsFlowProps {
   // opens on the list builder already filled in, and saves it when the
   // official confirms and names it.
   proposedAudience?: ProposedAudience
+  // The chat card proposal this flow was opened from. Rides on the Serve
+  // create, so the draft holds the card's key (a paid one reads as sent and
+  // cannot be paid twice) and the paid send puts the priority's check out.
+  proposalLink?: ProposalLink
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
@@ -494,6 +500,7 @@ export const SmsFlow = ({
   source,
   initialScript,
   proposedAudience,
+  proposalLink,
   preselectedListId,
   preselectedRecommendedVariant,
   resumeDraft = null,
@@ -824,6 +831,7 @@ export const SmsFlow = ({
     draftOutreachId,
     audience,
     tracker,
+    ...(proposalLink && !resumeDraft && { proposalLink }),
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,

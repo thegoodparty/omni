@@ -22,7 +22,8 @@ const contactWhere = (person: Person) =>
 // One row per person, each opening that constituent's own record the way the
 // contacts page renders it (PersonRecord), in the panel rather than off on
 // another page. The parts of that record that read the contacts table's own
-// queries (top issues, the activity feed) are not here.
+// queries (top issues, the activity feed) are not here, and neither is the
+// map: the address already says where they live.
 export const ConstituentsCard = ({
   card,
   detailKey,
@@ -67,7 +68,12 @@ export const ConstituentsCard = ({
               />
             )}
           >
-            <PersonRecord person={person} isServe showWinActivities={false} />
+            <PersonRecord
+              person={person}
+              isServe
+              showWinActivities={false}
+              showMap={false}
+            />
           </CardDetail>
         )
       })}

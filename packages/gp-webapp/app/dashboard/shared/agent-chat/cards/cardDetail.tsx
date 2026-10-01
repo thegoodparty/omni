@@ -21,6 +21,7 @@ type CardDetailContextValue = {
   container: HTMLElement | null
   setContainer: (node: HTMLElement | null) => void
   register: (key: string) => () => void
+  returnFocus: () => void
 }
 
 const CardDetailContext = createContext<CardDetailContextValue | null>(null)
@@ -35,7 +36,17 @@ const CardDetailContext = createContext<CardDetailContextValue | null>(null)
 export const CardDetailProvider = ({ children }: { children: ReactNode }) => {
   const [active, setActive] = useState<ActiveDetail | null>(null)
   const [container, setContainer] = useState<HTMLElement | null>(null)
-  const open = useCallback((detail: ActiveDetail) => setActive(detail), [])
+  // The sheet has no trigger of its own, so it hands focus back to whatever
+  // opened it (the chip) when it closes.
+  const opener = useRef<HTMLElement | null>(null)
+  const open = useCallback((detail: ActiveDetail) => {
+    opener.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+    setActive(detail)
+  }, [])
+  const returnFocus = useCallback(() => opener.current?.focus(), [])
   const close = useCallback(() => setActive(null), [])
   // How many mounted cards own each key. When the last owner of the open
   // detail goes (another conversation was opened, the thread was replaced),
@@ -56,8 +67,16 @@ export const CardDetailProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [])
   const value = useMemo(
-    () => ({ active, open, close, container, setContainer, register }),
-    [active, open, close, container, register],
+    () => ({
+      active,
+      open,
+      close,
+      container,
+      setContainer,
+      register,
+      returnFocus,
+    }),
+    [active, open, close, container, register, returnFocus],
   )
   return (
     <CardDetailContext.Provider value={value}>
@@ -82,12 +101,14 @@ const DetailSheet = ({
   onOpenChange,
   title,
   bodyRef,
+  onClosed,
   children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
   bodyRef?: (node: HTMLElement | null) => void
+  onClosed?: () => void
   children?: ReactNode
 }) => (
   <Sheet open={open} onOpenChange={onOpenChange}>
@@ -98,6 +119,12 @@ const DetailSheet = ({
       className={SHEET_CLASS}
       aria-describedby={undefined}
       data-vaul-no-drag
+      {...(onClosed && {
+        onCloseAutoFocus: (event: Event) => {
+          event.preventDefault()
+          onClosed()
+        },
+      })}
     >
       {/* A span, not a second heading: the detail opens on its own. */}
       <SheetTitle asChild>
@@ -110,9 +137,13 @@ const DetailSheet = ({
   </Sheet>
 )
 
-/** The right-side sheet host, for a surface with no rail of its own. */
+/**
+ * Where a card's detail opens: a sheet flying in from the right over the
+ * page, the contacts page's person panel (`PersonOverlay`). Every surface
+ * mounts this one, so a detail opens the same way everywhere.
+ */
 export const CardDetailSheetHost = () => {
-  const { active, close, setContainer } = useCardDetailHost()
+  const { active, close, setContainer, returnFocus } = useCardDetailHost()
   return (
     <DetailSheet
       open={active !== null}
@@ -121,6 +152,7 @@ export const CardDetailSheetHost = () => {
       }}
       title={active?.title ?? ''}
       bodyRef={setContainer}
+      onClosed={returnFocus}
     />
   )
 }

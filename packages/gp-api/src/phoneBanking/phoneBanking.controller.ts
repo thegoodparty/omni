@@ -97,20 +97,17 @@ export class PhoneBankingController {
     input: ServePhoneBankingCreate,
   ) {
     await this.contacts.assertProAccess(organization)
-    const { proposalKey, priorityId, ...list } = input
-    if (priorityId !== undefined) {
-      await this.listService.assertPriorityInOffice(
-        priorityId,
-        electedOffice.id,
-      )
-    }
+    const { proposalKey, priorityId, stepId, side, ...list } = input
+    const link = await this.listService.resolveProposalLink(
+      { proposalKey, priorityId, stepId, side },
+      electedOffice.id,
+    )
     return this.listService.create(
       organization,
       {
         campaignId: null,
         organizationSlug: electedOffice.organizationSlug,
-        ...(proposalKey !== undefined && { proposalKey }),
-        ...(priorityId !== undefined && { priorityId }),
+        ...link,
       },
       list,
     )

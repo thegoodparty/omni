@@ -909,16 +909,25 @@ remembered on the `hold_failed` row for the retry.
   whether the org happens to have a `Campaign` row, so a dual-role org keeps
   Win and Serve lists isolated the same way social does.
 - **A chat card's proposal link rides on the Serve creates.** The Serve phone
-  banking create and `POST /outreach/serve/social` accept an optional
-  `proposalKey` + `priorityId` (contracts `ProposalLinkSchema`, the key the
-  card derives and never the model). The priority is checked against the
-  caller's own office (`priorities/util/assertPriorityInOffice.util.ts`), the
-  key is written in the outreach INSERT, and a create carrying a key that
-  already names this org's outreach of the same channel returns that outreach
-  instead of building another (a race loses to the unique index and reads the
-  winner back). A key held by another org or another channel is a 409. The
-  phone banking replay reports `hasMore: false`: it hands back what was built,
-  not a fresh build. Text and door knocking do not take a key; see
+  banking create, `POST /outreach/serve/social` and `POST /outreach/serve/sms`
+  accept an optional `proposalKey` + `priorityId`, plus the check it puts out
+  (`stepId` + `side`) (contracts `ProposalLinkSchema`, the key the card
+  derives and never the model). `resolveProposalLink`
+  (`priorities/util/proposalLink.util.ts`) checks the priority against the
+  caller's own office and that the step is a gate with both halves given;
+  the four land on the outreach row in its INSERT. A phone banking or social
+  create carrying a key that already names this org's outreach of the same
+  channel returns that outreach instead of building another (a race loses to
+  the unique index and reads the winner back); a key held by another org or
+  another channel is a 409. The phone banking replay reports `hasMore:
+  false`: it hands back what was built, not a fresh build. A text holds the
+  key from its unpaid draft on: re-entering the flow moves the key to the
+  fresh draft, and once a draft under it is paid the key is spent (409).
+  `findByProposalKey` skips `pending_payment`, so an unpaid text reads as
+  not sent. Each create (and each replay) calls
+  `PriorityStatusService.recordOutreachSent`, the text from the purchase
+  handler once paid and enqueued, which moves that side of the priority's
+  check to out. Door knocking does not take a key; see
   `gp-webapp/app/dashboard/shared/agent-chat/AGENTS.md` ("Cards").
 - Tone vocabulary (`util/messageTone.util.ts`) is shared across every
   stateless compose endpoint — don't redefine `TONE_STYLES` per channel.

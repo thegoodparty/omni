@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { parsePriorityStatus } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -740,6 +741,40 @@ describe('POST /v1/outreach/serve/social', () => {
       expect(spine).toMatchObject({
         proposalKey: PROPOSAL_KEY,
         priorityId: priority.id,
+      })
+    })
+
+    // Saving the post is the send. With no check recorded yet, the least
+    // affected side going out leaves the main side reading as shown, so the
+    // read does not drop the whole check.
+    it('puts the contrast side out when the post is saved', async () => {
+      const priority = await officePriority(electedOffice.id)
+
+      const res = await postSave(
+        validSaveBody({
+          proposalKey: PROPOSAL_KEY,
+          priorityId: priority.id,
+          stepId: 'options',
+          side: 'contrast',
+        }),
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const row = await service.prisma.priority.findUniqueOrThrow({
+        where: { id: priority.id },
+      })
+      const check = parsePriorityStatus(row.status).steps.find(
+        (step) => step.id === 'options',
+      )?.check
+      expect(check).toMatchObject({
+        state: 'asked',
+        offeredAt: expect.any(String),
+        contrast: {
+          state: 'out',
+          who: 'Town hall announcement',
+          sentProposalKey: PROPOSAL_KEY,
+          sentAt: expect.any(String),
+        },
       })
     })
 
