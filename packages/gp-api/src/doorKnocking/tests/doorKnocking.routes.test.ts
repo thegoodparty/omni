@@ -880,6 +880,52 @@ describe('door-knocking routes', () => {
       ).toHaveLength(1)
     })
 
+    // The audience scan is a Databricks statement over the voter
+    // file, measured at 3.4 of the 3.5 seconds a create took, and it used to
+    // run inside this transaction — so every save in flight held one of the
+    // instance's 20 Postgres connections for seconds doing nothing but wait on
+    // a third party. A campaign saved as one batch of lists put ~90 saves in
+    // flight at once, the pool ran out, and Prisma gave up on the later
+    // transactions after its 2s acquisition window (P2028), which the request
+    // layer renders as a 503 "The database was briefly unavailable". Ordering
+    // is the invariant, so ordering is what this asserts: nothing opens a
+    // transaction until the doors are known.
+    it('resolves the audience before it opens a transaction', async () => {
+      const order: string[] = []
+      const peopleApi = service.app.get(DoorKnockingPeopleApiService)
+      const evaluate = vi
+        .spyOn(peopleApi, 'evaluate')
+        .mockImplementation((async () => {
+          order.push('people-db')
+          return { people: insidePeople }
+        }) as never)
+      // Bound before the spy replaces it, the way `realFetch` is.
+      const openTransaction = service.prisma.$transaction.bind(service.prisma)
+      const transaction = vi
+        .spyOn(service.prisma, '$transaction')
+        .mockImplementation(((...args: unknown[]) => {
+          order.push('transaction')
+          // Prisma's $transaction is overloaded (array form and interactive
+          // form); this passes whichever it was handed straight through.
+          return (openTransaction as (...a: unknown[]) => unknown)(...args)
+        }) as never)
+      // clearMocks only clears calls, so a leaked implementation would follow
+      // this test around the file.
+      onTestFinished(() => {
+        evaluate.mockRestore()
+        transaction.mockRestore()
+      })
+
+      const res = await postTurf()
+
+      expect(res.status).toBe(201)
+      expect(order).toContain('people-db')
+      expect(order).toContain('transaction')
+      expect(order.indexOf('people-db')).toBeLessThan(
+        order.indexOf('transaction'),
+      )
+    })
+
     // The bug QA filmed: 3620 -> 3629 -> 3630 NE 64th Ave, two even-side
     // neighbours with a trip across the street wedged between them, every leg
     // logged "1m walk". Geoapify was answering the question it was asked —
