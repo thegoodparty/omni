@@ -32,6 +32,7 @@ import {
   cardWidgetTools,
   type CardWidgetContext,
 } from '../../../shared/agent-chat/cards/cardWidgets'
+import { ProposalFlowsProvider } from '../../../shared/agent-chat/cards/proposalFlows'
 import {
   CardDetailProvider,
   CardDetailSheetHost,
@@ -246,7 +247,9 @@ const listMapFromSegments = (
 // right-side sheet the contacts page uses for a person.
 const ChiefOfStaffChatBody = (props: Props): React.JSX.Element => (
   <CardDetailProvider>
-    <ChiefOfStaffChatThread {...props} />
+    <ProposalFlowsProvider>
+      <ChiefOfStaffChatThread {...props} />
+    </ProposalFlowsProvider>
     <CardDetailSheetHost />
   </CardDetailProvider>
 )

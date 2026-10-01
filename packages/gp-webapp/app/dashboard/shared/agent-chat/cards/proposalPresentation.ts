@@ -1,13 +1,16 @@
-import type { ListSample, ProposalChannel } from '@goodparty_org/contracts'
+import {
+  SupportStatusRollupSchema,
+  type ListSample,
+  type OutreachProposal,
+  type ProposalChannel,
+  type SupportStatusRollup,
+} from '@goodparty_org/contracts'
 import type { OutreachType } from 'gpApi/types/outreach.types'
-import type { ProposalHandoff } from 'app/dashboard/constituent-outreach/proposalHandoff'
+import { segmentToVoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import type { ProposedAudience } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
+import { MAX_SEGMENT_NAME_LENGTH } from 'app/dashboard/contacts/crm/shared/segments.util'
 
 const SERVE_OUTREACH_HUB = '/dashboard/constituent-outreach'
-
-// Door knocking is a live channel the proposal contract is gaining. Widened
-// here so the card routes it the day the enum carries it, and compiles both
-// before and after.
-export type CardChannel = ProposalChannel | 'doorKnocking'
 
 // The proposal vocabulary is the chat's, the badge vocabulary is outreach's.
 // One map rather than a second copy of the channel labels, so a card and a
@@ -16,64 +19,59 @@ export const PROPOSAL_OUTREACH_TYPE: Record<ProposalChannel, OutreachType> = {
   social: 'socialMedia',
   phoneBanking: 'phoneBanking',
   text: 'text',
+  // The native walk the Serve hub lists, not Win's legacy door-knocking type.
   doorKnocking: 'nativeDoorKnocking',
 }
 
-export const cardOutreachType = (channel: CardChannel): OutreachType =>
-  channel === 'doorKnocking'
-    ? 'nativeDoorKnocking'
-    : PROPOSAL_OUTREACH_TYPE[channel]
-
-/**
- * Into the channel's own flow, where the official reviews and sends. The
- * draft and the list ride the sessionStorage handoff (`handoffPayload`) so
- * the message is never in a shareable link. Door knocking is drawn over its
- * own map, a route rather than a drawer, and takes the list as `?listId=`.
- */
-export const proposalComposeHref = (
-  proposal: { channel: CardChannel; savedFilterId?: number | null },
-  handoffNonce: string,
-): string => {
-  if (proposal.channel === 'doorKnocking') {
-    const params = new URLSearchParams({ create: '1' })
-    if (proposal.savedFilterId) {
-      params.set('listId', String(proposal.savedFilterId))
-    }
-    return `/dashboard/door-knocking?${params.toString()}`
-  }
-  const params = new URLSearchParams({ compose: proposal.channel })
-  if (handoffNonce) params.set('handoff', handoffNonce)
-  return `${SERVE_OUTREACH_HUB}?${params.toString()}`
+export const SERVE_PROPOSAL_CTA: Record<ProposalChannel, string> = {
+  text: 'Start the text',
+  phoneBanking: 'Start the calls',
+  social: 'Start the post',
+  doorKnocking: 'Start the walk',
 }
 
-export const handoffStorageKey = (nonce: string) => `cos-handoff-${nonce}`
+/** What the list is called once the official saves it. */
+export const proposalListName = (
+  proposal: Pick<OutreachProposal, 'listName' | 'audience'>,
+): string =>
+  (proposal.listName?.trim() || proposal.audience).slice(
+    0,
+    MAX_SEGMENT_NAME_LENGTH,
+  )
 
 /**
- * What the hub reads back for the channel, or null when nothing rides (door
- * knocking takes its list on the URL). The proposal link rides with it so the
- * flow's own create is linked to the priority and idempotent on the key.
+ * The counted-but-unsaved audience, as the flows' list builder holds it, or
+ * undefined for a card that already points at a saved list (or none).
  */
-export const handoffPayload = (
-  proposal: {
-    channel: CardChannel
-    message: string
-    savedFilterId?: number | null
-    listName?: string | null
-    audience: string
-    proposalKey: string
-  },
-  priorityId?: string,
-): ProposalHandoff | null =>
-  proposal.channel === 'doorKnocking'
-    ? null
-    : {
-        channel: proposal.channel,
-        message: proposal.message,
-        savedFilterId: proposal.savedFilterId ?? null,
-        name: proposal.listName?.trim() || proposal.audience,
-        proposalKey: proposal.proposalKey,
-        ...(priorityId !== undefined && { priorityId }),
-      }
+export const proposedAudienceOf = (
+  proposal: Pick<
+    OutreachProposal,
+    | 'audienceFilters'
+    | 'savedFilterId'
+    | 'listName'
+    | 'audience'
+    | 'proposalKey'
+    | 'count'
+    | 'sampleSize'
+    | 'widensOutreachIds'
+  >,
+): ProposedAudience | undefined => {
+  const filters = proposal.audienceFilters
+  if (!filters || proposal.savedFilterId) return undefined
+  const sample = proposalListSample(proposal)
+  const list = (value: boolean | string[] | undefined): string[] =>
+    Array.isArray(value) ? value : []
+  return {
+    filters: segmentToVoterFileFilters(filters),
+    supportStatus: list(filters.supportStatus).filter(
+      (status): status is SupportStatusRollup =>
+        SupportStatusRollupSchema.safeParse(status).success,
+    ),
+    precincts: list(filters.precincts),
+    name: proposalListName(proposal),
+    ...(sample && { sample }),
+  }
+}
 
 export const outreachDetailHref = (outreachId: number): string =>
   `${SERVE_OUTREACH_HUB}?outreachId=${outreachId}`

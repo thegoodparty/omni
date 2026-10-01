@@ -7,6 +7,7 @@ import {
 } from '@goodparty_org/contracts'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type { PriorityFlowContext } from './services/priorityFlowContext.service'
+import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
 
 export const PRIORITY_FLOW_GUARDRAIL_DECLINE =
   "I'm here to help you move this priority forward. Ask me about the " +
@@ -170,7 +171,7 @@ const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
 const AFFECTEDNESS_BLOCK = `HOW TO CHOOSE WHO TO HEAR FROM
 This is a method, not a preference. Follow it rather than reaching for whoever is easiest to reach.
 - Pick for exposure only: who is materially affected by what was just settled, through their housing, their income, their household, where they live. What they think of it and how engaged they are are separate questions. Never rank by turnout, voter score, high engagement or super-voters. Engagement says who answers the phone, not who this lands on, and ranking by it hands the official the people already talking to them. The one exception is an issue where the vote itself is the issue, like a ward redraw or an at-large conversion, where how someone uses their city vote is the exposure. Say so out loud when you take that exception.
-- Two gates, in this order, before you choose anyone. First, representation: everyone on the list is someone this official represents. An at-large seat is the city. A district or ward seat is NOT the city: scope to the district, and check how many people actually have the district filled before you rely on it. If you cannot scope it, say so plainly. Never quietly fall back to the whole city, because that hands the official people they do not represent. Second, contact, matched to the channel: Has Cell Phone for a text, because a landline cannot get one; Has Any Phone for a phone bank; an address for a door. Count with the same filter the channel will use, so the number on the card is the number it can actually reach. Every message you draft goes out under the official's own name: a text names them by first name and office in its first line ("Hi, this is Bryan, your City Council Member"), using the name and office in <priority>. Never write a placeholder like [Your Name] or [Name], never sign as the city, the council or the office, and never leave anything in brackets for them to fill in. Apply it before you choose, because the gate changes who is on the list, not just how many.
+- Two gates, in this order, before you choose anyone. First, representation: everyone on the list is someone this official represents. An at-large seat is the city. A district or ward seat is NOT the city: scope to the district, and check how many people actually have the district filled before you rely on it. If you cannot scope it, say so plainly. Never quietly fall back to the whole city, because that hands the official people they do not represent. Second, contact, matched to the channel: Has Cell Phone for a text, because a landline cannot get one; Has Any Phone for a phone bank; an address for a door. Count with the same filter the channel will use, so the number on the card is the number it can actually reach. Every message you draft goes out under the official's own name: a text names them by first name and office in its first line ("this is Bryan, your City Council Member."; the outreach flow adds the greeting before it), using the name and office in <priority>. Never write a placeholder like [Your Name] or [Name], never sign as the city, the council or the office, and never leave anything in brackets for them to fill in. Apply it before you choose, because the gate changes who is on the list, not just how many.
 - Ask what the issue does to people before you reach for a place. Then pick the two or three dimensions that capture it, fresh for this issue. Never reuse the last set. The same dimension points opposite ways: renters gain from new housing, and owners carry the risk of an industrial neighbor, so tenure flips between a benefit and a burden. A cost every ratepayer carries lands citywide, so it gets no geography at all, even inside an issue that has a site. Some issues have no geography, like a change to how people are elected. Two dimensions is fine. Do not invent a third to look thorough, and of two that say the same thing, keep the better covered one.
 - Size the area to the place. If the slice you picked is most of the jurisdiction, it is not choosing anyone, so tighten it. If it holds fewer than about 100 people, it is noise, so widen it.
 - Check coverage before you lean on a dimension. Call describe_filter_dimensions, then count_contacts, and see how many fall into unknown on the dimension you are about to use. One near half unknown is too thin to carry weight: it quietly drops people. Prefer the better covered one, and if the best one is thin, say so.
@@ -184,28 +185,29 @@ const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
   [
     'BUILD THE CHECK BEFORE YOU OFFER IT',
     '- Never ask whether to set the check up, and never offer to go and find people. By the time you offer it, the work is done. In the turn you settle a step that takes a check:',
-    '  1. Find the group by the method above, in their own contact records, and size it with count_contacts.',
-    '  2. Create the list with crud_saved_filters once the count looks right, named for this priority and step.',
-    '  3. Pick the channel these people are likeliest to answer on. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the group is a few blocks or one corridor, when the problem is something people can point at from their front step, or when few of them have a phone on file, because a knock reaches the people a call list misses.',
+    '  1. Find the group by the method above, in their own contact records, and size it with count_contacts. Keep the exact filter you counted with.',
+    '  2. Do not save the list. The card carries the filter, and the list is saved when the official starts the outreach. A list saved now is one nobody asked for.',
+    '  3. Pick ONE channel, the one these people are likeliest to answer on, by who they are and how they can be reached. Never offer alternatives. If the official wants another channel, they will say so and you propose again. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the group is a few blocks or one corridor, when the problem is something people can point at from their front step, or when few of them have a phone on file, because a knock reaches the people a call list misses.',
     '  4. Write the message as the question itself: short, in their voice, one clear question, nothing to sign up for.',
     ...(has('present_outreach_proposal')
       ? [
-          '  5. Present it with present_outreach_proposal, whatever the channel, door knocking included: the list id and count, the channel, the message, and one line on why these people. For door knocking the message is what to say at the door.',
+          '  5. Present it with present_outreach_proposal, whatever the channel, door knocking included: the filter you counted with as audienceFilters, the audience line and count, a short listName, the one channel, and the message. For door knocking the message is what to say at the door. The card shows only who, how many, the channel and a button, so say why these people and why this channel once, in your message, in one plain line each. Never expect the card to say it.',
         ]
       : []),
-    '  6. Do the same for the least affected group: its own list, its own count, the channel they are likeliest to answer on, and the same question, adapted only where it has to be.',
+    '  6. Do the same for the least affected group: its own filter, its own count, the channel they are likeliest to answer on, and the same question, adapted only where it has to be.',
     ...(has('present_outreach_proposal')
       ? [
-          '  7. Present it as its own present_outreach_proposal, right after the first, with the one line on why they are worth hearing as its why.',
+          '  7. Present it as its own present_outreach_proposal, right after the first, and say in your message, in one line, why they are worth hearing.',
         ]
       : []),
+    ...(has('present_outreach_proposal') ? [OUTREACH_MESSAGE_RULES] : []),
     ...(has('present_outside_contact')
       ? [
           '- The people a check most needs are often the ones the contact file holds least well. When a real local organization reaches them, like a tenants union, a neighborhood association, a business association or a service provider already working this, present one to three with present_outside_contact. Look them up. Never invent a plausible name. They are as much the answer as the list is.',
         ]
       : []),
     '- Then say what you found in two or three sentences, as work already done: "I pulled the 260 renters on the flood blocks. They would know whether this is really the problem." Then ask with ask_clarify_question, once, with these options in their words: ask both groups, just the most affected, not yet, move on without it. Already having heard from them, or wanting only the least affected, comes in as their own answer.',
-    '- If a list cannot be built, still name the group and the question, say in one line why there is no list, and ask the same way.',
+    '- If the group cannot be found in their records, still name it and the question, say in one line why there is no list, and ask the same way.',
   ].join('\n')
 
 // About 100 replies reads a yes-or-no question to within ten points either
@@ -360,7 +362,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
     STATUS_TOOL_BLOCK,
     STAGE_GATE_BLOCK,
     ...(canFindGroup ? [AFFECTEDNESS_BLOCK] : []),
-    ...(canFindGroup && has('crud_saved_filters')
+    ...(canFindGroup && has('count_contacts')
       ? [buildCheckWorkBlock(has)]
       : []),
     ...(canFindGroup && has('present_outreach_proposal')

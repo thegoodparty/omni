@@ -5,14 +5,22 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { ChatCardRenderer } from './ChatCardRenderer'
 
-const smsFlag = vi.hoisted(() => ({ ready: false, enabled: false }))
-vi.mock('@shared/experiments/serveSmsFlag', () => ({
-  useServeSmsFlag: () => smsFlag,
+// The flows themselves are the outreach page's components and have their own
+// suite (proposalFlows.test.tsx). Here only what the chip hands them.
+const flows = vi.hoisted(() => ({
+  open: vi.fn(),
+  textAvailable: true,
+  textResolved: true,
+}))
+vi.mock('./proposalFlows', () => ({
+  ProposalFlowsProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
+  useProposalFlows: () => flows,
 }))
 
 afterEach(() => {
-  smsFlag.ready = false
-  smsFlag.enabled = false
+  flows.textAvailable = true
+  flows.textResolved = true
 })
 
 const PROPOSAL_KEY = '3f2c1a90-1111-4222-8333-444455556666'
@@ -21,14 +29,14 @@ const MESSAGE = 'We are holding a listening session about the bridge closure.'
 
 type Proposal = Extract<ChatCard, { kind: 'outreach_proposal' }>
 
-const proposalCard = (overrides: Partial<Proposal> = {}): ChatCard => ({
+const proposalCard = (overrides: Partial<Proposal> = {}): Proposal => ({
   kind: 'outreach_proposal',
   proposalKey: PROPOSAL_KEY,
   audience: 'Riverside neighbors',
   count: 412,
   channel: 'phoneBanking',
-  savedFilterId: 77,
-  listName: 'Riverside',
+  audienceFilters: { homeownerNo: true, precincts: ['12'] },
+  listName: 'Riverside renters',
   message: MESSAGE,
   why: 'These are the households closest to the detour.',
   deepLinkOnly: false,
@@ -78,18 +86,6 @@ const renderCard = (card: ChatCard, priorityId?: string) =>
     />,
   )
 
-const chip = () => screen.findByRole('link', { name: /Riverside neighbors/ })
-
-const handoffOf = (link: HTMLElement) => {
-  const url = new URL(link.getAttribute('href') ?? '', 'http://localhost')
-  const nonce = url.searchParams.get('handoff')
-  return {
-    url,
-    stored: () =>
-      JSON.parse(sessionStorage.getItem(`cos-handoff-${nonce}`) ?? 'null'),
-  }
-}
-
 describe('ChatCardRenderer', () => {
   it('renders nothing for a kind it does not know', () => {
     // A thread written by a newer build must still open.
@@ -101,18 +97,57 @@ describe('ChatCardRenderer', () => {
 })
 
 describe('OutreachProposalCard', () => {
+  it('is the audience, the count, the one channel and a button, nothing more', async () => {
+    mockNotSent()
+
+    renderCard(proposalCard())
+
+    expect(await screen.findByText('Riverside neighbors')).toBeInTheDocument()
+    expect(
+      screen.getByText('Phone banking · 412 constituents'),
+    ).toBeInTheDocument()
+    // No channel switcher, no why, no cost note, no compose: the agent says
+    // why in its message and the flow owns everything after the button.
+    expect(screen.queryByRole('radio')).toBeNull()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(
+      screen.queryByText('These are the households closest to the detour.'),
+    ).toBeNull()
+    expect(screen.queryByText(/pay|free/i)).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it.each([
+    ['text', 'Start the text'],
+    ['phoneBanking', 'Start the calls'],
+    ['social', 'Start the post'],
+    ['doorKnocking', 'Start the walk'],
+  ] as const)(
+    'opens the %s flow in place, with the proposal and its priority',
+    async (channel, cta) => {
+      mockNotSent()
+      const card = proposalCard({ channel })
+
+      renderCard(card, 'priority-1')
+
+      fireEvent.click(await screen.findByRole('button', { name: cta }))
+
+      expect(flows.open).toHaveBeenCalledWith(card, 'priority-1')
+    },
+  )
+
   it('says a sampled proposal reaches some of its audience, picked at random', async () => {
     mockNotSent()
-    smsFlag.ready = true
-    smsFlag.enabled = true
 
     renderCard(
       proposalCard({ channel: 'text', count: 58_520, sampleSize: 4_000 }),
     )
 
-    const link = await chip()
     expect(
-      within(link).getByText('Text 4,000 of 58,520, picked at random'),
+      await screen.findByText('Text 4,000 of 58,520, picked at random'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Start the text' }),
     ).toBeInTheDocument()
   })
 
@@ -121,138 +156,25 @@ describe('OutreachProposalCard', () => {
 
     renderCard(proposalCard({ sampleSize: 500 }))
 
-    const link = await chip()
     expect(
-      within(link).getByText('Phone banking · 412 constituents'),
+      await screen.findByText('Phone banking · 412 constituents'),
     ).toBeInTheDocument()
-    expect(within(link).queryByText(/picked at random/)).toBeNull()
+    expect(screen.queryByText(/picked at random/)).toBeNull()
   })
 
-  it('is one chip naming the audience, channel and reach, with nothing to send here', async () => {
+  it('says text is not available, and offers nothing, while SMS is off', async () => {
     mockNotSent()
-
-    renderCard(proposalCard())
-
-    const link = await chip()
-    expect(
-      within(link).getByText('Phone banking · 412 constituents'),
-    ).toBeInTheDocument()
-    // The send belongs to the phone banking flow, not to the chat.
-    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull()
-    expect(screen.queryByRole('textbox')).toBeNull()
-    expect(screen.queryByRole('dialog')).toBeNull()
-  })
-
-  it.each(['phoneBanking', 'text'] as const)(
-    'opens the %s flow with the list and the message carried in',
-    async (channel) => {
-      mockNotSent()
-
-      renderCard(proposalCard({ channel }))
-
-      const link = await chip()
-      const { url, stored } = handoffOf(link)
-      expect(url.pathname).toBe('/dashboard/constituent-outreach')
-      expect(url.searchParams.get('compose')).toBe(channel)
-      // The message rides storage, never the link.
-      expect(link.getAttribute('href')).not.toContain('bridge')
-
-      fireEvent.click(link)
-
-      // The key rides through to the flow's create, so the send is linked
-      // to the proposal and a second completion returns the first.
-      expect(stored()).toEqual({
-        channel,
-        message: MESSAGE,
-        savedFilterId: 77,
-        name: 'Riverside',
-        proposalKey: PROPOSAL_KEY,
-      })
-    },
-  )
-
-  it('names the send after the audience when the list has no name', async () => {
-    mockNotSent()
-
-    renderCard(proposalCard({ listName: null }))
-
-    const link = await chip()
-    fireEvent.click(link)
-
-    expect(handoffOf(link).stored()).toMatchObject({
-      name: 'Riverside neighbors',
-    })
-  })
-
-  it('carries the priority it was proposed under', async () => {
-    mockNotSent()
-
-    renderCard(proposalCard(), 'priority-1')
-
-    const link = await chip()
-    fireEvent.click(link)
-
-    expect(handoffOf(link).stored()).toMatchObject({
-      proposalKey: PROPOSAL_KEY,
-      priorityId: 'priority-1',
-    })
-  })
-
-  it('says text is not available, and links nowhere, while SMS is off', async () => {
-    mockNotSent()
-    smsFlag.ready = true
-    smsFlag.enabled = false
+    flows.textAvailable = false
 
     renderCard(proposalCard({ channel: 'text' }))
 
     expect(
       await screen.findByText('Texting is not available for your office yet'),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('opens the social flow with the draft and the proposal link', async () => {
-    mockNotSent()
-
-    renderCard(proposalCard({ channel: 'social', deepLinkOnly: true }))
-
-    const link = await chip()
-    // A post has no recipients, so the chip quotes no reach.
-    expect(within(link).getByText('Social media')).toBeInTheDocument()
-    const { url, stored } = handoffOf(link)
-    expect(url.searchParams.get('compose')).toBe('social')
-
-    fireEvent.click(link)
-
-    expect(stored()).toEqual({
-      channel: 'social',
-      message: MESSAGE,
-      savedFilterId: 77,
-      name: 'Riverside',
-      proposalKey: PROPOSAL_KEY,
-    })
-  })
-
-  // The proposal contract is gaining door knocking; the card routes it the
-  // moment a payload carries it.
-  it('opens the door knocking create flow on the saved list', async () => {
-    mockNotSent()
-
-    renderCard(
-      proposalCard({
-        channel: 'doorKnocking' as Proposal['channel'],
-        deepLinkOnly: true,
-      }),
-    )
-
-    const link = await chip()
-    const url = new URL(link.getAttribute('href') ?? '', 'http://localhost')
-    expect(url.pathname).toBe('/dashboard/door-knocking')
-    expect(url.searchParams.get('create')).toBe('1')
-    expect(url.searchParams.get('listId')).toBe('77')
-  })
-
-  it('reads as sent once its key resolves, and opens that send instead', async () => {
+  it('reads as sent once its key resolves, and leads to that send', async () => {
     api.mock('GET /v1/outreach/by-proposal-key/:proposalKey', {
       status: 200,
       data: outreachRow,
@@ -260,7 +182,9 @@ describe('OutreachProposalCard', () => {
 
     renderCard(proposalCard())
 
-    const link = await chip()
+    const link = await screen.findByRole('link', {
+      name: /Riverside neighbors/,
+    })
     expect(within(link).getByText(/Sent to 412 constituents/)).toBeVisible()
     expect(link).toHaveAttribute(
       'href',

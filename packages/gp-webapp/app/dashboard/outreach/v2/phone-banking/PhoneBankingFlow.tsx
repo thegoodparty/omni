@@ -50,6 +50,7 @@ import {
 import {
   intentForOutreachPurpose,
   useOutreachAudience,
+  type ProposedAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import {
@@ -256,6 +257,10 @@ interface PhoneBankingFlowProps {
   // The list name a chat card proposal already knows, so the script step does
   // not stop on an empty required field. Editable like any typed name.
   initialName?: string
+  // An audience a chat card counted but did not save: the who step opens on
+  // the list builder already filled in, and saves it when the official
+  // confirms and names it.
+  proposedAudience?: ProposedAudience
   // The chat card proposal this flow was opened from. Rides on the create so
   // the list is linked to its priority, and a second completion of the same
   // proposal hands back the first list rather than building another.
@@ -280,6 +285,7 @@ export const PhoneBankingFlow = ({
   preselectedRecommendedVariant,
   initialScript,
   initialName,
+  proposedAudience,
   proposalLink,
   tracker,
   source,
@@ -347,6 +353,7 @@ export const PhoneBankingFlow = ({
     countOverlay: PHONE_BANKING_COUNT_OVERLAY,
     recommendedListIntent,
     preselectedRecommendedVariant,
+    ...(proposedAudience && { proposedAudience }),
   })
   const {
     reset: resetAudience,
@@ -502,6 +509,11 @@ export const PhoneBankingFlow = ({
     preselectSpentRef.current = true
     if (audienceLists.some((list) => list.id === preselectedListId)) {
       selectAudienceList(preselectedListId)
+      // A caller that handed over the script as well as the list (a chat
+      // card's proposal) lands on the script, but only once the list really
+      // resolved: a script with no audience behind it would strand the
+      // official on a step whose Continue cannot pass.
+      if (initialScript) setStepId('script')
     }
   }, [
     open,
@@ -509,6 +521,7 @@ export const PhoneBankingFlow = ({
     audienceLists,
     audienceListsFetching,
     selectAudienceList,
+    initialScript,
   ])
 
   // Sizes the default sheet count to the audience once it resolves, instead

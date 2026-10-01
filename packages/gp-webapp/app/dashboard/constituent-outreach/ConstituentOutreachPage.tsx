@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ComposeHandoffPayloadSchema,
-  PHONE_BANKING_NAME_MAX_LENGTH,
   type OutreachDetail,
 } from '@goodparty_org/contracts'
 import DashboardLayout from '../shared/DashboardLayout'
@@ -37,11 +36,6 @@ import {
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { clientRequest } from 'gpApi/typed-request'
-import {
-  ProposalHandoffSchema,
-  proposalLinkOf,
-  type ProposalHandoff,
-} from './proposalHandoff'
 
 interface ConstituentOutreachPageProps {
   pathname?: string
@@ -75,19 +69,6 @@ const ConstituentOutreachContent = () => {
   const [socialPrefill, setSocialPrefill] = useState<SocialFlowPrefill | null>(
     null,
   )
-  const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
-  const [phoneBankingPrefill, setPhoneBankingPrefill] =
-    useState<ProposalHandoff | null>(null)
-  const [smsFlowOpen, setSmsFlowOpen] = useState(false)
-  const [smsPrefill, setSmsPrefill] = useState<ProposalHandoff | null>(null)
-  // This card IS the treatment surface, so the exposure is tracked here (the
-  // hook's default) rather than suppressed. `ready` is read as well as
-  // `enabled`: a variant is `undefined` while it resolves, so gating on
-  // `enabled` alone renders the three-card grid and then pops a fourth card
-  // in — the flash the feature-flags doc names as the top anti-pattern.
-  // Until it resolves this surface is the pre-SMS one, unchanged.
-  const { ready: smsFlagReady, enabled: smsFlagEnabled } = useServeSmsFlag()
-  const smsMounted = smsFlagReady && smsFlagEnabled
   const handoffConsumedRef = useRef(false)
   const handoffParam = searchParams?.get('handoff')
   const composeParam = searchParams?.get('compose')
@@ -97,49 +78,18 @@ const ConstituentOutreachContent = () => {
   // with the draft pre-filled. The consumedRef guards the async window
   // between router.replace() and the params actually clearing, mirroring
   // OutreachComposeDeepLink's pattern.
-  //
-  // A chat card's outreach proposal arrives the same way for every channel
-  // (`proposalHandoff.ts`): the message, the saved list and the proposal
-  // link, opened in that channel's flow and stopped short of anything that
-  // sends or charges. A text handoff waits for the SMS flag and is left
-  // unspent while SMS is off here: with no flow to open, spending it would
-  // throw the official's draft away.
   useEffect(() => {
-    const isHandoffChannel =
-      composeParam === 'social' ||
-      composeParam === 'text' ||
-      composeParam === 'phoneBanking'
-    if (!handoffParam || !isHandoffChannel) {
+    if (!handoffParam || composeParam !== 'social') {
       handoffConsumedRef.current = false
       return
     }
     if (handoffConsumedRef.current) return
-    if (composeParam === 'text' && !(smsFlagReady && smsFlagEnabled)) return
     handoffConsumedRef.current = true
     router.replace('/dashboard/constituent-outreach', { scroll: false })
     try {
       const stored = sessionStorage.getItem(`cos-handoff-${handoffParam}`)
       if (!stored) return
       sessionStorage.removeItem(`cos-handoff-${handoffParam}`)
-      const proposal = ProposalHandoffSchema.safeParse(JSON.parse(stored))
-      if (proposal.success) {
-        if (proposal.data.channel !== composeParam) return
-        if (proposal.data.channel === 'text') {
-          setSmsPrefill(proposal.data)
-          setSmsFlowOpen(true)
-        } else if (proposal.data.channel === 'phoneBanking') {
-          setPhoneBankingPrefill(proposal.data)
-          setPhoneBankingFlowOpen(true)
-        } else {
-          setSocialPrefill({
-            draftText: proposal.data.message,
-            proposalLink: proposalLinkOf(proposal.data),
-          })
-          setSocialFlowOpen(true)
-        }
-        return
-      }
-      if (composeParam !== 'social') return
       const result = ComposeHandoffPayloadSchema.safeParse(JSON.parse(stored))
       if (!result.success || result.data.channel !== 'serve_social') return
       setSocialPrefill({
@@ -150,8 +100,17 @@ const ConstituentOutreachContent = () => {
     } catch {
       // sessionStorage unavailable or malformed payload: open without prefill
     }
-  }, [composeParam, handoffParam, router, smsFlagReady, smsFlagEnabled])
-
+  }, [composeParam, handoffParam, router])
+  const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
+  const [smsFlowOpen, setSmsFlowOpen] = useState(false)
+  // This card IS the treatment surface, so the exposure is tracked here (the
+  // hook's default) rather than suppressed. `ready` is read as well as
+  // `enabled`: a variant is `undefined` while it resolves, so gating on
+  // `enabled` alone renders the three-card grid and then pops a fourth card
+  // in — the flash the feature-flags doc names as the top anti-pattern.
+  // Until it resolves this surface is the pre-SMS one, unchanged.
+  const { ready: smsFlagReady, enabled: smsFlagEnabled } = useServeSmsFlag()
+  const smsMounted = smsFlagReady && smsFlagEnabled
   // The follow-up list the results drawer just saved, handed to the flow as
   // its audience so "Call them back" lands on the who step already answered.
   const [followUpListId, setFollowUpListId] = useState<number | undefined>()
@@ -305,21 +264,10 @@ const ConstituentOutreachContent = () => {
           // Spent on close, so pressing the tile afterwards opens a plain
           // flow rather than silently reusing the follow-up audience.
           setFollowUpListId(undefined)
-          setPhoneBankingPrefill(null)
         }}
         onSaved={handlePhoneBankingSaved}
         surface={SERVE_PHONE_BANKING_SURFACE}
-        preselectedListId={
-          followUpListId ?? phoneBankingPrefill?.savedFilterId ?? undefined
-        }
-        initialScript={phoneBankingPrefill?.message}
-        initialName={phoneBankingPrefill?.name?.slice(
-          0,
-          PHONE_BANKING_NAME_MAX_LENGTH,
-        )}
-        proposalLink={
-          phoneBankingPrefill ? proposalLinkOf(phoneBankingPrefill) : undefined
-        }
+        preselectedListId={followUpListId}
         source="outreach_page"
       />
       {/* Mounted only behind the flag, not merely rendered closed: with the
@@ -331,14 +279,9 @@ const ConstituentOutreachContent = () => {
       {smsMounted && (
         <SmsFlow
           open={smsFlowOpen}
-          onClose={() => {
-            setSmsFlowOpen(false)
-            setSmsPrefill(null)
-          }}
+          onClose={() => setSmsFlowOpen(false)}
           onScheduled={refetchOutreaches}
           surface={SERVE_SMS_SURFACE}
-          initialScript={smsPrefill?.message}
-          preselectedListId={smsPrefill?.savedFilterId ?? undefined}
           source="outreach_page"
         />
       )}

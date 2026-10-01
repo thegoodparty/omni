@@ -60,6 +60,7 @@ import {
 import {
   intentForOutreachPurpose,
   useOutreachAudience,
+  type ProposedAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { REVIEW_GATE_CTA } from '../gate/gateCopy'
@@ -266,6 +267,34 @@ export const SERVE_SMS_SURFACE: SmsFlowSurface = {
   },
 }
 
+// A Serve message written outside this flow (a chat card's proposal), made
+// ready for the compose step before it opens: the same standards check that
+// step runs over the same composed script, and, when the only miss is the
+// official's name, the same intro this flow's own drafts open with. Anything
+// else is left for the compose step to flag, the way it flags a typed edit.
+// The name resolves the way the flow resolves it below.
+export const useServeSmsSignedBody = (): ((body: string) => string) => {
+  const [campaign] = useCampaign()
+  const [user] = useUser()
+  const fullName =
+    campaign?.ownerName ??
+    (campaign == null
+      ? `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+      : '')
+  const introFor = useServeSmsIdentification(fullName.split(' ')[0] ?? '')
+  return (body: string) => {
+    const failures = checkSmsStandards(
+      SERVE_SMS_SURFACE.composeMessage(body, null),
+      { candidateNames: fullName ? [fullName] : [], committeeName: null },
+    ).failures.filter(
+      (rule) => !SERVE_SMS_SURFACE.ignoredStandardsRules.includes(rule),
+    )
+    return failures.length === 1 && failures[0] === 'candidate_name'
+      ? `${introFor('warm')} ${body}`
+      : body
+  }
+}
+
 interface SmsFlowProps {
   open: boolean
   tcrCompliance?: TcrCompliance
@@ -291,6 +320,10 @@ interface SmsFlowProps {
   // a draft immediately overwrites.
   initialScript?: string
   preselectedListId?: number
+  // An audience a chat card counted but did not save: the audience step
+  // opens on the list builder already filled in, and saves it when the
+  // official confirms and names it.
+  proposedAudience?: ProposedAudience
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
@@ -460,6 +493,7 @@ export const SmsFlow = ({
   tracker,
   source,
   initialScript,
+  proposedAudience,
   preselectedListId,
   preselectedRecommendedVariant,
   resumeDraft = null,
@@ -592,6 +626,7 @@ export const SmsFlow = ({
     recommendedListIntent,
     preselectedListId: resumedListId ?? preselectedListId,
     preselectedRecommendedVariant,
+    ...(proposedAudience && !resumeDraft && { proposedAudience }),
   })
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList

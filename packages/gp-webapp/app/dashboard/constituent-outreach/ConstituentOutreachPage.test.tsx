@@ -663,13 +663,8 @@ describe('ConstituentOutreachPage — the mount refresh', () => {
   })
 })
 
-// A chat card hands its proposal to this page through the same handoff the
-// Chief of Staff uses for social: `?compose=<channel>&handoff=<nonce>`, with
-// the message and the list in sessionStorage.
-describe('ConstituentOutreachPage — a chat card proposal', () => {
-  const SCRIPT = 'Calling about the Maple Street drains.'
-  const PROPOSAL_KEY = '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7'
-
+// A chat card's sent proposal or past send links here to open its own row.
+describe('ConstituentOutreachPage — a chat card send', () => {
   const arriveWith = (params: string, payload?: object) => {
     if (payload) {
       sessionStorage.setItem('cos-handoff-n1', JSON.stringify(payload))
@@ -686,115 +681,6 @@ describe('ConstituentOutreachPage — a chat card proposal', () => {
     serveSmsFlag.ready = true
     serveSmsFlag.enabled = false
     sessionStorage.clear()
-  })
-
-  it('opens phone banking past the purpose, on the list, with the script written', async () => {
-    mockPhoneBankingAudience()
-    arriveWith('compose=phoneBanking&handoff=n1', {
-      channel: 'phoneBanking',
-      message: SCRIPT,
-      savedFilterId: 3,
-      name: 'Maple Street households',
-      proposalKey: PROPOSAL_KEY,
-      priorityId: 'priority-1',
-    })
-
-    render(<ConstituentOutreachPage outreaches={[]} />)
-
-    expect(
-      await screen.findAllByRole('heading', {
-        name: 'Who do you want to reach?',
-      }),
-    ).not.toHaveLength(0)
-    expect(
-      screen.queryByText('Introduce myself to constituents'),
-    ).not.toBeInTheDocument()
-
-    const next = await screen.findByRole('button', { name: 'Continue' })
-    await waitFor(() => expect(next).toBeEnabled())
-    await user.click(next)
-    expect(await screen.findByDisplayValue(SCRIPT)).toBeInTheDocument()
-
-    // The flow's own create carries the proposal link, which is what links
-    // the list to its priority and makes a second completion idempotent.
-    const bodies: ServePhoneBankingCreate[] = []
-    api.mock('POST /v1/phone-banking/serve/lists', ({ body }) => {
-      bodies.push(body)
-      return {
-        status: 200,
-        data: {
-          id: 9,
-          name: 'Calls',
-          sheetCount: 1,
-          entryCount: 1,
-          personCount: 1,
-          outreachId: 90,
-          hasMore: false,
-        },
-      }
-    })
-    // Named from the proposal, so the script step does not stop on an empty
-    // required field, and still editable.
-    expect(screen.getByLabelText('Campaign name')).toHaveValue(
-      'Maple Street households',
-    )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText(
-      'How many call sheets would you like me to create?',
-    )
-    const create = screen.getByRole('button', { name: 'Continue' })
-    await waitFor(() => expect(create).toBeEnabled())
-    await user.click(create)
-    await waitFor(() => expect(bodies).toHaveLength(1))
-    expect(bodies[0]).toMatchObject({
-      name: 'Maple Street households',
-      script: SCRIPT,
-      voterFileFilterId: 3,
-      proposalKey: PROPOSAL_KEY,
-      priorityId: 'priority-1',
-    })
-
-    expect(router.replace).toHaveBeenCalledWith(
-      '/dashboard/constituent-outreach',
-      { scroll: false },
-    )
-    // Spent on arrival, so a reload does not reopen it.
-    expect(sessionStorage.getItem('cos-handoff-n1')).toBeNull()
-  })
-
-  it('opens text on its audience step with the message carried in', async () => {
-    serveSmsFlag.ready = true
-    serveSmsFlag.enabled = true
-    arriveWith('compose=text&handoff=n1', {
-      channel: 'text',
-      message: SCRIPT,
-      savedFilterId: 3,
-    })
-
-    render(<ConstituentOutreachPage outreaches={[]} />)
-
-    expect(
-      await screen.findAllByRole('heading', {
-        name: 'Who do you want to reach?',
-      }),
-    ).not.toHaveLength(0)
-    expect(
-      screen.queryByText('Explain a recent decision'),
-    ).not.toBeInTheDocument()
-  })
-
-  it('opens nothing for a payload that names another channel', () => {
-    mockPhoneBankingAudience()
-    arriveWith('compose=phoneBanking&handoff=n1', {
-      channel: 'text',
-      message: SCRIPT,
-    })
-
-    render(<ConstituentOutreachPage outreaches={[]} />)
-
-    expect(
-      screen.queryAllByRole('heading', { name: 'Who do you want to reach?' }),
-    ).toHaveLength(0)
   })
 
   it('opens a send on its own row when a card links to it', async () => {
@@ -850,58 +736,5 @@ describe('ConstituentOutreachPage — a chat card proposal', () => {
           ),
       ).toHaveLength(2),
     )
-  })
-
-  it('waits for the SMS flag to settle before spending a text handoff', async () => {
-    serveSmsFlag.ready = false
-    serveSmsFlag.enabled = false
-    arriveWith('compose=text&handoff=n1', {
-      channel: 'text',
-      message: SCRIPT,
-      savedFilterId: 3,
-    })
-
-    const { rerender } = render(<ConstituentOutreachPage outreaches={[]} />)
-    expect(sessionStorage.getItem('cos-handoff-n1')).not.toBeNull()
-
-    serveSmsFlag.ready = true
-    serveSmsFlag.enabled = true
-    rerender(<ConstituentOutreachPage outreaches={[]} />)
-
-    expect(
-      await screen.findAllByRole('heading', {
-        name: 'Who do you want to reach?',
-      }),
-    ).not.toHaveLength(0)
-    expect(sessionStorage.getItem('cos-handoff-n1')).toBeNull()
-  })
-
-  it('leaves a text handoff unspent while SMS is off here', () => {
-    serveSmsFlag.ready = true
-    serveSmsFlag.enabled = false
-    arriveWith('compose=text&handoff=n1', {
-      channel: 'text',
-      message: SCRIPT,
-      savedFilterId: 3,
-    })
-
-    render(<ConstituentOutreachPage outreaches={[]} />)
-
-    expect(sessionStorage.getItem('cos-handoff-n1')).not.toBeNull()
-    expect(
-      screen.queryAllByRole('heading', { name: 'Who do you want to reach?' }),
-    ).toHaveLength(0)
-  })
-
-  it('opens social on the draft a card proposed', async () => {
-    arriveWith('compose=social&handoff=n1', {
-      channel: 'social',
-      message: SCRIPT,
-      proposalKey: PROPOSAL_KEY,
-    })
-
-    render(<ConstituentOutreachPage outreaches={[]} />)
-
-    expect(await screen.findByDisplayValue(SCRIPT)).toBeInTheDocument()
   })
 })

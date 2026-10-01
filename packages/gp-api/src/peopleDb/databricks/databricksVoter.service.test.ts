@@ -630,16 +630,16 @@ describe('DatabricksVoterService', () => {
       expect(people).toHaveLength(2)
       // No district stats: the count is the audience's, not the district's.
       expect(query).toHaveBeenCalledTimes(2)
-      const [count, draw] = query.mock.calls.map(
-        ([statement]) => statement as { sql: string },
+      const [countSql = '', drawSql = ''] = query.mock.calls.map(
+        ([statement]) => (statement as { sql: string }).sql,
       )
-      expect(count.sql).toContain('COUNT(*)')
-      expect(count.sql).toContain('Homeowner_Probability_Model')
-      expect(draw.sql).toContain('Homeowner_Probability_Model')
-      expect(draw.sql).toContain('pmod(xxhash64')
+      expect(countSql).toContain('COUNT(*)')
+      expect(countSql).toContain('Homeowner_Probability_Model')
+      expect(drawSql).toContain('Homeowner_Probability_Model')
+      expect(drawSql).toContain('pmod(xxhash64')
       // An audience carries its own reachability; nothing is forced on top.
       expect(
-        draw.sql.match(/VoterTelephones_CellPhoneFormatted` IS NOT NULL/g),
+        drawSql.match(/VoterTelephones_CellPhoneFormatted` IS NOT NULL/g),
       ).toHaveLength(1)
     })
 

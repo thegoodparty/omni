@@ -8,7 +8,7 @@
   expected_intent:
     note: no renter/homeowner column exists; the prompt instructs silent use of
       the best modeled signal (hs_* home-buyer/housing scores) in plain English
-  gold_sql: null   # gold is behavioral; recover the actual SQL from the trace
+  gold_sql: null # gold is behavioral; recover the actual SQL from the trace
   required_behavior:
     - answers in plain language without exposing column names or proxy mechanics
       (that is the written product intent)
@@ -99,7 +99,7 @@
   expected_intent:
     note: filter the chat can express and the CRM UI can also express; the UI
       list size is the second oracle
-  gold_sql: null   # gold = CRM UI list count for the same segment, list size only
+  gold_sql: null # gold = CRM UI list count for the same segment, list size only
   required_behavior:
     - uses describe_filter_dimensions before composing the filter (per prompt)
     - count roughly matches the CRM UI list size for the same segment
@@ -197,7 +197,7 @@
       gate order, per-issue dimension choice, and the coverage check. No anchor
       geography exists, so the segment has to be built from the dimensions the
       catalog actually has.
-  gold_sql: null   # gold is behavioral; recover the filters from the trace
+  gold_sql: null # gold is behavioral; recover the filters from the trace
   required_behavior:
     - the stated channel is texting, so the segment is gated on hasCellPhone
       from the FIRST count, not added afterwards as a caveat

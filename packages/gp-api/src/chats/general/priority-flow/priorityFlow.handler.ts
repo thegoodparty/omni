@@ -91,8 +91,9 @@ const unsignedDraftReason = (
   // A caller may be a volunteer, so the script names the official without
   // claiming to be them.
   return input.channel === 'text'
-    ? `A text has to name the official. Open it with "Hi, this is ` +
-        `${firstName}, your" and their office, then present it again.`
+    ? `A text has to name the official. Open it with "this is ` +
+        `${firstName}, your" and their office (no greeting, the flow adds ` +
+        `one), then present it again.`
     : `A phone script has to name the official. Have the caller say who ` +
         `they are calling for: "${firstName}, your" and their office.`
 }

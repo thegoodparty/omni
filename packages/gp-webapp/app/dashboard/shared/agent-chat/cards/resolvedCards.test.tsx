@@ -7,6 +7,20 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { toChatCard } from './toChatCard'
 import { ChatCardRenderer } from './ChatCardRenderer'
 
+// The record reads the selected org to key its person query, and the hook
+// throws outside the dashboard provider.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'eo-riverside' }),
+}))
+
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    displaySnackbar: vi.fn(),
+    successSnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+  }),
+}))
+
 const renderCard = (card: ChatCard) => render(<ChatCardRenderer card={card} />)
 
 const openChip = async (name: RegExp) => {
@@ -132,11 +146,15 @@ describe('PastOutreachCard', () => {
 })
 
 describe('ConstituentsCard', () => {
-  it('renders a row per contact that resolves, and links each one', async () => {
+  it("is one row per person, and each opens that constituent's own record", async () => {
     api.mock('GET /v1/contacts/:id', ({ params }) => ({
       status: 200,
       data: person(params.id, params.id === 'p1' ? 'Ada' : 'Ben'),
     }))
+    api.mock('GET /v1/contacts/:personId/notes', {
+      status: 200,
+      data: { results: [] },
+    })
 
     renderCard({
       kind: 'constituents',
@@ -144,22 +162,22 @@ describe('ConstituentsCard', () => {
       note: 'Both chair neighborhood groups on the west side.',
     })
 
-    const chip = await screen.findByRole('button', { name: /2 constituents/ })
-    // Stacked initials, one per person, before anything is opened.
-    expect(within(chip).getByText('AO')).toBeInTheDocument()
-    expect(within(chip).getByText('BO')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Ada Okafor/ })).toBeNull()
-
-    const panel = await openChip(/2 constituents/)
-    // Each row opens the contacts page's own person panel for that id.
-    expect(panel.getByRole('link', { name: /Ada Okafor/ })).toHaveAttribute(
-      'href',
-      '/dashboard/contacts/p1',
-    )
-    expect(panel.getByRole('link', { name: /Ben Okafor/ })).toBeInTheDocument()
+    const ada = await screen.findByRole('button', { name: /Ada Okafor/ })
+    expect(within(ada).getByText('14 Mill St, Riverside')).toBeInTheDocument()
     expect(
-      panel.getByText('Both chair neighborhood groups on the west side.'),
+      screen.getByRole('button', { name: /Ben Okafor/ }),
     ).toBeInTheDocument()
+    // The agent says why in its message; the card does not repeat it.
+    expect(
+      screen.queryByText('Both chair neighborhood groups on the west side.'),
+    ).toBeNull()
+
+    const panel = await openChip(/Ada Okafor/)
+    // PersonRecord, the contacts page's own rendering of a person.
+    expect(
+      panel.getByRole('heading', { name: 'Ada Okafor' }),
+    ).toBeInTheDocument()
+    expect(panel.getByText('Contact Information')).toBeInTheDocument()
   })
 
   it.each(['present_constituents', 'present_contacts'])(
@@ -180,11 +198,9 @@ describe('ConstituentsCard', () => {
       if (!card) throw new Error('expected a card')
       renderCard(card)
 
-      const panel = await openChip(/1 constituent/)
-      expect(panel.getByRole('link', { name: /Ada Okafor/ })).toHaveAttribute(
-        'href',
-        '/dashboard/contacts/p1',
-      )
+      expect(
+        await screen.findByRole('button', { name: /Ada Okafor/ }),
+      ).toBeInTheDocument()
     },
   )
 

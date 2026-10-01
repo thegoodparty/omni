@@ -919,7 +919,7 @@ remembered on the `hold_failed` row for the retry.
   winner back). A key held by another org or another channel is a 409. The
   phone banking replay reports `hasMore: false`: it hands back what was built,
   not a fresh build. Text and door knocking do not take a key; see
-  `gp-webapp/app/dashboard/constituent-outreach/AGENTS.md`.
+  `gp-webapp/app/dashboard/shared/agent-chat/AGENTS.md` ("Cards").
 - Tone vocabulary (`util/messageTone.util.ts`) is shared across every
   stateless compose endpoint — don't redefine `TONE_STYLES` per channel.
 - `nativePhoneBanking` and `nativeDoorKnocking` envelopes are never touched

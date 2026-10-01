@@ -31,7 +31,7 @@
     SELECT SUM(CASE WHEN Voters_Age < 35 THEN 1 ELSE 0 END) AS under35,
            COUNT(*) AS total
     FROM serve_agent_voters WHERE {{DISTRICT_FILTER}}
-  gold_provisional: "43042 / 156587 = 27.5%"
+  gold_provisional: '43042 / 156587 = 27.5%'
   required_behavior:
     - percentage over all registered voters in the district
     - boundary handled as strictly under 35
@@ -77,7 +77,7 @@
            COUNT(*) AS n,
            SUM(CASE WHEN Voters_VotingPerformanceEvenYearGeneral IS NULL THEN 1 ELSE 0 END) AS n_null
     FROM serve_agent_voters WHERE {{DISTRICT_FILTER}}
-  gold_provisional: "avg 65.3; 8855 null (5.7%)"
+  gold_provisional: 'avg 65.3; 8855 null (5.7%)'
   required_behavior:
     - number in the right range with wording that does not claim it is the
       official certified turnout of a specific election
@@ -102,7 +102,7 @@
   gold_sql: >
     SELECT ConsumerData_Presence_Of_Children_in_HH AS kids, COUNT(*) AS n
     FROM serve_agent_voters WHERE {{DISTRICT_FILTER}} GROUP BY 1
-  gold_provisional: "Y 47281 / N 75866 / null 33440 (voters, not households)"
+  gold_provisional: 'Y 47281 / N 75866 / null 33440 (voters, not households)'
   required_behavior:
     - either states the unit plainly (voters living in households with
       children) or asks/clarifies that household-level counts are not available
@@ -120,7 +120,7 @@
   expected_route: count_contacts
   expected_intent:
     measure: total contacts in the org's constituent file (rebranded voter file)
-  gold_sql: null   # gold is the CRM UI all-constituents count, list size only
+  gold_sql: null # gold is the CRM UI all-constituents count, list size only
   required_behavior:
     - uses the CRM tool, returns an aggregate count
     - roughly matches the CRM UI all-constituents list size
@@ -140,7 +140,7 @@
   gold_sql: >
     SELECT Voters_Gender, COUNT(*) FROM serve_agent_voters
     WHERE {{DISTRICT_FILTER}} GROUP BY 1
-  gold_provisional: "F 81279 / M 75218 / null 90"
+  gold_provisional: 'F 81279 / M 75218 / null 90'
   required_behavior:
     - both categories with counts or shares; F slightly larger
   forbidden_behavior:
@@ -161,7 +161,7 @@
   gold_sql: >
     SELECT ConsumerData_RUS_Code, COUNT(*) FROM serve_agent_voters
     WHERE {{DISTRICT_FILTER}} GROUP BY 1
-  gold_provisional: "Urban 94827 / Suburban 61760 / Rural absent"
+  gold_provisional: 'Urban 94827 / Suburban 61760 / Rural absent'
   required_behavior:
     - reports urban and suburban; handles the absent rural category honestly
       (none in the city) rather than fabricating a rural share

@@ -41,6 +41,7 @@ import {
   cardWidgetTools,
   type CardWidgetContext,
 } from '../../../shared/agent-chat/cards/cardWidgets'
+import { ProposalFlowsProvider } from '../../../shared/agent-chat/cards/proposalFlows'
 import {
   CardDetailProvider,
   useCardDetailHost,
@@ -570,6 +571,8 @@ export const PriorityWorkspace = (
   props: PriorityWorkspaceProps,
 ): React.JSX.Element => (
   <CardDetailProvider>
-    <PriorityWorkspaceBody {...props} />
+    <ProposalFlowsProvider>
+      <PriorityWorkspaceBody {...props} />
+    </ProposalFlowsProvider>
   </CardDetailProvider>
 )

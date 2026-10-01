@@ -34,15 +34,19 @@ const openCard = async (card: ChatCard) => {
 }
 
 describe('OutsideContactCard', () => {
-  it('sits in the stream as one compact chip: initials, name, role', () => {
+  it('sits in the stream as one row: the name and one line on who they are', () => {
     renderCard(contactCard())
 
     const chip = screen.getByRole('button', {
       name: /Dale County Attorney's Office/,
     })
     expect(chip).toHaveAttribute('aria-expanded', 'false')
-    expect(within(chip).getByText('DC')).toBeInTheDocument()
     expect(within(chip).getByText('County attorney')).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'They own the nuisance ordinance the complaints fall under.',
+      ),
+    ).toBeNull()
     // The detail stays out of the stream until it is asked for.
     expect(screen.queryByText(SCRIPT)).toBeNull()
     expect(screen.queryByRole('link', { name: /Call/ })).toBeNull()
