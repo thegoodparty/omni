@@ -2068,10 +2068,6 @@ describe('Nightly10DlcReportService', () => {
           snapshotRecord('tcr-no-hubspot', 'no-hubspot-camp', 200, {
             kickoffSentAt: subDays(new Date(), 3),
           }),
-          snapshotRecord('tcr-crm-down', 'crm-down-camp', 300, {
-            kickoffSentAt: subDays(new Date(), 3),
-            campaign: ownedCampaign(300, 'crm-down-camp', 'hs-down'),
-          }),
           snapshotRecord('tcr-ownerless', 'ownerless-camp', 400, {
             kickoffSentAt: subDays(new Date(), 3),
             campaign: ownedCampaign(400, 'ownerless-camp', 'hs-ownerless'),
@@ -2092,13 +2088,11 @@ describe('Nightly10DlcReportService', () => {
         [],
         [],
       ])
+      // The CRM helper never rejects: a HubSpot failure resolves '' — the
+      // same shape an ownerless company returns.
       mockCrmCampaigns.getCrmCompanyOwnerName.mockImplementation(
         (hubspotId: string) =>
-          hubspotId === 'hs-owned'
-            ? Promise.resolve(' Jane Smith ')
-            : hubspotId === 'hs-ownerless'
-              ? Promise.resolve('')
-              : Promise.reject(new Error('hubspot down')),
+          Promise.resolve(hubspotId === 'hs-owned' ? ' Jane Smith ' : ''),
       )
 
       const snapshot = await service.getAdminStatusSnapshot()
@@ -2110,7 +2104,6 @@ describe('Nightly10DlcReportService', () => {
       )
       expect(assignedBySlug.get('owned-camp')).toBe('Jane Smith')
       expect(assignedBySlug.get('no-hubspot-camp')).toBeNull()
-      expect(assignedBySlug.get('crm-down-camp')).toBeNull()
       expect(assignedBySlug.get('ownerless-camp')).toBeNull()
       expect(assignedBySlug.get('same-owner-camp')).toBe('Jane Smith')
       // One read per HubSpot company: the shared owner is fetched once, and
@@ -2119,12 +2112,9 @@ describe('Nightly10DlcReportService', () => {
         'hs-owned',
       )
       expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledWith(
-        'hs-down',
-      )
-      expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledWith(
         'hs-ownerless',
       )
-      expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledTimes(3)
+      expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledTimes(2)
     })
   })
 })

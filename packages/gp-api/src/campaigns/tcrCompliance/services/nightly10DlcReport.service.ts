@@ -881,9 +881,10 @@ export class Nightly10DlcReportService extends createPrismaBase(
 
   // The campaign's assigned success person is its HubSpot company owner —
   // the same live, best-effort read the SMS console's queue makes (one read
-  // per company, any failure renders the entry unassigned rather than
-  // failing the snapshot). Admin-snapshot only: the nightly Slack report
-  // never pays this CRM cost.
+  // per company). getCrmCompanyOwnerName never rejects — every HubSpot
+  // failure inside it logs, alerts, and resolves '' — so an empty name is
+  // the only unassigned signal to normalize. Admin-snapshot only: the
+  // nightly Slack report never pays this CRM cost.
   private async assignedPasByCampaign(
     campaigns: Campaign[],
   ): Promise<Map<number, string | null>> {
@@ -896,15 +897,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
         nameByHubspotId.get(hubspotId) ??
         this.crmCampaigns
           .getCrmCompanyOwnerName(hubspotId)
-          .then((name) => (name?.trim() ? name.trim() : null))
-          .catch((err: Error) => {
-            this.logger.warn(
-              { err, hubspotId },
-              'Status snapshot: HubSpot owner read failed; ' +
-                'rendering unassigned',
-            )
-            return null
-          })
+          .then((name) => name.trim() || null)
       nameByHubspotId.set(hubspotId, pending)
       return pending
     }
