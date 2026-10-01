@@ -316,6 +316,12 @@ describe('PriorityFlowHandler', () => {
       {} as never,
     )
 
+  it('takes an answer that picks several options as one problem', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('One problem can show up as several symptoms')
+    expect(prompt).toContain('Never tell them to pick just one')
+  })
+
   it('offers a stage-gate check even without the list tools', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('CHECKING A STEP WITH THE PEOPLE IT LANDS ON')

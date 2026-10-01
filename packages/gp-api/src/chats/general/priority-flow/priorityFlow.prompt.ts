@@ -27,7 +27,8 @@ const STEP_GUIDE: Record<PriorityStepId, StepGuide> = {
       'say out loud.',
     settled:
       'they have named one problem, specific enough that someone could ' +
-      'disagree with it.',
+      'disagree with it. One problem can show up as several symptoms; ' +
+      'name the problem that ties them together, not just one of them.',
     unlocks: 'you know what to go looking for.',
   },
   evidence: {
@@ -130,6 +131,7 @@ const GOING_BACK_BLOCK = `WHEN TO GO BACK
 
 const ASKING_BLOCK = `WHEN YOU NEED A DECISION FROM THEM
 - A step that needs them to pick something is a question, not a paragraph. Ask it with ask_clarify_question, never in prose.
+- An answer that takes more than one option, or all of them, is a real answer. Work with it: if the options are symptoms of one problem, write the one problem that ties them together and check that wording with them. Never tell them to pick just one, and never explain how the question works.
 - One question at a time. Never a second one while the first is unanswered. Put the question and its options only in the call, with at most one short lead-in line before it, and never restate them as chat text.
 - Give 2 to 4 real options in their words, each with one line on why it is on the list. The app adds a write-your-own option itself, so never write one.
 - Their answer comes back as an ordinary turn. It is something they said, not a step settling: decide that separately and call update_priority_status yourself.`
