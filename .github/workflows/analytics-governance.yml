@@ -116,7 +116,18 @@ jobs:
         continue-on-error: true
         env:
           GP_DATA_PLATFORM_READ_TOKEN: ${{ secrets.GP_DATA_PLATFORM_READ_TOKEN }}
-        run: uv run sem_anchors.py refresh-vendored
+        # refresh-vendored exits 0 when only one of the two files failed, so any
+        # stderr output also counts as a failure worth surfacing.
+        run: |
+          set -uo pipefail
+          out=$(uv run --quiet sem_anchors.py refresh-vendored 2>&1)
+          status=$?
+          if [ "$status" -ne 0 ] || [ -n "$out" ]; then
+            msg="Vendored OKR definitions NOT fully refreshed: the pre-merge guard keeps the previous copy until the next successful run."
+            echo "::warning::$msg"
+            { echo ":warning: $msg"; echo '```'; echo "$out"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Provenance walk (weekly)
         if: github.event.schedule == '0 11 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.walk)
