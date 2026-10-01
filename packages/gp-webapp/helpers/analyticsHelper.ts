@@ -389,17 +389,13 @@ export const EVENTS = {
       SuccessContinue: 'Pro Upgrade - Success: Click continue',
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
-    // outreach-pro-gating-v2 membership surfaces (Pro upgrade and campaign
-    // verification 2.0). Banner/chip carry `tier` and `texting`; clicks carry
-    // `action`.
     Membership: {
-      BannerViewed: 'Pro Upgrade - Membership Banner Viewed',
-      BannerClicked: 'Pro Upgrade - Membership Banner: Click',
-      ChipViewed: 'Pro Upgrade - Membership Chip Viewed',
-      ChipClicked: 'Pro Upgrade - Membership Chip: Click',
-      PitchViewed: 'Pro Upgrade - Pitch Viewed',
-      PitchJoin: 'Pro Upgrade - Pitch: Click join',
-      PitchDismiss: 'Pro Upgrade - Pitch: Click continue without Pro',
+      // A press of the nav unit (sidebar banner on desktop, top-bar chip on
+      // mobile), one event per thing the unit is asking for. Device filters
+      // tell the two surfaces apart; `path` is the page.
+      BannerClicked: 'Pro Upgrade - Banner Clicked',
+      VerificationBannerClicked: '10DLC - Verification Banner Clicked',
+      PinBannerClicked: '10DLC - PIN Banner Clicked',
     },
     // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
     // campaign verification 2.0).

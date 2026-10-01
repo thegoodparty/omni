@@ -25,10 +25,12 @@ export const ProUpgradeSourceSchema = z.enum([
 ])
 export type ProUpgradeSource = z.infer<typeof ProUpgradeSourceSchema>
 
-// `generic` for the all-of-Pro pitch; an outreach channel when the pitch was
-// that channel's. Same vocabulary as the outreach gate events.
+// `generic` for the all-of-Pro pitch; `voter-data` for the same pitch shown at
+// a voter data wall; an outreach channel when the pitch was that channel's.
+// Same vocabulary as the outreach gate events.
 export const ProUpgradeChannelSchema = z.enum([
   'generic',
+  'voter-data',
   'sms',
   'robocall',
   'door',

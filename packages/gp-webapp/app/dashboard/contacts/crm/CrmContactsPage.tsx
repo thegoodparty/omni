@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, PlusIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import DashboardLayout from '../../shared/DashboardLayout'
-import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
+import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useOrganization } from '@shared/organization-picker'
 import {
@@ -212,13 +212,11 @@ export const CrmContactsPage = () => {
         </DashboardLayout>
       </ChannelPickerProvider>
       {campaign && (
-        <ProUpgradeModal
-          variant={VARIANTS.Second_NonViable}
+        <ProPitchDialog
           open={showProModal}
-          onClose={() => setShowProModal(false)}
-          onUpgradeLinkClick={() => setShowProModal(false)}
-          defaultTrackingEnabled
+          onOpenChange={setShowProModal}
           source="contacts"
+          channel="voter-data"
         />
       )}
     </ContactProModalProvider>
