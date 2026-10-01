@@ -1,0 +1,138 @@
+import { describe, expect, it } from 'vitest'
+import {
+  checkSmsStandards,
+  deriveSmsProtectedParts,
+} from './SmsAdminConsole.schema'
+
+const SCRIPT =
+  "Hello {first_name}, it's Sarah Chen, running for city council. Can I count on your vote?\n\nPaid for by Friends of Sarah Chen. Reply STOP to opt out."
+const CONTEXT = {
+  candidateNames: ['Sarah Chen'],
+  committeeName: 'Friends of Sarah Chen',
+}
+
+const textsFor = (
+  script: string,
+  context: Parameters<typeof deriveSmsProtectedParts>[1] = CONTEXT,
+) =>
+  Object.fromEntries(
+    deriveSmsProtectedParts(script, context).map((part) => [
+      part.rule,
+      part.text,
+    ]),
+  )
+
+describe('deriveSmsProtectedParts', () => {
+  it('locks exactly what each rule tests for, the disclaimer as one unit', () => {
+    expect(deriveSmsProtectedParts(SCRIPT, CONTEXT)).toEqual([
+      {
+        rule: 'first_name_token',
+        kind: 'token',
+        tagId: 'first_name',
+        text: '{first_name}',
+      },
+      { rule: 'candidate_name', kind: 'phrase', text: 'Sarah Chen' },
+      {
+        rule: 'paid_for_by',
+        kind: 'phrase',
+        text: 'Paid for by Friends of Sarah Chen',
+      },
+      { rule: 'opt_out_line', kind: 'phrase', text: 'Reply STOP to opt out.' },
+    ])
+  })
+
+  it('locks only parts of a script that passes the verdict', () => {
+    expect(checkSmsStandards(SCRIPT, CONTEXT).passed).toBe(true)
+    for (const part of deriveSmsProtectedParts(SCRIPT, CONTEXT)) {
+      expect(SCRIPT).toContain(part.text)
+    }
+  })
+
+  it('keeps the text as written, not as the context spells it', () => {
+    const script =
+      'hi {first_name}, SARAH CHEN here. paid for by friends of sarah chen. reply stop'
+    expect(textsFor(script)).toEqual({
+      first_name_token: '{first_name}',
+      candidate_name: 'SARAH CHEN',
+      paid_for_by: 'paid for by friends of sarah chen',
+      opt_out_line: 'reply stop',
+    })
+  })
+
+  it('falls back to the first word of the name the script uses', () => {
+    const script =
+      "Hi {first_name}, it's Sarah! Paid for by Friends of Sarah Chen. Reply STOP"
+    expect(textsFor(script).candidate_name).toBe('Sarah')
+  })
+
+  it('leaves a name that only appears in the disclaimer to the disclaimer', () => {
+    const script =
+      'Hi {first_name}, vote Nov 3! Paid for by Friends of Sarah Chen. Reply STOP'
+    const texts = textsFor(script)
+    expect(texts.candidate_name).toBeUndefined()
+    expect(texts.paid_for_by).toBe('Paid for by Friends of Sarah Chen')
+  })
+
+  it('matches names as whole words, never inside another word', () => {
+    const script = 'Hi {first_name}, the kitchen is open. Reply STOP'
+    const context = { candidateNames: ['Lee Chen'] }
+    expect(checkSmsStandards(script, context).failures).not.toContain(
+      'candidate_name',
+    )
+    expect(textsFor(script, context).candidate_name).toBeUndefined()
+  })
+
+  it('matches names with letters outside ASCII', () => {
+    const script = "Bonjour {first_name}, c'est Élodie. Reply STOP"
+    expect(
+      textsFor(script, { candidateNames: ['Élodie Durand'] }).candidate_name,
+    ).toBe('Élodie')
+  })
+
+  it('locks nothing for a name with no word of three letters or more', () => {
+    const script = "Hi {first_name}, it's Al Bo. Reply STOP"
+    expect(textsFor(script, { candidateNames: ['Al Bo'] }).candidate_name).toBe(
+      'Al Bo',
+    )
+    expect(
+      textsFor('Hi {first_name}, vote! Reply STOP', {
+        candidateNames: ['Al Bo'],
+      }).candidate_name,
+    ).toBeUndefined()
+  })
+
+  it('locks the phrase alone when the committee is unknown or not right after it', () => {
+    const script =
+      'Hi {first_name}. Paid for by the committee to elect Sarah. Reply STOP'
+    expect(textsFor(script, { committeeName: null }).paid_for_by).toBe(
+      'Paid for by',
+    )
+    expect(textsFor(script, CONTEXT).paid_for_by).toBe('Paid for by')
+  })
+
+  it('leaves out any rule the script already fails', () => {
+    expect(textsFor('Vote for me on Tuesday!')).toEqual({})
+  })
+
+  it('uses the channel form of the merge tag', () => {
+    const script =
+      'Hello {{first_name}}, Sarah Chen here. Reply STOP to opt out.'
+    const parts = deriveSmsProtectedParts(script, {
+      ...CONTEXT,
+      channel: 'serve',
+      ignoredRules: ['paid_for_by'],
+    })
+    expect(parts.find((part) => part.rule === 'first_name_token')?.text).toBe(
+      '{{first_name}}',
+    )
+  })
+
+  it('skips the surface ignored rules', () => {
+    const rules = deriveSmsProtectedParts(SCRIPT, {
+      ...CONTEXT,
+      ignoredRules: ['paid_for_by'],
+    }).map((part) => part.rule)
+    expect(rules).not.toContain('paid_for_by')
+    expect(rules).toContain('opt_out_line')
+  })
+})

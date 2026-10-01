@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { zCoerceDate } from '../shared/Date.schema'
 import { P2P_SCRIPT_MAX_LENGTH } from './OutreachScript.const'
+import {
+  mergeTagToken,
+  type MergeTagChannel,
+  type MergeTagId,
+} from './MergeTag.const'
 
 // The CAS SMS console (gp-admin): approval queue, per-campaign monitor,
 // and the message-standards verdict. gp-admin consumes these through the
@@ -94,6 +99,125 @@ export const checkSmsStandards = (
   }
 
   return { passed: failures.length === 0, failures }
+}
+
+// What a composer locks so a message cannot be edited out of compliance:
+// for each rule above, the exact text in `script` that satisfies it. It
+// lives beside `checkSmsStandards`, takes the same inputs and finds text the
+// same way, so a rule change moves the lock and the verdict together.
+//
+// Each part is the minimum its rule tests for, with one exception: the
+// paid-for-by disclaimer is the phrase AND the committee as one unit. A gap
+// between them would let wording change what it says ("Paid for by no one
+// at Friends of Sarah Chen") while the rule, which only needs both present,
+// still passed. Anything a state adds goes after the unit.
+//
+// A rule the script already fails yields no part: there is nothing to lock,
+// and the verdict is what tells the candidate. So does a rule with nothing
+// to match (a name with no word of 3+ letters, `length`).
+export type SmsProtectedPart =
+  | {
+      rule: 'first_name_token'
+      kind: 'token'
+      tagId: MergeTagId
+      text: string
+    }
+  | {
+      rule: Exclude<SmsStandardsRule, 'first_name_token' | 'length'>
+      kind: 'phrase'
+      text: string
+    }
+
+const escapeRegExp = (text: string): string =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// Whole words only, unlike the verdict's substring test: locking "chen"
+// inside "kitchen" would freeze a word that is not the candidate's name.
+// Letter lookarounds rather than `\\b`, which only knows ASCII letters and
+// would never match a name like "Élodie".
+const findWords = (script: string, words: string): string | null => {
+  const match = new RegExp(
+    `(?<![\\p{L}\\p{N}])${escapeRegExp(words)}(?![\\p{L}\\p{N}])`,
+    'iu',
+  ).exec(script)
+  return match ? match[0] : null
+}
+
+export const deriveSmsProtectedParts = (
+  script: string,
+  context: {
+    candidateNames?: string[]
+    committeeName?: string | null
+    // Which merge-tag form the send uses: Peerly `{first_name}`, Serve
+    // `{{first_name}}`.
+    channel?: MergeTagChannel
+    // The surface's own `ignoredStandardsRules`; Serve ignores paid_for_by.
+    ignoredRules?: readonly SmsStandardsRule[]
+  } = {},
+): SmsProtectedPart[] => {
+  const ignored = new Set(context.ignoredRules ?? [])
+  const parts: SmsProtectedPart[] = []
+
+  if (!ignored.has('first_name_token')) {
+    const text = mergeTagToken('first_name', context.channel ?? 'peerly')
+    if (script.includes(text)) {
+      parts.push({
+        rule: 'first_name_token',
+        kind: 'token',
+        tagId: 'first_name',
+        text,
+      })
+    }
+  }
+
+  // The disclaimer first, because the committee often carries the
+  // candidate's name ("Friends of Sarah Chen"), and the name has to be found
+  // outside it: inside, the disclaimer already locks it, and the copy the
+  // candidate actually wrote ("it's Sarah") would go unlocked.
+  let disclaimer: { start: number; text: string } | null = null
+  if (!ignored.has('paid_for_by')) {
+    const phrase = /paid\s+for\s+by/i.exec(script)
+    if (phrase) {
+      const committee = context.committeeName?.trim()
+      const after = script.slice(phrase.index + phrase[0].length)
+      const named = committee
+        ? new RegExp(`^\\s+${escapeRegExp(committee)}`, 'i').exec(after)
+        : null
+      disclaimer = {
+        start: phrase.index,
+        text: phrase[0] + (named ? named[0] : ''),
+      }
+    }
+  }
+
+  if (!ignored.has('candidate_name')) {
+    const outside = disclaimer
+      ? script.slice(0, disclaimer.start) +
+        ' '.repeat(disclaimer.text.length) +
+        script.slice(disclaimer.start + disclaimer.text.length)
+      : script
+    // The full name as written when it is there; otherwise the first of its
+    // words the script uses, since scripts often identify by first name.
+    const names = (context.candidateNames ?? []).filter(Boolean)
+    const text =
+      names.map((name) => findWords(outside, name.trim())).find(Boolean) ??
+      nameTokensOf(names)
+        .map((token) => findWords(outside, token))
+        .find(Boolean)
+    if (text) parts.push({ rule: 'candidate_name', kind: 'phrase', text })
+  }
+
+  if (disclaimer) {
+    parts.push({ rule: 'paid_for_by', kind: 'phrase', text: disclaimer.text })
+  }
+
+  if (!ignored.has('opt_out_line')) {
+    const optOut = /reply\s+stop\b(?:\s+to\s+opt[\s-]?out)?\.?/i.exec(script)
+    if (optOut)
+      parts.push({ rule: 'opt_out_line', kind: 'phrase', text: optOut[0] })
+  }
+
+  return parts
 }
 
 export const SmsApprovalQueueItemSchema = z.object({
