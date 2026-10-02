@@ -4,7 +4,7 @@ import type {
   ConstituentFeedbackStance,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
-import { MessageSquareIcon } from '@styleguide'
+import { Badge, MessageSquareIcon } from '@styleguide'
 import { InfoSection } from './InfoSection'
 
 // On a voter's record and on a constituent's, so the copy is mode-keyed
@@ -17,12 +17,14 @@ const FEEDBACK_COPY = {
     empty: 'Nothing recorded yet.',
     unconfirmed: 'Not yet reviewed',
     wants: 'Wants',
+    tags: 'Tags',
   },
   serve: {
     title: 'What they told us',
     empty: 'Nothing recorded yet.',
     unconfirmed: 'Not yet reviewed',
     wants: 'Wants',
+    tags: 'Tags',
   },
 }
 
@@ -98,6 +100,21 @@ const FeedbackRow = ({
           later: it is not evidence until a person agreed with it. */}
       {entry.confirmedAt === null && ` · ${FEEDBACK_COPY[mode].unconfirmed}`}
     </p>
+
+    {/* Accepted only, which the API already guarantees: a tag the summary
+        proposed and nobody accepted is not a fact about this person. */}
+    {entry.tags.length > 0 && (
+      <ul
+        aria-label={FEEDBACK_COPY[mode].tags}
+        className="flex flex-wrap gap-1.5 pt-1"
+      >
+        {entry.tags.map((tag) => (
+          <li key={tag.id}>
+            <Badge variant="outline">{tag.name}</Badge>
+          </li>
+        ))}
+      </ul>
+    )}
   </div>
 )
 
