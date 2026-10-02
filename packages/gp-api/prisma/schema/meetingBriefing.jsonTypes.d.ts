@@ -23,6 +23,8 @@ declare global {
           | 'partial'
           | 'not_published'
           | 'inferred_from_prior'
+        packet_stated_meeting_date?: string | null
+        packet_date_verification?: 'matched' | 'mismatched' | 'unavailable'
         [key: string]: Prisma.JsonValue | undefined
       }
       [key: string]: Prisma.JsonValue | undefined

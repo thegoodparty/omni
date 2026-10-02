@@ -283,7 +283,7 @@ When you use a past packet as enrichment: cite it as its own `sources[]` entry w
 
 **Agenda input precedence:** pre-staged `/workspace/input/agenda.pdf` (upload path) > `agendaPacketUrl` from PARAMS (URL-paste path) > agent-discovered next meeting on the platform.
 
-When the agent uses a user-supplied agenda (either pre-staged file or pasted URL), set `briefing_status: "agenda_provided_by_user"` and record the decision in `run_metadata.run_decisions[]`. The "no future meeting" precondition still applies — if the user-supplied agenda is for a past meeting, set `no_meeting_found`.
+When the agent uses a user-supplied agenda (either pre-staged file or pasted URL), set `briefing_status: "agenda_provided_by_user"` and record the decision in `run_metadata.run_decisions[]`. The "no future meeting" precondition still applies — if the user-supplied agenda is for a past meeting, set `no_meeting_found`. Read the meeting date the document itself states (cover, header, or first page) and record it as `run_metadata.packet_stated_meeting_date`, with `packet_date_verification` set to `matched` when it is within three days of `PARAMS.meetingDate`, `mismatched` when further off, or `unavailable` when no date can be read. Still produce the briefing.
 
 If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/agenda.pdf`, **that file is the primary source — do not re-fetch from the platform.** The platforms below are for the case where the bundled packet references a document not included, or where legislative history for a referenced item is useful context. In that case, go directly to the platform — do not start with a generic web search.
 
@@ -998,6 +998,8 @@ Fill it on every run. It states how the target meeting's agenda was obtained.
 
 A ready briefing never carries `partial`, `not_published`, or `inferred_from_prior`. When in doubt between `html_agenda` and `partial`, ask whether every substantive item of **this** meeting is present in what you read: all present is `html_agenda`, anything missing is `partial`.
 
+`packet_stated_meeting_date` and `packet_date_verification` accompany it: the date the agenda document itself states, and whether it matched `PARAMS.meetingDate` within three days, mismatched, or could not be read. Record them on every run, not only user-supplied ones.
+
 When the substantive-items check (Step 3) found zero substantive items, the run terminates early with `briefing_status: "awaiting_agenda"`, a single placeholder item, and `claims: []`. See Step 3 for the placeholder shape.
 
 #### `required_data_points`
@@ -1146,6 +1148,8 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
     "agenda_packet_url": "the permanent agendaPacketUrl value from PARAMS when set, or null when the packet was pre-staged at /workspace/input/agenda.pdf or when briefing_status is awaiting_agenda or no_meeting_found",
     "discovered_agenda_location": "best current prose describing where future agenda packets will likely be found for this body (see guidance below)",
     "agenda_availability": "full_packet | html_agenda | partial | not_published | inferred_from_prior (Step 15)",
+    "packet_stated_meeting_date": "YYYY-MM-DD as stated by the agenda document itself, or null",
+    "packet_date_verification": "matched | mismatched | unavailable",
     "source_bundle_retrieved_at": "ISO 8601 UTC timestamp set when the last source was fetched",
     "briefing_version": "v2",
     "run_decisions": [

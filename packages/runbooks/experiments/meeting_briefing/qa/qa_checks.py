@@ -615,6 +615,8 @@ def _framing_leak(text: str, strict: bool):
 
 _READY_STATUSES = frozenset({"briefing_ready", "agenda_provided_by_user"})
 _REFUSED_AVAILABILITY = frozenset({"partial", "not_published", "inferred_from_prior"})
+# Mirrors gp-api: a packet dated this far from the target is another meeting.
+_PACKET_DATE_TOLERANCE_DAYS = 3
 # Audit phrases only. Coarse on purpose: this check observes, it never gates.
 # Each appeared in the decision trail of a briefing the 2026-09-30 review found
 # misleading.
@@ -627,18 +629,34 @@ _UNAVAILABLE_AGENDA_PHRASES = (
 )
 
 
+def _packet_states_another_meeting(artifact: dict, rm: dict) -> bool:
+    """Mirror of the gp-api date check: the agent flagged a mismatch, or the stated date is far off."""
+    if rm.get("packet_date_verification") == "mismatched":
+        return True
+    try:
+        stated = date.fromisoformat(str(rm.get("packet_stated_meeting_date")))
+        meeting = date.fromisoformat(str(artifact.get("meeting_date")))
+    except (TypeError, ValueError):
+        return False
+    return abs((stated - meeting).days) > _PACKET_DATE_TOLERANCE_DAYS
+
+
 def check_agenda_availability_consistency(artifact: dict, findings: list[Finding]) -> None:
-    """A ready briefing must say it used an available agenda.
+    """A ready briefing must say it used an available agenda, for this meeting.
 
     Mirrors the gp-api publication gate: ready or user-provided status with an
     availability value that says the agenda was unavailable is an error. A
     missing value is a warning for now and becomes an error in the dated
-    follow-up, once every live run records the field.
+    follow-up, once every live run records the field. A packet whose own
+    stated date is another meeting's is an error on a user-provided run (the
+    official pasted a wrong link or into a wrong slot, and gp-api refuses it)
+    and a warning on a discovered one, where gp-api only logs it for now.
     """
     status = artifact.get("briefing_status")
     if status not in _READY_STATUSES:
         return
-    availability = (artifact.get("run_metadata") or {}).get("agenda_availability")
+    rm = artifact.get("run_metadata") or {}
+    availability = rm.get("agenda_availability")
     if availability is None:
         findings.append(Finding(
             "agenda_availability.missing",
@@ -654,6 +672,18 @@ def check_agenda_availability_consistency(artifact: dict, findings: list[Finding
             f"briefing_status='{status}' but run_metadata.agenda_availability='{availability}'. "
             "A briefing built without this meeting's agenda cannot be ready; set briefing_status "
             "to 'awaiting_agenda' so the slot stays open.",
+        ))
+    if _packet_states_another_meeting(artifact, rm):
+        user_provided = status == "agenda_provided_by_user"
+        findings.append(Finding(
+            "packet_date.states_another_meeting",
+            "error" if user_provided else "warning",
+            f"briefing_status='{status}' but the agenda document states meeting date "
+            f"{rm.get('packet_stated_meeting_date')!r} (packet_date_verification="
+            f"{rm.get('packet_date_verification')!r}) against meeting_date {artifact.get('meeting_date')!r}. "
+            + ("gp-api refuses a user-provided packet for another meeting and tells the official why."
+               if user_provided else
+               "Published for now; a discovered agenda's stated date is logged, not enforced."),
         ))
 
 

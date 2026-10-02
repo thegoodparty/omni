@@ -293,6 +293,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Highlighting text in a briefing starts a question anchored to that passage',
       'Notes taken on a briefing stay with it',
       'A meeting whose agenda could not be found stays marked Awaiting agenda, with a place to paste the agenda link or upload the file',
+      'A pasted agenda that turns out to be for another meeting is called out on that meeting, and the link can be tried again',
     ],
   },
   {

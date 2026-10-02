@@ -194,6 +194,16 @@
                 "enum": ["full_packet", "html_agenda", "partial", "not_published", "inferred_from_prior"],
                 "description": "Fill on every run. v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda."
               },
+              "packet_stated_meeting_date": {
+                "type": ["string", "null"],
+                "format": "date",
+                "description": "The meeting date the agenda document itself states, read from its cover or header. null when no date could be read."
+              },
+              "packet_date_verification": {
+                "type": "string",
+                "enum": ["matched", "mismatched", "unavailable"],
+                "description": "matched: packet_stated_meeting_date is within three days of meeting_date. mismatched: it is further off. unavailable: no date could be read from the document. Recorded so a missing date is a known state, not a silent pass."
+              },
               "source_bundle_retrieved_at": {
                 "type": "string",
                 "format": "date-time"
@@ -367,6 +377,16 @@
                 "type": "string",
                 "enum": ["full_packet", "html_agenda", "partial", "not_published", "inferred_from_prior"],
                 "description": "Fill on every run. v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda."
+              },
+              "packet_stated_meeting_date": {
+                "type": ["string", "null"],
+                "format": "date",
+                "description": "The meeting date the agenda document itself states, read from its cover or header. null when no date could be read."
+              },
+              "packet_date_verification": {
+                "type": "string",
+                "enum": ["matched", "mismatched", "unavailable"],
+                "description": "matched: packet_stated_meeting_date is within three days of meeting_date. mismatched: it is further off. unavailable: no date could be read from the document. Recorded so a missing date is a known state, not a silent pass."
               },
               "source_bundle_retrieved_at": {
                 "type": "string",
