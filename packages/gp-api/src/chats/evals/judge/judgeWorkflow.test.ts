@@ -9,6 +9,7 @@ import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
 import { DEFAULT_JUDGE_CONFIG } from './config'
 import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
+import { ARM_AWS_ENV } from './awsCredentials'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
 // The sweep's three processes each read their spend switch from their own
@@ -1393,4 +1394,40 @@ describe('judge.yml prices a background agent from config.background', () => {
     expect(comment).toMatch(row('chief_of_staff', 'chat', CHAT_CENTS))
     expect(comment).toMatch(row('self_research', 'background', background))
   })
+})
+
+// THE SECOND KEY `.env.test` SHADOWS. The first live background sweep that got
+// past the queue lookup assumed the role, then signed with `.env.test`'s stub
+// access key beside the role's real session token, and AWS refused the key
+// before anything was staged. Pinned on both sides: the workflow passes the
+// three names, and the arm suite and the store build their clients from them.
+describe('the arms reach AWS on the role, not on the stub', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const arms = stepsOf(yaml).filter((step) =>
+    step.name.startsWith('Capture the '),
+  )
+
+  it.each(Object.entries(ARM_AWS_ENV))(
+    'passes the %s to both arms under the arm name',
+    (_field, name) => {
+      expect(arms).toHaveLength(2)
+      const sdkName = name.replace(/^JUDGE_/, '')
+      expect(arms.map((step) => envValue(step.body, name))).toEqual([
+        `\${{ env.${sdkName} }}`,
+        `\${{ env.${sdkName} }}`,
+      ])
+    },
+  )
+
+  it.each(['sweep.eval.test.ts', 'sweepEnv.ts'])(
+    '%s builds every AWS client from the passed credentials',
+    (file) => {
+      const source = readFileSync(path.resolve(__dirname, file), 'utf8')
+      const clients = source.match(/new (S3|SQS)Client\([^)]*\)/g) ?? []
+      expect(clients.length).toBeGreaterThan(0)
+      expect(
+        clients.filter((client) => !client.includes('judgeAwsClientConfig(')),
+      ).toEqual([])
+    },
+  )
 })

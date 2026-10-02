@@ -1847,6 +1847,15 @@ jobs:
           JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
           JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
           JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
+          # THE ROLE'S CREDENTIALS, under names `.env.test` does not define.
+          # vitest applies that file over this environment, and it stubs
+          # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, so the names the
+          # credentials step exported arrive as a stub key beside the real
+          # session token. awsCredentials.ts hands these to the judge's own
+          # clients and to nothing else.
+          JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
           # existing eval suites self-skip on, and the sweep suite is not one
           # of them: it skips on JUDGE_ARM being absent, which is the value
@@ -1895,6 +1904,10 @@ jobs:
           JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
           JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
           JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
+          # The role's credentials under the arm names — see the base arm.
+          JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"
