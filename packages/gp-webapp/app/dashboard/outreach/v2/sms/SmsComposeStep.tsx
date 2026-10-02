@@ -42,7 +42,6 @@ import {
   useDictation,
 } from 'app/dashboard/shared/dictation/useDictation'
 import { Intro } from '../social/Intro'
-import { ThinkingStream } from '../social/ThinkingStream'
 import { IMAGE_ACCEPT, IMAGE_MAX_BYTES } from './smsCompose.util'
 
 // Why each locked part cannot change, shown when an edit runs into it. Both
@@ -96,7 +95,6 @@ interface SmsComposeStepProps {
   isServe: boolean
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
-  audienceName: string
   standardsFailures: SmsStandardsRule[]
   unfilledBrackets: string[]
   identificationExample: string
@@ -148,7 +146,6 @@ export const SmsComposeStep = ({
   isServe,
   tone,
   onToneChange,
-  audienceName,
   standardsFailures,
   unfilledBrackets,
   identificationExample,
@@ -250,10 +247,6 @@ export const SmsComposeStep = ({
       </FilterPillGroup>
 
       <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          Suggested for {audienceName || 'your list'}
-        </p>
-
         {isDraftError && (
           <Card className="items-start gap-3 border-destructive p-4">
             <p className="text-sm text-foreground">
@@ -266,149 +259,152 @@ export const SmsComposeStep = ({
           </Card>
         )}
 
-        {isDrafting && !message.trim() ? (
-          <ThinkingStream />
-        ) : (
-          <Card className="gap-0 p-4">
-            {imagePreviewUrl ? (
-              <div className="relative mb-4">
-                {/* eslint-disable-next-line @next/next/no-img-element -- local
+        <Card className="gap-0 p-4">
+          {imagePreviewUrl ? (
+            <div className="relative mb-4">
+              {/* eslint-disable-next-line @next/next/no-img-element -- local
                     object URL preview of an unuploaded file */}
-                <img
-                  src={imagePreviewUrl}
-                  alt="Attachment preview"
-                  className="max-h-56 w-full rounded-xl border border-border object-cover"
-                />
-                <button
-                  type="button"
-                  aria-label="Remove image"
-                  onClick={() => onImageChange(null)}
-                  className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-foreground/80 text-background hover:bg-foreground"
-                >
-                  <XMarkIcon className="size-3.5" />
-                </button>
-              </div>
-            ) : (
-              // globals.css forces flex-row on data-slot-less flex buttons
-              // (legacy link/button normalization); the slot opts out so
-              // the dropzone stacks like the design.
+              <img
+                src={imagePreviewUrl}
+                alt="Attachment preview"
+                className="max-h-56 w-full rounded-xl border border-border object-cover"
+              />
               <button
                 type="button"
-                data-slot="sms-image-dropzone"
-                onClick={() => fileInputRef.current?.click()}
-                className="mb-4 flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-10 transition-colors hover:border-primary/50 hover:bg-muted"
+                aria-label="Remove image"
+                onClick={() => onImageChange(null)}
+                className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-foreground/80 text-background hover:bg-foreground"
               >
-                <ImageIcon className="size-6 text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">
-                  {isServe
-                    ? IMAGE_DROPZONE_LABEL.serve
-                    : IMAGE_DROPZONE_LABEL.win}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  Recipients see this in the message preview
-                </span>
+                <XMarkIcon className="size-3.5" />
               </button>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={IMAGE_ACCEPT}
-              className="hidden"
-              onChange={(e) => {
-                handleFile(e.target.files?.[0] ?? null)
-                e.target.value = ''
-              }}
-            />
-
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">
-                Your message
-              </span>
-              <span
-                className={cn(
-                  'text-xs tabular-nums text-muted-foreground',
-                  overLimit && 'text-destructive',
-                )}
-              >
-                {composedLength} chars · {segments} SMS
-              </span>
             </div>
-            <TokenField
-              ref={fieldRef}
-              value={message}
-              onChange={onMessageChange}
-              tokens={tokens}
-              protectedRanges={protectedRanges}
-              onBlockedEdit={(target) =>
-                setLockReason(
-                  'reason' in target
-                    ? target.reason
-                    : (LOCK_REASONS.first_name_token ?? LOCKED_FALLBACK),
-                )
-              }
-              placeholder="Write your message…"
-              aria-label="Message body"
-              aria-invalid={overLimit}
-              variant="seamless"
-              className="min-h-[140px]"
-            />
-            <p role="status" className="mt-1 min-h-4 text-xs text-foreground">
-              {lockReason}
-            </p>
+          ) : (
+            // globals.css forces flex-row on data-slot-less flex buttons
+            // (legacy link/button normalization); the slot opts out so
+            // the dropzone stacks like the design.
+            <button
+              type="button"
+              data-slot="sms-image-dropzone"
+              onClick={() => fileInputRef.current?.click()}
+              className="mb-4 flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-10 transition-colors hover:border-primary/50 hover:bg-muted"
+            >
+              <ImageIcon className="size-6 text-muted-foreground" />
+              <span className="text-sm font-medium text-foreground">
+                {isServe
+                  ? IMAGE_DROPZONE_LABEL.serve
+                  : IMAGE_DROPZONE_LABEL.win}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Recipients see this in the message preview
+              </span>
+            </button>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={IMAGE_ACCEPT}
+            className="hidden"
+            onChange={(e) => {
+              handleFile(e.target.files?.[0] ?? null)
+              e.target.value = ''
+            }}
+          />
 
-            <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
-              {canUndo && (
-                <Button
-                  type="button"
-                  variant="link"
-                  size="small"
-                  className="h-auto px-2"
-                  onClick={onUndo}
-                >
-                  Undo
-                </Button>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground">
+              Your message
+            </span>
+            <span
+              className={cn(
+                'text-xs tabular-nums text-muted-foreground',
+                overLimit && 'text-destructive',
               )}
-              {(!isImprove || hasWrittenBody) && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="small"
-                  className="text-muted-foreground"
-                  disabled={isDrafting}
-                  onClick={onAiAction}
-                >
-                  {isDrafting ? (
-                    <Loader2Icon className="size-4 animate-spin" />
-                  ) : isImprove ? (
-                    <SparklesIcon className="size-4" />
-                  ) : (
-                    <RefreshIcon className="size-4" />
-                  )}
-                  {isImprove ? 'Improve with AI' : 'Regenerate'}
-                </Button>
-              )}
-              <IconButton
+            >
+              {composedLength} chars · {segments} SMS
+            </span>
+          </div>
+          <TokenField
+            ref={fieldRef}
+            value={message}
+            onChange={onMessageChange}
+            tokens={tokens}
+            protectedRanges={protectedRanges}
+            onBlockedEdit={(target) =>
+              setLockReason(
+                'reason' in target
+                  ? target.reason
+                  : (LOCK_REASONS.first_name_token ?? LOCKED_FALLBACK),
+              )
+            }
+            // Read-only until the first draft lands, so nothing typed is
+            // overwritten by it.
+            readOnly={isDrafting && !message.trim()}
+            placeholder={
+              isDrafting && !message.trim()
+                ? 'Drafting your message…'
+                : 'Write your message…'
+            }
+            aria-label="Message body"
+            aria-invalid={overLimit}
+            variant="seamless"
+            className="min-h-[140px]"
+          />
+          <p role="status" className="mt-1 min-h-4 text-xs text-foreground">
+            {lockReason}
+          </p>
+
+          <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
+            {canUndo && (
+              <Button
                 type="button"
-                variant={isRecording ? 'destructive' : 'ghost'}
+                variant="link"
                 size="small"
-                aria-label={isRecording ? 'Stop dictation' : 'Dictate message'}
-                disabled={isDrafting || dictation.status === 'stopping'}
-                onClick={() => {
-                  void toggleDictation()
-                }}
-                className={cn(!isRecording && 'text-muted-foreground')}
+                className="h-auto px-2"
+                onClick={onUndo}
               >
-                {dictationBusy ? (
-                  <Loader2Icon className="size-4 animate-spin" aria-hidden />
-                ) : isRecording ? (
-                  <SquareIcon className="size-4 fill-current" aria-hidden />
+                Undo
+              </Button>
+            )}
+            {(!isImprove || hasWrittenBody) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="small"
+                className="text-muted-foreground"
+                disabled={isDrafting}
+                onClick={onAiAction}
+              >
+                {isDrafting ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : isImprove ? (
+                  <SparklesIcon className="size-4" />
                 ) : (
-                  <MicIcon className="size-5" aria-hidden />
+                  <RefreshIcon className="size-4" />
                 )}
-              </IconButton>
-            </div>
-          </Card>
-        )}
+                {isImprove ? 'Improve with AI' : 'Regenerate'}
+              </Button>
+            )}
+            <IconButton
+              type="button"
+              variant={isRecording ? 'destructive' : 'ghost'}
+              size="small"
+              aria-label={isRecording ? 'Stop dictation' : 'Dictate message'}
+              disabled={isDrafting || dictation.status === 'stopping'}
+              onClick={() => {
+                void toggleDictation()
+              }}
+              className={cn(!isRecording && 'text-muted-foreground')}
+            >
+              {dictationBusy ? (
+                <Loader2Icon className="size-4 animate-spin" aria-hidden />
+              ) : isRecording ? (
+                <SquareIcon className="size-4 fill-current" aria-hidden />
+              ) : (
+                <MicIcon className="size-5" aria-hidden />
+              )}
+            </IconButton>
+          </div>
+        </Card>
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your

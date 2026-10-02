@@ -1889,7 +1889,6 @@ export const SmsFlow = ({
           isServe={surface.isServe}
           tone={tone}
           onToneChange={handleToneChange}
-          audienceName={selectedList?.name ?? audience.builderName}
           standardsFailures={standards.failures}
           unfilledBrackets={bracketsToFill}
           identificationExample={introFor(tone)}

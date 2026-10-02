@@ -598,11 +598,11 @@ describe('freezing the card with the list', () => {
     expect(stored.split('\n')[1]).toBe('Fix the roads. And the sidewalks.')
   })
 
-  // The boxes are hidden behind the thinking stream while the first draft is
-  // written — the composed call to action lands in state before that request
-  // is made, and counting it as drafted content would put the boxes on screen
-  // with a generation about to overwrite whatever was typed into them.
-  it('shows no editable boxes while the first draft is being written', async () => {
+  // The boxes are read-only while the first draft is written — the composed
+  // call to action lands in state before that request is made, and counting
+  // it as drafted content would leave the boxes open with a generation about
+  // to overwrite whatever was typed into them.
+  it('keeps the boxes read-only while the first draft is being written', async () => {
     api.mock(
       'POST /v1/outreach/door-knocking/draft',
       () => new Promise<never>(() => undefined),
@@ -619,7 +619,7 @@ describe('freezing the card with the list', () => {
     view.rerender(<CreateListFlow {...baseProps} step="points" />)
 
     await waitFor(() =>
-      expect(screen.queryByLabelText('Context')).not.toBeInTheDocument(),
+      expect(screen.getByLabelText('Context')).toHaveAttribute('readonly'),
     )
   })
 

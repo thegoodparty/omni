@@ -477,8 +477,8 @@ The step component is phone banking's `ScriptStep.tsx` minus the tone pills, the
 name field (door knocking already names the campaign on `confirm`), the
 phone-banking copy, and the surface indirection. It renders all five sections,
 with the composed identity clause and close visually distinct and non-editable,
-and the four stored lines editable. What survives from `ScriptStep`: the layout, `ThinkingStream`
-gating, Regenerate, Improve with AI, the instructions input, dictation, the
+and the four stored lines editable. What survives from `ScriptStep`: the layout, the read-only
+fields while the first draft loads, Regenerate, Improve with AI, the instructions input, dictation, the
 error card, the stale-response request-id guard, and the `manuallyEdited` rule
 that decides whether a regenerate may send `previousDraft`.
 

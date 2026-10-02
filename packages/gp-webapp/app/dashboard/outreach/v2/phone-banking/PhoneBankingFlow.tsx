@@ -998,7 +998,6 @@ export const PhoneBankingFlow = ({
         </>
       ) : stepId === 'script' ? (
         <ScriptStep
-          isServe={surface.isServe}
           name={name}
           onNameChange={(value) => {
             setName(value)
