@@ -153,15 +153,29 @@ describe('AudioUploadUrlRequestSchema', () => {
   // outside the org's prefix.
   it('refuses a client key that is not a uuid', () => {
     expect(
-      AudioUploadUrlRequestSchema.safeParse({ clientKey: '../other-org/x' })
-        .success,
+      AudioUploadUrlRequestSchema.safeParse({
+        clientKey: '../other-org/x',
+        contentType: 'audio/webm',
+      }).success,
     ).toBe(false)
   })
 
-  it('accepts a uuid client key', () => {
-    expect(AudioUploadUrlRequestSchema.parse({ clientKey: MEMO_KEY })).toEqual({
-      clientKey: MEMO_KEY,
-    })
+  it('accepts a uuid client key and either container', () => {
+    for (const contentType of ['audio/webm;codecs=opus', 'audio/mp4']) {
+      expect(
+        AudioUploadUrlRequestSchema.parse({ clientKey: MEMO_KEY, contentType }),
+      ).toEqual({ clientKey: MEMO_KEY, contentType })
+    }
+  })
+
+  // The policy pins this type, so it has to be audio.
+  it('refuses a type that is not audio', () => {
+    expect(
+      AudioUploadUrlRequestSchema.safeParse({
+        clientKey: MEMO_KEY,
+        contentType: 'text/html',
+      }).success,
+    ).toBe(false)
   })
 })
 

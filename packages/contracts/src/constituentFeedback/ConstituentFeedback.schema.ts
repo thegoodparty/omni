@@ -211,18 +211,32 @@ export type ConstituentFeedbackListResponse = z.infer<
   typeof ConstituentFeedbackListResponseSchema
 >
 
+// About two minutes of audio in any container a phone's MediaRecorder
+// writes, with room to spare. The presigned POST makes S3 refuse anything
+// larger at upload time.
+export const CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES = 5_000_000
+
 // The memo's own replay key, which names the recording, so a re-sent upload
-// lands on the same object.
+// lands on the same object; and the recording's type (webm on Chrome, mp4 on
+// Safari), which the presigned POST's policy pins.
 export const AudioUploadUrlRequestSchema = z
-  .object({ clientKey: z.guid() })
+  .object({
+    clientKey: z.guid(),
+    contentType: z
+      .string()
+      .regex(/^audio\/[\w.+-]+(;.*)?$/)
+      .max(100),
+  })
   .strict()
 export type AudioUploadUrlRequest = z.infer<typeof AudioUploadUrlRequestSchema>
 
-// Where the phone PUTs the recording it held while it had no signal, and the
-// key to send with the memo once it has.
+// Where the phone POSTs the recording it held while it had no signal (a
+// presigned POST: `fields` go in the form ahead of the file), and the key to
+// send with the memo once it has.
 export const AudioUploadUrlResponseSchema = z.object({
   audioKey: z.string(),
   uploadUrl: z.string(),
+  fields: z.record(z.string(), z.string()),
   expiresAt: zCoerceDate(),
 })
 export type AudioUploadUrlResponse = z.infer<

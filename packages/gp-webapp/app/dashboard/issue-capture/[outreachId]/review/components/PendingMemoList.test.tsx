@@ -100,9 +100,14 @@ describe('PendingMemoList', () => {
     mockPending([STILL_TRANSCRIBING])
     renderList()
 
-    expect(await screen.findByText('Still transcribing')).toBeVisible()
+    expect(
+      await screen.findByText('Still transcribing', {
+        selector: 'p:not([role="status"])',
+      }),
+    ).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent('Still transcribing')
     expect(screen.queryByText('Is this right?')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Try again/ })).toBeNull()
   })
 
   it('confirms a note with the fields as they stand', async () => {
@@ -117,7 +122,7 @@ describe('PendingMemoList', () => {
     )
     renderList()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Looks right' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Looks right/ }))
 
     await waitFor(() =>
       expect(patched).toEqual({
@@ -154,7 +159,7 @@ describe('PendingMemoList', () => {
         "We couldn't make out this note. Try again or type it.",
       ),
     ).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Try again/ }))
 
     await waitFor(() => expect(retried).toEqual({ id: 'memo-3', body: {} }))
   })
@@ -201,7 +206,7 @@ describe('PendingMemoList', () => {
     renderList()
 
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Type it instead' }),
+      await screen.findByRole('button', { name: /^Type it instead/ }),
     )
     fireEvent.change(screen.getByRole('textbox', { name: 'Their note' }), {
       target: { value: typed },
@@ -221,7 +226,9 @@ describe('PendingMemoList', () => {
     expect(await screen.findByText(typed)).toBeVisible()
     expect(screen.getByDisplayValue('Potholes')).toBeVisible()
     expect(screen.getByDisplayValue('Fill the potholes on Oak')).toBeVisible()
-    expect(screen.queryByRole('button', { name: 'Type it instead' })).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: /^Type it instead/ }),
+    ).toBeNull()
   })
 
   // Its knock or call is gone, so there is nothing to record it against.
@@ -230,9 +237,47 @@ describe('PendingMemoList', () => {
     renderList()
 
     expect(
-      await screen.findByRole('button', { name: 'Try again' }),
+      await screen.findByRole('button', { name: /^Try again/ }),
     ).toBeVisible()
-    expect(screen.queryByRole('button', { name: 'Type it instead' })).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: /^Type it instead/ }),
+    ).toBeNull()
+  })
+
+  // A page of these reads, to a screen reader, as one button name said
+  // several times unless each says which note it acts on.
+  it('names each note’s buttons by its first words, or by who took it', async () => {
+    mockPending([row(), NOT_HEARD])
+    renderList()
+
+    expect(
+      await screen.findByRole('button', {
+        name: 'Looks right: She wants the storm drains on…',
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', {
+        name: /^Try again: Note from Kamal Al Sawafi, /,
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getAllByRole('status').map((region) => region.textContent ?? ''),
+    ).toContain('Ready to review')
+  })
+
+  it('reads a failed retry out as an alert', async () => {
+    mockPending([NOT_HEARD])
+    api.mock('POST /v1/constituent-feedback/:id/retry', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    renderList()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Try again/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "That didn't work. Try again in a moment.",
+    )
   })
 
   it('says when there is nothing to review', async () => {
@@ -252,7 +297,7 @@ describe('PendingMemoList', () => {
     mockPending([row(), STILL_TRANSCRIBING, NOT_HEARD])
     const { container } = renderList(isServe)
 
-    await screen.findByText('Still transcribing')
+    await screen.findAllByText('Still transcribing')
     expect(container.textContent).not.toMatch(banned)
   })
 })

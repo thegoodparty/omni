@@ -97,8 +97,14 @@ export default function PhoneBankingCallerPage({
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
   // Calls logged with no signal wait on the phone; this sends them when it
-  // returns, whether or not a call's form is open.
-  useOfflineQueueDrain()
+  // returns, whether or not a call's form is open, and re-reads the list so
+  // it shows what the server recorded.
+  useOfflineQueueDrain({
+    onSent: () =>
+      void queryClient.invalidateQueries({
+        queryKey: phoneBankingListQueryKey(listId),
+      }),
+  })
 
   const [expandedEntryIds, setExpandedEntryIds] = useState<Set<number>>(
     new Set(),

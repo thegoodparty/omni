@@ -49,9 +49,9 @@ issue capture; see `constituentFeedback/AGENTS.md`.
 ## Gotchas
 
 - **`SPEECH_BUCKET` is the meeting pipeline's bucket**
-  (`MEETING_PIPELINE_BUCKET`). A browser PUT to a presigned URL on it needs a
-  CORS rule allowing the webapp's origins. The prod bucket's Pulumi
-  component (`deploy/components/meeting-pipeline-bucket.ts`) sets none, and
-  the dev bucket is managed outside this repo.
+  (`MEETING_PIPELINE_BUCKET`). A browser's presigned POST to it needs a CORS
+  rule allowing the webapp's origins. The prod bucket's Pulumi component
+  (`deploy/components/meeting-pipeline-bucket.ts`) sets one; the dev bucket,
+  shared by dev and every preview stack, is managed outside this repo.
 - **The mock reaches into issue capture for its fixture.** It is the one
   place this module knows about a caller, and only in mock mode.

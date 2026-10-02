@@ -46,8 +46,11 @@ export type QueuedMemo = {
 }
 
 type EntryBase = {
-  // `${kind}:${key}`, where the key is the knock's clientKey or a call's
-  // `entryId:personId`, so re-saving the same door replaces its entry.
+  // `${kind}:${key}`, where the key names the door or the call: the stop
+  // target for a knock, `entryId:personId` for a call. A memo shares its
+  // knock's or call's key, so saving the same door again replaces both
+  // entries instead of queueing a second pair, and a refused knock or call
+  // can find the memo that depends on it.
   id: string
   // The org it was recorded in. Every request the drain makes goes out under
   // the active org, so an entry waits while another org is active.
@@ -115,10 +118,16 @@ export const enqueue = (entries: QueueEntry[]): Promise<void> =>
 export const listQueue = (): Promise<QueueEntry[]> =>
   withStore('readonly', (store) => promised<QueueEntry[]>(store.getAll()))
 
-const remove = (id: string): Promise<void> =>
+export const removeFromQueue = (ids: string[]): Promise<void> =>
   withStore('readwrite', async (store) => {
-    await promised(store.delete(id))
+    await Promise.all(ids.map((id) => promised(store.delete(id))))
   })
+
+// The memo that rides on a knock or call: same key, `memo` kind.
+const dependentMemoId = (entry: QueueEntry): string | null =>
+  entry.kind === 'memo'
+    ? null
+    : `memo:${entry.id.slice(entry.id.indexOf(':') + 1)}`
 
 // Knocks and calls before memos, oldest first within each. A memo resolves
 // its knock or call on the server, so it can only go once that has landed.
@@ -135,16 +144,23 @@ const drainOnce = async (
   send: (entry: QueueEntry) => Promise<SendOutcome>,
 ): Promise<number> => {
   let sent = 0
+  const dropped = new Set<string>()
   for (const entry of drainOrder(await listQueue())) {
+    if (dropped.has(entry.id)) continue
     let outcome: SendOutcome
     try {
       outcome = await send(entry)
     } catch {
-      // No signal after all, or the server is down. Whatever is left goes
-      // on the next drain, in the same order.
+      // No signal after all, a session not yet refreshed, or the server is
+      // down. Whatever is left goes on the next drain, in the same order.
       return sent
     }
-    if (outcome !== 'deferred') await remove(entry.id)
+    if (outcome === 'deferred') continue
+    // A refused knock or call takes its memo with it: the memo resolves it
+    // on the server, so it would be refused too.
+    const memoId = outcome === 'rejected' ? dependentMemoId(entry) : null
+    if (memoId !== null) dropped.add(memoId)
+    await removeFromQueue(memoId === null ? [entry.id] : [entry.id, memoId])
     if (outcome === 'sent') sent += 1
   }
   return sent

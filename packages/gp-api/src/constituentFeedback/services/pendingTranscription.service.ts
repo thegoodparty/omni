@@ -5,7 +5,10 @@ import { ConstituentFeedbackExtractionStatus, Prisma } from '@/generated/prisma'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
+import {
+  TranscribeFileService,
+  type TranscriptionResult,
+} from '@/speech/services/transcribeFile.service'
 import { ConstituentFeedbackService } from './constituentFeedback.service'
 
 const JOB = 'feedbackPendingTranscription'
@@ -96,22 +99,35 @@ export class PendingTranscriptionService extends createPrismaBase(
     now: Date,
   ): Promise<void> {
     const jobName = row.transcriptionJobName
-    if (row.updatedAt < subMinutes(now, GIVE_UP_AFTER_MINUTES)) {
-      await this.feedback.failTranscription({
+    const stale = row.updatedAt < subMinutes(now, GIVE_UP_AFTER_MINUTES)
+    const giveUp = () =>
+      this.feedback.failTranscription({
         id: row.id,
         jobName,
         reason: 'timeout',
       })
-      return
-    }
-    if (row.audioKey === null) return
+
     if (jobName === null) {
-      await this.feedback.startTranscription(row.id, row.audioKey)
+      if (stale) return giveUp()
+      if (row.audioKey !== null) {
+        await this.feedback.startTranscription(row.id, row.audioKey)
+      }
       return
     }
 
-    const result = await this.transcribeFile.fetchResult(jobName)
-    if (result.status === 'in_progress') return
+    // Polled before the give-up, so a job that finished while this cron was
+    // not running is read rather than failed.
+    let result: TranscriptionResult
+    try {
+      result = await this.transcribeFile.fetchResult(jobName)
+    } catch (err) {
+      if (stale) return giveUp()
+      throw err
+    }
+    if (result.status === 'in_progress') {
+      if (stale) await giveUp()
+      return
+    }
     if (result.status === 'failed') {
       await this.feedback.failTranscription({
         id: row.id,

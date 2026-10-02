@@ -596,7 +596,19 @@ describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
     ).toBeVisible()
     expect(calls).not.toHaveBeenCalled()
     expect(captureBodies).toEqual([])
-    expect(onSaved).not.toHaveBeenCalled()
+    // The list moves on now, with what the server will record.
+    expect(onSaved).toHaveBeenCalledWith([
+      {
+        personId: 'person-1',
+        interaction: {
+          outcome: 'answered',
+          supportAnswer: null,
+          willVote: null,
+          followUp: 'yes',
+          occurredAt: expect.any(Date),
+        },
+      },
+    ])
     expect(screen.queryByText('Is this right?')).toBeNull()
 
     const queued = await listQueue()

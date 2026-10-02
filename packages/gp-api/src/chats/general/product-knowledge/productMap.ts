@@ -414,6 +414,23 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
     ],
     gate: 'Being rolled out account by account, so not every account has it yet.',
   },
+  {
+    // One area seen by two roles: the owner's page under the dashboard and a
+    // volunteer's own under their walk, with the same title, so one entry
+    // with the volunteer's way in rather than the same name twice.
+    navId: null,
+    name: 'Notes to review',
+    path: '/dashboard/issue-capture/[outreachId]/review',
+    modes: ['win', 'serve'],
+    does: 'Confirm what a conversation’s note says when nobody confirmed it at the door, including notes recorded with no signal.',
+    inside: [
+      'Reached from the waiting for review count under the title of What we heard, and from Notes to review on a door knocking turf’s details',
+      'A note recorded with no signal reads Still transcribing until it has been turned into text, usually within a couple of minutes',
+      'Looks right confirms a note. A note that could not be read offers Try again, or Type it instead to type what the person said',
+      'A volunteer has a Notes to review of their own, from the line at the top of the map while they walk a turf, listing only the notes they took',
+    ],
+    gate: 'Being rolled out account by account, so not every account has it yet.',
+  },
 ]
 
 export const PRODUCT_AREAS: ProductArea[] = [

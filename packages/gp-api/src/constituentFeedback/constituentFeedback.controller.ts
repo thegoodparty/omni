@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -10,13 +11,13 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
-  Put,
   Query,
   UseInterceptors,
 } from '@nestjs/common'
 import {
   AudioUploadUrlRequestSchema,
   AudioUploadUrlResponseSchema,
+  CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
   ConfirmConstituentFeedbackSchema,
   ConstituentFeedbackListResponseSchema,
   ConstituentFeedbackSchema,
@@ -40,6 +41,9 @@ import {
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { FeaturesService } from '@/features/services/features.service'
+import { ReqFile } from '@/files/decorators/ReqFiles.decorator'
+import { FileUpload } from '@/files/files.types'
+import { FilesInterceptor } from '@/files/interceptors/files.interceptor'
 import { AllowVolunteer } from '@/organizations/decorators/AllowVolunteer.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { ReqOrganizationRole } from '@/organizations/decorators/ReqOrganizationRole.decorator'
@@ -135,24 +139,34 @@ export class ConstituentFeedbackController {
     return this.feedback.audioUploadUrl({
       organizationSlug: organization.slug,
       clientKey: body.clientKey,
+      contentType: body.contentType,
     })
   }
 
-  // Dev only, mock mode only: stands in for the bucket's presigned PUT and
-  // discards the bytes. 404s anywhere else. Keyed by the memo's clientKey
-  // rather than the whole audio key, which runs past Fastify's 100-character
-  // route parameter limit; the key is that clientKey under this org anyway.
-  @Put('audio-upload/:clientKey')
+  // Dev only, mock mode only: stands in for the bucket's presigned POST,
+  // with the same size cap, and discards the bytes. 404s anywhere else. Keyed
+  // by the memo's clientKey rather than the whole audio key, which runs past
+  // Fastify's 100-character route parameter limit; the key is that clientKey
+  // under this org anyway.
+  @Post('audio-upload/:clientKey')
   @AllowVolunteer()
   @HttpCode(HttpStatus.NO_CONTENT)
+  @UseInterceptors(
+    FilesInterceptor('file', {
+      numFiles: 1,
+      sizeLimit: CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
+    }),
+  )
   async mockAudioUpload(
     @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
     @Param('clientKey', ParseUUIDPipe) _clientKey: string,
+    @ReqFile() file?: FileUpload,
   ): Promise<void> {
     await this.assertFeatureEnabled(user, organization)
 
     this.feedback.acceptMockUpload()
+    if (!file) throw new BadRequestException('No recording found')
   }
 
   // The "Notes to review" list: an effort's unconfirmed memos.
