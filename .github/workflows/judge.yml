@@ -973,8 +973,8 @@ jobs:
           # rather than averaging: meeting_briefing's ~$7.74, invoice-confirmed
           # (.claude/skills/analyze-cap-agent-costs/profiles/meeting_briefing.md).
           # The other measurements sit under it: $2.45 to $5.27 for the
-          # community-issues pair (profiles/community_issues.md) and one $4.17
-          # run. Judging is a few cents on one seat and is not added.
+          # community-issues pair (profiles/community_issues.md). Judging is a
+          # few cents on one seat and is not added.
           #
           # Set before the loop that reads it, under `set -u`.
           # judgeWorkflow.test.ts recomputes it from the config and runs the
@@ -1097,8 +1097,9 @@ jobs:
             echo ''
             cat "$RUNNER_TEMP/table.md"
             echo ''
-            echo 'Estimates are the design doc'"'"'s measured sweep costs, rounded. They exist'
-            echo 'to make an accidental all-agents sweep visible before it is expensive,'
+            echo 'Chat estimates are the design doc'"'"'s measured sweep costs; the background'
+            echo 'estimate rounds up the worst measured per-run cost. Both exist to make an'
+            echo 'accidental all-agents sweep visible before it is expensive,'
             echo 'not to bill anyone. An agent with no case list yet is listed but'
             echo 'neither priced nor swept, because it has nothing to compare.'
             echo ''

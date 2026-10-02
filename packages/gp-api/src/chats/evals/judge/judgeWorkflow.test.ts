@@ -1272,6 +1272,8 @@ describe('judge.yml prices a background agent from config.background', () => {
   const RUN_CENTS = 800
   // The base-arm cache is not read by the sweep yet, so both arms run.
   const ARMS = 2
+  // A chat agent other than ordinance_flow, from the design doc.
+  const CHAT_CENTS = 700
 
   it('matches arms x cases x attempts x the per-run cost', () => {
     const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
@@ -1285,47 +1287,68 @@ describe('judge.yml prices a background agent from config.background', () => {
 
   // Run, not read: the step is `set -u`, so a constant that is right but
   // assigned after the loop that reads it matches every text check above and
-  // kills the step on the first background row.
-  it('prices one background row at that figure, run through bash', () => {
-    const start = script.indexOf('rows="$(sed')
-    const end = script.indexOf('usd="$(printf', start)
-    expect(start).toBeGreaterThan(-1)
-    expect(end).toBeGreaterThan(start)
-    const body = script.slice(start, script.indexOf('\n', end))
+  // kills the step on the first background row. The WHOLE run block, with a
+  // fake `npx` standing in for the CLI, so no slice boundary decides what is
+  // tested.
+  it('prices a chat and a background row, run through bash', () => {
+    expect(script.split('\n')[0]).toBe('set -euo pipefail')
     const dir = mkdtempSync(path.join(tmpdir(), 'judge-estimate-'))
+    const bin = path.join(dir, 'bin')
+    execFileSync('mkdir', [bin])
     writeFileSync(
-      path.join(dir, 'plan.txt'),
-      'Universal Judge — plan (1 agents)\n\n' +
+      path.join(dir, 'plan.fixture'),
+      'Universal Judge — plan (2 agents)\n\n' +
+        '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
         '  self_research  [background]  cases: self_research.json\n',
     )
-    const out = execFileSync(
-      'bash',
-      [
-        '-c',
-        `set -euo pipefail\nplanned=1\n${body}\n` +
-          `cat "$RUNNER_TEMP/table.md"\necho "usd=$usd"`,
-      ],
-      {
-        encoding: 'utf8',
-        env: {
-          PATH: process.env.PATH,
-          RUNNER_TEMP: dir,
-          GITHUB_SERVER_URL: 'https://github.com',
-          GITHUB_REPOSITORY: 'thegoodparty/omni',
-          CANDIDATE_SHA: 'a'.repeat(40),
-          WORKSPACE: 'packages/gp-api',
-        },
+    writeFileSync(
+      path.join(bin, 'npx'),
+      `#!/bin/bash\ncat "${path.join(dir, 'plan.fixture')}"\n`,
+    )
+    chmodSync(path.join(bin, 'npx'), 0o755)
+    const output = path.join(dir, 'output')
+    const summary = path.join(dir, 'summary')
+    writeFileSync(output, '')
+    writeFileSync(summary, '')
+    execFileSync('bash', ['--noprofile', '--norc', '-c', script], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        RUNNER_TEMP: dir,
+        GITHUB_OUTPUT: output,
+        GITHUB_STEP_SUMMARY: summary,
+        GITHUB_SERVER_URL: 'https://github.com',
+        GITHUB_REPOSITORY: 'thegoodparty/omni',
+        WORKSPACE: 'packages/gp-api',
+        CLI: 'src/chats/evals/judge/cli.ts',
+        AGENTS: 'chief_of_staff,self_research',
+        REQUESTED: 'chief_of_staff,self_research',
+        SELECTION: EXPLICIT_SELECTION,
+        LIVE: 'false',
+        SWEEP_CAPABLE: 'true',
+        REQUESTED_BY: 'octocat',
+        CANDIDATE_SHA: 'a'.repeat(40),
+        BASE_REF: 'main',
+        PR_NUMBER: '1',
+        RUN_URL: 'https://github.com/thegoodparty/omni/actions/runs/1',
       },
-    )
+    })
     const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
-    const cents = ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS
-    const usd = `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
-    expect(out).toMatch(
-      new RegExp(
-        `^\\| self_research \\| background \\| .* \\| ~${usd} \\|$`,
-        'm',
-      ),
+    const background = ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS
+    const dollars = (cents: number) =>
+      `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
+    const outputs = readFileSync(output, 'utf8')
+    expect(outputs).toMatch(
+      new RegExp(`^usd=${dollars(CHAT_CENTS + background)}$`, 'm'),
     )
-    expect(out).toMatch(new RegExp(`^usd=${usd}$`, 'm'))
+    expect(outputs).toMatch(/^sweep_agents=chief_of_staff,self_research$/m)
+    const comment = readFileSync(path.join(dir, 'plan-comment.md'), 'utf8')
+    const row = (id: string, shape: string, cents: number) =>
+      new RegExp(
+        `^\\| ${id} \\| ${shape} \\| .* \\| ~${dollars(cents)} \\|$`,
+        'm',
+      )
+    expect(comment).toMatch(row('chief_of_staff', 'chat', CHAT_CENTS))
+    expect(comment).toMatch(row('self_research', 'background', background))
   })
 })
