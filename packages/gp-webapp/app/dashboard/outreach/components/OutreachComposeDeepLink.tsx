@@ -3,7 +3,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import type { OutreachType } from 'gpApi/types/outreach.types'
-import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
+import {
+  ComposeHandoffPayloadSchema,
+  P2P_SCRIPT_MAX_LENGTH,
+} from '@goodparty_org/contracts'
+import type { SocialFlowPrefill } from 'app/dashboard/outreach/v2/social/SocialFlow'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
@@ -39,6 +43,11 @@ export interface ComposeRequest {
   // Where the compose link was pressed. Absent for a link with no allowlisted
   // `?source=`.
   source?: ComposeSource
+  // A Campaign Manager compose_handoff (`?handoff=` alongside
+  // `?compose=social`): a draft the candidate asked the agent to write,
+  // resolved from the sessionStorage nonce before this seeds the hub. Social
+  // only — no other channel's compose_handoff lands here.
+  socialPrefill?: Pick<SocialFlowPrefill, 'draftText' | 'purpose'>
 }
 
 interface OutreachComposeDeepLinkProps {
@@ -77,6 +86,31 @@ const parseComposeSource = (value: string | null | undefined): string =>
   COMPOSE_SOURCES.includes(value as ComposeSource)
     ? (value as string)
     : 'deep_link'
+
+// A Campaign Manager win_social handoff: the nonce rides `?handoff=` instead
+// of the URL (which would expose the draft text), so this loads it, deletes
+// it (one-shot — a reload must not reopen the same prefill), and validates
+// it. A serve_social payload under a nonce (this hub is never the serve
+// handoff's destination) and a missing/expired/malformed nonce both resolve
+// to undefined — a blank social flow, never an error.
+const consumeWinSocialHandoff = (
+  nonce: string | null | undefined,
+): Pick<SocialFlowPrefill, 'draftText' | 'purpose'> | undefined => {
+  if (!nonce) return undefined
+  try {
+    const key = `cos-handoff-${nonce}`
+    const stored = sessionStorage.getItem(key)
+    if (!stored) return undefined
+    sessionStorage.removeItem(key)
+    const result = ComposeHandoffPayloadSchema.safeParse(JSON.parse(stored))
+    if (!result.success || result.data.channel !== 'win_social') {
+      return undefined
+    }
+    return { draftText: result.data.draftText, purpose: result.data.purpose }
+  } catch {
+    return undefined
+  }
+}
 
 export const OutreachComposeDeepLink = ({
   tcrCompliance,
@@ -183,7 +217,12 @@ export const OutreachComposeDeepLink = ({
     // Social has no gate and no audience: unlocked for everyone, like its
     // tile.
     if (composeType === OUTREACH_TYPES.socialMedia) {
-      onCompose({ type: composeType, tracker, source: requestSource })
+      onCompose({
+        type: composeType,
+        tracker,
+        source: requestSource,
+        socialPrefill: consumeWinSocialHandoff(searchParams?.get('handoff')),
+      })
       return
     }
     // Phone banking's upgrade-at-entry, exactly as its tile does it: the Pro

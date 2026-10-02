@@ -948,16 +948,19 @@ function ChiefOfStaffChatThread({
     [conversationId],
   )
 
-  // Chief of staff users are Serve (elected officials): /dashboard/outreach is
-  // the Win hub behind candidateAccess() and bounces them to the marketing
-  // site. The nonce is written to sessionStorage so the payload survives the
-  // navigation without riding the URL (which would expose the draft text).
+  // This body is shared by Serve's Chief of Staff and Win's Campaign Manager,
+  // so a handoff routes on the payload's own channel rather than which
+  // surface mounted it. serve_social keeps the original route (Serve users
+  // are elected officials: /dashboard/outreach is the Win hub behind
+  // candidateAccess() and bounces them to the marketing site). The nonce is
+  // written to sessionStorage so the payload survives the navigation without
+  // riding the URL (which would expose the draft text).
   const handleComposeHandoff = useCallback(
     (payload: ComposeHandoffPayload): void => {
-      const prefilledFields: string[] =
-        payload.channel === 'serve_social'
-          ? ['draftText', ...(payload.purpose ? ['purpose'] : [])]
-          : []
+      const prefilledFields: string[] = [
+        'draftText',
+        ...(payload.purpose ? ['purpose'] : []),
+      ]
       void trackEvent(EVENTS.ChiefOfStaff.ComposeHandoffOpened, {
         channel: payload.channel,
         prefilledFields,
@@ -969,11 +972,17 @@ function ChiefOfStaffChatThread({
       } catch {
         // sessionStorage unavailable (private browsing, quota exceeded):
         // navigate without prefill rather than failing the handoff entirely.
-        router.push('/dashboard/constituent-outreach')
+        router.push(
+          payload.channel === 'win_social'
+            ? '/dashboard/outreach?compose=social&source=campaign_manager'
+            : '/dashboard/constituent-outreach',
+        )
         return
       }
       router.push(
-        `/dashboard/constituent-outreach?compose=social&handoff=${nonce}`,
+        payload.channel === 'win_social'
+          ? `/dashboard/outreach?compose=social&source=campaign_manager&handoff=${nonce}`
+          : `/dashboard/constituent-outreach?compose=social&handoff=${nonce}`,
       )
     },
     [router],
