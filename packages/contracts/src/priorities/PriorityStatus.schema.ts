@@ -251,7 +251,12 @@ export const mergeStepCheck = (
   offered = false,
 ): PriorityStepCheck | undefined => {
   if (patch === undefined) return stored
-  const raisedAgain = stored?.state === 'deferred' && patch.state === 'deferred'
+  // The two sides share one count: a check is raised as a whole, whichever
+  // side was put off again.
+  const raisedAgain =
+    (stored?.state === 'deferred' && patch.state === 'deferred') ||
+    (stored?.contrast?.state === 'deferred' &&
+      patch.contrast?.state === 'deferred')
   const when = patch.when ?? stored?.when
   const heard = patch.heard ?? stored?.heard
   const offeredAt = offeredAtFor(
