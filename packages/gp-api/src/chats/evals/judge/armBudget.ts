@@ -99,8 +99,7 @@ const baseCost = (
 // A base ref older than shared admission ignores every value this step
 // writes and walks background agents at its own budget — which, before the
 // background budget existed, refuses every one of them. The candidate would
-// still walk what this step admits, and once a fixture is minted that is a
-// paid Fargate run on one arm pairing with nothing on the other, for every
+// still walk what this step admits, and that is a paid Fargate run on one arm pairing with nothing on the other, for every
 // admitted agent, on every PR opened against such a base.
 //
 // So the base tree is asked first: if its arm does not read the admitted

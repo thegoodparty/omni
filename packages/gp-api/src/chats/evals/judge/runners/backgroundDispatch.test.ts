@@ -209,14 +209,15 @@ describe('backgroundRunInputFor', () => {
 
   // REFUSED BY NAME, BEFORE ANYTHING IS STAGED OR SENT. The dispatch builder
   // enforces the `judge-` prefix itself, but its message is about a slug it
-  // was handed. This one is about the sweep never having minted a fixture,
-  // which is the actual fault, and it names the variable that fixes it.
-  it('refuses when the sweep minted no fixture organization', () => {
+  // was handed. This one is about the sweep never having resolved its
+  // identifiers, which is the actual fault, and it names the step that fixes
+  // it.
+  it('refuses when the sweep resolved no identifiers', () => {
     expect(() =>
       backgroundRunInputFor(request(), env({ fixtureValues: {} }), () =>
         config(),
       ),
-    ).toThrow(/JUDGE_FIXTURE_ORG_SLUG/)
+    ).toThrow(/resolved no judge identifiers[\s\S]*Resolve the background/)
   })
 
   it('refuses a chat case handed to the background path', () => {
@@ -1015,10 +1016,10 @@ describe('refusedBeforeSpend', () => {
       /was not admitted/,
     ],
     [
-      'no organization minted',
+      'no identifiers resolved',
       background,
       { fixtureValues: {} },
-      /minted no dev organization/,
+      /resolved no judge identifiers/,
     ],
     [
       'no dispatch queue',

@@ -130,7 +130,7 @@ describe('the published manifests all project', () => {
   // Pinned, not `> 10`. The loose bound let the scan below keep passing while
   // a third of the registry quietly stopped being covered by it.
   it('finds the background agents', () => {
-    expect(sweepable).toHaveLength(15)
+    expect(sweepable).toHaveLength(13)
   })
 
   it.each(sweepable)('%s projects to a usable config', (agentId) => {

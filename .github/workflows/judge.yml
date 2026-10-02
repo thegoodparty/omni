@@ -107,7 +107,7 @@ env:
   # step can invoke it as a command and capture its stdout.
   DATA_VERSION_ENTRY: src/chats/evals/judge/dataVersion.ts
   BUDGET_ENTRY: src/chats/evals/judge/armBudget.ts
-  FIXTURE_ENTRY: src/chats/evals/judge/judgeFixture.ts
+  IDENTIFIERS_ENTRY: src/chats/evals/judge/judgeIdentifiers.ts
 
 jobs:
   # GUARD 2 of 3, second layer. Both callers declare a workflow-level group on
@@ -1343,96 +1343,11 @@ jobs:
   #
   # `inputs.live == true` is the affirmative form: see the note at the top of
   # the file for why it is not `dry_run == false`.
-  # THE SWEEP'S TEST ORGANIZATION, minted in a job of its own from main's code.
-  #
-  # Every background dispatch runs against a `judge-` organization, and two
-  # arms that minted their own would compare two organizations, so one is
-  # minted here and both arms read it from this job's outputs, the way they
-  # read the mart's version from a step's.
-  #
-  # NOT A STEP OF THE SWEEP JOB, and not the branch's code. Minting takes the
-  # judge's Clerk machine secret, and the M2M token it buys passes gp-api's
-  # AdminOrM2MGuard, which opens every admin route on dev and not only test
-  # fixtures. The sweep job runs the branch's code from its first `npx tsx`
-  # onward, and code that has run on a runner can rewrite any file or
-  # $GITHUB_ENV a later step there trusts. So the secret is only ever on a
-  # fresh runner that checks out main and runs nothing else, and it lives in
-  # the `judge-fixture` environment, restricted to main, so a branch's own
-  # copy of this workflow cannot read it either.
-  #
-  # Alongside the plan rather than after it, so it costs no wall clock. A plan
-  # that then skips leaves a fixture nothing used, which the cleanup job below
-  # deletes like any other. Only the identifiers leave it: the mint response
-  # also carries the test user's password, session token and sign-in ticket,
-  # and judgeFixture.ts writes none of them out.
-  #
-  # NEVER FAILS THE SWEEP. Without a fixture each background agent is refused
-  # by name on both arms, before anything is staged; chat agents still run.
-  fixture:
-    name: Mint the sweep's test organization
-    if: inputs.live == true
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: judge-fixture
-    permissions:
-      contents: read
-    outputs:
-      org_slug: ${{ steps.mint.outputs.org_slug }}
-      race_id: ${{ steps.mint.outputs.race_id }}
-      user_email: ${{ steps.mint.outputs.user_email }}
-      user_id: ${{ steps.mint.outputs.user_id }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: main
-          persist-credentials: false
-
-      # NO CACHE, and not setup-node-workspace. That action restores
-      # node_modules from a cache keyed on the lockfile, and on the comment
-      # path the plan and sweep jobs run the branch's code in main's cache
-      # scope, where any of it can write an entry under that key. A restored
-      # `tsx` would then run here with the secret set. So these two jobs
-      # install from main's lockfile, every time, with nothing restored.
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-
-      - name: Install from main's lockfile
-        run: |
-          set -euo pipefail
-          npm ci --no-audit --no-fund
-          npm run build -w packages/contracts
-
-      - name: Mint the test organization
-        id: mint
-        working-directory: ${{ env.WORKSPACE }}
-        env:
-          JUDGE_CLERK_MACHINE_SECRET: ${{ secrets.JUDGE_CLERK_MACHINE_SECRET }}
-          JUDGE_FIXTURE_API_URL: https://gp-api-dev.goodparty.org
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/judge-fixture"
-          : > "$out"
-          # Into a file and then copied whole, so a mint that failed part way
-          # leaves no half a fixture in the outputs. The entry writes all four
-          # lines in one append, after the fixture is complete.
-          if ! npx tsx "$FIXTURE_ENTRY" mint "$out"; then
-            echo "::warning::No test organization was minted for this sweep — see the message above for why. Every background agent will be refused by name on both arms, before anything is staged or billed; chat agents are unaffected. If JUDGE_CLERK_MACHINE_SECRET is not set, it belongs in the judge-fixture environment."
-            : > "$out"
-          fi
-          cat "$out" >> "$GITHUB_OUTPUT"
-
   sweep:
     name: Sweep
-    # The fixture job too, for its outputs, but NOT its success: a sweep whose
-    # mint failed still judges its chat agents, and refuses each background
-    # one by name. `!cancelled()` is what lets it run when the fixture job
-    # failed; without it a failed `needs` skips this job outright.
-    needs: [plan, fixture]
+    needs: plan
     if: >-
-      !cancelled()
-      && needs.plan.result == 'success'
+      needs.plan.result == 'success'
       && needs.plan.outputs.skip != 'true'
       && needs.plan.outputs.cli_present == 'true'
       && needs.plan.outputs.sweep_capable == 'true'
@@ -1808,6 +1723,33 @@ jobs:
           set -euo pipefail
           npx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"
 
+      # THE THREE VALUES SIX BACKGROUND CASE LISTS CANNOT CARRY, made up once
+      # for both arms: a `judge-` organization slug from the sweep id, a real
+      # BallotReady race id from gp-api's public races route, and a reserved
+      # address. None names anything that has to exist (judgeIdentifiers.ts
+      # says why), so nothing is minted and no credential is involved.
+      #
+      # NEVER FAILS THE SWEEP. If the race cannot be read, the outputs stay
+      # empty and each background agent is refused by name on both arms
+      # before anything is staged; chat agents still run.
+      - name: Resolve the background agents' identifiers
+        id: identifiers
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
+          JUDGE_FIXTURE_API_URL: https://gp-api-dev.goodparty.org
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/judge-identifiers"
+          : > "$out"
+          # Into a file and then copied whole, so a resolution that failed part
+          # way leaves no half of it in the outputs.
+          if ! npx tsx "$IDENTIFIERS_ENTRY" "$out"; then
+            echo "::warning::The background agents' identifiers could not be resolved — see the message above for why. Every background agent will be refused by name on both arms, before anything is staged or billed; chat agents are unaffected."
+            : > "$out"
+          fi
+          cat "$out" >> "$GITHUB_OUTPUT"
+
       # Mirrors setup-node-workspace, which cannot be pointed at another
       # directory. Every step the action runs that the base arm needs, run
       # there instead: its own install, its own contracts and nest-common
@@ -1877,9 +1819,9 @@ jobs:
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
           JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
           JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
-          JUDGE_FIXTURE_ORG_SLUG: ${{ needs.fixture.outputs.org_slug }}
-          JUDGE_FIXTURE_RACE_ID: ${{ needs.fixture.outputs.race_id }}
-          JUDGE_FIXTURE_USER_EMAIL: ${{ needs.fixture.outputs.user_email }}
+          JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
+          JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
+          JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
           # existing eval suites self-skip on, and the sweep suite is not one
           # of them: it skips on JUDGE_ARM being absent, which is the value
@@ -1925,9 +1867,9 @@ jobs:
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
           JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
           JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
-          JUDGE_FIXTURE_ORG_SLUG: ${{ needs.fixture.outputs.org_slug }}
-          JUDGE_FIXTURE_RACE_ID: ${{ needs.fixture.outputs.race_id }}
-          JUDGE_FIXTURE_USER_EMAIL: ${{ needs.fixture.outputs.user_email }}
+          JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
+          JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
+          JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"
@@ -2086,51 +2028,3 @@ jobs:
             echo 'kept: they carry the agents'"'"' answers and generated SQL, and omni is'
             echo 'public, so they wait for the private bucket rather than an artifact.'
           } >> "$GITHUB_STEP_SUMMARY"
-
-  # After the sweep, on every outcome, because a sweep that failed is exactly
-  # the one most likely to leave its fixture behind. On a fresh runner from
-  # main's code for the same reason the mint is: the sweep job ran the
-  # branch's code, and nothing on its runner can be trusted with the secret
-  # afterwards. Never fails anything that matters: the verdict is already
-  # written, and a missed delete is the sweepTestUsers cron's a day later.
-  fixture-cleanup:
-    name: Delete the sweep's test organization
-    needs: [fixture, sweep]
-    if: always() && needs.fixture.outputs.user_id != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: judge-fixture
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: main
-          persist-credentials: false
-
-      # NO CACHE, and not setup-node-workspace. That action restores
-      # node_modules from a cache keyed on the lockfile, and on the comment
-      # path the plan and sweep jobs run the branch's code in main's cache
-      # scope, where any of it can write an entry under that key. A restored
-      # `tsx` would then run here with the secret set. So these two jobs
-      # install from main's lockfile, every time, with nothing restored.
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-
-      - name: Install from main's lockfile
-        run: |
-          set -euo pipefail
-          npm ci --no-audit --no-fund
-          npm run build -w packages/contracts
-
-      - name: Delete the test organization
-        working-directory: ${{ env.WORKSPACE }}
-        env:
-          JUDGE_CLERK_MACHINE_SECRET: ${{ secrets.JUDGE_CLERK_MACHINE_SECRET }}
-          JUDGE_FIXTURE_API_URL: https://gp-api-dev.goodparty.org
-          FIXTURE_USER_ID: ${{ needs.fixture.outputs.user_id }}
-        run: |
-          set -euo pipefail
-          npx tsx "$FIXTURE_ENTRY" delete "$FIXTURE_USER_ID"

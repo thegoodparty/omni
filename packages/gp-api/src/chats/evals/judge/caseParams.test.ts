@@ -129,7 +129,7 @@ describe('assertNoPlaceholders', () => {
   it('says which variable was meant to supply a known token', () => {
     expect(() =>
       assertNoPlaceholders('baseline', { race_id: JUDGE_PLACEHOLDERS.raceId }),
-    ).toThrow(/minted a fixture and exported it/)
+    ).toThrow(/Resolve the background agents' identifiers/)
   })
 
   // A misspelling is never substituted, so it would otherwise reach the

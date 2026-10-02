@@ -739,15 +739,6 @@ describe('resolveAdmission', () => {
     )
   })
 
-  // The pair that share all three of their first cases, against this tree:
-  // it walks concurrently and names the agent in every run id, so both run.
-  it('admits two real agents that share case ids against a concurrent base', () => {
-    expect(
-      resolveAdmission(['top_community_issues', 'trending_issues'], REPO_ROOT)
-        .admitted,
-    ).toEqual(['top_community_issues', 'trending_issues'])
-  })
-
   // The real probe, both ways: this tree honours admission, and an empty
   // directory — a base ref older than any of this — does not.
   it('probes the real base tree for whether its arm reads the admitted list', () => {

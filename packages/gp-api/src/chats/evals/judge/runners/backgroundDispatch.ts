@@ -99,7 +99,7 @@ const modelOf = (config: AgentConfig): string => {
 }
 
 // WHETHER A BACKGROUND AGENT IS REFUSED BY DESIGN, before anything is staged:
-// the sweep did not admit it, minted no organization for it, or could not
+// the sweep did not admit it, resolved no identifiers for it, or could not
 // resolve the queue to dispatch it to. Each of those is refused by name
 // further in — by the loader or by backgroundRunInputFor below — and each is
 // an ordinary sweep, not a failed one.
@@ -116,8 +116,8 @@ export const refusedBeforeSpend = (agent: AgentEntry, env: ArmEnv): boolean =>
   agent.shape === 'background' &&
   ((env.backgroundAdmitted !== undefined &&
     !env.backgroundAdmitted.has(agent.agentId)) ||
-    // Also what a mint that silently produced nothing looks like, and it is
-    // meant to: that sweep still judges its chat agents.
+    // Also what a resolution that silently produced nothing looks like, and
+    // it is meant to: that sweep still judges its chat agents.
     env.fixtureValues.orgSlug === undefined ||
     env.dispatchQueueUrl === undefined)
 
@@ -160,13 +160,14 @@ export const backgroundRunInputFor = (
   const orgSlug = env.fixtureValues.orgSlug
   // Refused by name BEFORE anything is staged or sent. The dispatch builder
   // enforces the `judge-` prefix itself, but its message is about a slug it
-  // was handed; this one is about the sweep not having minted a fixture, which
-  // is the actual fault and names the variable that fixes it.
+  // was handed; this one is about the sweep not having resolved its
+  // identifiers, which is the actual fault and names the step that fixes it.
   if (orgSlug === undefined) {
     throw new Error(
-      `${request.agent.agentId} is a background agent and this sweep minted ` +
-        'no dev organization, so there is no judge- slug to dispatch ' +
-        'against; see sweepFixture.ts and JUDGE_FIXTURE_ORG_SLUG',
+      `${request.agent.agentId} is a background agent and this sweep ` +
+        'resolved no judge identifiers, so there is no judge- slug to ' +
+        "dispatch against; see the 'Resolve the background agents' " +
+        "identifiers' step and judgeIdentifiers.ts",
     )
   }
   const config = loadConfig(request.agent.agentId)
