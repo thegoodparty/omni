@@ -584,6 +584,45 @@ describe('update_priority_status holds the check to being offered', () => {
     )
   })
 
+  it('lets a confirmed check add to what was heard but never blank it', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        {
+          ...settleDefine,
+          check: { state: 'confirmed', who: 'Renters', heard: 'Rent, mostly' },
+        },
+      ],
+      nextAction: 'Look at options',
+    })
+    const tool = toolFor(id, () => false)
+
+    expect(
+      await tool.execute({
+        steps: [
+          {
+            id: 'define',
+            state: 'settled',
+            check: { state: 'confirmed', heard: '  ' },
+          },
+        ],
+        nextAction: 'Look at options',
+      }),
+    ).toHaveProperty('error')
+    expect(
+      await tool.execute({
+        steps: [
+          {
+            id: 'define',
+            state: 'settled',
+            check: { state: 'confirmed', heard: 'Rent, and two said parking' },
+          },
+        ],
+        nextAction: 'Look at options',
+      }),
+    ).not.toHaveProperty('error')
+  })
+
   it('refuses to open the next step past a gate with no check', async () => {
     const id = await createPriority()
 
