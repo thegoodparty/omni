@@ -400,6 +400,31 @@ on", which is the opposite of the point.
   Transcribe over a socket and stores no audio; a live re-record of an
   offline memo clears both `audioKey` and `transcriptionJobName`.
 
+## Running locally
+
+Three switches in `packages/gp-api/.env` run the whole feature on a laptop
+with no AWS and no pipeline (`.env.example` sets the first and third):
+
+| Variable                           | Value             | Effect                                                                         |
+| ---------------------------------- | ----------------- | ------------------------------------------------------------------------------ |
+| `FEEDBACK_SYNTHESIS_ENGINE`        | `mock`            | A run completes in-process after five seconds, through the real ingest         |
+| `FEEDBACK_SYNTHESIS_MOCK_GROUPING` | `llm` or `canned` | One LLM call groups the memos, or three fixed themes and no call               |
+| `SPEECH_TRANSCRIBE_FILE_MODE`      | `mock`            | Offline recordings go to the dev-only sink and come back as a fixture sentence |
+
+Extraction is never mocked: every memo with words calls the model through
+`LlmService`. Mock mode covers recordings only; live dictation is
+Transcribe streaming and still needs AWS credentials, so type the memo to
+see the confirm card without them.
+
+Flags: with a real `AMPLITUDE_PROJECT_API_KEY`, gp-api asks Amplitude for
+the product's flag, and a flag Amplitude does not define reads off, so every
+route 404s. The `.env.example` placeholder (`some_key`) reads every gp-api
+flag as on. The webapp gets its flags from gp-api, so with the placeholder
+they are all off except what the `e2e-flag-overrides` cookie sets
+(gp-webapp `app/shared/experiments/flagOverrides.ts`). The seed route and
+the mock sink also need `OTEL_SERVICE_ENVIRONMENT` unset or a dev-only value
+(see The seed route).
+
 ## Test command
 
 ```bash
