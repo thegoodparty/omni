@@ -841,19 +841,12 @@ var ProductMap = (function () {
         id: 'payment',
         t: 'SMS Poll Payment',
         state: 'shared',
-        evs: [],
-        shared: [
-          [
-            'Payment - Review and Pay Screen Viewed',
-            'Serve Poll Expansion',
-            'type',
-          ],
-          ['Payment - Completed', 'Serve Poll Expansion', 'type'],
-        ],
+        evs: ['Payment - Review and Pay Screen Viewed'],
+        shared: [['Payment - Completed', 'Serve Poll Expansion', 'type']],
         note: [
           'warn',
           'Shared with creating a poll',
-          'Both payment events also fire when a poll is created. Only the <code>type</code> property separates an expansion, so the totals here are not this flow’s.',
+          '<b>Payment - Completed</b> also fires when a poll is created. Only its <code>type</code> property separates an expansion, so its total here is not this flow’s.',
         ],
       },
       {
