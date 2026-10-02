@@ -22,6 +22,7 @@ its own flag. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
 | `copy.ts`                                                | Every string, mode-keyed                                      |
 | `analytics.ts`                                           | The `channel` value each effort reports under                 |
 | `WhatWeHeardLink.tsx`                                    | The entry row on the turf and the phone list                  |
+| `WhatWeHeardAction.tsx`                                  | The outreach drawer's link, at any status                     |
 
 ## Access
 
@@ -96,7 +97,14 @@ until somebody has answered. It does not poll.
 - **Phone list**: the caller page shows it under its title bar, manager
   surface only. The list read carries no envelope, so the outreach drawer's
   Continue calling and the create flow's Go to call list pass it as
-  `?outreachId=`. A finished list has no link yet. See `outreach/AGENTS.md`.
+  `?outreachId=`. See `outreach/AGENTS.md`.
+- **Outreach drawer**: `WhatWeHeardAction` is the drawer's own way in, at
+  any status, which is what reaches a finished list (its drawer has no
+  Continue calling). It reads only the flag, not the report, so opening a
+  drawer costs no request. A phone row links its own id. A door-knocking
+  row links only when the campaign is one turf, to that turf's envelope: a
+  report is per turf and the row's id names just the anchor's, so a
+  several-turf campaign leaves it to the turf cards.
 
 The person record (`contacts/crm/person/ConstituentFeedbackSection.tsx`)
 shows each memo's accepted tags as badges under it.

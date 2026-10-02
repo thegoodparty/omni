@@ -394,7 +394,7 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
     modes: ['win', 'serve'],
     does: 'Read what people said on one door knocking turf or phone banking list, grouped into themes ranked by how many conversations raised them.',
     inside: [
-      'Reached from What we heard on a turf’s card in its campaign’s row in outreach history, and at the top of a phone banking call list. It appears once somebody has answered',
+      'Reached from What we heard in outreach history: open a phone banking row, or a door knocking campaign of one turf, at any status. A campaign of several turfs carries it on each turf’s card once somebody there has answered. A phone banking call list also shows it at the top',
       'The line under the title counts who answered, who left a note, and how many notes are confirmed. Only confirmed notes count toward a theme',
       'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
       'Summarize what we heard groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
