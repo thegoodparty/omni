@@ -941,6 +941,43 @@ describe('CampaignStrategyService', () => {
       expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     })
 
+    // The runIds say a first generation is already on the wire; the absent
+    // persistedAt stamps say it has produced nothing yet. Wiping would null
+    // the runIds onExperimentRunCompleted looks the plan up by, so those live
+    // runs would finish into a plan that no longer references them and their
+    // output would be dropped. Stamping the claim would be just as wrong the
+    // other way: the in-flight params predate the story, so the plan would be
+    // flagged story-aware while carrying none of it.
+    it('leaves a first generation in flight alone when the story lands mid-run', async () => {
+      completeStory()
+      sectionsReadable()
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
+      )
+      const runsById: Record<string, unknown> = {
+        'opp-run': run({
+          runId: 'opp-run',
+          status: ExperimentRunStatus.RUNNING,
+        }),
+        'oc-run': run({ runId: 'oc-run', status: ExperimentRunStatus.RUNNING }),
+      }
+      experimentRuns.findUnique.mockImplementation(
+        (args: { where: { runId: string } }) =>
+          Promise.resolve(runsById[args.where.runId] ?? null),
+      )
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res).toEqual({ status: 'generating' })
+      // The claim stays open on purpose, so the read after these runs persist
+      // is the one that regenerates with the story.
+      expect(prisma.campaignStrategy.updateMany).not.toHaveBeenCalled()
+      expect(
+        prisma.campaignStrategyOpportunity.deleteMany,
+      ).not.toHaveBeenCalled()
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    })
+
     it('stamps the flag without a reset when the plan has never generated', async () => {
       completeStory()
       prisma.campaignStrategy.upsert.mockResolvedValue(planRow())
