@@ -4431,6 +4431,31 @@ describe('door-knocking routes', () => {
       expect(row.occurredAt).toBeInstanceOf(Date)
     })
 
+    // A person can sit in two turfs, so the person alone cannot say which
+    // effort a knock counted toward. The envelope is resolved here anyway to
+    // authorize volunteers; storing it is what gives an effort its own count.
+    it('stamps the knock with its turf’s outreach envelope', async () => {
+      const turf = await createTurf()
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          where: { stop: { doorKnockingTurfId: turf.id } },
+        })
+
+      const res = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+      })
+
+      expect(res.status).toBe(201)
+      const envelope = await envelopeFor(turf.id)
+      const row =
+        await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+          where: { organizationSlug: orgSlug },
+        })
+      expect(row.outreachId).toBe(envelope.id)
+    })
+
     // What comes back recolors the dot on the phone without re-fetching the
     // route, so it has to answer for the PERSON the way every other surface
     // does. Deriving it from the row just written made this the last place

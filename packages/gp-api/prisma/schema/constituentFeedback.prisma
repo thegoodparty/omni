@@ -122,10 +122,20 @@ model ConstituentFeedback {
   // payload's `clientKey` carries: the same key upserts the same row.
   clientKey String @map("client_key")
 
+  // The effort this conversation belonged to, on either channel. Resolved
+  // at capture time from stopTargetId (knock) or entryId (call). SetNull so
+  // deleting an effort keeps what the person said on their record.
+  outreachId Int?      @map("outreach_id")
+  outreach   Outreach? @relation(fields: [outreachId], references: [id], onDelete: SetNull)
+
+  tags         ConstituentFeedbackTag[]
+  themeMembers FeedbackThemeMember[]
+
   @@unique([organizationSlug, clientKey])
   @@index([organizationSlug, personId, occurredAt])
   @@index([organizationSlug, actorUserId])
   // The collection-phase read: everything awaiting or missing an extraction.
   @@index([organizationSlug, extractionStatus])
+  @@index([organizationSlug, outreachId])
   @@map("constituent_feedback")
 }

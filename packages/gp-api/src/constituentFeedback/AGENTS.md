@@ -26,6 +26,31 @@ Request/response shapes are in `@goodparty_org/contracts`
 Enums: `ConstituentFeedbackChannel`, `ConstituentFeedbackStance`,
 `ConstituentFeedbackCaptureMethod`, `ConstituentFeedbackExtractionStatus`.
 
+## Tables
+
+The effort is the `Outreach` envelope: one key for a turf or a phone list.
+
+- `ConstituentFeedback.outreachId`: the memo's effort, resolved at capture.
+  A knock on a turf with no envelope 404s; a call on a list with none saves
+  with null (a Win list made without a Campaign row has no envelope).
+- `ContactInteractionDoorKnock.outreachId`: the knock's effort, written by
+  the door-knocking write path. Null on knocks recorded before it existed.
+- `IssueTag`: the org's tag list, unique on
+  `(organizationSlug, normalizedName)`. `IssueTagStatus`: proposed, accepted,
+  retired.
+- `ConstituentFeedbackTag`: a tag on a memo. `runId` null means a human
+  applied it.
+- `FeedbackSynthesisRun`: one synthesis over an effort or the whole org.
+  `activeKey` is unique while running, so one run is in flight per scope.
+  Superseded runs are kept as history.
+- `FeedbackTheme`: one ranked grouping a run produced, linked to a tag.
+- `FeedbackThemeMember`: a memo in a theme. Counts are computed from these
+  rows at read time, never stored.
+
+A run never overwrites a human's tag row. It skips any
+`ConstituentFeedbackTag` pair that already exists, and superseding a run
+deletes only the rows carrying its `runId`.
+
 ## HTTP routes
 
 All under `@Controller('constituent-feedback')`, all `@UseElectedOffice()`.

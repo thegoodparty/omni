@@ -133,6 +133,9 @@ export const ConstituentFeedbackSchema = z.object({
   desiredOutcome: z.string().nullable(),
   extractionStatus: ConstituentFeedbackExtractionStatusSchema,
   confirmedAt: zCoerceDate().nullable(),
+  // The outreach envelope the conversation happened under. Null when the
+  // phone list it came from was created without one.
+  outreachId: z.number().int().nullable(),
   // Who recorded it. Null when the actor's user row has since been removed,
   // matching how the contact feed renders an authorless note.
   actorName: z.string().nullable(),
