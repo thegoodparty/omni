@@ -1523,6 +1523,18 @@ jobs:
           role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
           role-session-name: judge-sweep-${{ github.run_id }}
           aws-region: us-west-2
+          # LONGER THAN THE JOB, because this one waits rather than deploys.
+          # A background case dispatches a Fargate run and then polls S3 until
+          # the artifact lands, and the agents declare timeouts of up to an
+          # hour each. At the action's one-hour default the credentials expire
+          # mid-poll — after the dispatch, so the task keeps running and
+          # billing while the poll dies on an auth error the sweep records as
+          # an infraError. Paid for, then excluded from the comparison.
+          #
+          # Capped by the role's own maxSessionDuration (thegoodparty/ops,
+          # deploy/components/ci-roles.ts), which is why the two numbers match
+          # and why this cannot be raised here alone.
+          role-duration-seconds: 14400
 
       - name: Resolve where a background dispatch goes
         env:

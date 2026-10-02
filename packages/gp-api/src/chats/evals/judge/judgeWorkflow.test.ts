@@ -648,6 +648,29 @@ describe('judge.yml assumes a role scoped to the judge', () => {
     expect(credentials?.body).toContain('continue-on-error: true')
   })
 
+  // THE SESSION HAS TO OUTLAST THE JOB. A background case polls S3 until a
+  // Fargate artifact lands, and the agents declare timeouts up to an hour
+  // each. At the action's one-hour default the credentials expire mid-poll —
+  // after the dispatch, so the task keeps billing while the poll dies on an
+  // auth error recorded as an infraError: paid for, then excluded.
+  //
+  // THE SWEEP JOB'S TIMEOUT, not the first one in the file. Written as a bare
+  // search for `timeout-minutes` this read the PLAN job's 20 minutes, so a
+  // one-hour session cleared a 20-minute bar and the assertion passed on
+  // exactly the bug it was written for. The sweep job is the one holding
+  // these credentials.
+  it('holds credentials longer than the job that uses them can run', () => {
+    const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:'))
+    const jobMinutes = Number(
+      /timeout-minutes: (\d+)/.exec(sweepJob)?.[1] ?? '0',
+    )
+    expect(jobMinutes).toBeGreaterThan(0)
+    const seconds = Number(
+      /role-duration-seconds: (\d+)/.exec(credentials?.body ?? '')?.[1],
+    )
+    expect(seconds).toBeGreaterThan(jobMinutes * 60)
+  })
+
   // The permission without the exchange is the state this replaced: a token
   // minted and nothing that accepts it.
   it('holds the permission that makes the exchange possible', () => {
