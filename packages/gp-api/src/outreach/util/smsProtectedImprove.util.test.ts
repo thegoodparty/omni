@@ -19,12 +19,12 @@ describe('maskProtectedParts', () => {
   it('replaces every locked part with a numbered marker, in order', () => {
     const { masked, locked } = maskedScript()
     expect(masked).toBe(
-      "Hello ⟦1⟧, it's ⟦2⟧, running for city council. Vote Nov 3!\n\n⟦3⟧. ⟦4⟧",
+      "Hello ⟦1⟧, it's ⟦2⟧, running for city council. Vote Nov 3!\n\n⟦3⟧ ⟦4⟧",
     )
     expect(locked).toEqual([
       '{first_name}',
       'Sarah Chen',
-      'Paid for by Friends of Sarah Chen',
+      'Paid for by Friends of Sarah Chen.',
       'Reply STOP to opt out.',
     ])
   })
@@ -88,7 +88,7 @@ describe('restoreProtectedParts', () => {
   it('puts the original text back when every marker returns in order', () => {
     const { locked } = maskedScript()
     const reply =
-      "Hi ⟦1⟧! It's ⟦2⟧, and I'm running for city council. Please vote Nov 3.\n\n⟦3⟧. ⟦4⟧"
+      "Hi ⟦1⟧! It's ⟦2⟧, and I'm running for city council. Please vote Nov 3.\n\n⟦3⟧ ⟦4⟧"
     expect(restoreProtectedParts(reply, locked)).toBe(
       "Hi {first_name}! It's Sarah Chen, and I'm running for city council. Please vote Nov 3.\n\nPaid for by Friends of Sarah Chen. Reply STOP to opt out.",
     )
@@ -96,9 +96,9 @@ describe('restoreProtectedParts', () => {
 
   it.each([
     ['drops a marker', 'Hi ⟦1⟧, ⟦2⟧ here. ⟦4⟧'],
-    ['repeats a marker', 'Hi ⟦1⟧, ⟦2⟧ here. ⟦2⟧ ⟦3⟧. ⟦4⟧'],
+    ['repeats a marker', 'Hi ⟦1⟧, ⟦2⟧ here. ⟦2⟧ ⟦3⟧ ⟦4⟧'],
     ['reorders markers', 'Hi ⟦1⟧, ⟦2⟧ here. ⟦4⟧ ⟦3⟧'],
-    ['invents a marker', 'Hi ⟦1⟧, ⟦2⟧ here. ⟦3⟧. ⟦4⟧ ⟦5⟧'],
+    ['invents a marker', 'Hi ⟦1⟧, ⟦2⟧ here. ⟦3⟧ ⟦4⟧ ⟦5⟧'],
   ])('refuses a reply that %s', (_, reply) => {
     expect(restoreProtectedParts(reply, maskedScript().locked)).toBeNull()
   })

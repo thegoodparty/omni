@@ -30,7 +30,8 @@ export const paidForByLine = (committeeName: string): string =>
 
 export const composeFooter = (committeeName?: string | null): string =>
   committeeName
-    ? `${paidForByLine(committeeName)}\n${OPT_OUT_FOOTER}`
+    ? // One line: an SMS footer reads as a sign-off, not a block of lines.
+      `${paidForByLine(committeeName)} ${OPT_OUT_FOOTER}`
     : OPT_OUT_FOOTER
 
 // Brings a message's footer up to the committee it should name now. The
@@ -44,7 +45,9 @@ export const composeFooter = (committeeName?: string | null): string =>
 // composer always writes. A message whose footer is not the last thing in
 // it is left alone, so the standards check fails closed.
 const SYSTEM_FOOTER = new RegExp(
-  `\\n\\n(?:Paid for by [^\\n]*\\.\\n)?${OPT_OUT_FOOTER.replace(/[.]/g, '\\.')}$`,
+  // A space or a line break before the opt-out: drafts saved before the
+  // footer was one line put them on two.
+  `\\n\\n(?:Paid for by [^\\n]*?\\.[ \\n])?${OPT_OUT_FOOTER.replace(/[.]/g, '\\.')}$`,
 )
 
 export const upgradeScriptFooter = (

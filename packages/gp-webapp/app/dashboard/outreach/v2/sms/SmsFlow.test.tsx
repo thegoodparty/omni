@@ -673,7 +673,7 @@ describe('SmsFlow', () => {
     const COMPOSED_DRAFT =
       'Hello {first_name}, this is Jane, candidate for City Council. ' +
       'AI body (warm) for introduce_myself\n\n' +
-      'Paid for by Friends of Jane.\nReply STOP to opt out.'
+      'Paid for by Friends of Jane. Reply STOP to opt out.'
 
     it('holds the whole message, greeting to opt-out', async () => {
       mockDraftAndImprove()
@@ -763,7 +763,7 @@ describe('SmsFlow', () => {
       const editor = (box as HTMLElement & { editor: Editor }).editor
       await waitFor(() =>
         expect(editor.getText({ blockSeparator: '\n' })).toBe(
-          'Hello {first_name},\n\nPaid for by Friends of Jane.\n' +
+          'Hello {first_name},\n\nPaid for by Friends of Jane. ' +
             'Reply STOP to opt out.',
         ),
       )
@@ -882,7 +882,10 @@ describe('SmsFlow', () => {
         editorOf(box)
           .getText({ blockSeparator: '\n' })
           .replace(/^Hello \{first_name\}, ?/, '')
-          .replace(/\n\n(?:Paid for by [^\n]*\n)?Reply STOP to opt out\.$/, '')
+          .replace(
+            /\n\n(?:Paid for by [^\n]*?\.[ \n])?Reply STOP to opt out\.$/,
+            '',
+          )
       const endOf = (box: HTMLElement, needle: string): number => {
         let found = -1
         editorOf(box).state.doc.descendants((node, pos) => {
@@ -1200,7 +1203,7 @@ describe('SmsFlow', () => {
 
     const DRAFT_SCRIPT =
       'Hello, this is Jane, candidate for City Council. Vote Tuesday.\n\n' +
-      'Paid for by Friends of Jane.\nReply STOP to opt out.'
+      'Paid for by Friends of Jane. Reply STOP to opt out.'
 
     const draftDetail = (
       overrides: Partial<OutreachDetail> = {},
@@ -1565,7 +1568,7 @@ describe('SmsFlow', () => {
 
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/Paid for by \S+ \S+ for City Council\.Reply STOP/)
+      ).toHaveTextContent(/Paid for by \S+ \S+ for City Council\. Reply STOP/)
       expect(
         screen.queryByText(/keep the "Paid for by" line/),
       ).not.toBeInTheDocument()
@@ -1608,7 +1611,7 @@ describe('SmsFlow', () => {
             draftOutreachId: 88,
             script:
               'Hello {first_name}, this is Jane, candidate for City Council. ' +
-              'Vote Tuesday.\n\nPaid for by Friends of Jane.\n' +
+              'Vote Tuesday.\n\nPaid for by Friends of Jane. ' +
               'Reply STOP to opt out.',
           }),
           null,

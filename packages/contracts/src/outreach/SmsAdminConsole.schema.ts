@@ -259,8 +259,10 @@ export const deriveSmsProtectedParts = (
       if (committee) {
         // Any run of non-letters between them: "Paid for by Friends", "Paid
         // for by: Friends", "Paid for by - Friends" all name the committee.
+        // The period that closes the line goes with it, so neither an edit
+        // nor Improve can leave the disclaimer unpunctuated.
         const named = new RegExp(
-          `^[^\\p{L}\\p{N}]+${escapeRegExp(committee)}`,
+          `^[^\\p{L}\\p{N}]+${escapeRegExp(committee)}\\.?`,
           'iu',
         ).exec(after)
         return named ? { start: index, text: phrase[0] + named[0] } : null

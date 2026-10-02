@@ -224,7 +224,7 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
 
   it('sends markers instead of the locked text', async () => {
     const { service, jsonCompletion } = replyWith(
-      "Hi ⟦1⟧, it's ⟦2⟧! Please vote Nov 3.\n\n⟦3⟧. ⟦4⟧",
+      "Hi ⟦1⟧, it's ⟦2⟧! Please vote Nov 3.\n\n⟦3⟧ ⟦4⟧",
     )
     await improve(service)
     const { userPrompt, systemPrompt } = promptsOf(jsonCompletion)
@@ -236,7 +236,7 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
 
   it('returns the polish with the locked text put back', async () => {
     const { service } = replyWith(
-      "Hi ⟦1⟧, it's ⟦2⟧! Please vote Nov 3.\n\n⟦3⟧. ⟦4⟧",
+      "Hi ⟦1⟧, it's ⟦2⟧! Please vote Nov 3.\n\n⟦3⟧ ⟦4⟧",
     )
     await expect(improve(service)).resolves.toBe(
       "Hi {first_name}, it's Sarah Chen! Please vote Nov 3.\n\nPaid for by Friends of Sarah Chen. Reply STOP to opt out.",
@@ -246,7 +246,7 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
   it('retries once when the reply drops a marker, then uses the good one', async () => {
     const { service, jsonCompletion } = replyWith(
       "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3.",
-      "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3.\n\n⟦3⟧. ⟦4⟧",
+      "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3.\n\n⟦3⟧ ⟦4⟧",
     )
     await expect(improve(service)).resolves.toContain('Reply STOP to opt out.')
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
@@ -259,8 +259,8 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
 
   it('refuses a polish that breaks a rule the original passed', async () => {
     const { service } = replyWith(
-      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧. ⟦4⟧",
-      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧. ⟦4⟧",
+      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧",
+      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧",
     )
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
   })

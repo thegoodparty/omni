@@ -35,7 +35,7 @@ describe('deriveSmsProtectedParts', () => {
       {
         rule: 'paid_for_by',
         kind: 'phrase',
-        text: 'Paid for by Friends of Sarah Chen',
+        text: 'Paid for by Friends of Sarah Chen.',
       },
       { rule: 'opt_out_line', kind: 'phrase', text: 'Reply STOP to opt out.' },
     ])
@@ -54,7 +54,7 @@ describe('deriveSmsProtectedParts', () => {
     expect(textsFor(script)).toEqual({
       first_name_token: '{first_name}',
       candidate_name: 'SARAH CHEN',
-      paid_for_by: 'paid for by friends of sarah chen',
+      paid_for_by: 'paid for by friends of sarah chen.',
       opt_out_line: 'reply stop',
     })
   })
@@ -70,7 +70,7 @@ describe('deriveSmsProtectedParts', () => {
       'Hi {first_name}, vote Nov 3! Paid for by Friends of Sarah Chen. Reply STOP'
     const texts = textsFor(script)
     expect(texts.candidate_name).toBeUndefined()
-    expect(texts.paid_for_by).toBe('Paid for by Friends of Sarah Chen')
+    expect(texts.paid_for_by).toBe('Paid for by Friends of Sarah Chen.')
   })
 
   it('skips a committee copy that is not right after the phrase', () => {
@@ -99,7 +99,7 @@ describe('deriveSmsProtectedParts', () => {
       committeeName: 'Sarah Chen',
     })
     expect(texts.candidate_name).toBe('Sarah Chen')
-    expect(texts.paid_for_by).toBe('Paid for by Sarah Chen')
+    expect(texts.paid_for_by).toBe('Paid for by Sarah Chen.')
   })
 
   it('matches names as whole words, never inside another word', () => {
@@ -153,7 +153,7 @@ describe('deriveSmsProtectedParts', () => {
     for (const separator of [': ', ', ', ' - ', ' — ', ':']) {
       const script = `Hi {first_name}. Paid for by${separator}Friends of Sarah Chen. Reply STOP`
       expect(textsFor(script).paid_for_by).toBe(
-        `Paid for by${separator}Friends of Sarah Chen`,
+        `Paid for by${separator}Friends of Sarah Chen.`,
       )
     }
   })
@@ -183,7 +183,7 @@ describe('deriveSmsProtectedParts', () => {
     const parts = deriveSmsProtectedParts(script, CONTEXT)
     const disclaimer = parts.find((part) => part.rule === 'paid_for_by')
     const optOut = parts.find((part) => part.rule === 'opt_out_line')
-    expect(disclaimer?.text).toBe('Paid for by Friends of Sarah Chen')
+    expect(disclaimer?.text).toBe('Paid for by Friends of Sarah Chen.')
     expect(optOut?.text).toBe('Reply STOP to opt out.')
     expect(
       deriveSmsProtectedParts(script, { ...CONTEXT, committeeName: null }).find(

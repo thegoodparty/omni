@@ -106,6 +106,15 @@ describe('upgradeScriptFooter', () => {
   // The footer is locked and system-written, so a footer naming another
   // committee is one the system wrote earlier (a provisional name, or one
   // computed before the campaign finished loading): it is brought current.
+  // Drafts saved while the footer was two lines are brought onto one.
+  it('rewrites a two-line footer onto one line', () => {
+    const twoLine =
+      'Hello {first_name}, body\n\nPaid for by Jane Doe.\nReply STOP to opt out.'
+    expect(upgradeScriptFooter(twoLine, 'Friends of Jane')).toBe(
+      composeScript('body', 'Friends of Jane'),
+    )
+  })
+
   it('rewrites a footer naming an earlier committee', () => {
     const earlier = composeScript('body', 'Jane Doe')
     expect(upgradeScriptFooter(earlier, 'Friends of Jane')).toBe(
