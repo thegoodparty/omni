@@ -114,9 +114,6 @@ export class AdminCampaignsService {
       attributes.isVerified = isVerified
       attributes.dateVerified = isVerified === null ? null : new Date()
     }
-    if (typeof isPro !== 'undefined') {
-      attributes.isPro = isPro
-    }
     if (typeof didWin !== 'undefined') {
       attributes.didWin = didWin
     }
@@ -141,10 +138,19 @@ export class AdminCampaignsService {
       }
     }
 
-    const updatedCampaign = await this.campaigns.update({
-      where: { id },
-      data: attributes,
-    })
+    // A comped Pro upgrade has to be the same transition as a paid one.
+    // Writing `isPro` straight to the row skipped `setIsPro`, so it never
+    // stamped `details.isProUpdatedAt` (HubSpot's `pro_upgrade_date`), never
+    // granted the free-texts offer and never announced in Slack; the CRM sync
+    // then published the campaign as Pro with no upgrade date, permanently.
+    // The other attributes ride the same commit, so there is no window where
+    // the flip has landed and isVerified/didWin/tier have not. Either branch
+    // identifies and syncs the CRM itself.
+    const updatedCampaign =
+      typeof isPro === 'undefined'
+        ? await this.campaigns.update({ where: { id }, data: attributes })
+        : (await this.campaigns.setIsPro(id, isPro, true, attributes)).campaign
+
     if (isPro === true) {
       try {
         await this.analytics.track(
@@ -163,8 +169,6 @@ export class AdminCampaignsService {
         // Don't throw - we don't want to fail the admin operation for analytics issues
       }
     }
-    await this.crm.trackCampaign(updatedCampaign.id)
-
     return updatedCampaign
   }
 
