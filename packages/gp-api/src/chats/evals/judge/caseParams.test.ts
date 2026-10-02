@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertNoPlaceholders,
   JUDGE_PLACEHOLDERS,
+  missingValues,
   substituteBackgroundCases,
   substituteCaseParams,
   UnsubstitutedPlaceholderError,
@@ -225,5 +226,28 @@ describe('substituteBackgroundCases', () => {
         { orgSlug: VALUES.orgSlug },
       ),
     ).toThrow(/case broken/)
+  })
+})
+
+describe('missingValues', () => {
+  const cases: { params: Record<string, JsonValue> }[] = [
+    { params: { race_id: '{judgeRaceId}', nested: ['{judgeUserEmail}'] } },
+    { params: { organization_slug: '{judgeOrgSlug}', typo: '{judgeTypo}' } },
+  ]
+
+  it('names each known token the sweep has no value for', () => {
+    expect(missingValues(cases, { orgSlug: 'judge-1-1' })).toEqual([
+      'raceId',
+      'userEmail',
+    ])
+  })
+
+  it('names none when every used value is supplied', () => {
+    expect(missingValues(cases, VALUES)).toEqual([])
+  })
+
+  // An unknown token is a broken list, which this must not excuse.
+  it('never names a token outside the vocabulary', () => {
+    expect(missingValues([{ params: { x: '{judgeTypo}' } }], {})).toEqual([])
   })
 })

@@ -205,6 +205,21 @@ export const assertNoPlaceholders = (
   )
 }
 
+// The known placeholders a list uses that the sweep has no value for. Not
+// the unknown ones: a token outside the vocabulary is a broken list, and a
+// caller deciding whether a refusal was by design must not excuse it.
+export const missingValues = (
+  cases: readonly Pick<BackgroundCase, 'params'>[],
+  values: PlaceholderValues,
+): PlaceholderName[] => {
+  const found: Finding[] = []
+  for (const one of cases) findPlaceholders(one.params, '', found)
+  const used = new Set(found.map((one) => one.token))
+  return PLACEHOLDER_NAMES.filter(
+    (name) => used.has(JUDGE_PLACEHOLDERS[name]) && values[name] === undefined,
+  )
+}
+
 // The loader's own shape, narrowed to the two fields substitution touches, so
 // this is not a third declaration of "a background case". `Pick` rather than
 // the whole type, because the runner's case carries `inputFiles` too and the

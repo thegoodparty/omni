@@ -8,6 +8,7 @@ import {
   caseLoaderFor,
   capturableAgents,
   refusedBeforeSpend,
+  walkedBackgroundCases,
 } from './backgroundDispatch'
 import { DEFAULT_JUDGE_CONFIG } from '../config'
 import { findAgent, type AgentEntry } from '../agents'
@@ -968,7 +969,11 @@ describe('refusedBeforeSpend', () => {
   // What the arm does with this env: load the agent's cases through the
   // loader the arm builds, then build the first dispatch. Either throwing is a
   // refusal before anything is staged; the message says which.
-  const armRefusal = (agent: typeof background, arm: ArmEnv): string => {
+  const armRefusal = (
+    agent: typeof background,
+    arm: ArmEnv,
+    cases: BackgroundCase[] = one,
+  ): string => {
     try {
       const budget = {
         budgetMs: HUGE_BUDGET_MS,
@@ -982,8 +987,8 @@ describe('refusedBeforeSpend', () => {
           ? budget
           : { ...budget, admitted: arm.backgroundAdmitted },
         {
-          load: () => caseList('background', agent.agentId, one),
-          loadBackground: () => one,
+          load: () => caseList('background', agent.agentId, cases),
+          loadBackground: () => cases,
           loadConfig: () => config(),
         },
       )(agent)
@@ -1032,9 +1037,63 @@ describe('refusedBeforeSpend', () => {
     (_, agent, over, why) => {
       const arm = env(over)
       expect(armRefusal(agent, arm)).toMatch(why)
-      expect(refusedBeforeSpend(agent, arm)).toBe(true)
+      expect(refusedBeforeSpend(agent, arm, () => one)).toBe(true)
     },
   )
+
+  // A VALUE THE SWEEP COULD NOT RESOLVE. The race goes missing once the named
+  // election has passed; the loader then refuses exactly the lists that need
+  // it, and that has to read as a refusal by design, or the base arm goes red
+  // and the candidate arm never runs.
+  describe('when the sweep has no race id', () => {
+    const noRace = env({ fixtureValues: { orgSlug: 'judge-1-1' } })
+    const needsRace: BackgroundCase[] = [
+      { caseId: 'c1', params: { race_id: '{judgeRaceId}' } },
+    ]
+    const slugOnly: BackgroundCase[] = [
+      { caseId: 'c1', params: { organization_slug: '{judgeOrgSlug}' } },
+    ]
+
+    it('counts a list that needs one as refused, and the arm does refuse it', () => {
+      expect(armRefusal(background, noRace, needsRace)).toMatch(
+        /unsubstituted placeholder/,
+      )
+      expect(refusedBeforeSpend(background, noRace, () => needsRace)).toBe(true)
+    })
+
+    it('does not count a list that needs none, and the arm runs it', () => {
+      expect(armRefusal(background, noRace, slugOnly)).toBe('')
+      expect(refusedBeforeSpend(background, noRace, () => slugOnly)).toBe(false)
+    })
+
+    // Only the cases the arm walks count: a race needed by the fifth case,
+    // past the cap of three, refuses nothing.
+    it('ignores a value only an unwalked case needs', () => {
+      const five: BackgroundCase[] = [
+        ...Array.from({ length: 4 }, (_, i) => ({
+          caseId: `c${i}`,
+          params: { organization_slug: '{judgeOrgSlug}' },
+        })),
+        { caseId: 'c4', params: { race_id: '{judgeRaceId}' } },
+      ]
+      const walked = walkedBackgroundCases(background, noRace, () => five)
+      expect(walked.map((one) => one.caseId)).toEqual(['c0', 'c1', 'c2'])
+      expect(
+        refusedBeforeSpend(background, noRace, (agent) =>
+          walkedBackgroundCases(agent, noRace, () => five),
+        ),
+      ).toBe(false)
+    })
+
+    // An unknown token is a broken list, not a missing value: still red.
+    it('does not excuse a token outside the vocabulary', () => {
+      const broken = [{ caseId: 'c1', params: { x: '{judgeTypo}' } }]
+      expect(armRefusal(background, noRace, broken)).toMatch(
+        /not a placeholder/,
+      )
+      expect(refusedBeforeSpend(background, noRace, () => broken)).toBe(false)
+    })
+  })
 
   // The arm refuses these too, but a missing bucket is a line the workflow
   // dropped, not a state it can reach on purpose, so the arm must stay red.
@@ -1052,7 +1111,7 @@ describe('refusedBeforeSpend', () => {
   ])('does not excuse %s', (_, over, why) => {
     const arm = env(over)
     expect(armRefusal(background, arm)).toMatch(why)
-    expect(refusedBeforeSpend(background, arm)).toBe(false)
+    expect(refusedBeforeSpend(background, arm, () => one)).toBe(false)
   })
 
   it.each<[string, Partial<ArmEnv>]>([
@@ -1064,7 +1123,7 @@ describe('refusedBeforeSpend', () => {
   ])('does not count %s, and the arm does dispatch it', (_, over) => {
     const arm = env(over)
     expect(armRefusal(background, arm)).toBe('')
-    expect(refusedBeforeSpend(background, arm)).toBe(false)
+    expect(refusedBeforeSpend(background, arm, () => one)).toBe(false)
   })
 
   // A chat agent needs none of it, so an env missing all of it refuses no
@@ -1121,8 +1180,31 @@ describe('capturableAgents', () => {
         ['chief_of_staff', 'meeting_briefing', 'self_research'],
         env({ backgroundAdmitted: new Set(['meeting_briefing']) }),
         find,
+        () => [],
       ),
     ).toEqual(['chief_of_staff', 'meeting_briefing'])
+  })
+
+  // THE REAL LISTS, through the default loader: with no race id,
+  // opposition_research (race_id and user_email) is excused and
+  // find_existing_ordinances (slug only) is still expected.
+  it('excuses the real lists that need a missing race, and only those', () => {
+    expect(
+      capturableAgents(
+        ['opposition_research', 'find_existing_ordinances'],
+        env({
+          fixtureValues: {
+            orgSlug: 'judge-1-1',
+            userEmail: 'judge-sweep@example.com',
+          },
+          backgroundAdmitted: new Set([
+            'opposition_research',
+            'find_existing_ordinances',
+          ]),
+        }),
+        findAgent,
+      ),
+    ).toEqual(['find_existing_ordinances'])
   })
 
   it('leaves out an agent with no list, a blocked one and an unknown id', () => {
@@ -1131,6 +1213,7 @@ describe('capturableAgents', () => {
         ['no_list', 'blocked_one', 'not_an_agent', 'chief_of_staff'],
         env(),
         find,
+        () => [],
       ),
     ).toEqual(['chief_of_staff'])
   })
@@ -1143,6 +1226,7 @@ describe('capturableAgents', () => {
         ['meeting_briefing', 'chief_of_staff'],
         env({ fixtureValues: {} }),
         find,
+        () => [],
       ),
     ).toEqual(['chief_of_staff'])
   })
