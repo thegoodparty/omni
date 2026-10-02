@@ -6,6 +6,7 @@ model TopIssue {
   positions         Position[]
   campaigns         Campaign[]
   campaignPositions CampaignPosition[]
+  issueTags         IssueTag[]
 
   @@map("top_issue")
 }

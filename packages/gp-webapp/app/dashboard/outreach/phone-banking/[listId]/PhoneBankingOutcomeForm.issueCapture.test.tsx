@@ -147,6 +147,7 @@ beforeEach(() => {
       desiredOutcome: 'Weekly pickup instead of fortnightly',
       extractionStatus: 'extracted',
       confirmedAt: new Date('2026-09-26T00:00:01.000Z'),
+      outreachId: 7,
       actorName: 'Kamal Al Sawafi',
     },
   })

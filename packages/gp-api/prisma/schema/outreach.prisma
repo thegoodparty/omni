@@ -163,6 +163,9 @@ model Outreach {
   contactInteractionRobocalls       ContactInteractionRobocall[]
   voterFileFilterActivityConditions VoterFileFilterActivityCondition[]
   assignments                       OutreachAssignment[]
+  constituentFeedback               ConstituentFeedback[]
+  feedbackSynthesisRuns             FeedbackSynthesisRun[]
+  contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
 
   @@index([campaignId])
   @@index([organizationSlug])
