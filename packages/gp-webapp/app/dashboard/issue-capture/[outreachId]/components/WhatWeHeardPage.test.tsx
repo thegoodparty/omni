@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type {
   FeedbackReportMemo,
   FeedbackReportResponse,
@@ -367,6 +367,46 @@ describe('WhatWeHeardPage', () => {
           'She wants the storm drains on Elm cleared before winter.',
         ),
       ).toBeInTheDocument()
+    })
+
+    // The strip is the run's own: what it proposed, not every proposal in
+    // the org.
+    it('reviews only the tags the latest run proposed', async () => {
+      mockReport(COMPLETED)
+      api.mock('GET /v1/constituent-feedback/tags', {
+        status: 200,
+        data: {
+          tags: [
+            {
+              id: 'tag-1',
+              name: 'Street flooding',
+              status: 'proposed',
+              source: 'synthesis',
+              declaredTopIssueId: null,
+              mergedIntoId: null,
+              proposedByRunId: 'run-1',
+              feedbackCount: 3,
+            },
+            {
+              id: 'tag-2',
+              name: 'Snow removal',
+              status: 'proposed',
+              source: 'synthesis',
+              declaredTopIssueId: null,
+              mergedIntoId: null,
+              proposedByRunId: 'run-other',
+              feedbackCount: 4,
+            },
+          ],
+        },
+      })
+      renderPage()
+
+      const strip = await screen.findByRole('region', {
+        name: 'New tags to review',
+      })
+      expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
+      expect(within(strip).queryByText('Snow removal')).toBeNull()
     })
 
     it('splits each card by where people stand', async () => {

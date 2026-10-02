@@ -94,7 +94,9 @@ const ReportBody = ({
           for a failed run as well as a completed one. */}
       {report.themes.length > 0 && (
         <>
-          <NewTagsStrip isServe={isServe} />
+          {report.run && (
+            <NewTagsStrip isServe={isServe} runId={report.run.id} />
+          )}
           <ThemeGrid
             themes={report.themes}
             outreachId={outreachId}

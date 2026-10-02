@@ -917,6 +917,48 @@ describe('constituent feedback routes', () => {
         expect(row.confirmedAt).toBeNull()
       })
 
+      // A confirmation is the recorder's word on their own conversation, as
+      // a retry is: a teammate on the same turf gets the 404 retry gives.
+      it('refuses a volunteer a teammate’s memo on confirm, as on retry', async () => {
+        const recorder = await createVolunteer(winSlug)
+        const teammate = await createVolunteer(winSlug)
+        const seeded = await seedKnock(winSlug, null)
+        await assign(winSlug, seeded.outreachId, recorder.user.id)
+        await assign(winSlug, seeded.outreachId, teammate.user.id)
+        const recorded = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          recorder.config,
+        )
+        expect(recorded.status).toBe(201)
+
+        const retried = await service.client.post(
+          `/v1/constituent-feedback/${recorded.data.id}/retry`,
+          {},
+          teammate.config,
+        )
+        const confirmed = await service.client.patch(
+          `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+          CONFIRMED,
+          teammate.config,
+        )
+
+        expect(retried.status).toBe(404)
+        expect(confirmed.status).toBe(retried.status)
+        expect(confirmed.data.message).toBe(retried.data.message)
+        const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+          where: { id: recorded.data.id },
+        })
+        expect(row.confirmedAt).toBeNull()
+
+        const byOwner = await service.client.patch(
+          `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+          CONFIRMED,
+          ownerHeaders(),
+        )
+        expect(byOwner.status).toBe(200)
+      })
+
       // Reading a person's memos is reading the CRM, which stays manager+.
       it('refuses a volunteer the person read', async () => {
         const volunteer = await createVolunteer(winSlug)

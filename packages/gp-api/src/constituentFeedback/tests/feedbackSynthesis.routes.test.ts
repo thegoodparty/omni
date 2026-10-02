@@ -188,6 +188,34 @@ describe('feedback synthesis routes', () => {
     expect(res.status).toBe(HttpStatus.TOO_MANY_REQUESTS)
   })
 
+  // A memo confirmed by hand after its recording failed has no words, and
+  // would be an empty row in the pipeline's CSV. The run's count is what it
+  // was handed, so its caption never claims more than went in.
+  it('leaves a confirmed memo with no transcript out of the run', async () => {
+    const memos = await seedConfirmed(effort.targets.slice(0, 5))
+    const { memo: wordless } = await seedKnockMemo(service, {
+      slug,
+      outreachId: effort.outreachId,
+      personId: effort.targets[5]!.personId,
+    })
+    await service.prisma.constituentFeedback.update({
+      where: { id: wordless.id },
+      data: { transcript: null },
+    })
+
+    const res = await synthesize()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const handed = scheduled[0]![1]
+    expect(handed.map((memo) => memo.id).sort()).toEqual(
+      memos.map((m) => m.memo.id).sort(),
+    )
+    const run = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow({
+      where: { id: res.data.id },
+    })
+    expect(run.confirmed).toBe(5)
+  })
+
   it('runs the mock engine end to end through the same ingest', async () => {
     await seedConfirmed(effort.targets.slice(0, 6))
 
@@ -476,6 +504,56 @@ describe('feedback synthesis routes', () => {
           where: { organizationSlug: slug, normalizedName: 'potholes' },
         }),
       ).toBe(0)
+    })
+
+    // A dismissed proposal a later run raises again is that run's proposal,
+    // untouched since, so it goes like any other once no run makes it. A
+    // tag a person typed is not a run's to delete.
+    it('drops a revived proposal once no run makes it', async () => {
+      const memos = await seedConfirmed(effort.targets.slice(0, 5))
+      const ids = memos.map((m) => m.memo.id)
+      const typed = await service.prisma.issueTag.create({
+        data: {
+          organizationSlug: slug,
+          name: 'Bike lanes',
+          normalizedName: 'bike lanes',
+          status: IssueTagStatus.retired,
+          source: IssueTagSource.human,
+        },
+      })
+      await completeRun([{ theme: 'Potholes', memberIds: ids }])
+      const potholes = await service.prisma.issueTag.findFirstOrThrow({
+        where: { organizationSlug: slug, normalizedName: 'potholes' },
+      })
+      const dismissed = await service.client.patch(
+        `/v1/constituent-feedback/tags/${potholes.id}`,
+        { action: 'retire' },
+        ownerHeaders(slug),
+      )
+      expect(dismissed.status).toBe(HttpStatus.OK)
+      await ageCompletedRuns()
+      const secondRunId = await completeRun([
+        { theme: 'Potholes', memberIds: ids.slice(0, 3) },
+        { theme: 'Bike lanes', memberIds: ids.slice(3) },
+      ])
+      expect(
+        await service.prisma.issueTag.findUniqueOrThrow({
+          where: { id: potholes.id },
+        }),
+      ).toMatchObject({
+        status: IssueTagStatus.proposed,
+        proposedByRunId: secondRunId,
+      })
+      await ageCompletedRuns()
+
+      await completeRun([{ theme: 'Flooding', memberIds: ids }])
+
+      expect(
+        await service.prisma.issueTag.count({ where: { id: potholes.id } }),
+      ).toBe(0)
+      expect(
+        await service.prisma.issueTag.count({ where: { id: typed.id } }),
+      ).toBe(1)
     })
 
     // A run never overwrites a human's row for the same pair, and
@@ -1057,10 +1135,14 @@ describe('feedback synthesis routes', () => {
   describe('when an effort completes', () => {
     // The trigger is fire-and-forget after the response, so the run row
     // lands a moment later. Absence is checked over a shorter window.
-    const waitForRun = async (orgSlug: string, attempts = 50) => {
+    const waitForRun = async (
+      orgSlug: string,
+      attempts = 50,
+      where: Prisma.FeedbackSynthesisRunWhereInput = {},
+    ) => {
       for (let i = 0; i < attempts; i++) {
         const run = await service.prisma.feedbackSynthesisRun.findFirst({
-          where: { organizationSlug: orgSlug },
+          where: { ...where, organizationSlug: orgSlug },
         })
         if (run !== null) return run
         await new Promise((resolve) => setTimeout(resolve, 50))
@@ -1079,6 +1161,30 @@ describe('feedback synthesis routes', () => {
 
       expect(res.status).toBe(HttpStatus.CREATED)
       const run = await waitForRun(slug)
+      expect(run).toMatchObject({
+        outreachId: effort.outreachId,
+        status: SynthesisRunStatus.running,
+        requestedByUserId: null,
+      })
+    })
+
+    // The cooldown is a brake on the button. An effort finishing is when
+    // its report matters most, so the trigger does not wait it out.
+    it('starts a run on completion inside the button’s cooldown', async () => {
+      const memos = await seedConfirmed(effort.targets.slice(0, 5))
+      const firstRunId = await completeRun([
+        { theme: 'Flooding', memberIds: memos.map((m) => m.memo.id) },
+      ])
+      expect((await synthesize()).status).toBe(HttpStatus.TOO_MANY_REQUESTS)
+
+      const res = await service.client.post(
+        `/v1/door-knocking/turfs/${effort.turfId}/complete`,
+        {},
+        ownerHeaders(slug),
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const run = await waitForRun(slug, 50, { id: { not: firstRunId } })
       expect(run).toMatchObject({
         outreachId: effort.outreachId,
         status: SynthesisRunStatus.running,

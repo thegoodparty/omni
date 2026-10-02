@@ -20,6 +20,7 @@ const tag = (fields: Partial<IssueTag> = {}): IssueTag => ({
   source: 'synthesis',
   declaredTopIssueId: null,
   mergedIntoId: null,
+  proposedByRunId: 'run-1',
   feedbackCount: 3,
   ...fields,
 })
@@ -48,7 +49,7 @@ const mockPatch = () =>
   })
 
 const renderStrip = (isServe = false) =>
-  render(<NewTagsStrip isServe={isServe} />)
+  render(<NewTagsStrip isServe={isServe} runId="run-1" />)
 
 beforeEach(() => {
   testQueryClient.clear()
@@ -69,6 +70,37 @@ describe('NewTagsStrip', () => {
     expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
     expect(within(strip).getByText('Bike lanes')).toBeInTheDocument()
     expect(statusQueries).toEqual(['proposed'])
+  })
+
+  // The tag list is the org's. Another effort's run, or an earlier run of
+  // this one, proposed the rest, and this report is not where they are
+  // decided.
+  it('lists only the tags this run proposed', async () => {
+    mockTags([
+      tag(),
+      tag({ id: 'tag-2', name: 'Bike lanes', proposedByRunId: 'run-0' }),
+      tag({ id: 'tag-3', name: 'Park lighting', proposedByRunId: null }),
+    ])
+    renderStrip()
+
+    const strip = await screen.findByRole('region', {
+      name: 'New tags to review',
+    })
+    expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
+    expect(within(strip).queryByText('Bike lanes')).toBeNull()
+    expect(within(strip).queryByText('Park lighting')).toBeNull()
+  })
+
+  it('renders nothing when this run proposed none of them', async () => {
+    mockTags([tag({ proposedByRunId: 'run-0' })])
+    const { container } = renderStrip()
+
+    await waitFor(() =>
+      expect(
+        testQueryClient.getQueryState(PROPOSED_TAGS_QUERY_KEY)?.status,
+      ).toBe('success'),
+    )
+    expect(container).toBeEmptyDOMElement()
   })
 
   it('accepts a tag with an accept action', async () => {
@@ -103,6 +135,13 @@ describe('NewTagsStrip', () => {
 
     await waitFor(() =>
       expect(patches).toEqual([{ id: 'tag-2', body: { action: 'retire' } }]),
+    )
+    // The denominator for the accept rate.
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.IssueCapture.TagDismissed,
+        { product: 'win' },
+      ),
     )
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.IssueCapture.TagAccepted,

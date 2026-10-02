@@ -633,9 +633,17 @@ export class ConstituentFeedbackService extends createPrismaBase(
   }): Promise<ConstituentFeedbackRecord> {
     const existing = await this.findFirst({
       where: { id: input.id, organizationSlug: input.organizationSlug },
-      select: { outreachId: true, channel: true },
+      select: { outreachId: true, channel: true, actorUserId: true },
     })
     if (existing === null) throw new NotFoundException()
+    // A confirmation is the word of whoever had the conversation, so a
+    // volunteer confirms only their own memo, as with retry.
+    if (
+      input.role === OrganizationRole.volunteer &&
+      existing.actorUserId !== input.actorUserId
+    ) {
+      throw new NotFoundException()
+    }
     await this.assertVolunteerOnEffort(
       input.role,
       existing.outreachId,

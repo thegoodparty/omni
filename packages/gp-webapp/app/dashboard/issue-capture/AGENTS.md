@@ -88,8 +88,11 @@ fires on the press, refused or not.
 - **The tags strip is the manager's.** `GET tags?status=proposed` is
   owner-or-manager, so a 403 renders nothing (`retry: false`). It reads fresh
   on every mount (`staleTime: 0`), because a run landing while the page is
-  open proposes new tags. Accept is `PATCH { action: 'accept' }`, Dismiss is
-  `{ action: 'retire' }`, and both invalidate the report.
+  open proposes new tags. The list is the org's, so the strip keeps only the
+  tags whose `proposedByRunId` is the report's `run.id`: what this run
+  proposed, not another effort's proposals. After a failed run that is
+  nothing, until the next run lands. Accept is `PATCH { action: 'accept' }`,
+  Dismiss is `{ action: 'retire' }`, and both invalidate the report.
 
 ## Notes to review
 
@@ -166,6 +169,7 @@ events. Counts only, never a memo's words or a tag's name.
 | `ReportViewed`         | Once per visit, on the first report  | `scope: 'effort'`, `channel`, `themeCount`, `confirmedCount` |
 | `SynthesisRequested`   | On the button's press                | `scope: 'effort'`, `channel`, `confirmedCount`               |
 | `TagAccepted`          | After an accept lands                | `source: 'report'` (the surface it was accepted on)          |
+| `TagDismissed`         | After a dismiss lands                | none beyond `product`: the accept rate's denominator         |
 | `PendingMemoConfirmed` | A confirm from the review list lands | `channel`, `ageHours` (since the memo was saved, to 0.1)     |
 
 The offline path's other two, `MemoQueuedOffline` (`channel`) and
