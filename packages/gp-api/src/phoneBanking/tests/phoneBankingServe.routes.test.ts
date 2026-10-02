@@ -411,6 +411,39 @@ describe('serve phone banking routes', () => {
       expect(res.status).toBe(400)
     })
 
+    it('refuses a check with no proposal key to record it by', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770008' })])
+      const priority = await officePriority()
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({ priorityId: priority.id, stepId: 'define', side: 'main' }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(400)
+    })
+
+    // Outreach the agent proposes on a priority without a check behind it:
+    // linked to the priority, and the status stays as it was.
+    it('links a priority alone without touching its status', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770009' })])
+      const priority = await officePriority()
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({ proposalKey: PROPOSAL_KEY, priorityId: priority.id }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      const after = await service.prisma.priority.findUniqueOrThrow({
+        where: { id: priority.id },
+      })
+      expect(after.status).toEqual(priority.status)
+      expect(after.updatedAt).toEqual(priority.updatedAt)
+    })
+
     it('refuses a check with no priority behind it', async () => {
       mockPeoplePage([fakePerson({ cellPhone: '3075770007' })])
 

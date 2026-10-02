@@ -32,6 +32,11 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
   }),
 }))
 
+const errorSnackbar = vi.hoisted(() => vi.fn())
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ errorSnackbar, successSnackbar: vi.fn() }),
+}))
+
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-riverside' }),
 }))
@@ -235,6 +240,36 @@ describe('ProposalFlowsProvider', () => {
       stepId: 'method',
       side: 'main',
     })
+  })
+
+  it('says so when the walk’s list cannot be saved, and the card can be pressed again', async () => {
+    router.push?.mockClear()
+    let saves = 0
+    api.mock('POST /v1/voters/voter-file/filter', () => {
+      saves += 1
+      return saves === 1
+        ? { status: 500, data: { message: 'down' } }
+        : { status: 200, data: { id: 78, name: 'Flood block renters' } }
+    })
+
+    render(
+      <ProposalFlowsProvider>
+        <Opener card={proposal({ channel: 'doorKnocking' })} />
+      </ProposalFlowsProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        "We couldn't save this list. Try again.",
+      ),
+    )
+    expect(router.push).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    await waitFor(() =>
+      expect(String(router.push?.mock.calls[0]?.[0])).toContain('listId=78'),
+    )
   })
 
   // A check asks a sample, so the list the drawer saves is the draw, not the
