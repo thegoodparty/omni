@@ -365,14 +365,19 @@ export const captureArm = async (
     }
   }
 
-  // BACKGROUND AGENTS START AND ARE NOT AWAITED; chat agents walk one after
-  // another meanwhile. So the arm takes as long as the longer of the two, not
-  // their sum. `loadCases` still runs for every agent in walk order, before
-  // the first await in `settle`, because a local run's loader spends its
-  // budget down in that order.
+  // EVERY BACKGROUND AGENT STARTS FIRST, AND NONE IS AWAITED; then the chat
+  // agents walk one after another while those runs are out. So the arm takes
+  // as long as the longer of the two, not their sum. First, rather than in
+  // walk order with the chat agents: a chat agent listed between two
+  // background ones would hold the second back until it finished, splitting
+  // the one wave admission sized the arm for into two that add up.
+  //
+  // `loadCases` still runs for the background agents in their walk order,
+  // before the first await in `settle`, because a local run's loader spends
+  // its slots down in that order.
   const background: Promise<void>[] = []
-  for (const agent of selection.selected) {
-    const work = settle(agent, () =>
+  const walk = (agent: AgentEntry) =>
+    settle(agent, () =>
       captureAgent(
         deps,
         env,
@@ -381,9 +386,15 @@ export const captureArm = async (
         attemptsFor(agent, config),
       ),
     )
-    if (agent.shape === 'background') background.push(work)
-    else await work
+  for (const agent of selection.selected) {
+    if (agent.shape !== 'background') continue
+    background.push(walk(agent))
     if (fatal !== undefined) break
+  }
+  for (const agent of selection.selected) {
+    if (fatal !== undefined) break
+    if (agent.shape === 'background') continue
+    await walk(agent)
   }
   // Every dispatched run is waited out before the arm either throws or writes
   // its manifest. Thrown with polls still open, the process would exit under

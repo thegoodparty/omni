@@ -721,6 +721,44 @@ describe('captureArm, walking background agents', () => {
     ])
   })
 
+  // NOT HELD BACK BY A CHAT AGENT LISTED BEFORE IT. The chat case below can
+  // only finish once the second background agent has started, so an arm that
+  // walked the selection in order — awaiting the chat agent before starting
+  // the agent after it — never finishes, and the race fails it.
+  it('starts a background agent listed after a chat agent at once', async () => {
+    let secondStarted: () => void = () => undefined
+    const second = new Promise<void>((resolve) => {
+      secondStarted = resolve
+    })
+    const runCase: CaptureArmDeps['runCase'] = async (request) => {
+      if (request.agent.agentId === 'self_research') secondStarted()
+      if (request.agent.shape === 'chat') await second
+      return echoRunner()(request)
+    }
+    const capture = captureArm(
+      await deps({ config: oneAttempt, runCase, loadCases: () => caseList(1) }),
+      env({
+        agentIds: ['meeting_briefing', 'chief_of_staff', 'self_research'],
+      }),
+      [BACKGROUND, COS, SECOND],
+    )
+    const manifest = await Promise.race([
+      capture,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('the chat agent held the wave back')),
+          1000,
+        ),
+      ),
+    ])
+    // And the manifest still lists them in walk order.
+    expect(manifest.agents.map((a) => a.agentId)).toEqual([
+      'meeting_briefing',
+      'chief_of_staff',
+      'self_research',
+    ])
+  })
+
   // ONE FAILED RUN DOES NOT ABANDON THE REST. Each is already dispatched and
   // billing, so the arm waits every one out and keeps what they wrote; the
   // skip still says how many records the agent left in the store.
@@ -778,14 +816,16 @@ describe('captureArm, walking background agents', () => {
     expect(outcome).toBe('ArmCaptureError: the store is unreachable; 3')
   })
 
-  // AND STARTS NOTHING AFTER IT. An agent after the fatal one would dispatch
-  // paid runs on an arm that is about to throw.
+  // AND STARTS NOTHING AFTER IT. Background agents start first, in walk
+  // order, so a fatal one stops the background agents after it and every
+  // chat agent: each would spend on an arm that is about to throw.
   it('dispatches no agent after an arm-fatal error', async () => {
+    const THIRD: AgentEntry = { ...BACKGROUND, agentId: 'trending_issues' }
     const asked: string[] = []
     const d = await deps({
       config: oneAttempt,
       loadCases: (agent) => {
-        if (agent.agentId === 'chief_of_staff') {
+        if (agent.agentId === 'self_research') {
           throw new ArmCaptureError('the store is unreachable')
         }
         return caseList(1)
@@ -799,9 +839,14 @@ describe('captureArm, walking background agents', () => {
       captureArm(
         d,
         env({
-          agentIds: ['meeting_briefing', 'chief_of_staff', 'self_research'],
+          agentIds: [
+            'meeting_briefing',
+            'self_research',
+            'chief_of_staff',
+            'trending_issues',
+          ],
         }),
-        [BACKGROUND, COS, SECOND],
+        [BACKGROUND, SECOND, COS, THIRD],
       ),
     ).rejects.toThrow(ArmCaptureError)
     expect(asked).toEqual(['meeting_briefing'])
