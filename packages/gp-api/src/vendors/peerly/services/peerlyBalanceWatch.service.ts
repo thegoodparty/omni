@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { PinoLogger } from 'nestjs-pino'
 import { CronLockService } from '@/cron/services/cronLock.service'
+import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { SlackChannel, SlackMessageType } from '../../slack/slackService.types'
 import { SlackService } from '../../slack/services/slack.service'
 import { PeerlyAccountService } from './peerlyAccount.service'
@@ -29,7 +30,10 @@ export class PeerlyBalanceWatchService {
     private readonly cronLock: CronLockService,
   ) {}
 
-  @Cron(PEERLY_BALANCE_WATCH_CRON, { name: PEERLY_BALANCE_WATCH_CRON_JOB })
+  @Cron(PEERLY_BALANCE_WATCH_CRON, {
+    name: PEERLY_BALANCE_WATCH_CRON_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
   async checkBalance() {
     // Prod only: dev/qa point at a stubbed Peerly, so there is no real account
     // to read and nothing worth alerting on (mirrors the CV status scan).
