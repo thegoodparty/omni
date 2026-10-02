@@ -339,28 +339,33 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     organizationSlug: string,
     data: Prisma.OutreachUncheckedCreateInput,
   ): Promise<{ id: number }> {
-    const alreadySent = new ConflictException(
-      'This proposal has already been sent',
-    )
+    const holderOf = (client: Pick<Prisma.TransactionClient, 'outreach'>) =>
+      client.outreach.findUnique({
+        where: { proposalKey },
+        select: {
+          id: true,
+          organizationSlug: true,
+          outreachType: true,
+          status: true,
+        },
+      })
+    type Holder = NonNullable<Awaited<ReturnType<typeof holderOf>>>
+    // Another org's key, or another channel's, is not this proposal's text.
+    // This org's text past checkout is the proposal already sent.
+    const refusalFor = (holder: Holder): ConflictException | null =>
+      holder.organizationSlug !== organizationSlug ||
+      holder.outreachType !== OutreachType.text
+        ? new ConflictException('Proposal key is already in use')
+        : holder.status !== OutreachStatus.pending_payment
+          ? new ConflictException('This proposal has already been sent')
+          : null
+
     return this.client
       .$transaction(async (tx) => {
-        const holder = await tx.outreach.findUnique({
-          where: { proposalKey },
-          select: {
-            id: true,
-            organizationSlug: true,
-            outreachType: true,
-            status: true,
-          },
-        })
+        const holder = await holderOf(tx)
         if (holder) {
-          if (
-            holder.organizationSlug !== organizationSlug ||
-            holder.outreachType !== OutreachType.text ||
-            holder.status !== OutreachStatus.pending_payment
-          ) {
-            throw alreadySent
-          }
+          const refusal = refusalFor(holder)
+          if (refusal) throw refusal
           await tx.outreach.update({
             where: { id: holder.id },
             data: { proposalKey: null },
@@ -368,14 +373,21 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
         }
         return tx.outreach.create({ data, select: { id: true } })
       })
-      .catch((err: Error) => {
+      .catch(async (err: Error) => {
+        // Two taps raced past the read above and the unique index let one
+        // through. Its unpaid draft is the one this tap wanted, so hand it
+        // back the way a first create would.
         if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
+          !(err instanceof Prisma.PrismaClientKnownRequestError) ||
+          err.code !== 'P2002'
         ) {
-          throw alreadySent
+          throw err
         }
-        throw err
+        const winner = await holderOf(this.client)
+        if (!winner) throw err
+        const refusal = refusalFor(winner)
+        if (refusal) throw refusal
+        return { id: winner.id }
       })
   }
 
