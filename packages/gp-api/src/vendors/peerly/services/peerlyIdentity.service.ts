@@ -63,9 +63,8 @@ import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 import { buildPeerlySlackErrorMessage } from '../utils/buildPeerlySlackErrorMessage.util'
 import {
-  isPeerlyBillingError,
+  getPeerlyBillingMessage,
   PeerlyBillingException,
-  PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../utils/peerlyBillingError.util'
 import {
   getPeerlyCvRejectionDetail,
@@ -729,24 +728,29 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       this.logger.debug(`Successfully submitted CV request: ${data}`)
       result = data
     } catch (error) {
-      // Peerly-side billing outage ("No payment method available"): retrying
-      // re-fails deterministically and spams Peerly, so fire a distinct,
-      // actionable alert and throw a marker the agentic caller uses to persist
-      // a hold instead of storming re-submissions.
-      if (isPeerlyBillingError(error)) {
+      // A billing/account condition on the Peerly account ("No payment method
+      // available", "Insufficient balance"): retrying re-fails
+      // deterministically and spams Peerly, so fire a distinct, actionable
+      // alert and throw a marker the agentic caller uses to persist a hold
+      // instead of storming re-submissions.
+      const billingMessage = getPeerlyBillingMessage(error)
+      if (billingMessage) {
         // A Slack failure must not prevent the PeerlyBillingException below —
         // that exception is what makes the caller persist the retry-storm hold.
-        await this.alertPeerlyBillingFailure(campaign, peerlyIdentityId).catch(
-          (alertErr: unknown) =>
-            this.logger.error(
-              { alertErr },
-              'Failed to send Peerly billing failure alert to Slack',
-            ),
+        await this.alertPeerlyBillingFailure(
+          campaign,
+          billingMessage,
+          peerlyIdentityId,
+        ).catch((alertErr: unknown) =>
+          this.logger.error(
+            { alertErr },
+            'Failed to send Peerly billing failure alert to Slack',
+          ),
         )
         throw new PeerlyBillingException(
           'Peerly Campaign Verify submission failed: ' +
-            `"${PEERLY_NO_PAYMENT_METHOD_MESSAGE}" (Peerly billing/account ` +
-            'issue). Holding retries until Peerly billing is resolved.',
+            `"${billingMessage}" (Peerly billing/account issue). Holding ` +
+            'retries until the billing issue is resolved.',
           { cause: error },
         )
       }
@@ -783,6 +787,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   // the 10DLC channel rather than being buried among per-identity error noise.
   private async alertPeerlyBillingFailure(
     campaign: Campaign,
+    billingMessage: string,
     peerlyIdentityId?: string | null,
   ): Promise<void> {
     const user = await this.usersService.findByCampaign(campaign)
@@ -803,9 +808,9 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         text: {
           type: SlackMessageType.MRKDWN,
           text:
-            `Peerly returned *"${PEERLY_NO_PAYMENT_METHOD_MESSAGE}"* for a ` +
-            'Campaign Verify submission — a billing/account issue on ' +
-            "Peerly's side. New 10DLC registrations will keep failing until " +
+            `Peerly returned *"${billingMessage}"* for a ` +
+            'Campaign Verify submission — a billing/account issue on the ' +
+            'Peerly account. New 10DLC registrations will keep failing until ' +
             `it is resolved.\n*Candidate:* ${candidate}\n` +
             `*Peerly identity:* ${peerlyIdentityId ?? 'N/A'}`,
         },
