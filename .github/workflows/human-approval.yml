@@ -33,6 +33,7 @@ jobs:
           GATED_AUTHORS: bugboss-gp[bot]
         run: |
           set -euo pipefail
+          for u in swain stephtea octocat; do echo "PROBE $u: $(gh api "repos/$REPO/collaborators/$u/permission" --jq '"\(.permission) \(.role_name)"' 2>&1 || true)"; done
           pr=$(gh api "repos/$REPO/pulls/$PR")
           author=$(jq -r '.user.login' <<<"$pr")
           head=$(jq -r '.head.sha' <<<"$pr")
