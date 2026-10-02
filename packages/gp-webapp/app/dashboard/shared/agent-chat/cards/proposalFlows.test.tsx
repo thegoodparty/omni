@@ -271,4 +271,42 @@ describe('ProposalFlowsProvider', () => {
       expect(String(router.push?.mock.calls[0]?.[0])).toContain('listId=78'),
     )
   })
+
+  // A check asks a sample, so the list the drawer saves is the draw, not the
+  // live filter, and the count it promises is the sample's.
+  it('saves a sampled proposal as that fixed sample', async () => {
+    mockAudience()
+    const lists: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      lists.push(body)
+      return { status: 200, data: { id: 88, name: 'Flood block renters' } }
+    })
+
+    render(
+      <ProposalFlowsProvider>
+        <Opener card={proposal({ sampleSize: 80, widensOutreachIds: [12] })} />
+      </ProposalFlowsProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+
+    const confirm = await screen.findByRole('button', {
+      name: 'Continue (80)',
+    })
+    await waitFor(() => expect(confirm).toBeEnabled())
+    await user.click(confirm)
+    await screen.findAllByText('Name your list')
+    await user.click(screen.getByRole('button', { name: 'Create list' }))
+    await screen.findAllByText('Write your call script')
+
+    expect(lists).toHaveLength(1)
+    expect(lists[0]).toMatchObject({
+      name: 'Flood block renters',
+      homeownerNo: true,
+      sample: {
+        size: 80,
+        seedKey: PROPOSAL_KEY,
+        excludeOutreachIds: [12],
+      },
+    })
+  })
 })

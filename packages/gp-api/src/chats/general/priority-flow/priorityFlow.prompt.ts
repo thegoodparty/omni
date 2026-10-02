@@ -215,6 +215,41 @@ const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
     '- If the group cannot be found in their records, still name it and the question, say in one line why there is no list, and ask the same way.',
   ].join('\n')
 
+// About 100 replies reads a yes-or-no question to within ten points either
+// way, which is all a check needs to say whether a step holds.
+export const CHECK_TARGET_REPLIES = 100
+// The bar polls hold a result to before calling it high confidence
+// (queueConsumer.service.ts), so a check reads the same way.
+export const CHECK_MIN_REPLIES = 75
+export const DEFAULT_TEXT_REPLY_RATE = 0.025
+
+const buildSamplingBlock = (has: (name: string) => boolean): string =>
+  [
+    'HOW MANY PEOPLE TO ASK',
+    '- A check is a directional read, not a vote. It needs enough replies to tell whether a step holds, not everyone you could reach. So a text check goes to a random sample of its audience, not to all of it.',
+    `- Size a text sample for about ${CHECK_TARGET_REPLIES} replies: the replies you want divided by the reply rate, rounded up to the next hundred. ${CHECK_TARGET_REPLIES} replies at ${DEFAULT_TEXT_REPLY_RATE * 100}% is ${(CHECK_TARGET_REPLIES / DEFAULT_TEXT_REPLY_RATE).toLocaleString('en-US')} people.`,
+    has('read_past_outreach')
+      ? `- Use this office's own reply rate when it has one: call read_past_outreach and take replyRate from its past texts that went to a few hundred people or more. Otherwise assume ${DEFAULT_TEXT_REPLY_RATE * 100}%.`
+      : `- Assume a ${DEFAULT_TEXT_REPLY_RATE * 100}% reply rate.`,
+    '- Each side of a check gets its own sample, sized the same way from its own audience.',
+    '- Never sample more people than the audience holds. When the audience is no bigger than the sample, send to all of it, leave sampleSize out, and say so.',
+    '- A phone bank is sized by the calls the official or their volunteers can realistically make, not by a reply rate. Use judgment from what you know of them, and say what you chose and why. Door knocking the same way, by the doors they can walk. A social post has no audience to sample.',
+    '- On the card, count stays the whole audience. Set sampleSize to the people you would reach, and for a text set targetResponses and assumedReplyRate as a fraction, 0.025 for 2.5%.',
+    '- Explain the number once, in one line, in your message: "I\'d text 4,000 of the 58,520, picked at random. About 100 replies is enough to tell if this is the problem." Never call it statistically proven or representative. It is directional, because the 2 or 3 in 100 who reply choose themselves.',
+  ].join('\n')
+
+const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
+  [
+    'READING WHAT CAME BACK',
+    `- Count the replies on each side before you treat them as an answer. Under about ${CHECK_MIN_REPLIES}, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
+    ...(has('present_outreach_proposal')
+      ? [
+          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized for the replies still missing, with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
+        ]
+      : []),
+    `- Past ${CHECK_MIN_REPLIES}, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.`,
+  ].join('\n')
+
 const GUARDRAILS_BLOCK = `GUARDRAILS (apply before answering)
 - You only help with this priority and the work around it.
 - If they ask about anything unrelated, decline with this exact line and nothing else: "${PRIORITY_FLOW_GUARDRAIL_DECLINE}"
@@ -339,6 +374,10 @@ export const buildPriorityFlowSystemPrompt = (args: {
     ...(canFindGroup && has('count_contacts')
       ? [buildCheckWorkBlock(has)]
       : []),
+    ...(canFindGroup && has('present_outreach_proposal')
+      ? [buildSamplingBlock(has)]
+      : []),
+    buildReadingRepliesBlock(has),
     GUARDRAILS_BLOCK,
     `TOOLS AVAILABLE TO YOU\n${args.toolNames.map((n) => `- ${n}`).join('\n')}`,
     priorityBlock(args.ctx),

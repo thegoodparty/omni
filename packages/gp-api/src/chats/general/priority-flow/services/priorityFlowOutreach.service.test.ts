@@ -67,6 +67,40 @@ describe('PriorityFlowOutreachService.forOffice', () => {
     )
   })
 
+  it('holds a widen only when every send put out this side of this check', async () => {
+    const bridge = await createPriority('Bridge')
+    const market = await createPriority('Market')
+    const checkSend = (
+      priorityId: string,
+      priorityStepId: string,
+      priorityCheckSide: string,
+    ) =>
+      service.prisma.outreach.create({
+        data: {
+          organizationSlug: slug,
+          outreachType: OutreachType.text,
+          priorityId,
+          priorityStepId,
+          priorityCheckSide,
+        },
+      })
+    const first = await checkSend(bridge, 'define', 'main')
+    const second = await checkSend(bridge, 'define', 'main')
+    const contrast = await checkSend(bridge, 'define', 'contrast')
+    const otherStep = await checkSend(bridge, 'options', 'main')
+    const otherPriority = await checkSend(market, 'define', 'main')
+
+    const widens = (ids: number[]) =>
+      outreach.allPutOutCheck(bridge, 'define', 'main', ids)
+
+    expect(await widens([first.id, second.id])).toBe(true)
+    expect(await widens([first.id, contrast.id])).toBe(false)
+    expect(await widens([otherStep.id])).toBe(false)
+    expect(await widens([otherPriority.id])).toBe(false)
+    expect(await widens([first.id, 999_999])).toBe(false)
+    expect(await widens([])).toBe(false)
+  })
+
   it('returns every send when the chat is not about a priority', async () => {
     const bridge = await createPriority('Bridge')
     const bridgeSend = await send('about the bridge', bridge)

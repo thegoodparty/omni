@@ -119,6 +119,14 @@ model VoterFileFilter {
   /// re-resolve job something to key on.
   geoMembersResolvedAt       DateTime?                          @map("geo_members_resolved_at")
   geoMembers                 VoterFileFilterGeoMember[]
+  /// Set when the list was saved as a random sample of its criteria, to the
+  /// size asked for. `sampleMembers` holds who was drawn, and is what filters:
+  /// the criteria still apply on every read, so the list can only shrink.
+  /// Like `geoPoly`, this column, not the member rows, says a sample exists:
+  /// a sample with zero rows resolves to nobody, never to the whole audience.
+  sampleSize                 Int?                               @map("sample_size")
+  sampledAt                  DateTime?                          @map("sampled_at")
+  sampleMembers              VoterFileFilterSampleMember[]
   /// Registry key of the recommendation this list was created from; null
   /// means user-built. Set once at create time, never re-derived.
   recommendedVariant         String?                            @map("recommended_variant")

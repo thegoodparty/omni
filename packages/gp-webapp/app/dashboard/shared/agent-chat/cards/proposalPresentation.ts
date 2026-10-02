@@ -1,6 +1,8 @@
 import {
   PROPOSAL_SENT_MARKER,
+  MAX_LIST_SAMPLE_SIZE,
   SupportStatusRollupSchema,
+  type ListSample,
   type OutreachProposal,
   type ProposalChannel,
   type SupportStatusRollup,
@@ -69,11 +71,19 @@ export const proposalListName = (
 export const proposedAudienceOf = (
   proposal: Pick<
     OutreachProposal,
-    'audienceFilters' | 'savedFilterId' | 'listName' | 'audience'
+    | 'audienceFilters'
+    | 'savedFilterId'
+    | 'listName'
+    | 'audience'
+    | 'proposalKey'
+    | 'count'
+    | 'sampleSize'
+    | 'widensOutreachIds'
   >,
 ): ProposedAudience | undefined => {
   const filters = proposal.audienceFilters
   if (!filters || proposal.savedFilterId) return undefined
+  const sample = proposalListSample(proposal)
   const list = (value: boolean | string[] | undefined): string[] =>
     Array.isArray(value) ? value : []
   return {
@@ -84,6 +94,7 @@ export const proposedAudienceOf = (
     ),
     precincts: list(filters.precincts),
     name: proposalListName(proposal),
+    ...(sample && { sample }),
   }
 }
 
@@ -92,3 +103,71 @@ export const outreachDetailHref = (outreachId: number): string =>
 
 export const peopleCount = (count: number): string =>
   count === 1 ? '1 constituent' : `${count.toLocaleString()} constituents`
+
+// A sample smaller than its audience is the only kind that changes who gets
+// it: the list and the server both read anything bigger as the whole thing.
+const isSampled = (proposal: {
+  count: number
+  sampleSize?: number
+}): proposal is { count: number; sampleSize: number } =>
+  proposal.sampleSize !== undefined && proposal.sampleSize < proposal.count
+
+const SAMPLE_VERB: Record<ProposalChannel, string> = {
+  text: 'Text',
+  phoneBanking: 'Call',
+  doorKnocking: 'Visit',
+  social: 'Reach',
+}
+
+const widens = (proposal: { widensOutreachIds?: number[] }): boolean =>
+  (proposal.widensOutreachIds?.length ?? 0) > 0
+
+/**
+ * "Text 4,000 of 58,520, picked at random", or null for the whole list. A
+ * widen is never called random: once everyone not yet asked fits in it, the
+ * list holds all of them, so it says who it reaches instead.
+ */
+export const proposalSampleLine = (proposal: {
+  channel: ProposalChannel
+  count: number
+  sampleSize?: number
+  widensOutreachIds?: number[]
+}): string | null => {
+  const verb = SAMPLE_VERB[proposal.channel]
+  const of = proposal.count.toLocaleString()
+  if (widens(proposal)) {
+    return isSampled(proposal)
+      ? `${verb} up to ${proposal.sampleSize.toLocaleString()} of the ${of} not asked yet`
+      : `${verb} everyone of the ${of} not asked yet`
+  }
+  return isSampled(proposal)
+    ? `${verb} ${proposal.sampleSize.toLocaleString()} of ${of}, picked at random`
+    : null
+}
+
+/**
+ * The sample a list saved from this proposal is drawn as, keyed on the
+ * proposal so saving it again draws the same people. Undefined saves the
+ * live list. A widen always draws, even with no sample to size it: a live
+ * list has nothing to leave the people already asked out of.
+ */
+export const proposalListSample = (proposal: {
+  proposalKey: string
+  count: number
+  sampleSize?: number
+  widensOutreachIds?: number[]
+}): ListSample | undefined => {
+  if (widens(proposal)) {
+    return {
+      size: Math.min(
+        isSampled(proposal) ? proposal.sampleSize : proposal.count,
+        MAX_LIST_SAMPLE_SIZE,
+      ),
+      seedKey: proposal.proposalKey,
+      excludeOutreachIds: proposal.widensOutreachIds,
+    }
+  }
+  return isSampled(proposal)
+    ? { size: proposal.sampleSize, seedKey: proposal.proposalKey }
+    : undefined
+}

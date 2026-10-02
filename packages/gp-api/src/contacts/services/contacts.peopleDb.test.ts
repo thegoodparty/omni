@@ -200,6 +200,7 @@ describe('ContactsService — people-db (sole path)', () => {
     service = new ContactsService(
       mockVoterFileFilterService as never,
       {} as never,
+      {} as never,
       mockElectionsService as never,
       mockCampaignsService as never,
       mockOrganizationsService as never,

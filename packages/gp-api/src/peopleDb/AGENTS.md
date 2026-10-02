@@ -115,6 +115,32 @@ own `warn`, naming the census lookup so the line is attributable to one of
 the two statements. The voter scan keeps `run()` and stays exactly as loud as
 every other voter read.
 
+## Random samples: a seeded slice, not a sort
+
+`samplePeople` (`buildSampleSql`) cuts the population to a 1/divisor slice by
+`pmod(xxhash64(id, seed), divisor) = 0` and lets `LIMIT` stop early. Sorting
+everyone by a seeded hash measured 3-6s; the slice is a flat ~2s from a ward
+to a state. The divisor is sized from the pool so the slice holds about three
+times what was asked for, and a pool smaller than the request is a 400
+("Not enough non-excluded constituents"), never a short sample.
+
+Two kinds of draw share it:
+
+- **District-wide** (polls): no `filters`. The pool is the district stats
+  total, cell phone forced on unless the caller turns it off.
+- **Within an audience** (a list saved as a sample): `filters`, plus the
+  `idOverrides` / `contactsMadeIdOverrides` / `search` a count of the same
+  audience carries. The pool is a `COUNT(*)` over that same scope, because the
+  stats total describes the district, not the audience. Nothing is forced on
+  top: the audience already says how it is reached, and a forced cell cut
+  would make the count and the draw read different rows.
+
+The seed rotates every minute by default. A caller that passes `seedKey`
+(the list sample uses the proposal key) gets the same slice whenever it asks.
+`LIMIT` without `ORDER BY` still lets Spark pick which rows of the slice come
+back, so a draw is repeatable in its slice, not row for row; that is why a
+saved sample freezes the ids it got rather than redrawing on read.
+
 ## The two direction columns cannot hold a direction
 
 `Residence_Addresses_PrefixDirection` and `Residence_Addresses_SuffixDirection`
