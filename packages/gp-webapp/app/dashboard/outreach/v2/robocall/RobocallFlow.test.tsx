@@ -1232,6 +1232,39 @@ describe('RobocallFlow', () => {
     )
   })
 
+  // A gp-api from before masking drops the disclosure on Improve (its prompt
+  // told the model to remove one). The flow puts the line back, so a polish
+  // never leaves the script without it, whichever server answered.
+  it('puts the disclosure back when an Improve reply drops it', async () => {
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => ({
+      status: 200,
+      data: {
+        draft: body.currentDraft
+          ? 'A polished script without the line.'
+          : 'A grounded script.',
+      },
+    }))
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script.'.length + 1,
+        ' Edited.',
+      )
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+
+    await waitFor(() =>
+      expect(scriptText()).toMatch(
+        /^A polished script without the line\.\n\nPaid for by .+, 202-555-0147\.$/,
+      ),
+    )
+  })
+
   // The model never writes the disclosure, so it is never handed the number.
   it('drafts the body without the callback number', async () => {
     let draftBody: RobocallScriptDraftRequest | null = null

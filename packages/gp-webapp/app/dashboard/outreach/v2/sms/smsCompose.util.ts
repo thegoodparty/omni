@@ -62,6 +62,18 @@ export const upgradeScriptFooter = (
   return script.slice(0, stale.index) + upgraded
 }
 
+// The body of a message whose system regions an Improve reply may have
+// rewritten or dropped: the greeting and any footer-shaped close removed, so
+// the composer can put the real ones back. Used only when a reply comes back
+// without them, which a gp-api that predates masking does (a deploy where the
+// webapp lands first), and which must never reach a send.
+export const smsBodyOf = (message: string): string =>
+  message
+    .replace(/^\s*Hello \{\{?first_name\}\}?\s*,?\s*/i, '')
+    .replace(/\s*(?:Paid for by [^\n]*?\.?\s*)?Reply STOP\b[^\n]*\s*$/i, '')
+    .replace(/\s*Paid for by [^\n]*\s*$/i, '')
+    .trim()
+
 // The committee a campaign names before verification has recorded the real
 // one, so the message always shows its "Paid for by" line. Never sent: a
 // campaign cannot schedule a text until it is verified, and verification

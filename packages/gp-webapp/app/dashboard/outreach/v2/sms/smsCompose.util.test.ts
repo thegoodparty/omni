@@ -10,6 +10,7 @@ import {
   SERVE_SMS_IDENTIFICATION_FALLBACK,
   serveIdentificationIntro,
   provisionalCommitteeName,
+  smsBodyOf,
   unfilledBrackets,
   upgradeScriptFooter,
 } from './smsCompose.util'
@@ -293,5 +294,24 @@ describe('openWithSmsIdentification', () => {
     expect(openWithSmsIdentification('Vote early.', win)).toBe(
       'Jane here, candidate for City Council. Vote early.',
     )
+  })
+})
+
+describe('smsBodyOf', () => {
+  it('strips the greeting and a one- or two-line footer', () => {
+    expect(
+      smsBodyOf(
+        'Hello {first_name}, vote Tuesday.\n\nPaid for by Jane Doe. Reply STOP to opt out.',
+      ),
+    ).toBe('vote Tuesday.')
+    expect(
+      smsBodyOf(
+        'Hello {{first_name}}, town hall Thursday.\n\nPaid for by Jane Doe.\nReply STOP to opt out.',
+      ),
+    ).toBe('town hall Thursday.')
+  })
+
+  it('leaves a body with no system regions as it is', () => {
+    expect(smsBodyOf('Vote Tuesday.')).toBe('Vote Tuesday.')
   })
 })

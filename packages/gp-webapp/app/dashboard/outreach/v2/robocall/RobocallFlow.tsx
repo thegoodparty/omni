@@ -367,6 +367,15 @@ export const RobocallFlow = ({
     const line = latestDisclosure()
     return line ? `${body.trim()}\n\n${line}` : body
   }
+  // An Improve reply keeps the disclosure line exactly, because gp-api masks
+  // it. One that does not (a gp-api from before masking, mid-deploy) has any
+  // paid-for-by close it wrote dropped and the real line put back, so a polish
+  // can never leave the script without it.
+  const keepDisclosure = (reply: string): string => {
+    const line = latestDisclosure()
+    if (!line || reply.includes(line)) return reply
+    return withDisclosure(reply.replace(/\s*Paid for by [^\n]*\s*$/i, ''))
+  }
   // Whether there is anything to read besides the disclosure.
   const hasWrittenBody =
     (disclosure ? script.replace(disclosure, '') : script).trim().length > 0
@@ -500,7 +509,11 @@ export const RobocallFlow = ({
       {
         onSuccess: (draft) => {
           if (requestId !== draftRequestRef.current) return
-          loadScript(currentDraft === undefined ? withDisclosure(draft) : draft)
+          loadScript(
+            currentDraft === undefined
+              ? withDisclosure(draft)
+              : keepDisclosure(draft),
+          )
           setOwnWords(currentDraft !== undefined)
         },
         onError: () => {

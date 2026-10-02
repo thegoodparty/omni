@@ -769,6 +769,38 @@ describe('SmsFlow', () => {
       )
     })
 
+    // A gp-api from before masking answers Improve with a body alone. The
+    // flow composes the greeting and footer back around it, so a polish
+    // never sends without the disclaimer or opt-out.
+    it('composes the greeting and footer back around a body-only Improve reply', async () => {
+      api.mock('POST /v1/outreach/sms/draft', ({ body }) => ({
+        status: 200,
+        data: {
+          draft: body.currentDraft
+            ? 'this is Jane, candidate for City Council. Please vote soon!'
+            : `AI body (${body.tone}) for ${body.purpose}`,
+        },
+      }))
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+
+      await waitFor(() =>
+        expect(editor.getText({ blockSeparator: '\n' })).toBe(
+          'Hello {first_name}, this is Jane, candidate for City Council. ' +
+            'Please vote soon!\n\n' +
+            'Paid for by Friends of Jane. Reply STOP to opt out.',
+        ),
+      )
+    })
+
     it('refuses an edit inside a locked part and says why', async () => {
       mockDraftAndImprove()
       const { editor } = await reachCompose()

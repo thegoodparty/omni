@@ -99,6 +99,7 @@ import {
   ensureSmsIdentification,
   identificationIntro,
   provisionalCommitteeName,
+  smsBodyOf,
   openWithSmsIdentification,
   SMS_PURPOSES,
   type SmsFlowPurpose,
@@ -979,6 +980,21 @@ export const SmsFlow = ({
     }
   }, [selectedList, date, name, nameEdited, surface, purpose])
 
+  // An Improve reply keeps the greeting and footer exactly as the system
+  // wrote them, because gp-api masks them. One that does not (a gp-api from
+  // before masking, mid-deploy) has them composed back around its body, so a
+  // polish can never send without the disclaimer or opt-out.
+  const keepSystemRegions = (reply: string): string => {
+    const [greeting = '', footer = ''] = surface
+      .composeMessage('', footerCommittee)
+      .split('\n\n')
+    const intact =
+      reply.startsWith(greeting) && (!footer || reply.endsWith(`\n\n${footer}`))
+    return intact
+      ? reply
+      : surface.composeMessage(smsBodyOf(reply), footerCommittee)
+  }
+
   const requestDraft = (
     nextPurpose: SmsFlowPurpose | null,
     nextTone: SocialTone,
@@ -1020,7 +1036,7 @@ export const SmsFlow = ({
                   ),
                   footerCommittee,
                 )
-              : generated
+              : keepSystemRegions(generated)
           loadMessage(full)
           setOwnWords(currentDraft !== undefined)
           // Only fresh drafts are remembered per tone: a polish is of the
