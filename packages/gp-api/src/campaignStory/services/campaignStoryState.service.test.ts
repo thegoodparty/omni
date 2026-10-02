@@ -152,6 +152,39 @@ describe('fingerprintStory', () => {
     expect(fingerprintStory(ordered)).not.toBe(fingerprintStory(reversed))
   })
 
+  // The story page saves Quill markup; the chat saves plain text. Same answer,
+  // so the plan must not be regenerated for the difference — and a candidate
+  // who only bolds a word has not changed their story either.
+  it('does not move when a position is saved as markup instead of plain text', () => {
+    expect(
+      fingerprintStory(
+        state({
+          positions: [{ title: 'Roads', description: '<p>Fix them</p>' }],
+        }),
+      ),
+    ).toBe(fingerprintStory(state()))
+  })
+
+  it('does not move when a position description is only reformatted', () => {
+    expect(
+      fingerprintStory(
+        state({
+          positions: [
+            { title: 'Roads', description: '<p><strong>Fix</strong> them</p>' },
+          ],
+        }),
+      ),
+    ).toBe(fingerprintStory(state()))
+  })
+
+  it('does not move when a position title gains surrounding whitespace', () => {
+    expect(
+      fingerprintStory(
+        state({ positions: [{ title: '  Roads  ', description: 'Fix them' }] }),
+      ),
+    ).toBe(fingerprintStory(state()))
+  })
+
   // The same serializer completeness uses, so an empty Quill editor and a
   // genuinely empty bio cannot disagree about whether the story moved.
   it('does not move when an empty editor is saved in a different empty form', () => {
