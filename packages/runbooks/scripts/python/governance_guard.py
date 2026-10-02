@@ -43,6 +43,7 @@ from typing import Protocol
 import yaml
 
 import amplitude_event_provenance_backfill as prov
+import event_reach as er
 import guard_refs as gr
 import sem_anchors as sa
 
@@ -52,6 +53,7 @@ API_REGISTRY = "packages/gp-api/src/vendors/segment/segment.types.ts"
 WATCHLIST = "packages/runbooks/scripts/python/monitored_events.yaml"
 PROVENANCE = "packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv"
 SEM_DIR = "packages/runbooks/scripts/python/instrumentation_data/sem"
+PRODUCT_MAP = er.PRODUCT_MAP
 # GitHub rejects an issue comment over 65,536 characters; leave room for the shadow-mode
 # rewrite and the truncation note.
 COMMENT_LIMIT = 60_000
@@ -215,6 +217,8 @@ class Snapshot:
     provenance_events: set[str]
     page_routes: set[str]
     watchlist_error: str | None = None
+    route_texts: dict[str, str] = field(default_factory=dict)
+    product_map: str = ""
     _by_literal: dict[str, dict[str, int]] = field(default_factory=dict, repr=False)
     _by_key: dict[tuple[str, str], dict[str, int]] = field(default_factory=dict, repr=False)
 
@@ -266,7 +270,7 @@ def build_snapshot(tree: Tree) -> Snapshot:
     paths = tree.paths()
     scan = sorted(p for p in paths if _in_scope(p) and not _is_test(p)
                   and p not in (WEB_REGISTRY, API_REGISTRY))
-    texts = tree.read_many([*scan, WEB_REGISTRY, API_REGISTRY, WATCHLIST, PROVENANCE])
+    texts = tree.read_many([*scan, WEB_REGISTRY, API_REGISTRY, WATCHLIST, PROVENANCE, PRODUCT_MAP])
     api_text = texts.get(API_REGISTRY, "")
     provenance = {row["event_type"] for row in csv.DictReader(io.StringIO(texts.get(PROVENANCE, "")))
                   if row.get("event_type")}
@@ -296,6 +300,8 @@ def build_snapshot(tree: Tree) -> Snapshot:
         provenance_events=provenance,
         page_routes={r for p in paths if (r := page_route(p))},
         watchlist_error=watchlist_error,
+        route_texts={p: texts[p] for p in scan if p in texts and er.route_kind(p)},
+        product_map=texts.get(PRODUCT_MAP, ""),
     )
 
 

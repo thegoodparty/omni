@@ -614,3 +614,13 @@ def test_markdown_is_capped_with_a_pointer_to_the_job_summary():
     capped = gg.render_markdown(report, limit=gg.COMMENT_LIMIT)
     assert len(full) > gg.COMMENT_LIMIT >= len(capped)
     assert "job summary" in capped and capped.startswith("<!-- analytics-guard -->")
+
+
+def test_snapshot_carries_route_texts_and_the_product_map():
+    snap = gg.build_snapshot(tree({
+        "packages/gp-webapp/app/dashboard/page.tsx": "export default function P() { return <div/> }",
+        "packages/gp-webapp/app/dashboard/components/Card.tsx": "export const Card = 1",
+        gg.PRODUCT_MAP: "name: 'Profile',\n    path: '/dashboard/profile',",
+    }))
+    assert set(snap.route_texts) == {"packages/gp-webapp/app/dashboard/page.tsx"}
+    assert "Profile" in snap.product_map
