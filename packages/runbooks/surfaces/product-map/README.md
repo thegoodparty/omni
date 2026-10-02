@@ -39,7 +39,7 @@ is real and what is not:
 
 | Real                                                                                              | Not yet                                                             |
 | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Seventeen surfaces across Win and Serve, steps read from each flow's own config                   | Three more flows, located by file, not drawn                        |
+| Twenty surfaces across Win and Serve, steps read from each flow's own config                      | A flow found later goes in as a `building()` placeholder            |
 | Every event opens the shared card: verdict, both names, volume, Amplitude                         | Per-step volume where one event covers many steps                   |
 | Anchor state on every event: anchored, no anchor, call site unknown, no route                     | Zones on a page are inferred from `fires_on`, not declared anywhere |
 | Feedback composer and usage tracking, the explorer's, from the shared partials                    | Step extraction; the node model is hand-authored in `map.js`        |
