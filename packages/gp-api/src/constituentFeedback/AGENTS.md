@@ -99,6 +99,7 @@ uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
   one is in flight.
 - `GET themes/:id`: one theme with its confirmed members.
 - `GET tags?status=` and `PATCH tags/:id`: the tag list and its curation.
+  Each tag carries `proposedByRunId`, the run that last proposed it.
 - `POST seed`: dev-only fake memos; 404s on prod.
 
 The report, synthesis, theme and tag routes are default posture: what
@@ -110,7 +111,8 @@ who records and confirms it, the posture the knock and call routes already
 carry, and under the same rule: a volunteer acts only on an effort they hold
 an `OutreachAssignment` on (`assertVolunteerAssignedToOutreach`, the knock
 routes' predicate). Capture checks the resolved `outreachId` before it spends
-an extraction; confirm checks the row's. A volunteer gets the same 404 the
+an extraction; confirm checks the row's, and, like retry, lets a volunteer
+confirm only a memo they recorded. A volunteer gets the same 404 the
 knock or call route would give ("Stop target not found" / "Phone banking list
 not found"), including for a memo with no effort, which nothing can be
 assigned to. Owners and campaign managers are unaffected.
@@ -125,17 +127,20 @@ guard are the access check; the flag gates rollout, not access.
 
 ## Synthesis
 
-`requestRun` loads the effort's confirmed memos, refuses under
-`MIN_CONFIRMED_FOR_SYNTHESIS` (5, provisional) and inside
-`SYNTHESIS_COOLDOWN_MS` (10 minutes since the last completed run), inserts a
-`running` run, and hands the memos to the engine. Two ways in: the report's
-button, and the effort completing (a turf's Done in
+`requestRun` loads the effort's confirmed memos that have a transcript (one
+confirmed by hand after a failed recording has none, and would be an empty
+CSV row), refuses under `MIN_CONFIRMED_FOR_SYNTHESIS` (5, provisional),
+inserts a `running` run whose `confirmed` is that count, and hands the memos
+to the engine. Two ways in: the report's button (`trigger: 'button'`), which
+is also refused inside `SYNTHESIS_COOLDOWN_MS` (10 minutes since the last
+completed run), and the effort completing (a turf's Done in
 `doorKnockingTurf.service.ts`, a list's last call in
 `phoneBankingCall.service.ts`), which calls `requestRunOnEffortCompleted`
-fire-and-forget and swallows the three refusals. That path has no request to
-flag-gate, so it checks the floor and then the product's flag for the org's
-owner itself; turning a flag off stops automatic runs too. The first run of a Win org
-seeds accepted tags from its `CampaignPosition`s first.
+fire-and-forget, skips the cooldown, and swallows the floor and the run in
+flight. That path has no request to flag-gate, so it checks the floor and
+then the product's flag for the org's owner itself; turning a flag off
+stops automatic runs too. The first run of a Win org seeds accepted tags
+from its `CampaignPosition`s first.
 
 - **The race guard is the index.** `activeKey` is
   `<org>:<outreachId>` while a run is in flight and unique, so the button and
@@ -169,15 +174,17 @@ One transaction, claimed first with a conditional update on
   dropped and counted in the log. If no theme keeps a member, the run fails
   (`error: no_members_in_scope`) rather than superseding a good one.
 - One tag per theme, by `normalizedName`: merged away follows
-  `mergedIntoId` to its target (one hop; targets are accepted and merges
-  re-point earlier ones); accepted is linked; retired is revived to
-  `proposed`; proposed is relinked to this run; none is created `proposed`,
-  `source: synthesis`. Relinking carries `updatedAt` over, so it
-  does not count as a human touching the tag.
+  `mergedIntoId` to its target (one hop; merges re-point earlier ones) and
+  is then handled as that target, which may since have been retired;
+  accepted is linked; retired is revived to `proposed` with `updatedAt` set
+  back to `createdAt`; proposed is relinked to this run; none is created
+  `proposed`, `source: synthesis`. Relinking carries `updatedAt` over, and
+  reviving resets it, so neither counts as a human touching the tag.
 - **Old runs are kept.** The previous completed run for the scope becomes
   `superseded`; its themes and members stay as history. Its tag rows and its
-  untouched proposals (`updatedAt = createdAt`) are deleted explicitly,
-  because a status change cascades nothing. That happens before this run's
+  untouched `synthesis` proposals (`updatedAt = createdAt`) are deleted
+  explicitly, because a status change cascades nothing; a seeded or typed
+  tag it revived is a person's, and stays. That happens before this run's
   tag rows are written, or a pair both runs applied would be lost.
 - `ConstituentFeedbackTag` rows are written with `skipDuplicates`, which is
   what keeps a human's row on a pair the run also applies.

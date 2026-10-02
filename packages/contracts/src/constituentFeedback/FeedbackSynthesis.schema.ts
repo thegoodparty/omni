@@ -186,6 +186,7 @@ export const IssueTagSchema = z.object({
   source: IssueTagSourceSchema,
   declaredTopIssueId: z.number().int().nullable(),
   mergedIntoId: z.string().nullable(),
+  proposedByRunId: z.string().nullable(),
   feedbackCount: z.number().int(),
 })
 export type IssueTag = z.infer<typeof IssueTagSchema>

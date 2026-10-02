@@ -78,6 +78,7 @@ describe('issue tag routes', () => {
         source: 'synthesis',
         declaredTopIssueId: null,
         mergedIntoId: null,
+        proposedByRunId: null,
         feedbackCount: 2,
       },
       expect.objectContaining({ name: 'Potholes', feedbackCount: 0 }),
@@ -90,6 +91,38 @@ describe('issue tag routes', () => {
     expect(proposedOnly.data.tags.map((t: { name: string }) => t.name)).toEqual(
       ['Potholes'],
     )
+  })
+
+  // The list is the org's, so each tag says which run proposed it.
+  it('names the run that proposed a tag', async () => {
+    const effort = await seedTurfEffort(service, slug, { people: 1 })
+    const run = await service.prisma.feedbackSynthesisRun.create({
+      data: {
+        organizationSlug: slug,
+        scope: SynthesisScope.effort,
+        outreachId: effort.outreachId,
+        status: SynthesisRunStatus.completed,
+        conversations: 5,
+        memos: 5,
+        confirmed: 5,
+        engine: 'mock',
+      },
+    })
+    const tag = await createTag('Potholes')
+    await service.prisma.issueTag.update({
+      where: { id: tag.id },
+      data: { proposedByRunId: run.id },
+    })
+
+    const res = await service.client.get('/v1/constituent-feedback/tags', {
+      ...ownerHeaders(slug),
+      params: { status: 'proposed' },
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.tags).toEqual([
+      expect.objectContaining({ id: tag.id, proposedByRunId: run.id }),
+    ])
   })
 
   it('accepts a proposed tag', async () => {
@@ -266,6 +299,58 @@ describe('issue tag routes', () => {
     expect(after).toMatchObject({
       status: IssueTagStatus.retired,
       mergedIntoId: target.id,
+    })
+  })
+
+  // Retiring a merge target leaves the pointers to it in place. A theme
+  // that follows one revives the target, as a theme with the target's own
+  // name would, rather than landing on a tag nobody sees.
+  it('revives a retired merge target that a theme follows', async () => {
+    const effort = await seedTurfEffort(service, slug, { people: 5 })
+    const merged = await createTag('Flood')
+    const target = await createTag('Flooding', IssueTagStatus.accepted)
+    const mergeRes = await patch(merged.id, {
+      action: 'merge',
+      intoTagId: target.id,
+    })
+    expect(mergeRes.status).toBe(HttpStatus.OK)
+    const retireRes = await patch(target.id, { action: 'retire' })
+    expect(retireRes.status).toBe(HttpStatus.OK)
+    const memoIds: string[] = []
+    for (const person of effort.targets) {
+      const { memo } = await seedKnockMemo(service, {
+        slug,
+        outreachId: effort.outreachId,
+        personId: person.personId,
+      })
+      memoIds.push(memo.id)
+    }
+    const synthesized = await service.client.post(
+      `/v1/constituent-feedback/efforts/${effort.outreachId}/synthesize`,
+      {},
+      ownerHeaders(slug),
+    )
+    expect(synthesized.status).toBe(HttpStatus.CREATED)
+
+    await service.app
+      .get(FeedbackSynthesisIngestService)
+      .handle(
+        completionEvent(synthesized.data.id, [
+          { theme: 'flood', memberIds: memoIds },
+        ]),
+      )
+
+    const theme = await service.prisma.feedbackTheme.findFirstOrThrow({
+      where: { runId: synthesized.data.id },
+    })
+    expect(theme.tagId).toBe(target.id)
+    expect(
+      await service.prisma.issueTag.findUniqueOrThrow({
+        where: { id: target.id },
+      }),
+    ).toMatchObject({
+      status: IssueTagStatus.proposed,
+      proposedByRunId: synthesized.data.id,
     })
   })
 

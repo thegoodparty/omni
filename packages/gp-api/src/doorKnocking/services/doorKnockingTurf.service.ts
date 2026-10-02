@@ -548,9 +548,9 @@ export class DoorKnockingTurfService extends createPrismaBase(
 
   // Each turf that just finished is an effort whose memos can now be
   // summarized. Resolved lazily for the same module-cycle reason as
-  // assertVolunteerAssignedToOutreach. Fire-and-forget: the floor, the
-  // cooldown and a run in flight are expected refusals, and nothing about
-  // synthesis may fail the press that ended the walk.
+  // assertVolunteerAssignedToOutreach. Fire-and-forget: the floor and a run
+  // in flight are expected refusals, and nothing about synthesis may fail
+  // the press that ended the walk.
   private synthesizeCompletedEfforts(
     organizationSlug: string,
     outreachIds: number[],
