@@ -939,6 +939,52 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     })
   }
 
+  // Staff filing-link correction from gp-admin's hold widget. Refuses once a
+  // Peerly identity exists: the URL was already consumed by CampaignVerify,
+  // so a local swap would silently never reach them (see "Recovering a
+  // rejected record" in this dir's AGENTS.md). A changed URL must clear the
+  // hold AND override columns in the same write, exactly like createAgentic's
+  // update branch — a bare filingUrl write leaves cvValidationFailedAt set,
+  // and the pre-submission gate short-circuits the next run back to FAILED
+  // without re-validating (reproduced in prod, 2026-09-30 batch repair).
+  async updateFilingUrl(campaignId: number, filingUrl: string) {
+    const existing = await this.fetchByCampaignId(campaignId)
+    if (!existing) {
+      throw new NotFoundException(
+        `TcrCompliance record not found for campaignId=${campaignId}`,
+      )
+    }
+    if (existing.peerlyIdentityId) {
+      throw new ConflictException(
+        'This registration was already submitted to Peerly — a filing ' +
+          'link change here would never reach Campaign Verify. Escalate ' +
+          'to Peerly instead.',
+      )
+    }
+    const parsed = submitToPeerlyFilingSchema.safeParse({
+      filingUrl,
+      officeLevel: existing.officeLevel,
+      websiteHost: existing.websiteDomain,
+    })
+    if (!parsed.success) {
+      throw new BadRequestException(
+        parsed.error.issues.map((issue) => issue.message).join(' '),
+      )
+    }
+    return parsed.data.filingUrl === existing.filingUrl
+      ? existing
+      : this.model.update({
+          where: { id: existing.id },
+          data: {
+            filingUrl: parsed.data.filingUrl,
+            cvValidationFailedAt: null,
+            cvValidationFailureReasons: [],
+            cvValidationOverriddenAt: null,
+            cvValidationTransientCount: 0,
+          },
+        })
+  }
+
   // TODO: Refactor this flow to persist the Peerly Identity ID and other
   //  relevant data in the TCR Compliance record as we go, and then use that to
   //  determine flow progress instead of calling Peerly for everything.

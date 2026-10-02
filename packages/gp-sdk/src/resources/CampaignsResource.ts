@@ -8,6 +8,8 @@ import type {
   UpdateCampaignM2MInput,
   UpdateCommitteeNameInput,
   UpdateCommitteeNameOutput,
+  UpdateFilingUrlInput,
+  UpdateFilingUrlOutput,
 } from '@goodparty_org/contracts'
 import type {
   CampaignWithLiveContext,
@@ -90,6 +92,16 @@ export class CampaignsResource extends BaseResource {
     this.patchRequest<UpdateCommitteeNameOutput>(
       `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
         '/committee-name',
+      input,
+    )
+
+  updateFilingUrl = (
+    campaignId: number,
+    input: UpdateFilingUrlInput,
+  ): Promise<UpdateFilingUrlOutput> =>
+    this.patchRequest<UpdateFilingUrlOutput>(
+      `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
+        '/filing-url',
       input,
     )
 }

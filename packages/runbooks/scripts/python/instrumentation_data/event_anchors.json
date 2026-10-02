@@ -2123,6 +2123,18 @@
     "url": "n/a (dynamic dispatch, no direct call site found)",
     "written_date": ""
   },
+  "Outreach - Campaign Completed": {
+    "confidence": "high",
+    "disposition": "new",
+    "evidence": "packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx:110",
+    "fires_on": "Campaign plan dashboard, submitting the voter-contact count in the manual outreach log modal after marking a task complete",
+    "first_seen": "2026-10-01",
+    "flag_reason": "",
+    "last_seen": "2026-10-01",
+    "reason": "",
+    "url": "/dashboard/campaign-plan",
+    "written_date": ""
+  },
   "Outreach - Click Create": {
     "confidence": "high",
     "disposition": "accepted",
@@ -2135,6 +2147,18 @@
     "url": "/dashboard/outreach",
     "written_date": ""
   },
+  "Outreach - Door Knocking Door Logged": {
+    "confidence": "high",
+    "disposition": "new",
+    "evidence": "packages/gp-webapp/app/dashboard/door-knocking/native/RecordKnockForm.tsx:161",
+    "fires_on": "Door knocking turf canvas, saving the outcome after recording a knock for a voter",
+    "first_seen": "2026-10-01",
+    "flag_reason": "",
+    "last_seen": "2026-10-01",
+    "reason": "",
+    "url": "/dashboard/door-knocking",
+    "written_date": ""
+  },
   "Outreach - Door Knocking: Complete": {
     "confidence": "low",
     "disposition": "open",
@@ -2145,6 +2169,18 @@
     "last_seen": "2026-09-11",
     "reason": "deferred 2026-09-21: event name assembled at runtime, so the draft is a guess by construction. Left queued deliberately rather than anchored on a guess; revisit when a consumer needs this event.",
     "url": "n/a (dynamic dispatch, no fixed call site)",
+    "written_date": ""
+  },
+  "Outreach - Phone Banking Call Logged": {
+    "confidence": "high",
+    "disposition": "new",
+    "evidence": "packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx:85",
+    "fires_on": "Phone banking call list page, saving the outcome after logging a call for a voter",
+    "first_seen": "2026-10-01",
+    "flag_reason": "",
+    "last_seen": "2026-10-01",
+    "reason": "",
+    "url": "/dashboard/outreach/phone-banking/[listId]",
     "written_date": ""
   },
   "Outreach - Phone Banking: Call Logged": {

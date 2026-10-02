@@ -87,10 +87,14 @@ import { SmsReviewStep } from './SmsReviewStep'
 import {
   composeScript,
   composeServeScript,
+  ensureSmsIdentification,
   identificationIntro,
   signServeSmsDraft,
+  openWithSmsIdentification,
   SMS_PURPOSES,
   type SmsFlowPurpose,
+  unfilledBrackets,
+  upgradeScriptFooter,
 } from './smsCompose.util'
 import {
   createServeSms,
@@ -556,6 +560,10 @@ export const SmsFlow = ({
   const [paidSend, setPaidSend] = useState(false)
 
   const draftRequestRef = useRef(0)
+  // True while the body is a seed carried in from outside the flow that has
+  // not yet been checked for the sender's identification. Cleared by the
+  // check, or by the first keystroke, so hand-typed text is never rewritten.
+  const seedUncheckedRef = useRef(false)
 
   // Every saved-draft and gate concern — the row, the resume switch, the
   // gate/explainer visibility, and the origin that says what finishing the
@@ -667,6 +675,7 @@ export const SmsFlow = ({
     setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
     setBody(initialScript ?? '')
+    seedUncheckedRef.current = Boolean(initialScript)
     setManuallyEdited(Boolean(initialScript))
     setUndoText(null)
     setToneDrafts({})
@@ -736,6 +745,32 @@ export const SmsFlow = ({
           candidateFirstName,
           campaign?.positionName || campaign?.details?.normalizedOffice || '',
         )
+  const identificationNames = [
+    candidateFullName,
+    tcrCompliance?.candidateName,
+  ].filter((name): name is string => !!name)
+  // Every body the flow sets that the official did not type goes through
+  // this, so the compose step never opens on a candidate_name failure.
+  const identificationFor = (t: SocialTone) => ({
+    intro: introFor(t),
+    firstName: candidateFirstName,
+    candidateNames: identificationNames,
+  })
+  const withIdentification = (text: string, t: SocialTone): string =>
+    ensureSmsIdentification(text, identificationFor(t))
+  // The seed lands in the open effect, before the sender's name may be
+  // known: Win waits on the campaign (a Campaign Manager's own session name
+  // is not the candidate's), Serve on the user, and both on a name to check
+  // against, since an empty list would wave the seed through unchecked.
+  const identificationReady =
+    (surface.isServe ? Boolean(user) : campaign != null) &&
+    identificationNames.length > 0
+  useEffect(() => {
+    if (!open || !seedUncheckedRef.current || !identificationReady) return
+    seedUncheckedRef.current = false
+    setBody((seeded) => withIdentification(seeded, 'warm'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per seed, when the name resolves
+  }, [open, initialScript, identificationReady])
   // Paid-for-by is a campaign-finance disclaimer naming a candidate
   // committee, which a Serve org does not have. Nulled at the source rather
   // than only inside composeMessage so the submitted script, the preview
@@ -746,25 +781,35 @@ export const SmsFlow = ({
     : (tcrCompliance?.committeeName ?? null)
   // A resumed row carries the script exactly as it was saved (intro, body and
   // system footer already joined), so it must not be composed a second time.
+  // Only the system footer is upgraded: a draft saved before verification has
+  // no paid-for-by line, and scheduling's server-side compliance check will
+  // demand it against the committee that exists by resume time.
   const composedMessage =
     resumed && savedDraft?.script
-      ? savedDraft.script
+      ? upgradeScriptFooter(savedDraft.script, committeeName)
       : surface.composeMessage(body, committeeName)
   const composedLength = composedMessage.length
   const rawStandards = checkSmsStandards(composedMessage, {
-    candidateNames: [candidateFullName, tcrCompliance?.candidateName].filter(
-      (name): name is string => !!name,
-    ),
+    candidateNames: identificationNames,
     committeeName,
   })
-  // Win ignores nothing, so this is the raw verdict there.
+  // Win ignores nothing once a committee exists, so this is the raw verdict
+  // there. Without one (build mode -- the campaign is not verified yet) the
+  // paid-for-by line is system-composed off a committee name that does not
+  // exist, so no edit the candidate can make satisfies the rule; it is
+  // dropped here, and the footer upgrade above supplies the line at resume.
+  const ignoredStandardsRules: readonly SmsStandardsRule[] =
+    !surface.isServe && committeeName === null
+      ? [...surface.ignoredStandardsRules, 'paid_for_by']
+      : surface.ignoredStandardsRules
   const standardsFailures = rawStandards.failures.filter(
-    (rule) => !surface.ignoredStandardsRules.includes(rule),
+    (rule) => !ignoredStandardsRules.includes(rule),
   )
   const standards = {
     passed: standardsFailures.length === 0,
     failures: standardsFailures,
   }
+  const bracketsToFill = unfilledBrackets(body)
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
   // gate), so the send floor is the hard 48-hour scheduling window.
@@ -883,11 +928,15 @@ export const SmsFlow = ({
           }
           // Fresh drafts open with the identification (design model: it is
           // the message's editable first sentence); improve mode polishes a
-          // message that already carries it.
+          // message that already carries it, and gets it back if the model
+          // dropped or bracketed the name.
           const full =
             currentDraft === undefined
-              ? `${introFor(nextTone)} ${generated}`
-              : generated
+              ? openWithSmsIdentification(
+                  generated,
+                  identificationFor(nextTone),
+                )
+              : withIdentification(generated, nextTone)
           setBody(full)
           setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
         },
@@ -923,6 +972,8 @@ export const SmsFlow = ({
     if (remembered !== undefined && remembered.trim().length > 0) {
       draftRequestRef.current += 1
       resetDraftMutation()
+      // Not re-checked: a generated entry was identified when it arrived,
+      // and any other entry is the candidate's own typing.
       setBody(remembered)
       setManuallyEdited(false)
       return
@@ -931,6 +982,7 @@ export const SmsFlow = ({
   }
 
   const handleBodyChange = (value: string) => {
+    seedUncheckedRef.current = false
     setBody(value)
     setManuallyEdited(true)
     if (draftMutation.isError) resetDraftMutation()
@@ -1413,6 +1465,7 @@ export const SmsFlow = ({
                       disabled:
                         body.trim().length === 0 ||
                         !standards.passed ||
+                        bracketsToFill.length > 0 ||
                         composedLength > SMS_COMPOSED_MAX_LENGTH ||
                         // Win only: Peerly rejects an imageless text/p2p send.
                         // Serve is fulfilled by the shared delivery layer, whose
@@ -1701,6 +1754,7 @@ export const SmsFlow = ({
           onToneChange={handleToneChange}
           audienceName={selectedList?.name ?? audience.builderName}
           standardsFailures={standards.failures}
+          unfilledBrackets={bracketsToFill}
           identificationExample={introFor(tone)}
           committeeName={committeeName}
           body={body}

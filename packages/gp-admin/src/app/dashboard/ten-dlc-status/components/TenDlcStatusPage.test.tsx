@@ -17,6 +17,13 @@ class ResizeObserverMock {
 globalThis.ResizeObserver =
   ResizeObserverMock as unknown as typeof ResizeObserver
 
+// Radix Select needs the pointer-capture APIs jsdom lacks (same stubs as
+// CampaignForm.test.tsx) or the dropdown never opens.
+Element.prototype.hasPointerCapture = vi.fn(() => false)
+Element.prototype.setPointerCapture = vi.fn()
+Element.prototype.releasePointerCapture = vi.fn()
+HTMLElement.prototype.scrollIntoView = vi.fn()
+
 const mockHas = vi.fn()
 const mockUseAuth = vi.fn()
 
@@ -71,6 +78,7 @@ const entry = (overrides: Partial<TenDlcStatusEntry>): TenDlcStatusEntry => ({
   campaignSlug: 'test-camp',
   userId: 11,
   committeeName: 'Friends of Test',
+  assignedPa: null,
   peerlyIdentityId: null,
   filingUrl: null,
   since: new Date('2026-09-20T00:00:00Z').toISOString(),
@@ -220,6 +228,57 @@ describe('TenDlcStatusPage', () => {
     expect(screen.getByText('other-camp')).toBeInTheDocument()
   })
 
+  it('filters rows by assignee, including Unassigned, and clears', async () => {
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        rejected: [
+          entry({
+            campaignId: 1,
+            campaignSlug: 'janes-camp',
+            assignedPa: 'Jane Smith',
+          }),
+          entry({
+            campaignId: 2,
+            campaignSlug: 'bobs-camp',
+            assignedPa: 'Bob Ross',
+          }),
+        ],
+        awaitingPin: [entry({ campaignId: 3, campaignSlug: 'orphan-camp' })],
+      })
+    )
+
+    renderPage()
+    await screen.findByText('janes-camp')
+
+    await userEvent.click(
+      screen.getByRole('combobox', { name: 'Assignee filter' })
+    )
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'Jane Smith' })
+    )
+
+    expect(screen.getByText('janes-camp')).toBeInTheDocument()
+    expect(screen.queryByText('bobs-camp')).not.toBeInTheDocument()
+    expect(screen.queryByText('orphan-camp')).not.toBeInTheDocument()
+    expect(screen.getByText('Showing 1 of 3 registrations')).toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('combobox', { name: 'Assignee filter' })
+    )
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'Unassigned' })
+    )
+
+    expect(screen.getByText('orphan-camp')).toBeInTheDocument()
+    expect(screen.queryByText('janes-camp')).not.toBeInTheDocument()
+    expect(screen.getByText('Showing 1 of 3 registrations')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(screen.getByText('janes-camp')).toBeInTheDocument()
+    expect(screen.getByText('bobs-camp')).toBeInTheDocument()
+    expect(screen.getByText('orphan-camp')).toBeInTheDocument()
+  })
+
   it('surfaces a load failure instead of rendering an empty page', async () => {
     mockGetTenDlcStatusSnapshot.mockRejectedValue(new Error('api down'))
 
@@ -356,6 +415,31 @@ describe('TenDlcStatusPage', () => {
       screen.getByText('missing user association (data repair)')
     ).toBeInTheDocument()
     expect(screen.getByText(/ident-5 · CV IN_REVIEW/)).toBeInTheDocument()
+  })
+
+  it('shows the assigned success person, or Unassigned when there is none', async () => {
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        rejected: [
+          entry({
+            campaignId: 1,
+            campaignSlug: 'owned-camp',
+            assignedPa: 'Jane Smith',
+          }),
+          entry({
+            campaignId: 2,
+            campaignSlug: 'orphan-camp',
+            assignedPa: null,
+          }),
+        ],
+      })
+    )
+
+    renderPage()
+
+    expect(await screen.findByText('Assigned to')).toBeInTheDocument()
+    expect(screen.getByText('Jane Smith')).toBeInTheDocument()
+    expect(screen.getByText('Unassigned')).toBeInTheDocument()
   })
 
   it('labels rejected rows with the recovery path the identity dictates', async () => {

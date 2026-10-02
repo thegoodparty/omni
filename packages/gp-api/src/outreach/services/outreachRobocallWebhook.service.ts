@@ -18,7 +18,7 @@ import { OutreachRobocallPromoService } from './outreachRobocallPromo.service'
 // dialing/dialed/settling/captured/charged are excluded on purpose — those runs
 // have dialed or are settling, cannot be un-dialed, and their capture must
 // proceed.
-const NOT_YET_DIALED_STATES = [
+export const NOT_YET_DIALED_STATES = [
   RobocallSettleState.pending_payment,
   RobocallSettleState.authorized,
   RobocallSettleState.hold_pending,
@@ -111,14 +111,23 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
     }
   }
 
-  // Flip the spine `pending → canceled` after the satellite cancel. Guarded on
-  // `pending` (idempotent, never touches a row that never became visible).
+  // Flip the spine → canceled after the satellite cancel. Guarded on both
+  // `pending` and `pending_payment`: a not-yet-dialed satellite pairs with
+  // either (the hold service promotes the spine to `pending` only once a hold
+  // commits), so a deferred draft canceled on a detached card flips its spine
+  // too rather than leaving it dangling at `pending_payment` while the
+  // satellite reads cancelled — matching OutreachRobocallCancelService.
   // Best-effort: the satellite cancel already committed, so a transient failure
   // must not throw and abort the loop over the customer's other drafts.
   private async markSpineCanceled(outreachId: number): Promise<void> {
     try {
       await this.client.outreach.updateMany({
-        where: { id: outreachId, status: OutreachStatus.pending },
+        where: {
+          id: outreachId,
+          status: {
+            in: [OutreachStatus.pending, OutreachStatus.pending_payment],
+          },
+        },
         data: { status: OutreachStatus.canceled },
       })
     } catch (err) {

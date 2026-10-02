@@ -636,9 +636,39 @@ Two things to know before touching it:
   the check to its own call, or asking for the count on every page, would
   reintroduce the per-page COUNT `skipCount` exists to avoid.
 
+**The wall clock is bounded separately from the cap (`timeBudgetMs`,
+INC-101).** The pre-flight above only catches a filter over `maxRecipients`, and
+the cap sits far above what the gateway will wait for: 100,000 recipients is 100
+pages, and at the 1.3–2.5s/page measured in prod two minutes buys 50–90. So a
+filter matching 55,000–100,000 rows passed every guard here and was then killed
+in flight — in prod, 82 pages, `statusCode: null` at 120,038ms, and the handler
+went on to upload the finished phone list to Peerly 45.9s *after* the browser
+had shown a failure, leaving a list nobody could see and inviting the retry that
+made a second one. A caller with a request waiting now passes
+`MAX_INTERACTIVE_RESOLUTION_MS` (90s — 120s minus the handler's own lookups, CSV
+assembly, vendor upload and response) and gets two checks:
+
+- the **projection**, once per full page from page 2 on. `matchedCount /
+  pageSize` is the pages this filter needs and the pages already fetched are
+  what one costs, so a projected finish past the budget is a
+  `BadRequestException` naming the matched count and the count that does fit.
+  Page 1 is timed but excluded from the average: it carries the parallel COUNT,
+  so it is the slowest page, and projecting from it refuses lists that land
+  (a 60-page list at 1.4s/page finishes in 84.6s and must not be refused).
+- the **hard stop**, before each fetch: elapsed past the budget throws
+  `ServiceUnavailableException`. A 503, not a 400, because the projection
+  passing and the clock still running out is ours to explain, and the route
+  alerts page on 503 while they ignore 400.
+
+Both stop the handler while the client is still connected, which is what keeps
+it from creating something nobody will be told about. The band this closes is
+still a band — the honest fix is taking the build off the request path — but a
+refusal in ~4.5s naming a number beats a two-minute blank.
+
 `outreachServeSmsCreate.service.ts` drives the same resolver on a request path
-and gets the same guard for free. `outreachTextDelivery.service.ts` passes
-`skipPreflightCap: true` and keeps only the in-loop cap: it is SQS-driven, so no
+and gets both guards (the pre-flight cap for free, the deadline because it
+passes `timeBudgetMs`). `outreachTextDelivery.service.ts` passes
+`skipPreflightCap: true`, no `timeBudgetMs`, and keeps only the in-loop cap: it is SQS-driven, so no
 gateway deadline ever applied to it, and there the over-eagerness above is not a
 tolerable trade but a regression. Two reasons, either sufficient. Its
 matched-minus-resolved gap is routinely the size of the org's whole opt-out set,

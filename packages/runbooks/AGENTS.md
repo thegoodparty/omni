@@ -75,6 +75,11 @@ placeholder unfilled.
 
 Questions are not intaken from the spreadsheet. The source of truth is the ClickUp Analytics Questions list: `scripts/python/question_intake.py` reads accepted questions into `scripts/python/monitored_events.yaml`, and `event_state_gsheet.py writeback-questions` pushes each question's answer state and last-checked date back onto its ClickUp task. See `books/refresh-event-state-surface.md`.
 
+A fifth consumer of the same committed sem data is pre-merge, not scheduled:
+`scripts/python/governance_guard.py` (DATA-2432) reads `scripts/python/instrumentation_data/sem/`
+to block a PR that drops a call site of an OKR-watched event or leaves a dead `EVENTS` key, run
+by a local hook and the `Analytics guard` CI check on every PR. See `books/monitor-analytics-event-health.md`.
+
 ## Used by the delegate worker
 
 The `ops/delegate/worker` (in the separate `ops` repo) clones omni at boot via the GitHub App token with a partial + sparse checkout of just this package, and sets `RUNBOOKS_DIR=/app/omni/packages/runbooks` in the agent environment. Updates to `commands/*.md` propagate to the bot on the next agent run with no `ops` redeploy — the clone is fresh each boot. See `ops/delegate/worker/entrypoint.ts` for the clone step and `ops/delegate/README.md` for the operator runbook.

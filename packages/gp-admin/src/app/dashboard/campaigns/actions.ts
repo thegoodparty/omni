@@ -9,6 +9,7 @@ import { SdkError } from '@goodparty_org/sdk'
 import type {
   Campaign,
   CampaignWithLiveContext,
+  GoodPartyClient,
   CampaignWithPositionName,
   ComplianceStateOutput,
   ExperimentRunStatus,
@@ -117,13 +118,39 @@ export interface OverrideCvValidationResult {
   retryError: string | null
 }
 
+// The resubmit half shared by the hold-clearing actions below. Failures are
+// reported via retryError rather than thrown: by the time this runs the
+// hold-clearing write has already committed, so the caller must refresh to
+// the cleared state instead of treating the whole call as failed.
+const retryNewestFailedComplianceRun = async (
+  client: GoodPartyClient,
+  campaignId: number
+): Promise<OverrideCvValidationResult> => {
+  try {
+    const { data } = await client.adminAgentRuns.list({
+      organizationSlug: `campaign-${campaignId}`,
+      experimentType: COMPLIANCE_SETUP_EXPERIMENT,
+      status: 'FAILED' satisfies ExperimentRunStatus,
+      limit: 1,
+      offset: 0,
+    })
+    const failedRun = data?.[0]
+    if (!failedRun) return { retriedRunId: null, retryError: null }
+    const retried = await client.adminAgentRuns.retry(failedRun.runId)
+    return { retriedRunId: retried.runId, retryError: null }
+  } catch (error) {
+    return {
+      retriedRunId: null,
+      retryError: error instanceof Error ? error.message : 'Failed to resubmit',
+    }
+  }
+}
+
 // Clears a CV pre-submission validation hold, then resubmits by retrying the
 // campaign's newest FAILED compliance_setup run. When no FAILED run exists
 // (the hold was caught mid-flight), the override alone is enough — the
 // stranded-kickoff sweep re-dispatches — and retriedRunId is null so the UI
-// can say which happened. The retry half is reported via retryError rather
-// than thrown: the override has already committed by then, so the caller must
-// refresh to the cleared state instead of treating the whole call as failed.
+// can say which happened.
 export const overrideCvValidationAndResubmit = async (
   campaignId: number
 ): Promise<OverrideCvValidationResult> => {
@@ -133,24 +160,50 @@ export const overrideCvValidationAndResubmit = async (
   }
   return gpAction(async (client) => {
     await client.campaigns.overrideCvValidation(campaignId)
+    return retryNewestFailedComplianceRun(client, campaignId)
+  })
+}
+
+export interface UpdateFilingUrlResult extends OverrideCvValidationResult {
+  error: string | null
+}
+
+// Staff filing-link correction. gp-api clears the CV validation hold when the
+// URL actually changes, so this resubmits the same way the override does. The
+// update's own failure is returned, not thrown: gp-api's 4xx messages (URL
+// CampaignVerify would reject, registration already at Peerly) are exactly
+// what the staff member needs to read, and Next redacts thrown server-action
+// errors in prod.
+export const updateFilingUrlAndResubmit = async (
+  campaignId: number,
+  filingUrl: string
+): Promise<UpdateFilingUrlResult> => {
+  const { has } = await auth()
+  if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
+    return {
+      error: 'Missing write_campaigns permission',
+      retriedRunId: null,
+      retryError: null,
+    }
+  }
+  return gpAction(async (client) => {
     try {
-      const { data } = await client.adminAgentRuns.list({
-        organizationSlug: `campaign-${campaignId}`,
-        experimentType: COMPLIANCE_SETUP_EXPERIMENT,
-        status: 'FAILED' satisfies ExperimentRunStatus,
-        limit: 1,
-        offset: 0,
-      })
-      const failedRun = data?.[0]
-      if (!failedRun) return { retriedRunId: null, retryError: null }
-      const retried = await client.adminAgentRuns.retry(failedRun.runId)
-      return { retriedRunId: retried.runId, retryError: null }
+      await client.campaigns.updateFilingUrl(campaignId, { filingUrl })
     } catch (error) {
       return {
+        error:
+          error instanceof SdkError
+            ? extractApiErrorMessage(error, 'Failed to update the filing link')
+            : error instanceof Error
+              ? error.message
+              : 'Failed to update the filing link',
         retriedRunId: null,
-        retryError:
-          error instanceof Error ? error.message : 'Failed to resubmit',
+        retryError: null,
       }
+    }
+    return {
+      error: null,
+      ...(await retryNewestFailedComplianceRun(client, campaignId)),
     }
   })
 }

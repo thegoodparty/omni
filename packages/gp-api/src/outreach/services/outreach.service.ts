@@ -47,6 +47,7 @@ import { resolveScriptContent } from '../util/resolveScriptContent.util'
 import { OutreachStepError } from '../types/outreachStepError'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { OutreachRobocallCancelService } from './outreachRobocallCancel.service'
 import { collapseDoorKnockingCampaigns } from '../util/collapseDoorKnockingCampaigns.util'
 
 export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
@@ -108,6 +109,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly stripeService: StripeService,
     private readonly emailService: EmailService,
     private readonly analytics: AnalyticsService,
+    private readonly robocallCancel: OutreachRobocallCancelService,
   ) {
     super()
   }
@@ -1017,14 +1019,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       throw new NotFoundException('Outreach not found')
     }
     // A robocall's send/capture lifecycle runs off its satellite settleState,
-    // not the spine status, so canceling here would flip the spine to canceled
-    // without voiding the hold or stopping the dial. Robocall has no cancel path
-    // yet; refuse rather than desync. (The spine reads `pending` once the pay
-    // step commits — see OutreachRobocallHoldService.markSpineScheduled.)
+    // not the spine status, so canceling means unwinding the hold and marking
+    // the satellite, not just flipping the spine — delegated to
+    // OutreachRobocallCancelService, which voids the hold, restores the promo
+    // and refuses a run that has already dialed.
     if (outreach.outreachType === OutreachType.robocall) {
-      throw new BadRequestException(
-        'Robocall campaigns cannot be canceled here',
-      )
+      return this.robocallCancel.cancel(outreachId, campaignId, attribution)
     }
     if (outreach.status === OutreachStatus.canceled) {
       return { outreach, refunded: false }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@styleguide'
 import { ClockIcon, ShieldCheckIcon } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ProUpgradeFlow, {
   type ProUpgradeFlowPosition,
 } from 'app/dashboard/pro-upgrade/components/ProUpgradeFlow'
@@ -139,6 +140,11 @@ export const OutreachGate = ({
       totalSteps: 0,
     })
   }, [open, screen])
+
+  useEffect(() => {
+    if (!open || screen !== 'in_review') return
+    trackEvent(EVENTS.Outreach.Gate.InReviewViewed, { channel })
+  }, [open, screen, channel])
 
   if (!open || screen === null) return null
 

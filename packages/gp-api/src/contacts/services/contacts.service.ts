@@ -96,6 +96,7 @@ import {
   CONTACTS_MADE_BUCKET_FIELDS,
   convertVoterFileFilterToFilters,
   type FilterObject,
+  WIN_ONLY_RECOMMENDED_FILTER_KEYS,
 } from '../utils/voterFileFilter.utils'
 import {
   FILTER_DIMENSIONS,
@@ -165,14 +166,6 @@ const SERVE_EXCLUDED_VOTER_FILE_COLUMNS: ExcludableVoterColumn[] = [
   'EthnicGroups_EthnicGroup1Desc',
   'LALVOTERID',
 ]
-
-// The recommended-list dimensions a Serve org may not filter on. Keep in
-// step with the `modes: 'win'` marks in filterDimensions.catalog.ts — the
-// catalog hides them from the assistant, this rejects them at the routes.
-const WIN_ONLY_RECOMMENDED_FILTER_KEYS = [
-  'independentAffinity',
-  'ideology',
-] as const
 
 const RECOMMENDED_FILTER_LABELS: Record<
   (typeof WIN_ONLY_RECOMMENDED_FILTER_KEYS)[number],

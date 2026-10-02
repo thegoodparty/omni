@@ -152,6 +152,9 @@ export interface AgentScore {
   regressions: readonly string[]
   exclusions: ExclusionCounts
   positionConsistency: number | null
+  // THE DENOMINATOR, reported with the rate and never without it. 3 of 5 and
+  // 60 of 100 are both "60%", and only one of them says anything.
+  swappedPairs: number
   orderUnstablePairs: readonly string[]
   panelDisagreementRate: number | null
   flags: readonly OrientedFlag[]
@@ -408,6 +411,7 @@ interface Gate {
 const gates = (
   overall: DimensionScore,
   positionConsistency: number | null,
+  swappedPairs: number,
   panelDisagreementRate: number | null,
   config: JudgeConfig,
 ): Gate => {
@@ -436,8 +440,12 @@ const gates = (
         '% ceiling',
     }
   }
+  // The sample size is checked before the rate, because a rate computed over
+  // five pairs is not evidence that the judge reads position — it is five
+  // pairs. The report still prints it, with its denominator.
   if (
     positionConsistency !== null &&
+    swappedPairs >= g.minSwappedPairs &&
     positionConsistency < g.consistencyFloor
   ) {
     return {
@@ -640,6 +648,7 @@ export const scoreAgent = (
   const gate = gates(
     overall,
     positionConsistency,
+    swappedPairs.length,
     panelDisagreementRate,
     config,
   )
@@ -680,6 +689,7 @@ export const scoreAgent = (
       ],
     },
     positionConsistency,
+    swappedPairs: swappedPairs.length,
     orderUnstablePairs: overallResult.pairs
       .filter((p) => p.unstable)
       .map((p) => pairKey(p.caseId, p.attempt)),
