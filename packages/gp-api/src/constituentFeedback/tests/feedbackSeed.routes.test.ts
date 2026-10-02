@@ -37,11 +37,15 @@ describe('feedback seed route', () => {
     expect(res.data).toEqual({ outreachId: effort.outreachId, created: 12 })
     const memos = await service.prisma.constituentFeedback.findMany({
       where: { organizationSlug: slug, outreachId: effort.outreachId },
+      include: { issues: true },
     })
     expect(memos).toHaveLength(12)
     expect(memos.every((m) => m.confirmedAt !== null)).toBe(true)
     expect(memos.every((m) => m.doorKnockInteractionId !== null)).toBe(true)
-    expect(new Set(memos.map((m) => m.issueLabel)).size).toBeGreaterThan(1)
+    const labels = memos.flatMap((m) => m.issues.map((i) => i.issueLabel))
+    expect(new Set(labels).size).toBeGreaterThan(1)
+    // Some conversations name several issues, so the report counts them.
+    expect(memos.some((m) => m.issues.length > 1)).toBe(true)
     expect(memos[0]!.effortQuestion).toBe('What should the city fix first?')
     const knocks = await service.prisma.contactInteractionDoorKnock.findMany({
       where: { organizationSlug: slug, outreachId: effort.outreachId },

@@ -2,13 +2,13 @@ import { z } from 'zod'
 import { zCoerceDate } from '../shared/Date.schema'
 import {
   ConstituentFeedbackChannelSchema,
-  ConstituentFeedbackStanceSchema,
   IssueTagSourceSchema,
   IssueTagStatusSchema,
   SynthesisRunStatusSchema,
 } from '../generated/enums'
 import {
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  ConstituentFeedbackIssueSchema,
   IssueTagRefSchema,
 } from './ConstituentFeedback.schema'
 
@@ -81,6 +81,10 @@ export type StanceCounts = z.infer<typeof StanceCountsSchema>
 // run loses its confirmation and drops out of every count until it is
 // confirmed again. A memo can sit in two themes, so a count reads
 // "conversations that touched this theme".
+//
+// `conversationCount` counts memos. `stanceCounts` and `desiredOutcomes` are
+// over those memos' issues, so a conversation that named two issues adds two
+// stances and the four counts can sum past `conversationCount`.
 export const FeedbackThemeSummarySchema = z.object({
   id: z.string(),
   rank: z.number().int(),
@@ -106,8 +110,7 @@ export const FeedbackReportMemoSchema = z.object({
   channel: ConstituentFeedbackChannelSchema,
   // The canvasser's own summary, never the other person's words.
   transcript: z.string().nullable(),
-  stance: ConstituentFeedbackStanceSchema.nullable(),
-  desiredOutcome: z.string().nullable(),
+  issues: z.array(ConstituentFeedbackIssueSchema),
   actorName: z.string().nullable(),
   // Null means waiting for review: listed, never counted.
   confirmedAt: zCoerceDate().nullable(),
@@ -151,8 +154,7 @@ export const FeedbackThemeMemberSchema = z.object({
   channel: ConstituentFeedbackChannelSchema,
   // The canvasser's own summary, never the other person's words.
   transcript: z.string().nullable(),
-  stance: ConstituentFeedbackStanceSchema.nullable(),
-  desiredOutcome: z.string().nullable(),
+  issues: z.array(ConstituentFeedbackIssueSchema),
   actorName: z.string().nullable(),
 })
 export type FeedbackThemeMember = z.infer<typeof FeedbackThemeMemberSchema>

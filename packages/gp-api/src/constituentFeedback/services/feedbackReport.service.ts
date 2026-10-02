@@ -32,11 +32,21 @@ const CONFIRMED_MEMBERS = {
   where: { feedback: { confirmedAt: { not: null } } },
 } as const
 
+const ISSUE_SELECT = {
+  orderBy: { position: Prisma.SortOrder.asc },
+  select: {
+    position: true,
+    issueLabel: true,
+    stance: true,
+    desiredOutcome: true,
+  },
+} as const satisfies Prisma.ConstituentFeedbackIssueFindManyArgs
+
 const THEME_INCLUDE = {
   tag: { select: { id: true, name: true, status: true } },
   members: {
     ...CONFIRMED_MEMBERS,
-    select: { feedback: { select: { stance: true, desiredOutcome: true } } },
+    select: { feedback: { select: { issues: ISSUE_SELECT } } },
   },
 } as const satisfies Prisma.FeedbackThemeInclude
 
@@ -53,8 +63,7 @@ const THEME_DETAIL_INCLUDE = {
           occurredAt: true,
           channel: true,
           transcript: true,
-          stance: true,
-          desiredOutcome: true,
+          issues: ISSUE_SELECT,
           actor: { select: { firstName: true, lastName: true } },
         },
       },
@@ -68,8 +77,7 @@ const MEMO_SELECT = {
   occurredAt: true,
   channel: true,
   transcript: true,
-  stance: true,
-  desiredOutcome: true,
+  issues: ISSUE_SELECT,
   confirmedAt: true,
   actor: { select: { firstName: true, lastName: true } },
 } as const satisfies Prisma.ConstituentFeedbackSelect
@@ -96,15 +104,19 @@ export type Denominators = FeedbackReportResponse['denominators']
 // confirmed now. Two reasons not to store them on the run: the pipeline
 // counts fragments, not conversations, and a memo re-recorded after a run
 // loses its confirmation and must stop counting without a new run.
+//
+// Conversations are memos; stances and outcomes are the issues on them, so
+// a conversation that named two issues adds two stances.
 const summarize = (
   theme: ThemeRow,
   outcomeLimit: number,
 ): FeedbackThemeSummary => {
   const memos = theme.members.map((member) => member.feedback)
+  const issues = memos.flatMap((memo) => memo.issues)
   const count = (stance: ConstituentFeedbackStance) =>
-    memos.filter((memo) => memo.stance === stance).length
-  const outcomes = memos
-    .map((memo) => memo.desiredOutcome?.trim() ?? '')
+    issues.filter((issue) => issue.stance === stance).length
+  const outcomes = issues
+    .map((issue) => issue.desiredOutcome?.trim() ?? '')
     .filter((outcome) => outcome !== '')
 
   return {
@@ -117,12 +129,12 @@ const summarize = (
       supports: count(ConstituentFeedbackStance.supports),
       opposes: count(ConstituentFeedbackStance.opposes),
       mixed: count(ConstituentFeedbackStance.mixed),
-      // A memo with no stance recorded a conversation but no position,
-      // which is what unclear means.
-      unclear: memos.filter(
-        (memo) =>
-          memo.stance === null ||
-          memo.stance === ConstituentFeedbackStance.unclear,
+      // An issue with no stance was raised without a position, which is
+      // what unclear means.
+      unclear: issues.filter(
+        (issue) =>
+          issue.stance === null ||
+          issue.stance === ConstituentFeedbackStance.unclear,
       ).length,
     },
     desiredOutcomes: [...new Set(outcomes)].slice(0, outcomeLimit),
@@ -301,8 +313,7 @@ export class FeedbackReportService extends createPrismaBase(
         occurredAt: feedback.occurredAt,
         channel: feedback.channel,
         transcript: feedback.transcript,
-        stance: feedback.stance,
-        desiredOutcome: feedback.desiredOutcome,
+        issues: feedback.issues,
         actorName: actorName(feedback.actor),
       })),
     }

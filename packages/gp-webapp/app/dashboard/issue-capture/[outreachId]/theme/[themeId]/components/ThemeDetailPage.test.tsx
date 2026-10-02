@@ -33,8 +33,14 @@ const THEME: FeedbackThemeDetail = {
       occurredAt: new Date('2026-09-25T18:00:00.000Z'),
       channel: 'door_knock',
       transcript: 'He thinks the new bike lanes slow down deliveries.',
-      stance: 'opposes',
-      desiredOutcome: 'Move the loading zone',
+      issues: [
+        {
+          position: 0,
+          issueLabel: 'Delivery delays',
+          stance: 'opposes',
+          desiredOutcome: 'Move the loading zone',
+        },
+      ],
       actorName: 'Kamal Al Sawafi',
     },
     {
@@ -43,8 +49,14 @@ const THEME: FeedbackThemeDetail = {
       occurredAt: new Date('2026-09-24T18:00:00.000Z'),
       channel: 'phone_bank',
       transcript: 'She feels safer walking her kids to school.',
-      stance: 'supports',
-      desiredOutcome: null,
+      issues: [
+        {
+          position: 0,
+          issueLabel: 'School run safety',
+          stance: 'supports',
+          desiredOutcome: null,
+        },
+      ],
       actorName: null,
     },
   ],
@@ -129,6 +141,44 @@ describe('ThemeDetailPage', () => {
     expect(screen.getByText(/Summary by Kamal Al Sawafi/)).toBeInTheDocument()
     expect(screen.getByText(/Summary by your team/)).toBeInTheDocument()
     expect(screen.getByText(/On the phone/)).toBeInTheDocument()
+  })
+
+  // A note can name several issues; each is listed with where the person
+  // stands on it and what they asked for.
+  it('lists the issues each note named', async () => {
+    mockTheme({
+      ...THEME,
+      members: [
+        {
+          ...THEME.members[0]!,
+          issues: [
+            {
+              position: 0,
+              issueLabel: 'Delivery delays',
+              stance: 'opposes',
+              desiredOutcome: 'Move the loading zone',
+            },
+            {
+              position: 1,
+              issueLabel: 'Parking',
+              stance: 'mixed',
+              desiredOutcome: null,
+            },
+          ],
+        },
+      ],
+    })
+    renderPage()
+
+    const issues = await screen.findByRole('list', { name: 'Issues' })
+    expect(
+      within(issues)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Delivery delays · Against it · Wants: Move the loading zone',
+      'Parking · Mixed',
+    ])
   })
 
   it('leads back to the effort’s report', async () => {

@@ -5,8 +5,9 @@ import { useState } from 'react'
 import {
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  type ConfirmedConstituentFeedbackIssue,
+  type ConstituentFeedbackIssue,
   type ConstituentFeedbackStance,
-  type ConstituentFeedbackTriple,
 } from '@goodparty_org/contracts'
 import {
   Button,
@@ -14,6 +15,7 @@ import {
   Textarea,
   ToggleGroup,
   ToggleGroupItem,
+  cn,
 } from '@styleguide'
 
 // Rendered for a candidate's canvasser and an elected official's, so the copy
@@ -33,6 +35,10 @@ const CAPTURE_COPY = {
     confirm: 'Looks right',
     skip: 'Skip',
     empty: 'We could not pull anything out. Add it yourself or skip.',
+    none: 'No issue came up in this note.',
+    issueNumber: (n: number): string => `Issue ${n}`,
+    remove: 'Remove',
+    removeFor: (issue: string): string => `Remove ${issue}`,
   },
   serve: {
     heading: 'Is this right?',
@@ -45,6 +51,10 @@ const CAPTURE_COPY = {
     confirm: 'Looks right',
     skip: 'Skip',
     empty: 'We could not pull anything out. Add it yourself or skip.',
+    none: 'No issue came up in this note.',
+    issueNumber: (n: number): string => `Issue ${n}`,
+    remove: 'Remove',
+    removeFor: (issue: string): string => `Remove ${issue}`,
   },
 }
 
@@ -81,11 +91,81 @@ const PILL_ITEM_CLASSNAME =
 const QUESTION_LABEL_CLASSNAME =
   'text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground'
 
+type ProposedIssues = { issues: ConstituentFeedbackIssue[] } | null
+
+// One issue as the canvasser is editing it. `fromPosition` is the proposal
+// it started as, sent back so the server keeps the two side by side.
+type IssueDraft = {
+  fromPosition: number | undefined
+  issueLabel: string
+  stance: ConstituentFeedbackStance | undefined
+  desiredOutcome: string
+}
+
+// Whether the canvasser changed what the model proposed, never what either
+// of them said: a person's words are not analytics. Removing an issue is a
+// correction, and so is editing one.
+export const wasCorrected = (
+  proposed: ProposedIssues,
+  confirmed: ConfirmedConstituentFeedbackIssue[],
+): boolean => {
+  const issues = proposed?.issues ?? []
+  return (
+    issues.length !== confirmed.length ||
+    confirmed.some(
+      (issue, i) =>
+        issue.issueLabel !== issues[i]?.issueLabel ||
+        issue.stance !== issues[i]?.stance ||
+        issue.desiredOutcome !== issues[i]?.desiredOutcome,
+    )
+  )
+}
+
+// A failed extraction still offers one empty issue, so the canvasser can
+// write down what they heard instead of losing it.
+const initialDrafts = (proposed: ProposedIssues): IssueDraft[] =>
+  proposed === null
+    ? [
+        {
+          fromPosition: undefined,
+          issueLabel: '',
+          stance: undefined,
+          desiredOutcome: '',
+        },
+      ]
+    : proposed.issues.map((issue) => ({
+        fromPosition: issue.position,
+        issueLabel: issue.issueLabel,
+        stance: issue.stance ?? undefined,
+        desiredOutcome: issue.desiredOutcome ?? '',
+      }))
+
+// An issue left without a name is left out: there is nothing to file it
+// under, and the contract refuses one.
+const toConfirmed = (
+  drafts: IssueDraft[],
+): ConfirmedConstituentFeedbackIssue[] =>
+  drafts.flatMap((draft) => {
+    const issueLabel = draft.issueLabel.trim()
+    if (issueLabel === '') return []
+    const desiredOutcome = draft.desiredOutcome.trim()
+    return [
+      {
+        issueLabel,
+        stance: draft.stance ?? null,
+        desiredOutcome: desiredOutcome === '' ? null : desiredOutcome,
+        ...(draft.fromPosition === undefined
+          ? {}
+          : { fromPosition: draft.fromPosition }),
+      },
+    ]
+  })
+
 interface IssueCaptureConfirmCardProps {
-  proposed: ConstituentFeedbackTriple | null
+  proposed: ProposedIssues
   saving: boolean
   isServe: boolean
-  onConfirm: (triple: ConstituentFeedbackTriple) => void
+  onConfirm: (issues: ConfirmedConstituentFeedbackIssue[]) => void
   // Absent where there is nothing to skip to: the review list leaves an
   // unconfirmed note where it is.
   onSkip?: () => void
@@ -94,9 +174,11 @@ interface IssueCaptureConfirmCardProps {
   confirmLabel?: string
 }
 
-// The triple, handed back for the one person who can judge it: whoever just
+// The issues, handed back for the one person who can judge them: whoever just
 // had the conversation. Confirming here is what separates a first-hand record
 // from a guess, which is why it happens at the door and not in a queue later.
+// Each issue can be corrected or removed. None can be added here: the
+// canvasser records or types the note again instead.
 export default function IssueCaptureConfirmCard({
   proposed,
   saving,
@@ -107,88 +189,118 @@ export default function IssueCaptureConfirmCard({
 }: IssueCaptureConfirmCardProps) {
   const copy = isServe ? CAPTURE_COPY.serve : CAPTURE_COPY.win
   const stanceLabels = isServe ? STANCE_LABELS.serve : STANCE_LABELS.win
-  const [issueLabel, setIssueLabel] = useState(proposed?.issueLabel ?? '')
-  const [stance, setStance] = useState<ConstituentFeedbackStance | undefined>(
-    proposed?.stance ?? undefined,
-  )
-  const [desiredOutcome, setDesiredOutcome] = useState(
-    proposed?.desiredOutcome ?? '',
-  )
+  const [drafts, setDrafts] = useState(() => initialDrafts(proposed))
 
-  const trimmedIssue = issueLabel.trim()
-  const trimmedOutcome = desiredOutcome.trim()
+  const update = (index: number, change: Partial<IssueDraft>) =>
+    setDrafts((current) =>
+      current.map((draft, i) =>
+        i === index ? { ...draft, ...change } : draft,
+      ),
+    )
+  const remove = (index: number) =>
+    setDrafts((current) => current.filter((_, i) => i !== index))
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-components-input-border p-4">
       <div>
         <p className="text-sm font-semibold text-foreground">{copy.heading}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          {proposed === null ? copy.empty : copy.caption}
+          {proposed === null
+            ? copy.empty
+            : drafts.length === 0
+              ? copy.none
+              : copy.caption}
         </p>
       </div>
 
-      <div>
-        <span className={QUESTION_LABEL_CLASSNAME}>{copy.issue}</span>
-        <Input
-          className="mt-2"
-          value={issueLabel}
-          maxLength={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
-          placeholder={copy.issuePlaceholder}
-          onChange={(e) => setIssueLabel(e.target.value)}
-        />
-      </div>
+      {drafts.map((draft, index) => {
+        const name = copy.issueNumber(index + 1)
+        return (
+          <div
+            // The proposal an issue came from never changes while the card is
+            // up, so it keys the block through removals of the ones above it.
+            key={draft.fromPosition ?? 'written'}
+            role="group"
+            aria-label={name}
+            className={cn(
+              'flex flex-col gap-4',
+              index > 0 && 'border-t border-components-input-border pt-4',
+            )}
+          >
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className={QUESTION_LABEL_CLASSNAME}>{copy.issue}</span>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  disabled={saving}
+                  aria-label={copy.removeFor(draft.issueLabel.trim() || name)}
+                  onClick={() => remove(index)}
+                >
+                  {copy.remove}
+                </Button>
+              </div>
+              <Input
+                className="mt-2"
+                value={draft.issueLabel}
+                maxLength={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
+                placeholder={copy.issuePlaceholder}
+                onChange={(e) => update(index, { issueLabel: e.target.value })}
+              />
+            </div>
 
-      <div>
-        <span className={QUESTION_LABEL_CLASSNAME}>{copy.stance}</span>
-        <ToggleGroup
-          type="single"
-          value={stance ?? ''}
-          onValueChange={(next) =>
-            setStance(STANCE_ORDER.find((id) => id === next) ?? undefined)
-          }
-          aria-label={copy.stance}
-          className="mt-2 flex flex-wrap justify-start gap-2"
-        >
-          {STANCE_ORDER.map((option) => (
-            <ToggleGroupItem
-              key={option}
-              value={option}
-              className={PILL_ITEM_CLASSNAME}
-            >
-              {stanceLabels[option]}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-      </div>
+            <div>
+              <span className={QUESTION_LABEL_CLASSNAME}>{copy.stance}</span>
+              <ToggleGroup
+                type="single"
+                value={draft.stance ?? ''}
+                onValueChange={(next) =>
+                  update(index, {
+                    stance: STANCE_ORDER.find((id) => id === next),
+                  })
+                }
+                aria-label={copy.stance}
+                className="mt-2 flex flex-wrap justify-start gap-2"
+              >
+                {STANCE_ORDER.map((option) => (
+                  <ToggleGroupItem
+                    key={option}
+                    value={option}
+                    className={PILL_ITEM_CLASSNAME}
+                  >
+                    {stanceLabels[option]}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
 
-      <div>
-        <span className={QUESTION_LABEL_CLASSNAME}>{copy.outcome}</span>
-        <Textarea
-          className="mt-2 min-h-16"
-          value={desiredOutcome}
-          maxLength={CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH}
-          placeholder={copy.outcomePlaceholder}
-          rows={2}
-          onChange={(e) => setDesiredOutcome(e.target.value)}
-        />
-      </div>
+            <div>
+              <span className={QUESTION_LABEL_CLASSNAME}>{copy.outcome}</span>
+              <Textarea
+                className="mt-2 min-h-16"
+                value={draft.desiredOutcome}
+                maxLength={CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH}
+                placeholder={copy.outcomePlaceholder}
+                rows={2}
+                onChange={(e) =>
+                  update(index, { desiredOutcome: e.target.value })
+                }
+              />
+            </div>
+          </div>
+        )
+      })}
 
       <div className="flex flex-col gap-2">
         <Button
           className="w-full"
           disabled={saving}
           aria-label={confirmLabel}
-          onClick={() =>
-            onConfirm({
-              issueLabel: trimmedIssue === '' ? null : trimmedIssue,
-              stance: stance ?? null,
-              desiredOutcome: trimmedOutcome === '' ? null : trimmedOutcome,
-            })
-          }
+          onClick={() => onConfirm(toConfirmed(drafts))}
         >
           {saving ? 'Saving…' : copy.confirm}
         </Button>
-        {/* Skipping leaves the memo and its unconfirmed triple on the record
+        {/* Skipping leaves the memo and its unconfirmed issues on the record
             and moves the walk on. Nothing is lost, and reporting can tell an
             unconfirmed row from a confirmed one, so the canvasser is never
             held at a door by a question about a conversation they have

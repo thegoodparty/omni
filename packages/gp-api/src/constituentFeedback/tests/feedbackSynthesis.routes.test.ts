@@ -323,9 +323,13 @@ describe('feedback synthesis routes', () => {
       'extract',
     ).mockResolvedValue({
       extraction: {
-        issueLabel: 'Street flooding',
-        stance: 'opposes',
-        desiredOutcome: null,
+        issues: [
+          {
+            issueLabel: 'Street flooding',
+            stance: 'opposes',
+            desiredOutcome: null,
+          },
+        ],
         confidence: 0.9,
       },
       model: 'claude-test',
@@ -763,8 +767,14 @@ describe('feedback synthesis routes', () => {
           occurredAt: expect.any(String),
           channel: 'door_knock',
           transcript: newer.memo.transcript,
-          stance: null,
-          desiredOutcome: null,
+          issues: [
+            {
+              position: 0,
+              issueLabel: 'Street flooding',
+              stance: null,
+              desiredOutcome: null,
+            },
+          ],
           actorName: 'Johnny Goodparty',
           confirmedAt: null,
         },
@@ -774,8 +784,14 @@ describe('feedback synthesis routes', () => {
           occurredAt: expect.any(String),
           channel: 'door_knock',
           transcript: older.memo.transcript,
-          stance: 'opposes',
-          desiredOutcome: 'Clear the drain',
+          issues: [
+            {
+              position: 0,
+              issueLabel: 'Street flooding',
+              stance: 'opposes',
+              desiredOutcome: 'Clear the drain',
+            },
+          ],
           actorName: 'Johnny Goodparty',
           confirmedAt: expect.any(String),
         },
@@ -965,6 +981,77 @@ describe('feedback synthesis routes', () => {
         }),
       )
       expect(runId).toBe(res.data.run.id)
+    })
+
+    // Membership is per conversation, but a stance belongs to an issue, so
+    // a conversation that named two issues adds two stances and two asks.
+    it('counts stances and outcomes over issues, not memos', async () => {
+      const memos: Array<Awaited<ReturnType<typeof seedKnockMemo>>> = []
+      for (const [i, target] of effort.targets.slice(0, 5).entries()) {
+        memos.push(
+          await seedKnockMemo(service, {
+            slug,
+            outreachId: effort.outreachId,
+            personId: target.personId,
+            issues:
+              i < 2
+                ? [
+                    {
+                      issueLabel: 'Street flooding',
+                      stance: ConstituentFeedbackStance.opposes,
+                      desiredOutcome: 'Clear the drain',
+                    },
+                    {
+                      issueLabel: 'Property taxes',
+                      stance: ConstituentFeedbackStance.supports,
+                      desiredOutcome: 'A freeze for seniors',
+                    },
+                  ]
+                : [
+                    {
+                      issueLabel: 'Street flooding',
+                      stance: ConstituentFeedbackStance.opposes,
+                      desiredOutcome: null,
+                    },
+                  ],
+          }),
+        )
+      }
+      await completeRun([
+        { theme: 'Flooding', memberIds: memos.map((m) => m.memo.id) },
+      ])
+
+      const res = await report()
+
+      expect(res.data.themes[0]).toEqual(
+        expect.objectContaining({
+          conversationCount: 5,
+          stanceCounts: { supports: 2, opposes: 5, mixed: 0, unclear: 0 },
+          desiredOutcomes: ['Clear the drain', 'A freeze for seniors'],
+        }),
+      )
+      const detail = await service.client.get(
+        `/v1/constituent-feedback/themes/${res.data.themes[0].id}`,
+        ownerHeaders(slug),
+      )
+      const twoIssues = detail.data.members.find(
+        (member: { feedbackId: string }) =>
+          member.feedbackId === memos[0]!.memo.id,
+      )
+      expect(twoIssues.issues).toEqual([
+        {
+          position: 0,
+          issueLabel: 'Street flooding',
+          stance: 'opposes',
+          desiredOutcome: 'Clear the drain',
+        },
+        {
+          position: 1,
+          issueLabel: 'Property taxes',
+          stance: 'supports',
+          desiredOutcome: 'A freeze for seniors',
+        },
+      ])
     })
 
     it('404s a theme from another org', async () => {

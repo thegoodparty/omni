@@ -71,10 +71,12 @@ fires on the press, refused or not.
 - **Cards rank by `conversationCount`**, the run's `rank` breaking ties: the
   issue several people raised rises. A count is "conversations that touched
   this theme", never a share, since one note can sit in two themes. The stance
-  split is four counts, not a chart, for the same reason.
+  split is four counts, not a chart, for the same reason, and it counts
+  issues: a note that named two adds two stances.
 - **Every note is labeled as the canvasser's summary** ("Summary by ..."),
-  never quoted as the other person's words. A pending note says "Not yet
-  reviewed". A theme's members are confirmed only.
+  never quoted as the other person's words, with its issues listed under it
+  (`MemoList`). A pending note says "Not yet reviewed". A theme's members are
+  confirmed only.
 - **Copy is mode-keyed in `copy.ts`.** Win says voters and never constituent,
   Serve says constituents and never voter, and nothing says poll, survey,
   representative or statistically significant.
@@ -103,8 +105,9 @@ their own). Each is the canvasser's summary with, under it:
 
 - **Still transcribing** (`extractionStatus: pending`): the line and nothing
   else. The query polls every 5 seconds while one is in this state.
-- **Extracted**: `IssueCaptureConfirmCard` with the proposal, and no Skip:
-  leaving the page leaves the note unconfirmed.
+- **Extracted**: `IssueCaptureConfirmCard` with the proposed issues, and no
+  Skip: leaving the page leaves the note unconfirmed. See
+  `door-knocking/AGENTS.md` for how the card edits and removes issues.
 - **Failed**: what went wrong ("couldn't make out" with no transcript,
   "couldn't pull anything" with one), "Try again" (`POST :id/retry`, which
   transcribes or extracts again) and "Type it instead", which opens a text
@@ -112,7 +115,7 @@ their own). Each is the canvasser's summary with, under it:
   with the item's `reference` and `clientKey`, `captureMethod: typed`). The
   re-read then shows the extracted card. Typed text has to become the
   transcript, because synthesis groups transcripts: a row with only
-  confirmed fields never reaches a theme. No typing when `reference` is null.
+  confirmed issues never reaches a theme. No typing when `reference` is null.
 
 A confirm fires `PendingMemoConfirmed` and re-reads the list and the
 report. Each row has a polite `role="status"` line that reads "Still
@@ -157,7 +160,8 @@ until somebody has answered. It does not poll.
   several-turf campaign leaves it to the turf cards.
 
 The person record (`contacts/crm/person/ConstituentFeedbackSection.tsx`)
-shows each memo's accepted tags as badges under it.
+lists each memo's issues, with where the person stands and what they want,
+and its accepted tags as badges under it.
 
 ## Analytics
 

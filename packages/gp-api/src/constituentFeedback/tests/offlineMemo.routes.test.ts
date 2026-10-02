@@ -90,9 +90,13 @@ describe('offline memo capture', () => {
       .spyOn(service.app.get(LlmService), 'jsonCompletion')
       .mockResolvedValue({
         object: {
-          issueLabel: 'Street flooding',
-          stance: 'opposes',
-          desiredOutcome: 'Clear the storm drain',
+          issues: [
+            {
+              issueLabel: 'Street flooding',
+              stance: 'opposes',
+              desiredOutcome: 'Clear the storm drain',
+            },
+          ],
           confidence: 0.9,
         },
         tokens: 1,
@@ -142,7 +146,10 @@ describe('offline memo capture', () => {
   }
 
   const row = (id: string) =>
-    service.prisma.constituentFeedback.findUniqueOrThrow({ where: { id } })
+    service.prisma.constituentFeedback.findUniqueOrThrow({
+      where: { id },
+      include: { issues: true },
+    })
 
   describe('POST audio-upload-url', () => {
     it('hands out a key under the org and a URL to put the audio at', async () => {
@@ -298,9 +305,14 @@ describe('offline memo capture', () => {
       expect(saved.extractionStatus).toBe(
         ConstituentFeedbackExtractionStatus.extracted,
       )
-      expect(saved.proposedIssueLabel).toBe('Street flooding')
-      expect(saved.issueLabel).toBe('Street flooding')
-      expect(saved.stance).toBe('opposes')
+      expect(saved.issues).toEqual([
+        expect.objectContaining({
+          position: 0,
+          issueLabel: 'Street flooding',
+          stance: 'opposes',
+          proposedIssueLabel: 'Street flooding',
+        }),
+      ])
       expect(saved.effortQuestion).toBe('What should the town fix first?')
       // Extracted is not confirmed: only the review list sets this.
       expect(saved.confirmedAt).toBeNull()
@@ -457,9 +469,14 @@ describe('offline memo capture', () => {
       expect(typed.status).toBe(201)
       expect(typed.data.id).toBe(recorded.data.id)
       expect(typed.data.extraction).toEqual({
-        issueLabel: 'Street flooding',
-        stance: 'opposes',
-        desiredOutcome: 'Clear the storm drain',
+        issues: [
+          {
+            position: 0,
+            issueLabel: 'Street flooding',
+            stance: 'opposes',
+            desiredOutcome: 'Clear the storm drain',
+          },
+        ],
       })
       const saved = await row(recorded.data.id)
       expect(saved.transcript).toBe(
@@ -519,8 +536,7 @@ describe('offline memo capture', () => {
         where: { id: memo.id },
         data: {
           extractionStatus: ConstituentFeedbackExtractionStatus.failed,
-          issueLabel: null,
-          stance: null,
+          issues: { deleteMany: {} },
         },
       })
 
@@ -532,7 +548,14 @@ describe('offline memo capture', () => {
 
       expect(res.status).toBe(201)
       expect(res.data.extractionStatus).toBe('extracted')
-      expect(res.data.issueLabel).toBe('Street flooding')
+      expect(res.data.issues).toEqual([
+        {
+          position: 0,
+          issueLabel: 'Street flooding',
+          stance: 'opposes',
+          desiredOutcome: 'Clear the storm drain',
+        },
+      ])
       expect(res.data.confirmedAt).toBeNull()
     })
 

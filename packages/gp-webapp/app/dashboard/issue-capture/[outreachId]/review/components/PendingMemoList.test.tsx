@@ -22,9 +22,14 @@ const row = (fields: Partial<PendingFeedback> = {}): PendingFeedback => ({
   occurredAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
   channel: 'door_knock',
   transcript: 'She wants the storm drains on Elm cleared before winter.',
-  issueLabel: 'Street flooding',
-  stance: 'opposes',
-  desiredOutcome: 'Clear the drains',
+  issues: [
+    {
+      position: 0,
+      issueLabel: 'Street flooding',
+      stance: 'opposes',
+      desiredOutcome: 'Clear the drains',
+    },
+  ],
   extractionStatus: 'extracted',
   confirmedAt: null,
   outreachId: OUTREACH_ID,
@@ -42,18 +47,14 @@ const row = (fields: Partial<PendingFeedback> = {}): PendingFeedback => ({
 const STILL_TRANSCRIBING = row({
   id: 'memo-2',
   transcript: null,
-  issueLabel: null,
-  stance: null,
-  desiredOutcome: null,
+  issues: [],
   extractionStatus: 'pending',
 })
 
 const NOT_HEARD = row({
   id: 'memo-3',
   transcript: null,
-  issueLabel: null,
-  stance: null,
-  desiredOutcome: null,
+  issues: [],
   extractionStatus: 'failed',
 })
 
@@ -78,8 +79,14 @@ describe('PendingMemoList', () => {
       row({
         id: 'memo-4',
         transcript: 'He wants the bike lanes kept.',
-        issueLabel: 'Bike lanes',
-        stance: 'supports',
+        issues: [
+          {
+            position: 0,
+            issueLabel: 'Bike lanes',
+            stance: 'supports',
+            desiredOutcome: null,
+          },
+        ],
       }),
     ])
     renderList()
@@ -128,9 +135,14 @@ describe('PendingMemoList', () => {
       expect(patched).toEqual({
         id: 'memo-1',
         body: {
-          issueLabel: 'Street flooding',
-          stance: 'opposes',
-          desiredOutcome: 'Clear the drains',
+          issues: [
+            {
+              issueLabel: 'Street flooding',
+              stance: 'opposes',
+              desiredOutcome: 'Clear the drains',
+              fromPosition: 0,
+            },
+          ],
         },
       }),
     )
@@ -178,9 +190,14 @@ describe('PendingMemoList', () => {
             row({
               id: 'memo-3',
               transcript: typed,
-              issueLabel: 'Potholes',
-              stance: 'opposes',
-              desiredOutcome: 'Fill the potholes on Oak',
+              issues: [
+                {
+                  position: 0,
+                  issueLabel: 'Potholes',
+                  stance: 'opposes',
+                  desiredOutcome: 'Fill the potholes on Oak',
+                },
+              ],
             }),
           ],
         },
@@ -196,9 +213,14 @@ describe('PendingMemoList', () => {
           personId: 'person-1',
           extractionStatus: 'extracted',
           extraction: {
-            issueLabel: 'Potholes',
-            stance: 'opposes',
-            desiredOutcome: 'Fill the potholes on Oak',
+            issues: [
+              {
+                position: 0,
+                issueLabel: 'Potholes',
+                stance: 'opposes',
+                desiredOutcome: 'Fill the potholes on Oak',
+              },
+            ],
           },
         },
       }

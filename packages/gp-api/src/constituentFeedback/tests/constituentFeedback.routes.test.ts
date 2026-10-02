@@ -80,12 +80,22 @@ const fakePerson = (overrides: Partial<Person> = {}): Person => ({
   ...overrides,
 })
 
-// The triple the model is pretending to return. Each test sets it before the
-// capture it wants to shape.
+type ModelIssue = {
+  issueLabel: string
+  stance: string | null
+  desiredOutcome: string | null
+}
+
+const COMPOST: ModelIssue = {
+  issueLabel: 'Compost collection',
+  stance: 'mixed',
+  desiredOutcome: 'Weekly pickup',
+}
+
+// The issues the model is pretending to return. Each test sets them before
+// the capture it wants to shape.
 let extraction = {
-  issueLabel: 'Compost collection' as string | null,
-  stance: 'mixed' as string | null,
-  desiredOutcome: 'Weekly pickup' as string | null,
+  issues: [COMPOST] as ModelIssue[],
   confidence: 0.8 as number | null,
 }
 
@@ -143,18 +153,13 @@ describe('constituent feedback routes', () => {
   beforeEach(async () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     eoSlug = `eo-cf-${suffix}`
-    extraction = {
-      issueLabel: 'Compost collection',
-      stance: 'mixed',
-      desiredOutcome: 'Weekly pickup',
-      confidence: 0.8,
-    }
+    extraction = { issues: [COMPOST], confidence: 0.8 }
 
     vi.spyOn(
       service.app.get(ConstituentFeedbackExtractionService),
       'extract',
     ).mockImplementation(async () => ({
-      extraction: { ...extraction },
+      extraction: { ...extraction, issues: [...extraction.issues] },
       model: 'claude-test',
     }))
 
@@ -236,10 +241,146 @@ describe('constituent feedback routes', () => {
     expect(res.status).toBe(201)
     expect(res.data.extractionStatus).toBe('extracted')
     expect(res.data.extraction).toEqual({
-      issueLabel: 'Compost collection',
-      stance: 'mixed',
-      desiredOutcome: 'Weekly pickup',
+      issues: [{ position: 0, ...COMPOST }],
     })
+  })
+
+  // One conversation often names two or three issues, and each is its own
+  // stance and outcome, in the order they came up.
+  it('stores every issue the model heard, in order', async () => {
+    const RODENTS = {
+      issueLabel: 'Rodents',
+      stance: 'opposes',
+      desiredOutcome: null,
+    }
+    extraction = { issues: [COMPOST, RODENTS], confidence: 0.7 }
+
+    const res = await capture('Wants weekly compost pickup, and the rats gone.')
+
+    expect(res.status).toBe(201)
+    expect(res.data.extraction).toEqual({
+      issues: [
+        { position: 0, ...COMPOST },
+        { position: 1, ...RODENTS },
+      ],
+    })
+    const issues = await service.prisma.constituentFeedbackIssue.findMany({
+      where: { feedbackId: res.data.id },
+      orderBy: { position: 'asc' },
+    })
+    expect(issues).toEqual([
+      expect.objectContaining({
+        position: 0,
+        issueLabel: 'Compost collection',
+        proposedIssueLabel: 'Compost collection',
+        proposedStance: 'mixed',
+      }),
+      expect.objectContaining({
+        position: 1,
+        issueLabel: 'Rodents',
+        stance: 'opposes',
+        proposedIssueLabel: 'Rodents',
+      }),
+    ])
+  })
+
+  // The list replaces the memo's issues, so removing one is leaving it out,
+  // and the issue that stays keeps what the model first said about it.
+  it('removes an issue the confirmation leaves out', async () => {
+    extraction = {
+      issues: [
+        COMPOST,
+        { issueLabel: 'Rodents', stance: 'opposes', desiredOutcome: null },
+      ],
+      confidence: 0.7,
+    }
+    const recorded = await capture('Compost, and the rats.')
+
+    const confirmed = await service.client.patch(
+      `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+      {
+        issues: [
+          {
+            issueLabel: 'Rats',
+            stance: 'opposes',
+            desiredOutcome: 'Sealed bins',
+            fromPosition: 1,
+          },
+        ],
+      },
+      headers(),
+    )
+
+    expect(confirmed.status).toBe(200)
+    expect(confirmed.data.issues).toEqual([
+      {
+        position: 0,
+        issueLabel: 'Rats',
+        stance: 'opposes',
+        desiredOutcome: 'Sealed bins',
+      },
+    ])
+    const issues = await service.prisma.constituentFeedbackIssue.findMany({
+      where: { feedbackId: recorded.data.id },
+    })
+    expect(issues).toEqual([
+      expect.objectContaining({
+        position: 0,
+        issueLabel: 'Rats',
+        proposedIssueLabel: 'Rodents',
+        proposedStance: 'opposes',
+        proposedDesiredOutcome: null,
+      }),
+    ])
+  })
+
+  it('confirms a memo that named no issue with an empty list', async () => {
+    const recorded = await capture('Rosa wants weekly compost pickup.')
+
+    const confirmed = await service.client.patch(
+      `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+      { issues: [] },
+      headers(),
+    )
+
+    expect(confirmed.status).toBe(200)
+    expect(confirmed.data.confirmedAt).not.toBeNull()
+    expect(confirmed.data.issues).toEqual([])
+    expect(
+      await service.prisma.constituentFeedbackIssue.count({
+        where: { feedbackId: recorded.data.id },
+      }),
+    ).toBe(0)
+  })
+
+  // An issue typed in by hand has no proposal behind it to keep.
+  it('keeps no proposal on an issue the canvasser wrote', async () => {
+    extraction = { issues: [], confidence: 0.4 }
+    const recorded = await capture('Talked about the bridge.')
+
+    const confirmed = await service.client.patch(
+      `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+      {
+        issues: [
+          { issueLabel: 'Bridge repair', stance: null, desiredOutcome: null },
+        ],
+      },
+      headers(),
+    )
+
+    expect(confirmed.status).toBe(200)
+    const issue =
+      await service.prisma.constituentFeedbackIssue.findFirstOrThrow({
+        where: { feedbackId: recorded.data.id },
+      })
+    expect(issue).toEqual(
+      expect.objectContaining({
+        issueLabel: 'Bridge repair',
+        proposedIssueLabel: null,
+        proposedStance: null,
+        proposedDesiredOutcome: null,
+      }),
+    )
   })
 
   // The envelope is the one key an effort has on both channels. Filing the
@@ -296,7 +437,7 @@ describe('constituent feedback routes', () => {
     expect(row.outreachId).toBe(envelope.id)
   })
 
-  // A re-record REPLACES the triple, so the confirmation the old one earned
+  // A re-record REPLACES the issues, so the confirmation the old ones earned
   // is void. Leaving `confirmedAt` set would hand reporting a model guess
   // wearing a human's signature.
   it('clears a prior confirmation when the memo is re-recorded', async () => {
@@ -306,9 +447,14 @@ describe('constituent feedback routes', () => {
     const confirmed = await service.client.patch(
       `/v1/constituent-feedback/${id}/confirm`,
       {
-        issueLabel: 'Compost collection',
-        stance: 'supports',
-        desiredOutcome: 'Weekly pickup',
+        issues: [
+          {
+            issueLabel: 'Compost collection',
+            stance: 'supports',
+            desiredOutcome: 'Weekly pickup',
+            fromPosition: 0,
+          },
+        ],
       },
       headers(),
     )
@@ -316,9 +462,9 @@ describe('constituent feedback routes', () => {
     expect(confirmed.data.confirmedAt).not.toBeNull()
 
     extraction = {
-      issueLabel: 'Rodents',
-      stance: 'opposes',
-      desiredOutcome: 'Sealed bins',
+      issues: [
+        { issueLabel: 'Rodents', stance: 'opposes', desiredOutcome: null },
+      ],
       confidence: 0.6,
     }
     const second = await capture('Actually it was about the rats.')
@@ -326,9 +472,10 @@ describe('constituent feedback routes', () => {
 
     const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
       where: { id },
+      include: { issues: true },
     })
     expect(row.confirmedAt).toBeNull()
-    expect(row.issueLabel).toBe('Rodents')
+    expect(row.issues.map((issue) => issue.issueLabel)).toEqual(['Rodents'])
   })
 
   // The client cannot be relied on to re-send the same replay key: the phone
@@ -358,21 +505,27 @@ describe('constituent feedback routes', () => {
   // looking at a failure for a memo that is safely on disk.
   it('keeps an overlong proposal instead of failing the capture', async () => {
     extraction = {
-      issueLabel: 'x'.repeat(CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH + 50),
-      stance: 'mixed',
-      desiredOutcome: 'y'.repeat(
-        CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH + 500,
-      ),
+      issues: [
+        {
+          issueLabel: 'x'.repeat(
+            CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH + 50,
+          ),
+          stance: 'mixed',
+          desiredOutcome: 'y'.repeat(
+            CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH + 500,
+          ),
+        },
+      ],
       confidence: 0.5,
     }
 
     const res = await capture('A very long answer.')
 
     expect(res.status).toBe(201)
-    expect(res.data.extraction?.issueLabel).toHaveLength(
+    expect(res.data.extraction?.issues[0].issueLabel).toHaveLength(
       CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
     )
-    expect(res.data.extraction?.desiredOutcome).toHaveLength(
+    expect(res.data.extraction?.issues[0].desiredOutcome).toHaveLength(
       CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
     )
   })
@@ -387,7 +540,7 @@ describe('constituent feedback routes', () => {
 
     expect(res.status).toBe(200)
     expect(res.data.feedback).toHaveLength(1)
-    expect(res.data.feedback[0]?.issueLabel).toBe('Compost collection')
+    expect(res.data.feedback[0]?.issues).toEqual([{ position: 0, ...COMPOST }])
     const envelope = await service.prisma.outreach.findUniqueOrThrow({
       where: { phoneBankingListId: listId },
     })
@@ -651,9 +804,7 @@ describe('constituent feedback routes', () => {
       expect(res.status).toBe(201)
       expect(res.data.personId).toBe(seeded.knockPersonId)
       expect(res.data.extraction).toEqual({
-        issueLabel: 'Compost collection',
-        stance: 'mixed',
-        desiredOutcome: 'Weekly pickup',
+        issues: [{ position: 0, ...COMPOST }],
       })
 
       const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
@@ -830,9 +981,14 @@ describe('constituent feedback routes', () => {
       })
 
       const CONFIRMED = {
-        issueLabel: 'Road bond',
-        stance: 'supports',
-        desiredOutcome: 'Spend it on the roads',
+        issues: [
+          {
+            issueLabel: 'Road bond',
+            stance: 'supports',
+            desiredOutcome: 'Spend it on the roads',
+            fromPosition: 0,
+          },
+        ],
       }
 
       it('records and confirms a memo for the candidate', async () => {

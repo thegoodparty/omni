@@ -1,9 +1,9 @@
 # constituentFeedback
 
 Issue capture, on Win and Serve. A canvasser or caller records a short spoken
-summary of one conversation; the request extracts the issue, the person's
-position on it, and the outcome they want, and hands that back for the person
-who was just there to confirm or correct. The module keeps its name; the user
+summary of one conversation; the request extracts the issues the person
+raised (up to five), each with a stance and an outcome, and hands them back
+for the person who was just there to confirm, correct or remove. The module keeps its name; the user
 never sees it.
 
 An effort's confirmed memos are then synthesized into ranked themes, each
@@ -19,7 +19,7 @@ for confirmation (see Offline memos).
 | --------------------------------------------------- | ---------------------------------------------------- |
 | `constituentFeedback.controller.ts`                 | Routes under `/v1/constituent-feedback`              |
 | `services/constituentFeedback.service.ts`           | Resolve, upsert, confirm, read                       |
-| `services/constituentFeedbackExtraction.service.ts` | The triple, via `LlmService.jsonCompletion`          |
+| `services/constituentFeedbackExtraction.service.ts` | The issues, via `LlmService.jsonCompletion`          |
 | `services/feedbackSynthesis.service.ts`             | `requestRun`: floor, cooldown, run row, engine start |
 | `services/synthesisEngine.ts`                       | The engine seam and its `SYNTHESIS_ENGINE` token     |
 | `services/pipelineSynthesisEngine.ts`               | CSV to S3, trigger the polls pipeline                |
@@ -41,6 +41,11 @@ Request/response shapes are in `@goodparty_org/contracts`
 ## Prisma model
 
 `ConstituentFeedback` — via `this.model` / `this.client.constituentFeedback`.
+Its issues are `ConstituentFeedbackIssue` rows
+(`this.client.constituentFeedbackIssue`), one per issue in `position` order
+from 0, unique on `(feedbackId, position)`.
+Every write replaces a memo's issues whole (`replaceIssues`: delete, then
+insert, in one transaction), never patches one.
 Enums: `ConstituentFeedbackChannel`, `ConstituentFeedbackStance`,
 `ConstituentFeedbackCaptureMethod`, `ConstituentFeedbackExtractionStatus`.
 
@@ -77,10 +82,14 @@ deletes only the rows carrying its `runId`.
 All under `@Controller('constituent-feedback')`, all `@UseOrganization()`.
 
 - `POST /`: record a memo. With a `transcript`, extracts in the request and
-  returns the proposed triple. With an `audioKey` (the offline path), saves
+  returns the proposed issues (`extraction: { issues }`, null when extraction
+  failed, an empty list when the note named none). With an `audioKey` (the offline path), saves
   it pending and starts a transcription job. `@AllowVolunteer()`.
-- `PATCH /:id/confirm`: the confirmed triple. Sets `confirmedAt`.
-  `@AllowVolunteer()`.
+- `PATCH /:id/confirm`: `{ issues }`, at most five, each `issueLabel`,
+  `stance`, `desiredOutcome` and an optional `fromPosition`. The list
+  REPLACES the memo's issues, positions reassigned in list order: removing
+  one is leaving it out, and an empty list confirms a memo that named none.
+  Sets `confirmedAt`. `@AllowVolunteer()`.
 - `POST audio-upload-url`: `{ clientKey, contentType }` to `{ audioKey,
 uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
 - `POST audio-upload/:clientKey`: the mock-mode upload sink (multipart,
@@ -207,7 +216,14 @@ non-superseded run; themes come from the latest completed one, so a run in
 flight or a failed one leaves the previous themes up. `memos` lists the
 effort's memos, confirmed and pending, newest first, capped at
 `FEEDBACK_REPORT_MEMO_LIMIT` (200): the page shows them when there are no
-themes to show, under the floor and while a run is in flight. `channel` is
+themes to show, under the floor and while a run is in flight.
+
+A theme's `conversationCount` is distinct confirmed member memos, but
+`stanceCounts` and `desiredOutcomes` are computed over those memos' issue
+rows: a conversation that named two issues adds two stances, so the four
+counts can sum past `conversationCount`. An issue with no stance counts as
+unclear; a memo that named no issue adds no stance. Membership is per memo,
+so a member's other issues count in this theme's split too. `channel` is
 the effort's own (a turf's envelope is `door_knock`, a list's `phone_bank`,
 memo or no memo), and `floor` is `MIN_CONFIRMED_FOR_SYNTHESIS`, sent so the
 page's "Themes appear after N" line cannot drift from the 422. The constant
@@ -227,7 +243,7 @@ source with `mergedIntoId`.
 
 `POST seed { outreachId, count }` writes answered knocks or calls and
 confirmed memos from a 40-memo fixture (`services/feedbackSeedMemos.ts`,
-five issues) on an effort that already has stop targets or list entries. A
+five issues, one to three per memo) on an effort that already has stop targets or list entries. A
 list takes one memo per person who has none. Gated like the community
 issues seed (`util/devOnlyRoute.util.ts`): `OTEL_SERVICE_ENVIRONMENT`
 unset, `local`, `test`, `preview` or `dev`; anything else 404s.
@@ -298,7 +314,7 @@ deploy. `.env.test` sets `mock`.
 
 ## The extraction prompt names no product
 
-The same three fields land on a voter's record and a constituent's, and the
+The same issues land on a voter's record and a constituent's, and the
 copy around them is mode-keyed by the UI. So the prompt says "the person they
 spoke with", never voter or constituent: a product noun there steers the
 model into writing one product's word into the other's record.
@@ -319,16 +335,24 @@ said.
 
 A failed extraction never fails the request. `extract()` returns null, the row
 persists with its transcript and `extractionStatus: failed`, and the surface
-shows an empty triple to fill in by hand. The memo is the record worth
+shows an empty issue to fill in by hand. The memo is the record worth
 keeping.
 
 ## proposed\_\* vs the confirmed columns
 
-`issueLabel` / `stance` / `desiredOutcome` hold what a human confirmed.
-`proposedIssueLabel` / `proposedStance` / `proposedDesiredOutcome` hold what
-the model said first. The diff between them is the correction rate, and it is
-the labeled corpus the synthesis phase gets evaluated against — it cannot be
-reconstructed later, which is why it is written here.
+On each `ConstituentFeedbackIssue`, `issueLabel` / `stance` /
+`desiredOutcome` hold what a human confirmed (until then, the model's answer
+clamped to fit). `proposedIssueLabel` / `proposedStance` /
+`proposedDesiredOutcome` hold what the model said first. The diff between
+them is the correction rate, and it is the labeled corpus the synthesis phase
+gets evaluated against — it cannot be reconstructed later, which is why it is
+written here.
+
+Confirm reassigns positions, so each confirmed issue names the proposal it
+started as in `fromPosition`, and the server carries that row's `proposed*`
+onto the new one. An issue with no `fromPosition` (written by hand) has null
+proposals. A proposed issue the canvasser removed is deleted with its
+proposal.
 
 `proposedStance` is text, not the enum. The model is prompted for one of four
 values but not bound to them, and `toStance()` drops an off-vocabulary answer
@@ -348,14 +372,14 @@ rules hold that together.
   `phoneBankingInteractionId` rather than updating what is already there.
   `clientKey` is still the fallback, which is what covers a retry whose first
   attempt never landed.
-- **A re-record clears `confirmedAt`.** The update branch replaces the triple
+- **A re-record clears `confirmedAt`.** The update branch replaces the issues
   with a fresh model proposal, so any confirmation the old one earned is void.
   Leaving it set hands reporting a model guess wearing a human's signature,
   which is the one thing the column exists to prevent.
 - **An overlong proposal is truncated, not rejected.** The response schema caps
-  `issueLabel` at 120 and `desiredOutcome` at 1000 and the interceptor enforces
-  that on the way out, so an unclamped string would save the row and then 500
-  the request that saved it — the surface would show a capture failure for a
+  each issue's `issueLabel` at 120 and `desiredOutcome` at 1000 and the
+  interceptor enforces that on the way out, so an unclamped string would save
+  the row and then 500 the request that saved it — the surface would show a capture failure for a
   memo safely on disk. The untruncated text survives in `proposed*` and in the
   transcript.
 
