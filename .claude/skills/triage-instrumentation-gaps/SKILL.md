@@ -685,6 +685,20 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    and read each test against the new rule.
    Then **measure the gap**: users whose only qualifying event since the cutover is the
    new name, split into headcount lost (never qualified otherwise) and activity lost.
+
+   **Then put the reviewer's decisions to them as one batch**, before any plan. These
+   four come up on every drift, and asked one at a time they cost a round each:
+   - **Does the rule have more than one condition** (an AND, such as "sent a poll AND
+     pledged")? Say which condition the change touches, and whether the others stay.
+   - **Does the metric's flag feed anything else?** Name every other metric or cohort
+     that reads it (a column, a gold view, a resolver). Changing it moves them too.
+   - **Is any channel the rule names uninstrumented?** For each, say whether it is a
+     definitional exclusion (nothing happens in the product) or a gap to ticket.
+   - **Is the metric compiled from its declaration, or hard-coded in SQL?** If the leg
+     list is only documentation, moving it onto a macro is part of the plan.
+
+   Add anything specific to this drift to the same message, and stop until it is
+   answered.
 7. **Plan the PRs in the SOP's order** and show the plan. gp-data-platform branches are
    lowercase `data-<number>/<slug>` from `origin/main`, opened through that repo's `pull-request`
    skill, titled `[<TICKET>] …`:
@@ -715,7 +729,8 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
         picks up the new legs only on the next scheduled full build, while its
         downstream models rebuild at merge against the stale copy. Select it
         explicitly in the dev build, say so in the sem PR, and in step 8 check its
-        `last_altered` before reading the value.
+        `last_altered` before reading the value. DATA-2614 makes the merge job select
+        these models; delete this note when it ships.
    2. **Sem PR.** Before editing any `sem_*.yml`, ask the reviewer, as its own question
       and nothing else: "This will change the semantic layer and notify people. Are you
       sure?" Then add the new leg, keep the old one with
