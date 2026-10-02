@@ -48,7 +48,13 @@ import {
   type PhoneBankingOutcomeDraft,
 } from './phoneBankingOutcome.util'
 
-// The memo prompt, in each product's own words.
+// Win asks its one question in the placeholder, so its label only names the
+// field; Serve's label asks and its placeholder says what to record.
+const MEMO_LABEL = {
+  win: 'Their note',
+  serve: 'What did they say?',
+}
+
 const MEMO_PLACEHOLDER = {
   win: 'What did they tell you?',
   serve:
@@ -531,7 +537,7 @@ export default function PhoneBankingOutcomeForm({
       {capturesIssues && showActions && (
         <div>
           <span className="text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground">
-            What did they say?
+            {MEMO_LABEL[product]}
           </span>
           <div className="relative mt-2">
             <Textarea

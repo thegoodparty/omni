@@ -117,6 +117,13 @@ const STEP_TITLES: Record<StepId, string> = {
   download: 'Download your call sheets',
 }
 
+// Serve's promises the read-back an official gets; Win's says only what is
+// already true of the script this flow drafts.
+const QUESTION_STEP_BODY = {
+  win: 'Your callers will ask this on every call.',
+  serve: 'We will read this back to you with what people said.',
+}
+
 const GENERIC_CREATE_ERROR_MESSAGE =
   "We couldn't create your call sheets. Try again."
 
@@ -1045,7 +1052,11 @@ export const PhoneBankingFlow = ({
           <Intro
             channel="phoneBanking"
             title={STEP_TITLES.question}
-            body="We will read this back to you with what people said."
+            body={
+              surface.isServe
+                ? QUESTION_STEP_BODY.serve
+                : QUESTION_STEP_BODY.win
+            }
           />
           <CommunityInputQuestionStep
             question={question}

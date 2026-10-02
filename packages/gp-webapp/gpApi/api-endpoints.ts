@@ -545,6 +545,13 @@ export type APIEndpoints = {
   // typed the way `POST /v1/door-knocking/address-preview` types the same
   // unsaved-draft grammar, since the schema lives in gp-api; the response is
   // a contracts schema. 502 on model failure.
+  //
+  // `communityInputQuestion` rides both this and the Serve sibling below, for
+  // the one purpose that asks a question (Win's "Hear from voters", Serve's
+  // community input). The question is what the effort exists to ask, so the
+  // card's "ask" is written to put it to the resident rather than a generic
+  // what-matters-to-you question. Sent rather than read server-side because
+  // the turf does not exist at draft time; refused on any other purpose.
   'POST /v1/outreach/door-knocking/draft': {
     Request: {
       purpose: DoorKnockingTalkingPointsPurpose
@@ -552,16 +559,12 @@ export type APIEndpoints = {
       currentDraft?: string
       previousDraft?: string
       instructions?: string
+      communityInputQuestion?: string
       event?: OutreachEventDetails
     }
     Response: DoorKnockingTalkingPointsDraftResponse
   }
 
-  // `communityInputQuestion` is Serve-only and absent from the Win sibling
-  // above: `community_input` is a Serve purpose, and the question is what the
-  // effort exists to ask, so the card's "ask" is written to put it to the
-  // resident rather than a generic what-matters-to-you question. Sent rather
-  // than read server-side because the turf does not exist at draft time.
   'POST /v1/outreach/serve/door-knocking/draft': {
     Request: {
       purpose: ServeDoorKnockingTalkingPointsPurpose

@@ -558,9 +558,9 @@ const buildQuestionBlock = <TPurpose extends string>(
   'This is the issue the script must raise, and the question it must put to ' +
     `the ${voice.personNoun}, in place of a general one. Keep what it asks ` +
     'exactly, and follow it by inviting them to say more so the call still ' +
-    'opens a conversation rather than closing on a yes or no. Do not widen it ' +
-    'into a general what-matters-to-you question, and do not answer it ' +
-    'yourself.',
+    'opens a conversation rather than closing on a yes or no. Do not ' +
+    'widen it into a general what-matters-to-you question, and do not ' +
+    'answer it yourself.',
 ]
 
 // Kept generic (parametrized by voice.subjectFallback/materialsLabel)

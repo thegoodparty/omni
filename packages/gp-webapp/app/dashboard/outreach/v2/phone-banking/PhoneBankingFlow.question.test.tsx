@@ -189,6 +189,15 @@ describe('PhoneBankingFlow hear-from-voters question step', () => {
     )
     await screen.findByLabelText('The question')
     expect(winDraftBodies).toHaveLength(0)
+    // Serve's caption promises a read-back; Win's says only what is true.
+    expect(
+      screen.getByText('Your callers will ask this on every call.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'We will read this back to you with what people said.',
+      ),
+    ).toBeNull()
 
     const question = 'How do you feel about the road bond?'
     await userEvent.type(screen.getByLabelText('The question'), question)

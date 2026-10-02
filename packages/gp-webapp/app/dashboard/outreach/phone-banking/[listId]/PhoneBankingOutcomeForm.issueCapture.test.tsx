@@ -523,13 +523,17 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
     renderForm({ isServe: false })
     answerWinQuestions()
 
-    expect(screen.queryByText('What did they say?')).toBeNull()
+    expect(screen.queryByText('Their note')).toBeNull()
+    expect(screen.queryByPlaceholderText('What did they tell you?')).toBeNull()
   })
 
   it('asks what they told you, in Win’s words', () => {
     renderForm({ isServe: false })
     answerWinQuestions()
 
+    // One question on screen: the placeholder asks it, the label names it.
+    expect(screen.getByText('Their note')).toBeVisible()
+    expect(screen.queryByText('What did they say?')).toBeNull()
     expect(screen.getByPlaceholderText('What did they tell you?')).toBeVisible()
     expect(
       screen.getByText(
