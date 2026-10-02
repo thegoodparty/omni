@@ -250,7 +250,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - Assistant Chat Opened",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -264,6 +264,10 @@
     "users": 3
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - Assistant Message Sent": {
@@ -290,7 +294,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - Assistant Message Sent",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -304,6 +308,10 @@
     "users": 2
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - Contacts Viewed": {
@@ -330,7 +338,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - Contacts Viewed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -344,6 +352,10 @@
     "users": 832
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - Download": {
@@ -370,7 +382,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - Download",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -384,6 +396,10 @@
     "users": 209
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - List Wizard Boundary Completed": {
@@ -410,7 +426,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - List Wizard Boundary Completed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -424,6 +440,10 @@
     "users": 6
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - List Wizard Boundary Viewed": {
@@ -450,7 +470,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - List Wizard Boundary Viewed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -464,6 +484,10 @@
     "users": 6
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - List Wizard Conditions Completed": {
@@ -490,7 +514,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - List Wizard Conditions Completed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -504,6 +528,10 @@
     "users": 168
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - List Wizard Conditions Viewed": {
@@ -530,7 +558,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - List Wizard Conditions Viewed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -544,6 +572,10 @@
     "users": 216
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - List Wizard Method Completed": {
@@ -570,7 +602,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - List Wizard Method Completed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -584,6 +616,10 @@
     "users": 205
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - List Wizard Method Viewed": {
@@ -610,7 +646,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - List Wizard Method Viewed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -624,6 +660,10 @@
     "users": 218
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - List Wizard Name Completed": {
@@ -650,7 +690,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - List Wizard Name Completed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -664,6 +704,10 @@
     "users": 161
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - List Wizard Name Viewed": {
@@ -690,7 +734,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - List Wizard Name Viewed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -704,6 +748,10 @@
     "users": 168
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - Outreach Timeline Viewed": {
@@ -730,12 +778,16 @@
    "okr": false,
    "proposed_display_name": "Voter Data - Outreach Timeline Viewed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
    "signal": null,
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - Segment Created": {
@@ -762,7 +814,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - Segment Created",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -776,6 +828,10 @@
     "users": 24
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - Segment Deleted": {
@@ -802,7 +858,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - Segment Deleted",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -816,6 +872,10 @@
     "users": 37
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - Segment Updated": {
@@ -842,7 +902,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - Segment Updated",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -856,6 +916,10 @@
     "users": 39
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - Segment Viewed": {
@@ -882,7 +946,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - Segment Viewed",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -896,6 +960,10 @@
     "users": 246
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Contacts - Voter Data Unavailable": {
@@ -922,7 +990,7 @@
    "okr": false,
    "proposed_display_name": "Voter Data - Voter Data Unavailable",
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "constituent-data",
+   "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
    "reason": "",
    "removal_commit": null,
@@ -936,6 +1004,10 @@
     "users": 65
    },
    "source": "detector",
+   "surface_options": [
+    "constituent-data",
+    "voter-data"
+   ],
    "verdict": "stale_area_name"
   },
   "Dashboard - Campaign Plan: Media Displayed": {
@@ -1314,7 +1386,7 @@
    "okr": false,
    "proposed_display_name": "Profile - Office Details: Office Completed",
    "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "my-profile",
+   "proposed_surface": "profile",
    "proposed_url": "/dashboard/profile",
    "reason": "",
    "removal_commit": null,
@@ -1328,6 +1400,10 @@
     "users": 52
    },
    "source": "detector",
+   "surface_options": [
+    "my-profile",
+    "profile"
+   ],
    "verdict": "stale_area_name"
   },
   "Onboarding - Candidate Office Searched": {
@@ -1354,7 +1430,7 @@
    "okr": false,
    "proposed_display_name": "Profile - Office Details: Office Searched",
    "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "my-profile",
+   "proposed_surface": "profile",
    "proposed_url": "/dashboard/profile",
    "reason": "",
    "removal_commit": null,
@@ -1368,6 +1444,10 @@
     "users": 137
    },
    "source": "detector",
+   "surface_options": [
+    "my-profile",
+    "profile"
+   ],
    "verdict": "stale_area_name"
   },
   "Onboarding - Magic Link Clicked": {
@@ -1437,12 +1517,16 @@
    "okr": false,
    "proposed_display_name": "Profile - Office Details: Click Can't Find Office",
    "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "my-profile",
+   "proposed_surface": "profile",
    "proposed_url": "/dashboard/profile",
    "reason": "",
    "removal_commit": null,
    "signal": null,
    "source": "detector",
+   "surface_options": [
+    "my-profile",
+    "profile"
+   ],
    "verdict": "stale_area_name"
   },
   "Onboarding - Office Step: Click Next": {
@@ -1469,7 +1553,7 @@
    "okr": false,
    "proposed_display_name": "Profile - Office Details: Click Next",
    "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "my-profile",
+   "proposed_surface": "profile",
    "proposed_url": "/dashboard/profile",
    "reason": "",
    "removal_commit": null,
@@ -1483,6 +1567,10 @@
     "users": 37
    },
    "source": "detector",
+   "surface_options": [
+    "my-profile",
+    "profile"
+   ],
    "verdict": "stale_area_name"
   },
   "Onboarding - Office Step: Office Selected": {
@@ -1509,7 +1597,7 @@
    "okr": false,
    "proposed_display_name": "Profile - Office Details: Office Selected",
    "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "my-profile",
+   "proposed_surface": "profile",
    "proposed_url": "/dashboard/profile",
    "reason": "",
    "removal_commit": null,
@@ -1523,6 +1611,10 @@
     "users": 63
    },
    "source": "detector",
+   "surface_options": [
+    "my-profile",
+    "profile"
+   ],
    "verdict": "stale_area_name"
   },
   "Outreach - Door Knocking Do Not Knock Cleared": {
@@ -2260,7 +2352,7 @@
    ],
    "claimed": "Settings",
    "claimed_kind": "prefix",
-   "confidence": "high",
+   "confidence": "proposed",
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Settings - Personal Info: Click Upload",
@@ -2274,7 +2366,7 @@
    "okr": false,
    "proposed_display_name": "Profile - Personal Info: Click Upload",
    "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "my-profile",
+   "proposed_surface": "profile",
    "proposed_url": "/dashboard/profile",
    "reason": "",
    "removal_commit": "9a406cc38 2026-07-08",
@@ -2288,6 +2380,10 @@
     "users": 73
    },
    "source": "detector",
+   "surface_options": [
+    "my-profile",
+    "profile"
+   ],
    "verdict": "moved"
   }
  },
