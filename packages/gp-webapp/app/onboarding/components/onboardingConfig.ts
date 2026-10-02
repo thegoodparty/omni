@@ -86,7 +86,7 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
     id: 'path-to-victory',
     title: 'Projected votes needed to win',
     description:
-      'We use historical voter data and proprietary models to get the most accurate projections for your race.',
+      'We use historical voter data to get projections for your race.',
     whyThisMatters:
       "Most candidates think they need to convince everyone. You don't. You need to find your win number, talk to them, and make sure they vote. We'll show you exactly what that takes.",
     shouldSkip: ({ answers }) => answers.officePath === 'manual',

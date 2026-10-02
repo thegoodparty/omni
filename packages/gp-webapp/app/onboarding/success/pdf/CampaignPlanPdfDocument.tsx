@@ -961,8 +961,8 @@ export const CampaignPlanPdfDocument = ({
           , putting the threshold for a win at{' '}
           <Text style={styles.paraBold}>
             {plan.winNumber.toLocaleString('en-US')} votes
-          </Text>{' '}
-          — a simple majority (50% + 1) of voters who cast a ballot. Hitting
+          </Text>
+          {plan.winNumberClause ? `, ${plan.winNumberClause}` : ''}. Hitting
           that target requires{' '}
           <Text style={styles.paraBold}>
             {plan.voterContactGoal.toLocaleString('en-US')} voter contacts

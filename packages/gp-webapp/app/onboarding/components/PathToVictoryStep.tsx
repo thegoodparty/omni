@@ -20,6 +20,15 @@ import { FetchError } from 'ofetch'
 import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from 'app/dashboard/contacts/crm/shared/constants'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import type { Campaign } from 'helpers/types'
+import {
+  resolveSeatContext,
+  type SeatContext,
+  VOTES_PROJECTED_STEP_TITLE,
+  votesProjectedInRace,
+  votesProjectedStepDescription,
+  winNumberHeroLead,
+  winNumberStepDescription,
+} from './winNumberCopy'
 
 const OFFICE_TEMPLATE_TOKEN = '{office}'
 const DEFAULT_OFFICE_NAME = 'your office'
@@ -274,6 +283,7 @@ interface WinNumberHeroCardProps {
   winNumberLower: number | null
   winNumberUpper: number | null
   officeName: string
+  seatContext: SeatContext
 }
 
 const WinNumberHeroCard = ({
@@ -281,6 +291,7 @@ const WinNumberHeroCard = ({
   winNumberLower,
   winNumberUpper,
   officeName,
+  seatContext,
 }: WinNumberHeroCardProps): React.JSX.Element => {
   const hasRange = winNumberLower !== null && winNumberUpper !== null
 
@@ -290,10 +301,10 @@ const WinNumberHeroCard = ({
         <p className="text-6xl leading-none font-bold text-foreground sm:text-7xl">
           {numberFormatter(winNumber)}
         </p>
-        <p className="text-xs font-semibold tracking-widest text-components-input-active uppercase">
-          Projected votes needed to win
+        <p className="text-base text-foreground">
+          {winNumberHeroLead(seatContext)}
+          <span className="font-semibold">{officeName}</span>.
         </p>
-        <p className="text-base font-semibold text-foreground">{officeName}</p>
         {hasRange && (
           <p className="pt-2 text-xs text-muted-foreground">
             Projected range:{' '}
@@ -338,22 +349,26 @@ interface ProjectionExplanationProps {
   registeredVoters: number | null
   projectedTurnout: number
   winNumber: number
+  seatContext: SeatContext
 }
 
 const ProjectionExplanation = ({
   registeredVoters,
   projectedTurnout,
   winNumber,
+  seatContext,
 }: ProjectionExplanationProps): React.JSX.Element => {
   const showRegisteredVoters = registeredVoters !== null && registeredVoters > 0
+  const votesProjected =
+    seatContext.kind === 'multi'
+      ? votesProjectedInRace(projectedTurnout, seatContext.seats)
+      : null
   let stepIndex = 1
 
   return (
     <div>
       <div className="mb-3 flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">
-          Here&apos;s how our projections work:
-        </p>
+        <p className="text-sm text-muted-foreground">How we got this number</p>
         <Dialog>
           <DialogTrigger className="cursor-pointer text-sm text-muted-foreground underline-offset-4 hover:underline">
             Methodology
@@ -411,10 +426,21 @@ const ProjectionExplanation = ({
           description="The number of voters we expect to cast a ballot based on similar past elections."
           value={numberFormatter(projectedTurnout)}
         />
+        {seatContext.kind === 'multi' && votesProjected !== null ? (
+          <ProjectionStep
+            index={stepIndex++}
+            title={VOTES_PROJECTED_STEP_TITLE}
+            description={votesProjectedStepDescription(
+              seatContext.seats,
+              votesProjected,
+            )}
+            value={numberFormatter(votesProjected)}
+          />
+        ) : null}
         <ProjectionStep
           index={stepIndex++}
           title="Projected votes needed to win"
-          description="A simple majority of voters (50% + 1) who actually cast a ballot."
+          description={winNumberStepDescription(seatContext)}
           value={numberFormatter(winNumber)}
         />
       </ol>
@@ -438,6 +464,11 @@ export const PathToVictoryStep = ({
   const winNumberLower = metrics?.winNumberLower ?? null
   const winNumberUpper = metrics?.winNumberUpper ?? null
   const projectedTurnout = metrics?.projectedTurnout ?? 0
+  const seatContext = resolveSeatContext({
+    numberOfSeats: metrics?.numberOfSeats,
+    winNumber,
+    projectedTurnout,
+  })
 
   useEffect(() => {
     onLoadingChange?.(!showResults)
@@ -472,11 +503,13 @@ export const PathToVictoryStep = ({
         winNumberLower={winNumberLower}
         winNumberUpper={winNumberUpper}
         officeName={officeName}
+        seatContext={seatContext}
       />
       <ProjectionExplanation
         registeredVoters={registeredVoters}
         projectedTurnout={projectedTurnout}
         winNumber={winNumber}
+        seatContext={seatContext}
       />
     </div>
   )
