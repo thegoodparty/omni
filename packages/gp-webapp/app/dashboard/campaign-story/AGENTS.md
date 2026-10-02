@@ -79,7 +79,7 @@ already round-trips through `Website.content.about`.
 ## Patterns
 
 - **Always on** — the onboarding story steps, the "Your Story" dashboard page,
-  the plan tab's "Campaign Tracker" label and routing (`CampaignPlanRouter.tsx`,
+  the plan tab's "Campaign Plan" label and routing (`CampaignPlanRouter.tsx`,
   `CampaignPlanView.tsx`, `DashboardMenu.tsx`), and the story-completeness gate
   (`CampaignPlanStoryGate`) all run unconditionally now — there is no flag.
 - **Persistence (background).** Consumers (the onboarding story draft, the
@@ -180,7 +180,7 @@ already round-trips through `Website.content.about`.
   on leaving the story) and the `/dashboard/campaign-story` page (single header
   Save + Start over) — see `app/onboarding/CLAUDE.md`.
 - `app/dashboard/shared/DashboardMenu.tsx` — always labels the plan tab
-  "Campaign Tracker" and always renders the "Your Story" sidebar entry.
+  "Campaign Plan" and always renders the "Your Story" sidebar entry.
 - `app/dashboard/campaign-plan/components/CampaignPlanStoryGate.tsx` — reads
   the story + website to gate/preview the plan tab before generation.
 - `packages/gp-api/src/campaignStory/` — `campaign_story` table (`background`,
