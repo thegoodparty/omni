@@ -1,10 +1,12 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
 import { budgetOutputLines } from './armBudget'
+import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
+import { fixtureOutputLines } from './judgeFixture'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
@@ -801,5 +803,208 @@ describe('the arm budget fits the sweep job', () => {
     expect(jobMinutes).toBeGreaterThan(0)
     // Twenty minutes for the workspace build and the judging step.
     expect(2 * (ARM_BUDGET_MS / 60_000) + 20).toBeLessThanOrEqual(jobMinutes)
+  })
+})
+
+// THE TEST ORGANIZATION CROSSES THE SAME SEAM AS THE BUDGET: minted once,
+// read by two arms in two worktrees. And it is the one step in the job that
+// handles a credential a background run never needs, so where that secret
+// reaches is pinned as tightly as where the identifiers go.
+describe('judge.yml mints one test organization for both arms', () => {
+  const WORKFLOWS = path.dirname(WORKFLOW)
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const names = steps.map((step) => step.name)
+  const mint = steps.find(
+    (step) => step.name === "Mint the sweep's test organization",
+  )
+  const remove = steps.find(
+    (step) => step.name === "Delete the sweep's test organization",
+  )
+  const arms = steps.filter((step) => step.name.startsWith('Capture the '))
+
+  // Read off the function that writes them, as the budget's are. user_id is
+  // the delete step's and must not reach an arm.
+  const OUTPUT_KEYS = fixtureOutputLines({
+    identifiers: { orgSlug: 'o', raceId: 'r', userEmail: 'e' },
+    userId: 1,
+  })
+    .trim()
+    .split('\n')
+    .map((line) => line.split('=')[0])
+  const ENV_FOR: Record<string, string> = {
+    org_slug: JUDGE_FIXTURE_ENV_NAMES.orgSlug,
+    race_id: JUDGE_FIXTURE_ENV_NAMES.raceId,
+    user_email: JUDGE_FIXTURE_ENV_NAMES.userEmail,
+  }
+
+  it('covers every identifier the mint writes', () => {
+    expect([...OUTPUT_KEYS].sort()).toEqual(
+      [...Object.keys(ENV_FOR), 'user_id'].sort(),
+    )
+  })
+
+  // EXACT, for the reason the budget's are: an unknown output resolves to '',
+  // which reads as "not minted", so a misspelling on both arms would agree
+  // with itself and refuse every background agent for no visible reason.
+  it.each(Object.entries(ENV_FOR))(
+    'gives both arms %s as %s, from the mint',
+    (key, name) => {
+      expect(arms).toHaveLength(2)
+      for (const arm of arms) {
+        expect(envValue(arm.body, name)).toBe(
+          `\${{ steps.fixture.outputs.${key} }}`,
+        )
+      }
+    },
+  )
+
+  it('keeps the user id away from the arms', () => {
+    for (const arm of arms) {
+      expect(arm.body).not.toContain('steps.fixture.outputs.user_id')
+    }
+  })
+
+  // ONLY the two fixture steps. The arms run the branch's code for an hour
+  // each and have no use for a credential that can mint users.
+  it('hands the machine secret to the mint and the delete and nothing else', () => {
+    const holders = steps
+      .filter((step) =>
+        step.body.includes('secrets.JUDGE_CLERK_MACHINE_SECRET'),
+      )
+      .map((step) => step.name)
+    expect(holders.sort()).toEqual(
+      [
+        "Delete the sweep's test organization",
+        "Mint the sweep's test organization",
+      ].sort(),
+    )
+    // Nor a workflow- or job-level `env:`, which every step would inherit.
+    // Each block runs to the first line indented no deeper than its key.
+    const envBlocks = [...yaml.matchAll(/^( *)env:\n((?:\1 +.*\n|\n)*)/gm)]
+    expect(envBlocks.length).toBeGreaterThan(0)
+    for (const [block, indent] of envBlocks) {
+      if ((indent ?? '').length < 8) {
+        expect(block).not.toContain('JUDGE_CLERK_MACHINE_SECRET')
+      }
+    }
+  })
+
+  // Declared on workflow_call and passed by both callers; a caller that
+  // forgot would hand this workflow '' and every background agent would be
+  // refused with the secret sitting unused in the repository.
+  it.each(['judge-request.yml', 'judge-comment.yml'])(
+    '%s passes the machine secret through',
+    (caller) => {
+      expect(readFileSync(path.join(WORKFLOWS, caller), 'utf8')).toMatch(
+        /^ {6}JUDGE_CLERK_MACHINE_SECRET: \$\{\{ secrets\.JUDGE_CLERK_MACHINE_SECRET \}\}$/m,
+      )
+    },
+  )
+
+  it('declares the secret on workflow_call, as optional', () => {
+    expect(yaml).toMatch(
+      /^ {6}JUDGE_CLERK_MACHINE_SECRET:\n {8}required: false$/m,
+    )
+  })
+
+  it('mints only against dev', () => {
+    for (const step of [mint, remove]) {
+      expect(envValue(step?.body ?? '', 'JUDGE_FIXTURE_API_URL')).toBe(
+        'https://gp-api-dev.goodparty.org',
+      )
+    }
+    expect(yaml).toContain(
+      'FIXTURE_ENTRY: src/chats/evals/judge/judgeFixture.ts',
+    )
+  })
+
+  // After the budget, which says whether anything background was admitted;
+  // before either arm, which reads what it wrote. The delete after the verdict.
+  it('mints between the budget and the first capture, deletes after judging', () => {
+    const at = (prefix: string) =>
+      names.findIndex((name) => name.startsWith(prefix))
+    const minted = at("Mint the sweep's test organization")
+    const deleted = at("Delete the sweep's test organization")
+    expect(minted).toBeGreaterThan(
+      at('Resolve the background case and attempt budget'),
+    )
+    expect(
+      at('Resolve the background case and attempt budget'),
+    ).toBeGreaterThan(-1)
+    expect(at('Capture the ')).toBeGreaterThan(minted)
+    expect(deleted).toBeGreaterThan(at('Judge both arms'))
+    expect(at('Judge both arms')).toBeGreaterThan(-1)
+  })
+
+  // Only when something background was admitted: a chat-only sweep has no
+  // use for a fixture and each mint spends the dev Clerk budget E2E shares.
+  it('mints only when the budget admitted a background agent', () => {
+    expect(mint?.body).toMatch(
+      /^ {8}if: steps\.budget\.outputs\.admitted != ''$/m,
+    )
+  })
+
+  // `always()`, because a failed sweep is the one most likely to leak; gated
+  // on the id so a sweep that minted nothing does not run a delete that can
+  // only fail.
+  it('deletes on every outcome, and never fails the job doing it', () => {
+    expect(remove?.body).toMatch(
+      /^ {8}if: always\(\) && steps\.fixture\.outputs\.user_id != ''$/m,
+    )
+    expect(remove?.body).toMatch(/^ {8}continue-on-error: true$/m)
+    expect(envValue(remove?.body ?? '', 'FIXTURE_USER_ID')).toBe(
+      '${{ steps.fixture.outputs.user_id }}',
+    )
+  })
+
+  // THE MINT'S RUN BLOCK, EXECUTED, against a stand-in `npx`. What it must do
+  // is a property of the shell, not of any string in it: a failed mint must
+  // leave the outputs empty and the job running; a good one must reach the
+  // outputs whole.
+  describe('the mint step, run', () => {
+    const runMint = (npx: string) => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'judge-mint-'))
+      writeFileSync(path.join(dir, 'npx'), `#!/usr/bin/env bash\n${npx}\n`)
+      chmodSync(path.join(dir, 'npx'), 0o755)
+      const output = path.join(dir, 'github-output')
+      writeFileSync(output, '')
+      const script = path.join(dir, 'run.sh')
+      writeFileSync(script, runBlockOf(mint?.body ?? ''))
+      const stdout = execFileSync('bash', [script], {
+        encoding: 'utf8',
+        env: {
+          PATH: `${dir}:${process.env.PATH}`,
+          RUNNER_TEMP: dir,
+          GITHUB_OUTPUT: output,
+          FIXTURE_ENTRY: 'unused',
+        },
+      })
+      return { stdout, outputs: readFileSync(output, 'utf8') }
+    }
+
+    it('copies a good mint into the outputs', () => {
+      const lines = fixtureOutputLines({
+        identifiers: {
+          orgSlug: 'judge-org-1',
+          raceId: 'race-2',
+          userEmail: 'qa@goodparty.org',
+        },
+        userId: 77,
+      })
+      const { outputs } = runMint(`printf '%s' '${lines}' >> "$4"`)
+      expect(outputs).toBe(lines)
+    })
+
+    // A mint that wrote part of its file and then failed leaves NOTHING, not
+    // the part: an org slug with no user id would dispatch against a fixture
+    // nobody deletes.
+    it('leaves the outputs empty and the job running when the mint fails', () => {
+      const { stdout, outputs } = runMint(
+        `printf 'org_slug=judge-half\\n' >> "$4"; exit 1`,
+      )
+      expect(outputs).toBe('')
+      expect(stdout).toContain('::warning::')
+    })
   })
 })

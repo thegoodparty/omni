@@ -49,6 +49,7 @@ naming it.
 | `JUDGE_SPEND`             | all   | Only the exact string `true` calls a real model. Anything else uses a canned reply, which is how the pipeline is exercised for nothing. **Step 3 spends too** — one panel call per judgeable pair, per seat — so all three must agree; step 3 refuses a setting that differs from what the arms' manifests recorded.                                                                                                                                                                                                                                                                                                                                                  |
 | `JUDGE_DATA_VERSION`      | 1, 2  | The Delta version both arms read. Resolved ONCE by `dataVersion.ts` in a `sweep` step of its own, before either arm runs, and published as a step output both arms read: an arm that looked up "current" itself would look it up an hour after the other and get a different answer. Empty when the mart could not be read — no credential, a dead one, a history the warehouse will not hand over — which reads here as "not pinned". The sweep then proceeds against the live mart rather than refusing, because most agents never query it, and `report.ts` names every run that queried the mart anyway.                                                          |
 | `JUDGE_BACKGROUND_ATTEMPTS` / `JUDGE_BACKGROUND_MAX_CASES` / `JUDGE_BACKGROUND_ADMITTED` | 1, 2 | The background case and attempt budget, and which background agents it admits, decided ONCE by `armBudget.ts` for both arms — after the base worktree exists and before either arm runs. The base arm reads the base ref's `config.ts` and manifests, so a budget or an admission each arm decided for itself would differ whenever a branch changed either, and with the budget spent down in walk order one disagreement moves every agent after it. An agent is admitted only if it fits on whichever arm is slower, and one missing from the base ref is refused before anyone pays. `ATTEMPTS` switches the mode: present, a blank `MAX_CASES` means no cap and a blank `ADMITTED` means none admitted; absent, the arm decides for itself (a local run). Either of the other two without `ATTEMPTS` is refused as half a budget. A base ref older than these inputs ignores them. |
+| `JUDGE_FIXTURE_ORG_SLUG` / `JUDGE_FIXTURE_RACE_ID` / `JUDGE_FIXTURE_USER_EMAIL` | 1, 2 | The dev test organization every background dispatch runs against, minted ONCE by `judgeFixture.ts` for both arms when the budget admitted a background agent, and deleted after the verdict. Empty reads as "not minted", and every background agent is then refused by name before anything is staged. See [Six background agents need a real identifier](#six-background-agents-need-a-real-identifier-and-it-cannot-be-a-literal) below. |
 | `JUDGE_SELECTION`         | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead: the digest is the rendered prompt plus the tool names, so a branch that changes only the model, the provider, the sampling settings or a tool's implementation hashes identically, and refusing to judge it would refuse the comparison somebody asked for. Resolved once by judge.yml's `select` step and read by all three processes.       |
 | `JUDGE_ANTHROPIC_API_KEY` | 1, 2  | The real Anthropic key, and it cannot arrive as `ANTHROPIC_API_KEY`: `vitest.config.ts` applies `.env.test` over the process environment and `.env.test` defines that name as a stub, so a key exported under it is replaced before any test line runs — which is how the first live sweep spent two arms collecting `invalid x-api-key`. `modelKey.ts` moves this into place at module scope, ahead of the app boot that constructs LlmService. **Required when `JUDGE_SPEND=true`** and ignored otherwise, so a dry run keeps the stub and cannot reach the real API. Export it in the shell; a `.env` file will not do it, because nothing on this path loads one. |
 | `AI_MODELS`               | 3     | LlmService refuses to construct without it. It is the default fallback chain, which the panel never reaches — each seat pins its own model — so step 3 derives it from `panel.seats` when the environment has not set it. Steps 1 and 2 get it from `.env.test`.                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -462,16 +463,18 @@ supplied" — the same rule `JUDGE_DATA_VERSION` needed, and for a harder
 reason: `''` would substitute cleanly and dispatch a params object the agent's
 own `minLength` refuses.
 
-**The minting half is not wired yet.** The background runner is, but
-`judge.yml` declares no `JUDGE_FIXTURE_*` entry and no mint step, so
-`fixtureValues` is `{}` on every arm CI runs today — and since every
-background dispatch needs a `judge-` organization to run against, not only the
-six lists that carry tokens, `backgroundRunInputFor` refuses every background
-agent by name until it is. Minting needs a Clerk M2M token, which gp-api
-verifies against its own machine, so CI needs a machine secret it does not hold
-yet. `judgeWorkflow.test.ts` already owns this class of guard for
-`JUDGE_DATA_VERSION`; it should gain the same check for these three when the
-step lands.
+**judge.yml mints it, in `judgeFixture.ts`.** One step after the budget
+resolver, and only when that admitted a background agent, trades
+`JUDGE_CLERK_MACHINE_SECRET` for a short-lived M2M token, mints the fixture
+against the dev gp-api, and writes four lines to its outputs: the three
+identifiers both arms read, and the user id the delete step needs. Never the
+password, session token or sign-in ticket the mint response also carries. A
+step after the verdict deletes it on every outcome; the `sweepTestUsers` cron
+reaps one that step missed, a day later. A failed mint does not fail the job:
+it leaves `fixtureValues` `{}`, and `backgroundRunInputFor` refuses each
+background agent by name on both arms, before anything is staged. The secret
+belongs to a Clerk machine of the judge's own, granted access to gp-api's, and
+reaches only those two steps. `judgeWorkflow.test.ts` pins all of that.
 
 **An unsubstituted token fails before the first dispatch, and nothing further
 down would catch it.** `substituteBackgroundCases` checks the WHOLE list and
