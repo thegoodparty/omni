@@ -49,6 +49,8 @@ import {
   outreachProduct,
 } from '../../util/outreachAnalytics'
 import { outreachDetailQueryPrefix } from '../../v2/useOutreachDetail'
+import { parsePositiveListId } from '../../util/parsePositiveListId.util'
+import { WhatWeHeardLink } from 'app/dashboard/issue-capture/WhatWeHeardLink'
 import PhoneBankingEntryPanel from './PhoneBankingEntryPanel'
 import {
   NOT_CALLED_LABEL,
@@ -137,6 +139,13 @@ export default function PhoneBankingCallerPage({
   const hubLabel =
     surface?.exitLabel ?? (isServe ? 'Constituent Outreach' : 'Voter Outreach')
   const showDeleteAction = surface?.showDeleteAction ?? true
+  // The list payload carries no envelope, so the surfaces that open this
+  // page with one in hand (the outreach drawer, the create flow) pass it on
+  // `?outreachId=`. The report it links to is the manager's, so the
+  // volunteer surface never offers it.
+  const effortOutreachId = surface
+    ? null
+    : (parsePositiveListId(searchParams?.get('outreachId')) ?? null)
 
   // Removal-mid-session is an expected flow for a volunteer (a manager can
   // unassign them at any point) — gp-api 404s the now-unassigned list, and
@@ -378,6 +387,12 @@ export default function PhoneBankingCallerPage({
             )}
           </div>
         </div>
+
+        <WhatWeHeardLink
+          outreachId={effortOutreachId}
+          isServe={isServe}
+          className="border-b border-border px-4 py-2.5"
+        />
 
         {showDeleteAction && (
           <AlertDialog

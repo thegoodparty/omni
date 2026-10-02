@@ -52,6 +52,7 @@ import {
   surfaceStatuses,
 } from './statusPresentation'
 import { countDoors, knockableTargets } from '../routeCounts'
+import { WhatWeHeardLink } from 'app/dashboard/issue-capture/WhatWeHeardLink'
 
 // The age field's own options plus the retired overlapping ranges ENG-10752
 // replaced. The pickers only offer the new ones, but a list saved before that
@@ -532,6 +533,13 @@ export default function TurfDetailsSheet({
                 style={{ width: `${knockedPercent}%` }}
               />
             </span>
+            {/* Flag-gated by the org's slug, which is what gp-api gates the
+                report on, so `isServeOrg` rather than the route's surface. */}
+            <WhatWeHeardLink
+              outreachId={liveTurf.outreachId}
+              isServe={isServeOrg}
+              className="mt-2 border-t border-border pt-3"
+            />
           </div>
         </DetailsSection>
         <DetailsSection title="Status breakdown">

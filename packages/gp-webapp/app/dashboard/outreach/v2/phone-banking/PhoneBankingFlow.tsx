@@ -893,8 +893,12 @@ export const PhoneBankingFlow = ({
             // The caller page is shared across surfaces by design: it is
             // auth-only (no campaign required) and fetches org-scoped, so
             // serve lists open here too (ENG-10970) — not a per-surface path.
+            // The envelope rides along when there is one, so the page can
+            // link to what people said on the list (the list read has none).
             router.push(
-              `/dashboard/outreach/phone-banking/${createResponse.id}`,
+              createResponse.outreachId === null
+                ? `/dashboard/outreach/phone-banking/${createResponse.id}`
+                : `/dashboard/outreach/phone-banking/${createResponse.id}?outreachId=${createResponse.outreachId}`,
             )
             onClose()
           },

@@ -282,8 +282,10 @@ describe('PhoneBankingFlow', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Go to call list' }))
+    // The envelope rides along: the list read carries none, and it is how
+    // the caller page links to what people said on the list.
     expect(router.push).toHaveBeenCalledWith(
-      `/dashboard/outreach/phone-banking/${createResponse.id}`,
+      `/dashboard/outreach/phone-banking/${createResponse.id}?outreachId=${createResponse.outreachId}`,
     )
   })
 
