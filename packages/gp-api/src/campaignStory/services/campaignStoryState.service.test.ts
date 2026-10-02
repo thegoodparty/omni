@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { CampaignStoryService } from './campaignStory.service'
 import type { WebsitesService } from '@/websites/services/websites.service'
-import { CampaignStoryStateService } from './campaignStoryState.service'
+import {
+  CampaignStoryStateService,
+  fingerprintStory,
+} from './campaignStoryState.service'
 
 const build = ({
   background = 'my background',
@@ -84,5 +87,90 @@ describe('CampaignStoryStateService.read', () => {
     const state = await build({ bio: '<p>my why</p>' }).read(42)
 
     expect(state.why).toBe('<p>my why</p>')
+  })
+})
+
+// The fingerprint decides when a candidate has "changed their story", and the
+// campaign plan regenerates on that — so a hash that moves too easily bills
+// them for a formatting change, and one that moves too rarely leaves the plan
+// describing a story they have rewritten.
+describe('fingerprintStory', () => {
+  const state = (overrides = {}) => ({
+    why: '<p>my why</p>',
+    background: 'my background',
+    positions: [{ title: 'Roads', description: 'Fix them' }],
+    complete: true,
+    missing: [],
+    ...overrides,
+  })
+
+  it('is stable for the same answers', () => {
+    expect(fingerprintStory(state())).toBe(fingerprintStory(state()))
+  })
+
+  it.each([
+    ['why', { why: '<p>a different why</p>' }],
+    ['background', { background: 'a different background' }],
+    [
+      'a position title',
+      { positions: [{ title: 'Parks', description: 'Fix them' }] },
+    ],
+    [
+      'a position description',
+      { positions: [{ title: 'Roads', description: 'Pave them' }] },
+    ],
+    [
+      'an added position',
+      {
+        positions: [
+          { title: 'Roads', description: 'Fix them' },
+          { title: 'Parks', description: 'More of them' },
+        ],
+      },
+    ],
+  ])('moves when the candidate edits %s', (_label, overrides) => {
+    expect(fingerprintStory(state(overrides))).not.toBe(
+      fingerprintStory(state()),
+    )
+  })
+
+  // Order is meaningful: the plan treats the first position as the lead issue.
+  it('moves when positions are reordered', () => {
+    const ordered = state({
+      positions: [
+        { title: 'Roads', description: 'Fix them' },
+        { title: 'Parks', description: 'More of them' },
+      ],
+    })
+    const reversed = state({
+      positions: [
+        { title: 'Parks', description: 'More of them' },
+        { title: 'Roads', description: 'Fix them' },
+      ],
+    })
+
+    expect(fingerprintStory(ordered)).not.toBe(fingerprintStory(reversed))
+  })
+
+  // The same serializer completeness uses, so an empty Quill editor and a
+  // genuinely empty bio cannot disagree about whether the story moved.
+  it('does not move when an empty editor is saved in a different empty form', () => {
+    expect(fingerprintStory(state({ why: '<p></p>' }))).toBe(
+      fingerprintStory(state({ why: '<p>&nbsp;</p>' })),
+    )
+  })
+
+  it('does not move when background whitespace changes', () => {
+    expect(fingerprintStory(state({ background: '  my background  ' }))).toBe(
+      fingerprintStory(state()),
+    )
+  })
+
+  // `complete` and `missing` are derived from the three answers, so including
+  // them would let the hash move for something that is not an edit.
+  it('ignores the derived completeness fields', () => {
+    expect(fingerprintStory(state({ complete: false, missing: ['why'] }))).toBe(
+      fingerprintStory(state()),
+    )
   })
 })
