@@ -57,7 +57,7 @@ on:
 # authorisation `if:` on `parse` runs later, when the job is about to start. So
 # a group keyed only on the PR number lets any account on GitHub — no access,
 # no `/judge` in the body, a bare "lgtm" — create a run that joins the group,
-# cancel a live sweep mid-flight, and then skip green. That is up to ~$264 of
+# cancel a live sweep mid-flight, and then skip green. That is up to ~$776 of
 # spend destroyed by a stranger, repeatably, with no verdict to show for it.
 #
 # So a comment that is not a plausible request is keyed on its own run id
@@ -138,7 +138,7 @@ jobs:
     # and COLLABORATOR as "has been invited to collaborate on the repository" —
     # neither implies any permission level. So this set admits any thegoodparty
     # member with no access to omni at all, and any outside collaborator at
-    # read or triage, either of whom could otherwise spend ~$264 with
+    # read or triage, either of whom could otherwise spend ~$776 with
     # `/judge all --live`. It is kept because it is free, it is computed by
     # GitHub rather than supplied by the request, and it turns away the whole
     # internet before a runner is assigned. The check that actually decides is

@@ -497,7 +497,7 @@ jobs:
                 # directory name reaches `--agents=` unchanged. Both are valid
                 # snake_case, so the allowlist below passes them through: a
                 # directory named `all` turns this one-agent request into the
-                # 20-agent ~$305 sweep that every other guard in this file
+                # 19-agent ~$776 sweep that every other guard in this file
                 # exists to prevent, and one named `auto` makes the CLI throw.
                 # Rejected here rather than filtered out, because silently
                 # judging nothing would hide a directory nobody can ever judge.
@@ -694,7 +694,7 @@ jobs:
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
       #
-      # An accidental `all` is the failure this exists for. It is roughly $305
+      # An accidental `all` is the failure this exists for. It is roughly $776
       # against roughly $7 for the normal one-agent case, and the difference
       # between those two is one word in a PR comment. So the number goes in
       # front of a person, in the job summary and on the PR, and the live sweep
@@ -964,15 +964,22 @@ jobs:
             refuse "The judge CLI planned $planned agents and this workflow could read only $parsed of them out of the plan, so the pricing regex and the plan format have drifted apart. Under-reporting a bill is worse than refusing to report one, so it stops here rather than pricing part of a sweep. That is a fault in the judge, not in this PR."
           fi
 
-          # 2 arms x 3 cases x 1 attempt x $2.60 a run = $15.60, from
+          # 2 arms x 3 cases x 1 attempt x $8 a run = $48, from
           # DEFAULT_JUDGE_CONFIG.background (maxCases 3, attemptsPerCase 1).
-          # $2.60 is the design doc's own basis: 5 runs for roughly $12 to $15,
-          # which is where the old $13 came from. That figure assumed a cached
-          # base arm; the sweep does not read the cache yet, so both arms run.
-          # Judging is a few cents on one seat and is not added.
-          # judgeWorkflow.test.ts recomputes this from the config, so a budget
-          # change that does not reach this line fails there.
-          background_cents=1560
+          # Both arms, because the sweep does not read the base-arm cache yet.
+          #
+          # $8 IS DELIBERATELY HIGH. This number exists to make a sweep visible
+          # before it spends, so it rounds up the worst measured mean per run
+          # rather than averaging: meeting_briefing's ~$7.74, invoice-confirmed
+          # (.claude/skills/analyze-cap-agent-costs/profiles/meeting_briefing.md).
+          # The other measurements sit under it: $2.45 to $5.27 for the
+          # community-issues pair (profiles/community_issues.md) and one $4.17
+          # run. Judging is a few cents on one seat and is not added.
+          #
+          # Set before the loop that reads it, under `set -u`.
+          # judgeWorkflow.test.ts recomputes it from the config and runs the
+          # loop, so a budget change that does not reach here fails there.
+          background_cents=4800
 
           total=0
           sweep_agents=""

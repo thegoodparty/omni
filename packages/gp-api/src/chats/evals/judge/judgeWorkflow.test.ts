@@ -336,7 +336,7 @@ describe('judge.yml tells every judge process who asked', () => {
   })
 
   // The price and the guard state belong in the same comment: a reader
-  // approving ~$305 of sweep should be able to see whether two arms that hash
+  // approving ~$776 of sweep should be able to see whether two arms that hash
   // alike will be judged or refused.
   it('says in the plan comment which mode the request is in', () => {
     const estimate = steps.find(
@@ -1268,8 +1268,8 @@ describe('judge.yml prices a background agent from config.background', () => {
   )
   const script = runBlockOf(estimate?.body ?? '')
 
-  // The design doc's basis: 5 runs for roughly $12 to $15, i.e. $13.
-  const RUN_CENTS = 260
+  // Rounded up from the worst measured mean, meeting_briefing's ~$7.74.
+  const RUN_CENTS = 800
   // The base-arm cache is not read by the sweep yet, so both arms run.
   const ARMS = 2
 
@@ -1283,10 +1283,49 @@ describe('judge.yml prices a background agent from config.background', () => {
     )
   })
 
-  // A correct constant nobody reads would pass the test above.
-  it('is the figure a background row is priced at', () => {
-    expect(script).toContain(
-      '[ "$shape" = "chat" ] && cents=700 || cents=$background_cents ;;',
+  // Run, not read: the step is `set -u`, so a constant that is right but
+  // assigned after the loop that reads it matches every text check above and
+  // kills the step on the first background row.
+  it('prices one background row at that figure, run through bash', () => {
+    const start = script.indexOf('rows="$(sed')
+    const end = script.indexOf('usd="$(printf', start)
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    const body = script.slice(start, script.indexOf('\n', end))
+    const dir = mkdtempSync(path.join(tmpdir(), 'judge-estimate-'))
+    writeFileSync(
+      path.join(dir, 'plan.txt'),
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  self_research  [background]  cases: self_research.json\n',
     )
+    const out = execFileSync(
+      'bash',
+      [
+        '-c',
+        `set -euo pipefail\nplanned=1\n${body}\n` +
+          `cat "$RUNNER_TEMP/table.md"\necho "usd=$usd"`,
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          RUNNER_TEMP: dir,
+          GITHUB_SERVER_URL: 'https://github.com',
+          GITHUB_REPOSITORY: 'thegoodparty/omni',
+          CANDIDATE_SHA: 'a'.repeat(40),
+          WORKSPACE: 'packages/gp-api',
+        },
+      },
+    )
+    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
+    const cents = ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS
+    const usd = `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
+    expect(out).toMatch(
+      new RegExp(
+        `^\\| self_research \\| background \\| .* \\| ~${usd} \\|$`,
+        'm',
+      ),
+    )
+    expect(out).toMatch(new RegExp(`^usd=${usd}$`, 'm'))
   })
 })
