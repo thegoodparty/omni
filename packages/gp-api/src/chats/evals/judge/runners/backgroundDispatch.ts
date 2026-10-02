@@ -1,10 +1,15 @@
 import { z } from 'zod'
-import type { AgentEntry } from '../agents'
+import { findAgent, type AgentEntry } from '../agents'
 import type { JudgeConfig } from '../config'
 import type { PlaceholderValues } from '../caseParams'
 import { missingValues, substituteBackgroundCases } from '../caseParams'
 import type { BackgroundCase, CaseList } from '../cases'
-import { isChatCase, loadBackgroundCases, loadCaseList } from '../cases'
+import {
+  caseTurns,
+  isChatCase,
+  loadBackgroundCases,
+  loadCaseList,
+} from '../cases'
 import type { ArmCaseRequest } from '../sweepArm'
 import type { ArmEnv } from '../sweepEnv'
 import { armConfigFor, backgroundDestinationFrom } from '../sweepEnv'
@@ -189,9 +194,13 @@ export const capturableAgents = (
   requested: readonly string[],
   env: ArmEnv,
   find: (agentId: string) => AgentEntry | undefined,
+  // Required, because a local run's chat refusals are worked out from it:
+  // left out, a deliberate refusal would read as a failed capture.
+  config: JudgeConfig,
   casesFor?: Parameters<typeof refusedBeforeSpend>[2],
-): string[] =>
-  requested.filter((id) => {
+): string[] => {
+  const decided = withChatRefusals(env, config, find)
+  return requested.filter((id) => {
     const entry = find(id)
     // Explicit rather than left to optional chaining: an id the registry
     // cannot resolve is refused outright by captureArm, so it can never be
@@ -200,8 +209,9 @@ export const capturableAgents = (
     // Before the refusal check, which reads the list: a blocked agent or one
     // with no list was never going to be captured either way.
     if (entry.cases === null || entry.status === 'blocked') return false
-    return !refusedBeforeSpend(entry, env, casesFor)
+    return !refusedBeforeSpend(entry, decided, casesFor)
   })
+}
 
 export const backgroundRunInputFor = (
   request: ArmCaseRequest,
@@ -287,9 +297,6 @@ export interface BackgroundBudgetInput {
   // named here, because the resolver refuses one only for its turns not
   // fitting the arm.
   refusedReasons?: ReadonlyMap<string, string>
-  // Attempts per chat case, for a local run's own chat spend-down. Absent
-  // leaves chat unbounded locally, as it was before chat was budgeted.
-  chatAttemptsPerCase?: number
 }
 
 export interface CaseLoaderDeps {
@@ -314,7 +321,6 @@ export const caseLoaderFor = (
     maxInFlight,
     admitted,
     refusedReasons,
-    chatAttemptsPerCase,
   } = budget
   if (maxCases !== undefined && maxCases < 1) {
     throw new Error(
@@ -329,28 +335,17 @@ export const caseLoaderFor = (
   // captureArm starts every admitted background run at once, so a per-agent
   // check against all the slots says yes to four agents that each fit and
   // together put four times the runs in flight.
-  const remaining = { slots: maxInFlight, chatMs: chatBudgetMs(budgetMs) }
+  const remaining = { slots: maxInFlight }
   return (agent) => {
     const list = load(agent)
     if (list.shape !== 'background') {
       // Thrown from here for the reason the background refusal below is.
-      // A local run spends its own chat budget down; a sweep obeys the
-      // resolver's names, so both arms refuse the same agents.
-      const spendsDown =
-        admitted === undefined && chatAttemptsPerCase !== undefined
-      const turns = spendsDown ? list.cases.length * chatAttemptsPerCase : 0
-      const turnMs = chatTurnMsFor(agent.agentId)
-      const why =
-        refusedReasons?.get(agent.agentId) ??
-        (spendsDown
-          ? chatRefusal(turns, turnMs, remaining.chatMs, budgetMs)
-          : undefined)
+      const why = refusedReasons?.get(agent.agentId)
       if (why !== undefined) {
         throw new Error(
           `${agent.agentId} was not admitted to this sweep: ${why}`,
         )
       }
-      remaining.chatMs -= turns * turnMs
       return list
     }
     // ADMISSION FIRST, before anything else is read. A refused agent must be
@@ -450,7 +445,6 @@ export const armCaseLoader = (
     attemptsPerCase: config.background.attemptsPerCase,
     maxCases: config.background.maxCases,
     maxInFlight: config.background.maxInFlight,
-    chatAttemptsPerCase: config.attemptsPerCase,
     ...(admitted !== undefined && { admitted }),
     ...(refusedReasons !== undefined && { refusedReasons }),
   })
@@ -477,7 +471,7 @@ export const armDeps = (
     budgetMs,
     config,
     env.backgroundAdmitted,
-    env.backgroundRefused,
+    withChatRefusals(env, config).backgroundRefused,
   ),
 })
 
@@ -651,4 +645,51 @@ export const refuseChat = (
     msLeft -= turns * turnMs
   }
   return refused
+}
+
+// How many turns a chat list drives per attempt: a case of several turns
+// costs all of them.
+export const chatTurnsIn = (list: CaseList): number =>
+  list.cases.reduce(
+    (sum, one) => sum + (isChatCase(one) ? caseTurns(one).length : 0),
+    0,
+  )
+
+// THE CHAT REFUSALS AN ARM OBEYS. A sweep's come from the resolver and are
+// returned as they are. A local run has no resolver, so it works its own out
+// here, once, by the same rule — and both the loader and the arm suite's
+// final check read the result, so a refusal is a refusal by design rather
+// than a capture that failed and turned the run red.
+//
+// A list this tree cannot read counts no turns: the arm reports the real
+// error by name.
+export const withChatRefusals = (
+  env: ArmEnv,
+  config: JudgeConfig,
+  find: (agentId: string) => AgentEntry | undefined = findAgent,
+  load: (agent: AgentEntry) => CaseList = loadCaseList,
+): ArmEnv => {
+  if (env.backgroundRefused !== undefined) return env
+  const selected = [...new Set(env.agentIds)]
+    .map(find)
+    .filter(
+      (agent): agent is AgentEntry =>
+        agent !== undefined && agent.status !== 'blocked',
+    )
+  const turnsOf = (agent: AgentEntry): number => {
+    try {
+      return chatTurnsIn(load(agent))
+    } catch {
+      return 0
+    }
+  }
+  const refused = refuseChat(
+    selected,
+    (agent) => turnsOf(agent) * config.attemptsPerCase,
+    env.armBudgetMs ?? ARM_BUDGET_MS,
+  )
+  return {
+    ...env,
+    backgroundRefused: new Map(refused.map((one) => [one.agentId, one.reason])),
+  }
 }

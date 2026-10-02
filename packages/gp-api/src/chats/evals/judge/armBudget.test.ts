@@ -12,11 +12,13 @@ import { describe, expect, it } from 'vitest'
 import { AGENTS, findAgent, type AgentEntry } from './agents'
 import {
   BASE_BOUNDS_CHAT,
+  BASE_CHAT_ATTEMPTS,
   BASE_HONOURS_ADMISSION,
   BASE_WALKS_CONCURRENTLY,
   baseWalksConcurrently,
   budgetOutputLines,
   resolveAdmission,
+  resolveChatRefusals,
 } from './armBudget'
 import {
   DEFAULT_JUDGE_CONFIG,
@@ -29,6 +31,8 @@ import {
   armCaseLoader,
   armDeps,
   capturableAgents,
+  chatBudgetMs,
+  chatTurnMsFor,
 } from './runners/backgroundDispatch'
 import { SWEEP_VALUES } from './fixtures/sweep'
 import {
@@ -979,8 +983,8 @@ describe('reading the budget an arm was handed', () => {
 })
 
 // THE CHAT HALF, decided once like the background half: each arm reads its
-// own case lists, and two arms refusing different chat agents pay for turns
-// that pair with nothing.
+// own case lists and attempts, and two arms refusing different chat agents
+// pay for turns that pair with nothing.
 describe('the chat agents refused for time', () => {
   const ALL_CHAT =
     'chief_of_staff,campaign_assistant,ordinance_flow,priority_flow'
@@ -995,6 +999,10 @@ describe('the chat agents refused for time', () => {
       },
       ...over,
     })
+  const refusedIn = (written: string): ReadonlyMap<string, string> =>
+    parseArmEnv(intoArmEnv(PARSE(written))).backgroundRefused ?? new Map()
+  const judgeDirOf = (root: string): string =>
+    join(root, 'packages/gp-api/src/chats/evals/judge')
 
   // Every chat agent at today's lists: 8 + 48 minutes fit the 65 the arm
   // leaves chat, and the two after are refused by name. Read back through the
@@ -1023,10 +1031,14 @@ describe('the chat agents refused for time', () => {
       /^ordinance_flow was not admitted to this sweep: would take about 48/,
     )
     expect(loadCases(agent('campaign_assistant')).cases).toHaveLength(8)
-    expect(capturableAgents(ALL_CHAT.split(','), arm, findAgent)).toEqual([
-      'chief_of_staff',
-      'campaign_assistant',
-    ])
+    expect(
+      capturableAgents(
+        ALL_CHAT.split(','),
+        arm,
+        findAgent,
+        DEFAULT_JUDGE_CONFIG,
+      ),
+    ).toEqual(['chief_of_staff', 'campaign_assistant'])
   })
 
   // Against a base that would walk them anyway, refusing on the candidate
@@ -1046,11 +1058,116 @@ describe('the chat agents refused for time', () => {
       BASE_DIR: chatTree({ timeouts: {}, chatCases: { chief_of_staff: 200 } }),
       JUDGE_AGENTS: 'chief_of_staff',
     })
-    expect(
-      parseArmEnv(intoArmEnv(PARSE(written))).backgroundRefused?.get(
-        'chief_of_staff',
+    expect(refusedIn(written).get('chief_of_staff')).toMatch(
+      /^would take about 200 minutes for 600 chat turns/,
+    )
+  })
+
+  // A base case of three turns drives three, whatever its case count says:
+  // 65 cases of three turns at three attempts is 585 turns, not 195.
+  it("counts the base list's turns, not its cases", () => {
+    const root = chatTree({ timeouts: {}, chatCases: {} })
+    writeFileSync(
+      join(judgeDirOf(root), 'cases/chief_of_staff.json'),
+      JSON.stringify({
+        cases: Array.from({ length: 65 }, (_, i) => ({
+          caseId: `c${i}`,
+          turns: ['a', 'b', 'c'],
+        })),
+      }),
+    )
+    const { written } = runEntry({
+      BASE_DIR: root,
+      JUDGE_AGENTS: 'chief_of_staff',
+    })
+    expect(refusedIn(written).get('chief_of_staff')).toMatch(
+      /for 585 chat turns/,
+    )
+  })
+
+  // The base arm walks ITS attempts, so a base that walks more is the slower
+  // arm: 8 cases at 30 attempts is 240 turns.
+  it("costs the base arm's attempts when they are the larger", () => {
+    const root = chatTree({ timeouts: {} })
+    writeFileSync(
+      join(judgeDirOf(root), 'config.ts'),
+      readFileSync(join(__dirname, 'config.ts'), 'utf8').replace(
+        /^ {2}attemptsPerCase: \d+,$/m,
+        '  attemptsPerCase: 30,',
       ),
-    ).toMatch(/^would take about 200 minutes for 600 chat turns/)
+    )
+    const { written } = runEntry({
+      BASE_DIR: root,
+      JUDGE_AGENTS: 'chief_of_staff',
+    })
+    expect(refusedIn(written).get('chief_of_staff')).toMatch(
+      /^would take about 80 minutes for 240 chat turns/,
+    )
+  })
+
+  // The injected costs, for the rules the real trees cannot isolate.
+  const resolve = (
+    ids: string[],
+    over: Partial<NonNullable<Parameters<typeof resolveChatRefusals>[4]>> = {},
+  ) =>
+    resolveChatRefusals(ids, '/no/base', DEFAULT_JUDGE_CONFIG, AGENTS, {
+      candidate: () => 8,
+      base: () => 8,
+      baseAttempts: () => undefined,
+      boundsChat: () => true,
+      ...over,
+    })
+
+  it('costs the candidate when it has more turns than the base', () => {
+    const refused = resolve(['chief_of_staff'], { candidate: () => 200 })
+    expect(refused[0]?.reason).toMatch(/for 600 chat turns/)
+  })
+
+  it('costs the candidate alone when the base has no list', () => {
+    expect(resolve(['chief_of_staff'], { base: () => undefined })).toEqual([])
+  })
+
+  it('refuses nothing for a list this branch cannot read', () => {
+    expect(
+      resolve(['campaign_assistant'], {
+        candidate: () => {
+          throw new Error('unreadable')
+        },
+        base: () => undefined,
+      }),
+    ).toEqual([])
+  })
+
+  // IN THE ORDER THE ARMS WALK, which is the request's, not the registry's.
+  // The expected set is worked out here from the planned turn times.
+  it('decides in the order the agents were asked for', () => {
+    const ids = [
+      'priority_flow',
+      'ordinance_flow',
+      'campaign_assistant',
+      'chief_of_staff',
+    ]
+    let msLeft = chatBudgetMs(ARM_BUDGET_MS)
+    const expected: string[] = []
+    for (const id of ids) {
+      const ms = 8 * DEFAULT_JUDGE_CONFIG.attemptsPerCase * chatTurnMsFor(id)
+      if (ms > msLeft) expected.push(id)
+      else msLeft -= ms
+    }
+    expect(expected.length).toBeGreaterThan(0)
+    expect(resolve(ids).map((one) => one.agentId)).toEqual(expected)
+  })
+
+  // Named twice, walked once: one refusal, and the budget charged once.
+  it('decides an agent named twice once', () => {
+    expect(
+      resolve(['ordinance_flow', 'ordinance_flow'], {
+        candidate: () => 20,
+      }).map((one) => one.agentId),
+    ).toEqual(['ordinance_flow'])
+    expect(
+      resolve(['priority_flow', 'priority_flow', 'chief_of_staff']),
+    ).toEqual([])
   })
 })
 
@@ -1069,7 +1186,25 @@ describe('the probe for whether the base arm refuses chat agents', () => {
       'a declaration that says false',
       'export const CHAT_TIME_BOUNDED = false\n',
     ],
+    [
+      'a declaration commented out',
+      '// export const CHAT_TIME_BOUNDED = true\n',
+    ],
+    [
+      'a value that only starts with true',
+      'export const CHAT_TIME_BOUNDED = trueish\n',
+    ],
   ])('does not mistake %s for an arm that does', (_label, text) => {
     expect(BASE_BOUNDS_CHAT.test(text)).toBe(false)
+  })
+})
+
+describe("the probe for the base arm's chat attempts", () => {
+  it("reads this branch's top-level attempts, not background's", () => {
+    expect(
+      BASE_CHAT_ATTEMPTS.exec(
+        readFileSync(join(__dirname, 'config.ts'), 'utf8'),
+      )?.[1],
+    ).toBe(String(DEFAULT_JUDGE_CONFIG.attemptsPerCase))
   })
 })

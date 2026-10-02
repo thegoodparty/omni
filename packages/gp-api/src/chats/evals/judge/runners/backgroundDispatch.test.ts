@@ -4,22 +4,25 @@ import {
   CHAT_TURN_MS,
   POLL_HEADROOM_MS,
   UNMEASURED_CHAT_TURN_MS,
+  WAVE_MARGIN_MS,
   admitBackground,
   armDeps,
   backgroundRunInputFor,
   caseLoaderFor,
   capturableAgents,
+  chatBudgetMs,
   chatTurnMsFor,
+  chatTurnsIn,
   refusedBeforeSpend,
   refuseChat,
   walkedBackgroundCases,
 } from './backgroundDispatch'
 import { DEFAULT_JUDGE_CONFIG } from '../config'
 import { AGENTS, findAgent, type AgentEntry } from '../agents'
-import { SWEEP_VALUES } from '../fixtures/sweep'
+import { SWEEP_VALUES, armEnvFor } from '../fixtures/sweep'
 import type { AgentConfig } from './background'
 import type { ArmCaseRequest } from '../sweepArm'
-import type { ArmEnv } from '../sweepEnv'
+import { parseArmEnv, type ArmEnv } from '../sweepEnv'
 import { loadCaseList } from '../cases'
 import type { BackgroundCase, CaseList, JudgeCase } from '../cases'
 
@@ -1192,6 +1195,7 @@ describe('capturableAgents', () => {
         ['chief_of_staff', 'meeting_briefing', 'self_research'],
         env({ backgroundAdmitted: new Set(['meeting_briefing']) }),
         find,
+        DEFAULT_JUDGE_CONFIG,
         () => [],
       ),
     ).toEqual(['chief_of_staff', 'meeting_briefing'])
@@ -1215,6 +1219,7 @@ describe('capturableAgents', () => {
           ]),
         }),
         findAgent,
+        DEFAULT_JUDGE_CONFIG,
       ),
     ).toEqual(['find_existing_ordinances'])
   })
@@ -1225,6 +1230,7 @@ describe('capturableAgents', () => {
         ['no_list', 'blocked_one', 'not_an_agent', 'chief_of_staff'],
         env(),
         find,
+        DEFAULT_JUDGE_CONFIG,
         () => [],
       ),
     ).toEqual(['chief_of_staff'])
@@ -1238,6 +1244,7 @@ describe('capturableAgents', () => {
         ['meeting_briefing', 'chief_of_staff'],
         env({ fixtureValues: {} }),
         find,
+        DEFAULT_JUDGE_CONFIG,
         () => [],
       ),
     ).toEqual(['chief_of_staff'])
@@ -1254,11 +1261,11 @@ describe('the chat budget', () => {
     cases: `${agentId}.json`,
     status: 'pending',
   })
-  const turns = (count: number): JudgeCase[] =>
-    Array.from({ length: count }, (_, i) => ({
-      caseId: `c${i}`,
-      turns: ['hello'],
-    }))
+  const registered = (agentId: string): AgentEntry => {
+    const found = findAgent(agentId)
+    if (found === undefined) throw new Error(`${agentId} is not registered`)
+    return found
+  }
 
   // 65 minutes for chat. chief_of_staff 8 minutes, priority_flow 48, and
   // ordinance_flow's 48 more does not fit; campaign_assistant's 6 still
@@ -1281,6 +1288,24 @@ describe('the chat budget', () => {
     )
   })
 
+  // Exactly the chat budget is a fit; one turn more is not.
+  it('admits turns that fill the chat budget exactly, and no more', () => {
+    const turnMs = chatTurnMsFor('chief_of_staff')
+    const exact = chatBudgetMs(ARM_BUDGET_MS) / turnMs
+    expect(Number.isInteger(exact)).toBe(true)
+    const cos = [chatAgent('chief_of_staff')]
+    expect(refuseChat(cos, () => exact, ARM_BUDGET_MS)).toEqual([])
+    expect(refuseChat(cos, () => exact + 1, ARM_BUDGET_MS)).toHaveLength(1)
+  })
+
+  // Rounded up: 80 seconds is "about 2 minutes", never "about 1".
+  it('rounds a partial minute up', () => {
+    expect(
+      refuseChat([chatAgent('chief_of_staff')], () => 4, WAVE_MARGIN_MS)[0]
+        ?.reason,
+    ).toMatch(/^would take about 2 minutes for 4 chat turns at 20s each/)
+  })
+
   it('plans an agent nobody has timed at the slowest measured turn', () => {
     expect(chatTurnMsFor('a_new_chat_agent')).toBe(UNMEASURED_CHAT_TURN_MS)
     expect(UNMEASURED_CHAT_TURN_MS).toBe(
@@ -1299,6 +1324,18 @@ describe('the chat budget', () => {
     ).toEqual([])
   })
 
+  // A case of several turns drives every one of them.
+  it('counts the turns a list drives, not its cases', () => {
+    expect(
+      chatTurnsIn(
+        caseList('chat', 'chief_of_staff', [
+          { caseId: 'one', question: 'hello' },
+          { caseId: 'three', turns: ['a', 'b', 'c'] },
+        ]),
+      ),
+    ).toBe(4)
+  })
+
   // THE PIN ON THE REAL REGISTRY. Any one chat agent has to fit an arm on its
   // own, or naming it alone is a sweep that can never judge it. Fails when a
   // case list or config.attemptsPerCase grows past what an arm holds.
@@ -1314,41 +1351,30 @@ describe('the chat budget', () => {
       refuseChat(
         [agent],
         (one) =>
-          loadCaseList(one).cases.length * DEFAULT_JUDGE_CONFIG.attemptsPerCase,
+          chatTurnsIn(loadCaseList(one)) * DEFAULT_JUDGE_CONFIG.attemptsPerCase,
         ARM_BUDGET_MS,
       ),
     ).toEqual([])
   })
 
-  const loader = (
-    budget: Partial<Parameters<typeof caseLoaderFor>[1]>,
-    cases: Record<string, number>,
-  ) =>
-    caseLoaderFor(
+  // A sweep obeys the resolver's names and nothing else, so both arms
+  // refuse the same agents whatever their own lists hold.
+  it('refuses a chat agent the resolver named, with its reason', () => {
+    const many: JudgeCase[] = Array.from({ length: 1_000 }, (_, i) => ({
+      caseId: `c${i}`,
+      question: 'hello',
+    }))
+    const load = caseLoaderFor(
       {},
       {
         budgetMs: ARM_BUDGET_MS,
         attemptsPerCase: 1,
         maxCases: undefined,
         maxInFlight: 12,
-        ...budget,
-      },
-      {
-        load: (agent) =>
-          caseList('chat', agent.agentId, turns(cases[agent.agentId] ?? 0)),
-      },
-    )
-
-  // A sweep obeys the resolver's names and nothing else, so both arms
-  // refuse the same agents whatever their own lists hold.
-  it('refuses a chat agent the resolver named, with its reason', () => {
-    const load = loader(
-      {
         admitted: new Set(),
         refusedReasons: new Map([['ordinance_flow', 'would take 99 minutes']]),
-        chatAttemptsPerCase: 3,
       },
-      { ordinance_flow: 1, chief_of_staff: 1_000 },
+      { load: (agent) => caseList('chat', agent.agentId, many) },
     )
     expect(() => load(chatAgent('ordinance_flow'))).toThrow(
       /^ordinance_flow was not admitted to this sweep: would take 99 minutes$/,
@@ -1356,16 +1382,21 @@ describe('the chat budget', () => {
     expect(load(chatAgent('chief_of_staff')).cases).toHaveLength(1_000)
   })
 
-  // A local run has no resolver, so it spends its own chat budget down.
-  it('spends a local run down in walk order', () => {
-    const load = loader(
-      { chatAttemptsPerCase: 3 },
-      { chief_of_staff: 8, campaign_assistant: 8, priority_flow: 8 },
+  // A LOCAL RUN, through the arm's own entry points and the real lists: no
+  // resolver, so the arm works the refusal out itself, and the suite's final
+  // check reads the same refusal as one by design rather than a failure.
+  it('refuses on a local run by the same rule, and expects only the rest', () => {
+    const ids = ['chief_of_staff', 'campaign_assistant', 'priority_flow']
+    const arm = parseArmEnv(armEnvFor({ JUDGE_AGENTS: ids.join(',') }))
+    expect(arm.backgroundRefused).toBeUndefined()
+    const { loadCases } = armDeps(arm, DEFAULT_JUDGE_CONFIG)
+    expect(loadCases(registered('chief_of_staff')).cases).toHaveLength(8)
+    expect(loadCases(registered('campaign_assistant')).cases).toHaveLength(8)
+    expect(() => loadCases(registered('priority_flow'))).toThrow(
+      /^priority_flow was not admitted to this sweep: would take about 48 minutes for 24 chat turns at 120s each/,
     )
-    expect(load(chatAgent('chief_of_staff')).cases).toHaveLength(8)
-    expect(load(chatAgent('campaign_assistant')).cases).toHaveLength(8)
-    expect(() => load(chatAgent('priority_flow'))).toThrow(
-      /^priority_flow was not admitted to this sweep: would take about 48 minutes for 24 chat turns at 120s each, and 9 of/,
+    expect(capturableAgents(ids, arm, findAgent, DEFAULT_JUDGE_CONFIG)).toEqual(
+      ['chief_of_staff', 'campaign_assistant'],
     )
   })
 
@@ -1378,8 +1409,11 @@ describe('the chat budget', () => {
     expect(refusedBeforeSpend(chatAgent('ordinance_flow'), named)).toBe(true)
     expect(refusedBeforeSpend(chatAgent('chief_of_staff'), named)).toBe(false)
     expect(
-      capturableAgents(['chief_of_staff', 'ordinance_flow'], named, (id) =>
-        chatAgent(id),
+      capturableAgents(
+        ['chief_of_staff', 'ordinance_flow'],
+        named,
+        (id) => chatAgent(id),
+        DEFAULT_JUDGE_CONFIG,
       ),
     ).toEqual(['chief_of_staff'])
   })

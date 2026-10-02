@@ -9,6 +9,7 @@ import { agentConfigFor } from './runners/agentConfig'
 import {
   ARM_BUDGET_MS,
   admitBackground,
+  chatTurnsIn,
   pollTimeoutMsFor,
   refuseChat,
 } from './runners/backgroundDispatch'
@@ -174,15 +175,22 @@ export const baseBoundsChat = (baseDir: string): boolean => {
   }
 }
 
-// How many cases a chat agent's list holds on the base ref, read raw for the
-// reason baseCost is. Undefined when it cannot be read: that arm then fails
-// or skips the agent on its own, and the candidate's count still stands.
-const baseChatCases = (
+// A chat list's turns, read raw for the reason baseCost is: a case of
+// several `turns` drives each one, and a `question` case — every list before
+// `turns` existed — drives one.
+const CHAT_TURNS_ONLY = z.object({
+  cases: z.array(z.object({ turns: z.array(z.string()).optional() })),
+})
+
+// How many turns a chat agent's list drives per attempt on the base ref.
+// Undefined when it cannot be read: that arm then fails or skips the agent
+// on its own, and the candidate's count still stands.
+const baseChatTurns = (
   baseDir: string,
   agent: AgentEntry,
 ): number | undefined => {
   try {
-    return CASES_ONLY.parse(
+    return CHAT_TURNS_ONLY.parse(
       JSON.parse(
         readFileSync(
           join(
@@ -193,26 +201,37 @@ const baseChatCases = (
           'utf8',
         ),
       ),
-    ).cases.length
+    ).cases.reduce((sum, one) => sum + (one.turns?.length ?? 1), 0)
   } catch {
     return undefined
   }
 }
 
-// Zero when this branch cannot read the list, for the same reason: the arm
-// reports the real error by name, and this is only a time estimate.
-const candidateChatCases = (agent: AgentEntry): number => {
+// The base arm's chat attempts per case, which it reads from ITS config.ts.
+// The top-level key is the only one at two spaces of indent; background's
+// sits inside its own object. Undefined when it cannot be found, and the
+// candidate's then stands.
+export const BASE_CHAT_ATTEMPTS = /^ {2}attemptsPerCase: (\d+),$/m
+
+export const baseChatAttempts = (baseDir: string): number | undefined => {
   try {
-    return loadCaseList(agent).cases.length
+    const found = BASE_CHAT_ATTEMPTS.exec(
+      readFileSync(
+        join(baseDir, 'packages/gp-api/src/chats/evals/judge/config.ts'),
+        'utf8',
+      ),
+    )?.[1]
+    return found === undefined ? undefined : Number(found)
   } catch {
-    return 0
+    return undefined
   }
 }
 
 // THE CHAT AGENTS NEITHER ARM MAY WALK, decided once for the reason
-// background admission is: each arm reads its own case lists, and two arms
-// refusing different agents pay for turns that pair with nothing. Each
-// agent is costed on whichever arm has more cases.
+// background admission is: each arm reads its own case lists and its own
+// attempts, and two arms refusing different agents pay for turns that pair
+// with nothing. Each agent is costed at the larger turn count and the larger
+// attempts of the two arms, which bounds whichever arm is slower.
 //
 // Against a base that would not obey, nothing is refused, which leaves the
 // sweep exactly as unbounded as that base already was.
@@ -224,10 +243,12 @@ export const resolveChatRefusals = (
   costs: {
     candidate: (agent: AgentEntry) => number
     base: (baseDir: string, agent: AgentEntry) => number | undefined
+    baseAttempts: (baseDir: string) => number | undefined
     boundsChat: (baseDir: string) => boolean
   } = {
-    candidate: candidateChatCases,
-    base: baseChatCases,
+    candidate: (agent) => chatTurnsIn(loadCaseList(agent)),
+    base: baseChatTurns,
+    baseAttempts: baseChatAttempts,
     boundsChat: baseBoundsChat,
   },
 ): { agentId: string; reason: string }[] => {
@@ -236,11 +257,23 @@ export const resolveChatRefusals = (
     { kind: 'list', ids: [...new Set(agentIds)] },
     registry,
   ).selected
+  const attempts = Math.max(
+    config.attemptsPerCase,
+    costs.baseAttempts(baseDir) ?? 0,
+  )
+  // Zero when this branch cannot read the list: the arm reports the real
+  // error by name, and this is only a time estimate.
+  const onCandidate = (agent: AgentEntry): number => {
+    try {
+      return costs.candidate(agent)
+    } catch {
+      return 0
+    }
+  }
   return refuseChat(
     selected,
     (agent) =>
-      Math.max(costs.candidate(agent), costs.base(baseDir, agent) ?? 0) *
-      config.attemptsPerCase,
+      Math.max(onCandidate(agent), costs.base(baseDir, agent) ?? 0) * attempts,
     ARM_BUDGET_MS,
   )
 }
