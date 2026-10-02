@@ -136,3 +136,31 @@ describe('previousStage', () => {
     expect(moves).toBe(stepperPosition('draw').totalSteps - 1)
   })
 })
+
+describe('an event invite’s details stage', () => {
+  it('counts six steps with details second', () => {
+    expect(stepperPosition('details', true)).toEqual({
+      currentStep: 2,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('who', true)).toEqual({
+      currentStep: 3,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('draw', true)).toEqual({
+      currentStep: 6,
+      totalSteps: 6,
+    })
+  })
+
+  it('walks back through details only when the flow has it', () => {
+    expect(previousStage('who', true)).toBe('details')
+    expect(previousStage('details', true)).toBe('purpose')
+    expect(previousStage('who')).toBe('purpose')
+  })
+
+  it('is a pre-draw stage the page sees as filters', () => {
+    expect(stageStep('details')).toBe('filters')
+    expect(flowStage('filters', 'details')).toBe('details')
+  })
+})

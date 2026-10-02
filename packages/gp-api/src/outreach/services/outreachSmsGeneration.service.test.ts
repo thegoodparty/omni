@@ -239,3 +239,134 @@ describe('OutreachSmsGenerationService — identification', () => {
     }
   })
 })
+
+const LOGISTICS_BRACKET = /\[(date|time|location|hours|phone number)\]/i
+
+describe('OutreachSmsGenerationService — event invite details', () => {
+  const EVENT = {
+    date: '2026-10-17',
+    time: '18:30',
+    location: 'Georgetown  Public\nLibrary',
+  }
+
+  it('writes the given details into a Win invite', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraft(
+      { purpose: 'event_invite', tone: 'warm', event: EVENT },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+
+    const { systemPrompt, userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).toContain('Date: Saturday, October 17')
+    expect(userPrompt).toContain('Time: 6:30 PM')
+    expect(userPrompt).toContain('Location: Georgetown Public Library')
+    expect(`${systemPrompt}\n${userPrompt}`).not.toMatch(LOGISTICS_BRACKET)
+  })
+
+  it('writes the given details into a Serve invite', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraftWithVoice(
+      { purpose: 'event_invite', tone: 'warm', event: EVENT },
+      'Alex Rivera',
+      'City Council',
+      '7',
+      [],
+      SERVE_SMS_VOICE,
+    )
+
+    const { systemPrompt, userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).toContain('Date: Saturday, October 17')
+    expect(userPrompt).toContain('Location: Georgetown Public Library')
+    expect(`${systemPrompt}\n${userPrompt}`).not.toMatch(LOGISTICS_BRACKET)
+  })
+
+  it('asks for no logistics line when an invite has no details', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraft(
+      { purpose: 'event_invite', tone: 'warm' },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+
+    const { userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).toContain('No event date, time or place was given.')
+    expect(userPrompt).not.toContain('Date:')
+  })
+
+  it('adds no event block to another purpose or to a polish', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraft(
+      { purpose: 'introduce_myself', tone: 'warm', event: EVENT },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+    await service.generateDraft(
+      {
+        purpose: 'event_invite',
+        tone: 'warm',
+        currentDraft: 'Join us Saturday at the library.',
+        event: EVENT,
+      },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+
+    expect(jsonCompletion).toHaveBeenCalledTimes(2)
+    for (const [call] of jsonCompletion.mock.calls) {
+      const { messages } = call as {
+        messages: Array<{ role: string; content: string }>
+      }
+      const user = messages.find((m) => m.role === 'user')?.content
+      expect(user).not.toContain('Event details.')
+      expect(user).not.toContain('No event date')
+    }
+  })
+
+  it.each([
+    'introduce_myself',
+    'persuade_voters',
+    'event_invite',
+    'early_voting',
+    'election_day_turnout',
+  ] as const)('never asks a Win %s draft for a bracket', async (purpose) => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraft(
+      { purpose, tone: 'warm' },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+
+    const { systemPrompt, userPrompt } = promptsOf(jsonCompletion)
+    expect(`${systemPrompt}\n${userPrompt}`).not.toMatch(LOGISTICS_BRACKET)
+  })
+
+  it.each(freshServePurposes)(
+    'never asks a Serve %s draft for a bracket',
+    async (purpose) => {
+      const { service, jsonCompletion } = buildService()
+
+      await service.generateDraftWithVoice(
+        { purpose, tone: 'warm' },
+        'Alex Rivera',
+        'City Council',
+        '7',
+        [],
+        SERVE_SMS_VOICE,
+      )
+
+      const { systemPrompt, userPrompt } = promptsOf(jsonCompletion)
+      expect(`${systemPrompt}\n${userPrompt}`).not.toMatch(LOGISTICS_BRACKET)
+    },
+  )
+})
