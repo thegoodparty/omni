@@ -87,7 +87,8 @@ const lacksEvidence = (
 ): boolean => {
   const next = patch?.state
   if (next !== 'confirmed' && next !== 'revised') return false
-  if (next === stored?.state) return false
+  // Re-recording the same answer may add to what was heard, never blank it.
+  if (next === stored?.state) return patch?.heard?.trim() === ''
   const heard = (patch?.heard ?? stored?.heard ?? '').trim()
   const shownBefore =
     stored?.offeredAt !== undefined &&
