@@ -12,7 +12,7 @@ describe('OutreachHistoryTable — unified history', () => {
   it('renders both legacy status vocabularies', () => {
     const rows: HistoryRow[] = [
       // P2P row (phoneListId set): a completed spine reads Done whatever
-      // the Peerly job says (its status has no "finished" value).
+      // the vendor job is doing (its status has no "finished" value).
       {
         id: 1,
         date: '2026-07-02',
@@ -20,7 +20,7 @@ describe('OutreachHistoryTable — unified history', () => {
         name: 'July rent-cap push',
         status: 'completed',
         phoneListId: 42,
-        p2pJob: { status: 'active' },
+        projectId: 'job-1',
         textCount: 1204,
       },
       // P2P pending with a vendor job is a scheduled send awaiting its
@@ -32,7 +32,7 @@ describe('OutreachHistoryTable — unified history', () => {
         name: 'Scheduled blast',
         status: 'pending',
         phoneListId: 43,
-        p2pJob: { status: 'building' },
+        projectId: 'job-2',
       },
       // A robocall pending row is a paid, scheduled send → Scheduled.
       {

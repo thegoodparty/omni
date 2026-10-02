@@ -486,7 +486,7 @@ describe('TenDlcStatusPage', () => {
     expect(screen.getByRole('textbox')).toBeInTheDocument()
   })
 
-  it('renders each bucket-specific context column', async () => {
+  it('renders a bucket-specific explanation row under each entry', async () => {
     mockGetTenDlcStatusSnapshot.mockResolvedValue(
       snapshot({
         stuckSubmission: [
@@ -533,16 +533,30 @@ describe('TenDlcStatusPage', () => {
 
     renderPage()
 
-    expect(await screen.findByText('run run-77 (FAILED)')).toBeInTheDocument()
-    expect(screen.getByText('vote-held.site (registered)')).toBeInTheDocument()
+    // No-hold stuck row: the explanation points at the agent run by link.
+    const runLink = await screen.findByRole('link', { name: 'run run-77' })
+    expect(runLink).toHaveAttribute('href', '/dashboard/agent-runs/run-77')
+    expect(
+      screen.getByText(/No CV hold — it stopped inside/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/vote-held\.site \(registered\) — no DNS delegation/)
+    ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Radix unsuspension' })
     ).toHaveAttribute('href', 'https://abuse.radix.website/unsuspension')
-    expect(screen.getByText(/ident-3 · escalation pending/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/ident-3 — CampaignVerify has been reviewing/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Escalation posts to the shared Peerly channel/)
+    ).toBeInTheDocument()
     expect(
       screen.getByText('missing user association (data repair)')
     ).toBeInTheDocument()
-    expect(screen.getByText(/ident-5 · CV IN_REVIEW/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/ident-5 — CV IN_REVIEW: CampaignVerify/)
+    ).toBeInTheDocument()
   })
 
   it('shows the assigned success person, or Unassigned when there is none', async () => {
@@ -587,10 +601,12 @@ describe('TenDlcStatusPage', () => {
     renderPage()
 
     expect(
-      await screen.findByText('identity minted — escalate to Peerly')
+      await screen.findByText(
+        /ident-1 — CampaignVerify rejected after submission/
+      )
     ).toBeInTheDocument()
     expect(
-      screen.getByText('no identity — repair data, then reset status')
+      screen.getByText(/Rejected before any Peerly identity existed/)
     ).toBeInTheDocument()
   })
 })

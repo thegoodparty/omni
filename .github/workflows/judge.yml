@@ -423,8 +423,8 @@ jobs:
               echo ''
               echo "| | |"
               echo "| --- | --- |"
-              echo "| candidate | \`$CANDIDATE_SHA\` |"
-              echo "| base | \`$BASE_REF\` |"
+              echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+              echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
               echo ''
               echo "This run is red, and that is the answer rather than a hiccup:"
               echo "the annotation is in [the run log]($RUN_URL)."
@@ -681,8 +681,8 @@ jobs:
             else
               echo "| agents | \`$AGENTS\` (asked for: \`$REQUESTED\`) |"
             fi
-            echo "| candidate | \`$CANDIDATE_SHA\` |"
-            echo "| base | \`$BASE_REF\` |"
+            echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+            echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
             if [ -n "$credit" ]; then
               echo ''
               echo "Requested by @$credit."
@@ -729,6 +729,7 @@ jobs:
           REQUESTED_BY: ${{ inputs.requested_by }}
           CANDIDATE_SHA: ${{ steps.gate.outputs.candidate_sha }}
           BASE_REF: ${{ steps.gate.outputs.base_ref }}
+          PR_NUMBER: ${{ inputs.pr_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -800,8 +801,8 @@ jobs:
               else
                 echo "| agents | \`$AGENTS\` (asked for: \`$REQUESTED\`) |"
               fi
-              echo "| candidate | \`$CANDIDATE_SHA\` |"
-              echo "| base | \`$BASE_REF\` |"
+              echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+              echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
               if [ -s "$RUNNER_TEMP/plan.txt" ]; then
                 echo ''
                 echo '<details><summary>What the CLI printed</summary>'
@@ -859,8 +860,8 @@ jobs:
               else
                 echo "| agents | \`$AGENTS\` (asked for: \`$REQUESTED\`) |"
               fi
-              echo "| candidate | \`$CANDIDATE_SHA\` |"
-              echo "| base | \`$BASE_REF\` |"
+              echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+              echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
               echo ''
               echo '<details><summary>Plan</summary>'
               echo ''
@@ -1006,8 +1007,17 @@ jobs:
               # gone.
               safe_cases="$(printf '%s' "$cases" | tr -d '\r`' \
                 | sed 's/|/\\|/g' | cut -c1-120)"
-              printf '| %s | %s | `%s` | ~%d.%02d |\n' \
-                "$id" "$shape" "$safe_cases" "$((cents / 100))" "$((cents % 100))"
+              # Linked to the file at the commit being judged, but only when
+              # it is a plain case-list file name. Anything else stays the
+              # escaped code span above: it is arbitrary CLI output, and a
+              # link built from it would point wherever that output said.
+              if [[ "$safe_cases" =~ ^[a-z0-9_]+\.json$ ]]; then
+                cell="[\`$safe_cases\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$CANDIDATE_SHA/$WORKSPACE/src/chats/evals/judge/cases/$safe_cases)"
+              else
+                cell="\`$safe_cases\`"
+              fi
+              printf '| %s | %s | %s | ~%d.%02d |\n' \
+                "$id" "$shape" "$cell" "$((cents / 100))" "$((cents % 100))"
             done <<<"$rows"
           } > "$RUNNER_TEMP/table.md"
 
@@ -1063,8 +1073,8 @@ jobs:
             else
               echo "| selection | \`auto\`, from the diff, so two arms that hash alike are refused |"
             fi
-            echo "| candidate | \`$CANDIDATE_SHA\` |"
-            echo "| base | \`$BASE_REF\` |"
+            echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+            echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
             echo ''
             cat "$RUNNER_TEMP/table.md"
             echo ''
@@ -1086,7 +1096,15 @@ jobs:
             fi
           } > "$RUNNER_TEMP/plan-comment.md"
 
-          cat "$RUNNER_TEMP/plan-comment.md" >> "$GITHUB_STEP_SUMMARY"
+          # The run page, unlike the comment, is not on the PR, so it says
+          # which one. Numeric only: anything else is not linked.
+          {
+            if [[ "${PR_NUMBER:-}" =~ ^[0-9]+$ ]]; then
+              echo "Pull request: [#$PR_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$PR_NUMBER)"
+              echo ''
+            fi
+            cat "$RUNNER_TEMP/plan-comment.md"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           # Published only now that the file exists, so the step that posts the
           # comment can be gated on this one output and nothing else. It is
@@ -1161,8 +1179,8 @@ jobs:
             echo "| | |"
             echo "| --- | --- |"
             echo "| asked for | \`$REQUESTED\` |"
-            echo "| candidate | \`$CANDIDATE_SHA\` |"
-            echo "| base | \`$BASE_REF\` |"
+            echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+            echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
             if [ -n "$credit" ]; then
               echo ''
               echo "Requested by @$credit."
@@ -1591,9 +1609,9 @@ jobs:
       # job stages agent configs and sends dispatch messages, so it gets
       # github-actions-judge-sweep and the one scoped policy attached to it.
       # Written as a literal rather than a repository variable because the role
-      # name is fixed by the IaC that creates it (thegoodparty/ops,
-      # deploy/components/ci-roles.ts) — a variable would add a hand-set value
-      # that can only ever disagree with it.
+      # name is fixed by the IaC that creates it (gp-ai's
+      # modules/universal-judge-sweep-policy) — a variable would add a hand-set
+      # value that can only ever disagree with it.
       #
       # continue-on-error, deliberately. A chat-only sweep needs no AWS at all,
       # and failing the whole job here would turn "the judge role is not
@@ -1618,9 +1636,10 @@ jobs:
           # billing while the poll dies on an auth error the sweep records as
           # an infraError. Paid for, then excluded from the comparison.
           #
-          # Capped by the role's own maxSessionDuration (thegoodparty/ops,
-          # deploy/components/ci-roles.ts), which is why the two numbers match
-          # and why this cannot be raised here alone.
+          # Capped by the role's own max_session_duration (gp-ai's
+          # modules/universal-judge-sweep-policy), which is why the two numbers
+          # match and why this cannot be raised here alone;
+          # judgeWorkflow.test.ts holds them equal.
           role-duration-seconds: 14400
 
       - name: Resolve where a background dispatch goes
@@ -2021,10 +2040,24 @@ jobs:
           # Resolved by the worktree step. Guarded with `:-` below because this
           # step runs on `always()` and that step may not have been reached.
           BASE_SHA: ${{ steps.base.outputs.commit }}
+          PR_NUMBER: ${{ inputs.pr_number }}
           JOB_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          # The base commit, linked, or `unresolved` when the worktree step
+          # never ran. Built here because `${BASE_SHA:-unresolved}` would
+          # repeat the SHA after its own link.
+          base_commit=unresolved
+          if [ -n "${BASE_SHA:-}" ]; then
+            base_commit="[\`${BASE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$BASE_SHA)"
+          fi
+          # The PR this sweep judged, linked. Numeric only, so nothing else in
+          # the input can reach a URL here.
+          pull_request=none
+          if [[ "${PR_NUMBER:-}" =~ ^[0-9]+$ ]]; then
+            pull_request="[#$PR_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$PR_NUMBER)"
+          fi
           {
             echo '### Universal Judge sweep'
             echo ''
@@ -2039,9 +2072,10 @@ jobs:
             # reports the outcome crashed before printing it. The comparison
             # is only meaningful in the plan summary, and that is where it
             # stays.
+            echo "| pull request | $pull_request |"
             echo "| swept | \`$AGENTS\` |"
-            echo "| candidate | \`$CANDIDATE_SHA\` |"
-            echo "| base | \`$BASE_REF\` (\`${BASE_SHA:-unresolved}\`) |"
+            echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+            echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) ($base_commit) |"
             echo "| sweep id | \`$SWEEP_ID\` |"
             echo "| estimated before the run | ~\$$ESTIMATE_USD |"
             echo "| outcome | $JOB_STATUS |"

@@ -69,7 +69,6 @@ events:
   - {event: "Serve Onboarding - Constituency Profile Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Meet Your Constituents Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Poll Strategy Viewed",  product: serve, family: serve, floor: null, owner: TBD}
-  - {event: "Serve Onboarding - SMS Poll Sent",         product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Success Page Viewed",   product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Sworn In Completed",    product: serve, family: serve, floor: null, owner: TBD}
   # Serve net-new onboarding (magic link + OTP, PR #198; first seen 2026-06)
@@ -319,6 +318,53 @@ behaviors:
     superseded:
       - "Dashboard - Campaign Plan Viewed"
     review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
+
+  - id: serve_constituent_outreach
+    question: "How many elected officials have reached their constituents through the product?"
+    product: serve
+    metric: activated_serve_users
+    asked_by: bryan@goodparty.org
+    headline: >-
+      An official counts once they have reached constituents through us: an SMS poll sent,
+      a text paid for, a social post shared, a door knocked, a call logged, or a walk or
+      call list finished. Polls after the first one are not counted yet.
+    caveats: >-
+      Redefined 2026-10-01 (DATA-2609) to follow the Win activation rule with Serve's
+      channels. The shared outreach events carry `product: win | serve` from 2026-09-29, and
+      the metric keeps only Serve; earlier non-poll outreach cannot be told apart from Win
+      and is not counted. `Outreach - Campaign Completed` fires from every Serve channel's
+      completion, so each channel's call site is listed as its own surface. Door and call
+      logs fire once per person reached, so they count toward whether and when an official
+      activated, never toward campaigns sent. A poll sent from the Polls tab after
+      onboarding fires only the generic `Payment - Completed` with `type: 'New Serve Poll'`,
+      which no leg can read, so those officials are missed until the poll send fires the
+      shared outreach event (DATA-2611). Robocall is not offered to Serve.
+    surfaces:
+      - path: packages/gp-webapp/app/polls/onboarding/components/OnboardingPage.tsx
+        label: onboarding_poll_sent
+        instrumented_by: "Serve Onboarding - SMS Poll Sent"
+      - path: packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx
+        label: poll_sent
+        instrumented_by: null          # DATA-2611
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx
+        label: serve_sms_paid
+        instrumented_by: "Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx
+        label: serve_social_shared
+        instrumented_by: "Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingCallerPage.tsx
+        label: serve_call_list_completed
+        instrumented_by: "Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
+        label: serve_walk_completed
+        instrumented_by: "Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/RecordKnockForm.tsx
+        label: serve_door_knocked
+        instrumented_by: "Outreach - Door Knocking Door Logged"
+      - path: packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx
+        label: serve_call_logged
+        instrumented_by: "Outreach - Phone Banking Call Logged"
+    review: {interval_days: 90, last_reviewed: 2026-10-01, reviewed_by: tristan@goodparty.org}
 
   # ---- DATA-2343 walkthrough, 2026-09-15/16 ----
   # Fifteen questions the coverage audit walked on production and then checked against the

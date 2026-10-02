@@ -58,6 +58,7 @@ import {
   ExtractChatAttachmentMessageSchema,
   Nightly10DlcReportMessageSchema,
   PeerlyVendorEscalationMessageSchema,
+  CampaignStoryCompletedMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
@@ -418,6 +419,15 @@ export class QueueConsumerService {
           await this.weeklyTasksDigestHandler.handleWeeklyTasksDigest(
             digestData,
           )
+          return true
+        })
+      case QueueType.CAMPAIGN_STORY_COMPLETED:
+        this.logger.info('received campaignStoryCompleted message')
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          const { campaignId } = CampaignStoryCompletedMessageSchema.parse(
+            queueMessage.data,
+          )
+          await this.campaignStrategy.regenerateOnStoryComplete(campaignId)
           return true
         })
       case QueueType.NIGHTLY_10DLC_REPORT:
