@@ -76,6 +76,37 @@ returns `{ background: null }` for a missing row rather than throwing. The
 campaign-plan router does not read story state at all; `CampaignPlanGenerateGate`
 offers generation to everyone and invites the story alongside it.
 
+### The campaign story prompt
+
+Two surfaces, deliberately:
+
+- **A pinned card** above the tracker rail (`CampaignPlanStoryCard`, between
+  the hero and `CampaignStrategySection`), shown while the story is incomplete
+  and **not dismissible**, sized like the dashboard's Pro banner: one card, one
+  CTA. It is what makes the prompt the first thing on the page.
+- **A real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static` catalog
+  entry) at the **end of pre-launch**, so the prompt flows through the same row
+  machinery as everything else rather than being a bespoke surface.
+
+The task's `completed` mirrors whether the story is finished, in both
+directions, and the row is never deleted. That is what makes the tracker the
+single source of truth for this work: finishing the story on any other surface
+ticks the task — `completeCampaignStoryTaskIfDone` runs on the tracker read, so
+it closes immediately rather than at the next generation — and emptying the
+story reopens it. A candidate never has to tick it by hand, and it can never
+disagree with the card.
+
+Known consequence, tracked separately: an open pre-launch row dated in the
+present pulls a mid-campaign candidate's rail back to Pre-launch, because
+`derivePhaseStatuses` decides "happening now" from task dates. Ticking the row
+does not rescue it; the date is what pulls the phase in. The date-driven phase
+model is what needs rethinking, not the row's placement.
+
+The manager home keeps its own `PersonalizeStoryCard` (the task list there
+renders dynamic rows only, so the static story row never appears in it). Ballot
+access still outranks it: a missed filing deadline cannot be undone. All three
+surfaces share the same title and caption.
+
 ## Data model
 
 One table, `campaign_tracker_tasks` (`prisma/schema/campaignTrackerTask.prisma`),
