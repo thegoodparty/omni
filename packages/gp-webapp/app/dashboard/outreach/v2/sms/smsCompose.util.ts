@@ -62,17 +62,27 @@ export const upgradeScriptFooter = (
   return script.slice(0, stale.index) + upgraded
 }
 
-// The body of a message whose system regions an Improve reply may have
-// rewritten or dropped: the greeting and any footer-shaped close removed, so
-// the composer can put the real ones back. Used only when a reply comes back
-// without them, which a gp-api that predates masking does (a deploy where the
-// webapp lands first), and which must never reach a send.
-export const smsBodyOf = (message: string): string =>
-  message
-    .replace(/^\s*Hello \{\{?first_name\}\}?\s*,?\s*/i, '')
-    .replace(/\s*(?:Paid for by [^\n]*?\.?\s*)?Reply STOP\b[^\n]*\s*$/i, '')
-    .replace(/\s*Paid for by [^\n]*\s*$/i, '')
-    .trim()
+// Puts back what an Improve reply dropped of the parts the system writes:
+// the footer as the message's closing paragraph, and the greeting when the
+// merge token is gone. gp-api masks both, so a reply normally keeps them and
+// comes back unchanged; one that does not is from a gp-api that predates
+// masking (a deploy where the webapp lands first), and must never reach a
+// send without them. Judged by structure, not phrases: only a separate
+// closing paragraph that reads as a footer is replaced, so a body sentence
+// that says "reply STOP" stays, and a reworded greeting that kept the token
+// is the candidate's to keep.
+export const restoreSmsSystemRegions = (
+  reply: string,
+  regions: { greeting: string; footer: string; token: string },
+): string => {
+  let text = reply.trim()
+  if (regions.footer && !text.endsWith(`\n\n${regions.footer}`)) {
+    text = text.replace(/\n\n[^\n]*(?:paid for by|reply stop)[^\n]*$/i, '')
+    text = `${text.trimEnd()}\n\n${regions.footer}`
+  }
+  if (!text.includes(regions.token)) text = `${regions.greeting} ${text}`
+  return text
+}
 
 // The committee a campaign names before verification has recorded the real
 // one, so the message always shows its "Paid for by" line. Never sent: a

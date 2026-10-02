@@ -1265,6 +1265,47 @@ describe('RobocallFlow', () => {
     )
   })
 
+  // The guard judges the close, not a phrase: a script that only mentions
+  // "paid for by", or quotes the line mid-script, keeps every word and gets
+  // the real line as its close.
+  it.each([
+    [
+      'mentions paid for by in its last sentence',
+      'Our parks were paid for by all of us.',
+    ],
+    [
+      'quotes the line mid-script but dropped the close',
+      'I always say "Paid for by Sarah Chen for City Council, 202-555-0147." Vote early.',
+    ],
+  ])(
+    'keeps a polish that %s and closes it on the line',
+    async (_, polished) => {
+      api.mock('POST /v1/outreach/robocall/draft', ({ body }) => ({
+        status: 200,
+        data: { draft: body.currentDraft ? polished : 'A grounded script.' },
+      }))
+      await gotoComposeRaw()
+      await waitFor(() =>
+        expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+      )
+      act(() => {
+        scriptEditor().commands.insertContentAt(
+          'A grounded script.'.length + 1,
+          ' Edited.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+
+      await waitFor(() =>
+        expect(scriptText()).toBe(
+          `${polished}\n\nPaid for by Sarah Chen for City Council, 202-555-0147.`,
+        ),
+      )
+    },
+  )
+
   // The model never writes the disclosure, so it is never handed the number.
   it('drafts the body without the callback number', async () => {
     let draftBody: RobocallScriptDraftRequest | null = null

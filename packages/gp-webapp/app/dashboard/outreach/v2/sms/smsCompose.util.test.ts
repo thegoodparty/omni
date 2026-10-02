@@ -10,7 +10,7 @@ import {
   SERVE_SMS_IDENTIFICATION_FALLBACK,
   serveIdentificationIntro,
   provisionalCommitteeName,
-  smsBodyOf,
+  restoreSmsSystemRegions,
   unfilledBrackets,
   upgradeScriptFooter,
 } from './smsCompose.util'
@@ -297,21 +297,48 @@ describe('openWithSmsIdentification', () => {
   })
 })
 
-describe('smsBodyOf', () => {
-  it('strips the greeting and a one- or two-line footer', () => {
-    expect(
-      smsBodyOf(
-        'Hello {first_name}, vote Tuesday.\n\nPaid for by Jane Doe. Reply STOP to opt out.',
-      ),
-    ).toBe('vote Tuesday.')
-    expect(
-      smsBodyOf(
-        'Hello {{first_name}}, town hall Thursday.\n\nPaid for by Jane Doe.\nReply STOP to opt out.',
-      ),
-    ).toBe('town hall Thursday.')
+describe('restoreSmsSystemRegions', () => {
+  const regions = {
+    greeting: 'Hello {first_name},',
+    footer: 'Paid for by Friends of Sarah Chen. Reply STOP to opt out.',
+    token: '{first_name}',
+  }
+
+  it('returns a reply that kept its parts unchanged', () => {
+    const reply = `Hello {first_name}, vote Tuesday.\n\n${regions.footer}`
+    expect(restoreSmsSystemRegions(reply, regions)).toBe(reply)
   })
 
-  it('leaves a body with no system regions as it is', () => {
-    expect(smsBodyOf('Vote Tuesday.')).toBe('Vote Tuesday.')
+  it('composes the greeting and footer around a body-only reply', () => {
+    expect(restoreSmsSystemRegions('Vote Tuesday.', regions)).toBe(
+      `Hello {first_name}, Vote Tuesday.\n\n${regions.footer}`,
+    )
+  })
+
+  // The greeting's words are not locked, only the token is.
+  it('keeps a reworded greeting that kept the token, without a second one', () => {
+    const reply = `Hi {first_name}! Vote Tuesday.\n\n${regions.footer}`
+    expect(restoreSmsSystemRegions(reply, regions)).toBe(reply)
+  })
+
+  it('never eats a body sentence that says reply STOP', () => {
+    expect(
+      restoreSmsSystemRegions(
+        'Hello {first_name}, questions? Reply STOP is not how to reach me.',
+        regions,
+      ),
+    ).toBe(
+      'Hello {first_name}, questions? Reply STOP is not how to reach me.' +
+        `\n\n${regions.footer}`,
+    )
+  })
+
+  it('replaces a closing paragraph that is a rewritten footer', () => {
+    expect(
+      restoreSmsSystemRegions(
+        'Hello {first_name}, vote Tuesday.\n\nText STOP to unsubscribe, reply stop.',
+        regions,
+      ),
+    ).toBe(`Hello {first_name}, vote Tuesday.\n\n${regions.footer}`)
   })
 })

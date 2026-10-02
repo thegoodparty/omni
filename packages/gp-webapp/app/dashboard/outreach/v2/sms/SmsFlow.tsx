@@ -21,6 +21,7 @@ import type { TcrCompliance } from 'helpers/types'
 import {
   checkSmsStandards,
   deriveSmsProtectedParts,
+  mergeTagToken,
   SMS_COMPOSED_MAX_LENGTH,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
@@ -99,7 +100,7 @@ import {
   ensureSmsIdentification,
   identificationIntro,
   provisionalCommitteeName,
-  smsBodyOf,
+  restoreSmsSystemRegions,
   openWithSmsIdentification,
   SMS_PURPOSES,
   type SmsFlowPurpose,
@@ -988,11 +989,11 @@ export const SmsFlow = ({
     const [greeting = '', footer = ''] = surface
       .composeMessage('', footerCommittee)
       .split('\n\n')
-    const intact =
-      reply.startsWith(greeting) && (!footer || reply.endsWith(`\n\n${footer}`))
-    return intact
-      ? reply
-      : surface.composeMessage(smsBodyOf(reply), footerCommittee)
+    return restoreSmsSystemRegions(reply, {
+      greeting,
+      footer,
+      token: mergeTagToken('first_name', surface.isServe ? 'serve' : 'peerly'),
+    })
   }
 
   const requestDraft = (

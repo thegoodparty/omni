@@ -371,10 +371,17 @@ export const RobocallFlow = ({
   // it. One that does not (a gp-api from before masking, mid-deploy) has any
   // paid-for-by close it wrote dropped and the real line put back, so a polish
   // can never leave the script without it.
+  // Judged by structure: the disclosure counts as there only as the closing
+  // line (a quote of it mid-script is not the close), and only a separate
+  // closing paragraph that reads as a disclosure is replaced, so a body
+  // sentence that mentions "paid for by" is never clipped.
   const keepDisclosure = (reply: string): string => {
     const line = latestDisclosure()
-    if (!line || reply.includes(line)) return reply
-    return withDisclosure(reply.replace(/\s*Paid for by [^\n]*\s*$/i, ''))
+    if (!line) return reply
+    const text = reply.trimEnd()
+    if (text.split('\n').pop()?.trim() === line) return reply
+    const body = text.replace(/\n\n\s*Paid for by [^\n]*$/i, '').trimEnd()
+    return `${body}\n\n${line}`
   }
   // Whether there is anything to read besides the disclosure.
   const hasWrittenBody =
