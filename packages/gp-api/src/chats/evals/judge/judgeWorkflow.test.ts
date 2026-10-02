@@ -697,6 +697,41 @@ describe('the judge role trusts exactly judge.yml on main', () => {
   const role = tf.slice(tf.indexOf('resource "aws_iam_role" "judge_sweep"'))
   const roleBlock = role.slice(0, role.indexOf('\n}\n') + 2)
   const trust = roleBlock.slice(roleBlock.indexOf('assume_role_policy'))
+  // The `{ ... }` that follows `key =`, braces balanced, quotes optional on
+  // the key: HCL accepts `Effect` and `"Effect"` alike, and a check that saw
+  // only one spelling let a second statement through in the other.
+  const KEY = (name: string) => `(?:"${name}"|\\b${name})\\s*=`
+  const blockAfter = (text: string, name: string): string[] => {
+    const out: string[] = []
+    const re = new RegExp(`${KEY(name)}\\s*\\{`, 'g')
+    for (const match of text.matchAll(re)) {
+      let depth = 0
+      const start = (match.index ?? 0) + match[0].length - 1
+      for (let at = start; at < text.length; at += 1) {
+        if (text[at] === '{') depth += 1
+        if (text[at] === '}') depth -= 1
+        if (depth === 0) {
+          out.push(text.slice(start + 1, at))
+          break
+        }
+      }
+    }
+    return out
+  }
+  // The keys written at the top level of an object body, quoted or not.
+  const topKeys = (body: string): string[] => {
+    const keys: string[] = []
+    let depth = 0
+    for (const line of body.split('\n')) {
+      if (depth === 0) {
+        const key = /^\s*"?([A-Za-z0-9_:.-]+)"?\s*=/.exec(line)?.[1]
+        if (key) keys.push(key)
+      }
+      depth += (line.match(/[{[]/g) ?? []).length
+      depth -= (line.match(/[}\]]/g) ?? []).length
+    }
+    return keys
+  }
   const condition = (key: string): string[] =>
     [
       ...trust.matchAll(
@@ -724,7 +759,12 @@ describe('the judge role trusts exactly judge.yml on main', () => {
   })
 
   it('trusts exactly one statement, by web identity, from GitHub', () => {
-    expect(trust.match(/Effect\s*=/g)).toHaveLength(1)
+    for (const name of ['Effect', 'Principal', 'Action', 'Condition']) {
+      expect(trust.match(new RegExp(KEY(name), 'g'))).toHaveLength(1)
+    }
+    const principal = blockAfter(trust, 'Principal')
+    expect(principal).toHaveLength(1)
+    expect(topKeys(principal[0] ?? '')).toEqual(['Federated'])
     expect(trust).toMatch(/Action\s*=\s*"sts:AssumeRoleWithWebIdentity"/)
     expect(trust).toMatch(
       /Federated\s*=\s*"arn:aws:iam::\$\{data\.aws_caller_identity\.current\.account_id\}:oidc-provider\/\$\{local\.github_oidc\}"/,
@@ -737,7 +777,17 @@ describe('the judge role trusts exactly judge.yml on main', () => {
   // StringEquals only: a StringLike or ForAnyValue operator is how a pattern
   // or a list would sneak a second subject in.
   it('compares every claim exactly', () => {
-    expect(trust).toContain('StringEquals')
+    const conditions = blockAfter(trust, 'Condition')
+    expect(conditions).toHaveLength(1)
+    expect(topKeys(conditions[0] ?? '')).toEqual(['StringEquals'])
+    const equals = blockAfter(conditions[0] ?? '', 'StringEquals')
+    expect(topKeys(equals[0] ?? '').sort()).toEqual(
+      [
+        'token.actions.githubusercontent.com:aud',
+        'token.actions.githubusercontent.com:job_workflow_ref',
+        'token.actions.githubusercontent.com:sub',
+      ].sort(),
+    )
     expect(trust).not.toMatch(/StringLike|ForAnyValue|ForAllValues/)
     expect(trust).not.toContain('*')
     expect(trust).not.toContain('pull_request')
