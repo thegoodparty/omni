@@ -48,10 +48,11 @@ The unique constraint is the lock: the first insert wins, the losers get a uniqu
 violation and skip. Durable and pooling-safe — unlike a session advisory lock it
 cannot leak and block a future slot.
 
-| Slot     | Claim               | Complete              | Stale window |
-| -------- | ------------------- | --------------------- | ------------ |
-| UTC day  | `tryClaimDailyRun`  | `markCompleted`       | 6h           |
-| UTC hour | `tryClaimHourlyRun` | `markHourlyCompleted` | 30m          |
+| Slot            | Claim                  | Complete                 | Stale window |
+| --------------- | ---------------------- | ------------------------ | ------------ |
+| UTC day         | `tryClaimDailyRun`     | `markCompleted`          | 6h           |
+| UTC hour        | `tryClaimHourlyRun`    | `markHourlyCompleted`    | 30m          |
+| UTC ten minutes | `tryClaimTenMinuteRun` | `markTenMinuteCompleted` | 5m           |
 
 **Match the claim to the schedule.** Wrapping a sub-daily `@Cron` in
 `tryClaimDailyRun` silently throttles the job to one run per UTC day — the extra
@@ -67,6 +68,10 @@ Reference implementations, all clean examples of the shape below:
   flag and a `finally`-sealed claim
 - `communityIssues/services/communityIssueDispatch.service.ts` — two job names
   off two crons in one service
+- `constituentFeedback/services/synthesisStaleRunSweep.service.ts`
+  (`feedbackSynthesisStaleRuns`, `*/10`): ten-minute slot; fails issue
+  capture synthesis runs stuck `running` for 30 minutes. No deploy
+  allowlist: one update against the deploy's own database, no vendor call
 
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.

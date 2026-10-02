@@ -6,17 +6,28 @@ position on it, and the outcome they want, and hands that back for the person
 who was just there to confirm or correct. The module keeps its name; the user
 never sees it.
 
-Collection only. Clustering those rows into ranked themes, and the reporting
-over them, is a separate phase and deliberately not here.
+An effort's confirmed memos are then synthesized into ranked themes, each
+proposing a tag for the org's list, and read back as the effort's report.
 
 ## Key files
 
-| File                                                | Purpose                                     |
-| --------------------------------------------------- | ------------------------------------------- |
-| `constituentFeedback.controller.ts`                 | Routes under `/v1/constituent-feedback`     |
-| `services/constituentFeedback.service.ts`           | Resolve, upsert, confirm, read              |
-| `services/constituentFeedbackExtraction.service.ts` | The triple, via `LlmService.jsonCompletion` |
-| `schemas/listConstituentFeedback.schema.ts`         | Query DTO for the read route                |
+| File                                                | Purpose                                              |
+| --------------------------------------------------- | ---------------------------------------------------- |
+| `constituentFeedback.controller.ts`                 | Routes under `/v1/constituent-feedback`              |
+| `services/constituentFeedback.service.ts`           | Resolve, upsert, confirm, read                       |
+| `services/constituentFeedbackExtraction.service.ts` | The triple, via `LlmService.jsonCompletion`          |
+| `services/feedbackSynthesis.service.ts`             | `requestRun`: floor, cooldown, run row, engine start |
+| `services/synthesisEngine.ts`                       | The engine seam and its `SYNTHESIS_ENGINE` token     |
+| `services/pipelineSynthesisEngine.ts`               | CSV to S3, trigger the polls pipeline                |
+| `services/mockSynthesisEngine.ts`                   | In-process stand-in for laptops and dev              |
+| `services/feedbackSynthesisIngest.service.ts`       | The one write path for a run's results               |
+| `services/feedbackReport.service.ts`                | The effort report and theme page, counted at read    |
+| `services/issueTag.service.ts`                      | Tag list and curation: accept, rename, merge, retire |
+| `services/issueTagSeed.service.ts`                  | Win: accepted tags from declared positions           |
+| `services/feedbackSeed.service.ts`                  | Dev-only fake memos on an effort                     |
+| `services/synthesisStaleRunSweep.service.ts`        | Fails runs that never reported back                  |
+| `util/issueTagName.util.ts`                         | `normalizedName`, always derived server-side         |
+| `schemas/`                                          | Query DTOs for the two list routes                   |
 
 Request/response shapes are in `@goodparty_org/contracts`
 (`src/constituentFeedback/`), not here — the webapp is the consumer.
@@ -59,13 +70,23 @@ deletes only the rows carrying its `runId`.
 
 All under `@Controller('constituent-feedback')`, all `@UseOrganization()`.
 
-- `POST /` — record a memo. Extracts in the request and returns the proposed
+- `POST /`: record a memo. Extracts in the request and returns the proposed
   triple. `@AllowVolunteer()`.
-- `PATCH /:id/confirm` — the confirmed triple. Sets `confirmedAt`.
+- `PATCH /:id/confirm`: the confirmed triple. Sets `confirmedAt`.
   `@AllowVolunteer()`.
-- `GET /?personId=` — that person's memos, newest first. Default posture:
-  owner or campaign manager (a volunteer gets 403), since it is the CRM's
-  record of a person.
+- `GET /?personId=`: that person's memos, newest first, with their accepted
+  tags. Default posture: owner or campaign manager (a volunteer gets 403),
+  since it is the CRM's record of a person.
+- `GET efforts/:outreachId/report`: denominators, the latest run, themes.
+- `POST efforts/:outreachId/synthesize`: start a run. 422
+  `{ confirmed, required }` under the floor, 429 in the cooldown, 409 while
+  one is in flight.
+- `GET themes/:id`: one theme with its confirmed members.
+- `GET tags?status=` and `PATCH tags/:id`: the tag list and its curation.
+- `POST seed`: dev-only fake memos; 404s on prod.
+
+Everything after the first two is default posture: what people said across
+an effort, and the org's vocabulary for it, are the manager's.
 
 The writes admit volunteers because the person who had the conversation is
 who records and confirms it, the posture the knock and call routes already
@@ -85,13 +106,109 @@ product's: an `eo-` slug reads `serve-issue-capture`, anything else
 inert read here — the reads are the feature. `@UseOrganization()` and its role
 guard are the access check; the flag gates rollout, not access.
 
+## Synthesis
+
+`requestRun` loads the effort's confirmed memos, refuses under
+`MIN_CONFIRMED_FOR_SYNTHESIS` (5, provisional) and inside
+`SYNTHESIS_COOLDOWN_MS` (10 minutes since the last completed run), inserts a
+`running` run, and hands the memos to the engine. Two ways in: the report's
+button, and the effort completing (a turf's Done in
+`doorKnockingTurf.service.ts`, a list's last call in
+`phoneBankingCall.service.ts`), which calls `requestRunOnEffortCompleted`
+fire-and-forget and swallows the three refusals. That path has no request to
+flag-gate, so it checks the floor and then the product's flag for the org's
+owner itself; turning a flag off stops automatic runs too. The first run of a Win org
+seeds accepted tags from its `CampaignPosition`s first.
+
+- **The race guard is the index.** `activeKey` is
+  `<org>:<outreachId>` while a run is in flight and unique, so the button and
+  the trigger racing each other cannot both insert. The P2002 maps to 409.
+  There is no read-then-insert check, on purpose.
+- **Two engines, one ingest.** `FEEDBACK_SYNTHESIS_ENGINE=mock|pipeline`
+  (unset is `pipeline`) picks the engine at boot; any other value, or a
+  `FEEDBACK_SYNTHESIS_MOCK_GROUPING` other than `llm|canned`, fails boot.
+  The pipeline engine writes `feedback-input/{runId}.csv` to
+  `SERVE_ANALYSIS_BUCKET_NAME` (outside `input/`, whose S3 notification
+  would start the run a second time as a poll) and POSTs
+  `AI_PIPELINE_BASE_URL/serve/messages/process`; the pipeline answers later
+  with `feedbackSynthesisComplete` on the shared queue. The mock waits five
+  seconds and builds the same event in-process, with one LLM call or, under
+  `FEEDBACK_SYNTHESIS_MOCK_GROUPING=canned`, three fixed themes and no call.
+  Both end in `FeedbackSynthesisIngestService.handle`, so a laptop run
+  exercises the real write path. `.env.test` pins mock and canned.
+- **An engine that cannot hand off fails the run itself**, freeing the
+  `activeKey`. A run whose event never arrives is failed (`error: timeout`)
+  after 30 minutes by the stale-run sweep, every ten minutes under
+  `CronLockService`.
+
+## The ingest
+
+One transaction, claimed first with a conditional update on
+`status = running`, so a redelivered event writes nothing twice.
+
+- A theme's members are the union of the S3 rows at `responsesLocation`
+  matching its title (the pipeline writes them; the mock sends null), its
+  quotes, and its `memberIds`. Ids outside the run's effort or org are
+  dropped and counted in the log. If no theme keeps a member, the run fails
+  (`error: no_members_in_scope`) rather than superseding a good one.
+- One tag per theme, by `normalizedName`: merged away follows
+  `mergedIntoId` to its target (one hop; targets are accepted and merges
+  re-point earlier ones); accepted is linked; retired is revived to
+  `proposed`; proposed is relinked to this run; none is created `proposed`,
+  `source: synthesis`. Relinking carries `updatedAt` over, so it
+  does not count as a human touching the tag.
+- **Old runs are kept.** The previous completed run for the scope becomes
+  `superseded`; its themes and members stay as history. Its tag rows and its
+  untouched proposals (`updatedAt = createdAt`) are deleted explicitly,
+  because a status change cascades nothing. That happens before this run's
+  tag rows are written, or a pair both runs applied would be lost.
+- `ConstituentFeedbackTag` rows are written with `skipDuplicates`, which is
+  what keeps a human's row on a pair the run also applies.
+- After commit it fires `Issue Capture - Synthesis Completed` through
+  `AnalyticsService`, attributed to the requester or, for a triggered run,
+  the org's owner: `scope`, `outreachId`, `themeCount`, `confirmedCount`,
+  `product`. Never a transcript, label or outcome.
+
+## The report
+
+Counts are computed when the report is read, from member rows whose memo is
+confirmed now, never stored. A memo re-recorded after a run loses
+`confirmedAt` and stops counting on the next read, with no new run. The
+denominators: conversations are distinct people who answered (knocks on the
+effort's `outreachId`, calls on its list), plus memos, confirmed, and
+pending from `ConstituentFeedback.outreachId`. `run` is the latest
+non-superseded run; themes come from the latest completed one, so a run in
+flight or a failed one leaves the previous themes up. `memos` lists the
+effort's memos, confirmed and pending, newest first, capped at
+`FEEDBACK_REPORT_MEMO_LIMIT` (200): the page shows them when there are no
+themes to show, under the floor and while a run is in flight.
+
+## Tags
+
+`normalizedName` (lowercase, trimmed, spaces collapsed) is always derived in
+`util/issueTagName.util.ts`, never taken from a client. Rename onto another
+tag's name is a 409 from the unique index. Merge needs an accepted target
+(else 422), moves the memo rows (skipping pairs the target already has) and
+theme links, re-points earlier merges at the new target, and retires the
+source with `mergedIntoId`.
+
+## The seed route
+
+`POST seed { outreachId, count }` writes answered knocks or calls and
+confirmed memos from a 40-memo fixture (`services/feedbackSeedMemos.ts`,
+five issues) on an effort that already has stop targets or list entries. A
+list takes one memo per person who has none. Gated like the community
+issues seed: `OTEL_SERVICE_ENVIRONMENT` unset, `local`, `test`, `preview` or
+`dev`; anything else 404s.
+
 ## The extraction prompt names no product
 
 The same three fields land on a voter's record and a constituent's, and the
 copy around them is mode-keyed by the UI. So the prompt says "the person they
 spoke with", never voter or constituent: a product noun there steers the
 model into writing one product's word into the other's record.
-`constituentFeedbackExtraction.test.ts` asserts neither word appears.
+`constituentFeedbackExtraction.test.ts` asserts neither word appears. The
+mock engine's grouping prompt follows the same rule.
 
 ## Why extraction is synchronous
 

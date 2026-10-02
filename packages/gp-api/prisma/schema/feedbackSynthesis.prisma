@@ -13,6 +13,7 @@ enum SynthesisRunStatus {
 model FeedbackSynthesisRun {
   id                 String             @id @default(uuid(7))
   createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
   completedAt        DateTime?          @map("completed_at")
   organizationSlug   String             @map("organization_slug")
   organization       Organization       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
@@ -45,8 +46,9 @@ model FeedbackSynthesisRun {
 }
 
 model FeedbackTheme {
-  id      String               @id @default(uuid(7))
-  runId   String               @map("run_id")
+  id        String               @id @default(uuid(7))
+  createdAt DateTime             @default(now()) @map("created_at")
+  runId     String               @map("run_id")
   run     FeedbackSynthesisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   rank    Int
   title   String

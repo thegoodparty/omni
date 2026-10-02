@@ -24,6 +24,7 @@ import { OrdinancesModule } from 'src/ordinances/ordinances.module'
 import { CrmModule } from 'src/crm/crmModule'
 import { ChatsModule } from 'src/chats/chats.module'
 import { OutreachModule } from 'src/outreach/outreach.module'
+import { ConstituentFeedbackModule } from 'src/constituentFeedback/constituentFeedback.module'
 
 @Module({
   imports: [
@@ -60,6 +61,9 @@ import { OutreachModule } from 'src/outreach/outreach.module'
     // calls. Nothing imports QueueConsumerModule except AppModule, so this
     // edge adds no cycle.
     OutreachModule,
+    // For FeedbackSynthesisIngestService, the `feedbackSynthesisComplete`
+    // handler.
+    ConstituentFeedbackModule,
   ],
   providers: [QueueConsumerService],
 })
