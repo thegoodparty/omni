@@ -279,6 +279,7 @@ export const resolveAdmission = (
       return {
         runs: Math.max(onCandidate.runs, onBase.runs),
         runMs: Math.max(onCandidate.runMs, onBase.runMs),
+        caseIds: onCandidate.caseIds,
       }
     },
     ARM_BUDGET_MS,

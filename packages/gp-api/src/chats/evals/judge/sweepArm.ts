@@ -279,8 +279,10 @@ const requestsFor = (
     })),
   )
 
-// THE PROBE armBudget.ts READS ON THE BASE REF, and the promise behind it:
-// this arm starts every run of every admitted background agent at once.
+// THE PROBE armBudget.ts READS ON THE BASE REF, and the promises behind it:
+// this arm starts every run of every admitted background agent at once, and
+// its run ids name the agent (judgeRunId), so two agents sharing a case id
+// can run in the same wave.
 // Admission is sized to that, one wave that fits the arm, and a base arm that
 // walked them one after another would take several times the budget. So
 // armBudget.ts admits by the wave only against a base that declares this, and

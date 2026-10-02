@@ -417,6 +417,37 @@ describe('the wave refusal', () => {
     )
   })
 
+  // A refusal for slots takes none: with one slot left after the first agent,
+  // a three-run agent is refused and a one-run agent after it still fits.
+  it('leaves the slots of an agent refused for them', () => {
+    const three = loader(HUGE_BUDGET_MS, 3, 1, 4)
+    expect(() => three(background)).not.toThrow()
+    expect(() => three(background)).toThrow(/needs 3 runs/)
+    const one = caseLoaderFor(
+      {},
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: 3,
+        maxInFlight: 4,
+      },
+      {
+        load: (agent) =>
+          caseList(
+            'background',
+            agent.agentId,
+            agent.agentId === 'tiny' ? eight.slice(0, 1) : eight,
+          ),
+        loadBackground: (agent) =>
+          agent.agentId === 'tiny' ? eight.slice(0, 1) : eight,
+        loadConfig: () => config({ timeout_seconds: 600 }),
+      },
+    )
+    expect(() => one(background)).not.toThrow()
+    expect(() => one(background)).toThrow(/needs 3 runs/)
+    expect(() => one({ ...background, agentId: 'tiny' })).not.toThrow()
+  })
+
   // THE REGRESSION THIS REPLACED. A chat agent in the same selection must
   // still load, so captureArm still captures it and the sweep still produces
   // a verdict for the half that can.
@@ -497,6 +528,29 @@ describe('the budget guards and the sweep-wide admission', () => {
       deps,
     )
     expect(() => load(background)).toThrow(/65 minutes for a single run/)
+    expect(() => load(cheap)).not.toThrow()
+  })
+
+  // Refused for its manifest, an agent must not keep the slots: checked after
+  // they were taken, the agents after it lost room it never used.
+  it('takes no slots for an agent refused for its manifest', () => {
+    const load = caseLoaderFor(
+      {},
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: 3,
+        maxInFlight: 3,
+      },
+      {
+        ...deps,
+        loadConfig: (agentId: string) =>
+          agentId === 'meeting_briefing'
+            ? config({ model: undefined })
+            : config({ timeout_seconds: 600 }),
+      },
+    )
+    expect(() => load(background)).toThrow(/names no model/)
     expect(() => load(cheap)).not.toThrow()
   })
 
@@ -661,6 +715,38 @@ describe('admitBackground', () => {
       )
     })
 
+    // The margin: a run has to leave five minutes of the arm for staging and
+    // recording, so 65 fits a 70-minute arm and 66 does not.
+    it.each<[number, string[]]>([
+      [65, ['edge']],
+      [66, []],
+    ])(
+      'admits a %i-minute run only with the margin left',
+      (runMinutes, admitted) => {
+        const result = admitBackground(
+          [agent('edge')],
+          () => ({ runs: 1, runMs: minutes(runMinutes) }),
+          minutes(70),
+          12,
+        )
+        expect(result.admitted).toEqual(admitted)
+      },
+    )
+
+    // Exactly the slots left fits; one more does not.
+    it.each<[number, string[]]>([
+      [7, ['full']],
+      [8, []],
+    ])('admits %i runs against 7 slots only if they fit', (runs, admitted) => {
+      const result = admitBackground(
+        [agent('full')],
+        () => ({ runs, runMs: minutes(30) }),
+        minutes(70),
+        7,
+      )
+      expect(result.admitted).toEqual(admitted)
+    })
+
     // A refused agent takes no slots, so a smaller one after it still fits.
     it('lets a later small agent through after a large one is refused', () => {
       const runs: Record<string, number> = { big: 10, small: 7 }
@@ -697,6 +783,16 @@ describe('admitBackground', () => {
       expect(result.refused[0]?.reason).toMatch(
         /one run after another[\s\S]*10 of the arm's 70 were left/,
       )
+    })
+
+    // Exactly the time left still fits.
+    it('admits an agent that uses exactly the time left', () => {
+      const result = admitBackground(
+        [agent('exact')],
+        () => ({ runs: 1, runMs: minutes(70) }),
+        minutes(70),
+      )
+      expect(result.admitted).toEqual(['exact'])
     })
 
     // Every run is charged, not one per agent.

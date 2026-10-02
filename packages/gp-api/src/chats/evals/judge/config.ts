@@ -150,6 +150,13 @@ export interface ShapeBudget {
   // across everything running there, and a run queued behind that cap is
   // waiting outside its own timeout, so the sweep's poll can give up on a run
   // that never started. Twelve leaves the rest of dev most of the room.
+  //
+  // PER SWEEP, NOT IN TOTAL. Each PR's sweep has its own concurrency group,
+  // so four PRs judged at once can put 48 runs out, and with anything else on
+  // dev that reaches the cap: runs queue, their polls time out as infra
+  // errors, and the task still launches and bills with nothing waiting for
+  // it. Live sweeps are explicit requests, so this is rare; lower this, or
+  // serialize live sweeps, before it is not.
   maxInFlight: number
 }
 

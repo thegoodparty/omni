@@ -13,6 +13,7 @@ import { AGENTS, findAgent, type AgentEntry } from './agents'
 import {
   BASE_HONOURS_ADMISSION,
   BASE_WALKS_CONCURRENTLY,
+  baseWalksConcurrently,
   budgetOutputLines,
   resolveAdmission,
 } from './armBudget'
@@ -320,6 +321,15 @@ describe('the probe for whether the base arm walks concurrently', () => {
   ])('does not mistake %s for an arm that does', (_label, text) => {
     expect(BASE_WALKS_CONCURRENTLY.test(text)).toBe(false)
   })
+
+  // A base whose walk cannot be read is one that does not walk concurrently:
+  // assuming it does is the one mistake the fallback exists to prevent.
+  it('reads a base it cannot read as walking one run after another', () => {
+    expect(baseWalksConcurrently(mkdtempSync(join(tmpdir(), 'no-arm-')))).toBe(
+      false,
+    )
+    expect(baseWalksConcurrently(REPO_ROOT)).toBe(true)
+  })
 })
 
 describe('the resolver run against a base tree that differs', () => {
@@ -353,7 +363,7 @@ describe('the resolver run against a base tree that differs', () => {
     ['one run after another', false, 'opposition_research'],
     ['all at once', true, 'opposition_research,race_opponent_actions'],
   ])('admits by how the base arm walks: %s', (_label, concurrent, admitted) => {
-    const { written } = runEntry({
+    const { written, stderr } = runEntry({
       BASE_DIR: baseTree({
         concurrent,
         timeouts: { opposition_research: 600, race_opponent_actions: 600 },
@@ -361,6 +371,11 @@ describe('the resolver run against a base tree that differs', () => {
       JUDGE_AGENTS: 'opposition_research,race_opponent_actions',
     })
     expect(written).toMatch(new RegExp(`^admitted=${admitted}$`, 'm'))
+    expect(stderr).toMatch(
+      concurrent
+        ? /up to 12 runs at once/
+        : /one run after another, as the base ref does/,
+    )
   })
 
   // In a wave the slower arm still decides, per run: a base whose single run
@@ -456,11 +471,15 @@ describe('resolveAdmission', () => {
   const minutes = (n: number) => n * 60 * 1000
   // Both arms walking the same single case, so these tests isolate the cost;
   // the case-id check has its own test below.
-  const walk = (runMs: number, runs = 1) => ({
+  const walk = (runMs: number, runs = 1, caseIds = ['c1']) => ({
     runs,
     runMs,
-    caseIds: ['c1'],
+    caseIds,
   })
+  // Each agent its own case ids, so tests about something else are not
+  // refused for sharing one.
+  const own = (runMs: number) => (one: AgentEntry) =>
+    walk(runMs, 1, [`${one.agentId}-c1`])
 
   // THE SLOWER ARM DECIDES. A branch that LOWERS a timeout would otherwise be
   // admitted on the candidate's number and then overrun the base arm at the
@@ -552,13 +571,41 @@ describe('resolveAdmission', () => {
       DEFAULT_JUDGE_CONFIG,
       registry,
       {
-        candidate: () => walk(minutes(30)),
-        base: () => walk(minutes(30)),
+        candidate: own(minutes(30)),
+        base: (_dir, one) => own(minutes(30))(one),
         honoursAdmission: () => true,
         walksConcurrently: () => false,
       },
     )
     expect(result.admitted).toEqual(['a', 'b'])
+  })
+
+  // TWO AGENTS, ONE CASE ID. A base arm that walks one run after another
+  // predates run ids that name the agent, so both would dispatch the same id
+  // and the platform would drop the second: refused there, by name. A base
+  // that walks concurrently names the agent, so both are admitted.
+  it.each<[string, boolean, string[]]>([
+    ['refuses the second against a sequential base', false, ['a']],
+    ['admits both against a concurrent base', true, ['a', 'b']],
+  ])('with a shared case id, %s', (_label, concurrent, admitted) => {
+    const result = resolveAdmission(
+      ['a', 'b'],
+      '/base',
+      DEFAULT_JUDGE_CONFIG,
+      registry,
+      {
+        candidate: () => walk(minutes(10), 1, ['shared', 'x']),
+        base: () => walk(minutes(10), 1, ['shared', 'x']),
+        honoursAdmission: () => true,
+        walksConcurrently: () => concurrent,
+      },
+    )
+    expect(result.admitted).toEqual(admitted)
+    if (!concurrent) {
+      expect(result.refused[0]?.reason).toMatch(
+        /shares case ids \[shared, x\] with an agent already admitted/,
+      )
+    }
   })
 
   // ATTEMPTS ON THE BASE SIDE. At 1 attempt, dropping attempts from the base
@@ -690,6 +737,15 @@ describe('resolveAdmission', () => {
     expect(result.refused[0]?.reason).toMatch(
       /predates shared background admission/,
     )
+  })
+
+  // The pair that share all three of their first cases, against this tree:
+  // it walks concurrently and names the agent in every run id, so both run.
+  it('admits two real agents that share case ids against a concurrent base', () => {
+    expect(
+      resolveAdmission(['top_community_issues', 'trending_issues'], REPO_ROOT)
+        .admitted,
+    ).toEqual(['top_community_issues', 'trending_issues'])
   })
 
   // The real probe, both ways: this tree honours admission, and an empty

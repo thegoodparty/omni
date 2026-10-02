@@ -290,6 +290,11 @@ export const caseLoaderFor = (
       values,
     )
     const config = loadConfig(agent.agentId)
+    // Reached here rather than at the dispatch, where a manifest naming no
+    // model would arrive as a skip on case 1 with every agent walked before
+    // it already billed. Before the slots are taken, so an agent refused for
+    // it leaves them to the agents after it.
+    modelOf(config)
     if (admitted === undefined) {
       // Refused BEFORE deducting, so a refused agent leaves its share for
       // the ones after it.
@@ -331,10 +336,6 @@ export const caseLoaderFor = (
       }
       remaining.slots -= runs
     }
-    // Reached here rather than at the dispatch, where a manifest naming no
-    // model would arrive as a skip on case 1 with every agent walked before
-    // it already billed.
-    modelOf(config)
     return { ...list, cases }
   }
 }
@@ -399,6 +400,11 @@ export const armDeps = (
 // runs behind each other in one slot: that schedule is only as safe as its
 // worst case, and a run that finishes early lets the next one start somewhere
 // else and finish later than planned. One wave has no such case.
+// Room inside the arm for what is not the run: staging the config, sending
+// the message, reading the trace back and writing the record. A run allowed
+// right up to the arm's budget would always overrun it by that much.
+export const WAVE_MARGIN_MS = 5 * 60 * 1000
+
 export const waveRefusal = (
   runs: number,
   runMs: number,
@@ -407,10 +413,11 @@ export const waveRefusal = (
   maxInFlight: number,
 ): string | undefined => {
   const minutes = (value: number): number => Math.ceil(value / 60_000)
-  if (runMs > budgetMs) {
+  if (runMs + WAVE_MARGIN_MS > budgetMs) {
     return (
       `would take ${minutes(runMs)} minutes for a single run on the slower ` +
-      `arm, longer than the arm's ${minutes(budgetMs)}`
+      `arm, which with ${minutes(WAVE_MARGIN_MS)} to stage and record it ` +
+      `does not fit the arm's ${minutes(budgetMs)}`
     )
   }
   if (runs > slotsLeft) {
@@ -441,7 +448,9 @@ export const admitBackground = (
   selected: readonly AgentEntry[],
   costOf: (
     agent: AgentEntry,
-  ) => { runs: number; runMs: number } | { refused: string },
+  ) =>
+    | { runs: number; runMs: number; caseIds?: readonly string[] }
+    | { refused: string },
   budgetMs: number,
   maxInFlight?: number,
 ): { admitted: string[]; refused: { agentId: string; reason: string }[] } => {
@@ -449,6 +458,7 @@ export const admitBackground = (
   const refused: { agentId: string; reason: string }[] = []
   let remainingMs = budgetMs
   let slotsLeft = maxInFlight ?? 0
+  const takenCaseIds = new Set<string>()
   const minutes = (value: number): number => Math.ceil(value / 60_000)
   for (const agent of selected) {
     if (agent.shape !== 'background') continue
@@ -473,6 +483,20 @@ export const admitBackground = (
       slotsLeft -= cost.runs
       continue
     }
+    // A base arm this old names a run without its agent, so two agents
+    // sharing a case id would dispatch one run id twice and the platform
+    // would drop the second. Refused rather than walked.
+    const shared = (cost.caseIds ?? []).filter((id) => takenCaseIds.has(id))
+    if (shared.length > 0) {
+      refused.push({
+        agentId: agent.agentId,
+        reason:
+          `shares case ids [${shared.join(', ')}] with an agent already ` +
+          "admitted, and the base ref's run ids do not name the agent, so " +
+          'one of the two would never be dispatched',
+      })
+      continue
+    }
     const ms = cost.runs * cost.runMs
     if (ms > remainingMs) {
       refused.push({
@@ -487,6 +511,7 @@ export const admitBackground = (
     }
     admitted.push(agent.agentId)
     remainingMs -= ms
+    for (const id of cost.caseIds ?? []) takenCaseIds.add(id)
   }
   return { admitted, refused }
 }

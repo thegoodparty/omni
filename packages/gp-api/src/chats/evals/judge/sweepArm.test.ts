@@ -778,6 +778,55 @@ describe('captureArm, walking background agents', () => {
     expect(outcome).toBe('ArmCaptureError: the store is unreachable; 3')
   })
 
+  // AND STARTS NOTHING AFTER IT. An agent after the fatal one would dispatch
+  // paid runs on an arm that is about to throw.
+  it('dispatches no agent after an arm-fatal error', async () => {
+    const asked: string[] = []
+    const d = await deps({
+      config: oneAttempt,
+      loadCases: (agent) => {
+        if (agent.agentId === 'chief_of_staff') {
+          throw new ArmCaptureError('the store is unreachable')
+        }
+        return caseList(1)
+      },
+      runCase: async (request) => {
+        asked.push(request.agent.agentId)
+        return echoRunner()(request)
+      },
+    })
+    await expect(
+      captureArm(
+        d,
+        env({
+          agentIds: ['meeting_briefing', 'chief_of_staff', 'self_research'],
+        }),
+        [BACKGROUND, COS, SECOND],
+      ),
+    ).rejects.toThrow(ArmCaptureError)
+    expect(asked).toEqual(['meeting_briefing'])
+  })
+
+  // Every ATTEMPT is a run in the wave too. Admission counts cases times
+  // attempts as slots, so a walk that ran a case's attempts one after another
+  // would take that many runs' worth of wall clock.
+  it('starts every attempt of every case at once', async () => {
+    const { runCase, most } = counting()
+    await captureArm(
+      await deps({
+        config: {
+          ...DEFAULT_JUDGE_CONFIG,
+          background: { attemptsPerCase: 2, maxInFlight: 12 },
+        },
+        runCase,
+        loadCases: () => caseList(3),
+      }),
+      env({ agentIds: ['meeting_briefing'] }),
+      [BACKGROUND],
+    )
+    expect(most.background).toBe(6)
+  })
+
   // In walk order whatever finished first, so a manifest does not depend on
   // which Fargate task happened to be quicker.
   it('lists agents in walk order, not finishing order', async () => {
