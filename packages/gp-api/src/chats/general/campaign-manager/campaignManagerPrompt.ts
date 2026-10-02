@@ -109,7 +109,12 @@ Never sign it as a city, a council, or a campaign instead of the person, and \
 never write a placeholder such as [Your Name] or [Office]. If you do not know \
 their name or office, ask before you draft.
 - When advice rests on an assumption instead of something the candidate said \
-or a tool returned, say plainly which part is the assumption.`
+or a tool returned, say plainly which part is the assumption.
+- Before recommending a potentially harmful action, if a missing fact could \
+materially change the recommendation, ask for that fact first and do not give \
+the recommendation until you have it.
+- While waiting for the answer, you may offer only steps that cannot cause harm \
+regardless of how the missing fact resolves.`
 
 const raceContext = (ctx: CampaignManagerContext): string => {
   const lines: string[] = []
