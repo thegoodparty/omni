@@ -352,13 +352,15 @@ jobs:
           retention-days: 30
 
       - name: Notify Slack on failure
-        # `continue-on-error` on the two snapshot steps and the OKR refresh step leaves the job green, so
-        # `failure()` alone would never see it and the header's promise that failures
-        # reach Slack would quietly stop holding for those steps.
+        # `continue-on-error` on the two snapshot steps, the surface drift step and the
+        # OKR refresh step leaves the job green, so `failure()` alone would never see
+        # them and the header's promise that failures reach Slack would quietly stop
+        # holding for those four steps.
         if: >-
           (failure() || steps.explorer_snapshot.outcome == 'failure'
             || steps.console_snapshot.outcome == 'failure'
-            || steps.refresh_okr.outcome == 'failure')
+            || steps.refresh_okr.outcome == 'failure'
+            || steps.surface_drift.outcome == 'failure')
           && env.SLACK_APP_BOT_TOKEN != ''
           && env.SLACK_EVENT_LIFECYCLE_CHANNEL_ID != ''
         run: |

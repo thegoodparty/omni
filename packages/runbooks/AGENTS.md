@@ -47,10 +47,10 @@ There is a second consumer surface beside the sheet: the analytics-event explore
 
 A third surface sits beside those two, for the operator rather than the consumer: the
 event health console in `surfaces/governance-console/` (DATA-2546). It shows the catalog
-rollup, what changed since the previous run, and every open decision from all four
+rollup, what changed since the previous run, and every open decision from all five
 governance queues in one ranked list, with the flagged set grouped by cause rather than
 by event. `scripts/python/governance_console_snapshot.py` builds its one JSON from the
-health report, `instrumentation_gaps.json` and the explorer snapshot, which is why it
+health report, `instrumentation_gaps.json`, `surface_drift.json` and the explorer snapshot, which is why it
 has to run inside the governance job after the health step: the report is gitignored and
 exists only during a run. The page is where the reviewer looks at the evidence and picks
 a verb per row; it writes nothing itself, and leaves as a plain-text handoff pasted into

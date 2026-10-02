@@ -370,9 +370,9 @@ applied through the `event-metadata` skill's Mode: RELABEL.
 | --- | --- | --- |
 | `moved` | Reachable areas exclude the area the label claims | Relabel proposal |
 | `stale_area_name` | Same area by route, but the label uses a name the nav no longer shows, or a `surface:` tag names an area that no longer exists while the code resolves to one area | Relabel proposal, batched per prefix, lower priority |
-| `dashboard_wide` | The event's code reaches 5 or more areas | Reported, nothing proposed |
+| `dashboard_wide` | The event's code reaches 5 or more areas, or is mounted from the root or `/dashboard` layout | Reported, nothing proposed |
 | `moved_then_quiet` | `moved`, and zero fires in the last 30 days | A relabel proposal too, proposed confidence only; see below |
-| `unclear` | Walk has gaps, no call site, or code and volume data disagree | A human |
+| `unclear` | Walk has gaps or no call site | A human |
 | `consistent` | Otherwise | Nothing |
 
 `moved_then_quiet` is a relabel proposal, never a flag: a quiet event still reachable on a
@@ -389,6 +389,13 @@ elsewhere in this book.
 - the page-path signal agrees: at least 0.8 agreement, at least 10 attributed fires, at
   least 0.5 attribution coverage, and at least 5 distinct users (`MIN_USERS`, added in
   calibration: a signal can clear every other floor on two people).
+
+An area with more than one name (Win and Serve vocabulary for the same page) is never
+`high`: the row lists the names as `surface_options`, and the human picks one.
+
+The removal commit is the newest commit that net-removed an import of any component on
+the walk, not necessarily one under the label's area; the page-path and user gates are
+what keep that from pre-checking a wrong row.
 
 Everything else that is `moved` or `stale_area_name` is `proposed`: shown in the console,
 not pre-checked, with the options laid out.
