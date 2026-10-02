@@ -157,9 +157,23 @@ describe('WhatWeHeardPage', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        '84 people answered. 61 left a note. 54 confirmed, 7 waiting for review.',
+        (_content, element) =>
+          element?.tagName === 'P' &&
+          element.textContent ===
+            '84 people answered. 61 left a note. 54 confirmed, 7 waiting for review.',
       ),
     ).toBeInTheDocument()
+  })
+
+  // The waiting notes are confirmed from the review list, so the clause
+  // that counts them is the way there.
+  it('links the waiting notes to the review list', async () => {
+    mockReport(report())
+    renderPage()
+
+    expect(
+      await screen.findByRole('link', { name: '7 waiting for review' }),
+    ).toHaveAttribute('href', `/dashboard/issue-capture/${OUTREACH_ID}/review`)
   })
 
   it('drops the review clause when nothing is waiting', async () => {
