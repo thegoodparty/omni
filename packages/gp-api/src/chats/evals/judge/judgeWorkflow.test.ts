@@ -1443,7 +1443,9 @@ describe('the arms reach AWS on the role, not on the stub', () => {
     expect(credentials?.body).toContain(
       'uses: aws-actions/configure-aws-credentials@',
     )
-    expect(credentials?.body).not.toMatch(/output-env-credentials:\s*false/)
+    // Absent, not merely not `false`: `'false'` and `${{ false }}` turn the
+    // export off just as well, and the action's default is the one we want.
+    expect(credentials?.body).not.toMatch(/output-env-credentials:/)
     expect(names.indexOf(credentials?.name ?? '')).toBeGreaterThan(-1)
     expect(names.indexOf(credentials?.name ?? '')).toBeLessThan(
       names.indexOf('Capture the base arm'),
@@ -1453,8 +1455,28 @@ describe('the arms reach AWS on the role, not on the stub', () => {
   // Every file in the judge, not a list of the ones that have clients today:
   // a client added anywhere else would sign with the stub. Unit tests are
   // skipped, because records.test.ts builds a mocked client on purpose.
+  //
+  // Line comments go first: a `/*` inside one (background.ts has
+  // ``_judge/*``) would otherwise open a block that swallows real code up to
+  // the next `*/`. `(^|[^:])` keeps a URL's `//` from eating its line.
   const strip = (source: string): string =>
-    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    source.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '')
+  // Every client this file imports from the SDK, not only S3 and SQS: any
+  // AWS client the judge builds would sign with the stub.
+  const sdkClients = (source: string): Set<string> =>
+    new Set(
+      [...source.matchAll(/import\s*\{([^}]*)\}\s*from\s*'@aws-sdk\/[^']+'/g)]
+        .flatMap((match) => (match[1] ?? '').split(','))
+        .map((name) => name.trim().split(/\s+as\s+/))
+        // The imported name says it is a client; the local name, which an
+        // alias can make anything, is what `new` is called on.
+        .filter(([imported]) => imported?.endsWith('Client') === true)
+        .map((names) => names[names.length - 1] ?? ''),
+    )
+  const built = (source: string, pattern: RegExp): number =>
+    [...source.matchAll(pattern)].filter((match) =>
+      sdkClients(source).has(match[1] ?? ''),
+    ).length
   const tsFiles = (dir: string): string[] =>
     readdirSync(dir).flatMap((entry) => {
       const full = path.join(dir, entry)
@@ -1463,18 +1485,17 @@ describe('the arms reach AWS on the role, not on the stub', () => {
       return full.endsWith('.ts') && !unit ? [full] : []
     })
 
-  it('builds the three clients, and only from judgeAwsClientConfig()', () => {
+  it('builds every AWS client from judgeAwsClientConfig()', () => {
     const found = tsFiles(__dirname)
       .map((file) => {
         const source = strip(readFileSync(file, 'utf8'))
         return {
           file: path.relative(__dirname, file),
-          any: (source.match(/new\s*\(?\s*(S3|SQS)Client\b/g) ?? []).length,
-          exact: (
-            source.match(
-              /new (S3|SQS)Client\(\s*judgeAwsClientConfig\(\),?\s*\)/g,
-            ) ?? []
-          ).length,
+          any: built(source, /new\s*\(?\s*(\w+)\b/g),
+          exact: built(
+            source,
+            /new (\w+)\(\s*judgeAwsClientConfig\(\),?\s*\)/g,
+          ),
         }
       })
       .filter((client) => client.any > 0)
