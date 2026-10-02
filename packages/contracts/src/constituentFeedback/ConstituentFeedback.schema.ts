@@ -229,10 +229,39 @@ export type AudioUploadUrlResponse = z.infer<
   typeof AudioUploadUrlResponseSchema
 >
 
+// What re-recording a memo posts to `POST /v1/constituent-feedback`
+// alongside its own `clientKey`: the knock or the call it belongs to, in the
+// same shape the capture arms take.
+export const PendingFeedbackReferenceSchema = z.discriminatedUnion('channel', [
+  z.object({
+    channel: z.literal('door_knock'),
+    knockClientKey: z.string(),
+    stopTargetId: z.number().int(),
+  }),
+  z.object({
+    channel: z.literal('phone_bank'),
+    entryId: z.number().int(),
+    personId: z.string(),
+  }),
+])
+export type PendingFeedbackReference = z.infer<
+  typeof PendingFeedbackReferenceSchema
+>
+
+// A memo waiting for review, with what "Type it instead" needs to re-record
+// it as typed text: a typed note has to become a transcript, because a
+// transcript is what synthesis groups. `reference` is null when its knock or
+// call can no longer be found, and then the memo cannot be re-recorded.
+export const PendingFeedbackSchema = ConstituentFeedbackSchema.extend({
+  clientKey: z.string(),
+  reference: PendingFeedbackReferenceSchema.nullable(),
+})
+export type PendingFeedback = z.infer<typeof PendingFeedbackSchema>
+
 // An effort's unconfirmed memos, newest first: the "Notes to review" list.
 // A volunteer gets their own; an owner or manager gets everyone's.
 export const PendingFeedbackResponseSchema = z.object({
-  feedback: z.array(ConstituentFeedbackSchema),
+  feedback: z.array(PendingFeedbackSchema),
 })
 export type PendingFeedbackResponse = z.infer<
   typeof PendingFeedbackResponseSchema

@@ -1394,6 +1394,10 @@ export {
   type AudioUploadUrlRequest,
   AudioUploadUrlResponseSchema,
   type AudioUploadUrlResponse,
+  PendingFeedbackReferenceSchema,
+  type PendingFeedbackReference,
+  PendingFeedbackSchema,
+  type PendingFeedback,
   PendingFeedbackResponseSchema,
   type PendingFeedbackResponse,
 } from './constituentFeedback/ConstituentFeedback.schema'

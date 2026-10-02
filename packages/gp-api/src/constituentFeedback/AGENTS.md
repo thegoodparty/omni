@@ -255,10 +255,17 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    write is scoped by the job name, so a memo re-recorded or retried
    meanwhile is left to its own job. No deploy allowlist: it calls
    Transcribe only for memos recorded on its own database.
-4. `GET pending` is the "Notes to review" list. `POST :id/retry` on a memo
-   with a recording and no words resets it to pending and starts a new job;
-   on one with words it extracts again. Confirming goes through the usual
-   `PATCH /:id/confirm`, which is also how a typed triple is saved.
+4. `GET pending` is the "Notes to review" list. Each item is the record
+   plus its `clientKey` and a `reference` (the knock's `knockClientKey` and
+   a `stopTargetId`, or the call's `entryId` and `personId`), found again by
+   two batched lookups because neither row keeps the stop target or entry it
+   was recorded against; null when they are gone. `POST :id/retry` on a
+   memo with a recording and no words resets it to pending and starts a new
+   job; on one with words it extracts again. "Type it instead" posts the
+   typed text to `POST /` with that reference and `clientKey` and
+   `captureMethod: typed`: an ordinary re-record, so the row gets a
+   transcript (what synthesis groups) and a fresh extraction. Confirming
+   goes through the usual `PATCH /:id/confirm`.
 
 The same list is the retry path for any memo whose transcription or
 extraction failed online.

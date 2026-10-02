@@ -10,7 +10,7 @@ its own flag. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
 
 | File                                                     | Role                                                           |
 | -------------------------------------------------------- | -------------------------------------------------------------- |
-| `issueCaptureAccess.ts`                                  | The server gate every page calls; returns `isServe`            |
+| `issueCaptureAccess.ts`                                  | The server gates (dashboard, and flag only); return `isServe`  |
 | `[outreachId]/page.tsx`                                  | The report route                                               |
 | `[outreachId]/theme/[themeId]/page.tsx`                  | One theme                                                      |
 | `[outreachId]/queries.ts`                                | Report and review list (each polls while waiting), theme, tags |
@@ -20,11 +20,11 @@ its own flag. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
 | `[outreachId]/components/MemoList.tsx`                   | The notes, on the report and as a theme's members              |
 | `[outreachId]/components/NewTagsStrip.tsx`               | Proposed tags to accept or dismiss                             |
 | `[outreachId]/review/page.tsx`                           | "Notes to review": the effort's unconfirmed memos              |
-| `[outreachId]/review/components/PendingMemoList.tsx`     | The review list, its retry and its typed fallback              |
+| `[outreachId]/review/components/PendingMemoList.tsx`     | The review list, its retry and its typed re-record             |
 | `copy.ts`                                                | Every string, mode-keyed                                       |
 | `analytics.ts`                                           | The `channel` value each effort reports under                  |
 | `WhatWeHeardLink.tsx`                                    | The entry row on the turf and the phone list                   |
-| `NotesToReviewLink.tsx`                                  | "Notes to review: N" on the turf sheet, while N > 0            |
+| `NotesToReviewLink.tsx`                                  | "Notes to review: N" on the turf sheet and volunteer walk      |
 | `WhatWeHeardAction.tsx`                                  | The outreach drawer's link, at any status                      |
 
 ## Access
@@ -103,15 +103,24 @@ their own). Each is the canvasser's summary with, under it:
   leaving the page leaves the note unconfirmed.
 - **Failed**: what went wrong ("couldn't make out" with no transcript,
   "couldn't pull anything" with one), "Try again" (`POST :id/retry`, which
-  transcribes or extracts again) and "Type it instead", which opens the card
-  empty, with Skip as the way back. Either card saves through
-  `PATCH :id/confirm` and nothing else.
+  transcribes or extracts again) and "Type it instead", which opens a text
+  field and re-records the memo as typed text (`POST /v1/constituent-feedback`
+  with the item's `reference` and `clientKey`, `captureMethod: typed`). The
+  re-read then shows the extracted card. Typed text has to become the
+  transcript, because synthesis groups transcripts: a row with only
+  confirmed fields never reaches a theme. No typing when `reference` is null.
 
 A confirm fires `PendingMemoConfirmed` and re-reads the list and the
 report. This is where a memo recorded with no signal is confirmed, and the
-retry for one whose transcription or extraction failed online. The page
-sits behind `issueCaptureAccess()`, so it is the manager's; a volunteer has
-no surface for it yet.
+retry for one whose transcription or extraction failed online.
+
+Two pages mount `PendingMemoList`: the manager's
+`[outreachId]/review` (behind `issueCaptureAccess()`), and the volunteer's
+`app/volunteer/door-knocking/[turfId]/review`, which takes the turf's
+`outreachId` from the turf read the walk already makes, checks only the
+flag (`issueCaptureFlagGate`; the volunteer layout is the role gate), and
+points its back arrow at the walk. gp-api narrows a volunteer to the notes
+they recorded.
 
 ## Entry points
 
@@ -125,6 +134,8 @@ until somebody has answered. It does not poll.
   Progress, followed by `NotesToReviewLink` ("Notes to review: N", only
   while N > 0, same flag rule). See `door-knocking/AGENTS.md`.
 - **Report**: the caption's "N waiting for review" clause.
+- **Volunteer walk**: `VolunteerWalkPage` floats `NotesToReviewLink` over
+  the top of the map, pointed at the volunteer's review page.
 - **Phone list**: the caller page shows it under its title bar, manager
   surface only. The list read carries no envelope, so the outreach drawer's
   Continue calling and the create flow's Go to call list pass it as
