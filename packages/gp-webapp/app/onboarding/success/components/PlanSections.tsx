@@ -518,10 +518,10 @@ const PlanSections = ({
               <span className="font-semibold text-foreground">
                 {plan.winNumber.toLocaleString('en-US')} votes
               </span>
-              , a simple majority of voters (50% + 1) who actually cast a
-              ballot. This is the lowest amount of votes we project you need to
-              win your election; our campaign plan below will guide you toward
-              surpassing that number. Hitting that target requires{' '}
+              {plan.winNumberClause ? `, ${plan.winNumberClause}` : ''}. This is
+              the lowest amount of votes we project you need to win your
+              election; our campaign plan below will guide you toward surpassing
+              that number. Hitting that target requires{' '}
               <span className="font-semibold text-foreground">
                 {plan.voterContactGoal.toLocaleString('en-US')} voter contacts
               </span>{' '}
