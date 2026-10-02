@@ -13,8 +13,8 @@
 // purpose → who → points → name → draw, then a terminal `success` screen
 // outside the stepper. Drawing is the LAST thing the candidate does: the
 // route is bought at first knock now, so there is nothing left to ask once
-// the map is cut. The two pre-draw stages
-// both live inside the page's single `filters` step, which is what lets that
+// the map is cut. The pre-draw stages
+// all live inside the page's single `filters` step, which is what lets that
 // phase grow a stage without the orchestrator learning about it. `filters` is
 // therefore read as "the phase that decides the audience", not as "the filter
 // pills" — the pills are one half of one stage of two.
@@ -37,7 +37,9 @@
 // means changing the audience upstream; who/purpose release the filter.
 export type CreateFlowStep = 'filters' | 'draw' | 'name' | 'points' | 'success'
 
-export const PRE_DRAW_STAGES = ['purpose', 'who'] as const
+// `details` is asked only for an event invite: when and where the event is,
+// so the talking points name it rather than leave it blank.
+export const PRE_DRAW_STAGES = ['purpose', 'details', 'who'] as const
 
 export type PreDrawStage = (typeof PRE_DRAW_STAGES)[number]
 
@@ -73,7 +75,8 @@ export interface StepperPosition {
   totalSteps: number
 }
 
-// One path of five steps, always. Choosing "Create a new list" picks the
+// One path of five steps, six for an event invite, which adds `details`.
+// Choosing "Create a new list" picks the
 // audience, it does not finish the job — every route through the flow draws
 // a boundary.
 //
@@ -86,18 +89,25 @@ export interface StepperPosition {
 // filtered draft with no saved list behind it). It is deliberately not
 // implemented — a filtered draft continues to the draw step like any other
 // audience, and the filter it mints is named by the campaign name on confirm.
-export const stepperPosition = (stage: CreateFlowStage): StepperPosition => {
+export const stepperPosition = (
+  stage: CreateFlowStage,
+  withDetails = false,
+): StepperPosition => {
+  const extra = withDetails ? 1 : 0
+  const totalSteps = 5 + extra
   switch (stage) {
     case 'purpose':
-      return { currentStep: 1, totalSteps: 5 }
+      return { currentStep: 1, totalSteps }
+    case 'details':
+      return { currentStep: 2, totalSteps }
     case 'who':
-      return { currentStep: 2, totalSteps: 5 }
+      return { currentStep: 2 + extra, totalSteps }
     case 'points':
-      return { currentStep: 3, totalSteps: 5 }
+      return { currentStep: 3 + extra, totalSteps }
     case 'name':
-      return { currentStep: 4, totalSteps: 5 }
+      return { currentStep: 4 + extra, totalSteps }
     case 'draw':
-      return { currentStep: 5, totalSteps: 5 }
+      return { currentStep: 5 + extra, totalSteps }
     // Headerless: `totalSteps: 0` is what the shell reads as "draw no
     // stepper", the same thing SMS and social do on their own last screens.
     case 'success':
@@ -109,12 +119,15 @@ export const stepperPosition = (stage: CreateFlowStage): StepperPosition => {
 // way.
 export const previousStage = (
   stage: CreateFlowStage,
+  withDetails = false,
 ): CreateFlowStage | null => {
   switch (stage) {
     case 'purpose':
       return null
-    case 'who':
+    case 'details':
       return 'purpose'
+    case 'who':
+      return withDetails ? 'details' : 'purpose'
     case 'points':
       return 'who'
     case 'name':

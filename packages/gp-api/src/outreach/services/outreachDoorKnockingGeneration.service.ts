@@ -6,6 +6,7 @@ import {
 import {
   DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
   type DoorKnockingTalkingPointsDraftResponse,
+  type OutreachEventDetails,
   type DoorKnockingTalkingPointsPurpose,
   type ServeDoorKnockingTalkingPointsPurpose,
 } from '@goodparty_org/contracts'
@@ -14,6 +15,7 @@ import { z } from 'zod'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
+import { eventDetailsContext } from '../util/eventDetails.util'
 
 // Door-knocking talking points: the five-section card a canvasser reads at a
 // door, of which this service writes three lines.
@@ -99,15 +101,12 @@ const audienceUseRule = ({ possessive }: SubjectNouns): string =>
   'canvasser does not know who is behind the door, and a resident told what ' +
   'a list says about them hears surveillance, not outreach.'
 
-// Lower severity than the channels this comes from — a bracket in a NOTE
-// reads as a blank the candidate fills before the walk, not as a stumble
-// mid-sentence — but the wizard still highlights unfilled brackets, so the
-// rule keeps them scarce and confined to the one line that needs them.
+// An event invite's date, time and place arrive as event details from the
+// flow, so nothing on this card is ever a blank to fill.
 const BRACKETS_RULE =
-  'Use a bracketed placeholder ONLY in the ask, and only for event ' +
-  'logistics this product does not model: [date], [time], [location]. ' +
-  'Never bracket anything else, and never invent a specific date, time or ' +
-  'place to avoid one.'
+  'Never write a bracketed placeholder. An event date, time or place ' +
+  'comes only from the event details given below; without them, leave the ' +
+  'logistics out, and never invent a specific date, time or place.'
 
 const noLinksRule = ({ record }: SubjectNouns): string =>
   'Never write a URL, a web address, a phone number, or a QR code. The ' +
@@ -182,10 +181,10 @@ const WIN_PURPOSE_PROMPTS: Record<DoorKnockingTalkingPointsPurpose, string> = {
     'open-ended and about what matters most to them, so the canvasser ' +
     'listens before connecting anything to it.',
   event_invite:
-    'Purpose: an event invitation. The ask carries the logistics and asks ' +
-    'the resident to come — this is the one line that may use [date], ' +
-    '[time] and [location] brackets. The engagement question is a light ' +
-    'opener about the neighborhood, not about the event.',
+    'Purpose: an event invitation. The ask carries the date, time and ' +
+    'place from the event details below, as given, and asks the resident ' +
+    'to come. The engagement question is a light opener about the ' +
+    'neighborhood, not about the event.',
   early_voting:
     'Purpose: early voting. The ask is a commitment to vote early — better ' +
     'as a specific day than as "sometime during early voting", since a ' +
@@ -221,10 +220,10 @@ const SERVE_PURPOSE_PROMPTS: Record<
     'whether they have heard about it — never assert what they know or ' +
     'think of it.',
   event_invite:
-    'Purpose: an event invitation. The ask carries the logistics and asks ' +
-    'the constituent to come — this is the one line that may use [date], ' +
-    '[time] and [location] brackets. The engagement question is a light ' +
-    'opener about the neighborhood, not about the event.',
+    'Purpose: an event invitation. The ask carries the date, time and ' +
+    'place from the event details below, as given, and asks the ' +
+    'constituent to come. The engagement question is a light opener ' +
+    'about the neighborhood, not about the event.',
   community_input:
     'Purpose: listening. There is no commitment to seek: the ask is one ' +
     'question about what the office should be working on, and the whole ' +
@@ -330,7 +329,7 @@ const improveSystemPrompt = (
     `- ${audienceUseRule(nouns)}`,
     `- ${ASK_RULE} If the original stacks two, keep the one the`,
     '  purpose below names and drop the other.',
-    `- ${BRACKETS_RULE} Strip any other bracket the original contains and`,
+    `- ${BRACKETS_RULE} Strip any bracket the original contains and`,
     '  write around the gap in plain language.',
     `- ${noLinksRule(nouns)} Remove any that appear in the original.`,
     `- ${LENGTH_RULE}`,
@@ -385,6 +384,7 @@ export interface DoorKnockingDraftInput<TPurpose extends string> {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
+  event?: OutreachEventDetails
 }
 
 // No .max() on the three lines, deliberately: an instructions-driven result
@@ -529,6 +529,7 @@ export class OutreachDoorKnockingGenerationService {
             role: 'user',
             content: [
               ...context,
+              ...eventDetailsContext(input.purpose, input.event),
               ...(input.previousDraft
                 ? [
                     ...fenced(

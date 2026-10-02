@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OutreachEventDetailsSchema } from './OutreachEvent.schema'
 import { ServeOutreachPurposeSchema } from './OutreachPurpose.schema'
 import { SocialToneSchema } from './OutreachSocial.schema'
 import { SMS_COMPOSED_MAX_LENGTH } from './OutreachSms.schema'
@@ -19,6 +20,7 @@ export const ServeSmsDraftRequestSchema = z.object({
   purpose: ServeOutreachPurposeSchema,
   tone: SocialToneSchema,
   currentDraft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH).optional(),
+  event: OutreachEventDetailsSchema.optional(),
 })
 export type ServeSmsDraftRequest = z.infer<typeof ServeSmsDraftRequestSchema>
 

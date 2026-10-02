@@ -874,6 +874,13 @@ export {
   type ServeOutreachPurpose,
 } from './outreach/OutreachPurpose.schema'
 export {
+  OUTREACH_EVENT_LOCATION_MAX_LENGTH,
+  OutreachEventDetailsSchema,
+  type OutreachEventDetails,
+  ProposalEventSchema,
+  type ProposalEvent,
+} from './outreach/OutreachEvent.schema'
+export {
   SOCIAL_PURPOSE_VALUES,
   SocialPurposeSchema,
   type SocialPurpose,
