@@ -55,15 +55,16 @@ describe('coverage', () => {
     const { wired, judgeable, blocked } = coverage()
     // Named rather than dropped, so each gap stays visible: briefing
     // annotation has no handler yet, compliance_setup must not be swept at
-    // all, and the two issue-feed agents call a gp-api tool a judge dispatch
-    // cannot authenticate.
+    // all, and three agents' main path reads from gp-api, which a judge
+    // dispatch cannot authenticate.
     expect(blocked.map((a) => a.agentId).sort()).toEqual([
       'briefing_annotation',
       'compliance_setup',
+      'meeting_briefing',
       'top_community_issues',
       'trending_issues',
     ])
-    expect(judgeable).toBe(17)
+    expect(judgeable).toBe(16)
     expect(wired).toBe(0)
   })
 

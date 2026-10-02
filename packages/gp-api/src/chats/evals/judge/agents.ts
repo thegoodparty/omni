@@ -155,19 +155,25 @@ const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
   trending_issues: 'trending_issues.json',
 }
 
-// The only two experiments that call a gp-api tool (GET_community_issues).
-// The broker reaches gp-api as the run ticket's user, and a judge dispatch
-// names none, so the broker refuses the call before gp-api sees it: on both
-// arms, every time. A verdict over that would compare two copies of a failed
-// tool call and read as a real one. Unblocked by a long-lived dev user owning
-// a `judge-` organization with an elected office and an issue feed, and the
-// dispatch naming that user.
+// The experiments whose main path reads from gp-api over the broker's MCP
+// proxy: the issue feed, and for meeting_briefing the official's priorities
+// too. The broker reaches gp-api as the run ticket's user, and a judge
+// dispatch names none, so the proxy refuses the call before gp-api sees it:
+// on both arms, every time. Each agent then takes its empty-data fallback, so
+// a verdict would describe only that fallback and read as a real one.
+// Unblocked by a long-lived dev user owning a `judge-` organization with an
+// elected office, priorities and an issue feed, and the dispatch naming that
+// user.
+//
+// campaign_tracker_tasks is NOT here: only its weekly-mode case reads from
+// gp-api (prior tasks), and that case reads none on either arm, which its
+// case list says.
 const GP_API_TOOL_REASON =
-  'Calls a gp-api tool (GET_community_issues), and the broker reaches ' +
+  'Its main path reads from gp-api over the broker, and the broker reaches ' +
   "gp-api as the run ticket's user, which a judge dispatch does not name. " +
-  'The call would fail on both arms, so a verdict would compare two copies ' +
-  'of a failed tool call. Unblocked by a seeded dev user and judge- ' +
-  'organization the dispatch can name.'
+  'The read would fail on both arms and the agent would take its empty-data ' +
+  'fallback, so a verdict would describe only that fallback. Unblocked by a ' +
+  'seeded dev user and judge- organization the dispatch can name.'
 
 // Keyed by the id union, so dropping an experiment without dropping its
 // reason is a typecheck failure — the same shape as CHAT_BLOCKED_REASONS.
@@ -181,6 +187,7 @@ const BACKGROUND_BLOCKED_REASONS: Partial<Record<BackgroundAgentId, string>> = {
     'nothing downstream would mark those writes as a test. Blocked rather ' +
     'than left without a case list: captureArm skips a blocked agent, which ' +
     'makes this a control instead of a gap waiting for someone to fill it.',
+  meeting_briefing: GP_API_TOOL_REASON,
   top_community_issues: GP_API_TOOL_REASON,
   trending_issues: GP_API_TOOL_REASON,
 }

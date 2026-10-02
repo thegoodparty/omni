@@ -211,9 +211,9 @@ describe('parseArmEnv', () => {
     })
   })
 
-  // Most sweeps mint no fixture: nine of the fifteen background lists carry
-  // plain data and every chat list does. An empty object, not a refusal.
-  it('reads an unminted fixture as no values at all', () => {
+  // Most arms are handed no identifiers: nine of the fifteen background lists
+  // carry plain data and every chat list does. An empty object, not a refusal.
+  it('reads no identifiers as no values at all', () => {
     expect(parseArmEnv(armEnv()).fixtureValues).toEqual({})
   })
 

@@ -18,11 +18,10 @@ import {
 // slug argument — its query is `{ list }` alone — and the org comes from
 // `@UseElectedOffice()`, which reads `X-Organization-Slug`. The broker sets
 // that header from `ticket.organization_slug`, and a judge dispatch pins that
-// to `judge-*` (JUDGE_ORG_SLUG_PREFIX in runners/background.ts) so a run
-// cannot overwrite a real organization's `latest.json`. So the slug in params
-// is echoed into the artifact and scopes nothing. (Those two agents are
-// blocked in agents.ts for a further reason: the broker calls gp-api as the
-// ticket's user, and a judge dispatch carries none.)
+// to `judge-*` (JUDGE_ORG_SLUG_PREFIX in runners/background.ts). So the slug
+// in params is echoed into the artifact and scopes nothing. (Those two agents
+// are blocked in agents.ts for a further reason: the broker calls gp-api as
+// the ticket's user, and a judge dispatch carries none.)
 //
 // `race_id` never was: all three manifests call it a trace and idempotency
 // identifier the agent does not reason over or look anything up with.

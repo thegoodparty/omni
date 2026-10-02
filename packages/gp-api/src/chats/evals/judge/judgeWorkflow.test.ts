@@ -970,8 +970,8 @@ describe('the arm budget fits the sweep job', () => {
 })
 
 // THE BACKGROUND AGENTS' IDENTIFIERS CROSS THE SAME SEAM AS THE BUDGET:
-// resolved once by one step, read by two arms in two worktrees. Nothing is
-// minted and no credential is involved, and these hold it that way.
+// resolved once by one step, read by two arms in two worktrees. No credential
+// is involved, and these hold it that way.
 describe('judge.yml resolves one set of identifiers for both arms', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:\n'))
@@ -1041,9 +1041,8 @@ describe('judge.yml resolves one set of identifiers for both arms', () => {
     )
   })
 
-  // NOTHING MINTED, NOTHING SECRET. The identifiers need no credential, so
-  // the step holds none, and the jobs and environment that minted a real
-  // organization are gone with the sweep's dependency on them.
+  // NOTHING SECRET. The identifiers need no credential, so the step holds
+  // none, and the sweep depends on no job but the plan.
   it('holds no secret and depends on nothing but the plan', () => {
     expect(resolver?.body).not.toContain('secrets.')
     expect(yaml).not.toContain('JUDGE_CLERK_MACHINE_SECRET')

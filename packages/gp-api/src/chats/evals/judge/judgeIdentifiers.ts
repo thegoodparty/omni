@@ -2,7 +2,6 @@ import { appendFileSync } from 'node:fs'
 import { RaceListItemArraySchema } from '@goodparty_org/contracts'
 import { Headers, MimeTypes } from 'http-constants-ts'
 import { JUDGE_ORG_SLUG_PREFIX } from './runners/background'
-import type { JudgeFixtureIdentifiers } from './sweepFixture'
 import { JUDGE_FIXTURE_RACE } from './sweepFixture'
 
 // THE THREE VALUES SIX BACKGROUND CASE LISTS CANNOT CARRY, made up per sweep.
@@ -27,8 +26,8 @@ export const JUDGE_USER_EMAIL = 'judge-sweep@example.com'
 const ORG_SLUG = /^[a-zA-Z0-9_-]{1,64}$/
 
 // One per sweep, from the sweep id both arms already share. The organization
-// does not exist, so the slug only has to be one nothing real uses: the run's
-// `latest.json` pointer lands under it, where nothing reads.
+// does not exist, so the slug only has to be one nothing real uses; an eval
+// run writes no `latest.json` under it, so nothing carries between runs.
 export const judgeOrgSlug = (sweepId: string): string => {
   const slug = `${JUDGE_ORG_SLUG_PREFIX}${sweepId.replace(/^judge-/, '')}`
   if (!ORG_SLUG.test(slug)) {
@@ -86,12 +85,27 @@ export const resolveRaceId = async (
   return match.id
 }
 
-// EXACTLY THREE LINES for $GITHUB_OUTPUT. A value with a line break is refused:
-// in that file it would end its own line and start an output of its choosing.
-export const identifierOutputLines = (ids: JudgeFixtureIdentifiers): string => {
+// What a sweep has to hand both arms. The race id alone can be missing: the
+// slug and the address are made here, but the race is read from dev data,
+// and the races route lists upcoming races only, so it goes missing as soon
+// as that election has passed.
+export interface ResolvedIdentifiers {
+  orgSlug: string
+  userEmail: string
+  raceId?: string
+  // Why there is no race id, for the run log.
+  raceUnavailable?: string
+}
+
+// AT MOST THREE LINES for $GITHUB_OUTPUT, and no race_id when there is none:
+// an absent output reads as unset on the arms, so only the three agents that
+// need a race are refused, by name, and the rest still run. A value with a
+// line break is refused: in that file it would end its own line and start an
+// output of its choosing.
+export const identifierOutputLines = (ids: ResolvedIdentifiers): string => {
   const values = {
     org_slug: ids.orgSlug,
-    race_id: ids.raceId,
+    ...(ids.raceId !== undefined && { race_id: ids.raceId }),
     user_email: ids.userEmail,
   }
   for (const [key, value] of Object.entries(values)) {
@@ -108,19 +122,32 @@ export const resolveJudgeIdentifiers = async (
   sweepId: string,
   apiUrl: string | undefined,
   fetchImpl: typeof fetch = fetch,
-): Promise<JudgeFixtureIdentifiers> => ({
-  orgSlug: judgeOrgSlug(sweepId),
-  raceId: await resolveRaceId(requireAllowedApi(apiUrl), fetchImpl),
-  userEmail: JUDGE_USER_EMAIL,
-})
+): Promise<ResolvedIdentifiers> => {
+  const orgSlug = judgeOrgSlug(sweepId)
+  const baseUrl = requireAllowedApi(apiUrl)
+  try {
+    return {
+      orgSlug,
+      userEmail: JUDGE_USER_EMAIL,
+      raceId: await resolveRaceId(baseUrl, fetchImpl),
+    }
+  } catch (err) {
+    return {
+      orgSlug,
+      userEmail: JUDGE_USER_EMAIL,
+      raceUnavailable: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
 
 // gp-api is CommonJS, so `require.main` is the house pattern.
 //
 //   JUDGE_SWEEP_ID=... JUDGE_FIXTURE_API_URL=... judgeIdentifiers.ts <out>
 //
-// Appends the three outputs to <out>. Exits non-zero with one sentence on any
-// failure; judge.yml decides that a failure refuses the background agents and
-// not the sweep.
+// Appends the outputs to <out>. A race it cannot read is a warning, not a
+// failure: the outputs go without race_id. Exits non-zero with one sentence
+// otherwise; judge.yml decides that a failure refuses the background agents
+// and not the sweep.
 if (require.main === module) {
   const [out] = process.argv.slice(2)
   const sweepId = process.env.JUDGE_SWEEP_ID
@@ -136,8 +163,17 @@ if (require.main === module) {
       process.env.JUDGE_FIXTURE_API_URL,
     )
     appendFileSync(out, identifierOutputLines(ids))
+    if (ids.raceUnavailable !== undefined) {
+      // stdout, because that is where Actions reads workflow commands.
+      process.stdout.write(
+        `::warning::no race id for this sweep (${ids.raceUnavailable}), so ` +
+          'the three background agents that need one are refused by name; ' +
+          'the rest run\n',
+      )
+    }
     process.stderr.write(
-      `background agents run as ${ids.orgSlug}, race ${ids.raceId}\n`,
+      `background agents run as ${ids.orgSlug}, race ` +
+        `${ids.raceId ?? 'none'}\n`,
     )
   }
   run().catch((err: unknown) => {

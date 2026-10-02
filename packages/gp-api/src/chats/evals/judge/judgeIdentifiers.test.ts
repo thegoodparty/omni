@@ -16,9 +16,9 @@ import { parseArmEnv } from './sweepEnv'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
 import { JUDGE_FIXTURE_RACE } from './sweepFixture'
 
-// What a sweep's step writes, sent all the way to the dispatch builder: the
-// check that a minted `eo-` slug never had, which is how minting shipped
-// unable to dispatch anything.
+// What a sweep's step writes, sent all the way to the dispatch builder, which
+// refuses any slug that is not `judge-*`. Checked end to end, because a value
+// of any other shape passes every check short of that one.
 
 const races = (office: string, id: string) =>
   vi.fn<typeof fetch>().mockResolvedValue(
@@ -136,9 +136,72 @@ describe('identifierOutputLines', () => {
   })
 })
 
+// THE RACE ALONE CAN GO MISSING. The races route lists upcoming races only, so
+// once the named election passes the lookup finds nothing. That must cost the
+// three race agents, by name, and nothing else.
+describe('a race that cannot be read', () => {
+  const noRace = races('Some Other Office', 'x')
+
+  it('still resolves the slug and the address, and says why', async () => {
+    const ids = await resolveJudgeIdentifiers(
+      'judge-1-1',
+      'http://localhost:3000',
+      noRace,
+    )
+    expect(ids).toEqual({
+      orgSlug: 'judge-1-1',
+      userEmail: 'judge-sweep@example.com',
+      raceUnavailable: expect.stringMatching(/no race named/),
+    })
+  })
+
+  it('writes no race_id, so an arm reads it as unset', async () => {
+    const ids = await resolveJudgeIdentifiers(
+      'judge-1-1',
+      'http://localhost:3000',
+      noRace,
+    )
+    const out = PARSE(identifierOutputLines(ids))
+    expect(out).toEqual({
+      org_slug: 'judge-1-1',
+      user_email: 'judge-sweep@example.com',
+    })
+    const arm = parseArmEnv(
+      armEnvFor({
+        [JUDGE_FIXTURE_ENV_NAMES.orgSlug]: out.org_slug,
+        [JUDGE_FIXTURE_ENV_NAMES.userEmail]: out.user_email,
+      }),
+    )
+    // A slug-only list still substitutes; a race list is refused by name.
+    expect(
+      substituteBackgroundCases(
+        [{ caseId: 'c1', params: { organization_slug: '{judgeOrgSlug}' } }],
+        arm.fixtureValues,
+      ),
+    ).toEqual([{ caseId: 'c1', params: { organization_slug: 'judge-1-1' } }])
+    expect(() =>
+      substituteBackgroundCases(
+        [{ caseId: 'c2', params: { race_id: '{judgeRaceId}' } }],
+        arm.fixtureValues,
+      ),
+    ).toThrow(/c2/)
+  })
+
+  // A bad API address is a configuration bug, not missing data: it still
+  // fails the resolution as a whole.
+  it('still refuses an API outside dev', async () => {
+    await expect(
+      resolveJudgeIdentifiers(
+        'judge-1-1',
+        'https://gp-api.goodparty.org',
+        noRace,
+      ),
+    ).rejects.toThrow(/dev gp-api or a local one/)
+  })
+})
+
 // THE WHOLE PATH: resolve, write the outputs, read them back as an arm does,
-// substitute a case, and build the real dispatch message from it. The minted
-// fixture failed at the last step on every case.
+// substitute a case, and build the real dispatch message from it.
 describe('the identifiers a sweep resolves', () => {
   it('reach the dispatch builder and are accepted', async () => {
     const ids = await resolveJudgeIdentifiers(

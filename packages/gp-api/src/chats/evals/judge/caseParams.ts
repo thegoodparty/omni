@@ -31,17 +31,18 @@ export const JUDGE_PLACEHOLDERS: Record<PlaceholderName, string> = {
 
 // Which environment variable supplies which token. Part of the vocabulary
 // rather than of the values, because both ends of the thread name it: the
-// export is built from it (`fixtureEnv` in sweepFixture.ts), and `ArmEnvSchema` declares the same keys from it
-// (sweepEnv.ts), which is what makes an arm unable to read a variable nobody
-// exports.
+// export is built from it (`fixtureEnv` in sweepFixture.ts), and
+// `ArmEnvSchema` declares the same keys from it (sweepEnv.ts), which is what
+// makes an arm unable to read a variable nobody exports.
 export const JUDGE_FIXTURE_ENV_NAMES = {
   orgSlug: 'JUDGE_FIXTURE_ORG_SLUG',
   raceId: 'JUDGE_FIXTURE_RACE_ID',
   userEmail: 'JUDGE_FIXTURE_USER_EMAIL',
 } as const satisfies Record<PlaceholderName, string>
 
-// Partial: a sweep that could not resolve a race still has its org slug, and a value that is absent must fail at the guard naming what is missing
-// rather than be substituted with something invented here.
+// Partial: a sweep that could not resolve a race still has its org slug, and
+// a value that is absent must fail at the guard naming what is missing rather
+// than be substituted with something invented here.
 export type PlaceholderValues = Partial<Record<PlaceholderName, string>>
 
 // Every `{judge…}` token, declared or not. Substitution only ever touches the

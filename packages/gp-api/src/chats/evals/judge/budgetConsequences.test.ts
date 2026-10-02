@@ -89,11 +89,11 @@ describe('the background budget', () => {
 describe('what it makes possible, with every run started at once', () => {
   // Every agent fits an arm on its own now. A run waits out at most its
   // agent's declared timeout plus the poll headroom, the longest is
-  // meeting_briefing at 65 minutes, and an arm's runs finish together rather
+  // find_existing_ordinances at 55 minutes, and an arm's runs finish together rather
   // than one after another. Run in sequence, eleven of these did not fit.
   it('admits every agent on its own', () => {
     expect(sweepable.filter((one) => !fitsAlone(one))).toEqual([])
-    expect(sweepable.length).toBe(13)
+    expect(sweepable.length).toBe(12)
   })
 
   // TOGETHER IS NOT THE SUM OF ALONE. One arm fills twelve slots in registry

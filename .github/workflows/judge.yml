@@ -1729,9 +1729,11 @@ jobs:
       # address. None names anything that has to exist (judgeIdentifiers.ts
       # says why), so nothing is minted and no credential is involved.
       #
-      # NEVER FAILS THE SWEEP. If the race cannot be read, the outputs stay
-      # empty and each background agent is refused by name on both arms
-      # before anything is staged; chat agents still run.
+      # NEVER FAILS THE SWEEP. A race it cannot read leaves out race_id alone,
+      # so only the three agents that need one are refused, by name. Any other
+      # failure leaves the outputs empty and every background agent is
+      # refused by name on both arms before anything is staged; chat agents
+      # still run either way.
       - name: Resolve the background agents' identifiers
         id: identifiers
         working-directory: ${{ env.WORKSPACE }}
