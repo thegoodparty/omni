@@ -141,7 +141,7 @@ const WIN_AREAS: ProductArea[] = [
   },
   {
     navId: 'campaign-plan-dashboard',
-    name: 'Campaign Tracker',
+    name: 'Campaign Plan',
     path: '/dashboard/campaign-plan',
     modes: ['win'],
     does: 'The generated campaign plan and the week-by-week task list built from the Campaign Story.',

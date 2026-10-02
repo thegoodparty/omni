@@ -30,6 +30,10 @@ export const TenDlcStatusEntrySchema = z.object({
   campaignSlug: z.string(),
   userId: z.number().int(),
   committeeName: z.string().nullable(),
+  // The campaign's assigned success person — its HubSpot company owner,
+  // resolved live and best-effort (null on any CRM failure), the same field
+  // the SMS outreach console's queue shows as "Assigned to".
+  assignedPa: z.string().nullable(),
   peerlyIdentityId: z.string().nullable(),
   filingUrl: z.string().nullable(),
   since: z.string().datetime({ offset: true }).nullable(),

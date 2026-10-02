@@ -58,9 +58,9 @@ export const BUCKET_META: Record<TenDlcStatusBucketKey, BucketMeta> = {
     hint: 'The dispatch gate is waiting on a genuine bio and policy issue. The sweep dispatches automatically once the candidate authors one.',
   },
   awaitingPin: {
-    label: 'Awaiting PIN >7d (candidate nudge)',
+    label: 'Awaiting PIN (candidate nudge)',
     tone: 'gray',
-    hint: 'The PIN is out but was never entered. Nudge the candidate, or resend the PIN from here.',
+    hint: 'Every PIN that is out but was never entered — the nightly report nudges only after 7 days. Nudge the candidate, or resend the PIN from here.',
   },
   cvUnissued: {
     label: 'CampaignVerify still reviewing (no PIN issued)',

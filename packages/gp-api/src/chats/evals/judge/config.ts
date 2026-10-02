@@ -54,7 +54,21 @@ export interface JudgeGates {
   practicalMargin: number
   // Share of order-swapped pairs whose two orders must agree. Below it, the
   // judge is reading position rather than quality.
+  //
+  // Only applied once there are `minSwappedPairs` of them: a rate has to have
+  // a denominator before it can fail anything.
   consistencyFloor: number
+  // HOW MANY ORDER-SWAPPED PAIRS THE FLOOR NEEDS before it means anything.
+  // `orderSwap.fraction` is 0.2, so the first live sweep judged 24 pairs and
+  // swapped 5 of them — and "60%" was 3 of 5, which the floor of 0.7 would
+  // have failed a whole sweep on. Below this many, the rate is reported with
+  // its denominator and gates nothing.
+  //
+  // 10 is a floor on sample size, not a statistical guarantee. It is chosen to
+  // be reachable at the scale this config designs for — minCases 20 at
+  // attemptsPerCase 3 is 60 pairs, so 12 swapped — while excluding the
+  // handful that a placeholder case list produces.
+  minSwappedPairs: number
   // Share of judgments allowed to come back cannot_determine.
   cannotDetermineCeiling: number
   // With more than one seat, the share of cases where seats may disagree on
@@ -84,6 +98,16 @@ export interface RenderConfig {
   // Cap on any one rendered block, input or output. Anything longer is cut
   // with an explicit marker. Applied identically to both arms, so it can
   // never favour one.
+  //
+  // IT HAS TO FIT THE EVIDENCE, not just bound the prompt. A background
+  // agent's input is a captured payload of web sources — the real
+  // race_opponent_summary fixtures are 26-51KB each — and several probes ask
+  // whether the agent handled one source among six correctly: a conflicting
+  // pair, a planted instruction, an archived page. Cut at 12,000 characters
+  // the judge read about a quarter of that and would have scored those probes
+  // on evidence it never saw, which reads as the probe failing to separate
+  // rather than as the cap. Truncation is still reported per run, so a block
+  // that does hit the cap is visible rather than silent.
   maxRenderedChars: number
   // Replaced with `[assistant]` in rendered text. Model and provider names
   // are the identity leak a blind judge is most likely to act on. The
@@ -102,10 +126,57 @@ export interface ArmGapConfig {
   maxHours: number
 }
 
+// WHAT ONE SHAPE MAY SPEND, where the two shapes differ by three orders of
+// magnitude. A chat case is a handful of model turns — seconds, cents. A
+// background case is a Fargate task doing real research against a declared
+// timeout of up to an hour, at dollars a run.
+//
+// At the chat budget a single background agent is 8 cases x 3 attempts = 24
+// runs per arm, which is twenty-six hours of wall clock against a job allowed
+// three, and roughly $300 to judge one agent. So background carries its own
+// numbers rather than inheriting them.
+export interface ShapeBudget {
+  attemptsPerCase: number
+  // The first n cases of the list, or the whole list when absent. A cap
+  // rather than a separate shorter list: the case files stay the full set, so
+  // raising this is a config change and not an authoring job.
+  maxCases?: number
+  // How many runs one arm may have in flight at once. Every run of every
+  // admitted agent starts together, so this is also how many runs an arm may
+  // walk at all: admission fills the slots and refuses the rest by name.
+  //
+  // Bounded well below the platform's own cap, which is shared. The dev
+  // scheduler launches at most MAX_CONCURRENT_AGENTS tasks (50 by default)
+  // across everything running there, and a run queued behind that cap is
+  // waiting outside its own timeout, so the sweep's poll can give up on a run
+  // that never started. Twelve leaves the rest of dev most of the room.
+  //
+  // PER SWEEP, NOT IN TOTAL. Each PR's sweep has its own concurrency group,
+  // so four PRs judged at once can put 48 runs out, and with anything else on
+  // dev that reaches the cap: runs queue, their polls time out as infra
+  // errors, and the task still launches and bills with nothing waiting for
+  // it. Live sweeps are explicit requests, so this is rare; lower this, or
+  // serialize live sweeps, before it is not.
+  maxInFlight: number
+}
+
 export interface JudgeConfig {
   // Attempts per case per arm. v0: 3. Attempt i of one arm pairs with
   // attempt i of the other; judging all k x k pairs is not the plan.
+  //
+  // This is the CHAT budget. Background takes `background` below.
   attemptsPerCase: number
+  // Overrides attemptsPerCase for background agents, and caps their case
+  // list. See ShapeBudget for why they are not the same numbers.
+  //
+  // NOTE WHAT THIS COSTS YOU. At 3 cases x 1 attempt a background comparison
+  // is 3 pairs, well under `gates.minCases`, so every background verdict
+  // comes back gated — "below the floor of 20, so the comparison measures the
+  // agent's own variance more than the branch". That is the gate working, not
+  // a bug: the verdict is directional rather than conclusive. The floor is
+  // deliberately NOT lowered to match, because a gate moved to fit the
+  // evidence stops being a gate.
+  background: ShapeBudget
   // The dimension set the judge is asked for and scoring aggregates.
   //
   // v1 judges FINAL OUTPUTS ONLY — the trace is recorded but stays out of
@@ -124,6 +195,7 @@ export interface JudgeConfig {
 
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
   attemptsPerCase: 3,
+  background: { attemptsPerCase: 1, maxCases: 3, maxInFlight: 12 },
   dimensions: ['task_success', 'instruction_adherence', 'user_utility'],
   panel: {
     seats: ['claude-sonnet-4-6'],
@@ -133,6 +205,7 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     minCases: 20,
     practicalMargin: 0.1,
     consistencyFloor: 0.7,
+    minSwappedPairs: 10,
     cannotDetermineCeiling: 0.25,
     panelDisagreementCeiling: 0.3,
     failOnAllIdenticalOutputs: true,
@@ -152,7 +225,7 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     maxHours: 6,
   },
   render: {
-    maxRenderedChars: 12_000,
+    maxRenderedChars: 60_000,
     identityPatterns: [
       /\bclaude\b/gi,
       /\banthropic\b/gi,

@@ -28,7 +28,7 @@ describe('VoterFileController', () => {
     create: ReturnType<typeof vi.fn>
     filterAccessCheck: ReturnType<typeof vi.fn>
     findByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
-    findByOrganizationSlug: ReturnType<typeof vi.fn>
+    findUsableByOrganizationSlug: ReturnType<typeof vi.fn>
     updateByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
     deleteByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
   }
@@ -55,7 +55,7 @@ describe('VoterFileController', () => {
       create: vi.fn().mockResolvedValue(mockFilter),
       filterAccessCheck: vi.fn().mockResolvedValue(undefined),
       findByIdAndOrganizationSlug: vi.fn().mockResolvedValue(mockFilter),
-      findByOrganizationSlug: vi.fn().mockResolvedValue([mockFilter]),
+      findUsableByOrganizationSlug: vi.fn().mockResolvedValue([mockFilter]),
       updateByIdAndOrganizationSlug: vi.fn().mockResolvedValue(mockFilter),
       deleteByIdAndOrganizationSlug: vi.fn().mockResolvedValue(mockFilter),
     }
@@ -189,8 +189,8 @@ describe('VoterFileController', () => {
       const result = controller.listVoterFileFilters(baseOrg)
 
       expect(
-        mockVoterFileFilterService.findByOrganizationSlug,
-      ).toHaveBeenCalledWith(baseOrg.slug)
+        mockVoterFileFilterService.findUsableByOrganizationSlug,
+      ).toHaveBeenCalledWith(baseOrg)
       await expect(result).resolves.toEqual([mockFilter])
     })
   })

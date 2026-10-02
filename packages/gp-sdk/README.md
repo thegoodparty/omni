@@ -82,6 +82,14 @@ const { committeeName } = await client.campaigns.updateCommitteeName(1, {
   committeeName: 'Committee to Elect Jane Doe for Council',
 })
 
+// Admin filing-link correction (M2M): updates TcrCompliance.filingUrl and
+// clears the CV validation hold/override columns when the URL changes.
+// 400 on a URL CampaignVerify would reject, 404 with no compliance record,
+// 409 once the registration was already submitted to Peerly.
+const { filingUrl } = await client.campaigns.updateFilingUrl(1, {
+  filingUrl: 'https://sos.state.gov/filings/jane-doe',
+})
+
 const offices = await client.electedOffices.list({
   userId: 42,
   offset: 0,

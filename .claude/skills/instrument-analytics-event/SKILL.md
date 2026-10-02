@@ -232,7 +232,35 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 - It is a variation of an existing event — add a property instead of a new event.
 - It is a user attribute, not an action — use `identifyUser` (frontend) or `AnalyticsService.identify` (backend), not a track call.
 
+## The analytics guard (OKR events and dead listings)
+
+A hook runs `governance_guard.py` after every edit to code that sends events, and the
+**Analytics guard** CI check runs it on every PR. It blocks two things:
+
+- **An OKR event loses a call site.** The events an OKR counts are the watched legs in
+  `packages/runbooks/scripts/python/instrumentation_data/sem/` (a committed copy of the
+  semantic layer). Removing, moving to a new file, or unmounting any one of their call
+  sites blocks, even if the event still fires elsewhere, because each call site can be a
+  separate activity inside the metric. Ask the human what is happening to the activity,
+  then add one `intents:` row per metric to `monitored_events.yaml` in the same change:
+  `retire_activity`, `successor` (+ `successor:`), `relocated` (+ `route:`), or
+  `not_a_change`, always with a reason. Never write a row without the human's reason.
+  When the event still fires elsewhere, the suggested row carries
+  `intent: <relocated|not_a_change|successor|retire_activity>`: that placeholder, a
+  `"<why>"` reason and a `YYYY-MM-DD` date are all refused until replaced with real values.
+- **An event's last call site is removed but its `EVENTS` key stays.** Delete the key
+  and follow "When a change removes an event" below. If the event in fact still fires in
+  a way the guard cannot see, add `- {event: "<name>", intent: not_a_change, reason: "<why>", date: "YYYY-MM-DD"}`
+  (no `metric:`) to `intents:` instead; triage reviews it as a guard bug.
+
+Before finishing any change that touches events, run it yourself:
+`cd packages/runbooks/scripts/python && uv run governance_guard.py check --base $(git merge-base origin/main HEAD)`.
+Exit 2 means fix it now; the report says exactly what to add. Exit 1 means the guard
+itself could not run; nothing was checked, and CI will run it on the PR.
+
 ## When a change removes an event
+
+Delete the event's `EVENTS` key in the same change. The analytics guard blocks a PR that leaves it.
 
 If the change you are working on **removes** a `trackEvent` call (a frontend/client event is being deleted), that event still reads as in use in Amplitude until its metadata says otherwise — and "no recent data" alone cannot tell an intentional removal from a silent break. So when you see a client `EVENTS` entry / `trackEvent` literal being deleted:
 

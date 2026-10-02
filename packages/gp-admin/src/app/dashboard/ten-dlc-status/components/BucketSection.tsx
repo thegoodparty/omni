@@ -17,6 +17,7 @@ import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { ResendCvPinButton } from '@/app/dashboard/campaigns/components/ResendCvPinButton'
 import { useCvHoldOverride } from '@/app/dashboard/campaigns/components/useCvHoldOverride'
+import { EditFilingUrlAction } from '@/app/dashboard/campaigns/components/EditFilingUrlAction'
 import { BUCKET_META, RADIX_UNSUSPENSION_URL, TONE_FILL } from '../bucketMeta'
 
 const linkClass = 'text-[var(--accent-11)] hover:underline'
@@ -160,6 +161,20 @@ function EntryActions({
           </a>
         </Button>
       )}
+      {/* Edit only before a Peerly identity exists — once CampaignVerify has
+          consumed the URL the endpoint 409s and the fix is a Peerly
+          escalation, not a local swap. */}
+      {entry.filingUrl && !entry.peerlyIdentityId && (
+        <ProtectedContent
+          requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
+          hideWhenUnauthorized
+        >
+          <EditFilingUrlAction
+            campaignId={entry.campaignId}
+            filingUrl={entry.filingUrl}
+          />
+        </ProtectedContent>
+      )}
       <Button asChild size="1" variant="soft">
         <Link href={`/dashboard/users/${entry.userId}`}>View user</Link>
       </Button>
@@ -202,6 +217,7 @@ export function BucketSection({ bucket }: { bucket: TenDlcStatusBucket }) {
             <Table.Row>
               <Table.ColumnHeaderCell>Campaign</Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Committee</Table.ColumnHeaderCell>
+              <Table.ColumnHeaderCell>Assigned to</Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Waiting</Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Context</Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Actions</Table.ColumnHeaderCell>
@@ -222,6 +238,13 @@ export function BucketSection({ bucket }: { bucket: TenDlcStatusBucket }) {
                   </Text>
                 </Table.Cell>
                 <Table.Cell>{entry.committeeName ?? '—'}</Table.Cell>
+                <Table.Cell>
+                  {entry.assignedPa ?? (
+                    <Text size="1" color="gray">
+                      Unassigned
+                    </Text>
+                  )}
+                </Table.Cell>
                 <Table.Cell>{daysSince(entry.since)}</Table.Cell>
                 <Table.Cell>
                   <EntryContext bucketKey={bucket.key} entry={entry} />

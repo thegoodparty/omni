@@ -14,6 +14,7 @@ import {
   ContactsService,
 } from '@/contacts/services/contacts.service'
 import {
+  MAX_INTERACTIVE_RESOLUTION_MS,
   PhoneAudiencePerson,
   resolveFilterAudience,
 } from '@/contacts/utils/audienceResolution.util'
@@ -210,6 +211,18 @@ export class P2pPhoneListUploadService {
       limitExceededMessage:
         `This filter matches over the ${MAX_PHONE_LIST_RECIPIENTS} ` +
         `phone-list limit — narrow the filter and try again.`,
+      // An official is sat in front of this upload waiting for a token, so the
+      // resolution gets a clock. The cap alone did not bound one: 100,000
+      // recipients is 100 pages and the gateway hangs up at ~120s, so a filter
+      // matching ~82,000 passed every guard, died with no response, and then
+      // finished anyway — uploading a phone list to Peerly 45.9s after the
+      // browser had already shown a failure (INC-101). Nothing deletes that
+      // list, and the retry it invites makes a second one.
+      timeBudgetMs: MAX_INTERACTIVE_RESOLUTION_MS,
+      budgetExceededMessage: ({ matchedCount, affordableCount }) =>
+        `This filter matches ${matchedCount} contacts — too many to build a ` +
+        `phone list while you wait (about ${affordableCount} right now). ` +
+        `Narrow the filter and try again.`,
     })
 
     let next = await audience.next()

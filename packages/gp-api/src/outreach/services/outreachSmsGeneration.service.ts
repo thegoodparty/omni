@@ -131,6 +131,24 @@ const TONE_STYLES: Record<SocialTone, string> = {
 export const FRESH_DRAFT_TARGET_LENGTH = 700
 export const IMPROVE_DRAFT_TARGET_LENGTH = 800
 
+// Every text must say who is sending it (the candidate_name standard in
+// contracts' checkSmsStandards). The webapp owns that sentence and puts it
+// back if a draft arrives without it, so the model must neither write its
+// own (it would read as a second introduction) nor ever stand in for the
+// name with a bracket the sender has to notice and fill. Shared by Win and
+// Serve, so it names neither a candidate nor an official.
+export const SMS_NO_NAME_PLACEHOLDER_RULE = [
+  "- Never write a placeholder for anyone's name, such as [Your Name],",
+  '  [Name] or [your name].',
+].join('\n')
+
+export const SMS_IMPROVE_IDENTIFICATION_RULE = [
+  "- The message opens with the sender's identification: their name and",
+  '  office. Keep it word for word. Never swap the name for a placeholder',
+  '  like [Your Name], and do not add a second greeting, introduction, or',
+  '  sign-off.',
+].join('\n')
+
 // The flow wraps the body in system-owned regions (identification intro
 // and opt-out footer), so the model must produce ONLY the middle and
 // leave headroom inside the composed cap. The structure and length rules
@@ -155,8 +173,12 @@ const DRAFT_SYSTEM_PROMPT = [
   '  times, locations), use short square-bracket placeholders like',
   '  [time] or [date] for the candidate to fill in before sending;',
   '  never invent real-sounding specifics.',
-  '- Do NOT introduce the candidate by name or office, and do NOT add',
-  '  any opt-out or paid-for-by language: the app wraps your text with',
+  '- Do NOT introduce the candidate by name or office, do not greet, and',
+  '  do not sign off: the app has ALREADY opened the text with "Hello',
+  '  <first name>, this is <name>, candidate for <office>." Start with',
+  '  substance.',
+  SMS_NO_NAME_PLACEHOLDER_RULE,
+  '- Do NOT add any opt-out or paid-for-by language: the app appends',
   '  both.',
   "- Ground positions, issues, and specifics in the candidate's own",
   '  campaign materials when they are provided; never invent policy',
@@ -183,8 +205,8 @@ const IMPROVE_SYSTEM_PROMPT = [
   "  Keep the author's line breaks, bullets, and emojis. No hashtags; keep",
   '  any website the author included, unchanged, and keep any',
   '  square-bracket placeholders like [time] exactly as written.',
-  "- The message opens with the candidate's identification; keep it",
-  '  intact. Do NOT add any opt-out language: the app appends it.',
+  SMS_IMPROVE_IDENTIFICATION_RULE,
+  '- Do NOT add any opt-out language: the app appends it.',
   '- Never add policy positions, issue stances, endorsements,',
   '  statistics, dates, places, or events the original text does not',
   '  contain — campaign materials, when provided, are context for tone',

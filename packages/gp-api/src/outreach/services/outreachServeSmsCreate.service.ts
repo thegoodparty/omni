@@ -13,6 +13,7 @@ import {
 } from '@/contacts/services/contacts.service'
 import {
   MAX_AUDIENCE_RECIPIENTS,
+  MAX_INTERACTIVE_RESOLUTION_MS,
   resolveFilterAudience,
 } from '@/contacts/utils/audienceResolution.util'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -230,6 +231,15 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       limitExceededMessage:
         `This list reaches over the ${MAX_AUDIENCE_RECIPIENTS} constituent ` +
         'limit — narrow the list and try again.',
+      // Same clock as the phone-list upload, and for the same reason: this runs
+      // on a request, nothing has been paid for yet, and a draft the gateway
+      // killed at ~120s is a pay step the official never reaches. A refusal
+      // naming the count is something they can act on.
+      timeBudgetMs: MAX_INTERACTIVE_RESOLUTION_MS,
+      budgetExceededMessage: ({ matchedCount, affordableCount }) =>
+        `This list reaches ${matchedCount} constituents — too many to quote ` +
+        `while you wait (about ${affordableCount} right now). Narrow the list ` +
+        `and try again.`,
     })
 
     // A generator's RETURN value carries the duplicate count, and

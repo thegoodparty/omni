@@ -3,6 +3,11 @@ import type {
   SmsStandardsRule,
 } from '@goodparty_org/contracts'
 
+// Below this the header flags the vendor balance so ops refills before
+// sends start running on credit. A starting point, not a tuned number:
+// one busy send day can clear it.
+export const LOW_BALANCE_WARNING_USD = 1000
+
 export const STATUS_LABELS: Record<SmsApprovalStatus, string> = {
   awaiting_review: 'Awaiting review',
   denied: 'Denied',
