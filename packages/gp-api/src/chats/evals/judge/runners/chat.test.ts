@@ -179,6 +179,21 @@ describe('ciContextFromEnv', () => {
     expect(ci?.prNumber).toBe(2198)
   })
 
+  // The one a sweep actually has: judge.yml passes the number as
+  // JUDGE_PR_NUMBER, and a sweep runs from main, never from a pull ref.
+  it('takes the PR number judge.yml hands the arms', () => {
+    const ci = ciContextFromEnv(
+      env({
+        GITHUB_REPOSITORY: 'thegoodparty/omni',
+        GITHUB_RUN_ID: '1',
+        GITHUB_REF: 'refs/heads/main',
+        JUDGE_PR_NUMBER: '2371',
+        PR_NUMBER: '9',
+      }),
+    )
+    expect(ci?.prNumber).toBe(2371)
+  })
+
   it('carries no PR number for a sweep dispatched without one', () => {
     const ci = ciContextFromEnv(
       env({

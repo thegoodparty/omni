@@ -729,6 +729,7 @@ jobs:
           REQUESTED_BY: ${{ inputs.requested_by }}
           CANDIDATE_SHA: ${{ steps.gate.outputs.candidate_sha }}
           BASE_REF: ${{ steps.gate.outputs.base_ref }}
+          PR_NUMBER: ${{ inputs.pr_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -1095,7 +1096,15 @@ jobs:
             fi
           } > "$RUNNER_TEMP/plan-comment.md"
 
-          cat "$RUNNER_TEMP/plan-comment.md" >> "$GITHUB_STEP_SUMMARY"
+          # The run page, unlike the comment, is not on the PR, so it says
+          # which one. Numeric only: anything else is not linked.
+          {
+            if [[ "${PR_NUMBER:-}" =~ ^[0-9]+$ ]]; then
+              echo "Pull request: [#$PR_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$PR_NUMBER)"
+              echo ''
+            fi
+            cat "$RUNNER_TEMP/plan-comment.md"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           # Published only now that the file exists, so the step that posts the
           # comment can be gated on this one output and nothing else. It is
@@ -2031,6 +2040,7 @@ jobs:
           # Resolved by the worktree step. Guarded with `:-` below because this
           # step runs on `always()` and that step may not have been reached.
           BASE_SHA: ${{ steps.base.outputs.commit }}
+          PR_NUMBER: ${{ inputs.pr_number }}
           JOB_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -2041,6 +2051,12 @@ jobs:
           base_commit=unresolved
           if [ -n "${BASE_SHA:-}" ]; then
             base_commit="[\`${BASE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$BASE_SHA)"
+          fi
+          # The PR this sweep judged, linked. Numeric only, so nothing else in
+          # the input can reach a URL here.
+          pull_request=none
+          if [[ "${PR_NUMBER:-}" =~ ^[0-9]+$ ]]; then
+            pull_request="[#$PR_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$PR_NUMBER)"
           fi
           {
             echo '### Universal Judge sweep'
@@ -2056,6 +2072,7 @@ jobs:
             # reports the outcome crashed before printing it. The comparison
             # is only meaningful in the plan summary, and that is where it
             # stays.
+            echo "| pull request | $pull_request |"
             echo "| swept | \`$AGENTS\` |"
             echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
             echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) ($base_commit) |"

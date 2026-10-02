@@ -412,7 +412,9 @@ describe('provenance', () => {
   it('links the verdict back to the PR and the workflow run', async () => {
     const score = await pipeline(sweepRecords(3))
     const report = renderReport({ agents: [score] })
-    expect(report).toContain('Change under test: thegoodparty/omni #2198')
+    expect(report).toContain(
+      'Change under test: thegoodparty/omni [#2198](https://github.com/thegoodparty/omni/pull/2198)',
+    )
     expect(report).toContain(
       'https://github.com/thegoodparty/omni/actions/runs/36592029654',
     )

@@ -1281,7 +1281,8 @@ describe('judge.yml links the commits, the base and the case lists', () => {
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_REPOSITORY: 'thegoodparty/omni',
     CANDIDATE_SHA: SHA,
-    BASE_REF: 'main',
+    // Not `main`, so a link hardcoded to the default branch cannot pass.
+    BASE_REF: 'feat/x-1',
     BASE_SHA: 'f'.repeat(40),
     WORKSPACE: 'packages/gp-api',
   }
@@ -1310,8 +1311,11 @@ describe('judge.yml links the commits, the base and the case lists', () => {
     const rows = lines('echo "| base |')
     expect(rows.length).toBeGreaterThanOrEqual(7)
     for (const row of rows) {
-      expect(bash(row)).toMatch(
-        /^\| base \| \[`main`\]\(https:\/\/github\.com\/thegoodparty\/omni\/tree\/main\)/,
+      // Exactly, on the rows that carry no base commit; the one that does is
+      // checked exactly below.
+      if (row.includes('$base_commit')) continue
+      expect(bash(row)).toBe(
+        '| base | [`feat/x-1`](https://github.com/thegoodparty/omni/tree/feat/x-1) |\n',
       )
     }
   })
@@ -1329,11 +1333,67 @@ describe('judge.yml links the commits, the base and the case lists', () => {
     const render = (env: Record<string, string>) =>
       bash(`${prelude}\n${row ?? ''}`, env)
     expect(render({})).toBe(
-      `| base | [\`main\`](https://github.com/thegoodparty/omni/tree/main) ([\`ffffffffffff\`](https://github.com/thegoodparty/omni/commit/${'f'.repeat(40)})) |\n`,
+      `| base | [\`feat/x-1\`](https://github.com/thegoodparty/omni/tree/feat/x-1) ([\`ffffffffffff\`](https://github.com/thegoodparty/omni/commit/${'f'.repeat(40)})) |\n`,
     )
     expect(render({ BASE_SHA: '' })).toBe(
-      '| base | [`main`](https://github.com/thegoodparty/omni/tree/main) (unresolved) |\n',
+      '| base | [`feat/x-1`](https://github.com/thegoodparty/omni/tree/feat/x-1) (unresolved) |\n',
     )
+  })
+
+  // THE RUN PAGE IS NOT ON THE PR, so both summaries say which PR they judged.
+  // Only a numeric PR number becomes a link; anything else links nowhere.
+  describe('the pull request on the run page', () => {
+    // Supplied by the tests below, so they cannot see a step that lacks it:
+    // without it the link is silently never rendered.
+    it('gives both summary steps the PR number', () => {
+      const holders = stepsOf(yaml).filter(
+        (step) =>
+          step.body.includes('pull_request=none') ||
+          step.body.includes('echo "Pull request:'),
+      )
+      expect(holders).toHaveLength(2)
+      for (const step of holders) {
+        expect(envValue(step.body, 'PR_NUMBER')).toBe('${{ inputs.pr_number }}')
+      }
+    })
+
+    it.each<[string, string, string]>([
+      [
+        '2371',
+        '[#2371](https://github.com/thegoodparty/omni/pull/2371)',
+        'links',
+      ],
+      ['', 'none', 'says none for'],
+      ['12)](https://evil.example', 'none', 'refuses'],
+    ])('the sweep summary %s', (pr, expected) => {
+      const at = yaml.indexOf('pull_request=none')
+      const prelude = yaml.slice(at, yaml.indexOf('fi\n', at) + 2)
+      const [row] = lines('echo "| pull request |')
+      expect(at).toBeGreaterThan(-1)
+      expect(bash(`${prelude}\n${row ?? ''}`, { PR_NUMBER: pr })).toBe(
+        `| pull request | ${expected} |\n`,
+      )
+    })
+
+    it.each<[string, string]>([
+      [
+        '2371',
+        'Pull request: [#2371](https://github.com/thegoodparty/omni/pull/2371)\n\nPLAN\n',
+      ],
+      ['', 'PLAN\n'],
+      ['1; echo pwned', 'PLAN\n'],
+    ])('puts the plan summary under PR %j as expected', (pr, expected) => {
+      const at = yaml.indexOf(
+        'if [[ "${PR_NUMBER:-}" =~ ^[0-9]+$ ]]; then\n              echo "Pull request:',
+      )
+      expect(at).toBeGreaterThan(-1)
+      const block = yaml.slice(at, yaml.indexOf('fi\n', at) + 2)
+      const dir = mkdtempSync(path.join(tmpdir(), 'judge-plan-summary-'))
+      writeFileSync(path.join(dir, 'plan.md'), 'PLAN\n')
+      expect(
+        bash(`{\n${block}\ncat "${dir}/plan.md"\n}`, { PR_NUMBER: pr }),
+      ).toBe(expected)
+    })
   })
 
   // The case list is arbitrary CLI output, so it is a link only when it is a
