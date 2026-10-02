@@ -385,6 +385,7 @@ export {
 
 export {
   BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_STORY_CATEGORY,
   CAMPAIGN_TASK_CATALOG,
 } from './campaigns/CampaignTaskCatalog.data'
 
@@ -898,6 +899,13 @@ export {
   type ServeOutreachPurpose,
 } from './outreach/OutreachPurpose.schema'
 export {
+  OUTREACH_EVENT_LOCATION_MAX_LENGTH,
+  OutreachEventDetailsSchema,
+  type OutreachEventDetails,
+  ProposalEventSchema,
+  type ProposalEvent,
+} from './outreach/OutreachEvent.schema'
+export {
   SOCIAL_PURPOSE_VALUES,
   SocialPurposeSchema,
   type SocialPurpose,
@@ -1131,6 +1139,10 @@ export {
   type SmsTestMessageRequest,
   SmsTestMessageResponseSchema,
   type SmsTestMessageResponse,
+  SmsVendorAccountSchema,
+  type SmsVendorAccount,
+  SmsVendorBalanceResponseSchema,
+  type SmsVendorBalanceResponse,
 } from './outreach/SmsAdminConsole.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'

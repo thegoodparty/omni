@@ -8,6 +8,7 @@ import type {
   DoorKnockingRoutePayload,
   DoorKnockingTalkingPointsDraftResponse,
   DoorKnockingTalkingPointsPurpose,
+  OutreachEventDetails,
   DoorKnockingTurf,
   GeoJsonPolygon,
   GeoJsonShape,
@@ -546,6 +547,7 @@ export type APIEndpoints = {
       currentDraft?: string
       previousDraft?: string
       instructions?: string
+      event?: OutreachEventDetails
     }
     Response: DoorKnockingTalkingPointsDraftResponse
   }
@@ -557,6 +559,7 @@ export type APIEndpoints = {
       currentDraft?: string
       previousDraft?: string
       instructions?: string
+      event?: OutreachEventDetails
     }
     Response: DoorKnockingTalkingPointsDraftResponse
   }

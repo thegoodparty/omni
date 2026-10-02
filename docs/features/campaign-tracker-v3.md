@@ -57,31 +57,55 @@ dated task cards the candidate works through and marks complete.
 
 ## Lifecycle
 
-Every candidate goes through Campaign Story and gets the tracker — the webapp
-no longer reads a flag (ENG-11013). The tracker takes the campaign story (why /
-background / issues) as input:
+Every candidate gets the tracker. The campaign story (why / background /
+issues) is **input that sharpens** the plan and the tasks, not a precondition
+for either — a candidate with no story gets a generic plan and tracker:
 
-1. Candidate completes **Campaign Story** (why / background / issues).
-2. **Campaign Plan** generates (the `campaignStrategy` opposition + opportunity
-   sections, with the story as input). When both sections persist **and a
-   `campaign_story` row exists**, the tracker bootstraps.
-3. **Bootstrap** materializes the static rows plus the 7 deterministic outreach
+1. **Campaign Plan** generates (the `campaignStrategy` opposition + opportunity
+   sections, with the story as input when there is one). When both sections
+   persist, the tracker bootstraps.
+2. **Bootstrap** materializes the static rows plus the 7 deterministic outreach
    sends, and dispatches the first CAP run.
-4. Each **Thursday** (once the weekly cron is enabled) a CAP run re-prioritizes
+3. Each **Thursday** (once the weekly cron is enabled) a CAP run re-prioritizes
    the upcoming Monday-Sunday week and refreshes events. The Thursday cadence
    gives the downstream ClickUp email automations ~3 days to fire before Monday.
 
-The bootstrap gate is **`campaign_story` existence (data)**, not a flag — a
-pre-existing campaign with no story row still generates a plan but never
-bootstraps the tracker (see Legacy `campaign_task` remnant below).
+The story is optional all the way down: `campaign_story` is dropped from the
+agent params under budget pressure, and `CampaignStoryService.getForCampaign`
+returns `{ background: null }` for a missing row rather than throwing. The
+campaign-plan router does not read story state at all; `CampaignPlanGenerateGate`
+offers generation to everyone and invites the story alongside it.
 
-Because a plan can exist without a complete story (e.g. one generated before
-this rollout), the **campaign-plan router also gates the UI on story
-completeness**. `CampaignPlanRouter` reads `useCampaignStoryComplete` (bio +
-`background` + at least one issue) and shows the plan/tracker only once the
-story is complete; an incomplete story is routed to the "finish your Campaign
-Story" gate (`CampaignPlanStoryGate`) instead of a tracker stuck on "setting up"
-forever. This keeps the frontend gate aligned with the bootstrap's data gate.
+### The campaign story prompt
+
+Two surfaces, deliberately:
+
+- **A pinned card** above the tracker rail (`CampaignPlanStoryCard`, between
+  the hero and `CampaignStrategySection`), shown while the story is incomplete
+  and **not dismissible**, sized like the dashboard's Pro banner: one card, one
+  CTA. It is what makes the prompt the first thing on the page.
+- **A real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static` catalog
+  entry) at the **end of pre-launch**, so the prompt flows through the same row
+  machinery as everything else rather than being a bespoke surface.
+
+The task's `completed` mirrors whether the story is finished, in both
+directions, and the row is never deleted. That is what makes the tracker the
+single source of truth for this work: finishing the story on any other surface
+ticks the task — `completeCampaignStoryTaskIfDone` runs on the tracker read, so
+it closes immediately rather than at the next generation — and emptying the
+story reopens it. A candidate never has to tick it by hand, and it can never
+disagree with the card.
+
+Known consequence, tracked separately: an open pre-launch row dated in the
+present pulls a mid-campaign candidate's rail back to Pre-launch, because
+`derivePhaseStatuses` decides "happening now" from task dates. Ticking the row
+does not rescue it; the date is what pulls the phase in. The date-driven phase
+model is what needs rethinking, not the row's placement.
+
+The manager home keeps its own `PersonalizeStoryCard` (the task list there
+renders dynamic rows only, so the static story row never appears in it). Ballot
+access still outranks it: a missed filing deadline cannot be undone. All three
+surfaces share the same title and caption.
 
 ## Data model
 
@@ -125,9 +149,8 @@ choice and it has consequences every consumer must respect:
 ### Bootstrap (initial run)
 
 `campaignStrategy.service.ts → bootstrapTrackerIfPlanComplete` fires once both
-plan sections have persisted **and the campaign has a `campaign_story` row**
-(the story-data gate, so story-off plans complete but never bootstrap), then
-calls `CampaignTrackerTasksService.bootstrapForCampaign`:
+plan sections have persisted, then calls
+`CampaignTrackerTasksService.bootstrapForCampaign`:
 
 1. **Atomic claim.** A single conditional update flips
    `CampaignStrategy.trackerBootstrapped` `false → true`. The two plan sections
@@ -148,8 +171,8 @@ calls `CampaignTrackerTasksService.bootstrapForCampaign`:
 3. **Dispatch** the initial CAP run (`mode = initial`, high priority).
 
 **Static rows are also materialized eagerly, at plan-generation start.**
-`getOrGenerateStrategicLandscape` calls `materializeStaticTasks` (story-gated,
-best-effort) as soon as plan generation is requested, so the static checklist +
+`getOrGenerateStrategicLandscape` calls `materializeStaticTasks`
+(best-effort) as soon as plan generation is requested, so the static checklist +
 outreach render immediately, without waiting for the CAP-completion bootstrap
 above (which is SQS-driven and, notably, never fires in local dev). The dynamic
 `dispatchGeneration` still happens only from the completion bootstrap, since it
@@ -235,26 +258,24 @@ to fire before the Monday digest; tasks are still displayed Monday-Sunday.
 
 ### Weekly digest
 
-`weeklyTasksDigestHandler.service.ts` serves **both cohorts** from one trigger,
-routed per campaign:
+`weeklyTasksDigestHandler.service.ts` reads **only** `campaign_tracker_tasks`
+(`fetchTrackerDigestRows`) and mirrors the tracker's week view: the **latest
+dynamic generation** plus the **deterministic text/robocall outreach** dated in
+the window (`(is_default_task = false AND week = latest generation) OR
+(is_default_task = true AND flow_type IN (text, robocall))`). The static setup
+checklist (non-outreach default rows) is excluded, since it renders in the
+Pre-launch/Launch/GOTV-ops sections rather than the active week the digest
+promotes. Outreach ranks ahead of the dynamic picks. Also excludes GOTV tasks
+until the election is within 30 days (matching the UI), and excludes inactive /
+demo campaigns.
 
-- **Tracker cohort** (`fetchTrackerDigestRows`): reads `campaign_tracker_tasks`
-  and mirrors the tracker's week view: the **latest dynamic generation** plus the
-  **deterministic text/robocall outreach** dated in the window
-  (`(is_default_task = false AND week = latest generation) OR (is_default_task =
-  true AND flow_type IN (text, robocall))`). The static setup checklist
-  (non-outreach default rows) is excluded, since it renders in the
-  Pre-launch/Launch/GOTV-ops sections rather than the active week the digest
-  promotes. Outreach ranks ahead of the dynamic picks. Also excludes GOTV tasks
-  until the election is within 30 days (matching the UI), and excludes inactive /
-  demo campaigns.
-- **Legacy cohort** (`fetchLegacyDigestRows`): the unchanged pre-tracker digest
-  over `campaign_task`, guarded by `NOT EXISTS (campaign_tracker_tasks)` so a
-  migrated campaign isn't double-counted. The two cohorts are mutually
-  exclusive, so each campaign gets exactly one digest.
+It emails the **top 3 uncompleted** tasks dated in the upcoming Monday-Sunday
+window, and sends nothing to a campaign with fewer than 3 open tasks in it
+(`MIN_TASKS`). Election date falls back to `primaryElectionDate`.
 
-Both email the **top 3 uncompleted** tasks dated in the upcoming Monday-Sunday
-window. Election date falls back to `primaryElectionDate`.
+Because tracker rows are the cohort gate, a campaign only enters the digest
+once its plan has generated. That is why the storyless cohort was getting no
+Monday email at all before the story gate came off.
 
 ## Key files
 
@@ -304,10 +325,8 @@ The table below is the cross-package file index:
 - `CampaignStrategySection.tsx` renders only from persisted tracker rows
   (loading / error / a "setting up your tracker" state while bootstrap is in
   flight, then the accordion). There is **no** client-side catalog fallback.
-  `CampaignPlanView` renders it unconditionally now, so a no-rows state means
-  bootstrap hasn't landed yet, not "legacy campaign with no tracker" — a
-  campaign whose bootstrap never ran (no `campaign_story` row) instead falls
-  through to the story-completeness gate, never this section.
+  `CampaignPlanView` renders it unconditionally, so a no-rows state means
+  bootstrap hasn't landed yet.
 - `CampaignPlanView.tsx` renders the tracker hero + `CampaignStrategySection`
   above the plan unconditionally. The legacy community-events poll
   (`useCampaignPlanData`) was removed along with the onboarding success page
@@ -317,9 +336,6 @@ The table below is the cross-package file index:
 
 - **Weekly cron:** `CAMPAIGN_TRACKER_AUTOMATION_ENABLED=true` (env) turns on
   Thursday regeneration. Ships disabled.
-- **Bootstrap gate:** `campaign_story` existence gates the bootstrap — a
-  pre-existing campaign with no story row never bootstraps (see Legacy
-  `campaign_task` remnant below).
 - Cost is roughly $0.94 per candidate per run (validated on dev cohorts;
   approved by Bryan).
 - Preview envs have no agent-dispatch queue, so generation no-ops there.
@@ -328,14 +344,15 @@ The table below is the cross-package file index:
 
 The webapp no longer reads a flag (ENG-11013) and gp-api's legacy digest,
 default-task generator, and community-events backend are torn down
-(ENG-11015). What's left is data-shaped, not code-shaped: a pre-existing
-campaign with no `campaign_story` row never bootstrapped the tracker, so it
-has no `campaign_tracker_tasks` rows. Its legacy `campaign_task` rows (if any
-were generated before the teardown) are still readable and completable via
-`CampaignTasksController` (`GET/complete/uncomplete /campaigns/tasks`), and
-`notifySlackOnProUpgrade` still has a legacy branch that posts the
-plan-summary Slack message for that cohort — nothing generates new
-`campaign_task` rows or emails a digest for them anymore.
+(ENG-11015). What's left is data-shaped, not code-shaped: legacy
+`campaign_task` rows generated before the teardown are still readable and
+completable via `CampaignTasksController`
+(`GET/complete/uncomplete /campaigns/tasks`), and `notifySlackOnProUpgrade`
+still has a legacy branch that posts the plan-summary Slack message for a
+campaign that has those rows and no tracker rows — nothing generates new
+`campaign_task` rows or emails a digest for them anymore. A campaign that has
+not yet had its plan generated has neither table populated; it bootstraps the
+tracker the first time a plan is generated for it.
 
 Dropping the `campaign_task` table itself needs a follow-up: those completion
 routes and the Slack legacy branch still query it directly, and gp-webapp's
@@ -390,21 +407,13 @@ there, nowhere else.
 
 ## How this diverged from the original TDD
 
-The design doc (`scratch/campaign-tracker-v3/`, since removed) proposed
-coexistence with the legacy tracker and a weekly **wholesale replace** of
-dynamic rows. One of those held; the other changed:
+The design doc (`scratch/campaign-tracker-v3/`, since removed) proposed a weekly
+**wholesale replace** of dynamic rows. That changed:
 
-1. **Coexistence, gated on campaign story.** An earlier iteration hard-flipped
-   (retired the legacy `campaign_task` generation + display). That was reverted:
-   because `campaign-story` is still gated in prod and dev auto-merges to prod
-   daily, the off state must remain a fully usable legacy experience. So the new
-   tracker is the story cohort's path, the legacy path is preserved for
-   story-off, and routing/digest/UI cohort-split per campaign on the
-   `campaign-story` flag + `campaign_story` existence.
-2. **Append, not replace.** Wholesale-replace wiped completion every week and
+1. **Append, not replace.** Wholesale-replace wiped completion every week and
    kept no history for the agent. The append model preserves both, at the cost
    of every consumer scoping to the latest generation.
-3. **Outreach is deterministic, not agent-selected.** The original design let
+2. **Outreach is deterministic, not agent-selected.** The original design let
    the agent pick text/robocall sends like any other dynamic task. They are now
    the 7 fixed sends from the plan's general-election contact schedule,
    materialized at bootstrap and suppressed on a lost primary. This keeps the

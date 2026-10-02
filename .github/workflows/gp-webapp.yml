@@ -221,6 +221,7 @@ jobs:
           EXPECTED_SHA: ${{ github.sha }}
           JOB_NAME: ${{ github.event_name == 'pull_request' && 'Deploy PR preview' || 'Deploy' }}
           IS_PUSH: ${{ github.event_name == 'push' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           # On main, gp-api's deploy concurrency group (gp-api-deploy-main)
           # serializes deploys and drops the older *pending* one when a newer
@@ -236,8 +237,8 @@ jobs:
           superseded() {
             [ "$IS_PUSH" = "true" ] || return 1
             local latest
-            latest=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=main&event=push&per_page=30" \
-              --jq '[.workflow_runs[] | select(.name=="gp-api")] | sort_by(.run_started_at) | last | .id // empty')
+            latest=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-api.yml/runs?branch=main&event=push&per_page=30" \
+              --jq '.workflow_runs | sort_by(.run_started_at, .id) | last | .id // empty')
             # Our commit's gp-api main run is no longer the newest main
             # gp-api run => a later merge superseded it.
             [ -n "$latest" ] && [ -n "$run_id" ] && [ "$latest" != "$run_id" ]
@@ -245,18 +246,53 @@ jobs:
 
           echo "Waiting for gp-api '$JOB_NAME' job on $RUN_SHA"
           for i in $(seq 1 150); do
-            runs_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RUN_SHA")
-            run_id=$(jq -r '[.workflow_runs[] | select(.name=="gp-api")] | sort_by(.run_started_at) | last | .id // empty' <<<"$runs_json")
-            run_conclusion=$(jq -r '[.workflow_runs[] | select(.name=="gp-api")] | sort_by(.run_started_at) | last | .conclusion // ""' <<<"$runs_json")
+            # gp-api's OWN runs, not every run on the commit. Listing all of
+            # them and filtering by name read one page of 30, and a commit with
+            # more runs than that (two PR events firing every workflow twice,
+            # review events, and on main every scheduled and workflow_run
+            # trigger filed under main's head) pushed gp-api off it. The wait
+            # then saw no run for a deploy that had already succeeded and
+            # timed out.
+            runs_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-api.yml/runs?head_sha=$RUN_SHA&per_page=100")
+            # This PR's runs, oldest to newest, ties broken by id: twin runs on
+            # one commit can start in the same second, and their order is
+            # otherwise arbitrary. Other PRs on the same head commit are left
+            # out; a run GitHub did not link to any PR (a fork) falls back to
+            # every run on the commit rather than to none.
+            runs=$(jq --arg pr "${PR_NUMBER:-}" '
+              [.workflow_runs[]] as $all
+              | [$all[] | select($pr != "" and any(.pull_requests[]?; (.number | tostring) == $pr))] as $mine
+              | (if ($mine | length) > 0 then $mine else $all end)
+              | sort_by(.run_started_at, .id)' <<<"$runs_json")
+            run_id=$(jq -r 'last | .id // empty' <<<"$runs")
+            run_conclusion=$(jq -r 'last | .conclusion // ""' <<<"$runs")
             job_conclusion=""
             if [ -n "$run_id" ]; then
               job_conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" \
                 --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\"")
             fi
-            echo "  attempt $i/150: gp-api run=${run_id:-<none>} run_conclusion=${run_conclusion:-<running>} '$JOB_NAME' conclusion=${job_conclusion:-<running>}"
+            # A TWIN THAT DEPLOYED. Two PR events at once start every workflow
+            # twice, and the newer twin's deploy can be cancelled after the
+            # older one's succeeded. Only then is an older run's success
+            # accepted: while the newest is still running it is the one to
+            # wait for, since an older success may be a preview this PR has
+            # since torn down. The edge check below still confirms the SHA.
+            deployed=""
+            if [ "$run_conclusion" = "cancelled" ] || [ "$job_conclusion" = "cancelled" ]; then
+              for id in $(jq -r '.[:-1] | reverse | .[].id' <<<"$runs"); do
+                conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
+                  --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\"")
+                if [ "$conclusion" = "success" ]; then
+                  deployed=$id
+                  break
+                fi
+              done
+            fi
+            echo "  attempt $i/150: gp-api run=${run_id:-<none>} run_conclusion=${run_conclusion:-<running>} '$JOB_NAME' conclusion=${job_conclusion:-<running>}${deployed:+ (twin run $deployed deployed it)}"
 
             # Deploy job for our commit finished successfully.
             [ "$job_conclusion" = "success" ] && break
+            [ -n "$deployed" ] && break
 
             # A real, non-superseded deploy failure must still fail E2E.
             case "$job_conclusion" in
@@ -326,8 +362,9 @@ jobs:
         run: |
           set -uo pipefail
           for i in $(seq 1 90); do
-            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RUN_SHA&event=push" \
-              --jq '[.workflow_runs[] | select(.name=="gp-ai")] | sort_by(.run_started_at) | last | .id // empty')
+            # gp-ai's own runs, for the reason the gp-api wait above gives.
+            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-ai.yml/runs?head_sha=$RUN_SHA&event=push&per_page=100" \
+              --jq '.workflow_runs | sort_by(.run_started_at, .id) | last | .id // empty')
             if [ -z "$run_id" ]; then
               echo "  attempt $i/90: no gp-ai run yet for $RUN_SHA"
               sleep 10
