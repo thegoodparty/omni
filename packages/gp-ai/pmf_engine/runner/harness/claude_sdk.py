@@ -109,6 +109,11 @@ _MAX_LOGGED_TOKEN_COUNT = 2**53 - 1
 USAGE_SCHEMA_VERSION = 1
 
 
+# The billed classes the API types as nullable (`Optional[int]` in the
+# Anthropic SDK's Usage). Every other class is a required int.
+_NULLABLE_USAGE_KEYS = frozenset({"cache_creation_input_tokens", "cache_read_input_tokens"})
+
+
 def _priced_turn(model: str, usage: object) -> tuple[float | None, str | None]:
     """Dollar cost of one turn, or (None, why) when it was never observed.
 
@@ -132,27 +137,32 @@ def _priced_turn(model: str, usage: object) -> tuple[float | None, str | None]:
       `get_accumulated_cost` refuses to report for the run. No count is
       fabricated either way; the choice is between a wrong number and none.
 
-    A key the usage object does not carry, or carries as null, is NOT
-    unobserved: the CLI omits classes that were not billed, and the API sends
-    the two cache counts as null when no cache was involved. Either way the
-    class contributes nothing. Treating it as unobserved would withhold the
-    cost of every uncached run.
+    A key the usage object does not carry is NOT unobserved: the CLI omits
+    classes that were not billed. Nor is a null cache count, which the API
+    sends when no cache was involved. Either way the class contributes
+    nothing; treating it as unobserved would withhold every uncached run's
+    cost. A null in a REQUIRED class is different — see below.
 
     Cannot raise, for the same reason `_usage_counts` cannot.
     """
     rates = next((v for k, v in _PRICE_PER_MTOK.items() if k in (model or "").lower()), None)
     if rates is None:
-        return None, f"no rate on record for model {model or 'unknown'!r}; add it to _PRICE_PER_MTOK"
+        return None, f"no rate on record for model {model or 'unknown'!r} (add it to _PRICE_PER_MTOK)"
     if not isinstance(usage, dict):
         return None, "a turn reported no usage, so its cost was never observed"
     counts = _usage_counts(usage) or {}
-    # `usage.get(key) is not None`, not `key in usage`: the API types the two
-    # cache counts as `integer | null`, and null there means "not applicable"
-    # — no cache was involved — not that a count was reported and garbled. A
-    # null is therefore read like an absent key and contributes nothing,
-    # exactly as it did before this check existed; only a non-null value that
-    # still failed to read leaves the turn unobserved.
-    unreadable = sorted(key for key in _USAGE_TOKEN_KEYS if usage.get(key) is not None and key not in counts)
+    # A null is "not applicable" ONLY for the two classes the API types as
+    # nullable. The Anthropic SDK declares cache_creation_input_tokens and
+    # cache_read_input_tokens `Optional[int]` — null there means no cache was
+    # involved — but input_tokens and output_tokens are required ints. A null
+    # in one of THOSE is a count the API always reports arriving unreadable,
+    # and pricing the turn without it is the silent understatement this check
+    # exists to stop.
+    unreadable = sorted(
+        key
+        for key in _USAGE_TOKEN_KEYS
+        if key in usage and not (usage[key] is None and key in _NULLABLE_USAGE_KEYS) and key not in counts
+    )
     if unreadable:
         return None, f"a turn reported token counts that could not be read: {', '.join(unreadable)}"
     return sum(count * rates[_USAGE_TOKEN_KEYS[key]] for key, count in counts.items()) / 1_000_000, None

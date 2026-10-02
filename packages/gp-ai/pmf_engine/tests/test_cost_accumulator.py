@@ -136,6 +136,19 @@ class TestPriceTurn:
         assert claude_sdk._price_turn("claude-sonnet-5", usage) == 3.0 + 15.0
         assert claude_sdk._priced_turn("claude-sonnet-5", usage)[1] is None
 
+    @pytest.mark.parametrize("required", ["input_tokens", "output_tokens"])
+    def test_a_null_in_a_class_the_api_always_reports_is_unreadable(self, required):
+        """The other side of the null rule. input_tokens and output_tokens are
+        required ints in the SDK's Usage, so a null there is a count the API
+        always sends arriving unreadable — and pricing the turn on the rest is
+        the silent understatement this exists to stop, not a cache that was
+        not used."""
+        usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000, required: None}
+        assert claude_sdk._priced_turn("claude-sonnet-5", usage) == (
+            None,
+            f"a turn reported token counts that could not be read: {required}",
+        )
+
     @pytest.mark.parametrize(
         "bad",
         ["not a number", -1, float("inf"), 2**53],
@@ -159,18 +172,21 @@ class TestPriceTurn:
         bound itself must not be, or an off-by-one there would withhold a
         turn that reported a perfectly readable count."""
         usage = {"output_tokens": claude_sdk._MAX_LOGGED_TOKEN_COUNT}
-        assert claude_sdk._price_turn("claude-sonnet-5", usage) is not None
+        assert claude_sdk._price_turn("claude-sonnet-5", usage) == claude_sdk._MAX_LOGGED_TOKEN_COUNT * 15 / 1_000_000
 
     def test_a_realistic_usage_object_with_extra_fields_still_prices(self):
         """Real usage objects carry service_tier, server_tool_use and friends.
         Only the four billed classes are read, so the rest must be ignored
         rather than counted as unreadable."""
         usage = {
+            "input_tokens": 1_000_000,
             "output_tokens": 1_000_000,
+            "cache_creation_input_tokens": None,
+            "cache_read_input_tokens": None,
             "service_tier": "standard",
             "server_tool_use": {"web_search_requests": 0},
         }
-        assert claude_sdk._price_turn("claude-sonnet-5", usage) == 15.0
+        assert claude_sdk._price_turn("claude-sonnet-5", usage) == 3.0 + 15.0
 
     def test_names_every_unreadable_class(self):
         usage = {"input_tokens": "x", "cache_read_input_tokens": -5, "output_tokens": 1}
@@ -184,7 +200,9 @@ class TestPriceTurn:
         _, rate = claude_sdk._priced_turn("gemini-3-flash", {"output_tokens": 1})
         _, usage = claude_sdk._priced_turn("claude-sonnet-5", None)
         # The model name is the actionable part, so it is pinned whole.
-        assert rate == "no rate on record for model 'gemini-3-flash'; add it to _PRICE_PER_MTOK"
+        # Parenthesised rather than `; add it`: the accumulator joins reasons
+        # with '; ', so that suffix would blur where one reason ends.
+        assert rate == "no rate on record for model 'gemini-3-flash' (add it to _PRICE_PER_MTOK)"
         assert usage == "a turn reported no usage, so its cost was never observed"
 
     def test_cache_read_is_cheap_relative_to_fresh_input(self):
