@@ -11,12 +11,12 @@ import { zCoerceDate } from '../shared/Date.schema'
 import { PhoneBankingOutreachDetailSchema } from '../phoneBanking/PhoneBankingList.schema'
 import { DoorKnockingOutreachDetailSchema } from '../doorKnocking/DoorKnockingTurf.schema'
 import { OutreachRobocallDetailSchema } from './RobocallPurchase.schema'
-import { OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
+import { BROADCAST_OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
 
-// Social shares the canonical outreach vocabulary (OutreachPurpose.schema.ts)
-// plus its own extra `issue_update` value.
+// Social shares the canonical outreach vocabulary (OutreachPurpose.schema.ts),
+// less the purpose that asks a question, plus its own extra `issue_update`.
 export const SOCIAL_PURPOSE_VALUES = [
-  ...OUTREACH_PURPOSE_VALUES,
+  ...BROADCAST_OUTREACH_PURPOSE_VALUES,
   'issue_update',
 ] as const
 export const SocialPurposeSchema = z.enum(SOCIAL_PURPOSE_VALUES)

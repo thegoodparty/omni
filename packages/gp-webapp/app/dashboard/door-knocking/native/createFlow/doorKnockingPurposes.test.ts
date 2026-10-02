@@ -21,6 +21,7 @@ describe('DOOR_KNOCKING_PURPOSES', () => {
       'event_invite',
       'early_voting',
       'election_day_turnout',
+      'community_input',
       'custom',
     ])
     expect(DOOR_KNOCKING_PURPOSE_LABELS).toEqual({
@@ -29,6 +30,7 @@ describe('DOOR_KNOCKING_PURPOSES', () => {
       event_invite: 'Invite people to an event',
       early_voting: 'Encourage early voting',
       election_day_turnout: 'Turn out my supporters',
+      community_input: 'Hear from voters',
       custom: 'Something else',
     })
   })
@@ -48,6 +50,9 @@ describe('DOOR_KNOCKING_PURPOSE_NAME_SUGGESTIONS', () => {
     )
     expect(doorKnockingPurposeNameSuggestion('early_voting')).toBe(
       'Early voting walk',
+    )
+    expect(doorKnockingPurposeNameSuggestion('community_input')).toBe(
+      'Listening walk',
     )
     expect(doorKnockingPurposeNameSuggestion('not-a-purpose')).toBe(
       'Door knocking list',

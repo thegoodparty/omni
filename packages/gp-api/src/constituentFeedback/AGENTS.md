@@ -1,9 +1,10 @@
 # constituentFeedback
 
-Serve-side issue capture. A canvasser or caller records a short spoken summary
-of one conversation; the request extracts the issue, the constituent's position
-on it, and the outcome they want, and hands that back for the person who was
-just there to confirm or correct.
+Issue capture, on Win and Serve. A canvasser or caller records a short spoken
+summary of one conversation; the request extracts the issue, the person's
+position on it, and the outcome they want, and hands that back for the person
+who was just there to confirm or correct. The module keeps its name; the user
+never sees it.
 
 Collection only. Clustering those rows into ranked themes, and the reporting
 over them, is a separate phase and deliberately not here.
@@ -31,10 +32,13 @@ Enums: `ConstituentFeedbackChannel`, `ConstituentFeedbackStance`,
 The effort is the `Outreach` envelope: one key for a turf or a phone list.
 
 - `ConstituentFeedback.outreachId`: the memo's effort, resolved at capture.
-  A knock on a turf with no envelope 404s; a call on a list with none saves
+  A knock memo takes the knock row's own `outreachId` and falls back to the
+  stop target's turf only when that is null; the question comes from the same
+  envelope. A knock with neither 404s; a call on a list with no envelope saves
   with null (a Win list made without a Campaign row has no envelope).
 - `ContactInteractionDoorKnock.outreachId`: the knock's effort, written by
-  the door-knocking write path. Null on knocks recorded before it existed.
+  the door-knocking write path. Null on knocks recorded before it existed, and
+  on manual CRM knock logs, which belong to no effort.
 - `IssueTag`: the org's tag list, unique on
   `(organizationSlug, normalizedName)`. `IssueTagStatus`: proposed, accepted,
   retired.
@@ -53,20 +57,41 @@ deletes only the rows carrying its `runId`.
 
 ## HTTP routes
 
-All under `@Controller('constituent-feedback')`, all `@UseElectedOffice()`.
+All under `@Controller('constituent-feedback')`, all `@UseOrganization()`.
 
 - `POST /` — record a memo. Extracts in the request and returns the proposed
-  triple.
+  triple. `@AllowVolunteer()`.
 - `PATCH /:id/confirm` — the confirmed triple. Sets `confirmedAt`.
-- `GET /?personId=` — that person's memos, newest first.
+  `@AllowVolunteer()`.
+- `GET /?personId=` — that person's memos, newest first. Default posture:
+  owner or campaign manager (a volunteer gets 403), since it is the CRM's
+  record of a person.
 
-Every route is flag-gated on `serve-issue-capture` and 404s when it is off, so
-a surface a user has not been rolled out to does not advertise itself. Unlike
+The writes admit volunteers because the person who had the conversation is
+who records and confirms it, the posture the knock and call routes already
+carry, and under the same rule: a volunteer acts only on an effort they hold
+an `OutreachAssignment` on (`assertVolunteerAssignedToOutreach`, the knock
+routes' predicate). Capture checks the resolved `outreachId` before it spends
+an extraction; confirm checks the row's. A volunteer gets the same 404 the
+knock or call route would give ("Stop target not found" / "Phone banking list
+not found"), including for a memo with no effort, which nothing can be
+assigned to. Owners and campaign managers are unaffected.
+
+Every route is flag-gated and 404s when the flag is off, so a surface a user
+has not been rolled out to does not advertise itself. The flag is the org's
+product's: an `eo-` slug reads `serve-issue-capture`, anything else
+`win-issue-capture`, so each product rolls out on its own schedule. Unlike
 `outreachServeSms.controller.ts`, which gates only its writes, there is no
-inert read here — the reads are the feature.
+inert read here — the reads are the feature. `@UseOrganization()` and its role
+guard are the access check; the flag gates rollout, not access.
 
-`@UseElectedOffice()` is the real access check and what makes this Serve-only:
-a Win org has no `ElectedOffice` row. The flag gates rollout, not access.
+## The extraction prompt names no product
+
+The same three fields land on a voter's record and a constituent's, and the
+copy around them is mode-keyed by the UI. So the prompt says "the person they
+spoke with", never voter or constituent: a product noun there steers the
+model into writing one product's word into the other's record.
+`constituentFeedbackExtraction.test.ts` asserts neither word appears.
 
 ## Why extraction is synchronous
 
@@ -74,7 +99,7 @@ It would be cheaper on a queue. It is in the request because the confirmation
 step needs the person who heard the conversation, and that person is only
 present for the few seconds after they stop speaking. Deferred extraction
 means corrections get made later by someone reading a transcript who was not
-there, which is a different and much weaker claim about what a constituent
+there, which is a different and much weaker claim about what a person
 said.
 
 A failed extraction never fails the request. `extract()` returns null, the row
@@ -126,15 +151,19 @@ rules hold that together.
 `communityInputQuestion` is captured in both setup flows and then does two
 jobs. It is denormalized onto each feedback row as `effortQuestion`, so an
 extraction stays readable against the prompt it ran with. And it is sent to
-the Serve draft endpoints (`POST /v1/outreach/serve/door-knocking/draft`,
-`POST /v1/outreach/serve/phone-banking/draft`) so the generated card or
-script asks THAT question rather than a generic one — without it, a compost
+the draft endpoints (`POST /v1/outreach/serve/door-knocking/draft`,
+`POST /v1/outreach/serve/phone-banking/draft` and their Win twins) so the
+generated card or script asks THAT question rather than a generic one — without it, a compost
 pilot effort shipped an ask reading "what should the council be focusing
 on", which is the opposite of the point.
 
-- **Optional, and Serve-only.** `community_input` is a Serve purpose, so the
-  field is absent from both Win schemas. A Win request is byte-identical to
-  before, pinned by a test that diffs the two prompts.
+- **Optional, on both products.** `community_input` is Win's "Hear from
+  voters" and Serve's community input, and the Win draft endpoints
+  (`POST /v1/outreach/door-knocking/draft`, `POST /v1/outreach/phone-banking/draft`)
+  take the field too. A request without it is byte-identical to before: the
+  Win tests diff the prompt with and without the field and assert the question
+  block is the only difference. The phone block names the person in the
+  rail's own word (`personNoun`), so a Win prompt never says constituent.
 - **Sent, not read server-side.** Neither the turf nor the list exists at
   draft time — both are created at the end of the flow.
 - **Fenced in the prompt**, like every other piece of user text, so a typed

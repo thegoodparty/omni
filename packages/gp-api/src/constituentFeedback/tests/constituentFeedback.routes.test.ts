@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import jwt from 'jsonwebtoken'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
@@ -9,9 +10,11 @@ import { useTestService } from '@/test-service'
 import {
   DoorKnockOutcome,
   DoorKnockingMode,
+  OrganizationRole,
   OutreachType,
 } from '@/generated/prisma'
 import type { GeoJsonPolygon } from '@goodparty_org/contracts'
+import { FeaturesService } from '@/features/services/features.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { ConstituentFeedbackExtractionService } from '../services/constituentFeedbackExtraction.service'
 
@@ -85,6 +88,51 @@ let extraction = {
   desiredOutcome: 'Weekly pickup' as string | null,
   confidence: 0.8 as number | null,
 }
+
+// Locally and in tests every flag reads as on (the placeholder key), so a test
+// about WHICH flag gates a request has to say which ones are on itself.
+const onlyFlagOn = (flag: string) => {
+  const spy = vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockImplementation(async ({ feature }) => feature === flag)
+  onTestFinished(() => spy.mockRestore())
+  return spy
+}
+
+const flagsAskedFor = (spy: ReturnType<typeof onlyFlagOn>) =>
+  spy.mock.calls.map(([params]) => params.feature)
+
+const createVolunteer = async (slug: string) => {
+  const label = `cf-volunteer-${randomUUID()}`
+  const user = await service.prisma.user.create({
+    data: { email: `${label}@example.com`, clerkId: `user_${label}` },
+  })
+  await service.prisma.organizationMembership.create({
+    data: {
+      organizationSlug: slug,
+      userId: user.id,
+      role: OrganizationRole.volunteer,
+    },
+  })
+  const token = jwt.sign({ sub: `user_${label}` }, process.env.AUTH_SECRET!, {
+    expiresIn: '1h',
+  })
+  return {
+    user,
+    config: {
+      headers: {
+        'x-organization-slug': slug,
+        Authorization: `Bearer ${token}`,
+      },
+      validateStatus: () => true,
+    },
+  }
+}
+
+const assign = (slug: string, outreachId: number, assigneeUserId: number) =>
+  service.prisma.outreachAssignment.create({
+    data: { organizationSlug: slug, outreachId, assigneeUserId },
+  })
 
 describe('constituent feedback routes', () => {
   let eoSlug: string
@@ -441,10 +489,61 @@ describe('constituent feedback routes', () => {
     expect(rows).toHaveLength(0)
   })
 
-  // The door arm resolves through the TURF, because a knock row carries no
-  // turf and the turf is what holds the question. That nested
-  // `stop.turf.voterFileFilter.organizationSlug` filter is the only thing
-  // standing between a caller and another org's canvassing question.
+  // A volunteer reaches a call only through an assignment on its effort, and a
+  // list with no envelope has no effort to be assigned to.
+  it('refuses a volunteer a call that belongs to no effort', async () => {
+    await service.prisma.outreach.delete({
+      where: { phoneBankingListId: listId },
+    })
+    const volunteer = await createVolunteer(eoSlug)
+
+    const res = await service.client.post(
+      '/v1/constituent-feedback',
+      {
+        channel: 'phone_bank',
+        entryId,
+        personId,
+        clientKey: randomUUID(),
+        transcript: 'Rosa wants weekly compost pickup.',
+        captureMethod: 'dictation',
+      },
+      volunteer.config,
+    )
+
+    expect(res.status).toBe(404)
+    const rows = await service.prisma.constituentFeedback.findMany({
+      where: { organizationSlug: eoSlug },
+    })
+    expect(rows).toHaveLength(0)
+  })
+
+  // Each product rolls out on its own flag. A Serve org is gated on
+  // serve-issue-capture alone, so turning Win's on cannot open it.
+  describe('the Serve rollout flag', () => {
+    it('admits a Serve org when serve-issue-capture is on', async () => {
+      const flags = onlyFlagOn('serve-issue-capture')
+
+      const res = await capture('Rosa wants weekly compost pickup.')
+
+      expect(res.status).toBe(201)
+      expect(flagsAskedFor(flags)).toEqual(['serve-issue-capture'])
+    })
+
+    it('404s a Serve org when only win-issue-capture is on', async () => {
+      onlyFlagOn('win-issue-capture')
+
+      const res = await capture('Rosa wants weekly compost pickup.')
+
+      expect(res.status).toBe(404)
+    })
+  })
+
+  // The door arm files the memo under the knock row's own envelope and reads
+  // the question from that envelope's turf, falling back to the stop target's
+  // turf for a knock written before the row kept its envelope. The stop
+  // target lookup is scoped by `stop.turf.voterFileFilter.organizationSlug`,
+  // so another org's stop target never resolves and its question never
+  // reaches this org's record.
   describe('the door-knock channel', () => {
     // Builds a turf carrying `question`, one stop with one target on it, and
     // a knock recorded against a fresh client key.
@@ -657,6 +756,217 @@ describe('constituent feedback routes', () => {
         where: { id: res.data.id },
       })
       expect(row.effortQuestion).toBeNull()
+    })
+
+    // The knock row carries the envelope it was written under, resolved
+    // server-side from its own stop target. `stopTargetId` on the memo is
+    // whatever the client sent, and a person can sit in two turfs, so the
+    // knock's own envelope is the one the memo belongs to.
+    it('files the memo under the knock’s own envelope over the stop target’s', async () => {
+      const seeded = await seedKnock(eoSlug, 'The stop target’s question')
+      const other = await seedKnock(eoSlug, 'The knock’s own question')
+      await service.prisma.contactInteractionDoorKnock.update({
+        where: {
+          organizationSlug_sourceId: {
+            organizationSlug: eoSlug,
+            sourceId: seeded.knockClientKey,
+          },
+        },
+        data: { outreachId: other.outreachId },
+      })
+
+      const res = await captureKnock(seeded)
+
+      expect(res.status).toBe(201)
+      const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(row.outreachId).toBe(other.outreachId)
+      expect(row.effortQuestion).toBe('The knock’s own question')
+    })
+
+    // The same module serves a candidate's campaign org. Which product a
+    // request belongs to is read off the slug, as every other Win/Serve split
+    // in gp-api reads it, and it decides which rollout flag gates the request.
+    describe('on a Win campaign org', () => {
+      let winSlug: string
+
+      beforeEach(async () => {
+        winSlug = `campaign-cf-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2)}`
+        await service.prisma.organization.create({
+          data: {
+            slug: winSlug,
+            ownerId: service.user.id,
+            overrideDistrictId: DISTRICT_ID,
+          },
+        })
+        await service.prisma.campaign.create({
+          data: {
+            userId: service.user.id,
+            slug: winSlug,
+            organizationSlug: winSlug,
+            isPro: true,
+          },
+        })
+      })
+
+      const ownerHeaders = () => ({
+        headers: { 'x-organization-slug': winSlug },
+        validateStatus: () => true,
+      })
+
+      const knockMemoBody = (knock: {
+        knockClientKey: string
+        stopTargetId: number
+      }) => ({
+        channel: 'door_knock',
+        knockClientKey: knock.knockClientKey,
+        stopTargetId: knock.stopTargetId,
+        clientKey: knock.knockClientKey,
+        transcript: 'She wants the bond spent on the roads.',
+        captureMethod: 'dictation',
+      })
+
+      const CONFIRMED = {
+        issueLabel: 'Road bond',
+        stance: 'supports',
+        desiredOutcome: 'Spend it on the roads',
+      }
+
+      it('records and confirms a memo for the candidate', async () => {
+        const seeded = await seedKnock(
+          winSlug,
+          'How do you feel about the bond?',
+        )
+
+        const res = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          ownerHeaders(),
+        )
+        expect(res.status).toBe(201)
+
+        const confirmed = await service.client.patch(
+          `/v1/constituent-feedback/${res.data.id}/confirm`,
+          CONFIRMED,
+          ownerHeaders(),
+        )
+        expect(confirmed.status).toBe(200)
+        expect(confirmed.data.confirmedAt).not.toBeNull()
+        expect(confirmed.data.outreachId).toBe(seeded.outreachId)
+      })
+
+      // A volunteer is who walks most Win turfs, so the two writes carry
+      // @AllowVolunteer(), like the knock route they follow, and the same
+      // assignment rule: only on an effort they were handed.
+      it('lets an assigned volunteer record and confirm a memo', async () => {
+        const volunteer = await createVolunteer(winSlug)
+        const seeded = await seedKnock(winSlug, null)
+        await assign(winSlug, seeded.outreachId, volunteer.user.id)
+
+        const res = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          volunteer.config,
+        )
+        expect(res.status).toBe(201)
+        const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+          where: { id: res.data.id },
+        })
+        expect(row.actorUserId).toBe(volunteer.user.id)
+
+        const confirmed = await service.client.patch(
+          `/v1/constituent-feedback/${res.data.id}/confirm`,
+          CONFIRMED,
+          volunteer.config,
+        )
+        expect(confirmed.status).toBe(200)
+      })
+
+      // 404 rather than 403, as on the knock route: a volunteer probing a
+      // teammate's turf learns nothing about whether it exists.
+      it('refuses a volunteer not assigned to the effort on both writes', async () => {
+        const volunteer = await createVolunteer(winSlug)
+        const seeded = await seedKnock(winSlug, null)
+        const recorded = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          ownerHeaders(),
+        )
+        expect(recorded.status).toBe(201)
+
+        const captured = await service.client.post(
+          '/v1/constituent-feedback',
+          { ...knockMemoBody(seeded), transcript: 'Not my turf.' },
+          volunteer.config,
+        )
+        const confirmed = await service.client.patch(
+          `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+          CONFIRMED,
+          volunteer.config,
+        )
+
+        expect(captured.status).toBe(404)
+        expect(confirmed.status).toBe(404)
+        const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+          where: { id: recorded.data.id },
+        })
+        expect(row.transcript).toBe('She wants the bond spent on the roads.')
+        expect(row.confirmedAt).toBeNull()
+      })
+
+      // Reading a person's memos is reading the CRM, which stays manager+.
+      it('refuses a volunteer the person read', async () => {
+        const volunteer = await createVolunteer(winSlug)
+        const seeded = await seedKnock(winSlug, null)
+
+        const res = await service.client.get('/v1/constituent-feedback', {
+          ...volunteer.config,
+          params: { personId: seeded.knockPersonId },
+        })
+
+        expect(res.status).toBe(403)
+      })
+
+      it('gates a Win org on win-issue-capture alone', async () => {
+        const flags = onlyFlagOn('win-issue-capture')
+        const volunteer = await createVolunteer(winSlug)
+        const seeded = await seedKnock(winSlug, null)
+        await assign(winSlug, seeded.outreachId, volunteer.user.id)
+
+        const res = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          volunteer.config,
+        )
+        expect(res.status).toBe(201)
+        const confirmed = await service.client.patch(
+          `/v1/constituent-feedback/${res.data.id}/confirm`,
+          CONFIRMED,
+          volunteer.config,
+        )
+        expect(confirmed.status).toBe(200)
+
+        expect(flagsAskedFor(flags)).toEqual([
+          'win-issue-capture',
+          'win-issue-capture',
+        ])
+      })
+
+      it('404s a Win org when only serve-issue-capture is on', async () => {
+        onlyFlagOn('serve-issue-capture')
+        const seeded = await seedKnock(winSlug, null)
+
+        const res = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          ownerHeaders(),
+        )
+
+        expect(res.status).toBe(404)
+      })
     })
   })
 })

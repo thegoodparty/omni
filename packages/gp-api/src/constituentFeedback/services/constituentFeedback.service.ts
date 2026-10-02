@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
@@ -11,8 +12,10 @@ import {
   ConstituentFeedbackChannel,
   ConstituentFeedbackExtractionStatus,
   ConstituentFeedbackStance,
+  OrganizationRole,
   Prisma,
 } from '@/generated/prisma'
+import { assertVolunteerAssignedToOutreach } from '@/doorKnocking/utils/doorKnockingAccess.util'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   ConstituentFeedbackExtractionService,
@@ -52,12 +55,20 @@ const STANCE_BY_VALUE: Record<string, ConstituentFeedbackStance | undefined> =
 const toStance = (raw: string | null): ConstituentFeedbackStance | null =>
   raw === null ? null : (STANCE_BY_VALUE[raw] ?? null)
 
+// What each channel's own write route tells a volunteer outside their
+// assignment, so the memo routes never say more than the knock or call did.
+const NOT_ASSIGNED_MESSAGE: Record<ConstituentFeedbackChannel, string> = {
+  door_knock: 'Stop target not found',
+  phone_bank: 'Phone banking list not found',
+}
+
 @Injectable()
 export class ConstituentFeedbackService extends createPrismaBase(
   MODELS.ConstituentFeedback,
 ) {
   constructor(
     private readonly extraction: ConstituentFeedbackExtractionService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -65,6 +76,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
   async capture(input: {
     organizationSlug: string
     actorUserId: number
+    role: OrganizationRole | undefined
     body: RecordConstituentFeedback
   }): Promise<RecordConstituentFeedbackResponse> {
     const target =
@@ -79,6 +91,14 @@ export class ConstituentFeedbackService extends createPrismaBase(
             input.body.entryId,
             input.body.personId,
           )
+
+    // Before extraction, so a refused volunteer costs no model call.
+    await this.assertVolunteerOnEffort(
+      input.role,
+      target.outreachId,
+      input.actorUserId,
+      input.body.channel,
+    )
 
     const extracted = await this.extraction.extract({
       transcript: input.body.transcript,
@@ -168,12 +188,21 @@ export class ConstituentFeedbackService extends createPrismaBase(
   async confirm(input: {
     organizationSlug: string
     id: string
+    actorUserId: number
+    role: OrganizationRole | undefined
     body: ConfirmConstituentFeedback
   }): Promise<ConstituentFeedbackRecord> {
     const existing = await this.findFirst({
       where: { id: input.id, organizationSlug: input.organizationSlug },
+      select: { outreachId: true, channel: true },
     })
     if (existing === null) throw new NotFoundException()
+    await this.assertVolunteerOnEffort(
+      input.role,
+      existing.outreachId,
+      input.actorUserId,
+      existing.channel,
+    )
 
     const row = await this.model.update({
       where: { id: input.id },
@@ -203,6 +232,29 @@ export class ConstituentFeedbackService extends createPrismaBase(
     })
 
     return rows.map((row) => this.toRecord(row))
+  }
+
+  // A volunteer acts only on an effort they hold an assignment on, the rule
+  // the knock and call routes already apply; owners and campaign managers
+  // pass. A memo with no effort has nothing to be assigned to, so a
+  // volunteer cannot reach it at all.
+  private async assertVolunteerOnEffort(
+    role: OrganizationRole | undefined,
+    outreachId: number | null,
+    userId: number,
+    channel: ConstituentFeedbackChannel,
+  ): Promise<void> {
+    if (role !== OrganizationRole.volunteer) return
+    if (outreachId === null) {
+      throw new NotFoundException(NOT_ASSIGNED_MESSAGE[channel])
+    }
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      outreachId,
+      userId,
+      NOT_ASSIGNED_MESSAGE[channel],
+    )
   }
 
   private extractionFields(
@@ -285,11 +337,19 @@ export class ConstituentFeedbackService extends createPrismaBase(
           sourceId: knockClientKey,
         },
       },
-      select: { id: true, personId: true },
+      select: {
+        id: true,
+        personId: true,
+        outreach: {
+          select: {
+            id: true,
+            doorKnockingTurf: { select: { communityInputQuestion: true } },
+          },
+        },
+      },
     })
     if (knock === null) throw new NotFoundException()
 
-    // A knock row carries no turf, and the turf is what holds the question.
     // Scoped through the turf's own organization so a stop target from
     // another org cannot pull its question into this row.
     const target = await this.client.doorKnockingStopTarget.findFirst({
@@ -312,14 +372,25 @@ export class ConstituentFeedbackService extends createPrismaBase(
       },
     })
     if (target === null) throw new NotFoundException()
-    const outreachId = target.stop.turf.outreach?.id
+
+    // The knock's own envelope wins. It was resolved server-side when the
+    // knock was written, where `stopTargetId` is only what the client sent
+    // with the memo, and a person can sit in two turfs. The question comes
+    // from the same envelope so the row never pairs one effort with
+    // another's prompt. The stop target's turf covers knocks written before
+    // the knock row kept its envelope.
+    const outreachId = knock.outreach?.id ?? target.stop.turf.outreach?.id
     if (outreachId === undefined) throw new NotFoundException()
+    const effortQuestion =
+      knock.outreach === null
+        ? target.stop.turf.communityInputQuestion
+        : (knock.outreach.doorKnockingTurf?.communityInputQuestion ?? null)
 
     return {
       personId: knock.personId,
       doorKnockInteractionId: knock.id,
       phoneBankingInteractionId: null,
-      effortQuestion: target.stop.turf.communityInputQuestion,
+      effortQuestion,
       outreachId,
     }
   }

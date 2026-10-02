@@ -5,6 +5,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
+import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
 import RecordKnockForm from './RecordKnockForm'
 import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
 
@@ -14,9 +15,26 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+// Both products' flags, mocked separately: which one a door reads is the
+// product's answer, and a test that turned on "the" flag could not tell.
 vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
   useServeIssueCaptureFlag: vi.fn(),
 }))
+
+vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
+  useWinIssueCaptureFlag: vi.fn(),
+}))
+
+const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
+  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
+    ready: true,
+    enabled: serve,
+  })
+  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
+    ready: true,
+    enabled: win,
+  })
+}
 
 const mocks = vi.hoisted(() => ({
   input: {
@@ -71,9 +89,9 @@ const question = (label: string) =>
 const answer = (label: string, option: string) =>
   fireEvent.click(question(label).getByRole('radio', { name: option }))
 
-const renderForm = (onRecorded = vi.fn()) => {
+const renderForm = (onRecorded = vi.fn(), serveMode = true) => {
   render(
-    <DoorKnockingSurfaceProvider value={true}>
+    <DoorKnockingSurfaceProvider value={serveMode}>
       <RecordKnockForm
         target={target}
         turfId={1}
@@ -97,10 +115,7 @@ const walkAndSave = async () => {
 beforeEach(() => {
   testQueryClient.clear()
   vi.mocked(trackEvent).mockClear()
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: true,
-  })
+  setFlags({ serve: true, win: false })
   mocks.input.current = null
   api.mock('POST /v1/door-knocking/interactions', {
     status: 200,
@@ -170,10 +185,10 @@ describe('RecordKnockForm issue capture', () => {
     await waitFor(() =>
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ConstituentFeedback.IssueSkipped,
-      { channel: 'doorKnocking' },
-    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+      channel: 'doorKnocking',
+      product: 'serve',
+    })
   })
 
   // The knock has already saved by the time capture runs. Holding a canvasser
@@ -205,8 +220,8 @@ describe('RecordKnockForm issue capture', () => {
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.ConstituentFeedback.IssueConfirmed,
-        { channel: 'doorKnocking', corrected: true },
+        EVENTS.IssueCapture.MemoConfirmed,
+        { channel: 'doorKnocking', corrected: true, product: 'serve' },
       ),
     )
   })
@@ -279,11 +294,8 @@ describe('RecordKnockForm issue capture', () => {
     expect(screen.queryByPlaceholderText(/issues and positions/i)).toBeNull()
   })
 
-  it('does not capture when the flag is off', async () => {
-    vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-      ready: true,
-      enabled: false,
-    })
+  it('does not capture when the Serve flag is off', async () => {
+    setFlags({ serve: false, win: true })
     const onRecorded = renderForm()
     await walkAndSave()
 
@@ -291,5 +303,120 @@ describe('RecordKnockForm issue capture', () => {
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
     expect(screen.queryByText('Is this right?')).toBeNull()
+  })
+
+  // The canvasser speaks after the conversation, about it. The other person
+  // is never recorded, and the field says so where the mic is.
+  it('tells the canvasser to speak for themselves', () => {
+    renderForm()
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Engaged')
+    answer('Do they need follow-up?', 'Yes')
+
+    expect(
+      screen.getByText(
+        "Say what they told you. Don't record the other person.",
+      ),
+    ).toBeVisible()
+  })
+
+  it('reports the memo as a Serve one', async () => {
+    renderForm()
+    await walkAndSave()
+
+    await screen.findByText('Is this right?')
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoRecorded, {
+      channel: 'doorKnocking',
+      captureMethod: 'dictation',
+      extractionStatus: 'extracted',
+      product: 'serve',
+    })
+  })
+})
+
+// A candidate's door, where the memo is what a voter told the canvasser. Same
+// form, same sequencing, gated on Win's own flag.
+describe('RecordKnockForm issue capture on a Win door', () => {
+  const walkWinAndSave = () => {
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Engaged')
+    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'Yes')
+    dictate(MEMO)
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  }
+
+  beforeEach(() => {
+    setFlags({ serve: false, win: true })
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 200,
+      data: { personId: 'person-1', knockStatus: 'supporter' },
+    })
+  })
+
+  it('captures and confirms on win-issue-capture alone', async () => {
+    const onRecorded = renderForm(vi.fn(), false)
+    walkWinAndSave()
+
+    expect(await screen.findByText('Is this right?')).toBeVisible()
+    expect(onRecorded).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Looks right' }))
+
+    await waitFor(() =>
+      expect(onRecorded).toHaveBeenCalledWith('person-1', 'supporter'),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoConfirmed, {
+      channel: 'doorKnocking',
+      corrected: false,
+      product: 'win',
+    })
+  })
+
+  it('does not capture when only the Serve flag is on', async () => {
+    setFlags({ serve: true, win: false })
+    const onRecorded = renderForm(vi.fn(), false)
+    walkWinAndSave()
+
+    await waitFor(() =>
+      expect(onRecorded).toHaveBeenCalledWith('person-1', 'supporter'),
+    )
+    expect(screen.queryByText('Is this right?')).toBeNull()
+  })
+
+  it('asks what they told you, in Win’s words', () => {
+    renderForm(vi.fn(), false)
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Engaged')
+    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'Yes')
+
+    expect(screen.getByPlaceholderText('What did they tell you?')).toBeVisible()
+    expect(
+      screen.getByText(
+        "Say what they told you. Don't record the other person.",
+      ),
+    ).toBeVisible()
+    expect(document.body.textContent ?? '').not.toMatch(/constituent/i)
+  })
+
+  it('never says constituent on the confirm card', async () => {
+    renderForm(vi.fn(), false)
+    walkWinAndSave()
+
+    await screen.findByText('Is this right?')
+    expect(document.body.textContent ?? '').not.toMatch(/constituent/i)
+  })
+
+  it('reports the skip as a Win one', async () => {
+    renderForm(vi.fn(), false)
+    walkWinAndSave()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+      channel: 'doorKnocking',
+      product: 'win',
+    })
   })
 })

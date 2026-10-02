@@ -22,8 +22,9 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 
 // useOutreachAudience reads the org on mount and useOrganization throws
 // without its provider — the same stand-in the sibling flow tests use.
+const orgMock = vi.hoisted(() => ({ slug: 'eo-test-org' }))
 vi.mock('@shared/organization-picker', () => ({
-  useOrganization: () => ({ slug: 'eo-test-org' }),
+  useOrganization: () => orgMock,
 }))
 
 const renderFlow = () =>
@@ -37,6 +38,7 @@ const renderFlow = () =>
   )
 
 beforeEach(() => {
+  orgMock.slug = 'eo-test-org'
   gateRef.set({
     enabled: false,
     requirement: null,
@@ -159,5 +161,53 @@ describe('PhoneBankingFlow community-input question step', () => {
     await waitFor(() =>
       expect(screen.queryByLabelText('The question')).toBeNull(),
     )
+  })
+})
+
+// Win's "Hear from voters" is the same question step on the candidate's own
+// surface, and the question reaches the Win draft endpoint.
+describe('PhoneBankingFlow hear-from-voters question step', () => {
+  let winDraftBodies: Record<string, unknown>[] = []
+
+  beforeEach(() => {
+    orgMock.slug = 'campaign-test-org'
+    winDraftBodies = []
+    api.mock('POST /v1/outreach/phone-banking/draft', ({ body }) => {
+      winDraftBodies.push(body as Record<string, unknown>)
+      return { status: 200, data: { draft: 'Hi, I am volunteering for Jane.' } }
+    })
+  })
+
+  const renderWinFlow = () =>
+    render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
+
+  it('asks what the candidate wants to learn, then drafts from it', async () => {
+    renderWinFlow()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Hear from voters/i }),
+    )
+    await screen.findByLabelText('The question')
+    expect(winDraftBodies).toHaveLength(0)
+    // Serve's caption promises a read-back; Win's says only what is true.
+    expect(
+      screen.getByText('Your callers will ask this on every call.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'We will read this back to you with what people said.',
+      ),
+    ).toBeNull()
+
+    const question = 'How do you feel about the road bond?'
+    await userEvent.type(screen.getByLabelText('The question'), question)
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(winDraftBodies).toHaveLength(1))
+    expect(winDraftBodies[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion: question,
+    })
+    expect(draftBodies).toHaveLength(0)
   })
 })

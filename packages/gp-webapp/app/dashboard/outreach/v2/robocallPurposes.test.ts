@@ -21,6 +21,15 @@ describe('ROBOCALL_PURPOSES', () => {
     ])
   })
 
+  // "Hear from voters" asks a question, and a recorded call has nobody to
+  // hear the answer. Only phone banking and door knocking offer it.
+  it('offers no hear-from-voters card', () => {
+    expect(ROBOCALL_PURPOSES.map((p) => p.id)).not.toContain('community_input')
+    expect(ROBOCALL_PURPOSES.map((p) => p.label)).not.toContain(
+      'Hear from voters',
+    )
+  })
+
   it('has no issue-update card — that one belongs to social only', () => {
     expect(ROBOCALL_PURPOSES.map((p) => p.label)).not.toContain(
       'Share an issue update',
