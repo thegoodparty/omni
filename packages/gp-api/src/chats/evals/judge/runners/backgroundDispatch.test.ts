@@ -676,6 +676,36 @@ describe('armDeps', () => {
     expect(() => loadCases(real('opposition_research'))).toThrow(/would take/)
   })
 
+  // THE SWEEP'S BUDGET, not this arm's constant. A 1 ms budget refuses an
+  // agent that fits 70 minutes, which only happens if armDeps read the env.
+  it('spends the budget the sweep resolved rather than its own constant', () => {
+    const { loadCases } = armDeps(
+      env({ fixtureValues: SWEEP_VALUES, armBudgetMs: 1 }),
+      DEFAULT_JUDGE_CONFIG,
+    )
+    expect(() => loadCases(real('opposition_research'))).toThrow(/would take/)
+  })
+
+  // And the resolver's reason, so the report says why.
+  it('carries the sweep reasons through to the refusal', () => {
+    const { loadCases } = armDeps(
+      env({
+        fixtureValues: SWEEP_VALUES,
+        backgroundAdmitted: new Set(),
+        backgroundRefused: new Map([
+          [
+            'opportunities_and_challenges',
+            'would take 75 minutes on the slower arm',
+          ],
+        ]),
+      }),
+      DEFAULT_JUDGE_CONFIG,
+    )
+    expect(() => loadCases(real('opportunities_and_challenges'))).toThrow(
+      'opportunities_and_challenges was not admitted to this sweep: would take 75 minutes on the slower arm',
+    )
+  })
+
   // On a sweep the admitted set decides, and armDeps is what carries it from
   // the env to the loader.
   it('passes the admitted set from the sweep through to the loader', () => {

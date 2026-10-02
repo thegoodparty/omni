@@ -23,7 +23,12 @@ import {
 import { armEnvFor } from './fixtures/sweep'
 import { ARM_BUDGET_MS, armCaseLoader } from './runners/backgroundDispatch'
 import { SWEEP_VALUES } from './fixtures/sweep'
-import { armConfigFor, parseArmEnv, SweepEnvError } from './sweepEnv'
+import {
+  armConfigFor,
+  armTimeoutMs,
+  parseArmEnv,
+  SweepEnvError,
+} from './sweepEnv'
 
 // THE BUDGET AND THE ADMITTED LIST CROSS A SEAM: armBudget.ts writes them in
 // one process, judge.yml carries them through $GITHUB_OUTPUT into two other
@@ -37,6 +42,26 @@ import { armConfigFor, parseArmEnv, SweepEnvError } from './sweepEnv'
 // input entirely would still arrive at it.
 
 const REPO_ROOT = join(__dirname, '../../../../../..')
+
+// WHAT AN ARM'S ENV SCHEMA LOOKS LIKE, old and new. Today's main carries
+// fifteen real `JUDGE_` keys, so an "old" fixture with none would let a probe
+// that only looked for the prefix pass against the very base it exists to
+// refuse. The old one also mentions the marker in a COMMENT, so a probe that
+// matched any mention fails too: only a schema key means the arm reads it.
+const OLD_ARM_SCHEMA = [
+  'const ArmEnvSchema = SweepEnvSchema.extend({',
+  '  // JUDGE_BACKGROUND_ADMITTED is not read by this arm',
+  '  JUDGE_SWEEP_ID: SweepIdSchema,',
+  '  JUDGE_AGENTS: AgentIdsSchema,',
+  '  JUDGE_RECORDS_DIR: NON_EMPTY.optional(),',
+  '  JUDGE_DATA_VERSION: BLANK_IS_UNSET,',
+  '})',
+  '',
+].join('\n')
+const NEW_ARM_SCHEMA = OLD_ARM_SCHEMA.replace(
+  '})',
+  '  JUDGE_BACKGROUND_ADMITTED: BLANK_IS_UNSET,\n})',
+)
 
 // A BASE TREE THAT IS NOT THIS ONE. Every test that pointed the resolver's
 // base at this repository could not see the base read at all: the resolver
@@ -54,13 +79,9 @@ const baseTree = (spec: {
   const root = mkdtempSync(join(tmpdir(), 'base-tree-'))
   const judgeDir = join(root, 'packages/gp-api/src/chats/evals/judge')
   mkdirSync(join(judgeDir, 'cases'), { recursive: true })
-  // An arm that predates shared admission still HAS a sweepEnv.ts — today's
-  // main does — so "old" is a file without the marker, not a missing file.
   writeFileSync(
     join(judgeDir, 'sweepEnv.ts'),
-    spec.honours === false
-      ? '// an arm that decides background admission for itself\n'
-      : `// reads ${BASE_HONOURS_ADMISSION}\n`,
+    spec.honours === false ? OLD_ARM_SCHEMA : NEW_ARM_SCHEMA,
   )
   for (const [agentId, timeout] of Object.entries(spec.timeouts)) {
     const cases = findAgent(agentId)?.cases
@@ -169,6 +190,28 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
     expect(arm.armBudgetMs).toBe(81 * 60 * 1000)
   })
 
+  // Several at once, and the characters a reason can actually carry. Exact,
+  // so an extra or duplicated key does not pass.
+  it('carries several reasons with awkward characters exactly', () => {
+    const refused = [
+      {
+        agentId: 'one',
+        reason: '  leading space, a café, and a \r\n line break',
+      },
+      { agentId: 'two', reason: 'quotes "inside" and an = sign' },
+    ]
+    const arm = parseArmEnv(
+      intoArmEnv(
+        PARSE(
+          budgetOutputLines(configWith({ attemptsPerCase: 2 }), [], refused),
+        ),
+      ),
+    )
+    expect(arm.backgroundRefused).toEqual(
+      new Map(refused.map((one) => [one.agentId, one.reason])),
+    )
+  })
+
   // EMPTY IS NOT ABSENT. The resolver admitting nothing prints `admitted=`,
   // which GitHub hands over as an empty string — and that has to arrive as
   // "none admitted", never as "decide for yourself".
@@ -179,6 +222,7 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
       ),
     )
     expect(arm.backgroundAdmitted).toEqual(new Set())
+    expect(arm.backgroundRefused).toEqual(new Map())
   })
 
   // THE REAL ENTRY, run the way the workflow runs it, against two real trees.
@@ -203,6 +247,28 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
   })
 })
 
+describe('the probe for whether the base arm reads the admitted list', () => {
+  it('finds the schema key in this branch', () => {
+    expect(
+      BASE_HONOURS_ADMISSION.test(
+        readFileSync(join(__dirname, 'sweepEnv.ts'), 'utf8'),
+      ),
+    ).toBe(true)
+  })
+
+  it.each([
+    ['an old arm schema with other JUDGE_ keys', OLD_ARM_SCHEMA],
+    ['the name in a comment', '  // JUDGE_BACKGROUND_ADMITTED\n'],
+    ['the name as a string in a list', "    'JUDGE_BACKGROUND_ADMITTED',\n"],
+    [
+      'the name read off a parsed object',
+      '  (data.JUDGE_BACKGROUND_ADMITTED ?? x)\n',
+    ],
+  ])('does not mistake %s for an arm that reads it', (_label, text) => {
+    expect(BASE_HONOURS_ADMISSION.test(text)).toBe(false)
+  })
+})
+
 describe('the resolver run against a base tree that differs', () => {
   // THE BASE IS SLOWER. Its own timeout, not the candidate's, has to decide —
   // and only a base tree that differs from the candidate can show it.
@@ -216,6 +282,14 @@ describe('the resolver run against a base tree that differs', () => {
     expect(stderr).toMatch(
       /refused opposition_research: would take 195 minutes/,
     )
+    // What the ARMS read, not the log. stderr is printed from the refusals
+    // before they are serialized, so a dropped reason or a wrong budget still
+    // looked fine there.
+    const arm = parseArmEnv(intoArmEnv(PARSE(written)))
+    expect(arm.backgroundRefused?.get('opposition_research')).toMatch(
+      /^would take 195 minutes/,
+    )
+    expect(arm.armBudgetMs).toBe(ARM_BUDGET_MS)
   })
 
   it('refuses an agent the base ref does not have, and admits one it does', () => {
@@ -240,6 +314,11 @@ describe('the resolver run against a base tree that differs', () => {
     })
     expect(written).toMatch(/^admitted=$/m)
     expect(stderr).toMatch(/predates shared background admission/)
+    expect(
+      parseArmEnv(intoArmEnv(PARSE(written))).backgroundRefused?.get(
+        'opposition_research',
+      ),
+    ).toMatch(/predates shared background admission/)
   })
 
   // An unset base is a usage error, not a base with nothing on it: the latter
@@ -450,11 +529,14 @@ describe('resolveAdmission', () => {
   // candidate would run them, and once a fixture is minted that is paid work
   // pairing with nothing. So nothing is admitted and every one says why.
   it('admits nothing when the base ref predates shared admission', () => {
+    // A chat agent among them: it never had a background budget to lose, so
+    // listing it as refused would only put noise in the report.
+    const withChat = [...registry, { ...agent('talk'), shape: 'chat' as const }]
     const result = resolveAdmission(
-      ['a', 'b'],
+      ['a', 'talk', 'b'],
       '/base',
       DEFAULT_JUDGE_CONFIG,
-      registry,
+      withChat,
       {
         candidate: () => walk(minutes(1)),
         base: () => walk(minutes(1)),
@@ -536,6 +618,29 @@ describe('resolveAdmission', () => {
   })
 })
 
+// The module-scope read of the arm budget, which vitest needs before any test
+// body runs. It used a looser parse than parseArmEnv once, so "1e7" passed it
+// and failed there — two reads of one value disagreeing.
+describe('armTimeoutMs', () => {
+  it('reads the resolved budget', () => {
+    expect(armTimeoutMs('4860000', 70)).toBe(4_860_000)
+  })
+
+  it.each([undefined, '', '  '])(
+    'falls back to the arm constant for %j',
+    (raw) => {
+      expect(armTimeoutMs(raw, 70)).toBe(70)
+    },
+  )
+
+  it.each(['1e7', '1.5', '0', '-1', 'x'])(
+    'refuses %j as parseArmEnv does',
+    (raw) => {
+      expect(() => armTimeoutMs(raw, 70)).toThrow(SweepEnvError)
+    },
+  )
+})
+
 describe('reading the budget an arm was handed', () => {
   // No input means a local run: the arm's own config, and no admitted set, so
   // the arm decides admission itself.
@@ -544,6 +649,8 @@ describe('reading the budget an arm was handed', () => {
     const arm = parseArmEnv(armEnvFor())
     expect(arm.backgroundBudget).toBeUndefined()
     expect(arm.backgroundAdmitted).toBeUndefined()
+    expect(arm.backgroundRefused).toBeUndefined()
+    expect(arm.armBudgetMs).toBeUndefined()
     // An explicit, non-default base: compared against the default, "uses
     // base" and "ignores base" could not be told apart.
     expect(armConfigFor(arm, base)).toBe(base)
@@ -579,6 +686,36 @@ describe('reading the budget an arm was handed', () => {
       /half a budget/,
     )
   })
+
+  // A refusal list that is not what the resolver writes is refused, not read
+  // as "no reasons" — which would put "see the step log" back in the report.
+  it.each(['not json', '["a"]', '{"a":1}', 'null'])(
+    'refuses %j as a refusal list',
+    (raw) => {
+      expect(() =>
+        parseArmEnv(
+          armEnvFor({
+            JUDGE_BACKGROUND_ATTEMPTS: '1',
+            JUDGE_BACKGROUND_REFUSED: raw,
+          }),
+        ),
+      ).toThrow(SweepEnvError)
+    },
+  )
+
+  it.each(['0', '-1', '1.5', '1e7', 'three', '3x'])(
+    'refuses %j as an arm budget',
+    (raw) => {
+      expect(() =>
+        parseArmEnv(
+          armEnvFor({
+            JUDGE_BACKGROUND_ATTEMPTS: '1',
+            JUDGE_ARM_BUDGET_MS: raw,
+          }),
+        ),
+      ).toThrow(/milliseconds/)
+    },
+  )
 
   // Everything z.coerce.number() would have let through as something nobody
   // wrote: "" as 0, "1.5" as a fraction of a case, "1e1" as ten.

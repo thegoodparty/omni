@@ -548,6 +548,19 @@ const refusedFrom = (data: ParsedArm): ReadonlyMap<string, string> => {
   return new Map(Object.entries(result.data))
 }
 
+// The arm budget read where vitest needs it — at module scope, before any
+// test body runs, because the timeout is taken when `it` is registered. The
+// SAME strict parse parseArmEnv applies, so the two reads cannot disagree:
+// a looser module-scope read once accepted "1e7", which parseArmEnv refuses.
+// Blank or absent is a local run, which uses the arm's own constant.
+export const armTimeoutMs = (
+  raw: string | undefined,
+  fallback: number,
+): number =>
+  raw === undefined || raw.trim() === ''
+    ? fallback
+    : positiveInt('JUDGE_ARM_BUDGET_MS', raw.trim())
+
 // The config this arm actually walks with: its own, with the background
 // budget replaced when the sweep supplied one. ONE function, read by both
 // captureArm (attempts) and the case loader (the cap), so the two halves of

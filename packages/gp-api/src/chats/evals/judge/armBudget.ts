@@ -109,14 +109,23 @@ const baseCost = (
 // rather than a version number because the arm's env schema is the contract;
 // if a refactor moves it, this refuses everything, which costs a sweep and
 // bills nothing.
-export const BASE_HONOURS_ADMISSION = 'JUDGE_BACKGROUND_ADMITTED'
+//
+// THE SCHEMA KEY, not the name anywhere. The arm reads its environment
+// through one zod object whose keys are written `  JUDGE_X: Schema,`, and only
+// a key there means the arm reads the variable. Today's main already carries
+// fifteen `JUDGE_` keys, so a looser probe — the prefix, or the name appearing
+// in a comment or an error list — would pass against the very base it exists
+// to refuse.
+export const BASE_HONOURS_ADMISSION = /^\s*JUDGE_BACKGROUND_ADMITTED:/m
 
-const baseHonoursAdmission = (baseDir: string): boolean => {
+export const baseHonoursAdmission = (baseDir: string): boolean => {
   try {
-    return readFileSync(
-      join(baseDir, 'packages/gp-api/src/chats/evals/judge/sweepEnv.ts'),
-      'utf8',
-    ).includes(BASE_HONOURS_ADMISSION)
+    return BASE_HONOURS_ADMISSION.test(
+      readFileSync(
+        join(baseDir, 'packages/gp-api/src/chats/evals/judge/sweepEnv.ts'),
+        'utf8',
+      ),
+    )
   } catch {
     return false
   }

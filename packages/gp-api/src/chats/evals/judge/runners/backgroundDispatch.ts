@@ -293,7 +293,9 @@ export const armCaseLoader = (
 export const armDeps = (
   env: ArmEnv,
   config: JudgeConfig,
-  budgetMs: number = ARM_BUDGET_MS,
+  // The sweep's resolved budget when there is one, so both arms spend the
+  // same; this arm's own constant otherwise, which is a local run.
+  budgetMs: number = env.armBudgetMs ?? ARM_BUDGET_MS,
 ): { config: JudgeConfig; loadCases: (agent: AgentEntry) => CaseList } => ({
   config,
   loadCases: armCaseLoader(

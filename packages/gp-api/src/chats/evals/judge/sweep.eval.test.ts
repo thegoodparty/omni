@@ -23,6 +23,7 @@ import {
 import { findAgent } from './agents'
 import {
   armConfigFor,
+  armTimeoutMs,
   backgroundDestinationFrom,
   parseArmEnv,
   storeFromEnv,
@@ -66,11 +67,10 @@ const sweepRequested = process.env.JUDGE_ARM !== undefined
 // one, so both arms run to the same budget — otherwise this arm's own
 // constant, which is a local run. Read here at module scope, not inside the
 // test, because vitest takes the timeout when `it` is registered.
-const resolvedArmBudget = Number(process.env.JUDGE_ARM_BUDGET_MS)
-const ARM_TIMEOUT_MS =
-  Number.isInteger(resolvedArmBudget) && resolvedArmBudget > 0
-    ? resolvedArmBudget
-    : ARM_BUDGET_MS
+const ARM_TIMEOUT_MS = armTimeoutMs(
+  process.env.JUDGE_ARM_BUDGET_MS,
+  ARM_BUDGET_MS,
+)
 
 // What the model says when the sweep is not spending. Deterministic on
 // purpose: it makes the pipeline exercisable end to end for nothing, which is
@@ -125,10 +125,7 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
         {
           store,
           now: () => new Date(),
-          // The parsed value, so a malformed one is refused by name in
-          // parseArmEnv rather than falling back here; ARM_TIMEOUT_MS above
-          // only has to be close enough to register the test.
-          ...armDeps(env, config, env.armBudgetMs ?? ARM_BUDGET_MS),
+          ...armDeps(env, config),
           runCase: async (request) => {
             // THE ONE PLACE THE TWO RUNNERS DIVERGE. `captureArm` walks cases
             // the same way for both shapes and `walkCases` validates whatever
