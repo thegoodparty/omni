@@ -615,7 +615,31 @@ def _framing_leak(text: str, strict: bool):
 
 _READY_STATUSES = frozenset({"briefing_ready", "agenda_provided_by_user"})
 _REFUSED_AVAILABILITY = frozenset({"partial", "not_published", "inferred_from_prior"})
-_AGENDA_EVIDENCE_TYPES = frozenset({"agenda_packet"})
+_AGENDA_EVIDENCE_TYPE = "agenda_packet"
+# Compatibility path: html_agenda artifacts from the previous instruction cite
+# the page as this type. Accepted with a warning until the dated follow-up.
+_HTML_AGENDA_COMPAT_TYPE = "government_website"
+# On that path the page must carry the briefing's items, or a portal listing
+# could stand in for the agenda. In the review corpus every real HTML-agenda
+# page scored 0.43 or higher and the one news-sourced briefing scored 0.
+_HTML_AGENDA_MIN_TITLE_COVERAGE = 1 / 3
+_TITLE_WORD_MATCH = 0.6
+_WORD_RE = re.compile(r"[a-z0-9]{4,}")
+
+
+def _title_coverage(artifact: dict, page_text) -> float:
+    """Share of the artifact's item titles found in page_text. A title counts when most of its words appear."""
+    page = set(_WORD_RE.findall(str(page_text or "").lower()))
+    titles = [
+        t for t in (
+            _WORD_RE.findall(str(i.get("title") or "").lower())
+            for i in artifact.get("items") or [] if isinstance(i, dict)
+        ) if t
+    ]
+    if not titles:
+        return 0.0
+    covered = sum(1 for t in titles if sum(w in page for w in t) / len(t) >= _TITLE_WORD_MATCH)
+    return covered / len(titles)
 # Audit phrases only. Coarse on purpose: this check observes, it never gates.
 _UNAVAILABLE_AGENDA_PHRASES = (
     "not yet published",
@@ -671,10 +695,11 @@ def check_agenda_availability_consistency(artifact: dict, findings: list[Finding
     Mirrors the gp-api publication gate: ready or user-provided status with an
     availability value that says the agenda was unavailable is an error, and so
     is a ready artifact that cites no agenda_packet source with text at all (an
-    HTML agenda page is cited as agenda_packet too). A missing availability value
-    is a warning for now, and so is an empty agenda_packet_url on briefing_ready;
-    uploaded packets have no URL. Both become errors once every live run records
-    them.
+    HTML agenda page is cited as agenda_packet too). Three warnings are temporary:
+    a missing availability value, an empty agenda_packet_url on briefing_ready
+    (uploaded packets have no URL), and an html_agenda artifact that cites its
+    page as government_website instead of agenda_packet. All three become errors
+    in the dated follow-up.
     """
     status = artifact.get("briefing_status")
     if status not in _READY_STATUSES:
@@ -698,18 +723,40 @@ def check_agenda_availability_consistency(artifact: dict, findings: list[Finding
             "to 'awaiting_agenda' so the slot stays open.",
         ))
     sources = artifact.get("sources") or []
-    evidence = [
-        s for s in sources
-        if s.get("source_type") in _AGENDA_EVIDENCE_TYPES
-        and (s.get("retrieved_text_or_snapshot") or "").strip()
-    ]
-    if not evidence:
-        findings.append(Finding(
-            "agenda_availability.no_agenda_evidence",
-            "error",
-            f"briefing_status='{status}' but no agenda_packet source carries "
-            "retrieved text. Nothing in the artifact shows an agenda was read.",
-        ))
+
+    def _with_text(source_type: str) -> list:
+        return [
+            s for s in sources
+            if s.get("source_type") == source_type
+            and (s.get("retrieved_text_or_snapshot") or "").strip()
+        ]
+
+    if not _with_text(_AGENDA_EVIDENCE_TYPE):
+        pages = _with_text(_HTML_AGENDA_COMPAT_TYPE) if availability == "html_agenda" else []
+        coverage = max((_title_coverage(artifact, s.get("retrieved_text_or_snapshot")) for s in pages), default=0.0)
+        if pages and coverage >= _HTML_AGENDA_MIN_TITLE_COVERAGE:
+            findings.append(Finding(
+                "agenda_availability.html_agenda_via_government_website",
+                "warning",
+                f"briefing_status='{status}' with agenda_availability='html_agenda' cites the agenda "
+                f"page as government_website (page carries {coverage:.0%} of the item titles). "
+                "Accepted for now; cite the page as agenda_packet.",
+            ))
+        elif pages:
+            findings.append(Finding(
+                "agenda_availability.html_agenda_page_lacks_items",
+                "error",
+                f"briefing_status='{status}' with agenda_availability='html_agenda', but the cited "
+                f"government_website page carries only {coverage:.0%} of the item titles "
+                f"(floor {_HTML_AGENDA_MIN_TITLE_COVERAGE:.0%}). The page is not this meeting's agenda.",
+            ))
+        else:
+            findings.append(Finding(
+                "agenda_availability.no_agenda_evidence",
+                "error",
+                f"briefing_status='{status}' but no agenda_packet source carries "
+                "retrieved text. Nothing in the artifact shows an agenda was read.",
+            ))
     if status == "briefing_ready" and not (rm.get("agenda_packet_url") or "").strip():
         findings.append(Finding(
             "agenda_packet_url.empty_on_ready",

@@ -28,6 +28,10 @@ declare global {
         packet_date_verification?: 'matched' | 'mismatched' | 'unavailable'
         [key: string]: Prisma.JsonValue | undefined
       }
+      items?: Array<{
+        title?: string
+        [key: string]: Prisma.JsonValue | undefined
+      }>
       sources?: Array<{
         source_type?: string
         retrieved_text_or_snapshot?: string | null

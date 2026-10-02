@@ -129,12 +129,41 @@ const PUBLISHABLE_AGENDA_AVAILABILITY: ReadonlySet<string> = new Set([
   'full_packet',
   'html_agenda',
 ])
-// Source types that count as evidence an agenda was read. An HTML agenda page
-// is cited as agenda_packet too (instruction, verification rule case c), so a
-// generic government page never stands in for the agenda.
-const AGENDA_EVIDENCE_SOURCE_TYPES: ReadonlySet<string> = new Set([
-  'agenda_packet',
-])
+// The source type that proves an agenda was read. An HTML agenda page is
+// cited as agenda_packet too (instruction, verification rule case c).
+const AGENDA_EVIDENCE_SOURCE_TYPE = 'agenda_packet'
+// Runs on the previous instruction cited the HTML agenda page as this type.
+// Accepted only alongside agenda_availability html_agenda, with a warning, so
+// adherence to the agenda_packet citation can be measured before it closes.
+const HTML_AGENDA_COMPAT_SOURCE_TYPE = 'government_website'
+// On that path the page must carry the briefing's items, or a portal listing
+// could stand in for the agenda. In the review corpus every real HTML-agenda
+// page scored 0.43 or higher and the one news-sourced briefing scored 0.
+const HTML_AGENDA_MIN_TITLE_COVERAGE = 1 / 3
+const TITLE_WORD_MATCH = 0.6
+
+const words = (text: string): string[] =>
+  text.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []
+
+// Share of the artifact's item titles found in a page's text. A title counts
+// when most of its words appear on the page.
+const titleCoverage = (
+  artifact: PrismaJson.MeetingBriefingArtifact,
+  pageText: string | null | undefined,
+): number => {
+  if (!pageText) return 0
+  const page = new Set(words(pageText))
+  const titles = (artifact.items ?? [])
+    .map((item) => words(item.title ?? ''))
+    .filter((title) => title.length > 0)
+  if (titles.length === 0) return 0
+  const covered = titles.filter(
+    (title) =>
+      title.filter((word) => page.has(word)).length / title.length >=
+      TITLE_WORD_MATCH,
+  ).length
+  return covered / titles.length
+}
 // A user-pasted packet whose stated date is this far from the target meeting
 // is treated as a different meeting. Holiday shifts of a day or two pass.
 const PACKET_DATE_TOLERANCE_DAYS = 3
@@ -1368,10 +1397,13 @@ export class MeetingBriefingsService extends createPrismaBase(
    * heuristic is a QA warning, because in the review it refused good
    * briefings and missed two misleading ones.
    *
-   * Two allowances are deliberate and temporary: an artifact without
+   * Three allowances are deliberate and temporary: an artifact without
    * agenda_availability (produced before the field existed) is published with
-   * an info log, and an empty agenda_packet_url is a warning. Both become
-   * refusals once every live run records the new fields.
+   * a warning log, an empty agenda_packet_url on a discovered agenda is a
+   * warning, and an html_agenda artifact may cite its page as
+   * government_website instead of agenda_packet when that page carries the
+   * briefing's items. All three become refusals in the dated follow-up once
+   * live runs show the new fields and citation.
    */
   private async assessPublishability(
     run: ExperimentRun,
@@ -1395,14 +1427,36 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
 
     const sources = Array.isArray(artifact.sources) ? artifact.sources : []
-    const hasAgendaEvidence = sources.some(
-      (source) =>
-        AGENDA_EVIDENCE_SOURCE_TYPES.has(String(source?.source_type ?? '')) &&
-        typeof source?.retrieved_text_or_snapshot === 'string' &&
-        source.retrieved_text_or_snapshot.trim().length > 0,
-    )
-    if (!hasAgendaEvidence) {
-      return 'no_agenda_evidence'
+    const hasTextOfType = (sourceType: string) =>
+      sources.some(
+        (source) =>
+          String(source?.source_type ?? '') === sourceType &&
+          typeof source?.retrieved_text_or_snapshot === 'string' &&
+          source.retrieved_text_or_snapshot.trim().length > 0,
+      )
+    if (!hasTextOfType(AGENDA_EVIDENCE_SOURCE_TYPE)) {
+      const pageCoverage =
+        availability === 'html_agenda'
+          ? Math.max(
+              0,
+              ...sources
+                .filter(
+                  (source) =>
+                    String(source?.source_type ?? '') ===
+                    HTML_AGENDA_COMPAT_SOURCE_TYPE,
+                )
+                .map((source) =>
+                  titleCoverage(artifact, source?.retrieved_text_or_snapshot),
+                ),
+            )
+          : 0
+      if (pageCoverage < HTML_AGENDA_MIN_TITLE_COVERAGE) {
+        return 'no_agenda_evidence'
+      }
+      this.logger.warn(
+        { runId: run.runId, briefingStatus, pageCoverage },
+        'meeting_briefing html_agenda accepted via government_website source',
+      )
     }
 
     // Uploaded packets have no permanent URL, so only a discovered agenda is

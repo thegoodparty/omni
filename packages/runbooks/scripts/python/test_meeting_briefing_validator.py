@@ -528,10 +528,12 @@ def _ready_artifact(
     packet_url: str | None = "https://example.gov/agenda.pdf",
     decisions: list[dict] | None = None,
     status: str = "briefing_ready",
+    items: list[dict] | None = None,
 ) -> dict:
     return {
         "briefing_status": status,
         "meeting_date": "2026-06-01",
+        **({"items": items} if items is not None else {}),
         "sources": [_agenda_source()] if sources is None else sources,
         "run_metadata": {
             "agenda_availability": availability,
@@ -578,13 +580,41 @@ class TestAgendaAvailabilityConsistency:
         v.check_agenda_availability_consistency(_ready_artifact("full_packet", sources=news_only), findings)
         assert [f.check for f in findings if f.severity == "error"] == ["agenda_availability.no_agenda_evidence"]
 
-    def test_html_agenda_cited_only_as_government_website_is_not_evidence(self):
+    _HTML_ITEMS = [{"title": "Water main replacement contract award"}, {"title": "Parks master plan adoption"}]
+
+    def test_html_agenda_cited_as_government_website_passes_with_a_warning(self):
+        v = _load_validator()
+        findings: list = []
+        gov_page = [_agenda_source(
+            source_type="government_website", url="https://portal.example.gov/event/1",
+            text="Regular meeting agenda. 1. Water main replacement contract award. 2. Parks master plan adoption.",
+        )]
+        v.check_agenda_availability_consistency(
+            _ready_artifact("html_agenda", sources=gov_page, packet_url="https://portal.example.gov/event/1",
+                            items=self._HTML_ITEMS), findings
+        )
+        assert [(f.check, f.severity) for f in findings] == [
+            ("agenda_availability.html_agenda_via_government_website", "warning")
+        ]
+
+    def test_html_agenda_government_website_page_without_the_items_is_an_error(self):
+        v = _load_validator()
+        findings: list = []
+        listing = [_agenda_source(
+            source_type="government_website", url="https://portal.example.gov/calendar",
+            text="Meetings calendar. Upcoming: June 1, 2026 regular meeting. Agendas are posted 72 hours ahead.",
+        )]
+        v.check_agenda_availability_consistency(
+            _ready_artifact("html_agenda", sources=listing, packet_url="https://portal.example.gov/calendar",
+                            items=self._HTML_ITEMS), findings
+        )
+        assert [f.check for f in findings if f.severity == "error"] == ["agenda_availability.html_agenda_page_lacks_items"]
+
+    def test_full_packet_cited_only_as_government_website_is_an_error(self):
         v = _load_validator()
         findings: list = []
         gov_page = [_agenda_source(source_type="government_website", url="https://portal.example.gov/event/1")]
-        v.check_agenda_availability_consistency(
-            _ready_artifact("html_agenda", sources=gov_page, packet_url="https://portal.example.gov/event/1"), findings
-        )
+        v.check_agenda_availability_consistency(_ready_artifact("full_packet", sources=gov_page), findings)
         assert [f.check for f in findings if f.severity == "error"] == ["agenda_availability.no_agenda_evidence"]
 
     def test_user_provided_with_null_packet_url_has_no_warning(self):

@@ -2549,12 +2549,54 @@ describe('publication gate: ready briefings must show an available agenda', () =
     expect(await rowFor(eo.id)).toBeNull()
   })
 
-  it('writes no row when an HTML agenda page is cited only as a government website', async () => {
+  const htmlAgendaItems = [
+    { title: 'Water main replacement contract award' },
+    { title: 'Parks master plan adoption' },
+  ]
+
+  it('accepts an HTML agenda page cited as a government website (compatibility path)', async () => {
     const { eo, briefingRun } = await setupRun({
       ...readyWith({
         agenda_availability: 'html_agenda',
         agenda_packet_url: 'https://portal.example.gov/event/1',
       }),
+      items: htmlAgendaItems,
+      sources: [
+        agendaSource({
+          source_type: 'government_website',
+          url: 'https://portal.example.gov/event/1',
+          retrieved_text_or_snapshot:
+            'Regular meeting agenda. 1. Water main replacement contract award. 2. Parks master plan adoption.',
+        }),
+      ],
+    })
+    await complete(briefingRun)
+    expect(await rowFor(eo.id)).not.toBeNull()
+  })
+
+  it('writes no row when the government website page lacks the briefing items', async () => {
+    const { eo, briefingRun } = await setupRun({
+      ...readyWith({
+        agenda_availability: 'html_agenda',
+        agenda_packet_url: 'https://portal.example.gov/event/1',
+      }),
+      items: htmlAgendaItems,
+      sources: [
+        agendaSource({
+          source_type: 'government_website',
+          url: 'https://portal.example.gov/event/1',
+          retrieved_text_or_snapshot:
+            'Meetings calendar. Upcoming: June 8, 2026 regular meeting. Agendas are posted 72 hours ahead.',
+        }),
+      ],
+    })
+    await complete(briefingRun)
+    expect(await rowFor(eo.id)).toBeNull()
+  })
+
+  it('writes no row when a full-packet artifact cites only a government website', async () => {
+    const { eo, briefingRun } = await setupRun({
+      ...readyWith({ agenda_availability: 'full_packet' }),
       sources: [
         agendaSource({
           source_type: 'government_website',
