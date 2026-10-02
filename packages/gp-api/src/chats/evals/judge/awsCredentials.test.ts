@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ARM_AWS_ENV, judgeAwsClientConfig } from './awsCredentials'
 
 const PASSED = {
@@ -25,11 +25,43 @@ describe('judgeAwsClientConfig', () => {
   it('ignores the stubs under the names the SDK reads', () => {
     expect(
       judgeAwsClientConfig({
-        ...PASSED,
+        [ARM_AWS_ENV.accessKeyId]: 'ASIAREALKEY',
+        [ARM_AWS_ENV.secretAccessKey]: 'real-secret',
         AWS_ACCESS_KEY_ID: 'super-secret-id',
         AWS_SECRET_ACCESS_KEY: 'super-secret-key',
-      }).credentials?.accessKeyId,
-    ).toBe('ASIAREALKEY')
+        AWS_SESSION_TOKEN: 'stale-shell-token',
+      }),
+    ).toEqual({
+      credentials: {
+        accessKeyId: 'ASIAREALKEY',
+        secretAccessKey: 'real-secret',
+      },
+    })
+  })
+
+  // Literal names, not the constant: a test built from ARM_AWS_ENV moves with
+  // it, so a swapped pair would read the real secret as the key id unseen.
+  it('reads exactly the three JUDGE_ names, each into its own field', () => {
+    expect(
+      judgeAwsClientConfig({
+        JUDGE_AWS_ACCESS_KEY_ID: 'ASIAREALKEY',
+        JUDGE_AWS_SECRET_ACCESS_KEY: 'real-secret',
+        JUDGE_AWS_SESSION_TOKEN: 'real-token',
+      }),
+    ).toEqual({
+      credentials: {
+        accessKeyId: 'ASIAREALKEY',
+        secretAccessKey: 'real-secret',
+        sessionToken: 'real-token',
+      },
+    })
+  })
+
+  // The original failure's shape: a real token with nothing to sign beside it.
+  it('refuses a session token with no key pair', () => {
+    expect(() =>
+      judgeAwsClientConfig({ [ARM_AWS_ENV.sessionToken]: 'real-token' }),
+    ).toThrow(/must be passed together/)
   })
 
   it('leaves out a session token that was not passed', () => {
@@ -60,6 +92,18 @@ describe('judgeAwsClientConfig', () => {
       )
     },
   )
+})
+
+// Every client makes the bare call, so the default has to be the real one.
+describe('the bare call the clients make', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('reads process.env', () => {
+    vi.stubEnv(ARM_AWS_ENV.accessKeyId, 'ASIAREALKEY')
+    vi.stubEnv(ARM_AWS_ENV.secretAccessKey, 'real-secret')
+    vi.stubEnv(ARM_AWS_ENV.sessionToken, 'real-token')
+    expect(judgeAwsClientConfig().credentials?.accessKeyId).toBe('ASIAREALKEY')
+  })
 })
 
 // The fix only holds while `.env.test` leaves these names alone: if it ever

@@ -1,5 +1,12 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -55,8 +62,16 @@ const setsEnv = (body: string, name: string): boolean =>
 // The VALUE of a step's env entry, not just whether it is there. Two arms that
 // each set a data version from a different expression would satisfy `setsEnv`
 // and still read two different snapshots of the mart.
+//
+// Read from the step's `env:` block only: a `run: |` line sits at the same
+// indent, so a value moved into the script would otherwise still match.
+const envBlockOf = (body: string): string =>
+  /^ {8}env:\n((?: {10}.*\n|\s*\n)*)/m.exec(body)?.[1] ?? ''
+
 const envValue = (body: string, name: string): string | null =>
-  new RegExp(`^ {${ENV_ENTRY}}${name}: (.*)$`, 'm').exec(body)?.[1] ?? null
+  new RegExp(`^ {${ENV_ENTRY}}${name}: (.*)$`, 'm').exec(
+    envBlockOf(body),
+  )?.[1] ?? null
 
 const spendsLive = (body: string): boolean =>
   new RegExp(`^ {${ENV_ENTRY}}JUDGE_SPEND: 'true'$`, 'm').test(body)
@@ -1419,15 +1434,58 @@ describe('the arms reach AWS on the role, not on the stub', () => {
     },
   )
 
-  it.each(['sweep.eval.test.ts', 'sweepEnv.ts'])(
-    '%s builds every AWS client from the passed credentials',
-    (file) => {
-      const source = readFileSync(path.resolve(__dirname, file), 'utf8')
-      const clients = source.match(/new (S3|SQS)Client\([^)]*\)/g) ?? []
-      expect(clients.length).toBeGreaterThan(0)
-      expect(
-        clients.filter((client) => !client.includes('judgeAwsClientConfig(')),
-      ).toEqual([])
-    },
-  )
+  it('the credentials step exports the role to env, before both arms', () => {
+    const steps = stepsOf(yaml)
+    const names = steps.map((step) => step.name)
+    const credentials = steps.find(
+      (step) => step.name === 'Get credentials for staging and dispatching',
+    )
+    expect(credentials?.body).toContain(
+      'uses: aws-actions/configure-aws-credentials@',
+    )
+    expect(credentials?.body).not.toMatch(/output-env-credentials:\s*false/)
+    expect(names.indexOf(credentials?.name ?? '')).toBeGreaterThan(-1)
+    expect(names.indexOf(credentials?.name ?? '')).toBeLessThan(
+      names.indexOf('Capture the base arm'),
+    )
+  })
+
+  // Every file in the judge, not a list of the ones that have clients today:
+  // a client added anywhere else would sign with the stub. Unit tests are
+  // skipped, because records.test.ts builds a mocked client on purpose.
+  const strip = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const tsFiles = (dir: string): string[] =>
+    readdirSync(dir).flatMap((entry) => {
+      const full = path.join(dir, entry)
+      if (statSync(full).isDirectory()) return tsFiles(full)
+      const unit = full.endsWith('.test.ts') && !full.endsWith('.eval.test.ts')
+      return full.endsWith('.ts') && !unit ? [full] : []
+    })
+
+  it('builds the three clients, and only from judgeAwsClientConfig()', () => {
+    const found = tsFiles(__dirname)
+      .map((file) => {
+        const source = strip(readFileSync(file, 'utf8'))
+        return {
+          file: path.relative(__dirname, file),
+          any: (source.match(/new\s*\(?\s*(S3|SQS)Client\b/g) ?? []).length,
+          exact: (
+            source.match(
+              /new (S3|SQS)Client\(\s*judgeAwsClientConfig\(\),?\s*\)/g,
+            ) ?? []
+          ).length,
+        }
+      })
+      .filter((client) => client.any > 0)
+    expect(found).toEqual([
+      { file: 'sweep.eval.test.ts', any: 2, exact: 2 },
+      { file: 'sweepEnv.ts', any: 1, exact: 1 },
+    ])
+  })
+
+  const readme = readFileSync(path.resolve(__dirname, 'README.md'), 'utf8')
+  it.each(Object.values(ARM_AWS_ENV))('the env table documents %s', (name) => {
+    expect(readme).toMatch(new RegExp(`^\\| .*\`${name}\``, 'm'))
+  })
 })
