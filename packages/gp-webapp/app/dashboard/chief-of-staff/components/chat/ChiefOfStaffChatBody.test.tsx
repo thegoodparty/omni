@@ -40,15 +40,21 @@ vi.mock('helpers/analyticsHelper', async (orig) => ({
   trackEvent: (...args: unknown[]) => trackEventMock(...args),
 }))
 
-// Attachments are flag-gated; the toggle lets the drag-and-drop block turn
-// them on without flipping the flag under every other test in this file.
-// The mock respects scope so the paperclip scope regression tests work without
-// touching the real GrowthBook client.
+// Attachments are flag-gated per scope; the toggles let the drag-and-drop
+// block turn them on without flipping the flag under every other test in this
+// file. The mock respects scope so the paperclip scope regression tests work
+// without touching the real GrowthBook client. `attachmentsOn` keeps its
+// original name/behavior (chief_of_staff only) since most tests in this file
+// render the default scope; `winAttachmentsOn` is the campaign_assistant
+// counterpart, used by the scope-matrix and guard-toast tests.
 let attachmentsOn = false
+let winAttachmentsOn = false
 vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
   useAttachmentsEnabled: (scope: string) => ({
     ready: true,
-    enabled: attachmentsOn && scope === 'chief_of_staff',
+    enabled:
+      (scope === 'chief_of_staff' && attachmentsOn) ||
+      (scope === 'campaign_assistant' && winAttachmentsOn),
   }),
 }))
 
@@ -167,6 +173,7 @@ beforeEach(() => {
   listMessagesMock.mockResolvedValue([])
   seq = 0
   attachmentsOn = false
+  winAttachmentsOn = false
   uploadAttachmentMock.mockReset()
   downloadAttachmentMock.mockReset()
   trackEventMock.mockReset()
@@ -1864,11 +1871,17 @@ describe('<ChiefOfStaffChatBody> attachment scope', () => {
     listMessagesMock.mockResolvedValue([])
   })
 
-  it('hides the paperclip for campaign_assistant scope even when the flag is on', () => {
+  it('shows the paperclip for campaign_assistant scope when its own flag is on', () => {
+    winAttachmentsOn = true
+    render(<ChiefOfStaffChatBody active scope="campaign_assistant" />)
+    expect(screen.getByRole('button', { name: /attach/i })).toBeInTheDocument()
+  })
+
+  it('hides the paperclip for campaign_assistant scope when its flag is off, even if chief_of_staff is on', () => {
     attachmentsOn = true
     render(<ChiefOfStaffChatBody active scope="campaign_assistant" />)
     // ChatComposer only renders the attachment trigger when attachmentsEnabled.enabled.
-    // With campaign_assistant scope the mock returns enabled:false, so no paperclip.
+    // campaign_assistant follows win-chat-attachments only, not serve-chat-attachments.
     expect(
       screen.queryByRole('button', { name: /attach/i }),
     ).not.toBeInTheDocument()
@@ -1878,6 +1891,14 @@ describe('<ChiefOfStaffChatBody> attachment scope', () => {
     attachmentsOn = true
     render(<ChiefOfStaffChatBody active scope="chief_of_staff" />)
     expect(screen.getByRole('button', { name: /attach/i })).toBeInTheDocument()
+  })
+
+  it('hides the paperclip for chief_of_staff scope when its flag is off, even if campaign_assistant is on', () => {
+    winAttachmentsOn = true
+    render(<ChiefOfStaffChatBody active scope="chief_of_staff" />)
+    expect(
+      screen.queryByRole('button', { name: /attach/i }),
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -1959,18 +1980,24 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
 })
 
 describe('<ChiefOfStaffChatBody> upload guard toast', () => {
-  const GUARD_COPY =
+  const SERVE_GUARD_COPY =
     "Don't upload closed-session, privileged, or active-litigation material."
+  const WIN_GUARD_COPY =
+    "Don't upload voter files, donor records, or anything you're not allowed to share."
 
   const dragPayload = (files: File[]) => ({
     dataTransfer: { types: ['Files'], files },
   })
 
-  const renderBody = () => {
+  const renderBody = (scope?: 'chief_of_staff' | 'campaign_assistant') => {
     listConversationsMock.mockResolvedValue([])
     listMessagesMock.mockResolvedValue([])
     const { container } = render(
-      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        {...(scope ? { scope } : {})}
+      />,
     )
     return container.firstElementChild as HTMLElement
   }
@@ -1981,7 +2008,7 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
       dragPayload([new File(['x'], name, { type: 'application/pdf' })]),
     )
 
-  it('shows the guard toast once after the first successful upload', async () => {
+  it('shows the Serve guard toast once after the first successful CoS upload, keyed serve-chat-attachments-guard', async () => {
     attachmentsOn = true
     uploadAttachmentMock.mockResolvedValue({
       id: 'att-1',
@@ -1993,11 +2020,39 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
     const surface = renderBody()
 
     dropPdf(surface, 'agenda.pdf')
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(GUARD_COPY))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(SERVE_GUARD_COPY),
+    )
     expect(trackEventMock).toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.UploadGuardShown,
       {},
     )
+    expect(window.localStorage.getItem('serve-chat-attachments-guard')).toBe(
+      '1',
+    )
+
+    dropPdf(surface, 'minutes.pdf')
+    await waitFor(() => expect(uploadAttachmentMock).toHaveBeenCalledTimes(2))
+    expect(toastMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the Win guard toast once after the first successful CM upload, keyed win-chat-attachments-guard', async () => {
+    winAttachmentsOn = true
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    const surface = renderBody('campaign_assistant')
+
+    dropPdf(surface, 'agenda.pdf')
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(WIN_GUARD_COPY))
+    expect(window.localStorage.getItem('win-chat-attachments-guard')).toBe('1')
+    expect(
+      window.localStorage.getItem('serve-chat-attachments-guard'),
+    ).toBeNull()
 
     dropPdf(surface, 'minutes.pdf')
     await waitFor(() => expect(uploadAttachmentMock).toHaveBeenCalledTimes(2))
