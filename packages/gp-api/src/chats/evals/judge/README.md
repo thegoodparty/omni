@@ -11,6 +11,46 @@ of it, which is the only reason one judge can cover every agent.
 Design: the [TDD](https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-139733)
 and the shorter [review doc](https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-140793).
 
+## Asking for a judgment
+
+You ask about a pull request, and the judge compares the PR's branch with what
+it branches from (normally `main`).
+
+**On the PR, comment `/judge`.** The bot replies with a plan: which agents it
+would compare and what that would cost. Nothing runs and nothing is spent.
+Then confirm it:
+
+| Comment | What it does |
+| --- | --- |
+| `/judge` | Plan only, for the agents your diff touched |
+| `/judge --live` | Runs it for those agents |
+| `/judge chief_of_staff --live` | Runs it for the agent you name |
+| `/judge chief_of_staff,opposition_research --live` | Several, comma-separated, no spaces |
+| `/judge all --live` | Every agent. Expensive; for changes to shared code |
+
+The comment has to start with `/judge`. Only people with write access to the
+repository can run one, because it spends on the organization's model
+account. Fork PRs are skipped.
+
+**Or from Actions.** Open **Actions → Universal Judge request → Run
+workflow**, fill in the PR number and the agents (`auto` by default), and tick
+**live** to spend. Leave it unticked for the plan.
+
+**Reading the result.** The verdict is in the run's summary: open **Actions →
+Universal Judge comment** (or **request**, for a dispatch) and pick the run.
+The PR thread says the sweep started but not how it ended, so the run is where
+to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
+**CAN'T SAY**. Most are CAN'T SAY today, and that's expected for two reasons.
+The case lists are still placeholders (see below), and a verdict needs at
+least 20 cases to count as evidence. Under that it's CAN'T SAY, with the
+measured difference still shown beside it. The summary also lists what was
+excluded and why, and an agent that couldn't be compared is listed as
+refused, with the reason.
+
+A sweep of one chat agent takes about half an hour and costs a few dollars. The
+plan comment gives the estimate before anything runs. A second request on the
+same PR cancels the first.
+
 ## Running a sweep: THREE PROCESSES, NOT ONE
 
 This is the shape of the whole thing, and it is forced rather than chosen. An
