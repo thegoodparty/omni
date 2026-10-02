@@ -1565,11 +1565,14 @@ jobs:
           echo "JUDGE_METADATA_BUCKET=agent-experiment-metadata-$JUDGE_ENVIRONMENT" >> "$GITHUB_ENV"
           echo "JUDGE_ARTIFACT_BUCKET=gp-agent-artifacts-$JUDGE_ENVIRONMENT" >> "$GITHUB_ENV"
           queue="agent-dispatch-$JUDGE_ENVIRONMENT.fifo"
-          if url="$(aws sqs get-queue-url --queue-name "$queue" --output text --query QueueUrl 2>/dev/null)"; then
+          # Keep the CLI's error: a refused lookup otherwise reads the same
+          # whether the role, the queue or the permission is what is wrong.
+          err="$(mktemp)"
+          if url="$(aws sqs get-queue-url --queue-name "$queue" --output text --query QueueUrl 2>"$err")"; then
             echo "JUDGE_DISPATCH_QUEUE_URL=$url" >> "$GITHUB_ENV"
             echo "background runs dispatch to $url"
           else
-            echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries UniversalJudgeSweep-$JUDGE_ENVIRONMENT."
+            echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries UniversalJudgeSweep-$JUDGE_ENVIRONMENT. AWS said: $(tr '\n' ' ' < "$err")"
           fi
 
       - name: Resolve the voter mart's Delta version
