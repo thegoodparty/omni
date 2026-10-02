@@ -99,8 +99,7 @@ uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
   one is in flight.
 - `GET themes/:id`: one theme with its confirmed members.
 - `GET tags?status=` and `PATCH tags/:id`: the tag list and its curation.
-  Each tag carries `proposedByRunId`, so the report's strip can show only
-  its own run's proposals.
+  Each tag carries `proposedByRunId`, the run that last proposed it.
 - `POST seed`: dev-only fake memos; 404s on prod.
 
 The report, synthesis, theme and tag routes are default posture: what

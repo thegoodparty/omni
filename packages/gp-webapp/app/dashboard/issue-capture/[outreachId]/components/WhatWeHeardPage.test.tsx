@@ -124,6 +124,36 @@ const mockReport = (data: FeedbackReportResponse) =>
     data,
   })
 
+const FLOODING_TAG = {
+  id: 'tag-1',
+  name: 'Street flooding',
+  status: 'proposed',
+} as const
+
+const proposal = (id: string, name: string, proposedByRunId: string) => ({
+  id,
+  name,
+  status: 'proposed' as const,
+  source: 'synthesis' as const,
+  declaredTopIssueId: null,
+  mergedIntoId: null,
+  proposedByRunId,
+  feedbackCount: 3,
+})
+
+// The org's proposals: the page's own completed run's flooding tag, and
+// one from an unrelated effort's run.
+const mockProposals = () =>
+  api.mock('GET /v1/constituent-feedback/tags', {
+    status: 200,
+    data: {
+      tags: [
+        proposal('tag-1', 'Street flooding', 'run-1'),
+        proposal('tag-2', 'Snow removal', 'run-other'),
+      ],
+    },
+  })
+
 const mockNoProposals = () =>
   api.mock('GET /v1/constituent-feedback/tags', {
     status: 200,
@@ -369,37 +399,23 @@ describe('WhatWeHeardPage', () => {
       ).toBeInTheDocument()
     })
 
-    // The strip is the run's own: what it proposed, not every proposal in
-    // the org.
-    it('reviews only the tags the latest run proposed', async () => {
-      mockReport(COMPLETED)
-      api.mock('GET /v1/constituent-feedback/tags', {
-        status: 200,
-        data: {
-          tags: [
-            {
-              id: 'tag-1',
-              name: 'Street flooding',
-              status: 'proposed',
-              source: 'synthesis',
-              declaredTopIssueId: null,
-              mergedIntoId: null,
-              proposedByRunId: 'run-1',
-              feedbackCount: 3,
-            },
-            {
-              id: 'tag-2',
-              name: 'Snow removal',
-              status: 'proposed',
-              source: 'synthesis',
-              declaredTopIssueId: null,
-              mergedIntoId: null,
-              proposedByRunId: 'run-other',
-              feedbackCount: 4,
-            },
+    // The strip is the page's themes' own proposals, not every proposal in
+    // the org: another effort's never appear.
+    it('reviews the proposed tags of the themes on the page', async () => {
+      mockReport(
+        report({
+          run: run('completed'),
+          themes: [
+            theme({ tag: FLOODING_TAG }),
+            theme({
+              id: 'theme-b',
+              title: 'Bike lanes',
+              tag: { id: 'tag-4', name: 'Bike lanes', status: 'accepted' },
+            }),
           ],
-        },
-      })
+        }),
+      )
+      mockProposals()
       renderPage()
 
       const strip = await screen.findByRole('region', {
@@ -407,6 +423,7 @@ describe('WhatWeHeardPage', () => {
       })
       expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
       expect(within(strip).queryByText('Snow removal')).toBeNull()
+      expect(within(strip).queryByText('Bike lanes')).toBeNull()
     })
 
     it('splits each card by where people stand', async () => {
@@ -445,6 +462,25 @@ describe('WhatWeHeardPage', () => {
         screen.getByRole('button', { name: 'Summarize what we heard' }),
       ).toBeEnabled()
       expect(screen.getByText('Street flooding')).toBeInTheDocument()
+    })
+
+    // The themes on the page are the last completed run's, while the
+    // report's run is the failed one, which proposed nothing.
+    it('still reviews the proposed tags of the themes it keeps up', async () => {
+      mockReport(
+        report({
+          run: { ...run('failed'), id: 'run-2' },
+          themes: [theme({ tag: FLOODING_TAG })],
+        }),
+      )
+      mockProposals()
+      renderPage()
+
+      const strip = await screen.findByRole('region', {
+        name: 'New tags to review',
+      })
+      expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
+      expect(within(strip).queryByText('Snow removal')).toBeNull()
     })
   })
 

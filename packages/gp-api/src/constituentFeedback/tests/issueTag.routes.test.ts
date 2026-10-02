@@ -93,8 +93,7 @@ describe('issue tag routes', () => {
     )
   })
 
-  // The report's strip lists what its own run proposed, and the list is
-  // the org's, so each tag says which run proposed it.
+  // The list is the org's, so each tag says which run proposed it.
   it('names the run that proposed a tag', async () => {
     const effort = await seedTurfEffort(service, slug, { people: 1 })
     const run = await service.prisma.feedbackSynthesisRun.create({

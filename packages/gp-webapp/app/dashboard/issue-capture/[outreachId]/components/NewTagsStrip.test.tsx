@@ -48,8 +48,8 @@ const mockPatch = () =>
     }
   })
 
-const renderStrip = (isServe = false) =>
-  render(<NewTagsStrip isServe={isServe} runId="run-1" />)
+const renderStrip = (isServe = false, themeTagIds = ['tag-1', 'tag-2']) =>
+  render(<NewTagsStrip isServe={isServe} themeTagIds={themeTagIds} />)
 
 beforeEach(() => {
   testQueryClient.clear()
@@ -72,16 +72,15 @@ describe('NewTagsStrip', () => {
     expect(statusQueries).toEqual(['proposed'])
   })
 
-  // The tag list is the org's. Another effort's run, or an earlier run of
-  // this one, proposed the rest, and this report is not where they are
-  // decided.
-  it('lists only the tags this run proposed', async () => {
+  // The tag list is the org's. Another effort's runs proposed the rest, and
+  // this report is not where they are decided.
+  it('lists only the proposed tags of the themes on the page', async () => {
     mockTags([
       tag(),
       tag({ id: 'tag-2', name: 'Bike lanes', proposedByRunId: 'run-0' }),
       tag({ id: 'tag-3', name: 'Park lighting', proposedByRunId: null }),
     ])
-    renderStrip()
+    renderStrip(false, ['tag-1'])
 
     const strip = await screen.findByRole('region', {
       name: 'New tags to review',
@@ -91,9 +90,9 @@ describe('NewTagsStrip', () => {
     expect(within(strip).queryByText('Park lighting')).toBeNull()
   })
 
-  it('renders nothing when this run proposed none of them', async () => {
-    mockTags([tag({ proposedByRunId: 'run-0' })])
-    const { container } = renderStrip()
+  it('renders nothing when no theme on the page has a proposed tag', async () => {
+    mockTags(PROPOSED)
+    const { container } = renderStrip(false, [])
 
     await waitFor(() =>
       expect(

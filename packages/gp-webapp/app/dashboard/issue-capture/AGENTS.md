@@ -89,10 +89,11 @@ fires on the press, refused or not.
   owner-or-manager, so a 403 renders nothing (`retry: false`). It reads fresh
   on every mount (`staleTime: 0`), because a run landing while the page is
   open proposes new tags. The list is the org's, so the strip keeps only the
-  tags whose `proposedByRunId` is the report's `run.id`: what this run
-  proposed, not another effort's proposals. After a failed run that is
-  nothing, until the next run lands. Accept is `PATCH { action: 'accept' }`,
-  Dismiss is `{ action: 'retire' }`, and both invalidate the report.
+  proposed tags of the themes on the page (`report.themes[].tag`), never
+  another effort's. It goes by the themes, not `report.run`, because that
+  run can be failed or in flight while the themes come from the last
+  completed one. Accept is `PATCH { action: 'accept' }`, Dismiss is
+  `{ action: 'retire' }`, and both invalidate the report.
 
 ## Notes to review
 
