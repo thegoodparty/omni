@@ -7,6 +7,7 @@ import {
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import {
   OutreachStatus,
   OutreachType,
@@ -448,6 +449,48 @@ describe('serve phone banking routes', () => {
         })
       },
     )
+
+    // The list is built and the send stands, so a status write that fails
+    // after the commit is logged rather than turning the create into a 500.
+    // The priority's next turn heals it.
+    it('still returns the list when the status write fails, and heals later', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770011' })])
+      const priority = await officePriority()
+      const status = service.app.get(PriorityStatusService)
+      vi.spyOn(status, 'recordOutreachSent').mockRejectedValueOnce(
+        new Error('db hiccup'),
+      )
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({
+          proposalKey: PROPOSAL_KEY,
+          priorityId: priority.id,
+          stepId: 'define',
+          side: 'main',
+        }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      expect(res.data.outreachId).toEqual(expect.any(Number))
+      const defineCheck = async () =>
+        parsePriorityStatus(
+          (
+            await service.prisma.priority.findUniqueOrThrow({
+              where: { id: priority.id },
+            })
+          ).status,
+        ).steps.find((step) => step.id === 'define')?.check
+      expect(await defineCheck()).toBeUndefined()
+
+      await status.healSends(priority.id)
+
+      expect(await defineCheck()).toMatchObject({
+        state: 'out',
+        sentProposalKey: PROPOSAL_KEY,
+      })
+    })
 
     it('refuses a check on a step that carries none', async () => {
       mockPeoplePage([fakePerson({ cellPhone: '3075770006' })])

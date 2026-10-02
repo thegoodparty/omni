@@ -1877,14 +1877,25 @@ describe('door-knocking routes', () => {
         sentAt: expect.any(String),
       })
 
+      // A first walk whose status write never landed: the next walk from the
+      // same card records it.
+      await service.prisma.priority.update({
+        where: { id: priority.id },
+        data: { status: priority.status ?? {} },
+      })
+      expect((await methodCheck())?.state).toBe('asked')
+
       const second = await walk()
       expect(second.status).toBe(201)
+      expect(await methodCheck()).toMatchObject({
+        state: 'out',
+        sentProposalKey: proposalKey,
+      })
       expect(
         await service.prisma.outreach.findFirstOrThrow({
           where: { doorKnockingTurfId: second.data.id },
         }),
       ).toMatchObject({ proposalKey: null, priorityStepId: null })
-      expect((await methodCheck())?.sentAt).toBe(sent?.sentAt)
     })
 
     it('keeps a proposal link off the Win create', async () => {
