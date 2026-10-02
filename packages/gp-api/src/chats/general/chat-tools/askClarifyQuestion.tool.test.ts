@@ -48,4 +48,15 @@ describe('buildAskClarifyQuestionTool', () => {
       }),
     ).toEqual({ asked: true, questionId: 'q1' })
   })
+
+  it('refuses an option with no label', async () => {
+    expect(
+      await tool.execute({
+        questionId: 'q1',
+        question: 'Which pets?',
+        options: [{ label: 'Dogs' }, { label: '  ' }],
+        multiSelect: true,
+      }),
+    ).toHaveProperty('error')
+  })
 })

@@ -21,6 +21,13 @@ export const buildAskClarifyQuestionTool = (): LlmStreamTool<
     // A multi-select answer comes back as labels joined into one line, so a
     // label that contains another would read two ways on reload.
     const labels = options.map((option) => option.label.trim().toLowerCase())
+    if (labels.some((label) => label === '')) {
+      return {
+        error:
+          'Every option needs a label. Give each one a few words, then ask ' +
+          'again.',
+      }
+    }
     const overlaps =
       multiSelect &&
       labels.some((label, i) =>
