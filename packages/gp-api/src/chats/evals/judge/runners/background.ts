@@ -188,7 +188,8 @@ const requireSegment = (label: string, value: string): string => {
 const EXPERIMENT_ID = /^[a-z][a-z0-9_]{0,63}$/
 
 // dispatch_handler's _IDENTIFIER_RE.
-const ORG_SLUG = /^[a-zA-Z0-9_-]{1,64}$/
+// Exported so judgeIdentifiers.ts makes slugs by this rule, not a copy of it.
+export const ORG_SLUG = /^[a-zA-Z0-9_-]{1,64}$/
 
 const sha256 = (...parts: string[]): string => {
   const hash = createHash('sha256')

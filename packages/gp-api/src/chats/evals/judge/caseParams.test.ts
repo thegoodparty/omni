@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertNoPlaceholders,
   JUDGE_PLACEHOLDERS,
+  missingValues,
   substituteBackgroundCases,
   substituteCaseParams,
   UnsubstitutedPlaceholderError,
@@ -129,7 +130,7 @@ describe('assertNoPlaceholders', () => {
   it('says which variable was meant to supply a known token', () => {
     expect(() =>
       assertNoPlaceholders('baseline', { race_id: JUDGE_PLACEHOLDERS.raceId }),
-    ).toThrow(/minted a fixture and exported it/)
+    ).toThrow(/Resolve the background agents' identifiers/)
   })
 
   // A misspelling is never substituted, so it would otherwise reach the
@@ -225,5 +226,49 @@ describe('substituteBackgroundCases', () => {
         { orgSlug: VALUES.orgSlug },
       ),
     ).toThrow(/case broken/)
+  })
+})
+
+describe('missingValues', () => {
+  const cases: { params: Record<string, JsonValue> }[] = [
+    { params: { race_id: '{judgeRaceId}', nested: ['{judgeUserEmail}'] } },
+    { params: { organization_slug: '{judgeOrgSlug}' } },
+  ]
+
+  it('names each known token the sweep has no value for', () => {
+    expect(missingValues(cases, { orgSlug: 'judge-1-1' })).toEqual([
+      'raceId',
+      'userEmail',
+    ])
+  })
+
+  it('names none when every used value is supplied', () => {
+    expect(missingValues(cases, VALUES)).toEqual([])
+  })
+
+  // An unknown token is a broken list, which this must not excuse.
+  it('never names a token outside the vocabulary', () => {
+    expect(missingValues([{ params: { x: '{judgeTypo}' } }], {})).toEqual([])
+  })
+
+  // A list that is broken anyway names nothing, even beside a value that is
+  // really missing: excused, the break would hide until the value came back.
+  it('names nothing for a list with an unknown token as well', () => {
+    expect(
+      missingValues(
+        [{ params: { race_id: '{judgeRaceId}', x: '{judgeTypo}' } }],
+        {},
+      ),
+    ).toEqual([])
+  })
+
+  // Substitution never rewrites a key, so a token there is broken whatever
+  // the values; it must not read as a value the sweep lacks.
+  it('names nothing for a token in a key', () => {
+    // The value's token really is missing; the key's makes the list broken
+    // anyway, so the missing value must not excuse it.
+    expect(
+      missingValues([{ params: { '{judgeRaceId}': '{judgeOrgSlug}' } }], {}),
+    ).toEqual([])
   })
 })

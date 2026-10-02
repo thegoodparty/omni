@@ -10,13 +10,15 @@ import type { PlaceholderValues } from '../caseParams'
 // arm environment matters because the literal IS the required-variable set,
 // and it should be edited once when `ArmEnvSchema` gains a key.
 
-// Shaped like the real values — an `eo-<uuid>` organization, a BallotReady
-// brHashId, a `qa-<uuid>@goodparty.org` fixture address — so a substituted
-// params object is the one that would really be dispatched. Fictional.
+// The values a sweep really produces (judgeIdentifiers.ts): a `judge-` slug
+// from the sweep id, a BallotReady brHashId, the reserved judge address. Real
+// in shape, so a substituted params object is the one that would be
+// dispatched. A slug of any other shape would be refused by the dispatch, so a
+// fixture shaped differently would hide exactly that refusal.
 export const SWEEP_VALUES: Required<PlaceholderValues> = {
-  orgSlug: 'eo-0192e4a0-1f00-7000-8000-0000000c0de1',
+  orgSlug: 'judge-36999748321-1',
   raceId: 'gAAAAABkRaCeIdFromBallotReady',
-  userEmail: 'qa-6f1c9d84-3b52-4a27-9e0f-7c3d51ab2049@goodparty.org',
+  userEmail: 'judge-sweep@example.com',
 }
 
 export const SWEEP_ARM_SHA = 'a'.repeat(40)

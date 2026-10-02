@@ -53,14 +53,18 @@ describe('the agent registry', () => {
 describe('coverage', () => {
   it('excludes blocked agents from the denominator', () => {
     const { wired, judgeable, blocked } = coverage()
-    // Both are named rather than dropped, so the gap stays visible: briefing
-    // annotation has no handler yet, and compliance_setup must not be swept
-    // at all.
+    // Named rather than dropped, so each gap stays visible: briefing
+    // annotation has no handler yet, compliance_setup must not be swept at
+    // all, and three agents' main path reads from gp-api, which a judge
+    // dispatch cannot authenticate.
     expect(blocked.map((a) => a.agentId).sort()).toEqual([
       'briefing_annotation',
       'compliance_setup',
+      'meeting_briefing',
+      'top_community_issues',
+      'trending_issues',
     ])
-    expect(judgeable).toBe(19)
+    expect(judgeable).toBe(16)
     expect(wired).toBe(0)
   })
 

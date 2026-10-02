@@ -265,16 +265,18 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
       env: {
         ...process.env,
         BASE_DIR: REPO_ROOT,
-        JUDGE_AGENTS: 'chief_of_staff,meeting_briefing,opposition_research',
+        JUDGE_AGENTS:
+          'chief_of_staff,find_existing_ordinances,opposition_research',
       },
     })
     const arm = parseArmEnv(intoArmEnv(PARSE(readFileSync(out, 'utf8'))))
     const { attemptsPerCase, maxCases } = DEFAULT_JUDGE_CONFIG.background
     expect(arm.backgroundBudget).toEqual({ attemptsPerCase, maxCases })
-    // This tree walks concurrently, so meeting_briefing's three 65-minute
-    // runs finish together inside the arm, and both agents fit the slots.
+    // This tree walks concurrently, so find_existing_ordinances's three
+    // 55-minute runs finish together inside the arm, and both agents fit the
+    // slots.
     expect([...(arm.backgroundAdmitted ?? [])]).toEqual([
-      'meeting_briefing',
+      'find_existing_ordinances',
       'opposition_research',
     ])
   })
@@ -629,20 +631,20 @@ describe('resolveAdmission', () => {
   // candidate's cost is the one that wins the max, so it is the only test that
   // can see the candidate side drop attempts: everywhere else the base was at
   // least as slow, and an understated candidate never won. At 2 attempts
-  // meeting_briefing is 130 minutes and refused; at 1 it would be 65 and
-  // wrongly admitted to an arm it then overruns.
+  // find_existing_ordinances is 110 minutes and refused; at 1 it would be 55
+  // and wrongly admitted to an arm it then overruns.
   it('multiplies the candidate arm by attempts when the candidate is slower', () => {
     const config = {
       ...DEFAULT_JUDGE_CONFIG,
       background: { attemptsPerCase: 2, maxCases: 1, maxInFlight: 12 },
     }
     const result = resolveAdmission(
-      ['meeting_briefing'],
-      baseTree({ timeouts: { meeting_briefing: 60 } }),
+      ['find_existing_ordinances'],
+      baseTree({ timeouts: { find_existing_ordinances: 60 } }),
       config,
     )
     expect(result.admitted).toEqual([])
-    expect(result.refused[0]?.reason).toMatch(/would take 130 minutes/)
+    expect(result.refused[0]?.reason).toMatch(/would take 110 minutes/)
   })
 
   // THE SAME CASES OR NOTHING. A branch that inserts a case near the top of a
@@ -714,8 +716,7 @@ describe('resolveAdmission', () => {
 
   // A BASE THAT WILL NOT OBEY. Its arm ignores the admitted list and walks
   // every background agent at its own old budget, refusing each one; the
-  // candidate would run them, and once a fixture is minted that is paid work
-  // pairing with nothing. So nothing is admitted and every one says why.
+  // candidate would run them, and that is paid work pairing with nothing. So nothing is admitted and every one says why.
   it('admits nothing when the base ref predates shared admission', () => {
     // A chat agent among them: it never had a background budget to lose, so
     // listing it as refused would only put noise in the report.
@@ -737,15 +738,6 @@ describe('resolveAdmission', () => {
     expect(result.refused[0]?.reason).toMatch(
       /predates shared background admission/,
     )
-  })
-
-  // The pair that share all three of their first cases, against this tree:
-  // it walks concurrently and names the agent in every run id, so both run.
-  it('admits two real agents that share case ids against a concurrent base', () => {
-    expect(
-      resolveAdmission(['top_community_issues', 'trending_issues'], REPO_ROOT)
-        .admitted,
-    ).toEqual(['top_community_issues', 'trending_issues'])
   })
 
   // The real probe, both ways: this tree honours admission, and an empty
