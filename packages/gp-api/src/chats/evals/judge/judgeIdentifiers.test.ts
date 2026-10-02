@@ -1,4 +1,8 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import { type AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { substituteBackgroundCases } from './caseParams'
@@ -52,6 +56,12 @@ describe('judgeOrgSlug', () => {
     expect(judgeOrgSlug('swp_1')).toBe('judge-swp_1')
   })
 
+  // The dispatch's own limit: 64 characters, prefix included.
+  it('accepts a slug of exactly 64 characters and refuses 65', () => {
+    expect(judgeOrgSlug('x'.repeat(58))).toHaveLength(64)
+    expect(() => judgeOrgSlug('x'.repeat(59))).toThrow(/dispatchable/)
+  })
+
   it.each(['judge-a b', 'x'.repeat(80), 'a/b'])(
     'refuses a sweep id that would not dispatch: %j',
     (sweepId) => {
@@ -71,6 +81,53 @@ describe('resolveRaceId', () => {
       `https://gp-api-dev.goodparty.org/v1/elections/races-by-year?zipcode=${JUDGE_FIXTURE_RACE.zip}`,
     )
     expect(new Headers(init?.headers).has('Authorization')).toBe(false)
+  })
+
+  // The exact office and the first of it, not a near name or a later one.
+  it('takes the first race whose office is exactly the named one', async () => {
+    const body = [
+      ['Cheyenne City Council - Ward 2', 'wrong-ward'],
+      [JUDGE_FIXTURE_RACE.office, 'right'],
+      [JUDGE_FIXTURE_RACE.office, 'later'],
+    ].map(([office, id]) => ({
+      id,
+      brPositionId: 'br-position-1',
+      position: { name: office, level: 'city', state: 'WY' },
+      election: { electionDay: '2026-11-03' },
+    }))
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }))
+    expect(await resolveRaceId('http://localhost:3000', fetchImpl)).toBe(
+      'right',
+    )
+  })
+
+  // Nothing but Accept: no cookie, no key, no credential of any kind, and a
+  // timeout so a hung lookup cannot hold the sweep until the job limit.
+  it('sends no credential and gives up on a hung lookup', async () => {
+    const fetchImpl = races(JUDGE_FIXTURE_RACE.office, 'r')
+    await resolveRaceId('http://localhost:3000', fetchImpl)
+    const [, init] = fetchImpl.mock.calls[0] ?? []
+    expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
+      accept: 'application/json',
+    })
+    expect(init?.credentials).toBeUndefined()
+    expect(init?.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  // The right office, a numeric id, nothing else: navigable enough that only
+  // the schema refuses it, so a cast in its place would hand back `1`.
+  it('refuses a body that is not a race list', async () => {
+    const body = JSON.stringify([
+      { id: 1, position: { name: JUDGE_FIXTURE_RACE.office } },
+    ])
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(body, { status: 200 }))
+    await expect(
+      resolveRaceId('http://localhost:3000', fetchImpl),
+    ).rejects.toThrow()
   })
 
   it('refuses when no race matches the office', async () => {
@@ -139,6 +196,30 @@ describe('identifierOutputLines', () => {
 // THE RACE ALONE CAN GO MISSING. The races route lists upcoming races only, so
 // once the named election passes the lookup finds nothing. That must cost the
 // three race agents, by name, and nothing else.
+// The constants the race is named by. Pinned as literals: every other test
+// reads them back from themselves, so a drift would agree with itself.
+describe('the race the case lists name', () => {
+  it('is Cheyenne City Council, Ward 1, at 82001', () => {
+    expect(JUDGE_FIXTURE_RACE).toEqual({
+      zip: '82001',
+      office: 'Cheyenne City Council - Ward 1',
+    })
+  })
+})
+
+describe('resolveJudgeIdentifiers', () => {
+  it('makes the slug from the sweep id it is given', async () => {
+    vi.stubEnv('JUDGE_SWEEP_ID', 'judge-somewhere-else')
+    const ids = await resolveJudgeIdentifiers(
+      'judge-777-2',
+      'http://localhost:3000',
+      races(JUDGE_FIXTURE_RACE.office, 'r'),
+    )
+    vi.unstubAllEnvs()
+    expect(ids.orgSlug).toBe('judge-777-2')
+  })
+})
+
 describe('a race that cannot be read', () => {
   const noRace = races('Some Other Office', 'x')
 
@@ -265,6 +346,71 @@ describe('the judgeIdentifiers entry', () => {
     expect(noId.status).toBe(1)
     expect(noId.stderr).toMatch(/usage/)
   })
+
+  // THE SUCCESS PATH, AS WRITTEN: the real entry against a local stand-in for
+  // the races route. Every other test stubs the step's `npx`, so only this
+  // one sees which file the entry writes and what it puts there.
+  it('writes the three outputs to the file it was given, and only there', async () => {
+    const seen: { url?: string; headers?: Record<string, unknown> } = {}
+    const server = createServer((req, res) => {
+      seen.url = req.url
+      seen.headers = req.headers
+      res.setHeader('content-type', 'application/json')
+      res.end(
+        JSON.stringify([
+          {
+            id: 'gAAAArace',
+            brPositionId: 'br-position-1',
+            position: {
+              name: JUDGE_FIXTURE_RACE.office,
+              level: 'city',
+              state: 'WY',
+            },
+            election: { electionDay: '2026-11-03' },
+          },
+        ]),
+      )
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    const out = join(mkdtempSync(join(tmpdir(), 'judge-ids-')), 'out')
+    const result = await new Promise<{ code: number | null; stdout: string }>(
+      (resolve) => {
+        const child = spawn(
+          'npx',
+          ['tsx', join(__dirname, 'judgeIdentifiers.ts'), out],
+          {
+            cwd: join(__dirname, '../../../..'),
+            env: {
+              ...process.env,
+              JUDGE_SWEEP_ID: 'judge-555-1',
+              JUDGE_FIXTURE_API_URL: `http://localhost:${port}`,
+            },
+          },
+        )
+        let stdout = ''
+        child.stdout.on('data', (chunk: Buffer) => {
+          stdout += chunk.toString()
+        })
+        child.on('close', (code) => resolve({ code, stdout }))
+      },
+    )
+    server.close()
+    expect(result.code).toBe(0)
+    expect(readFileSync(out, 'utf8')).toBe(
+      identifierOutputLines({
+        orgSlug: 'judge-555-1',
+        raceId: 'gAAAArace',
+        userEmail: JUDGE_USER_EMAIL,
+      }),
+    )
+    expect(result.stdout).not.toContain('org_slug=')
+    expect(seen.url).toBe(
+      `/v1/elections/races-by-year?zipcode=${JUDGE_FIXTURE_RACE.zip}`,
+    )
+    expect(seen.headers?.authorization).toBeUndefined()
+    expect(seen.headers?.cookie).toBeUndefined()
+  }, 60_000)
 
   it('refuses an API outside dev before reading anything', () => {
     const result = run(['/dev/null'], {

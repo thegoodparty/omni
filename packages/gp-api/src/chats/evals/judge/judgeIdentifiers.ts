@@ -1,7 +1,7 @@
 import { appendFileSync } from 'node:fs'
 import { RaceListItemArraySchema } from '@goodparty_org/contracts'
 import { Headers, MimeTypes } from 'http-constants-ts'
-import { JUDGE_ORG_SLUG_PREFIX } from './runners/background'
+import { JUDGE_ORG_SLUG_PREFIX, ORG_SLUG } from './runners/background'
 import { JUDGE_FIXTURE_RACE } from './sweepFixture'
 
 // THE THREE VALUES SIX BACKGROUND CASE LISTS CANNOT CARRY, made up per sweep.
@@ -20,10 +20,6 @@ import { JUDGE_FIXTURE_RACE } from './sweepFixture'
 // Not a person and not a mailbox anyone reads: example.com is reserved for
 // exactly this (RFC 2606), and a public case list should carry no real address.
 export const JUDGE_USER_EMAIL = 'judge-sweep@example.com'
-
-// The dispatch's own pattern and prefix, so a slug this writes is one the
-// dispatch accepts.
-const ORG_SLUG = /^[a-zA-Z0-9_-]{1,64}$/
 
 // One per sweep, from the sweep id both arms already share. The organization
 // does not exist, so the slug only has to be one nothing real uses; an eval

@@ -1024,6 +1024,10 @@ describe('judge.yml resolves one set of identifiers for both arms', () => {
     )
     expect(names.indexOf('Capture the base arm')).toBeGreaterThan(at)
     expect(resolver?.body).toMatch(/^ {8}id: identifiers$/m)
+    // Never skipped and never soft: skipped, every output is '' and every
+    // background agent is refused on both arms with no visible cause. The
+    // script already turns its own failure into a warning.
+    expect(resolver?.body).not.toMatch(/^ {8}(if|continue-on-error):/m)
   })
 
   it('derives the slug from the sweep id and reads only the dev API', () => {
