@@ -8,6 +8,7 @@ import {
 import FormData from 'form-data'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { PhoneListSummaryListDto } from '../schemas/peerlyPhoneList.schema'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
@@ -194,6 +195,36 @@ describe('PeerlyPhoneListService', () => {
           },
         },
       )
+      expect(mockHttpService.validateResponse).toHaveBeenCalledWith(
+        lists,
+        PhoneListSummaryListDto,
+        'list phone lists',
+      )
+    })
+
+    // listByAccount answers with a bare array and many more columns than
+    // we read. Parsing the documented shape here is the only check that
+    // the schema matches the vendor, since every other test mocks it.
+    it('parses the vendor shape it is validated against', () => {
+      const parsed = PhoneListSummaryListDto.schema.parse([
+        {
+          list_id: 169614,
+          list_name: 'GoodParty test list identity-1',
+          list_state: 'ACTIVE',
+          suppress_cell_phones: '6',
+          leads_loaded: 1,
+          upload_by: 'api',
+        },
+      ])
+
+      expect(parsed).toEqual([
+        {
+          list_id: 169614,
+          list_name: 'GoodParty test list identity-1',
+          list_state: 'ACTIVE',
+          suppress_cell_phones: 6,
+        },
+      ])
     })
 
     it('delegates a vendor failure to handleApiError', async () => {
