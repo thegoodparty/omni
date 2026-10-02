@@ -13,8 +13,10 @@ import {
   SynthesisRunStatus,
   SynthesisScope,
 } from '@/generated/prisma'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { cleanTagName, normalizeTagName } from '../util/issueTagName.util'
 
 type Issue = FeedbackSynthesisCompleteEvent['data']['issues'][number]
@@ -26,7 +28,10 @@ type Issue = FeedbackSynthesisCompleteEvent['data']['issues'][number]
 export class FeedbackSynthesisIngestService extends createPrismaBase(
   MODELS.FeedbackSynthesisRun,
 ) {
-  constructor(private readonly s3: S3Service) {
+  constructor(
+    private readonly s3: S3Service,
+    private readonly analytics: AnalyticsService,
+  ) {
     super()
   }
 
@@ -127,6 +132,32 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       },
       'Feedback synthesis completed',
     )
+    if (written) await this.trackCompleted(run, issues.length)
+  }
+
+  // Attributed to whoever pressed the button, or to the org's owner when
+  // the effort's completion started the run.
+  private async trackCompleted(
+    run: FeedbackSynthesisRun,
+    themeCount: number,
+  ): Promise<void> {
+    const userId =
+      run.requestedByUserId ??
+      (
+        await this.client.organization.findUniqueOrThrow({
+          where: { slug: run.organizationSlug },
+          select: { ownerId: true },
+        })
+      ).ownerId
+    void this.analytics
+      .track(userId, EVENTS.IssueCapture.SynthesisCompleted, {
+        scope: run.scope,
+        outreachId: run.outreachId,
+        themeCount,
+        confirmedCount: run.confirmed,
+        product: run.organizationSlug.startsWith('eo-') ? 'serve' : 'win',
+      })
+      .catch(() => undefined)
   }
 
   private async readResponseRows(location: string) {

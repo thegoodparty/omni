@@ -3,7 +3,11 @@ import jwt from 'jsonwebtoken'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { subMinutes } from 'date-fns'
+import { FEEDBACK_REPORT_MEMO_LIMIT } from '@goodparty_org/contracts'
 import {
+  ConstituentFeedbackCaptureMethod,
+  ConstituentFeedbackChannel,
+  ConstituentFeedbackExtractionStatus,
   ConstituentFeedbackStance,
   DoorKnockOutcome,
   IssueTagSource,
@@ -14,9 +18,11 @@ import {
   Prisma,
   SynthesisRunStatus,
 } from '@/generated/prisma'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { ConstituentFeedbackExtractionService } from '../services/constituentFeedbackExtraction.service'
 import { FeedbackSynthesisIngestService } from '../services/feedbackSynthesisIngest.service'
 import { MockSynthesisEngine } from '../services/mockSynthesisEngine'
@@ -232,6 +238,40 @@ describe('feedback synthesis routes', () => {
         0,
       ),
     ).toBe(6)
+  })
+
+  // Completion is server truth, so the ingest reports it, with counts and
+  // ids only: nothing anyone said rides along.
+  it('reports a completed run to analytics without what anyone said', async () => {
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue({ event: 'stub', userId: 'stub' })
+    onTestFinished(() => track.mockRestore())
+    await seedConfirmed(effort.targets.slice(0, 6))
+
+    const res = await synthesize()
+    await flushEngine()
+
+    const calls = track.mock.calls.filter(
+      ([, event]) => event === EVENTS.IssueCapture.SynthesisCompleted,
+    )
+    expect(calls).toEqual([
+      [
+        service.user.id,
+        EVENTS.IssueCapture.SynthesisCompleted,
+        {
+          scope: 'effort',
+          outreachId: effort.outreachId,
+          themeCount: 3,
+          confirmedCount: 6,
+          product: 'serve',
+        },
+      ],
+    ])
+    const run = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow({
+      where: { id: res.data.id },
+    })
+    expect(run.status).toBe(SynthesisRunStatus.completed)
   })
 
   // A caller re-records a note the next day to fix a mistake, which clears
@@ -557,6 +597,94 @@ describe('feedback synthesis routes', () => {
   })
 
   describe('the report', () => {
+    // Under the floor and while a run is in flight there are no themes to
+    // show, so the report lists the memos themselves, pending ones included
+    // and told apart by confirmedAt.
+    it('lists the effort’s memos newest first, pending included', async () => {
+      const [a, b, c] = effort.targets
+      const older = await seedKnockMemo(service, {
+        slug,
+        outreachId: effort.outreachId,
+        personId: a!.personId,
+        desiredOutcome: 'Clear the drain',
+      })
+      const newer = await seedKnockMemo(service, {
+        slug,
+        outreachId: effort.outreachId,
+        personId: b!.personId,
+        confirmed: false,
+        stance: null,
+      })
+      await service.prisma.constituentFeedback.update({
+        where: { id: older.memo.id },
+        data: { occurredAt: subMinutes(new Date(), 30) },
+      })
+      const elsewhere = await seedTurfEffort(service, slug, { people: 1 })
+      await seedKnockMemo(service, {
+        slug,
+        outreachId: elsewhere.outreachId,
+        personId: c!.personId,
+      })
+
+      const res = await report()
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.memos).toEqual([
+        {
+          id: newer.memo.id,
+          personId: b!.personId,
+          occurredAt: expect.any(String),
+          channel: 'door_knock',
+          transcript: newer.memo.transcript,
+          stance: null,
+          desiredOutcome: null,
+          actorName: 'Johnny Goodparty',
+          confirmedAt: null,
+        },
+        {
+          id: older.memo.id,
+          personId: a!.personId,
+          occurredAt: expect.any(String),
+          channel: 'door_knock',
+          transcript: older.memo.transcript,
+          stance: 'opposes',
+          desiredOutcome: 'Clear the drain',
+          actorName: 'Johnny Goodparty',
+          confirmedAt: expect.any(String),
+        },
+      ])
+    })
+
+    it('caps the memo list at the newest 200', async () => {
+      const now = new Date()
+      const total = FEEDBACK_REPORT_MEMO_LIMIT + 5
+      await service.prisma.constituentFeedback.createMany({
+        data: Array.from({ length: total }, (_, i) => ({
+          organizationSlug: slug,
+          personId: randomUUID(),
+          occurredAt: subMinutes(now, i),
+          actorUserId: service.user.id,
+          channel: ConstituentFeedbackChannel.door_knock,
+          transcript: `Memo ${i}`,
+          captureMethod: ConstituentFeedbackCaptureMethod.typed,
+          extractionStatus: ConstituentFeedbackExtractionStatus.extracted,
+          confirmedAt: now,
+          clientKey: randomUUID(),
+          outreachId: effort.outreachId,
+        })),
+      })
+
+      const res = await report()
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.memos).toHaveLength(FEEDBACK_REPORT_MEMO_LIMIT)
+      expect(res.data.memos[0].transcript).toBe('Memo 0')
+      expect(res.data.memos.at(-1).transcript).toBe(
+        `Memo ${FEEDBACK_REPORT_MEMO_LIMIT - 1}`,
+      )
+      expect(res.data.denominators.memos).toBe(total)
+    })
+
     it('counts distinct people who answered, not knocks', async () => {
       const [a, b, c] = effort.targets
       // A corrected re-knock on the same person is one conversation.
@@ -604,6 +732,7 @@ describe('feedback synthesis routes', () => {
         denominators: { conversations: 2, memos: 2, confirmed: 1, pending: 1 },
         run: null,
         themes: [],
+        memos: [expect.any(Object), expect.any(Object)],
       })
     })
 
