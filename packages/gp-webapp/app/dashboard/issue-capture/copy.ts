@@ -41,6 +41,7 @@ export const WHAT_WE_HEARD_COPY = {
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
     summarizeFailed: "We couldn't start a summary. Try again in a moment.",
     noNotes: 'No notes yet. Notes from conversations with voters show up here.',
+    drawerCaption: 'Notes from conversations with voters.',
     loadFailed: 'This page could not load. Refresh to try again.',
     loading: 'Loading what you heard',
     conversations: (value: number): string =>
@@ -89,6 +90,7 @@ export const WHAT_WE_HEARD_COPY = {
     summarizeFailed: "We couldn't start a summary. Try again in a moment.",
     noNotes:
       'No notes yet. Notes from conversations with constituents show up here.',
+    drawerCaption: 'Notes from conversations with constituents.',
     loadFailed: 'This page could not load. Refresh to try again.',
     loading: 'Loading what you heard',
     conversations: (value: number): string =>
