@@ -1898,6 +1898,55 @@ describe('door-knocking routes', () => {
       ).toMatchObject({ proposalKey: null, priorityStepId: null })
     })
 
+    // Two presses of the same card racing past the key check: the unique
+    // index lets one through, and the other gets that walk back.
+    it('hands back the first walk when two creates race on one card', async () => {
+      const { slug, filterId, headers } = await serveOrg('race')
+      const office = await service.prisma.electedOffice.findFirstOrThrow({
+        where: { organizationSlug: slug },
+      })
+      const priority = await service.prisma.priority.create({
+        data: {
+          electedOfficeId: office.id,
+          title: 'Fix the flooding on Maple',
+          description: 'The drains back up every storm.',
+          source: PrioritySource.user_stated,
+        },
+      })
+      const proposalKey = '8e3f5da1-2b4c-4d6e-9f70-b1c2d3e4f5a6'
+      const walk = () =>
+        service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'Maple blocks',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            proposalKey,
+            priorityId: priority.id,
+            stepId: 'method',
+            side: 'main',
+          },
+          { ...headers, validateStatus: () => true },
+        )
+
+      const first = await walk()
+      expect(first.status).toBe(201)
+      // The second press reads the key as free, the way it would mid-race.
+      vi.spyOn(service.prisma.outreach, 'findUnique').mockResolvedValueOnce(
+        null,
+      )
+      const second = await walk()
+
+      expect(second.status).toBe(201)
+      expect(second.data.id).toBe(first.data.id)
+      expect(
+        await service.prisma.doorKnockingTurf.count({
+          where: { voterFileFilter: { organizationSlug: slug } },
+        }),
+      ).toBe(1)
+    })
+
     it('keeps a proposal link off the Win create', async () => {
       const res = await postTurf({
         proposalKey: '7d2e4c90-1a3b-4c5d-8e6f-a0b1c2d3e4f5',
