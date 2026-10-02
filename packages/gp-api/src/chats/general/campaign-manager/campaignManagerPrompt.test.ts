@@ -119,6 +119,11 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('says the plan is not generated yet when it is missing', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx({ plan: null }))
     expect(prompt).toContain('has not been generated yet')
+    // ...without implying the story is a prerequisite. The product map lands
+    // in this same prompt saying there is no gate, and the two contradicting
+    // each other is what sent candidates away from a tab that works.
+    expect(prompt).toContain('does not wait on the Campaign Story')
+    expect(prompt).not.toContain('it is built from the Campaign Story')
   })
 
   it('advertises the constituent-data tool only when it is enabled', () => {

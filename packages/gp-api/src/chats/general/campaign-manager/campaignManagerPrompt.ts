@@ -279,7 +279,7 @@ const opponentLine = (o: StrategicLandscapeResult['opponents'][number]) =>
 // sequencing are grounded in the plan rather than generic local-race advice.
 const planBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.plan) {
-    return 'The campaign plan has not been generated yet (it is built from the Campaign Story). Coach from the story, the tracker tasks, and local-race fundamentals until it exists.'
+    return 'The campaign plan has not been generated yet. It does not wait on the Campaign Story: a candidate without one still gets a plan, and finishing the story personalizes it. Coach from whatever story answers exist, the tracker tasks, and local-race fundamentals until it exists.'
   }
   const parts = ['The campaign plan\u2019s strategic landscape:']
   if (ctx.plan.opportunities.length > 0) {
