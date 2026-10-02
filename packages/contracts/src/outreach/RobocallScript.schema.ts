@@ -23,6 +23,10 @@ export const RobocallScriptDraftRequestSchema = z.object({
   // On Improve, the whole script, disclosure line included: gp-api hides the
   // parts deriveRobocallProtectedParts locks from the model and restores them.
   currentDraft: z.string().min(1).max(ROBOCALL_SCRIPT_MAX_LENGTH).optional(),
+  // Deploy compatibility only: a webapp from before the app wrote the
+  // disclosure sends the rented number so the model ends the script with it.
+  // The current webapp never sends it; delete once a release has settled.
+  callbackNumber: z.string().min(1).max(32).optional(),
 })
 export type RobocallScriptDraftRequest = z.infer<
   typeof RobocallScriptDraftRequestSchema

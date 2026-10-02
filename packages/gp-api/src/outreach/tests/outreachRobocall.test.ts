@@ -174,9 +174,23 @@ describe('POST /v1/outreach/robocall/draft', () => {
   })
 
   // The app writes "Paid for by" and the callback number and locks them in
-  // the script, so the model is told never to, whatever the request says.
-  it('never asks the model for the disclosure, even with a callbackNumber', async () => {
+  // the script, so the current webapp's draft request carries no number and
+  // the model is told never to write either.
+  it('never asks the model for the disclosure on a current request', async () => {
     mockDraft('A script.')
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    expect(systemContent()).toContain('Do NOT include a "Paid for by" line')
+    expect(userContent()).not.toContain('Callback number')
+  })
+
+  // Deploy compatibility: a webapp from before the app wrote the disclosure
+  // still sends the number and expects the model to close on it, so while
+  // the two deploys can disagree, that request keeps the old rule.
+  it('keeps the old disclosure rule for a request that sends the number', async () => {
+    mockDraft('A script that ends with the disclosure.')
 
     const res = await postDraft({
       purpose: 'introduce_myself',
@@ -185,9 +199,12 @@ describe('POST /v1/outreach/robocall/draft', () => {
     })
     expect(res.status).toBe(HttpStatus.CREATED)
 
-    expect(systemContent()).toContain('Do NOT include a "Paid for by" line')
-    expect(userContent()).not.toContain('202-555-0147')
-    expect(userContent()).not.toContain('Callback number')
+    expect(systemContent()).toContain('callback number given below')
+    expect(systemContent()).not.toContain('Do NOT include a "Paid for by" line')
+    expect(userContent()).toContain(
+      'Callback number to read aloud: 202-555-0147',
+    )
+    expect(userContent()).toContain('"Paid for by" name:')
   })
 
   // Improve rewrites the whole script, so the disclosure line goes to the
