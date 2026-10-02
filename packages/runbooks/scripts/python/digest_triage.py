@@ -45,12 +45,18 @@ def _sanitize(text: str | None, cap: int = _HEADLINE_CAP) -> str:
     return cleaned[:cap]
 
 
+def is_okr_break(item: Mapping[str, Any]) -> bool:
+    """An OKR-anchored event in a breaking state: red in the digest every run until it
+    clears, and first in the event health console's flag queue for the same reason."""
+    return bool(item.get("okr")) and item.get("rank", 99) in _BREAKING_RANKS
+
+
 def rules_tier(item: Mapping[str, Any]) -> str:
     """Deterministic tier — the auditable baseline the judge adjusts around."""
     if item.get("change") == "resolved":
         return "fyi"
     rank = item.get("rank", 99)
-    if item.get("okr") and rank in _BREAKING_RANKS:
+    if is_okr_break(item):
         return "red"
     if rank <= 2:
         return "red" if item.get("on_watchlist") else "yellow"

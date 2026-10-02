@@ -52,6 +52,15 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt.toLowerCase()).toContain('campaign manager')
   })
 
+  it('makes every drafted text name the candidate and their office', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'A text message you draft for the candidate to send must say who is ' +
+        'sending it: their first name and the office they are running for',
+    )
+    expect(prompt).toContain('never write a placeholder such as [Your Name]')
+  })
+
   // The product map's status line is the only place the prompt says whether
   // this campaign has Pro; the generic access rule reads it from there.
   it('tells the manager when the campaign is locked out of Pro areas', () => {

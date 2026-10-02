@@ -555,6 +555,14 @@ PROVENANCE_COLUMNS = [
     "updated_at",
 ]
 
+# Everything a walk or upsert can learn about an event. A row with none of these set was
+# onboarded from the taxonomy and never found in code: it records a declaration, not code.
+CODE_EVIDENCE_COLUMNS = [c for c in PROVENANCE_COLUMNS if c not in ("event_type", "event_type_slug", "updated_at")]
+
+# A routine refresh expires at most this many rows. More at once is likelier a partial
+# taxonomy read than a real Govern deletion; the largest real one was 31 (2026-09-29).
+MAX_EXPIRED_PER_REFRESH = 50
+
 
 def build_provenance_row(
     event_type: str,
@@ -1432,6 +1440,38 @@ def attribute_events_from_history(
     return rows
 
 
+def has_code_provenance(row: Mapping[str, Any]) -> bool:
+    return any(row.get(c) not in (None, "") for c in CODE_EVIDENCE_COLUMNS)
+
+
+def expire_undeclared_blank_rows(
+    rows: dict[str, dict], universe: set[str], max_expire: int = MAX_EXPIRED_PER_REFRESH
+) -> list[str]:
+    """Drop rows whose name left the taxonomy and that carry no code provenance, in place.
+
+    A row with history is kept even after Govern deletes the name, because when the code
+    added and removed it is worth having. A blank row has nothing to keep, and the health
+    monitor reads any unretired row as instrumented, so a deleted declaration would flag as
+    never observed forever (DATA-2587). Dropping is self-healing: a name that comes back
+    to the taxonomy is onboarded again on the next refresh.
+    """
+    if not universe:
+        print("WARNING: event universe is empty -- skipping expiry of departed rows.", file=sys.stderr)
+        return []
+    expired = sorted(e for e, row in rows.items() if e not in universe and not has_code_provenance(row))
+    if len(expired) > max_expire:
+        print(
+            f"WARNING: {len(expired)} blank rows have left the taxonomy, more than the "
+            f"{max_expire} a refresh expires at once -- skipping, since a partial taxonomy read "
+            "looks the same. If the deletion is real, raise MAX_EXPIRED_PER_REFRESH for one run.",
+            file=sys.stderr,
+        )
+        return []
+    for event_type in expired:
+        del rows[event_type]
+    return expired
+
+
 def run_refresh(
     cursor: Any,
     root: str,
@@ -1452,8 +1492,9 @@ def run_refresh(
     New universe events absent from the CSV are onboarded in the same run via
     ``attribute_events_from_history`` (full-history pickaxe attribution), so a routine refresh
     covers both existing-event updates and brand-new events without a manual full backfill.
-    Events removed from the universe are left in the CSV (their provenance is kept); a full
-    rebuild from scratch is delete-the-state-file-and-re-run.
+    Events removed from the universe keep their row when it carries code provenance; a blank
+    one is expired (``expire_undeclared_blank_rows``). A full rebuild from scratch is
+    delete-the-state-file-and-re-run.
     """
     updated_at = now.replace(tzinfo=None).isoformat(timespec="seconds")
     watermark = read_watermark(state_path)
@@ -1521,8 +1562,12 @@ def run_refresh(
         for row in attribute_events_from_history(root, missing, None, ref, updated_at, pr_resolver):
             existing[row["event_type"]] = row
 
+    # Counts first: a name still in an EVENTS registry gets one, which is history to keep.
+    augment_call_site_columns(list(existing.values()), root, ref)
+    expired = expire_undeclared_blank_rows(existing, set(events))
+    if expired:
+        print(f"Expired {len(expired)} blank row(s) no longer in the taxonomy: {', '.join(expired)}", file=sys.stderr)
     rows = list(existing.values())
-    augment_call_site_columns(rows, root, ref)
     write_provenance(rows, csv_path, pr_origin)
     write_watermark(
         state_path,

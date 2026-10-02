@@ -65,13 +65,19 @@ half-finished removal, not a conflict. Measured 2026-09-29 over 664 rows:
 | empty | set | 162 | both gone |
 | empty | empty | 91 | no resolvable key-path (dynamic dispatch, fired outside this repo, or never built) |
 
+A row with every column blank (only `event_type`, slug and `updated_at` set) is a name
+onboarded from the taxonomy and never found in code. The monitor reads it as
+`code_unknown`, not as code present. Once its name leaves the Govern taxonomy, the next
+refresh deletes it; a departed row with any history is kept.
+
 **Never read an empty `retired_date` as evidence the instrument is live.**
 `classify_status` does exactly that — `if retired_date is None: return "active" if
-firing_recent else "dormant"` — so all 39 stage-1 events are classified as *code
+firing_recent else "dormant"` — so every stage-1 event is classified as *code
 present* and can never reach `retired`. That is the blind spot DATA-2046 opened rank 2
-to close. Worked example 2026-09-29: `Onboarding V2 - Strategic Landscape Displayed` is
-declared at `packages/gp-webapp/helpers/analyticsHelper.ts:799` and its caller was
-deleted in `e5e863545` (2026-09-01).
+to close. Worked example: `Onboarding V2 - Strategic Landscape Displayed` lost its caller
+in `e5e863545` (2026-09-01) and stayed declared in
+`packages/gp-webapp/helpers/analyticsHelper.ts`, reading stage 1, until DATA-2594 deleted
+the name (2026-09-30).
 
 The plain-words version, for searching: **"still in the code" means the name is still
 there, not that anything sends the event.**
@@ -111,3 +117,4 @@ there, not that anything sends the event.**
 - `Databricks profile resolved an empty host` / auth error → run `databricks auth login` (and set `DATABRICKS_CONFIG_PROFILE` if not the default), then retry.
 - `DATABRICKS_HTTP_PATH is not set` → set it in `scripts/.env` (`/sql/1.0/warehouses/<id>`).
 - Summary row count near zero → bad universe read or empty walk; do not commit.
+- `WARNING: N blank rows have left the taxonomy, more than the 50 …` → the refresh kept them, because a partial taxonomy read looks the same as a mass deletion. Check the Amplitude activity log; if the deletion is real, raise `MAX_EXPIRED_PER_REFRESH` for one run.

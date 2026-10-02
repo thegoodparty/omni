@@ -79,6 +79,17 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('Jordan Lee')
   })
 
+  it('makes every drafted text name the official and their office', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain(
+      'A text message you draft for the user to send to constituents must say who is sending it: their first name and the office they hold',
+    )
+    expect(prompt).toContain('never write a placeholder such as [Your Name]')
+  })
+
   it('treats tool/context data as data, not instructions', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),

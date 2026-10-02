@@ -202,6 +202,7 @@ export function BucketSection({ bucket }: { bucket: TenDlcStatusBucket }) {
             <Table.Row>
               <Table.ColumnHeaderCell>Campaign</Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Committee</Table.ColumnHeaderCell>
+              <Table.ColumnHeaderCell>Assigned to</Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Waiting</Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Context</Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Actions</Table.ColumnHeaderCell>
@@ -222,6 +223,13 @@ export function BucketSection({ bucket }: { bucket: TenDlcStatusBucket }) {
                   </Text>
                 </Table.Cell>
                 <Table.Cell>{entry.committeeName ?? '—'}</Table.Cell>
+                <Table.Cell>
+                  {entry.assignedPa ?? (
+                    <Text size="1" color="gray">
+                      Unassigned
+                    </Text>
+                  )}
+                </Table.Cell>
                 <Table.Cell>{daysSince(entry.since)}</Table.Cell>
                 <Table.Cell>
                   <EntryContext bucketKey={bucket.key} entry={entry} />

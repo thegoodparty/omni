@@ -1,8 +1,13 @@
-import { BadGatewayException, HttpStatus } from '@nestjs/common'
+import {
+  BadGatewayException,
+  ConflictException,
+  HttpStatus,
+} from '@nestjs/common'
 import { addDays, format, subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyTestListService } from '@/vendors/peerly/services/peerlyTestList.service'
 import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
 
 const service = useTestService()
@@ -13,6 +18,7 @@ const SEND_LOCAL_DATE = format(SEND_DATE, 'yyyy-MM-dd')
 const listTestJobIds = vi.fn()
 const createTestJob = vi.fn()
 const sendTestMessage = vi.fn()
+const resolveTestListId = vi.fn()
 
 let campaignId: number
 let orgSlug: string
@@ -25,11 +31,15 @@ beforeEach(async () => {
   listTestJobIds.mockReset().mockResolvedValue([])
   createTestJob.mockReset().mockResolvedValue('test-job-1')
   sendTestMessage.mockReset().mockResolvedValue(undefined)
+  resolveTestListId.mockReset().mockResolvedValue(169614)
 
   const peerly = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerly, 'listTestJobIds').mockImplementation(listTestJobIds)
   vi.spyOn(peerly, 'createTestJob').mockImplementation(createTestJob)
   vi.spyOn(peerly, 'sendTestMessage').mockImplementation(sendTestMessage)
+
+  const testLists = service.app.get(PeerlyTestListService)
+  vi.spyOn(testLists, 'resolveTestListId').mockImplementation(resolveTestListId)
 
   // AdminOrM2MGuard reads the session user's CURRENT roles.
   await service.prisma.user.update({
@@ -59,6 +69,7 @@ const seedOutreach = (
   overrides: Partial<{
     status: OutreachStatus
     projectId: string | null
+    identityId: string | null
     canvassRequestedAt: Date | null
     date: Date
   }> = {},
@@ -95,7 +106,15 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
     expect(res.data).toEqual({ sent: true })
     expect(listTestJobIds).toHaveBeenCalledWith('peerly-job-1')
     expect(createTestJob).toHaveBeenCalledWith('peerly-job-1')
-    expect(sendTestMessage).toHaveBeenCalledWith('test-job-1', '5551234567')
+    expect(resolveTestListId).toHaveBeenCalledWith({
+      identityId: 'identity-1',
+      phone: '5551234567',
+    })
+    expect(sendTestMessage).toHaveBeenCalledWith(
+      'test-job-1',
+      '5551234567',
+      169614,
+    )
   })
 
   it('reuses an existing test job on a repeat send', async () => {
@@ -116,7 +135,11 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
     expect(second.status).toBe(HttpStatus.CREATED)
     expect(createTestJob).not.toHaveBeenCalled()
     expect(sendTestMessage).toHaveBeenCalledTimes(2)
-    expect(sendTestMessage).toHaveBeenCalledWith('test-job-9', '5551234567')
+    expect(sendTestMessage).toHaveBeenCalledWith(
+      'test-job-9',
+      '5551234567',
+      169614,
+    )
   })
 
   it('400s a sent row without touching the vendor', async () => {
@@ -234,5 +257,41 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
     )
     expect(retried.status).toBe(HttpStatus.CREATED)
     expect(sendTestMessage).toHaveBeenCalledTimes(2)
+  })
+  it('tells the reviewer to retry while the test list is still being prepared', async () => {
+    const row = await seedOutreach()
+    resolveTestListId.mockRejectedValueOnce(
+      new ConflictException(
+        'Peerly is still preparing this campaign\u2019s test list',
+      ),
+    )
+
+    const first = await service.client.post(
+      `/v1/outreach/admin/sms/${row.id}/test`,
+      { phone: '5551234567' },
+    )
+    expect(first.status).toBe(HttpStatus.CONFLICT)
+    expect(sendTestMessage).not.toHaveBeenCalled()
+
+    // The claim is released, so the retry the message asks for is allowed
+    // through immediately rather than hitting the cool-off.
+    const retried = await service.client.post(
+      `/v1/outreach/admin/sms/${row.id}/test`,
+      { phone: '5551234567' },
+    )
+    expect(retried.status).toBe(HttpStatus.CREATED)
+  })
+
+  it('400s a row with no Peerly identity, before any vendor call', async () => {
+    const row = await seedOutreach({ identityId: null })
+
+    const res = await service.client.post(
+      `/v1/outreach/admin/sms/${row.id}/test`,
+      { phone: '5551234567' },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(resolveTestListId).not.toHaveBeenCalled()
+    expect(sendTestMessage).not.toHaveBeenCalled()
   })
 })

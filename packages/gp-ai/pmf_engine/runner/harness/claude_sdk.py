@@ -849,7 +849,15 @@ async def run_evaluator_agent(
     # cancellation exactly like the other metrics because it lives out here.
     # `subtype` carries the SDK ResultMessage.subtype the finalize gate reads.
     state: dict[str, object] = {
-        "cost_usd": 0.0,
+        # None until a ResultMessage reports one. A 0.0 start would report a
+        # stream that ended without one as a free run.
+        "cost_usd": None,
+        # UNKNOWN IS NOT THE SAME AS NOTHING-YET, and one Optional cannot hold
+        # both. A turn whose ResultMessage carried no cost makes the total
+        # unknown for good — a later turn's figure cannot recover a term
+        # nobody measured — so the fact is tracked beside the sum. The primary
+        # loop reaches the same conclusion through `_unobserved_cost_reasons`.
+        "cost_unknown": False,
         "num_turns": 0,
         "session_id": None,
         "duration_ms": 0,
@@ -872,7 +880,12 @@ async def run_evaluator_agent(
         turn = 0
         async for message in query(prompt=drain_prompt, options=drain_options):
             if isinstance(message, ResultMessage):
-                state["cost_usd"] = state["cost_usd"] + (message.total_cost_usd or 0.0)
+                if message.total_cost_usd is None:
+                    state["cost_unknown"] = True
+                    state["cost_usd"] = None
+                elif not state["cost_unknown"]:
+                    prior = state["cost_usd"]
+                    state["cost_usd"] = message.total_cost_usd + (prior if isinstance(prior, float) else 0.0)
                 state["num_turns"] = state["num_turns"] + message.num_turns
                 state["session_id"] = message.session_id
                 state["duration_ms"] = state["duration_ms"] + (message.duration_ms or 0)
@@ -887,7 +900,10 @@ async def run_evaluator_agent(
                         "is_error": message.is_error,
                         "num_turns": message.num_turns,
                         "session_id": message.session_id,
-                        "cost_usd": message.total_cost_usd or 0.0,
+                        # The raw value, including None. This record is
+                        # evidence of what the turn reported, so coercing it
+                        # here would log a cost the SDK never gave.
+                        "cost_usd": message.total_cost_usd,
                         "duration_ms": message.duration_ms or 0,
                     }
                 )
@@ -967,7 +983,7 @@ async def run_evaluator_agent(
         eval_transcript = "\n".join(json.dumps(r, default=str) for r in records)
         return EvaluatorResult(
             fragments=[],
-            cost_usd=state["cost_usd"],  # type: ignore[arg-type]
+            cost_usd=None if state["cost_unknown"] else state["cost_usd"],  # type: ignore[arg-type]
             duration_ms=state["duration_ms"],  # type: ignore[arg-type]
             num_turns=state["num_turns"],  # type: ignore[arg-type]
             session_id=state["session_id"],  # type: ignore[arg-type]
@@ -1013,9 +1029,11 @@ async def run_evaluator_agent(
     if timed_out:
         return _build("error")
     if state["result"] == "ok":
+        cost = state["cost_usd"]
         logger.info(
             f"QA evaluator completed: {state['num_turns']} turns. "
-            f"Cost: ${state['cost_usd']:.4f}. Session: {state['session_id']}"
+            f"Cost: {f'${cost:.4f}' if isinstance(cost, float) else 'unknown'}. "
+            f"Session: {state['session_id']}"
         )
         return _build("ok")
     if state["result"] == "error":

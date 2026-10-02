@@ -19,6 +19,8 @@ name: setup-smoke
 on:
   pull_request:
     paths:
+      - .github/workflows/setup-smoke.yml
+      - scripts/dev.sh
       - scripts/setup.sh
       - scripts/setup-config.sh
       - scripts/setup/**
@@ -34,6 +36,8 @@ on:
   push:
     branches: [main]
     paths:
+      - .github/workflows/setup-smoke.yml
+      - scripts/dev.sh
       - scripts/setup.sh
       - scripts/setup-config.sh
       - scripts/setup/**
@@ -113,7 +117,13 @@ jobs:
       - name: npm run setup -- --from fixture
         run: |
           set -euo pipefail
-          scripts/setup.sh --from /tmp/setup-fixture >setup.log 2>&1 &
+          # Its own session and process group. Teardown below ends with
+          # scripts/dev.sh's `kill 0`, which signals dev.sh's whole process
+          # group; started as a plain background job, that group is this
+          # step's own shell, so the step killed itself (exit 143) after every
+          # health check had passed. setsid keeps `kill 0` inside setup.sh's
+          # tree, where it belongs.
+          setsid scripts/setup.sh --from /tmp/setup-fixture >setup.log 2>&1 &
           setup_pid=$!
 
           api_ok=false
@@ -183,7 +193,8 @@ jobs:
             exit 1
           fi
 
-          kill -TERM "$setup_pid" 2>/dev/null || true
+          # The whole group, so nothing setup.sh started outlives the step.
+          kill -TERM -- "-$setup_pid" 2>/dev/null || true
           wait "$setup_pid" 2>/dev/null || true
 
       # Runs after the smoke step on purpose: setup.sh's own `npm ci` has

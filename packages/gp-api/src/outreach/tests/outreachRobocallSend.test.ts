@@ -10,12 +10,15 @@ import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampai
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
 import { ZodError } from 'zod'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import {
+  CALLHUB_LOW_CREDIT_DETAIL,
+  CallhubPermanentError,
+} from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
+import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubCampaignReport.schema'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   Campaign,
@@ -30,7 +33,6 @@ let launchSpy: ReturnType<typeof vi.spyOn>
 let statusSpy: ReturnType<typeof vi.spyOn>
 let retrieveSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
-let singleSendSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -68,9 +70,6 @@ beforeEach(async () => {
     .mockResolvedValue(piWith('requires_capture'))
   trackSpy = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
-    .mockResolvedValue(undefined as never)
-  singleSendSpy = vi
-    .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
     .mockResolvedValue(undefined as never)
 
   const campaignId = 996
@@ -211,6 +210,52 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     // The marker is persisted BEFORE failSend, so a failSend that could not
     // commit still leaves the stale sweep able to fail (not relaunch) the row.
     expect((await readSatellite(outreachId)).permanentSendFailure).toBe(true)
+  })
+
+  it('alerts CAS when a launch is rejected for low_credit', async () => {
+    const outreachId = await createDraft()
+    vi.spyOn(
+      service.app.get(OutreachRobocallHoldService),
+      'failSend',
+    ).mockResolvedValue()
+    const lowCreditSpy = vi
+      .spyOn(
+        service.app.get(OutreachNotificationService),
+        'notifyRobocallLowCredit',
+      )
+      .mockResolvedValue()
+    launchSpy.mockRejectedValueOnce(
+      new CallhubPermanentError(
+        'out of credit',
+        undefined,
+        CALLHUB_LOW_CREDIT_DETAIL,
+      ),
+    )
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.startCampaign(outreachId)
+
+    expect(lowCreditSpy).toHaveBeenCalledWith(expect.any(String), outreachId)
+  })
+
+  it('does NOT alert low_credit for a permanent launch failure without that detail', async () => {
+    const outreachId = await createDraft()
+    vi.spyOn(
+      service.app.get(OutreachRobocallHoldService),
+      'failSend',
+    ).mockResolvedValue()
+    const lowCreditSpy = vi
+      .spyOn(
+        service.app.get(OutreachNotificationService),
+        'notifyRobocallLowCredit',
+      )
+      .mockResolvedValue()
+    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.startCampaign(outreachId)
+
+    expect(lowCreditSpy).not.toHaveBeenCalled()
   })
 
   it('does NOT fail a permanently-errored launch that CallHub reports STARTED (it dialed)', async () => {
@@ -391,31 +436,6 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     expect(userId).toBe(service.user.id)
     expect(event).toBe(EVENTS.Robocall.HoldFailed)
     expect(messageId).toBe(`${outreachId}:hold_failed_at_dial`)
-    // HUBSPOT_ROBOCALL_HOLD_FAILED_EMAIL_ID unset by default — no single-send.
-    expect(singleSendSpy).not.toHaveBeenCalled()
-  })
-
-  it('sends the HoldFailed single-send email on a dead hold caught at dial time, even if the send itself fails', async () => {
-    vi.stubEnv('HUBSPOT_ROBOCALL_HOLD_FAILED_EMAIL_ID', '4245')
-    singleSendSpy.mockRejectedValue(new Error('hubspot down'))
-    const outreachId = await createDraft({
-      authorizedAmountInCents: 450,
-      withCaptureBefore: true,
-    })
-    retrieveSpy.mockResolvedValueOnce(piWith('canceled'))
-
-    await send.startCampaign(outreachId)
-
-    // A HubSpot failure must not corrupt the already-committed hold_failed
-    // transition.
-    const satellite = await readSatellite(outreachId)
-    expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
-    expect(singleSendSpy).toHaveBeenCalledTimes(1)
-    expect(singleSendSpy).toHaveBeenCalledWith({
-      emailId: 4245,
-      to: service.user.email,
-      customProperties: { outreach_id: String(outreachId) },
-    })
   })
 
   it('NEVER dials unpaid: a draft with no authorization intent fails and no launch', async () => {

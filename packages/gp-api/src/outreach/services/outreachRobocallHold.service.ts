@@ -40,7 +40,6 @@ import {
   OrphanHoldReason,
   RobocallOrphanedHoldService,
 } from './robocallOrphanedHold.service'
-import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 
 // A card-validation failure on the hold path (foreign / non-card / missing
 // saved card). Extends BadRequestException so on-session /authorize still
@@ -68,7 +67,6 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     private readonly analytics: AnalyticsService,
     private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
     private readonly orphanedHolds: RobocallOrphanedHoldService,
-    private readonly robocallSingleSend: OutreachRobocallSingleSendService,
     private readonly notification: OutreachNotificationService,
     private readonly promos: OutreachRobocallPromoService,
   ) {
@@ -556,8 +554,6 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       outreachId,
       EVENTS.Robocall.HoldPlaced,
       'hold_placed',
-      undefined,
-      { amount_dollars: String(holdAmount / 100) },
     )
     return {
       status: 'authorized',
@@ -854,8 +850,6 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         outreachId,
         EVENTS.Robocall.SendFailed,
         'send_failed',
-        undefined,
-        { failure_reason: reason },
       )
     }
   }
@@ -991,9 +985,6 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     event: string,
     suffix: 'hold_placed' | 'hold_failed' | 'send_failed',
     attempt?: number,
-    // Amount for HoldPlaced, failure reason for SendFailed — whatever content
-    // the winning transition already has in scope. HoldFailed carries none.
-    customProperties: Record<string, string> = {},
   ): Promise<void> {
     try {
       const messageId =
@@ -1013,12 +1004,5 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         'robocall milestone emit failed',
       )
     }
-
-    // Single-send email leg (ENG-11035) — best-effort, never throws; see
-    // OutreachRobocallSingleSendService.
-    await this.robocallSingleSend.send(event, userId, outreachId, {
-      outreach_id: String(outreachId),
-      ...customProperties,
-    })
   }
 }

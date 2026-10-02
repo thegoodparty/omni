@@ -31,7 +31,6 @@ import {
   BoundComplianceVerdict,
   requireBoundPassingCompliance,
 } from '../util/robocallComplianceGate.util'
-import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 import {
   Campaign,
   Organization,
@@ -63,7 +62,6 @@ export class OutreachRobocallService extends createPrismaBase(
     private readonly complianceResults: RobocallComplianceResultService,
     private readonly analytics: AnalyticsService,
     private readonly s3: S3Service,
-    private readonly robocallSingleSend: OutreachRobocallSingleSendService,
   ) {
     super()
     const bucket = process.env.ROBOCALL_AUDIO_BUCKET
@@ -190,12 +188,7 @@ export class OutreachRobocallService extends createPrismaBase(
       // existing-draft returns above / in the catch, which already emitted).
       // Best-effort: the draft already committed, so a Segment failure must not
       // 500 a successful create. Deterministic messageId dedups a replay.
-      await this.emitScheduled(
-        campaign.userId,
-        outreachId,
-        input.scheduledAt,
-        amountInCents,
-      )
+      await this.emitScheduled(campaign.userId, outreachId)
 
       return {
         outreachId,
@@ -358,12 +351,7 @@ export class OutreachRobocallService extends createPrismaBase(
 
     // The draft never emitted this — it had no schedule — so the conversion is
     // where the candidate's Scheduled milestone fires, as a create does.
-    await this.emitScheduled(
-      campaign.userId,
-      draftOutreachId,
-      input.scheduledAt,
-      amountInCents,
-    )
+    await this.emitScheduled(campaign.userId, draftOutreachId)
 
     return {
       outreachId: draftOutreachId,
@@ -385,8 +373,6 @@ export class OutreachRobocallService extends createPrismaBase(
   private async emitScheduled(
     userId: number,
     outreachId: number,
-    scheduledAt: string,
-    amountInCents: number,
   ): Promise<void> {
     try {
       await this.analytics.track(
@@ -402,19 +388,6 @@ export class OutreachRobocallService extends createPrismaBase(
         'robocall scheduled milestone emit failed',
       )
     }
-
-    // Single-send email leg (ENG-11035) — best-effort, never throws; see
-    // OutreachRobocallSingleSendService.
-    await this.robocallSingleSend.send(
-      EVENTS.Robocall.Scheduled,
-      userId,
-      outreachId,
-      {
-        outreach_id: String(outreachId),
-        scheduled_at: scheduledAt,
-        amount_dollars: String(amountInCents / 100),
-      },
-    )
   }
 
   // Scoped to the two statuses whose row still holds this recording before it
