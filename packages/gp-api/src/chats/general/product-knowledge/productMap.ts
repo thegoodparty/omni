@@ -410,7 +410,7 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
       'Summarize what we heard groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
       'Each theme opens to its details, where people stand, what they want, and the notes behind it',
-      'New tags to review: Accept puts a suggested tag on people’s records, Dismiss drops it',
+      'New tags to review lists the tags the latest summary suggested: Accept puts one on people’s records, Dismiss drops it',
     ],
     gate: 'Being rolled out account by account, so not every account has it yet.',
   },

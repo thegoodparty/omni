@@ -280,6 +280,7 @@ export class ConstituentFeedbackController {
       organizationSlug: organization.slug,
       outreachId,
       requestedByUserId: user.id,
+      trigger: 'button',
     })
   }
 

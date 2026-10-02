@@ -20,16 +20,16 @@ import { IssueTagSeedService } from './issueTagSeed.service'
 import { SYNTHESIS_ENGINE, type SynthesisEngine } from './synthesisEngine'
 import { issueCaptureFlagFor } from '../util/issueCaptureFlag.util'
 
-// Per scope, on demand. With the floor, this is the cost control on
-// pipeline runs.
+// Per scope, on the button only: the completion trigger fires once, as the
+// effort finishes, which is when its report matters most. With the floor,
+// this is the cost control on pipeline runs.
 export const SYNTHESIS_COOLDOWN_MS = 10 * 60_000
 
 // What a completion trigger expects to hear and keeps quiet about: under
-// the floor, inside the cooldown, or a run already in flight.
+// the floor, or a run already in flight.
 const EXPECTED_TRIGGER_REFUSALS: ReadonlySet<number> = new Set([
   HttpStatus.CONFLICT,
   HttpStatus.UNPROCESSABLE_ENTITY,
-  HttpStatus.TOO_MANY_REQUESTS,
 ])
 
 // Prisma names the violated fields or the constraint depending on the
@@ -64,22 +64,27 @@ export class FeedbackSynthesisService extends createPrismaBase(
     organizationSlug: string
     outreachId: number
     requestedByUserId: number | null
+    trigger: 'button' | 'completion'
   }): Promise<SynthesisRun> {
     const { organizationSlug, outreachId } = input
     const effort = await this.report.findEffort(organizationSlug, outreachId)
 
     // Confirmed only: a memo nobody with first-hand knowledge has checked
-    // never enters a theme.
-    const memos = await this.client.constituentFeedback.findMany({
-      where: { organizationSlug, outreachId, confirmedAt: { not: null } },
-      orderBy: { occurredAt: Prisma.SortOrder.asc },
-      select: {
-        id: true,
-        transcript: true,
-        issueLabel: true,
-        occurredAt: true,
+    // never enters a theme. One confirmed by hand after its recording
+    // failed has no words, and would be an empty row in the CSV.
+    const rows = await this.client.constituentFeedback.findMany({
+      where: {
+        organizationSlug,
+        outreachId,
+        confirmedAt: { not: null },
+        transcript: { not: null },
       },
+      orderBy: { occurredAt: Prisma.SortOrder.asc },
+      select: { id: true, transcript: true, occurredAt: true },
     })
+    const memos = rows.flatMap(({ id, transcript, occurredAt }) =>
+      transcript === null ? [] : [{ id, text: transcript, occurredAt }],
+    )
     if (memos.length < MIN_CONFIRMED_FOR_SYNTHESIS) {
       throw new UnprocessableEntityException({
         message: 'Not enough confirmed notes to summarize',
@@ -88,26 +93,28 @@ export class FeedbackSynthesisService extends createPrismaBase(
       })
     }
 
-    const lastCompleted = await this.findFirst({
-      where: {
-        organizationSlug,
-        outreachId,
-        status: SynthesisRunStatus.completed,
-      },
-      orderBy: { completedAt: Prisma.SortOrder.desc },
-      select: { completedAt: true },
-    })
-    if (
-      lastCompleted?.completedAt &&
-      isAfter(
-        addMilliseconds(lastCompleted.completedAt, SYNTHESIS_COOLDOWN_MS),
-        new Date(),
-      )
-    ) {
-      throw new HttpException(
-        'This effort was summarized moments ago',
-        HttpStatus.TOO_MANY_REQUESTS,
-      )
+    if (input.trigger === 'button') {
+      const lastCompleted = await this.findFirst({
+        where: {
+          organizationSlug,
+          outreachId,
+          status: SynthesisRunStatus.completed,
+        },
+        orderBy: { completedAt: Prisma.SortOrder.desc },
+        select: { completedAt: true },
+      })
+      if (
+        lastCompleted?.completedAt &&
+        isAfter(
+          addMilliseconds(lastCompleted.completedAt, SYNTHESIS_COOLDOWN_MS),
+          new Date(),
+        )
+      ) {
+        throw new HttpException(
+          'This effort was summarized moments ago',
+          HttpStatus.TOO_MANY_REQUESTS,
+        )
+      }
     }
 
     if (
@@ -134,7 +141,9 @@ export class FeedbackSynthesisService extends createPrismaBase(
           activeKey: `${organizationSlug}:${outreachId}`,
           conversations: denominators.conversations,
           memos: denominators.memos,
-          confirmed: denominators.confirmed,
+          // What the engine is handed, not every confirmed memo: a caption
+          // over this run must not claim more input than it had.
+          confirmed: memos.length,
           engine: this.engine.name,
           requestedByUserId: input.requestedByUserId,
         },
@@ -157,14 +166,7 @@ export class FeedbackSynthesisService extends createPrismaBase(
       'Feedback synthesis requested',
     )
 
-    await this.engine.start(
-      run,
-      memos.map((memo) => ({
-        id: memo.id,
-        text: memo.transcript ?? memo.issueLabel ?? '',
-        occurredAt: memo.occurredAt,
-      })),
-    )
+    await this.engine.start(run, memos)
 
     const started = await this.model.findUniqueOrThrow({
       where: { id: run.id },
@@ -209,7 +211,11 @@ export class FeedbackSynthesisService extends createPrismaBase(
     outreachId: number
   }): Promise<void> {
     const confirmed = await this.client.constituentFeedback.count({
-      where: { ...input, confirmedAt: { not: null } },
+      where: {
+        ...input,
+        confirmedAt: { not: null },
+        transcript: { not: null },
+      },
     })
     if (confirmed < MIN_CONFIRMED_FOR_SYNTHESIS) return
 
@@ -222,6 +228,10 @@ export class FeedbackSynthesisService extends createPrismaBase(
       feature: issueCaptureFlagFor(input.organizationSlug),
     })
     if (!enabled) return
-    await this.requestRun({ ...input, requestedByUserId: null })
+    await this.requestRun({
+      ...input,
+      requestedByUserId: null,
+      trigger: 'completion',
+    })
   }
 }

@@ -173,6 +173,8 @@ export const IssueTagSchema = z.object({
   source: IssueTagSourceSchema,
   declaredTopIssueId: z.number().int().nullable(),
   mergedIntoId: z.string().nullable(),
+  // The list is the org's; the report's strip shows only its own run's.
+  proposedByRunId: z.string().nullable(),
   feedbackCount: z.number().int(),
 })
 export type IssueTag = z.infer<typeof IssueTagSchema>
