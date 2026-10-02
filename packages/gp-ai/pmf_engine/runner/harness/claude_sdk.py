@@ -68,6 +68,26 @@ DEFAULT_PERMISSION_MODE = "bypassPermissions"
 # ResultMessage) we overwrite the estimate with the authoritative figure.
 _accumulated_cost_usd = 0.0
 
+# Why the running total is not the run's cost, one entry per reason: a turn on
+# a model _PRICE_PER_MTOK has no rate for, or a terminal ResultMessage that
+# carried no cost at all. Held beside the total because a sum with a term
+# missing is not a smaller cost, it is an unknown one, and the total on its own
+# cannot say which.
+_unobserved_cost_reasons: set[str] = set()
+
+# The four token classes a run is billed on, mapping the CLI's own key names
+# (verified against the bundled CLI's zero-usage literal) to the rate names in
+# _PRICE_PER_MTOK. One mapping, two readers: `_price_turn` bills a timed-out
+# run from it and `_usage_counts` logs the counts the judge re-derives from. A
+# second copy of these names would let a CLI rename silently read 0 on one side
+# and leave the two costs disagreeing with nothing to detect it.
+_USAGE_TOKEN_KEYS = {
+    "input_tokens": "input",
+    "output_tokens": "output",
+    "cache_read_input_tokens": "cache_read",
+    "cache_creation_input_tokens": "cache_write",
+}
+
 # $ per million tokens, keyed by substring of the AssistantMessage.model string
 # (matches bare "claude-sonnet-..." and Bedrock "anthropic.claude-sonnet-...").
 # cache_read ≈ 0.1x input, cache_write (5m) ≈ 1.25x input. Only used to price
@@ -78,32 +98,150 @@ _PRICE_PER_MTOK = {
     "haiku": {"input": 1.0, "output": 5.0, "cache_read": 0.1, "cache_write": 1.25},
 }
 
+# Number.MAX_SAFE_INTEGER. The judge reads these counts in TypeScript, so a
+# larger value would satisfy `z.number().int()` and still be wrong.
+_MAX_LOGGED_TOKEN_COUNT = 2**53 - 1
 
-def _price_turn(model: str, usage: dict) -> float:
-    """Dollar cost of one turn from its per-call token usage. Each token class
-    is priced at its own rate and summed — never sum raw input tokens across
-    turns, since prompt caching re-bills the growing context as cheap
-    cache-reads each turn."""
+# Stamped on every result line so a reader can tell a harness that did not log
+# counts from a run that genuinely used none. The judge's two arms are two
+# checkouts at two commits: without this, a base arm predating the counts and a
+# run whose usage never arrived both look like a line with no `usage` key.
+USAGE_SCHEMA_VERSION = 1
+
+
+# The billed classes the API types as nullable (`Optional[int]` in the
+# Anthropic SDK's Usage). Every other class is a required int.
+_NULLABLE_USAGE_KEYS = frozenset({"cache_creation_input_tokens", "cache_read_input_tokens"})
+
+
+def _priced_turn(model: str, usage: object) -> tuple[float | None, str | None]:
+    """Dollar cost of one turn, or (None, why) when it was never observed.
+
+    Each token class is priced at its own rate and summed — never sum raw
+    input tokens across turns, since prompt caching re-bills the growing
+    context as cheap cache-reads each turn.
+
+    None rather than 0.0 whenever the cost was not observed, because this
+    figure is what a timed-out run is billed at and zero is a legal cost:
+    $0.00 printed for an unobserved turn is the most expensive kind of
+    failure looking free. Three ways a turn goes unobserved:
+
+    - The model has no rate on record. Borrowing a neighbour's rate is the
+      other way to be wrong, and the judge's pricing.ts exists to forbid it.
+    - The turn carried no usage object at all. Nothing was reported, so
+      nothing was measured; pricing it at zero substitutes a number for an
+      absence, which `_usage_counts` refuses to do for a single count.
+    - A count WAS reported but could not be read (garbled, negative, or past
+      the safe-integer bound). Pricing the rest would be a sum missing a term
+      — understated while looking whole, which is exactly what
+      `get_accumulated_cost` refuses to report for the run. No count is
+      fabricated either way; the choice is between a wrong number and none.
+
+    A key the usage object does not carry is NOT unobserved: the CLI omits
+    classes that were not billed. Nor is a null cache count, which the API
+    sends when no cache was involved. Either way the class contributes
+    nothing; treating it as unobserved would withhold every uncached run's
+    cost. A null in a REQUIRED class is different — see below.
+
+    Cannot raise, for the same reason `_usage_counts` cannot.
+    """
     rates = next((v for k, v in _PRICE_PER_MTOK.items() if k in (model or "").lower()), None)
     if rates is None:
-        return 0.0
-    tokens = usage or {}
-    return (
-        tokens.get("input_tokens", 0) * rates["input"]
-        + tokens.get("output_tokens", 0) * rates["output"]
-        + tokens.get("cache_read_input_tokens", 0) * rates["cache_read"]
-        + tokens.get("cache_creation_input_tokens", 0) * rates["cache_write"]
-    ) / 1_000_000
+        return None, f"no rate on record for model {model or 'unknown'!r} (add it to _PRICE_PER_MTOK)"
+    if not isinstance(usage, dict):
+        return None, "a turn reported no usage, so its cost was never observed"
+    counts = _usage_counts(usage) or {}
+    # A null is "not applicable" ONLY for the two classes the API types as
+    # nullable. The Anthropic SDK declares cache_creation_input_tokens and
+    # cache_read_input_tokens `Optional[int]` — null there means no cache was
+    # involved — but input_tokens and output_tokens are required ints. A null
+    # in one of THOSE is a count the API always reports arriving unreadable,
+    # and pricing the turn without it is the silent understatement this check
+    # exists to stop.
+    unreadable = sorted(
+        key
+        for key in _USAGE_TOKEN_KEYS
+        if key in usage and not (usage[key] is None and key in _NULLABLE_USAGE_KEYS) and key not in counts
+    )
+    if unreadable:
+        return None, f"a turn reported token counts that could not be read: {', '.join(unreadable)}"
+    return sum(count * rates[_USAGE_TOKEN_KEYS[key]] for key, count in counts.items()) / 1_000_000, None
+
+
+def _price_turn(model: str, usage: object) -> float | None:
+    """The cost alone, for callers that do not need to say why it is missing."""
+    return _priced_turn(model, usage)[0]
+
+
+def _usage_counts(usage: object) -> dict[str, int] | None:
+    """The billed token counts a ResultMessage actually reported, or None.
+
+    Only what the dict reports is returned; an unobserved count is left out,
+    never written as 0. Zero is a legal count — the judge prices it without
+    complaint — so a zeroed count turns a $4 run into $0.00 printed beside a
+    verdict as evidence, while a missing one fails the judge's record schema,
+    which is loud and recoverable. A reported zero is an observation and
+    survives as one.
+
+    Projected onto the four billed classes rather than dumped verbatim, because
+    the CLI's usage object also carries `server_tool_use`, `service_tier`,
+    `speed` and `iterations`, and this log is durable and parsed by other tools.
+
+    Unsettled: whether the CLI's `this.totalUsage` includes subagent API calls.
+    It needs a paid fan-out run to answer, and `ResultMessage.model_usage`
+    carries the per-model split if it comes to that.
+
+    This cannot raise. It is evaluated while building the record passed to
+    `_log_jsonl`, OUTSIDE that function's try/except, so a raise would escape
+    the harness after the agent had already finished and discard a real
+    artifact.
+    """
+    if not isinstance(usage, dict):
+        return None
+    out: dict[str, int] = {}
+    for key in _USAGE_TOKEN_KEYS:
+        if key not in usage:
+            continue
+        try:
+            value = int(usage[key])
+        except Exception:
+            # Deliberately not a narrow tuple: `json.loads` accepts the
+            # non-standard `Infinity` literal, and `int(float("inf"))` raises
+            # OverflowError, an ArithmeticError. The catch has to be as wide as
+            # the "cannot raise" guarantee above.
+            continue
+        # A count past Number.MAX_SAFE_INTEGER is dropped rather than clamped:
+        # a clamped value is a number the judge would price, and wrong.
+        if 0 <= value <= _MAX_LOGGED_TOKEN_COUNT:
+            out[key] = value
+    return out
 
 
 def reset_accumulated_cost() -> None:
     global _accumulated_cost_usd
     _accumulated_cost_usd = 0.0
+    _unobserved_cost_reasons.clear()
 
 
-def get_accumulated_cost() -> float:
-    """Real cost spent so far in the primary loop. Read by main.py's kill
-    handlers to bill timed-out/cancelled runs instead of reporting 0.0."""
+def get_accumulated_cost() -> float | None:
+    """Real cost spent so far in the primary loop, or None if any part of it
+    was never observed. Read by main.py's kill handlers to bill
+    timed-out/cancelled runs instead of reporting 0.0.
+
+    None rather than the partial sum: the caller reports one scalar as the
+    run's cost, and a sum missing a term is understated while looking whole.
+    `_accumulated_agent_cost` already treats None as "report no cost", which
+    omits cost_usd from the envelope — so a reported 0.0 means genuinely zero
+    and an absent figure means unknown.
+    """
+    if _unobserved_cost_reasons:
+        logger.warning(
+            "accumulated cost withheld "
+            f"({'; '.join(sorted(_unobserved_cost_reasons))}); the running "
+            f"total (${_accumulated_cost_usd:.4f}) is understated by an "
+            "unknown amount, so no cost is reported"
+        )
+        return None
     return _accumulated_cost_usd
 
 
@@ -483,7 +621,20 @@ async def run_agent(
     async for message in query(prompt=prompt, options=options):
         if isinstance(message, AssistantMessage):
             message_count += 1
-            _accumulated_cost_usd += _price_turn(message.model, message.usage or {})
+            turn_cost, unpriced = _priced_turn(message.model, message.usage)
+            if turn_cost is None:
+                # The reason comes from the pricer rather than being assumed
+                # here: a turn can go unpriced for a missing rate, a missing
+                # usage object, or an unreadable count, and only the first is
+                # fixed by touching _PRICE_PER_MTOK.
+                reason = unpriced or "turn cost was not observed"
+                logger.warning(
+                    f"turn omitted from the running cost estimate rather than billed at $0 "
+                    f"(session={session_id}): {reason}"
+                )
+                _unobserved_cost_reasons.add(reason)
+            else:
+                _accumulated_cost_usd += turn_cost
             content_blocks = []
             for block in message.content:
                 if isinstance(block, TextBlock):
@@ -532,14 +683,52 @@ async def run_agent(
             num_turns = message.num_turns
             session_id = message.session_id
 
-            # Authoritative figure — supersedes the per-turn estimate for every
-            # path that reaches a ResultMessage, including the max_turns error
-            # raised just below (which the runner's generic kill handler bills).
-            _accumulated_cost_usd = total_cost
+            if message.total_cost_usd is None:
+                # `total_cost`'s `or 0.0` is fine for the logged line and the
+                # returned dict — both are snapshots of what the SDK said. The
+                # accumulator is different: it is the number a kill handler
+                # BILLS, so it takes the same omit-rather-than-substitute rule
+                # as an unpriced model. Assigning 0.0 here would hand out a
+                # measured-looking free run, which is the defect this whole
+                # marker exists to prevent, reached by the other door. The
+                # per-turn estimate is left standing because it was at least
+                # observed, and it makes the withholding warning concrete.
+                _unobserved_cost_reasons.add("the terminal ResultMessage carried no cost")
+            else:
+                # Authoritative figure — supersedes the per-turn estimate for
+                # every path that reaches a ResultMessage with a cost,
+                # including the max_turns error raised just below (which the
+                # runner's generic kill handler bills). The estimate is
+                # discarded, so an unpriced turn inside it no longer qualifies
+                # anything.
+                _accumulated_cost_usd = message.total_cost_usd
+                _unobserved_cost_reasons.clear()
 
-            _log_jsonl(
-                {"type": "result", "total_cost_usd": total_cost, "num_turns": num_turns, "session_id": session_id}
-            )
+            usage_counts = _usage_counts(message.usage)
+            if usage_counts is None or len(usage_counts) < len(_USAGE_TOKEN_KEYS):
+                # The line itself cannot say why a count is missing, and a
+                # consumer that rejects the record will not know either.
+                logger.warning(
+                    f"ResultMessage usage incomplete (session={session_id}): logged "
+                    f"{sorted(usage_counts) if usage_counts else []} of {sorted(_USAGE_TOKEN_KEYS)} "
+                    f"from {type(message.usage).__name__}"
+                )
+            result_record = {
+                "type": "result",
+                "total_cost_usd": total_cost,
+                "num_turns": num_turns,
+                "session_id": session_id,
+                "usage_schema": USAGE_SCHEMA_VERSION,
+            }
+            # Added beside the cost, never in place of it: the cost is what the
+            # run was billed under the price list of the day, the counts are
+            # what a later comparison re-derives from. Omitted entirely when
+            # nothing was observed — `usage_schema` is what tells a reader this
+            # harness logs counts at all, so an absent `usage` beside it means
+            # unobserved rather than zero.
+            if usage_counts:
+                result_record["usage"] = usage_counts
+            _log_jsonl(result_record)
 
             if message.is_error:
                 if message.subtype == _MAX_TURNS_SUBTYPE:
@@ -700,7 +889,15 @@ async def run_evaluator_agent(
     # cancellation exactly like the other metrics because it lives out here.
     # `subtype` carries the SDK ResultMessage.subtype the finalize gate reads.
     state: dict[str, object] = {
-        "cost_usd": 0.0,
+        # None until a ResultMessage reports one. A 0.0 start would report a
+        # stream that ended without one as a free run.
+        "cost_usd": None,
+        # UNKNOWN IS NOT THE SAME AS NOTHING-YET, and one Optional cannot hold
+        # both. A turn whose ResultMessage carried no cost makes the total
+        # unknown for good — a later turn's figure cannot recover a term
+        # nobody measured — so the fact is tracked beside the sum. The primary
+        # loop reaches the same conclusion through `_unobserved_cost_reasons`.
+        "cost_unknown": False,
         "num_turns": 0,
         "session_id": None,
         "duration_ms": 0,
@@ -723,7 +920,12 @@ async def run_evaluator_agent(
         turn = 0
         async for message in query(prompt=drain_prompt, options=drain_options):
             if isinstance(message, ResultMessage):
-                state["cost_usd"] = state["cost_usd"] + (message.total_cost_usd or 0.0)
+                if message.total_cost_usd is None:
+                    state["cost_unknown"] = True
+                    state["cost_usd"] = None
+                elif not state["cost_unknown"]:
+                    prior = state["cost_usd"]
+                    state["cost_usd"] = message.total_cost_usd + (prior if isinstance(prior, float) else 0.0)
                 state["num_turns"] = state["num_turns"] + message.num_turns
                 state["session_id"] = message.session_id
                 state["duration_ms"] = state["duration_ms"] + (message.duration_ms or 0)
@@ -738,7 +940,10 @@ async def run_evaluator_agent(
                         "is_error": message.is_error,
                         "num_turns": message.num_turns,
                         "session_id": message.session_id,
-                        "cost_usd": message.total_cost_usd or 0.0,
+                        # The raw value, including None. This record is
+                        # evidence of what the turn reported, so coercing it
+                        # here would log a cost the SDK never gave.
+                        "cost_usd": message.total_cost_usd,
                         "duration_ms": message.duration_ms or 0,
                     }
                 )
@@ -818,7 +1023,7 @@ async def run_evaluator_agent(
         eval_transcript = "\n".join(json.dumps(r, default=str) for r in records)
         return EvaluatorResult(
             fragments=[],
-            cost_usd=state["cost_usd"],  # type: ignore[arg-type]
+            cost_usd=None if state["cost_unknown"] else state["cost_usd"],  # type: ignore[arg-type]
             duration_ms=state["duration_ms"],  # type: ignore[arg-type]
             num_turns=state["num_turns"],  # type: ignore[arg-type]
             session_id=state["session_id"],  # type: ignore[arg-type]
@@ -864,9 +1069,11 @@ async def run_evaluator_agent(
     if timed_out:
         return _build("error")
     if state["result"] == "ok":
+        cost = state["cost_usd"]
         logger.info(
             f"QA evaluator completed: {state['num_turns']} turns. "
-            f"Cost: ${state['cost_usd']:.4f}. Session: {state['session_id']}"
+            f"Cost: {f'${cost:.4f}' if isinstance(cost, float) else 'unknown'}. "
+            f"Session: {state['session_id']}"
         )
         return _build("ok")
     if state["result"] == "error":

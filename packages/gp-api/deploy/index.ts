@@ -10,6 +10,7 @@ import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucke
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
+import { createSitemapsBucket } from './components/sitemaps-bucket'
 import { createVpc } from './components/vpc'
 
 export = async () => {
@@ -46,6 +47,10 @@ export = async () => {
   // Production deploy manages the VPC. The actual VPC details are hard-coded above as individual variables.
   if (environment === 'prod') {
     createVpc()
+    // One global bucket serving prod sitemaps, so only the prod stack
+    // creates it (same single-owner pattern as the preview shared cluster
+    // on the dev stack).
+    createSitemapsBucket()
   }
 
   const secretName = select({
@@ -401,6 +406,15 @@ export = async () => {
   // but not write/delete. The agent-artifacts bucket is written by the agent
   // runner (gp-ai); gp-api only reads results in
   // onExperimentRunCompleted.
+  //
+  // The Universal Judge also uses this bucket, under its own reserved
+  // top-level prefix, to cache baseline agent outputs between runs. No write
+  // is granted here on purpose: a judge run is a CI job that checks out the PR
+  // head and its base side by side, so whatever writes those objects
+  // authenticates as the shared CI OIDC role (`vars.AWS_ROLE_ARN`), never as
+  // this ECS task. The bucket is not Pulumi-owned either — gp-ai Terraform
+  // creates it in `modules/pmf-engine-control-plane` — and the read below is
+  // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
   ]
@@ -419,6 +433,10 @@ export = async () => {
     // 403 on SQS. An Allow on an unused queue ARN is harmless.
     prod: 'campaign-plan-input-prod.fifo',
   })
+  // The Universal Judge's background runner also sends to this queue, but as a
+  // GitHub Actions job under the CI OIDC role rather than as a task, so it is
+  // out of this role's scope. The sqs:SendMessage grant below already covers
+  // every message gp-api itself sends here; it needs no judge-specific copy.
   const agentDispatchQueueName = select({
     preview: '',
     dev: 'agent-dispatch-dev.fifo',

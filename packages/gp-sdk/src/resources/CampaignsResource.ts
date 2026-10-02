@@ -4,9 +4,12 @@ import type {
   PaginatedList,
   ReadCampaignOutput,
   SetDistrictOutput,
+  TenDlcStatusSnapshot,
   UpdateCampaignM2MInput,
   UpdateCommitteeNameInput,
   UpdateCommitteeNameOutput,
+  UpdateFilingUrlInput,
+  UpdateFilingUrlOutput,
 } from '@goodparty_org/contracts'
 import type {
   CampaignWithLiveContext,
@@ -42,6 +45,11 @@ export class CampaignsResource extends BaseResource {
     this.putRequest<SetDistrictOutput>(
       `${this.resourceBasePath}/${id}/district`,
       input,
+    )
+
+  getTenDlcStatusSnapshot = (): Promise<TenDlcStatusSnapshot> =>
+    this.getRequest<TenDlcStatusSnapshot>(
+      `${this.resourceBasePath}/tcr-compliance/admin/status-snapshot`,
     )
 
   getComplianceState = (campaignId: number): Promise<ComplianceStateOutput> =>
@@ -84,6 +92,16 @@ export class CampaignsResource extends BaseResource {
     this.patchRequest<UpdateCommitteeNameOutput>(
       `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
         '/committee-name',
+      input,
+    )
+
+  updateFilingUrl = (
+    campaignId: number,
+    input: UpdateFilingUrlInput,
+  ): Promise<UpdateFilingUrlOutput> =>
+    this.patchRequest<UpdateFilingUrlOutput>(
+      `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
+        '/filing-url',
       input,
     )
 }

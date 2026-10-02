@@ -89,6 +89,22 @@ def test_build_flag_queue_groups_by_cause_and_keeps_the_digest_key():
     assert all(item["queue"] == "flags" for item in queue)
 
 
+def test_build_flag_queue_leads_with_the_cause_holding_an_okr_break():
+    """The digest posts an OKR break as its one red item every run; the console must not
+    bury it under worse-ranked causes (2026-10-01: SMS Poll Sent sat tenth of twelve)."""
+    report = {"flagged": [
+        _record(event_type="A", rank=0, status="active", call_site_count=0),
+        _record(event_type="B", rank=2, status="dormant",
+                call_site_count=0, call_site_retired_date="2026-09-01"),
+        _record(event_type="OKR", rank=6, elevated=True, okr="activated_serve_users"),
+        _record(event_type="D", rank=6, elevated=True),
+    ], "dismissed_causes": {}}
+    queue = gcs.build_flag_queue(report)
+    assert queue[0]["okr_break"] == ["OKR"]
+    assert all(item["okr_break"] == [] for item in queue[1:])
+    assert [item["rank"] for item in queue[1:]] == sorted(item["rank"] for item in queue[1:])
+
+
 def test_build_flag_queue_marks_undismissable_causes():
     report = {"flagged": [
         _record(event_type="Counter", rank=0, status="active",
@@ -140,8 +156,21 @@ def test_build_flag_queue_evidence_carries_what_a_ruling_needs():
         "divergence": "declared not-in-use but still firing",
         "instrumented_pr": "", "okr": None, "elevated": False,
         "instrumented_date": None, "days_since_instrumented": None,
-        "provenance": "not found in code",
+        "provenance": "not found in code", "removed_by_pr": None,
     }]
+    assert item["proof_hint"] == ""
+
+
+def test_proof_hint_names_each_removing_pr_once():
+    omni = "https://github.com/thegoodparty/omni/pull/"
+    evidence = [
+        {"removed_by_pr": omni + "1640"}, {"removed_by_pr": omni + "1636"},
+        {"removed_by_pr": omni + "1640"}, {"removed_by_pr": None},
+        {"removed_by_pr": "https://github.com/thegoodparty/gp-webapp/pull/88"},
+    ]
+    assert gcs.removal_proof(evidence) == (
+        "#1640, #1636, https://github.com/thegoodparty/gp-webapp/pull/88"
+    )
 
 
 # --- recommendations ----------------------------------------------------------
@@ -894,3 +923,14 @@ def test_main_refuses_a_missing_input(tmp_path, capsys):
 
     assert rc == 1
     assert "missing input" in capsys.readouterr().err
+
+
+def test_no_flag_sentence_promises_a_silence_the_pipeline_cannot_write():
+    """Only a cause-level dismissal silences anything. A ticket, or any ruling on events
+    picked out of a cause, is raised again next run, and its sentence must say so."""
+    flags = gcs.VERB_EFFECTS["flags"]
+
+    assert "stop" not in flags["ticket"].lower()
+    for verdict in ("dismiss:event", "ticket:event"):
+        assert "raised again next run" in flags[verdict], verdict
+        assert "no expiry" not in flags[verdict] and "Permanent" not in flags[verdict]

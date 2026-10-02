@@ -63,6 +63,11 @@ const updatedCampaign = await client.campaigns.update(1, {
 await client.campaigns.grantInternalTestingApproval(1)
 await client.campaigns.revokeInternalTestingApproval(1)
 
+// Admin 10DLC status snapshot (M2M): every stuck-registration bucket the
+// nightly report renders, computed live by the same gp-api code. Includes
+// a DNS sweep over the bought-domain fleet, so the call can take seconds.
+const snapshot = await client.campaigns.getTenDlcStatusSnapshot()
+
 // Admin CV validation override (M2M): clears a CV pre-submission
 // validation hold (stamps cvValidationOverriddenAt and clears the hold
 // columns) so the next submission attempt bypasses the gate. The override
@@ -75,6 +80,14 @@ await client.campaigns.overrideCvValidation(1)
 // record. The Peerly brand is not resubmitted.
 const { committeeName } = await client.campaigns.updateCommitteeName(1, {
   committeeName: 'Committee to Elect Jane Doe for Council',
+})
+
+// Admin filing-link correction (M2M): updates TcrCompliance.filingUrl and
+// clears the CV validation hold/override columns when the URL changes.
+// 400 on a URL CampaignVerify would reject, 404 with no compliance record,
+// 409 once the registration was already submitted to Peerly.
+const { filingUrl } = await client.campaigns.updateFilingUrl(1, {
+  filingUrl: 'https://sos.state.gov/filings/jane-doe',
 })
 
 const offices = await client.electedOffices.list({

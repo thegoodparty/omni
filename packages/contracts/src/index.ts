@@ -397,6 +397,7 @@ export {
 
 export {
   BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_STORY_CATEGORY,
   CAMPAIGN_TASK_CATALOG,
 } from './campaigns/CampaignTaskCatalog.data'
 
@@ -497,11 +498,29 @@ export {
 } from './campaigns/SubmitToPeerlyOutput.schema'
 
 export {
+  TenDlcStatusBucketKeySchema,
+  type TenDlcStatusBucketKey,
+  TenDlcStatusEntrySchema,
+  type TenDlcStatusEntry,
+  TenDlcStatusBucketSchema,
+  type TenDlcStatusBucket,
+  TenDlcStatusSnapshotSchema,
+  type TenDlcStatusSnapshot,
+} from './campaigns/TenDlcStatusSnapshot.schema'
+
+export {
   UpdateCommitteeNameSchema,
   type UpdateCommitteeNameInput,
   UpdateCommitteeNameOutputSchema,
   type UpdateCommitteeNameOutput,
 } from './campaigns/UpdateCommitteeName.schema'
+
+export {
+  UpdateFilingUrlSchema,
+  type UpdateFilingUrlInput,
+  UpdateFilingUrlOutputSchema,
+  type UpdateFilingUrlOutput,
+} from './campaigns/UpdateFilingUrl.schema'
 
 export {
   RaceListItemSchema,
@@ -628,6 +647,15 @@ export {
   AgentRunDetailSchema,
   type AgentRunDetail,
 } from './agentRuns/AgentRun.schema'
+export {
+  JUDGE_KEY_PREFIX,
+  JUDGE_RUN_ID_MAX_LENGTH,
+  JUDGE_RUN_ID_PREFIX,
+  JudgeOverrideSchema,
+  judgeOverrideKeys,
+  judgeRunId,
+} from './agentRuns/JudgeOverride.schema'
+export type { JudgeOverride } from './agentRuns/JudgeOverride.schema'
 
 export {
   BRIEFING_DATE_RANGE_VALUES,
@@ -844,6 +872,12 @@ export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
 export {
+  MERGE_TAGS,
+  mergeTagToken,
+  type MergeTagChannel,
+  type MergeTagId,
+} from './outreach/MergeTag.const'
+export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
   type OutreachPurpose,
@@ -853,6 +887,13 @@ export {
   COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   type ServeOutreachPurpose,
 } from './outreach/OutreachPurpose.schema'
+export {
+  OUTREACH_EVENT_LOCATION_MAX_LENGTH,
+  OutreachEventDetailsSchema,
+  type OutreachEventDetails,
+  ProposalEventSchema,
+  type ProposalEvent,
+} from './outreach/OutreachEvent.schema'
 export {
   SOCIAL_PURPOSE_VALUES,
   SocialPurposeSchema,
@@ -1063,6 +1104,8 @@ export {
   SmsStandardsVerdictSchema,
   type SmsStandardsVerdict,
   checkSmsStandards,
+  deriveSmsProtectedParts,
+  type SmsProtectedPart,
   SmsApprovalQueueItemSchema,
   type SmsApprovalQueueItem,
   SmsApprovalQueueResponseSchema,
@@ -1085,6 +1128,10 @@ export {
   type SmsTestMessageRequest,
   SmsTestMessageResponseSchema,
   type SmsTestMessageResponse,
+  SmsVendorAccountSchema,
+  type SmsVendorAccount,
+  SmsVendorBalanceResponseSchema,
+  type SmsVendorBalanceResponse,
 } from './outreach/SmsAdminConsole.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'

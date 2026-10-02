@@ -231,16 +231,10 @@ export const EVENTS = {
 
   Dashboard: {
     CampaignPlan: {
-      GenerationCompleted: 'Dashboard - Campaign Plan Generation Completed',
       CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
-      WeekNavigated: 'Dashboard - Campaign Plan Week Navigated',
-      TaskCTAClicked: 'Dashboard - Campaign Plan Task CTA Clicked',
       // Completion only — an uncomplete is a correction, not an activation
       // signal, and an event named Completed must not fire on one.
       TaskCompleted: 'Dashboard - Campaign Task Completed',
-      ViewModeToggled: 'Dashboard - Campaign Plan View Mode Toggled',
-      VoterContactDialogViewed: 'Dashboard - Voter Contact Dialog Viewed',
-      VoterContactRecorded: 'Dashboard - Voter Contact Recorded',
       MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
       StrategicLandscapeRequested:
         'Dashboard - Campaign Plan: Strategic Landscape Requested',
@@ -252,8 +246,6 @@ export const EVENTS = {
         'Dashboard - Campaign Plan: Strategic Landscape Displayed',
       PlanDownloaded: 'Dashboard - Campaign Plan: Plan Downloaded',
       PlanShared: 'Dashboard - Campaign Plan: Plan Shared',
-      CampaignManagerClicked:
-        'Dashboard - Campaign Plan: Campaign Manager Clicked',
     },
     PathToVictory: {
       ClickUnderstand:
@@ -296,44 +288,6 @@ export const EVENTS = {
           'Dashboard - Voter Contact - Door Knocking: Click Get Door Targets',
         ClickLogProgress:
           'Dashboard - Voter Contact - Door Knocking: Click Log Progress',
-      },
-      Texting: {
-        ClickGenerateScript:
-          'Dashboard - Voter Contact - Texting: Click Generate Script',
-        ClickScheduleTextCampaign:
-          'Dashboard - Voter Contact - Texting: Click Schedule Text Campaign',
-        ClickLogProgress:
-          'Dashboard - Voter Contact - Texting: Click Log Progress',
-        ScheduleCampaign: {
-          Exit: 'Schedule Text Campaign: Exit',
-          Next: 'Schedule Text Campaign: Next',
-          Back: 'Schedule Text Campaign: Back',
-          Complete: {
-            ReturnToDashboard:
-              'Schedule Text Campaign: Complete - Return to Dashboard',
-            ReturnToVoterFile:
-              'Schedule Text Campaign: Complete - Return to Voter File',
-          },
-          Audience: {
-            CheckAudience: 'Schedule Text Campaign - Audience: Check Audience',
-            CheckPoliticalParty:
-              'Schedule Text Campaign - Audience: Check Political Party',
-            CheckAge: 'Schedule Text Campaign - Audience: Check Age',
-            CheckGender: 'Schedule Text Campaign - Audience: Check Gender',
-            EnterRequest:
-              'Schedule Text Campaign - Audience: Enter Audience Request',
-          },
-          Script: {
-            ClickSaved:
-              'Schedule Text Campaign - Script: Click Use a saved script',
-            SelectSaved: 'Schedule Text Campaign - Script: Select Saved Script',
-            ClickGenerate:
-              'Schedule Text Campaign - Script: Click Generate a new script',
-            ClickAdd:
-              'Schedule Text Campaign - Script: Click Add your own script',
-            SubmitAdd: 'Schedule Text Campaign - Script: Submit added script',
-          },
-        },
       },
       PhoneBanking: {
         ClickGenerateScript:
@@ -387,7 +341,6 @@ export const EVENTS = {
     CommitteeCheck: {
       HoverEinHelp:
         'Pro Upgrade - Committee Check Page: Hover "EIN number" help',
-      ClickUpload: 'Pro Upgrade - Committee Check Page: Click Upload ',
     },
     // Agentic Pro Upgrade → 10DLC compliance funnel (ENG-10294). Kept separate
     // from the legacy Modal / SplashPage / CommitteeCheck events above, which
@@ -405,9 +358,9 @@ export const EVENTS = {
       // The funnel's first step: carries `source`, `channel` and `cta`.
       FlowStarted: 'Pro Upgrade - Flow Started',
       // The outreach gate's "Join Pro to send this campaign" pause screen.
-      InterstitialViewed: 'Pro Upgrade - Interstitial Viewed',
-      InterstitialJoin: 'Pro Upgrade - Interstitial: Click join',
-      InterstitialMaybeLater: 'Pro Upgrade - Interstitial: Click maybe later',
+      InterstitialViewed: 'Pro Upgrade - Upgrade Interstitial Viewed',
+      InterstitialCompleted: 'Pro Upgrade - Upgrade Interstitial Completed',
+      InterstitialDismissed: 'Pro Upgrade - Upgrade Interstitial Dismissed',
       ValuePropViewed: 'Pro Upgrade - Value Prop Viewed',
       ValuePropGetPro: 'Pro Upgrade - Value Prop: Click Get Pro',
       ValuePropMaybeLater: 'Pro Upgrade - Value Prop: Click Maybe later',
@@ -433,17 +386,13 @@ export const EVENTS = {
       SuccessContinue: 'Pro Upgrade - Success: Click continue',
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
-    // outreach-pro-gating-v2 membership surfaces (Pro upgrade and campaign
-    // verification 2.0). Banner/chip carry `tier` and `texting`; clicks carry
-    // `action`.
     Membership: {
-      BannerViewed: 'Pro Upgrade - Membership Banner Viewed',
-      BannerClicked: 'Pro Upgrade - Membership Banner: Click',
-      ChipViewed: 'Pro Upgrade - Membership Chip Viewed',
-      ChipClicked: 'Pro Upgrade - Membership Chip: Click',
-      PitchViewed: 'Pro Upgrade - Pitch Viewed',
-      PitchJoin: 'Pro Upgrade - Pitch: Click join',
-      PitchDismiss: 'Pro Upgrade - Pitch: Click continue without Pro',
+      // A press of the nav unit (sidebar banner on desktop, top-bar chip on
+      // mobile), one event per thing the unit is asking for. Device filters
+      // tell the two surfaces apart; `path` is the page.
+      BannerClicked: 'Pro Upgrade - Banner Clicked',
+      VerificationBannerClicked: '10DLC - Verification Banner Clicked',
+      PinBannerClicked: '10DLC - PIN Banner Clicked',
     },
     // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
     // campaign verification 2.0).
@@ -658,7 +607,6 @@ export const EVENTS = {
       PinVerificationCompleted:
         '10 DLC Compliance - PIN Verification Completed',
     },
-    PaymentStarted: 'Voter Outreach - Payment Started',
     ViewAccessed: 'Outreach - View Accessed',
     ClickCreate: 'Outreach - Click Create',
     PhoneBanking: {
@@ -700,6 +648,10 @@ export const EVENTS = {
       BannerViewed: 'Outreach - Gate Banner Viewed',
       ExplainerViewed: 'Outreach - Gate Explainer Viewed',
       ExplainerCta: 'Outreach - Gate Explainer: Click CTA',
+      // The one gate screen with no event of its own: the Pro, verification
+      // and PIN screens fire theirs from ProUpgradeFlow,
+      // CampaignVerificationSteps and PinDialog.
+      InReviewViewed: 'Outreach - Gate In Review Viewed',
     },
     // Per-stage drop-off across the v2 channel wizards, fired by
     // OutreachFlowShell rather than by each flow: the stage is a property
@@ -712,7 +664,6 @@ export const EVENTS = {
       StepViewed: 'Voter Outreach - Flow Step Viewed',
       StepCompleted: 'Voter Outreach - Flow Step Completed',
     },
-    ActionClicked: 'Outreach - Action Clicked',
   },
   CandidateWebsite: {
     Started: 'Candidate Website - Started',
@@ -725,8 +676,6 @@ export const EVENTS = {
   Candidacy: {
     DidYouWinModalViewed: 'Candidacy - Did You Win Modal Viewed',
     DidYouWinModalCompleted: 'Candidacy - Did You Win Modal Completed',
-    CampaignCompleted: 'Candidacy - Campaign Completed',
-    DebriefClicked: 'Candidacy - Debrief Clicked',
   },
   ChiefOfStaff: {
     DocumentAttached: 'Chief Of Staff - Document Attached',
@@ -791,26 +740,8 @@ export const EVENTS = {
     OfficeCompleted: 'Onboarding V2 - Office Completed',
     VotesNeededViewed: 'Onboarding V2 - Votes Needed Viewed',
     VotesNeededCompleted: 'Onboarding V2 - Votes Needed Completed',
-    VoterInsightsViewed: 'Onboarding V2 - Voter Insights Viewed',
-    VoterInsightsCompleted: 'Onboarding V2 - Voter Insights Completed',
     PledgeViewed: 'Onboarding V2 - Pledge Viewed',
     PledgeCompleted: 'Onboarding V2 - Pledge Completed',
-    PlanShared: 'Onboarding V2 - Plan Shared',
-    PlanDownloaded: 'Onboarding V2 - Plan Downloaded',
-    CampaignManagerClicked: 'Onboarding V2 - Campaign Manager Clicked',
-    MediaRequested: 'Onboarding V2 - Media Requested',
-    MediaResultsReceived: 'Onboarding V2 - Media Results Received',
-    MediaDisplayed: 'Onboarding V2 - Media Displayed',
-    CommunityEventsRequested: 'Onboarding V2 - Community Events Requested',
-    CommunityEventsResultsReceived:
-      'Onboarding V2 - Community Events Results Received',
-    CommunityEventsDisplayed: 'Onboarding V2 - Community Events Displayed',
-    StrategicLandscapeRequested:
-      'Onboarding V2 - Strategic Landscape Requested',
-    StrategicLandscapeResultsReceived:
-      'Onboarding V2 - Strategic Landscape Results Received',
-    StrategicLandscapeDisplayed:
-      'Onboarding V2 - Strategic Landscape Displayed',
     VotesNeededCalculated: 'Onboarding V2 - Votes Needed Calculated',
     VotesNeededFailed: 'Onboarding V2 - Votes Needed Failed',
     OfficeNextClicked: 'Onboarding V2 - Office Next Clicked',

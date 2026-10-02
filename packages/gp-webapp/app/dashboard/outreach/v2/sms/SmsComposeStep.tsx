@@ -72,6 +72,7 @@ interface SmsComposeStepProps {
   onToneChange: (tone: SocialTone) => void
   audienceName: string
   standardsFailures: SmsStandardsRule[]
+  unfilledBrackets: string[]
   identificationExample: string
   committeeName: string | null
   body: string
@@ -107,6 +108,9 @@ const standardsFailureCopy = (
     return 'keep the {first_name} greeting token'
   }
   if (rule === 'paid_for_by') return 'keep the "Paid for by" line'
+  if (rule === 'link_shortener') {
+    return 'links must not use a shortener like bit.ly — paste the full web address instead'
+  }
   return 'shorten the message to fit the length limit'
 }
 
@@ -116,6 +120,7 @@ export const SmsComposeStep = ({
   onToneChange,
   audienceName,
   standardsFailures,
+  unfilledBrackets,
   identificationExample,
   committeeName,
   body,
@@ -309,6 +314,12 @@ export const SmsComposeStep = ({
             <p className="mt-3 text-xs text-muted-foreground whitespace-pre-line">
               {composeFooter(committeeName)}
             </p>
+            {!isServe && committeeName === null && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Your &quot;Paid for by&quot; line is added once your campaign is
+                verified.
+              </p>
+            )}
 
             <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
               {canUndo && (
@@ -381,6 +392,13 @@ export const SmsComposeStep = ({
                 Compliance: {standardsFailureCopy(rule, identificationExample)}
               </p>
             ))}
+        {unfilledBrackets.length > 0 && (
+          <p className="text-xs text-destructive">
+            Your message still has {unfilledBrackets.join(', ')}. Replace{' '}
+            {unfilledBrackets.length === 1 ? 'it' : 'them'} with the real
+            details before you send.
+          </p>
+        )}
         {overLimit && (
           <p className="text-xs text-destructive">
             Keep the whole message (including the identification and opt-out

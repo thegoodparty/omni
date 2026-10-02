@@ -31,3 +31,14 @@ if (typeof Element !== 'undefined' && !Element.prototype.setPointerCapture) {
   Element.prototype.releasePointerCapture = noop
   Element.prototype.hasPointerCapture = () => false
 }
+
+// jsdom does not lay out, so it leaves Range measurement unimplemented, and
+// ProseMirror measures a Range whenever a transaction scrolls the selection
+// into view (TokenField's insertText does). An empty rect is the honest
+// answer for an unlaid-out page.
+if (typeof Range !== 'undefined' && !Range.prototype.getClientRects) {
+  const emptyRects = (): DOMRectList =>
+    Object.assign([], { item: () => null }) as unknown as DOMRectList
+  Range.prototype.getClientRects = emptyRects
+  Range.prototype.getBoundingClientRect = () => new DOMRect()
+}

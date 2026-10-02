@@ -592,11 +592,20 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
   // Sends the test job's template to ONE explicitly supplied 10-digit
   // phone — a real text to a real handset, so the number must always be
   // operator-typed, never derived from campaign or contact data.
-  async sendTestMessage(testJobId: string, phone: string): Promise<void> {
+  //
+  // Peerly requires BOTH the number and the id of the test list that
+  // number sits on, and rejects the call outright when the list id is
+  // missing (https://api-docs.peerly.com/reference/send-test-message).
+  // PeerlyTestListService is what resolves that id.
+  async sendTestMessage(
+    testJobId: string,
+    phone: string,
+    testListId: number,
+  ): Promise<void> {
     try {
       await this.peerlyHttpService.post(
         `/1to1/jobs/${testJobId}/send_test_message`,
-        { test_contact_phone: phone },
+        { test_contact_phone: phone, test_list_id: String(testListId) },
       )
     } catch (error) {
       return this.peerlyErrorHandling.handleApiError({

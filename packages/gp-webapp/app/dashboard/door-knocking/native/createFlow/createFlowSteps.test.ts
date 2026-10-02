@@ -137,24 +137,57 @@ describe('previousStage', () => {
   })
 })
 
-// The community-input purpose inserts one stage after `purpose`, making the
-// path six long. Everything else about the flow is unchanged, which is what
-// the default-argument shape is for.
-describe('the community-input question stage', () => {
-  it('sits second and pushes every later stage along by one', () => {
-    expect(stepperPosition('purpose', true)).toEqual({
+// The two optional stages are the same shape, so they get the same four
+// assertions. Neither can be in play at once, which is what the single
+// `extraStage` argument encodes — there is no `stepperPosition(s, 'details',
+// 'question')` to get wrong.
+describe('an event invite’s details stage', () => {
+  it('counts six steps with details second', () => {
+    expect(stepperPosition('purpose', 'details')).toEqual({
       currentStep: 1,
       totalSteps: 6,
     })
-    expect(stepperPosition('question', true)).toEqual({
+    expect(stepperPosition('details', 'details')).toEqual({
       currentStep: 2,
       totalSteps: 6,
     })
-    expect(stepperPosition('who', true)).toEqual({
+    expect(stepperPosition('who', 'details')).toEqual({
       currentStep: 3,
       totalSteps: 6,
     })
-    expect(stepperPosition('draw', true)).toEqual({
+    expect(stepperPosition('draw', 'details')).toEqual({
+      currentStep: 6,
+      totalSteps: 6,
+    })
+  })
+
+  it('walks back through details only when the flow has it', () => {
+    expect(previousStage('who', 'details')).toBe('details')
+    expect(previousStage('details', 'details')).toBe('purpose')
+    expect(previousStage('who')).toBe('purpose')
+  })
+
+  it('is a pre-draw stage the page sees as filters', () => {
+    expect(stageStep('details')).toBe('filters')
+    expect(flowStage('filters', 'details')).toBe('details')
+  })
+})
+
+describe('the community-input question stage', () => {
+  it('sits second and pushes every later stage along by one', () => {
+    expect(stepperPosition('purpose', 'question')).toEqual({
+      currentStep: 1,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('question', 'question')).toEqual({
+      currentStep: 2,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('who', 'question')).toEqual({
+      currentStep: 3,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('draw', 'question')).toEqual({
       currentStep: 6,
       totalSteps: 6,
     })
@@ -163,32 +196,33 @@ describe('the community-input question stage', () => {
   // `success` sits outside the stepper whether or not a question was asked,
   // so the extra stage must not give it a number.
   it('leaves the success screen headerless', () => {
-    expect(stepperPosition('success', true)).toEqual({
+    expect(stepperPosition('success', 'question')).toEqual({
       currentStep: 0,
       totalSteps: 0,
     })
   })
 
   it('walks back through the question rather than past it', () => {
-    expect(previousStage('who', true)).toBe('question')
-    expect(previousStage('question', true)).toBe('purpose')
-    expect(previousStage('purpose', true)).toBeNull()
+    expect(previousStage('who', 'question')).toBe('question')
+    expect(previousStage('question', 'question')).toBe('purpose')
+    expect(previousStage('purpose', 'question')).toBeNull()
   })
 
-  // The orchestrator must not learn about this stage: it lives inside the
+  // The orchestrator must not learn about either stage: both live inside the
   // page's single `filters` step, so the canvas's draw-session transition is
-  // untouched by its existence.
+  // untouched by their existence.
   it('reports the filters step, like every other pre-draw stage', () => {
     expect(stageStep('question')).toBe('filters')
+    expect(flowStage('filters', 'question')).toBe('question')
   })
 
   it('still walks back to the start in totalSteps - 1 moves', () => {
     let stage: CreateFlowStage | null = 'draw'
     let moves = 0
     while (stage !== null && moves < 12) {
-      stage = previousStage(stage, true)
+      stage = previousStage(stage, 'question')
       if (stage !== null) moves += 1
     }
-    expect(moves).toBe(stepperPosition('draw', true).totalSteps - 1)
+    expect(moves).toBe(stepperPosition('draw', 'question').totalSteps - 1)
   })
 })

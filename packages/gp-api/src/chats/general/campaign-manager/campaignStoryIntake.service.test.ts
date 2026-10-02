@@ -4,7 +4,16 @@ import type { CampaignStoryRewriteService } from '@/campaignStory/services/campa
 import type { WebsitesService } from '@/websites/services/websites.service'
 import type { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { CampaignStoryStateService } from '@/campaignStory/services/campaignStoryState.service'
 import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
+
+// read() is delegated to CampaignStoryStateService, so build a real one over
+// the same mocked sources: these tests drive completeness through the sources,
+// which is the behaviour worth keeping.
+const storyState = (
+  stories: CampaignStoryService,
+  websites: WebsitesService,
+): CampaignStoryStateService => new CampaignStoryStateService(stories, websites)
 
 describe('CampaignStoryIntakeService.generate', () => {
   // Sources that make read() report a complete story (why + background +
@@ -25,15 +34,18 @@ describe('CampaignStoryIntakeService.generate', () => {
     const strategy = {
       getOrGenerateStrategicLandscape: vi.fn(),
     } as unknown as CampaignStrategyService
+    const stories = {
+      getForCampaign: vi.fn(() => Promise.resolve({ background: null })),
+    } as unknown as CampaignStoryService
+    const websites = {
+      getBioForCampaign: vi.fn(() => Promise.resolve(null)),
+      getIssuesForCampaign: vi.fn(() => Promise.resolve([])),
+    } as unknown as WebsitesService
     const service = new CampaignStoryIntakeService(
-      {
-        getForCampaign: vi.fn(() => Promise.resolve({ background: null })),
-      } as unknown as CampaignStoryService,
+      stories,
+      storyState(stories, websites),
       {} as CampaignStoryRewriteService,
-      {
-        getBioForCampaign: vi.fn(() => Promise.resolve(null)),
-        getIssuesForCampaign: vi.fn(() => Promise.resolve([])),
-      } as unknown as WebsitesService,
+      websites,
       strategy,
       {} as CampaignsService,
     )
@@ -54,6 +66,7 @@ describe('CampaignStoryIntakeService.generate', () => {
     } as unknown as CampaignStrategyService
     const service = new CampaignStoryIntakeService(
       stories,
+      storyState(stories, websites),
       {} as CampaignStoryRewriteService,
       websites,
       strategy,
@@ -80,6 +93,7 @@ describe('CampaignStoryIntakeService.generate', () => {
     } as unknown as CampaignStrategyService
     const service = new CampaignStoryIntakeService(
       stories,
+      storyState(stories, websites),
       {} as CampaignStoryRewriteService,
       websites,
       strategy,
@@ -108,6 +122,7 @@ describe('CampaignStoryIntakeService.generate', () => {
     } as unknown as CampaignStrategyService
     const service = new CampaignStoryIntakeService(
       stories,
+      storyState(stories, websites),
       {} as CampaignStoryRewriteService,
       websites,
       strategy,
@@ -126,6 +141,7 @@ describe('CampaignStoryIntakeService.patchAbout (via saveWhy)', () => {
   ): CampaignStoryIntakeService =>
     new CampaignStoryIntakeService(
       {} as CampaignStoryService,
+      storyState({} as CampaignStoryService, websites),
       {} as CampaignStoryRewriteService,
       websites,
       {} as CampaignStrategyService,

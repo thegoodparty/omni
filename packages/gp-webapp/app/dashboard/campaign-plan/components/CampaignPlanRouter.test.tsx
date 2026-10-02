@@ -4,20 +4,16 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { formatInTimeZone } from 'date-fns-tz'
 import { render } from 'helpers/test-utils/render'
-import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import CampaignPlanRouter from './CampaignPlanRouter'
 
-vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
-  useCampaignStoryComplete: vi.fn(),
-}))
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: vi.fn(),
 }))
 vi.mock('./CampaignPlanPage', () => ({
   default: () => <div data-testid="plan-page" />,
 }))
-vi.mock('./CampaignPlanStoryGate', () => ({
+vi.mock('./CampaignPlanGenerateGate', () => ({
   default: ({ onGenerate }: { onGenerate: () => void }) => (
     <button type="button" onClick={onGenerate}>
       generate
@@ -27,11 +23,6 @@ vi.mock('./CampaignPlanStoryGate', () => ({
 vi.mock('../../shared/DashboardLayout', () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
-
-const mockStoryComplete = vi.mocked(useCampaignStoryComplete)
-const setStoryComplete = (isComplete: boolean, isLoading = false): void => {
-  mockStoryComplete.mockReturnValue({ isComplete, isLoading, isError: false })
-}
 
 const mockUseCampaign = vi.mocked(useCampaign)
 const setElectionDate = (
@@ -51,7 +42,6 @@ const electionPassedGate = () =>
 describe('CampaignPlanRouter', () => {
   beforeEach(() => {
     sessionStorage.clear()
-    setStoryComplete(true)
     setElectionDate('2099-11-03')
   })
 
@@ -103,7 +93,7 @@ describe('CampaignPlanRouter', () => {
     expect(electionPassedGate()).not.toBeInTheDocument()
   })
 
-  it('shows the story gate for a user with no plan', () => {
+  it('shows the generate gate for a user with no plan', () => {
     render(<CampaignPlanRouter initialUser={null} planExists={false} />)
     expect(generateButton()).toBeInTheDocument()
     expect(planPage()).not.toBeInTheDocument()
@@ -135,39 +125,12 @@ describe('CampaignPlanRouter', () => {
     expect(planPage()).not.toBeInTheDocument()
   })
 
-  it('routes a user with a plan but an incomplete story to the gate', () => {
-    setStoryComplete(false)
-    render(<CampaignPlanRouter initialUser={null} planExists />)
-    expect(generateButton()).toBeInTheDocument()
-    expect(planPage()).not.toBeInTheDocument()
-  })
-
-  // The core invariant: a generate request (set by the gate, persisted in
-  // sessionStorage) must not bypass the story-completeness requirement. Drop the
-  // `storyComplete &&` guard and this is the test that fails — render() flushes
-  // the sessionStorage effect, so a broken guard would already show the plan.
-  it('does not let a generate request bypass the incomplete-story gate', () => {
-    setStoryComplete(false)
-    sessionStorage.setItem(
-      'campaignPlanGenerateRequestedAt',
-      String(Date.now()),
-    )
-    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
-    expect(generateButton()).toBeInTheDocument()
-    expect(planPage()).not.toBeInTheDocument()
-  })
-
-  it('shows the plan for a user with a plan and a complete story', () => {
-    setStoryComplete(true)
+  // The campaign story is no longer a precondition for the plan: it sharpens a
+  // plan rather than gating one. The router must not consult story state at
+  // all, so a campaign with a plan and no story renders the plan.
+  it('shows the plan for a user with a plan regardless of story state', () => {
     render(<CampaignPlanRouter initialUser={null} planExists />)
     expect(planPage()).toBeInTheDocument()
-    expect(generateButton()).not.toBeInTheDocument()
-  })
-
-  it('shows a spinner (not the gate) while the story is still loading', () => {
-    setStoryComplete(false, true)
-    render(<CampaignPlanRouter initialUser={null} planExists />)
-    expect(planPage()).not.toBeInTheDocument()
     expect(generateButton()).not.toBeInTheDocument()
   })
 })

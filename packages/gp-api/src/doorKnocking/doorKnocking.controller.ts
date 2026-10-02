@@ -3,7 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -427,11 +426,23 @@ export class DoorKnockingController {
   // and heartbeats until the pack is ready — see utils/packStream.util.ts.
   // The corollary is that a build failure lands after this 200, as an error
   // frame and a log line, not as a status code.
+  //
+  // What is awaited here is only the district resolve, which is also the
+  // voter-data eligibility gate: an organization with no district gets the same
+  // 4xx it gets from every other voter-data read, because that answer has to
+  // reach the client as a status and not as a half-drawn map.
+  //
+  // The content type rides on the StreamableFile rather than on a route-level
+  // `@Header`, as the CSV and PDF downloads in this service do. A header
+  // declared on the route is set for the refusal too, and Fastify cannot send a
+  // JSON error body under `application/octet-stream` — it turns the 400 into a
+  // 500 with no message in it.
   @Get('pack')
   @UseOrganization()
-  @Header('Content-Type', 'application/octet-stream')
   async pack(@ReqOrganization() organization: Organization) {
-    return new StreamableFile(this.packService.stream(organization))
+    return new StreamableFile(await this.packService.stream(organization), {
+      type: 'application/octet-stream',
+    })
   }
 
   // The draw step's address list (ADR 0010). A read of voter data, so it is

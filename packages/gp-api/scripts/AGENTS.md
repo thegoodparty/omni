@@ -23,8 +23,9 @@ If logic only runs once and lives elsewhere, it doesn't belong here. If it's reu
 | `amplitude-flag-cohort.ts`                                        | Adds a list of emails to an Amplitude Experiment flag's targeting segment (dry-run default, `--execute` to apply)                  |
 | `requeue-stranded-compliance-runs.ts`                             | Flips compliance_setup runs stuck FAILED at `pending_website_live` back to AWAITING_RESUME (dry-run default, `--execute` to apply) |
 | `backfill-voter-file-filter-orgs.ts`                              | Migration helper for the org-scoping change on `VoterFileFilter`                                                                   |
+| `backfill-campaign-plans.ts`                                      | One-time: generates a campaign plan (and therefore a tracker) for campaigns the old campaign-story gate never let generate one. **Spends money** (~$2/campaign); dry-run default, `--apply` + `--limit N` to dispatch. Needs the Nest container, so run it with `node -r @swc-node/register`, not `tsx`. Delete once the backlog is cleared |
 | `trim-user-names.ts`                                              | One-shot cleanup: trims leading/trailing whitespace from `user.first_name` / `user.last_name` (dry-run default, `--apply` to write) |
-| `find-stale-preview-stacks.ts`                                    | Lists Pulumi preview stacks with no matching open PR                                                                               |
+| `find-stale-preview-stacks.ts`                                    | Lists Pulumi preview stacks whose PR is not open or idle past `PREVIEW_IDLE_DAYS` (default 21)                                     |
 | `dispatch-experiment.ts` / `trigger-poll.ts` / `complete-poll.ts` | Manual queue producers for testing async flows                                                                                     |
 | `test-weekly-tasks-digest-event.ts`                               | Locally fires the weekly tasks digest handler                                                                                      |
 | `output/`                                                         | Generated artefacts (e.g. agent metadata sync); gitignored content                                                                 |
@@ -32,7 +33,7 @@ If logic only runs once and lives elsewhere, it doesn't belong here. If it's reu
 
 ## Patterns
 
-- **Run with `tsx`**: `npx tsx scripts/<name>.ts` (or via the matching `npm run` alias). Don't compile to `dist/` first.
+- **Run with `tsx`**: `npx tsx scripts/<name>.ts` (or via the matching `npm run` alias). Don't compile to `dist/` first. **Exception: a script that boots the Nest container must not use `tsx`** — esbuild drops `emitDecoratorMetadata`, so every provider is constructed with undefined dependencies. Run those with `node -r @swc-node/register -r tsconfig-paths/register` (see `backfill-user-avatars-from-clerk.ts`, `backfill-campaign-plans.ts`).
 - **Operational scripts must be safe to run twice.** Idempotency or an explicit `--dry-run` flag is the convention — see `backfill-voter-file-filter-orgs.ts`.
 - **`scripts/output/`** is the agreed-upon dump path for generated artefacts. Add new outputs there, not at the repo root.
 - **Don't import controllers/services from `src/`** unless you genuinely need the Nest container. Most scripts construct a `PrismaClient` directly.

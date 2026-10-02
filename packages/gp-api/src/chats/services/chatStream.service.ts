@@ -130,10 +130,38 @@ const RETRYABLE: Record<ChatStreamErrorCode, boolean> = {
 // Tool args arrive typed as `unknown` from the AI SDK, but they are JSON by
 // construction (the model produced them against the tool's JSON schema), so
 // persisting them as the segment payload is safe.
-const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
+export const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
   if (value === null || value === undefined) return null
 
   return value as Prisma.InputJsonValue
+}
+
+// What an assistant turn persists, or nothing. Separate from the method that
+// writes it so a row can be built in this shape without the ability to write
+// one into an arbitrary conversation — this is the one write in the chat
+// stack with no ownership check on it.
+//
+// Persist the structure when the turn used a tool or citation: a pure-text
+// turn renders identically from `content`, so storing a single text segment
+// would be wasted rows. A widget-only turn (tool calls, no text) persists
+// only with `allowToolOnly`, on a clean finish, so the widget replays;
+// otherwise a zero-text turn is dropped and the caller writes the interrupted
+// sentinel instead.
+export const assistantRowToPersist = (
+  text: string,
+  segments?: PersistedSegment[],
+  allowToolOnly = false,
+): { content: string; segments?: PersistedSegment[] } | null => {
+  const usedTool = segments?.some((s) => s.kind === ChatMessageSegmentKind.tool)
+  const hasCitation = segments?.some(
+    (s) => s.kind === ChatMessageSegmentKind.citation,
+  )
+  const hasStructured = usedTool || hasCitation
+  if (text.length === 0 && !(allowToolOnly && usedTool)) return null
+  return {
+    content: text,
+    ...(hasStructured && segments ? { segments } : {}),
+  }
 }
 
 const isAbortError = (err: unknown, signal?: AbortSignal): boolean => {
@@ -947,25 +975,12 @@ export class ChatStreamService {
     segments?: PersistedSegment[],
     allowToolOnly = false,
   ): Promise<ChatMessage | null> {
-    // Persist the structure when the turn used a tool or citation — a
-    // pure-text turn renders identically from `content`, so storing a single
-    // text segment would be wasted rows.
-    const usedTool = segments?.some(
-      (s) => s.kind === ChatMessageSegmentKind.tool,
-    )
-    const hasCitation = segments?.some(
-      (s) => s.kind === ChatMessageSegmentKind.citation,
-    )
-    const hasStructured = usedTool || hasCitation
-    // A widget-only turn (tool calls, no text) still persists on a clean finish
-    // so the widget replays; without `allowToolOnly` a zero-text turn is
-    // dropped (the caller writes the interrupted sentinel instead).
-    if (text.length === 0 && !(allowToolOnly && usedTool)) return null
+    const row = assistantRowToPersist(text, segments, allowToolOnly)
+    if (!row) return null
     return this.store.appendMessage({
       conversationId,
       role: ChatMessageRole.assistant,
-      content: text,
-      ...(hasStructured && segments ? { segments } : {}),
+      ...row,
     })
   }
 }

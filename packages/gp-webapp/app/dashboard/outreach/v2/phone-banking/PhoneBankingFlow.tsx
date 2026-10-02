@@ -32,6 +32,16 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { ChannelBadge } from '../channelMeta'
+import type {
+  OutreachEventDetails,
+  ProposalEvent,
+} from '@goodparty_org/contracts'
+import { EventDetailsStep } from '../EventDetailsStep'
+import {
+  EVENT_DETAILS_TITLE,
+  isEventInvite,
+  useEventDetails,
+} from '../eventDetails'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
@@ -65,22 +75,34 @@ import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
 
-type StepId = 'purpose' | 'question' | 'who' | 'script' | 'sheets' | 'download'
+type StepId =
+  | 'purpose'
+  | 'details'
+  | 'question'
+  | 'who'
+  | 'script'
+  | 'sheets'
+  | 'download'
 
-// The question step belongs to one purpose, so the order is derived rather
-// than fixed. That also keeps the progress bar honest: a hardcoded length
-// would draw five segments for a six-step flow.
+// Two purposes each insert one step after `purpose`, and no purpose inserts
+// both — so the order is DERIVED rather than one constant per shape. That is
+// also what keeps the progress bar honest: a hardcoded length would draw five
+// segments for a six-step flow.
 //
-// NOT gated on `serve-issue-capture`. The create contract requires a question
-// whenever the purpose is community_input, so a flow that skipped this step
-// would 400 on save with nothing on screen explaining why.
+// The question step is NOT gated on `serve-issue-capture`. The create
+// contract requires a question whenever the purpose is community_input, so a
+// flow that skipped this step would 400 on save with nothing on screen
+// explaining why.
 const stepOrderFor = (purpose: PhoneBankingFlowPurpose | null): StepId[] =>
-  purpose === COMMUNITY_INPUT_PURPOSE
-    ? ['purpose', 'question', 'who', 'script', 'sheets', 'download']
-    : ['purpose', 'who', 'script', 'sheets', 'download']
+  isEventInvite(purpose)
+    ? ['purpose', 'details', 'who', 'script', 'sheets', 'download']
+    : purpose === COMMUNITY_INPUT_PURPOSE
+      ? ['purpose', 'question', 'who', 'script', 'sheets', 'download']
+      : ['purpose', 'who', 'script', 'sheets', 'download']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
+  details: EVENT_DETAILS_TITLE,
   question: 'What do you want to learn?',
   who: 'Who do you want to reach?',
   script: 'Write your call script',
@@ -164,6 +186,7 @@ interface PhoneBankingFlowDraftInput {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
+  event?: OutreachEventDetails
 }
 
 interface PhoneBankingFlowCreateInput {
@@ -267,6 +290,9 @@ interface PhoneBankingFlowProps {
   tracker?: OutreachTrackerOrigin
   // Where the flow was opened from, for its stage events and the Pro gate.
   source: OutreachFlowSource
+  // What an agent's proposal knows about the event it invites people to; the
+  // details step opens on it.
+  initialEvent?: ProposalEvent
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -282,6 +308,7 @@ export const PhoneBankingFlow = ({
   preselectedRecommendedVariant,
   tracker,
   source,
+  initialEvent,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   // Milestone 2's in-flow gate. Phone banking saves no draft — the list is
@@ -306,6 +333,15 @@ export const PhoneBankingFlow = ({
   // community_input purpose. Required there by contract, so the step's
   // Continue stays disabled until it is filled in.
   const [question, setQuestion] = useState('')
+  const eventDetails = useEventDetails({
+    enabled: open && isEventInvite(purpose),
+    isServe: surface.isServe,
+    proposed: initialEvent,
+  })
+  const { reset: resetEventDetails } = eventDetails
+  // The details the current script was written from, so an unchanged
+  // Continue back through the details step keeps the script.
+  const draftedEventRef = useRef<string | null>(null)
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
@@ -453,7 +489,13 @@ export const PhoneBankingFlow = ({
     resetDraftMutation()
     resetCreateMutation()
     resetAudience()
-    if (carriedPurpose) {
+    resetEventDetails()
+    draftedEventRef.current = null
+    // An event invite drafts once its details are in, off the details step.
+    const carriedEvent =
+      carriedPurpose !== null && isEventInvite(carriedPurpose)
+    if (carriedEvent) setStepId('details')
+    if (carriedPurpose && !carriedEvent) {
       // requestDraft's own body, inlined: it reads the instructions state,
       // which the reset above has not flushed yet, and this effect cannot
       // depend on a closure that is fresh every render.
@@ -474,6 +516,7 @@ export const PhoneBankingFlow = ({
     resetDraftMutation,
     resetCreateMutation,
     resetAudience,
+    resetEventDetails,
     draftMutate,
     preselectedRecommendedVariant,
   ])
@@ -570,10 +613,12 @@ export const PhoneBankingFlow = ({
     // has to close on it rather than on a generic issue question.
     const askedQuestion =
       nextPurpose === COMMUNITY_INPUT_PURPOSE ? question.trim() : ''
+    const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draftMutate(
       {
         purpose: nextPurpose,
         tone: nextTone,
+        ...(event ? { event } : {}),
         ...(currentDraft === undefined ? {} : { currentDraft }),
         ...(previousDraft === undefined ? {} : { previousDraft }),
         ...(trimmedInstructions === ''
@@ -611,13 +656,34 @@ export const PhoneBankingFlow = ({
     // step's Continue only guards emptiness, so a question typed for an
     // earlier community-input pick would sail through as this effort's.
     setQuestion('')
-    setStepId(selected === COMMUNITY_INPUT_PURPOSE ? 'question' : 'who')
-    // Every other purpose is fully specified by this pick, so it drafts now.
-    // Community input is not: its question is the next step, and a script
-    // drafted here would be written before the one thing it has to ask.
-    if (selected !== COMMUNITY_INPUT_PURPOSE) {
-      requestDraft(selected, 'warm', undefined, undefined, '')
+    draftedEventRef.current = null
+    // Two purposes are not fully specified by this pick, and both defer the
+    // draft to the step that completes them: an event invite has no date or
+    // place yet, and a community-input effort has not been asked what it is
+    // asking. A script drafted here would be written before the one thing it
+    // has to carry. Every other purpose is complete, so it drafts now.
+    if (isEventInvite(selected)) {
+      setStepId('details')
+      return
     }
+    if (selected === COMMUNITY_INPUT_PURPOSE) {
+      setStepId('question')
+      return
+    }
+    setStepId('who')
+    requestDraft(selected, 'warm', undefined, undefined, '')
+  }
+
+  const handleEventDetailsContinue = () => {
+    const drafted = JSON.stringify(eventDetails.event)
+    if (draftedEventRef.current !== drafted) {
+      draftedEventRef.current = drafted
+      setTone('warm')
+      setScript('')
+      setScriptManuallyEdited(false)
+      requestDraft(purpose, 'warm')
+    }
+    setStepId('who')
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
@@ -763,7 +829,7 @@ export const PhoneBankingFlow = ({
     setGateOpen(true)
   }
 
-  const cta: FlowShellCta | null = gateOpen
+  const baseCta: FlowShellCta | null = gateOpen
     ? // The gate screens carry their own buttons.
       null
     : saved
@@ -836,6 +902,15 @@ export const PhoneBankingFlow = ({
                     },
                   }
                 : null
+
+  const cta: FlowShellCta | null =
+    stepId === 'details' && !gateOpen && !saved
+      ? {
+          label: 'Continue',
+          onClick: handleEventDetailsContinue,
+          disabled: eventDetails.event === null,
+        }
+      : baseCta
 
   return (
     <OutreachFlowShell
@@ -914,6 +989,13 @@ export const PhoneBankingFlow = ({
             onSelect={handleSelectPurpose}
           />
         </div>
+      ) : stepId === 'details' ? (
+        <EventDetailsStep
+          details={eventDetails.details}
+          onChange={eventDetails.setDetails}
+          destination="call script"
+          prefillNote={eventDetails.prefillNote}
+        />
       ) : stepId === 'question' ? (
         <div className="space-y-6">
           <Intro

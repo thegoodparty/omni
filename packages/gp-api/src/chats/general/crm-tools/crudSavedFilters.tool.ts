@@ -91,7 +91,7 @@ export const buildCrudSavedFiltersTool = (deps: {
     | 'create'
     | 'updateByIdAndOrganizationSlug'
     | 'deleteByIdAndOrganizationSlug'
-    | 'findByOrganizationSlug'
+    | 'findUsableByOrganizationSlug'
     | 'findByIdAndOrganizationSlug'
     | 'filterAccessCheck'
   >
@@ -128,9 +128,8 @@ export const buildCrudSavedFiltersTool = (deps: {
     const { voterFileFilters, contacts, organization } = deps
     const { action, id, name, ...filter } = input
     if (action === 'list') {
-      const filters = await voterFileFilters.findByOrganizationSlug(
-        organization.slug,
-      )
+      const filters =
+        await voterFileFilters.findUsableByOrganizationSlug(organization)
       // Deliberately no counts here. One count per saved list is the per-row
       // N+1 that 504'd the lists index in prod; `get` answers for the one
       // list the model actually needs.

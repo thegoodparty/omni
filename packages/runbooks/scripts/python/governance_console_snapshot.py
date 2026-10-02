@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timezone
@@ -30,6 +31,7 @@ PY = Path(__file__).resolve().parent
 sys.path.insert(0, str(PY))
 
 import analytics_event_health as aeh  # noqa: E402
+import digest_triage as dt  # noqa: E402
 
 GAPS = PY / "instrumentation_data" / "instrumentation_gaps.json"
 REPORT = PY / "instrumentation_data" / "analytics_event_health_report.json"
@@ -105,8 +107,22 @@ VERB_EFFECTS = {
             "Stop the digest ever raising this cause again. There is no expiry and "
             "nothing revisits it."
         ),
-        "ticket": "File it in the Data backlog, and stop the digest nagging about it.",
+        "ticket": (
+            "File it in the Data backlog. The digest keeps raising it until the cause "
+            "clears or is dismissed."
+        ),
         "investigate": "Leave it open, on the record that you are looking into it.",
+        # Variants for a ruling on events picked out of a cause. Silencing works per
+        # cause only: there is no per-event record yet, so a subset cannot be quieted
+        # without quieting the whole cause, and these sentences must not promise it.
+        "dismiss:event": (
+            "Note these as fine for this review only. Nothing is silenced: they are "
+            "raised again next run, and leave this cause on their own once it stops "
+            "applying to them."
+        ),
+        "ticket:event": (
+            "File these in the Data backlog. They are raised again next run."
+        ),
     },
     "gaps": {
         "accept": (
@@ -309,14 +325,14 @@ CAUSE_CAVEATS = {
         "not the event. These events are alive, and this is a fault in our tooling "
         "rather than a problem with the product.",
         "A second, quite different situation lands here looking identical: an event "
-        "whose code really was deleted, but where we could not work out when. Six "
-        "events are in that state today, and there is an open ticket to fix it.",
-        "Look at the other events grouped with this one. If they carry a removal date "
-        "and this one does not, its code probably was deleted and we simply could not "
-        "date it. Before deciding our search has a new blind spot, search the code "
-        "history for the event's full dotted name as one unbroken string: our counter "
-        "copes with that name being split across lines and the history search does not.",
-        f"call_site_count, count_call_sites, git log -S (DATA-2577). "
+        "whose code really was deleted, but where we could not work out when. The "
+        "common case of that was fixed on 2026-09-29, but the fix only reaches an "
+        "event at the next weekly history walk, so one deleted shortly before then "
+        "can still sit here until it runs.",
+        "Look at the other events grouped with this one. If they were deleted in the "
+        "same change and carry a removal date while this one does not, its code was "
+        "probably deleted too and the date is still to come.",
+        f"call_site_count, count_call_sites, call_site_retired_date (DATA-2577). "
         f"Full triage in {HEALTH_BOOK} section 'Rank 0'",
     ),
     "orphaned_firing": _caveat(
@@ -350,18 +366,15 @@ CAUSE_CAVEATS = {
     "never_observed": _caveat(
         "Amplitude holds a definition for each of these events and no data behind it. "
         "Not one of them has ever fired.",
-        "Less than it sounds like. The list of events we check comes from the "
-        "definitions people write in Amplitude, not from the code. So an event that "
-        "somebody defined and never built scores exactly the same here as one that "
-        "shipped last Thursday and has not fired yet.",
-        "The group mixes three unrelated things. Counted on 2026-09-28, of 69 events: "
-        "34 were never built at all, about 32 shipped too recently to judge, and 4 are "
-        "the real finding.",
-        "Split it before ruling on it, which the buttons above the table do for you. "
-        "'not found in code' selects the ones nobody ever built, and the age column "
-        "separates what shipped in the last fortnight from what has been silent for "
-        "months.",
-        "instrumented_never_observed, DATA-2573, DATA-2508",
+        "Every event here was found in the code and either shipped more than 30 days "
+        "ago or is one we watch closely, so the silence means something. Other events "
+        "that shipped more recently and have not fired yet are left out of this group, "
+        "and the digest counts them as too new to judge.",
+        "Ruling on some events here does not stop them coming back next run; an event "
+        "leaves on its own the first time it fires.",
+        "Before calling one broken, check that the code that sends it can still run and "
+        "that the action behind it is one people actually take.",
+        "instrumented_never_observed, DATA-2588",
     ),
     "dormant": _caveat(
         "Nothing fired in the last 30 days.",
@@ -382,8 +395,10 @@ CAUSE_CAVEATS = {
         "The same 30-day blindness as the ordinary dormant group. Watching an event "
         "more closely raises how loudly this gets reported; it does not give us any "
         "better idea of how often the event ought to fire.",
-        "Look at when it last fired and ask whether that gap is unusual for this "
-        "particular event.",
+        "Check another event on the same page. If that one still fires, the page "
+        "works and this action is simply rare. If nothing on the page fires, check "
+        "the page is still reachable: code can survive inside a screen nobody can "
+        "open any more.",
         "event_count_30d, is_elevated",
     ),
     "okr_anchor_dormant": _caveat(
@@ -398,9 +413,10 @@ CAUSE_CAVEATS = {
         "break. After about a month of being broken, the broken level becomes the "
         "normal one and the alarm switches itself off. That is how a wrong OKR ran "
         "unnoticed for a month.",
-        "Do not read the absence of this warning as health for anything outside the "
-        "semantic layer. For those, compare the weekly numbers against a level from "
-        "before the break, never against the recent average.",
+        "Do not read the absence of this warning as health, inside the semantic layer "
+        "or out. It only catches a break that starts while it is watching: one older "
+        "than about nine weeks never raises it. Compare the weekly numbers against a "
+        "level from before any suspected break, never against the recent average.",
         "okr_latch.py, anchored_on (DATA-2421)",
     ),
     "anomaly_drop": _caveat(
@@ -514,7 +530,7 @@ CARD_FIELDS = (
     "display_name", "area", "description", "status", "fires_on", "url",
     "fires_on_source", "anchor_confidence", "anchor_flag_reason",
     "count_30d", "count_total", "last_seen", "first_seen", "series",
-    "tags", "okr", "supersession", "declared_intent", "watchlist_status",
+    "tags", "okr", "okr_metrics", "supersession", "declared_intent", "watchlist_status",
     "questions", "used_by", "provenance",
 )
 
@@ -657,7 +673,30 @@ def _flag_evidence(record: Mapping, code: Mapping, run_date: str | None) -> dict
     row["instrumented_date"] = instrumented
     row["days_since_instrumented"] = _days_between(instrumented, run_date)
     row["provenance"] = provenance_state(provenance)
+    row["removed_by_pr"] = (provenance or {}).get("call_site_retired_pr") or None
     return row
+
+
+_OMNI_PR = re.compile(r"github\.com/thegoodparty/omni/pull/(\d+)")
+
+
+def removal_proof(evidence: list[dict]) -> str:
+    """The PRs that deleted a cause's call sites, as the console's proof box accepts them.
+
+    Only ever a suggestion the reviewer sees and can edit: a Govern write still carries
+    whatever they leave in the box. Empty when no event names its removing commit, so an
+    unattributed removal is never dressed up as an evidenced one.
+    """
+    refs: list[str] = []
+    for row in evidence:
+        url = row.get("removed_by_pr")
+        if not url:
+            continue
+        m = _OMNI_PR.search(url)
+        ref = f"#{m.group(1)}" if m else url
+        if ref not in refs:
+            refs.append(ref)
+    return ", ".join(refs)
 
 
 def _sorted_evidence(rows: list[dict]) -> list[dict]:
@@ -679,7 +718,8 @@ def _sorted_evidence(rows: list[dict]) -> list[dict]:
 
 
 def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]:
-    """The flagged set as one row per cause, in the digest's own grouping and order.
+    """The flagged set as one row per cause, in the digest's own grouping and order, with
+    any cause holding an OKR break moved to the top.
 
     A cause, not an event, is the unit: one deploy that stranded twenty-two name
     constants is one ruling, not twenty-two. ``aeh.cluster_flagged`` already does the
@@ -704,6 +744,9 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
         reason = dismissed.get(cause)
         verdict, why = recommend_flag(cause)
         dismissable = cause.partition("@")[0] not in aeh.UNDISMISSABLE_CAUSES
+        evidence = _sorted_evidence(
+            [_flag_evidence(record, code, run_date) for record in by_cause.get(cause, [])]
+        )
         items.append({
             "id": cause,
             "queue": "flags",
@@ -716,16 +759,20 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
             "count": group["count"],
             "events": group["events"],
             "elevated": group["elevated"],
+            "okr_break": sorted(
+                r["event_type"] for r in by_cause.get(cause, []) if dt.is_okr_break(r)
+            ),
             "dismissable": dismissable,
             "dismissed": {"reason": reason} if reason is not None else None,
             "elevated_note": _elevated_note(
                 by_cause.get(cause, []), group["elevated"]
             ),
-            "evidence": _sorted_evidence(
-                [_flag_evidence(record, code, run_date)
-                 for record in by_cause.get(cause, [])]
-            ),
+            "evidence": evidence,
+            "proof_hint": removal_proof(evidence),
         })
+    # The digest raises an OKR break every run, whatever its rank, so the console has to
+    # lead with it too, or the one item Slack calls urgent sits tenth on this page.
+    items.sort(key=lambda item: not item["okr_break"])
     return items
 
 
@@ -899,6 +946,7 @@ def build_snapshot(
         # 20 KB of the same four sentences.
         "verb_effects": VERB_EFFECTS,
         "series_weeks": explorer.get("series_weeks") or [],
+        "okr_labels": explorer.get("okr_labels") or {},
         "event_cards": cards,
         "queues": queues,
         "settled": _settled_gaps(gaps),

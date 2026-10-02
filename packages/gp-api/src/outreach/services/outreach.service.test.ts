@@ -32,6 +32,7 @@ import type { CreateOutreachSchema } from '../schemas/createOutreachSchema'
 import { EmailService } from 'src/email/email.service'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { OutreachRobocallCancelService } from './outreachRobocallCancel.service'
 import { OutreachService } from './outreach.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -208,6 +209,10 @@ describe('OutreachService', () => {
         {
           provide: AnalyticsService,
           useValue: { track: mockAnalyticsTrack },
+        },
+        {
+          provide: OutreachRobocallCancelService,
+          useValue: { cancel: vi.fn() },
         },
         OutreachService,
       ],

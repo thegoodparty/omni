@@ -17,6 +17,7 @@ import {
   type SmsApprovalStatus,
   type SmsTestMessageRequest,
   type SmsTestMessageResponse,
+  type SmsVendorAccount,
 } from '@goodparty_org/contracts'
 import { addDays, format, isAfter, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -25,6 +26,8 @@ import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyAccountService } from 'src/vendors/peerly/services/peerlyAccount.service'
+import { PeerlyTestListService } from 'src/vendors/peerly/services/peerlyTestList.service'
 import { OutreachService } from './outreach.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
@@ -104,6 +107,10 @@ const STATS_CACHE_TTL_MS = 10 * 60 * 1000
 // like the cool-offs so tests can cross the TTL without waiting it out.
 const queueJobsCacheTtlMs = () =>
   Number(process.env.QUEUE_JOBS_CACHE_TTL_MS ?? 60_000)
+// The vendor balance moves per send, not per second; a minute keeps the
+// header near-live while a refresh after an approve serves the last read.
+const balanceCacheTtlMs = () =>
+  Number(process.env.BALANCE_CACHE_TTL_MS ?? 60_000)
 // HubSpot company-owner assignments change on human timescales.
 const ownerCacheTtlMs = () =>
   Number(process.env.OWNER_CACHE_TTL_MS ?? 10 * 60 * 1000)
@@ -118,7 +125,7 @@ const detailOutstandingRetryCooldownMs = () =>
 const testSendCooldownMs = () =>
   Number(process.env.TEST_SEND_COOLDOWN_MS ?? 30_000)
 
-// The whole account's job list is one cache entry.
+// The whole account's job list is one cache entry; so is its balance.
 const ACCOUNT_JOBS_KEY = 'account'
 
 // HubSpot owner reads distinguish "unassigned" (ok) from "read failed"
@@ -162,6 +169,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     string,
     DetailInFlightEntry<PeerlyJob[] | null>
   >()
+  private readonly balanceCache = new Map<
+    string,
+    DetailCacheEntry<SmsVendorAccount | null>
+  >()
+  private readonly balanceInFlight = new Map<
+    string,
+    DetailInFlightEntry<SmsVendorAccount | null>
+  >()
   // Keyed by HubSpot company id.
   private readonly ownerCache = new Map<string, DetailCacheEntry<OwnerRead>>()
   private readonly ownerInFlight = new Map<
@@ -175,6 +190,8 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
+    private readonly peerlyAccountService: PeerlyAccountService,
+    private readonly peerlyTestListService: PeerlyTestListService,
     private readonly analytics: AnalyticsService,
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
@@ -182,6 +199,28 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     private readonly notifications: OutreachNotificationService,
   ) {
     super()
+  }
+
+  // Null on a failed or stalled vendor read: the console header degrades
+  // to "unavailable" the way the queue's readiness column does.
+  getVendorBalance(): Promise<SmsVendorAccount | null> {
+    return this.boundedRead(
+      this.singleFlightCached(
+        this.balanceCache,
+        this.balanceInFlight,
+        ACCOUNT_JOBS_KEY,
+        (value) => value === null,
+        async () => {
+          const read = await this.loggedVendorRead(
+            'account_balance',
+            {},
+            this.peerlyAccountService.getBalance(),
+          )
+          return read ? { ...read, readAt: new Date() } : null
+        },
+        balanceCacheTtlMs(),
+      ),
+    )
   }
 
   private queueWhere(): Prisma.OutreachWhereInput {
@@ -600,6 +639,19 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
 
+    // The vendor refuses a shortened link outright, and the template update is
+    // a destructive overwrite — so an edit carrying one fails at the vendor
+    // with the vendor's wording, after we have already started writing to a
+    // live job. Refuse it here instead. Only this rule is enforced: the rest of
+    // the standards check stays advisory in the console, where the human
+    // approval is the gate.
+    if (checkSmsStandards(input.script).failures.includes('link_shortener')) {
+      throw new BadRequestException(
+        'Links must not use a shortener like bit.ly — paste the full web ' +
+          'address instead',
+      )
+    }
+
     // Peerly's template update is a destructive overwrite, so it always
     // needs the image bytes — a script-only edit re-sends the stored one.
     if (!row.imageUrl) {
@@ -825,10 +877,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
    * CAS's pre-approval check: send the campaign's live template to the
    * reviewer's own handset, the way Peerly's platform "send test" button
    * does. Find-or-create the job's test job (reused across clicks —
-   * every test job is a real vendor object), then fire the test text to
-   * ONLY the explicitly typed phone — never a number derived from
-   * campaign or contact data. Nothing we cache changes, so no
-   * invalidateVendorReads.
+   * every test job is a real vendor object) AND the identity's Peerly test
+   * list holding the typed number (Peerly only texts a number that sits on
+   * one, and names the list in the send), then fire the test text to ONLY
+   * the explicitly typed phone — never a number derived from campaign or
+   * contact data. Nothing we cache changes, so no invalidateVendorReads.
    */
   async sendTestMessage(
     outreachId: number,
@@ -853,6 +906,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (row.status === OutreachStatus.completed) {
       throw new BadRequestException('This campaign has already sent')
     }
+    // The test list Peerly sends to lives inside the campaign's identity,
+    // so a row whose job predates identity capture cannot be tested.
+    if (!row.identityId) {
+      throw new BadRequestException(
+        'This campaign has no Peerly identity recorded, so a test cannot ' +
+          'be sent',
+      )
+    }
 
     // Claim BEFORE the vendor calls so a double-click's second request is
     // refused rather than racing the first to two texts; released on a
@@ -873,13 +934,21 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     this.testSendClaims.set(outreachId, now)
 
     try {
+      const testListId = await this.peerlyTestListService.resolveTestListId({
+        identityId: row.identityId,
+        phone,
+      })
       const existingTestJobIds = await this.peerlyP2pJobService.listTestJobIds(
         row.projectId,
       )
       const testJobId =
         existingTestJobIds[0] ??
         (await this.peerlyP2pJobService.createTestJob(row.projectId))
-      await this.peerlyP2pJobService.sendTestMessage(testJobId, phone)
+      await this.peerlyP2pJobService.sendTestMessage(
+        testJobId,
+        phone,
+        testListId,
+      )
     } catch (error) {
       this.testSendClaims.delete(outreachId)
       throw error

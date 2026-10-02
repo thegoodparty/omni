@@ -5,6 +5,7 @@ import {
   DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
   DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
   DoorKnockingTalkingPointsPurposeSchema,
+  OutreachEventDetailsSchema,
   ServeDoorKnockingTalkingPointsPurposeSchema,
 } from '@goodparty_org/contracts'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
@@ -57,6 +58,7 @@ const draftRequestShape = {
     .max(DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH)
     .transform((v) => (v.length === 0 ? undefined : v))
     .optional(),
+  event: OutreachEventDetailsSchema.optional(),
 } as const
 
 const bothDraftsRefinement = {

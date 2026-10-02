@@ -1,22 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { startOfDay, subDays, subWeeks } from 'date-fns'
+import { addDays, startOfDay, subDays, subWeeks } from 'date-fns'
 import {
   BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_STORY_CATEGORY,
   CAMPAIGN_TASK_CATALOG,
   VOTER_CONTACT_SCHEDULE,
 } from '@goodparty_org/contracts'
 import {
   BALLOT_ACCESS_TASK_TITLES,
   buildBallotAccessTrackerTaskRows,
+  buildCampaignStoryTrackerTaskRows,
   buildOutreachTrackerTaskRows,
   buildStaticTrackerTaskRows,
+  CAMPAIGN_STORY_TASK_TITLES,
   needsBallotAccessTasks,
 } from './staticTrackerTasks.util'
 
 describe('buildStaticTrackerTaskRows', () => {
   const start = startOfDay(new Date('2026-01-01'))
   const election = startOfDay(new Date('2026-11-03'))
-  const staticTasks = CAMPAIGN_TASK_CATALOG.filter((t) => t.type === 'static')
+  // The story row is built separately (it carries a link and CTA), so it is
+  // deliberately not part of this builder's output.
+  const staticTasks = CAMPAIGN_TASK_CATALOG.filter(
+    (t) => t.type === 'static' && t.category !== CAMPAIGN_STORY_CATEGORY,
+  )
 
   it('builds one row per static catalog task, marked default', () => {
     const rows = buildStaticTrackerTaskRows(7, start, election, true)
@@ -24,6 +31,13 @@ describe('buildStaticTrackerTaskRows', () => {
     expect(rows.every((r) => r.isDefaultTask === true)).toBe(true)
     expect(rows.every((r) => r.campaignId === 7)).toBe(true)
     expect(rows.every((r) => Boolean(r.phase))).toBe(true)
+  })
+
+  it('never emits the story row', () => {
+    const rows = buildStaticTrackerTaskRows(7, start, election, true)
+    for (const title of CAMPAIGN_STORY_TASK_TITLES) {
+      expect(rows.map((r) => r.title)).not.toContain(title)
+    }
   })
 
   it('dates election-relative tasks off the election date', () => {
@@ -139,5 +153,51 @@ describe('buildOutreachTrackerTaskRows', () => {
 
   it('builds no outreach when there is no election date to anchor to', () => {
     expect(buildOutreachTrackerTaskRows(7, start, null, false)).toEqual([])
+  })
+})
+
+describe('buildCampaignStoryTrackerTaskRows', () => {
+  const anchor = new Date('2026-06-08T00:00:00Z')
+  const election = startOfDay(new Date('2026-11-03'))
+
+  it('builds the one story row as a default task', () => {
+    const rows = buildCampaignStoryTrackerTaskRows(7, anchor, election)
+    expect(rows).toHaveLength(CAMPAIGN_STORY_TASK_TITLES.length)
+    expect(rows.every((r) => r.isDefaultTask === true)).toBe(true)
+    expect(rows.every((r) => r.campaignId === 7)).toBe(true)
+  })
+
+  // Shares the anchor with its pre-launch siblings and resolves a week past
+  // it, which is what puts it at the end of that block rather than off on its
+  // own date.
+  it('dates the row a week past the shared anchor', () => {
+    const rows = buildCampaignStoryTrackerTaskRows(7, anchor, election)
+    expect(rows[0]?.date).toEqual(addDays(startOfDay(anchor), 7))
+  })
+
+  it('sits in pre-launch and carries its own link and CTA', () => {
+    const rows = buildCampaignStoryTrackerTaskRows(7, anchor, election)
+    expect(rows[0]?.phase).toBe('preLaunch')
+    expect(rows[0]?.link).toBe('/dashboard?personalize=1')
+    expect(rows[0]?.cta).toBe('Add your story')
+  })
+
+  // The two catalog rows that close out pre-launch share this date, so the
+  // story row lands with them rather than ahead of the whole block.
+  it('lands no earlier than the rest of the pre-launch block', () => {
+    const [story] = buildCampaignStoryTrackerTaskRows(7, anchor, election)
+    const preLaunch = buildStaticTrackerTaskRows(7, anchor, election, true)
+      .filter((row) => row.phase === 'preLaunch')
+      .map((row) => row.date as Date)
+    expect(story?.date).toEqual(
+      preLaunch.reduce((max, d) => (d > max ? d : max), preLaunch[0] as Date),
+    )
+  })
+
+  // flowType drives the voter-contact count modal; the story task is not
+  // outreach, so it must stay null and complete as a plain toggle.
+  it('has no flow type', () => {
+    const rows = buildCampaignStoryTrackerTaskRows(7, anchor, election)
+    expect(rows[0]?.flowType).toBeNull()
   })
 })

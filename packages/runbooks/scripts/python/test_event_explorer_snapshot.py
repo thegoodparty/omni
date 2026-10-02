@@ -106,3 +106,38 @@ def test_the_tag_reaches_the_card_through_build_events():
     assert card["area"] == "Campaign Details"
     # The tag is still on the card, so the page can show why it is filed there.
     assert "surface:campaign-details" in card["tags"]
+
+
+def test_okr_legs_keep_every_metric_an_event_feeds():
+    # The three shapes the dormancy mapping drops: a qualified leg, an event in two
+    # metrics, and a historical leg.
+    import sem_anchors as sa
+
+    sem = {
+        "win_activated_users": [
+            sa.Leg("Voter Outreach - Campaign Completed", excluding=(("method", ("manual",)),)),
+            sa.Leg("Voter Outreach - Campaign Scheduled"),
+            sa.Leg("Outreach - Phone Banking: Complete", era="historical"),
+        ],
+        "win_product_output_users": [
+            sa.Leg("Voter Outreach - Campaign Completed", excluding=(("method", ("manual",)),)),
+            sa.Leg("Voter Outreach - Campaign Scheduled"),
+        ],
+        "win_active_candidates_30d": [sa.Leg("Viewed", path="/dashboard")],
+    }
+    legs = ees.okr_legs(sem)
+    completed = legs["Voter Outreach - Campaign Completed"]
+    assert [m["metric"] for m in completed] == ["win_activated_users", "win_product_output_users"]
+    assert completed[0]["qualifier"] == "excluding method=manual"
+    assert len(legs["Voter Outreach - Campaign Scheduled"]) == 2
+    assert legs["Outreach - Phone Banking: Complete"][0]["historical"] is True
+    assert legs["Viewed"][0]["qualifier"] == "on /dashboard"
+
+
+def test_build_events_carries_the_okr_legs():
+    rows = [{k: ees._cell(v) for k, v in _assembler_row().items()}]
+    okr = {"Voter Data - List Exported": [
+        {"metric": "win_product_output_users", "qualifier": "", "historical": False}]}
+    [event] = ees.build_events(rows, {}, {}, okr)
+    assert event["okr_metrics"][0]["metric"] == "win_product_output_users"
+    json.dumps(event)

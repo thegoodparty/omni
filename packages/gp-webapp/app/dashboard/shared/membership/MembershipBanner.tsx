@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { ProBadge } from '@styleguide'
 import {
   ArrowRightIcon,
@@ -21,6 +21,17 @@ import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
 
 export type MembershipAction = 'pitch' | 'verify' | 'pin' | null
+
+// The unit rotates through these asks, so each press is its own event: the
+// upgrade belongs to the Pro funnel, the other two to 10DLC.
+export const MEMBERSHIP_CLICK_EVENTS: Record<
+  Exclude<MembershipAction, null>,
+  string
+> = {
+  pitch: EVENTS.ProUpgrade.Membership.BannerClicked,
+  verify: EVENTS.ProUpgrade.Membership.VerificationBannerClicked,
+  pin: EVENTS.ProUpgrade.Membership.PinBannerClicked,
+}
 
 export const resolveMembershipAction = (
   state: MembershipState,
@@ -58,6 +69,7 @@ const bannerCopy = (state: MembershipState) => {
 
 export const MembershipBanner = (): React.JSX.Element | null => {
   const router = useRouter()
+  const pathname = usePathname()
   const { enabled } = useOutreachProGatingV2Flag(false)
   const { exposure } = useFeatureFlags()
   const { ready, state, tcrCompliance } = useMembershipState({ enabled })
@@ -75,25 +87,13 @@ export const MembershipBanner = (): React.JSX.Element | null => {
     exposure(OUTREACH_PRO_GATING_V2_FLAG_KEY)
   }, [visible, exposure])
 
-  // One view per appearance: a texting transition while the banner stays on
-  // screen (PIN issued, review cleared) is not a second view.
-  const stateRef = useRef(state)
-  stateRef.current = state
-  useEffect(() => {
-    if (!visible) return
-    trackEvent(EVENTS.ProUpgrade.Membership.BannerViewed, {
-      tier: stateRef.current?.tier,
-      texting: stateRef.current?.texting,
-    })
-  }, [visible])
-
   if (!visible || !state) return null
 
   const action = resolveMembershipAction(state)
   const copy = bannerCopy(state)
 
   const handleClick = () => {
-    trackEvent(EVENTS.ProUpgrade.Membership.BannerClicked, { action })
+    if (action) trackEvent(MEMBERSHIP_CLICK_EVENTS[action], { path: pathname })
     if (action === 'pitch') setPitchOpen(true)
     else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
     else if (action === 'pin') setPinOpen(true)
@@ -135,7 +135,14 @@ export const MembershipBanner = (): React.JSX.Element | null => {
           {body}
         </div>
       )}
-      {pitchOpen && <ProPitchDialog open onOpenChange={setPitchOpen} />}
+      {pitchOpen && (
+        <ProPitchDialog
+          open
+          onOpenChange={setPitchOpen}
+          source="navigation"
+          channel="generic"
+        />
+      )}
       {pinOpen && (
         <PinDialog
           open

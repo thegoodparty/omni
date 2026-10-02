@@ -1,22 +1,56 @@
+import asyncio
+import json
 import logging
 import os
 import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from broker.auth import get_service_token, verify_service_token
 from broker.dynamodb_client import (
+    JUDGE_RUN_ID_MAX_LENGTH,
+    JUDGE_RUN_ID_PREFIX,
+    JUDGE_RUN_ID_RE,
+    ExperimentOverrideRef,
     InputFileRef,
     ScopeTicket,
     ScopeTicketStore,
     TicketAlreadyExistsError,
 )
 
+# THE MANIFEST ENDPOINT'S PROVIDERS, reused rather than redeclared. Every other
+# endpoint declares its own NotImplementedError stubs and main.py overrides
+# each one — but nothing tests that wiring against the real app, and a
+# forgotten override here would 500 every judge mint. These two are already
+# overridden in main.py and exercised on every manifest read, so reusing them
+# adds no new way to fail. test_mint_run_token.py pins the reuse, so a later
+# swap to a local stub fails a test instead of production.
+from broker.endpoints.experiment_manifest import (
+    _fetch_object,
+    get_experiment_metadata_bucket,
+    get_s3_client,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/internal", tags=["internal"])
+
+# The published-manifest fields an override cannot carry. A judge override is
+# served IN PLACE of the published manifest, and dispatch's behavior allowlist
+# admits none of these — so a run overriding an experiment that sets one
+# would silently lose it, and the sweep would measure that loss instead of
+# the branch. Dispatch refuses such an override before minting (its
+# `_WRITE_ACTION_DISCRIMINATORS` plus the `allowed_external_tools` check);
+# this re-establishes the same refusal here, because a SERVICE_TOKEN holder
+# is authenticated rather than trusted and can call this endpoint without
+# going through dispatch at all.
+#
+# A separate copy, like JUDGE_RUN_ID_RE, because the broker and the dispatch
+# Lambda are separate members. test_mint_run_token.py asserts it equals the
+# set dispatch refuses, so the two cannot drift apart unnoticed.
+JUDGE_OVERRIDE_REFUSED_FIELDS = ("system_prompt", "permission_mode", "allowed_external_tools")
 
 # 48h ceiling supports long-running campaign-plan and similar runs. The actual
 # ceiling is bounded by the Clerk session lifetime (default 7 days), not what
@@ -27,11 +61,23 @@ MAX_TTL_SECONDS = 172800
 # DB row stuck RUNNING forever). Buffer covers validation + upload + callback.
 TTL_BUFFER_SECONDS = 300
 
+# The only ENVIRONMENT an `experiment_override` is honored in, mirroring the
+# dispatch Lambda's `_JUDGE_OVERRIDE_ENVIRONMENT`. Terraform sets this to
+# exactly "dev" or "prod".
+JUDGE_OVERRIDE_ENVIRONMENT = "dev"
+
 
 IDENTIFIER_PATTERN = r"^[a-zA-Z0-9_-]{1,64}$"
 
 
 class MintRequest(BaseModel):
+    # Every field here has to be consumed below — a mint field this model
+    # merely accepts is an authorization the ticket never carries, which is
+    # exactly how the judge override shipped inert once. Forbidding extras
+    # makes the next such drift a 422 at the first request instead of a
+    # silent drop.
+    model_config = ConfigDict(extra="forbid")
+
     run_id: str = Field(..., pattern=IDENTIFIER_PATTERN)
     organization_slug: str = Field(..., pattern=IDENTIFIER_PATTERN)
     experiment_id: str = Field(..., pattern=IDENTIFIER_PATTERN)
@@ -58,6 +104,18 @@ class MintRequest(BaseModel):
     # handler strips the `_input_files` envelope key from params before
     # validating against the manifest input_schema.
     input_files: list[InputFileRef] | None = None
+    # Universal Judge. `is_eval` marks a run gp-api has no `experiment_run`
+    # row for (the judge dispatches straight to SQS), so the broker must never
+    # send it a results callback. Separate from `experiment_override` because a
+    # sweep's base arm runs the published bytes with no override at all and its
+    # callback has to be suppressed too.
+    is_eval: bool = False
+    # Optional — the one `_judge/<agentId>/<configDigest>/` key pair, version
+    # pinned, that /experiment/manifest may serve this run in place of the
+    # published `<experiment_id>/*` pair. The dispatch Lambda has already read
+    # the override manifest and vetted every field it will honor; this is the
+    # allowlist that lets the broker serve the same bytes it vetted.
+    experiment_override: ExperimentOverrideRef | None = None
 
 
 class MintResponse(BaseModel):
@@ -103,6 +161,184 @@ def _validate_input_files_bucket(request_input_files, run_id: str) -> None:
             )
 
 
+def _validate_judge_fields(
+    override: ExperimentOverrideRef | None,
+    experiment_id: str,
+    is_eval: bool,
+    run_id: str,
+) -> None:
+    """Bind the two judge fields to each other, to the run id, and to the agent.
+
+    A SERVICE_TOKEN holder is authenticated, not trusted, so every judge
+    invariant the dispatch Lambda establishes is re-established here.
+
+    `is_eval` is checked against the run-id prefix in BOTH directions, the run
+    id is then held to the dispatch Lambda's whole shape, and `is_eval` is
+    honored in `dev` only. The prefix binding is the load-bearing one: `is_eval` makes the broker drop this run's success
+    callback (`artifact_publish`) and every terminal status (`run_status`), so
+    without the binding a token holder could mint `is_eval=true` against a real
+    UUIDv7 run id and a genuine product failure would never reach gp-api — the
+    row would hang until the 45-minute stale sweep. The converse direction is a
+    wiring bug rather than an attack: a judge run id minted without `is_eval`
+    posts callbacks gp-api cannot match, one error per run.
+
+    The shape check is `JUDGE_RUN_ID_RE.fullmatch`, the same regex dispatch
+    uses, not just its length bound: a validator that accepts a shape the next
+    layer rejects is the defect, so this mirrors the layer it stands in for.
+    The bound itself is the ECS `startedBy` ceiling dispatch sizes the run id
+    against before passing it to RunTask verbatim, and the one the task reaper
+    reads back to identify the run.
+
+    `ExperimentOverrideRef` already pins the key shape and the shared folder,
+    and `ScopeTicket` re-checks the agent binding on load. Raising here turns
+    each into a 400 the caller can read instead of a 500 from a pydantic error
+    inside the handler.
+    """
+    judge_run_id = run_id.startswith(JUDGE_RUN_ID_PREFIX)
+    if is_eval != judge_run_id:
+        logger.warning(
+            "mint_run_token is_eval_run_id_mismatch run_id=%s experiment_id=%s is_eval=%s",
+            run_id,
+            experiment_id,
+            is_eval,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"is_eval must be true exactly when run_id is prefixed {JUDGE_RUN_ID_PREFIX!r}; "
+                "is_eval suppresses this run's results callbacks, so it may only be set for a run "
+                "gp-api has no experiment_run row for"
+            ),
+        )
+    # Shape, not just prefix. Mirrors `_validate_judge_dispatch`, which
+    # `fullmatch`es the same regex and refuses the dispatch outright — so
+    # without this the broker mints a live ticket for a judge run id the
+    # Lambda above it will never dispatch, and nothing downstream re-checks it.
+    if judge_run_id and JUDGE_RUN_ID_RE.fullmatch(run_id) is None:
+        # Logged, not echoed: the run id is caller-controlled, and the other
+        # judge rejections keep it out of the 400 body too. Safe to log —
+        # `IDENTIFIER_PATTERN` has already bounded it to 64 characters of
+        # `[a-zA-Z0-9_-]`, so there is no newline to forge a log line with.
+        logger.warning(
+            "mint_run_token judge_run_id_malformed run_id=%s run_id_length=%d experiment_id=%s",
+            run_id,
+            len(run_id),
+            experiment_id,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"a judge run_id must match {JUDGE_RUN_ID_RE.pattern}; dispatch passes the run id "
+                f"to ECS RunTask as startedBy verbatim and refuses anything over "
+                f"{JUDGE_RUN_ID_MAX_LENGTH} characters, so a ticket minted for a longer one is a "
+                "ticket for a run that cannot be dispatched"
+            ),
+        )
+    # Dev-only on `is_eval`, not just on the override: a sweep's base arm sets
+    # `is_eval` with no override at all, and gets every consequence of it —
+    # both callback senders silenced and the org's `latest.json` left alone. In
+    # prod that is a run spending real money that gp-api has no row for and no
+    # signal about. An allowlist rather than a deny-prod check, and
+    # deliberately without the permissive "dev" default
+    # `_expected_inputs_bucket` uses, so an unexpected ENVIRONMENT refuses.
+    # Mirrors the dispatch Lambda's `_validate_judge_dispatch` so the
+    # documented dev-only property holds at both layers, not only upstream.
+    if is_eval:
+        env = os.environ.get("ENVIRONMENT", "").strip().lower()
+        if env != JUDGE_OVERRIDE_ENVIRONMENT:
+            logger.warning(
+                "mint_run_token eval_wrong_environment run_id=%s experiment_id=%s environment=%r",
+                run_id,
+                experiment_id,
+                env,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"an eval run is only accepted when ENVIRONMENT is "
+                    f"{JUDGE_OVERRIDE_ENVIRONMENT!r}; this broker has {env!r}"
+                ),
+            )
+    if override is None:
+        return
+    if not is_eval:
+        logger.warning(
+            "mint_run_token override_without_is_eval run_id=%s experiment_id=%s",
+            run_id,
+            experiment_id,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "experiment_override requires is_eval=true; an override can only come from a judge "
+                "dispatch, which has no gp-api run row for a results callback to land on"
+            ),
+        )
+    if override.agent_id != experiment_id:
+        logger.warning(
+            "mint_run_token override_agent_mismatch run_id=%s experiment_id=%s agent_id=%s",
+            run_id,
+            experiment_id,
+            override.agent_id,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"experiment_override agentId segment {override.agent_id!r} does not match "
+                f"experiment_id {experiment_id!r}"
+            ),
+        )
+
+
+def _published_fields_an_override_cannot_carry(s3_client, bucket: str, experiment_id: str, run_id: str) -> list[str]:
+    """Which of JUDGE_OVERRIDE_REFUSED_FIELDS the PUBLISHED manifest sets.
+
+    The published manifest, not the override: the override is what the
+    candidate arm is about to run INSTEAD, so it is the published one whose
+    fields would be lost. Read at latest — dispatch reads routing at dispatch
+    time from the same object, and a publish landing in between can only make
+    this refuse more, never less.
+
+    Fails closed: a missing, unparseable or non-object manifest is refused,
+    and no ticket is minted. That is the safe direction — dispatch mints
+    before it launches the Fargate task, so a refusal here costs nothing.
+    """
+    # 400 for every failure that is a fact about the object, 500 only for the
+    # store being unreachable. The difference decides what dispatch does next:
+    # broker_client fails the run on a 400 and treats anything else as
+    # transient and redelivers. A missing or unparseable manifest will be just
+    # as missing on the next attempt, so retrying it only churns; an S3 outage
+    # may well clear, so that one is left to retry.
+    try:
+        body, _ = _fetch_object(
+            s3_client,
+            bucket,
+            f"{experiment_id}/manifest.json",
+            run_id,
+            label="published manifest",
+        )
+    except HTTPException as err:
+        if err.status_code != 404:
+            raise
+        raise HTTPException(
+            status_code=400,
+            detail=f"experiment {experiment_id!r} has no published manifest, so an override against it cannot be vetted",
+        ) from err
+    try:
+        manifest = json.loads(body)
+    except (ValueError, UnicodeDecodeError) as err:
+        raise HTTPException(
+            status_code=400,
+            detail="the published manifest is not valid JSON, so an override against it cannot be vetted",
+        ) from err
+    if not isinstance(manifest, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="the published manifest is not a JSON object, so an override against it cannot be vetted",
+        )
+    return [field for field in JUDGE_OVERRIDE_REFUSED_FIELDS if manifest.get(field) is not None]
+
+
 def get_ticket_store():
     raise NotImplementedError("must be overridden via dependency_overrides")  # pragma: no cover
 
@@ -117,6 +353,8 @@ async def mint_run_token(
     service_token: str = Depends(get_service_token),
     token_hash: str = Depends(get_service_token_hash),
     store: ScopeTicketStore = Depends(get_ticket_store),
+    s3_client=Depends(get_s3_client),
+    metadata_bucket: str = Depends(get_experiment_metadata_bucket),
 ):
     if not verify_service_token(service_token, token_hash):
         logger.warning(
@@ -127,7 +365,12 @@ async def mint_run_token(
         raise HTTPException(status_code=401, detail="Invalid service token")
 
     _validate_input_files_bucket(request.input_files, request.run_id)
-
+    _validate_judge_fields(
+        request.experiment_override,
+        request.experiment_id,
+        request.is_eval,
+        request.run_id,
+    )
     broker_token = str(uuid.uuid4())
     now = int(time.time())
 
@@ -173,6 +416,40 @@ async def mint_run_token(
 
     exp = now + effective_ttl
 
+    # AFTER EVERY CHEAP CHECK — authentication, the judge fields, both TTL
+    # bounds — and before the ticket exists. Two reasons. A malformed request
+    # must never cost an S3 read. And the read's answers (404 for no manifest,
+    # 400 naming a refused field) describe the published registry, so they
+    # must only ever reach a caller that has already been authenticated: run
+    # any earlier and an unauthenticated request could probe which experiments
+    # exist and which write-action fields they set.
+    #
+    # Only when there is an override: a base arm and every production run mint
+    # with none, and must not gain an S3 read on the dispatch path.
+    if request.experiment_override is not None:
+        lost = await asyncio.to_thread(
+            _published_fields_an_override_cannot_carry,
+            s3_client,
+            metadata_bucket,
+            request.experiment_id,
+            request.run_id,
+        )
+        if lost:
+            logger.warning(
+                "mint_run_token override_would_drop_fields run_id=%s experiment_id=%s fields=%s",
+                request.run_id,
+                request.experiment_id,
+                ",".join(lost),
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"experiment_override is not supported for {request.experiment_id!r}: its published "
+                    f"manifest sets {', '.join(lost)}, which an override cannot carry, so the candidate arm "
+                    "would silently lose it and the comparison would measure that loss instead of the branch"
+                ),
+            )
+
     ticket = ScopeTicket(
         pk=broker_token,
         run_id=request.run_id,
@@ -186,6 +463,8 @@ async def mint_run_token(
         prior_artifact_versions=request.prior_artifact_versions,
         clerk_user_id=request.clerk_user_id,
         input_files=request.input_files,
+        is_eval=request.is_eval,
+        experiment_override=request.experiment_override,
     )
 
     try:
@@ -199,11 +478,13 @@ async def mint_run_token(
         raise HTTPException(status_code=409, detail="Ticket already exists") from None
 
     logger.info(
-        "mint_run_token ok run_id=%s experiment_id=%s exp=%d clerk_user=%s",
+        "mint_run_token ok run_id=%s experiment_id=%s exp=%d clerk_user=%s is_eval=%s experiment_override=%s",
         request.run_id,
         request.experiment_id,
         exp,
         "present" if request.clerk_user_id else "absent",
+        request.is_eval,
+        request.experiment_override.manifest_key if request.experiment_override else "absent",
     )
 
     return MintResponse(

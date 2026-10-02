@@ -32,11 +32,17 @@ import {
   QueueType,
 } from '../../../queue/queue.types'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
+import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import {
   SlackChannel,
   SlackMessageBlock,
   SlackMessageType,
 } from '../../../vendors/slack/slackService.types'
+import {
+  TenDlcStatusBucketKeySchema,
+  TenDlcStatusEntry,
+  TenDlcStatusSnapshot,
+} from '@goodparty_org/contracts'
 import {
   DateFormats,
   EASTERN_TIMEZONE,
@@ -264,6 +270,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
   constructor(
     private readonly queueService: QueueProducerService,
     private readonly slack: SlackService,
+    private readonly crmCampaigns: CrmCampaignsService,
   ) {
     super()
   }
@@ -393,12 +400,21 @@ export class Nightly10DlcReportService extends createPrismaBase(
     return true
   }
 
-  // Returns false (SQS redelivery) when the Slack post fails, so a missed
-  // report retries instead of silently skipping the night.
-  async handleNightlyReport({
-    reportDate,
-  }: Nightly10DlcReportMessage): Promise<boolean> {
-    const now = new Date()
+  // One collection pass over every bucket the nightly report renders, shared
+  // verbatim with the gp-admin 10DLC status page (getAdminStatusSnapshot) so
+  // the two can't drift. Pure read: no Slack posts, no escalation claims —
+  // those stay in handleNightlyReport and the escalation job.
+  //
+  // awaitingPinFloorDays is the one knob the two consumers disagree on: the
+  // report nudges staff only once a PIN has sat >7d, while the admin page
+  // lists every issued PIN so staff can find-and-resend before the nudge
+  // window (close to an election, candidates ask within days — ENG-11210).
+  // It floors only the awaiting-PIN bucket; cvUnissued keeps the nudge
+  // window on both surfaces.
+  async collectStatusSnapshot(
+    now: Date,
+    { awaitingPinFloorDays = AWAITING_PIN_NUDGE_DAYS } = {},
+  ) {
     const proOnly = { campaign: reportableCampaign }
     const billingBlockScope = notActivelyBillingBlocked(now)
 
@@ -483,14 +499,20 @@ export class Nightly10DlcReportService extends createPrismaBase(
               PeerlyCvVerificationStatus.IN_REVIEW,
             ],
           },
-          // Coarse floor only: a record created less than the nudge window
-          // ago cannot have been waiting longer than it, so this can never
-          // over-exclude. The precise clock is applied per section in code
-          // below — the two sections measure different things, and the
-          // `updatedAt` this filter used to key off is bumped by *any* write
-          // to the row (including the nightly poll's own status write), which
-          // silently reset the age.
-          createdAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
+          // Coarse floor only: a record created less than the window ago
+          // cannot have been waiting longer than it, so this can never
+          // over-exclude. It has to be the smaller of the two sections'
+          // windows, since both populate from this one query; the precise
+          // clock is applied per section in code below — the two sections
+          // measure different things, and the `updatedAt` this filter used
+          // to key off is bumped by *any* write to the row (including the
+          // nightly poll's own status write), which silently reset the age.
+          createdAt: {
+            lt: subDays(
+              now,
+              Math.min(awaitingPinFloorDays, AWAITING_PIN_NUDGE_DAYS),
+            ),
+          },
         },
         include: { campaign: true },
       }),
@@ -653,15 +675,293 @@ export class Nightly10DlcReportService extends createPrismaBase(
     const runStatusById = new Map(
       runs.map((run: ExperimentRun) => [run.runId, run.status]),
     )
+    const stuckSubmissionsWithRun = stuckSubmissions.map((record) => ({
+      record,
+      runStatus: record.agenticRunId
+        ? (runStatusById.get(record.agenticRunId) ?? 'unknown')
+        : null,
+    }))
+
+    const awaitingPinCutoff = subDays(now, awaitingPinFloorDays)
+    const nudgeCutoff = subDays(now, AWAITING_PIN_NUDGE_DAYS)
+    // When the PIN went out: the detection sweep's stamp, else when CV reached
+    // APPROVED (Peerly issues the PIN on that transition). Never `updatedAt` —
+    // any write to the row bumps it, so an unrelated update would reset a
+    // three-week-old wait to "PIN out 0d".
+    const pinSentAt = (record: RecordWithCampaign) =>
+      record.pinSentDetectedAt ?? record.peerlyCvStatusChangedAt
+    // How long the candidate has been waiting with no PIN at all. Measured
+    // from the CV submission, not the last status change: REQUESTED ->
+    // IN_REVIEW is a transition, not a delivery, and this section exists to
+    // surface the total wait. Keying it off any *ChangedAt column would
+    // restart the clock every time CampaignVerify moved the record sideways.
+    const cvWaitingSince = (record: RecordWithCampaign) =>
+      record.peerlySubmissionStartedAt ?? record.createdAt
+
+    // A record carrying neither timestamp gives us no basis for "PIN out Nd".
+    // Falling back to createdAt would report the campaign's own age, so a
+    // months-old campaign reads as months of PIN delay that never happened —
+    // the same class of wrong number the updatedAt clock produced. Drop it
+    // from the nudge rather than print an age we can't stand behind.
+    const agingAwaitingPin = agingCvInFlight.flatMap((record) => {
+      const sentAt = pinSentAt(record)
+      return record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED &&
+        sentAt !== null &&
+        isBefore(sentAt, awaitingPinCutoff)
+        ? [{ record, sentAt }]
+        : []
+    })
+    const agingCvUnissued = agingCvInFlight
+      .filter(
+        (record) =>
+          record.peerlyCvStatus !== PeerlyCvVerificationStatus.APPROVED &&
+          isBefore(cvWaitingSince(record), nudgeCutoff),
+      )
+      .map((record) => ({ record, waitingSince: cvWaitingSince(record) }))
+
+    // A record whose user is missing can't be evaluated (or dispatched) — it
+    // stays listed rather than silently vanishing. Publishable-but-unclaimed
+    // records are excluded: those are the sweep's to dispatch within its next
+    // cycle, not a candidate-side stall.
+    const deferredDispatch = deferredDispatchCandidates.filter(
+      (record) =>
+        !record.campaign.user ||
+        !wouldBePublishableAfterFallbacks(
+          record.campaign.website?.content,
+          record.campaign.user,
+          record.campaign,
+        ),
+    )
+
+    return {
+      stuckSubmissions: stuckSubmissionsWithRun,
+      errorRecords,
+      rejectedRecords,
+      billingBlocked,
+      stuckDomains,
+      heldDomains,
+      inReviewToEscalate,
+      waitingToFinalizeToEscalate,
+      agingAwaitingPin,
+      agingCvUnissued,
+      deferredDispatch,
+      neverReachedCv,
+      profileStalled,
+    }
+  }
+
+  // Backs GET /campaigns/tcr-compliance/admin/status-snapshot (the gp-admin
+  // 10DLC status page). Same collection pass as the nightly report, mapped to
+  // the cross-service contract; every bucket is present (possibly empty), in
+  // taxonomy order. The internal-alert cases (CV never reached / profile
+  // stalled, ENG-10966) stay off the page — they are one-time engineering
+  // pings, not a triage queue.
+  async getAdminStatusSnapshot(): Promise<TenDlcStatusSnapshot> {
+    const now = new Date()
+    // Floor 0: the page lists every issued PIN so staff can resend on the
+    // first "my PIN never arrived" report, not after the report's 7d nudge.
+    const snapshot = await this.collectStatusSnapshot(now, {
+      awaitingPinFloorDays: 0,
+    })
+    const assignedPas = await this.assignedPasByCampaign([
+      ...[
+        ...snapshot.stuckSubmissions.map(({ record }) => record),
+        ...snapshot.errorRecords,
+        ...snapshot.rejectedRecords,
+        ...snapshot.billingBlocked,
+        ...snapshot.inReviewToEscalate,
+        ...snapshot.waitingToFinalizeToEscalate,
+        ...snapshot.deferredDispatch,
+        ...snapshot.agingAwaitingPin.map(({ record }) => record),
+        ...snapshot.agingCvUnissued.map(({ record }) => record),
+      ].map((record) => record.campaign),
+      ...[...snapshot.stuckDomains, ...snapshot.heldDomains].map(
+        (domain) => domain.website.campaign,
+      ),
+    ])
+    const keys = TenDlcStatusBucketKeySchema.enum
+    const entry = (
+      record: RecordWithCampaign,
+      since: Date | null,
+      extra: Partial<TenDlcStatusEntry> = {},
+    ): TenDlcStatusEntry => ({
+      campaignId: record.campaignId,
+      campaignSlug: record.campaign.slug,
+      userId: record.campaign.userId,
+      committeeName: record.committeeName,
+      assignedPa: assignedPas.get(record.campaignId) ?? null,
+      peerlyIdentityId: record.peerlyIdentityId,
+      filingUrl: record.filingUrl,
+      since: since?.toISOString() ?? null,
+      agenticRunId: null,
+      runStatus: null,
+      domainName: null,
+      domainStatus: null,
+      escalatedAt: null,
+      peerlyCvStatus: record.peerlyCvStatus,
+      cvValidationFailedAt: record.cvValidationFailedAt?.toISOString() ?? null,
+      missingUser: false,
+      ...extra,
+    })
+    const domainEntry = (domain: DomainWithCampaign): TenDlcStatusEntry => ({
+      campaignId: domain.website.campaignId,
+      campaignSlug: domain.website.campaign.slug,
+      userId: domain.website.campaign.userId,
+      committeeName: null,
+      assignedPa: assignedPas.get(domain.website.campaignId) ?? null,
+      peerlyIdentityId: null,
+      filingUrl: null,
+      since: domain.createdAt.toISOString(),
+      agenticRunId: null,
+      runStatus: null,
+      domainName: domain.name,
+      domainStatus: domain.status,
+      escalatedAt: null,
+      peerlyCvStatus: null,
+      cvValidationFailedAt: null,
+      missingUser: false,
+    })
+    return {
+      generatedAt: now.toISOString(),
+      buckets: [
+        {
+          key: keys.stuckSubmission,
+          entries: snapshot.stuckSubmissions.map(({ record, runStatus }) =>
+            entry(record, record.kickoffSentAt ?? record.createdAt, {
+              agenticRunId: record.agenticRunId,
+              runStatus,
+            }),
+          ),
+        },
+        {
+          key: keys.kickoffError,
+          entries: snapshot.errorRecords.map((record) =>
+            entry(record, record.updatedAt),
+          ),
+        },
+        {
+          key: keys.rejected,
+          entries: snapshot.rejectedRecords.map((record) =>
+            entry(record, record.updatedAt),
+          ),
+        },
+        {
+          key: keys.billingBlocked,
+          entries: snapshot.billingBlocked.map((record) =>
+            entry(record, record.peerlyBillingBlockedAt),
+          ),
+        },
+        {
+          key: keys.domainPurchaseIncomplete,
+          entries: snapshot.stuckDomains.map(domainEntry),
+        },
+        {
+          key: keys.domainNotResolving,
+          entries: snapshot.heldDomains.map(domainEntry),
+        },
+        {
+          key: keys.cvInReviewStalled,
+          entries: snapshot.inReviewToEscalate.map((record) =>
+            entry(record, record.peerlyCvStatusChangedAt, {
+              escalatedAt: record.cvInReviewEscalatedAt?.toISOString() ?? null,
+            }),
+          ),
+        },
+        {
+          key: keys.finalizeStalled,
+          entries: snapshot.waitingToFinalizeToEscalate.map((record) =>
+            entry(record, record.peerlyProfileStatusChangedAt, {
+              escalatedAt:
+                record.finalizeStalledEscalatedAt?.toISOString() ?? null,
+            }),
+          ),
+        },
+        {
+          key: keys.dispatchDeferred,
+          entries: snapshot.deferredDispatch.map((record) =>
+            entry(record, record.createdAt, {
+              missingUser: !record.campaign.user,
+            }),
+          ),
+        },
+        {
+          key: keys.awaitingPin,
+          entries: snapshot.agingAwaitingPin.map(({ record, sentAt }) =>
+            entry(record, sentAt),
+          ),
+        },
+        {
+          key: keys.cvUnissued,
+          entries: snapshot.agingCvUnissued.map(({ record, waitingSince }) =>
+            entry(record, waitingSince),
+          ),
+        },
+      ],
+    }
+  }
+
+  // The campaign's assigned success person is its HubSpot company owner —
+  // the same live, best-effort read the SMS console's queue makes (one read
+  // per company). getCrmCompanyOwnerName never rejects — every HubSpot
+  // failure inside it logs, alerts, and resolves '' — so an empty name is
+  // the only unassigned signal to normalize. Admin-snapshot only: the
+  // nightly Slack report never pays this CRM cost.
+  private async assignedPasByCampaign(
+    campaigns: Campaign[],
+  ): Promise<Map<number, string | null>> {
+    const hubspotIdByCampaign = new Map<number, string | undefined>(
+      campaigns.map((campaign) => [campaign.id, campaign.data?.hubspotId]),
+    )
+    const nameByHubspotId = new Map<string, Promise<string | null>>()
+    const ownerName = (hubspotId: string) => {
+      const pending =
+        nameByHubspotId.get(hubspotId) ??
+        this.crmCampaigns
+          .getCrmCompanyOwnerName(hubspotId)
+          .then((name) => name.trim() || null)
+      nameByHubspotId.set(hubspotId, pending)
+      return pending
+    }
+    const byCampaign = new Map<number, string | null>()
+    await Promise.all(
+      [...hubspotIdByCampaign].map(async ([campaignId, hubspotId]) => {
+        byCampaign.set(
+          campaignId,
+          hubspotId ? await ownerName(hubspotId) : null,
+        )
+      }),
+    )
+    return byCampaign
+  }
+
+  // Returns false (SQS redelivery) when the Slack post fails, so a missed
+  // report retries instead of silently skipping the night.
+  async handleNightlyReport({
+    reportDate,
+  }: Nightly10DlcReportMessage): Promise<boolean> {
+    const now = new Date()
+    const proOnly = { campaign: reportableCampaign }
+    const {
+      stuckSubmissions,
+      errorRecords,
+      rejectedRecords,
+      billingBlocked,
+      stuckDomains,
+      heldDomains,
+      inReviewToEscalate,
+      waitingToFinalizeToEscalate,
+      agingAwaitingPin,
+      agingCvUnissued,
+      deferredDispatch,
+      neverReachedCv,
+      profileStalled,
+    } = await this.collectStatusSnapshot(now)
 
     const failureSections: ReportSection[] = [
       {
         title: '🛑 Submission never completed (>24h after kickoff)',
-        lines: stuckSubmissions.map((record) => {
+        lines: stuckSubmissions.map(({ record, runStatus }) => {
           const kickedOffAt = record.kickoffSentAt ?? record.createdAt
-          const runStatus = record.agenticRunId
-            ? (runStatusById.get(record.agenticRunId) ?? 'unknown')
-            : null
           return (
             `${campaignRef(record)} — kicked off ` +
             `${differenceInCalendarDays(now, kickedOffAt)}d ago, run ` +
@@ -746,39 +1046,6 @@ export class Nightly10DlcReportService extends createPrismaBase(
         ),
       },
     ]
-    const nudgeCutoff = subDays(now, AWAITING_PIN_NUDGE_DAYS)
-    // When the PIN went out: the detection sweep's stamp, else when CV reached
-    // APPROVED (Peerly issues the PIN on that transition). Never `updatedAt` —
-    // any write to the row bumps it, so an unrelated update would reset a
-    // three-week-old wait to "PIN out 0d".
-    const pinSentAt = (record: RecordWithCampaign) =>
-      record.pinSentDetectedAt ?? record.peerlyCvStatusChangedAt
-    // How long the candidate has been waiting with no PIN at all. Measured
-    // from the CV submission, not the last status change: REQUESTED ->
-    // IN_REVIEW is a transition, not a delivery, and this section exists to
-    // surface the total wait. Keying it off any *ChangedAt column would
-    // restart the clock every time CampaignVerify moved the record sideways.
-    const cvWaitingSince = (record: RecordWithCampaign) =>
-      record.peerlySubmissionStartedAt ?? record.createdAt
-
-    // A record carrying neither timestamp gives us no basis for "PIN out Nd".
-    // Falling back to createdAt would report the campaign's own age, so a
-    // months-old campaign reads as months of PIN delay that never happened —
-    // the same class of wrong number the updatedAt clock produced. Drop it
-    // from the nudge rather than print an age we can't stand behind.
-    const agingAwaitingPin = agingCvInFlight.flatMap((record) => {
-      const sentAt = pinSentAt(record)
-      return record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED &&
-        sentAt !== null &&
-        isBefore(sentAt, nudgeCutoff)
-        ? [{ record, sentAt }]
-        : []
-    })
-    const agingCvUnissued = agingCvInFlight.filter(
-      (record) =>
-        record.peerlyCvStatus !== PeerlyCvVerificationStatus.APPROVED &&
-        isBefore(cvWaitingSince(record), nudgeCutoff),
-    )
 
     const nudgeSection: ReportSection = {
       title: `⏳ Awaiting PIN >${AWAITING_PIN_NUDGE_DAYS}d (candidate nudge)`,
@@ -798,27 +1065,14 @@ export class Nightly10DlcReportService extends createPrismaBase(
         `⏳ CampaignVerify still reviewing >${AWAITING_PIN_NUDGE_DAYS}d ` +
         '(no PIN issued — do not nudge)',
       lines: agingCvUnissued.map(
-        (record) =>
+        ({ record, waitingSince }) =>
           `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
           `no PIN issued, waiting ` +
-          `${differenceInCalendarDays(now, cvWaitingSince(record))}d ` +
+          `${differenceInCalendarDays(now, waitingSince)}d ` +
           `(CV ${record.peerlyCvStatus})`,
       ),
     }
 
-    // A record whose user is missing can't be evaluated (or dispatched) — it
-    // stays listed rather than silently vanishing. Publishable-but-unclaimed
-    // records are excluded: those are the sweep's to dispatch within its next
-    // cycle, not a candidate-side stall.
-    const deferredDispatch = deferredDispatchCandidates.filter(
-      (record) =>
-        !record.campaign.user ||
-        !wouldBePublishableAfterFallbacks(
-          record.campaign.website?.content,
-          record.campaign.user,
-          record.campaign,
-        ),
-    )
     // Nudge-style, not counted as stuck: after the dispatch gate shipped this
     // is a candidate-action item (author bio/issues), and the sweep dispatches
     // automatically the moment they do.

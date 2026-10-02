@@ -947,4 +947,27 @@ describe('PeerlyP2pJobService', () => {
       )
     })
   })
+
+  describe('sendTestMessage', () => {
+    // Peerly rejects a send-test that does not name the test list the
+    // number sits on, which is how the CAS test-text button shipped
+    // broken: the body carried the phone alone and every click 502'd.
+    it('names both the phone and its test list in the send body', async () => {
+      await service.sendTestMessage('test-job-1', '5551234567', 169614)
+
+      expect(mockHttpService.post).toHaveBeenCalledWith(
+        '/1to1/jobs/test-job-1/send_test_message',
+        { test_contact_phone: '5551234567', test_list_id: '169614' },
+      )
+    })
+
+    it("routes a vendor rejection through the shared handler, keeping Peerly's message", async () => {
+      mockHttpService.post.mockRejectedValueOnce(new Error('vendor down'))
+
+      await expect(
+        service.sendTestMessage('test-job-1', '5551234567', 169614),
+      ).rejects.toThrow(BadGatewayException)
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
 })

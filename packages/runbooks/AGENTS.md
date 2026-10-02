@@ -61,8 +61,9 @@ elicitation half of that skill and none of the application half. Detail in
 A fourth, the product map in `surfaces/product-map/` (DATA-2547), shows the same events
 laid over the product's flows and pages, with the steps where nothing fires. It is the
 explorer's audience and the explorer's data, organised the way people remember using the
-site. Its node model is hand-authored in the template for now; its cards are lifted from
-the explorer snapshot.
+site. It is the explorer's own template rendered with the map's tree (`map.js`) in place
+of the events table, so both pages share search, filters and cards; the node model is
+hand-authored in `map.js` for now.
 
 `surfaces/` is where pages built from committed governance data live. The three published
 pages (explorer, map, console) are one epic, DATA-2580, and share `surfaces/shared/`: the
@@ -73,6 +74,11 @@ routines run them with a bare interpreter, and `partials.py` fails a build that 
 placeholder unfilled.
 
 Questions are not intaken from the spreadsheet. The source of truth is the ClickUp Analytics Questions list: `scripts/python/question_intake.py` reads accepted questions into `scripts/python/monitored_events.yaml`, and `event_state_gsheet.py writeback-questions` pushes each question's answer state and last-checked date back onto its ClickUp task. See `books/refresh-event-state-surface.md`.
+
+A fifth consumer of the same committed sem data is pre-merge, not scheduled:
+`scripts/python/governance_guard.py` (DATA-2432) reads `scripts/python/instrumentation_data/sem/`
+to block a PR that drops a call site of an OKR-watched event or leaves a dead `EVENTS` key, run
+by a local hook and the `Analytics guard` CI check on every PR. See `books/monitor-analytics-event-health.md`.
 
 ## Used by the delegate worker
 

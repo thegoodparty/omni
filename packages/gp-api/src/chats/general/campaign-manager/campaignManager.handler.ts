@@ -33,11 +33,11 @@ import {
   LEGAL_LINE,
 } from './campaignManagerPrompt'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
-import {
-  CampaignStoryIntakeService,
-  type StoryField,
-  type StoryState,
-} from './campaignStoryIntake.service'
+import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
+import type {
+  StoryField,
+  StoryState,
+} from '@/campaignStory/services/campaignStoryState.service'
 import { buildCampaignStoryTool } from './campaignStoryTool'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
@@ -106,8 +106,8 @@ export const buildStoryGreeting = (story: StoryState): string => {
     answered === 0
       ? [
           "Before I build your plan and tracker, let's get your Campaign " +
-            "Story down, since it's what personalizes your Campaign Plan, " +
-            'Campaign Tracker, and your GoodParty.org experience.',
+            "Story down, since it's what personalizes your Campaign Plan " +
+            'and your GoodParty.org experience.',
           "It's just three short questions, in your own words, and I can " +
             'help sharpen anything you write.',
         ]

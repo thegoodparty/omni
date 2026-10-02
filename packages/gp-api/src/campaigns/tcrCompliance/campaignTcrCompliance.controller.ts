@@ -41,9 +41,13 @@ import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import {
   ComplianceStateOutputSchema,
   SubmitToPeerlyOutputSchema,
+  TenDlcStatusSnapshotSchema,
   UpdateCommitteeNameOutputSchema,
+  UpdateFilingUrlOutputSchema,
 } from '@goodparty_org/contracts'
 import { UpdateCommitteeNameDto } from './schemas/updateCommitteeNameDto.schema'
+import { UpdateFilingUrlDto } from './schemas/updateFilingUrlDto.schema'
+import { Nightly10DlcReportService } from './services/nightly10DlcReport.service'
 
 // Same pattern as HUBSPOT_PIN_SENT_EMAIL_ID in campaignTcrCompliance.service.ts
 // (ENG-11034): unset in every environment today, pending the Ops-created
@@ -72,6 +76,7 @@ export class CampaignTcrComplianceController {
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
     private readonly hubspotSingleSend: HubspotSingleSendService,
+    private readonly nightly10DlcReport: Nightly10DlcReportService,
   ) {
     this.logger.setContext(CampaignTcrComplianceController.name)
   }
@@ -159,6 +164,17 @@ export class CampaignTcrComplianceController {
     return this.complianceStateService.findStateForCampaign(campaignId)
   }
 
+  // Backs the gp-admin 10DLC status page: every stuck-registration bucket the
+  // nightly Slack report renders, computed live by the same code. Includes
+  // the registry-hold DNS sweep, so a large domain fleet can take seconds.
+  @Get('admin/status-snapshot')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(TenDlcStatusSnapshotSchema)
+  async getTenDlcStatusSnapshot() {
+    return this.nightly10DlcReport.getAdminStatusSnapshot()
+  }
+
   @Post('admin/:campaignId/resend-cv-pin')
   @UseGuards(AdminOrM2MGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -240,6 +256,25 @@ export class CampaignTcrComplianceController {
       committeeName,
     )
     return { committeeName: record.committeeName }
+  }
+
+  // Staff filing-link correction from gp-admin's hold widget. A changed URL
+  // also clears the CV validation hold/override columns (see the service
+  // method); 409 once a Peerly identity exists, since the URL was already
+  // consumed by CampaignVerify.
+  @Patch('admin/:campaignId/filing-url')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(UpdateFilingUrlOutputSchema)
+  async updateFilingUrlForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+    @Body() { filingUrl }: UpdateFilingUrlDto,
+  ) {
+    const record = await this.tcrComplianceService.updateFilingUrl(
+      campaignId,
+      filingUrl,
+    )
+    return { filingUrl: record.filingUrl }
   }
 
   @Post('submit-to-peerly')

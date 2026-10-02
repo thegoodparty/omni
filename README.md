@@ -27,20 +27,12 @@ All workspaces (apps and shared libs) live under `packages/`.
 ```bash
 git clone --recurse-submodules git@github.com:thegoodparty/omni.git
 cd omni
-nvm use          # Node from .nvmrc
-npm install      # installs all workspaces
-npm run dev      # Postgres + gp-api (:3000) + gp-webapp (:4000)
+npm run setup
 ```
 
-Each app needs its own local env files (copy from each app's `.env.example` /
-`.env.local`). Run an individual app by workspace name:
-
-```bash
-npm run start:dev -w gp-api
-npm run dev -w packages/gp-webapp
-```
-
-More in [`docs/development.md`](./docs/development.md).
+One command from fresh clone to a running, seeded local stack — no manual
+env setup. Full path, flags, and the UI-only fast tier
+(`packages/prototypes`, zero env): [`docs/development.md`](./docs/development.md).
 
 ## Documentation
 

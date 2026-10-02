@@ -23,6 +23,13 @@ import { useLockedAtOpen } from 'app/dashboard/outreach/v2/gate/useLockedAtOpen'
 import { useTeamOptions } from '../useTeamOptions'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
+import type { OutreachEventDetails } from '@goodparty_org/contracts'
+import { EventDetailsStep } from 'app/dashboard/outreach/v2/EventDetailsStep'
+import {
+  EVENT_DETAILS_TITLE,
+  isEventInvite,
+  useEventDetails,
+} from 'app/dashboard/outreach/v2/eventDetails'
 import { purposeForRecommendedVariant } from 'app/dashboard/outreach/v2/audience/recommendedListMapping.util'
 import { CommunityInputQuestionStep } from 'app/dashboard/outreach/v2/CommunityInputQuestionStep'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
@@ -62,6 +69,7 @@ import {
   stepperPosition,
   type CreateFlowStage,
   type CreateFlowStep,
+  type ExtraPreDrawStage,
   type PreDrawStage,
 } from './createFlowSteps'
 import {
@@ -350,6 +358,10 @@ const STAGE_META: Record<
     title: 'What do you want to do?',
     caption: 'Pick a goal so we can shape the right door knocking list.',
   },
+  details: {
+    title: EVENT_DETAILS_TITLE,
+    caption: "We'll put these in your talking points.",
+  },
   // Reached only from the community_input purpose, which exists only in the
   // Serve vocabulary — so this copy is only ever read by an elected
   // official's canvasser even though the stage lives in a shared file.
@@ -484,12 +496,21 @@ export default function CreateListFlow({
       ? purposeForRecommendedVariant(preselectedRecommendedVariant)
       : null
   const [preDrawStage, setPreDrawStage] = useState<PreDrawStage>(
-    carriedPurpose ? 'who' : 'purpose',
+    carriedPurpose
+      ? isEventInvite(carriedPurpose)
+        ? 'details'
+        : 'who'
+      : 'purpose',
   )
   const [question, setQuestion] = useState('')
   const [purpose, setPurpose] = useState<CreateFlowPurpose | null>(
     carriedPurpose,
   )
+  const eventDetails = useEventDetails({
+    enabled: isEventInvite(purpose),
+    isServe: serveMode,
+  })
+  const withDetails = isEventInvite(purpose)
   // The goal cards and the name they suggest are the surface's answer: Serve
   // carries its own vocabulary (no election mechanics), and door knocking has
   // ONE route for both rails, so this is the only place the two can differ.
@@ -736,8 +757,19 @@ export default function CreateListFlow({
 
   const stage = flowStage(step, preDrawStage)
   // The community-input purpose asks one extra thing, which inserts a stage
-  // and makes the path seven long.
+  // and makes the path six long.
   const asksQuestion = purpose === COMMUNITY_INPUT_PURPOSE
+
+  // Which of the two optional pre-draw stages this purpose asks for. One
+  // value rather than two flags because the path has one slot: an event
+  // invite and a community-input effort are different purposes, so they can
+  // never both be in play, and `previousStage` needs to know WHICH one to
+  // step back through rather than merely that there is one.
+  const extraStage: ExtraPreDrawStage | null = withDetails
+    ? 'details'
+    : asksQuestion
+      ? 'question'
+      : null
 
   // Recommendations render in the who step's list-picker face only — the
   // same "picker mode, above the saved lists" placement Task 8 used for the
@@ -939,7 +971,7 @@ export default function CreateListFlow({
     if (nextStep !== step) onStepChange(nextStep)
   }
   const back = () => {
-    const previous = previousStage(stage, asksQuestion)
+    const previous = previousStage(stage, extraStage)
     if (previous) goToStage(previous)
   }
 
@@ -1050,6 +1082,7 @@ export default function CreateListFlow({
       previousDraft?: string
       instructions?: string
       communityInputQuestion?: string
+      event?: OutreachEventDetails
     }) => {
       const { communityInputQuestion, ...rest } = input
       const body = { ...rest, filters: draftFilters }
@@ -1097,9 +1130,11 @@ export default function CreateListFlow({
     // ask has to be written from it rather than from a generic prompt.
     const askedQuestion =
       nextPurpose === COMMUNITY_INPUT_PURPOSE ? question.trim() : ''
+    const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draft.mutate(
       {
         purpose: nextPurpose,
+        ...(event ? { event } : {}),
         ...(currentDraft === undefined ? {} : { currentDraft }),
         ...(previousDraft === undefined ? {} : { previousDraft }),
         ...(trimmed === '' ? {} : { instructions: trimmed }),
@@ -1153,10 +1188,13 @@ export default function CreateListFlow({
   // written for "Introduce myself" are wrong for a turnout walk — but never
   // once they have edited a line. At that point the card is theirs, and
   // Regenerate is how they ask for another.
-  const draftedForRef = useRef<CreateFlowPurpose | null>(null)
+  // Keyed on the event details too: points that name last week's date are as
+  // wrong as points written for another goal.
+  const draftKey = `${purpose}|${JSON.stringify(withDetails ? eventDetails.event : null)}`
+  const draftedForRef = useRef<string | null>(null)
   useEffect(() => {
     if (step !== 'points') return
-    if (draftedForRef.current === purpose) return
+    if (draftedForRef.current === draftKey) return
     // Declining to re-draft still settles the purpose, or the ref stays behind
     // on the old one while a draft is nominally owed — and every successful
     // draft clears `pointsManuallyEdited`, which re-runs this effect. The next
@@ -1164,16 +1202,16 @@ export default function CreateListFlow({
     // overwritten by a phantom fresh draft nobody asked for, which on Improve
     // means throwing away the candidate's own wording.
     if (pointsManuallyEdited) {
-      draftedForRef.current = purpose
+      draftedForRef.current = draftKey
       return
     }
-    draftedForRef.current = purpose
+    draftedForRef.current = draftKey
     requestDraft(purpose)
     // `requestDraft` is redefined every render and reading it would re-run this
     // on each one; the purpose ref is what decides when a draft is owed. Same
     // shape as the social flow's generate-on-arrival effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, purpose, pointsManuallyEdited])
+  }, [step, purpose, draftKey, pointsManuallyEdited])
 
   const save = useMutation({
     mutationFn: async () => {
@@ -1519,8 +1557,22 @@ export default function CreateListFlow({
   }
 
   const title = stage === 'success' ? '' : STAGE_META[stage].title
-  const caption = stage === 'success' ? '' : STAGE_META[stage].caption
-  const { currentStep, totalSteps } = stepperPosition(stage, asksQuestion)
+  const caption =
+    stage === 'success'
+      ? ''
+      : stage === 'details' && eventDetails.prefillNote
+        ? eventDetails.prefillNote
+        : STAGE_META[stage].caption
+  const { currentStep, totalSteps } = stepperPosition(stage, extraStage)
+  // Null on the purpose stage, whose cards are the advance.
+  const detailsCta =
+    stage === 'details'
+      ? {
+          label: 'Continue',
+          disabled: eventDetails.event === null,
+          onClick: () => goToStage('who'),
+        }
+      : null
 
   return (
     <OutreachFlowShell
@@ -1541,9 +1593,7 @@ export default function CreateListFlow({
       locked={lockedAtOpen}
       trackedStep={gateOpen || stage === 'success' ? null : stage}
       settled={stage === 'success'}
-      onBack={
-        previousStage(stage, asksQuestion) && !gateOpen ? back : undefined
-      }
+      onBack={previousStage(stage, extraStage) && !gateOpen ? back : undefined}
       dirty={dirty}
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner). Not on the draw stage: the map is the
@@ -1565,8 +1615,10 @@ export default function CreateListFlow({
           : // The purpose step has no footer: choosing a card is the advance, so a
             // CTA under it would be a second way to do the same thing, disabled
             // until the first one was used.
-            stage === 'purpose'
-            ? null
+            // `detailsCta` is null off the details stage, so this one branch
+            // serves both: purpose has no footer, details has Continue.
+            stage === 'purpose' || stage === 'details'
+            ? detailsCta
             : stage === 'question'
               ? {
                   label: 'Continue',
@@ -1726,8 +1778,24 @@ export default function CreateListFlow({
                 // question typed for an earlier community-input pick would
                 // otherwise ride along as this campaign's.
                 setQuestion('')
-                goToStage(next === COMMUNITY_INPUT_PURPOSE ? 'question' : 'who')
+                goToStage(
+                  isEventInvite(next)
+                    ? 'details'
+                    : next === COMMUNITY_INPUT_PURPOSE
+                      ? 'question'
+                      : 'who',
+                )
               }}
+            />
+          )}
+
+          {stage === 'details' && (
+            <EventDetailsStep
+              details={eventDetails.details}
+              onChange={eventDetails.setDetails}
+              destination="talking points"
+              prefillNote={null}
+              showIntro={false}
             />
           )}
 

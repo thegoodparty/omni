@@ -19,6 +19,7 @@ import { GoogleModule } from '../vendors/google/google.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { StripeModule } from '../vendors/stripe/stripe.module'
 import { WebsitesModule } from '../websites/websites.module'
+import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { CampaignsAiModule } from './ai/campaignsAi.module'
 import { CampaignsController } from './campaigns.controller'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
@@ -68,6 +69,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     AnalyticsModule,
     UsersModule,
     WebsitesModule,
+    CampaignStoryModule,
     QueueProducerModule,
     SlackModule,
     AgentExperimentsModule,

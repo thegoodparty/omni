@@ -731,3 +731,79 @@ describe('freezing the card with the list', () => {
     expect(drafts).toHaveLength(2)
   })
 })
+
+describe('an event invite', () => {
+  const fill = (date: string, time: string, location: string) => {
+    fireEvent.change(screen.getByLabelText('Date'), {
+      target: { value: date },
+    })
+    fireEvent.change(screen.getByLabelText('Start time'), {
+      target: { value: time },
+    })
+    fireEvent.change(screen.getByLabelText('Location'), {
+      target: { value: location },
+    })
+  }
+
+  const detailsHeading = () =>
+    screen.getByRole('heading', {
+      level: 3,
+      name: 'When and where is the event?',
+    })
+
+  it('asks when and where before the audience, and drafts the points with it', async () => {
+    mockDraft()
+    const onStepChange = vi.fn()
+    const view = render(
+      <CreateListFlow
+        {...baseProps}
+        onStepChange={onStepChange}
+        step="filters"
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Invite people to an event/ }),
+    )
+    expect(detailsHeading()).toBeInTheDocument()
+    const continueButton = () =>
+      screen.getByRole('button', { name: 'Continue' })
+    expect(continueButton()).toBeDisabled()
+
+    fill('2099-03-14', '14:00', 'Westside rec center')
+    expect(continueButton()).toBeEnabled()
+    fireEvent.click(continueButton())
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: 'Who do you want to reach?',
+      }),
+    ).toBeInTheDocument()
+    expect(onStepChange).not.toHaveBeenCalled()
+
+    view.rerender(<CreateListFlow {...baseProps} step="points" />)
+    await waitFor(() => expect(drafts).toHaveLength(1))
+    expect(drafts[0]).toMatchObject({
+      purpose: 'event_invite',
+      event: {
+        date: '2099-03-14',
+        time: '14:00',
+        location: 'Westside rec center',
+      },
+    })
+  })
+
+  it('walks back to the details with what was entered', () => {
+    render(<CreateListFlow {...baseProps} step="filters" />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Invite people to an event/ }),
+    )
+    fill('2099-03-14', '14:00', 'Westside rec center')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(detailsHeading()).toBeInTheDocument()
+    expect(screen.getByLabelText('Location')).toHaveValue('Westside rec center')
+  })
+})

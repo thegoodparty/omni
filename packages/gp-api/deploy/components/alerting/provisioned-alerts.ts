@@ -71,8 +71,30 @@ export const recordingRuleExpression = (
     model: {
       editorMode: 'code',
       expr: rule.expr.replace(/\$ENV/g, environment),
-      // Instant, not range: a range query returns a series of points per
-      // evaluation and a recording rule wants one value per label set.
+      // THE ONE KEY THAT DECIDES INSTANT VS RANGE, and it has to be in here.
+      // Loki's backend reads `queryType` out of this model JSON; the
+      // `query_type` below sits at the DataQuery level and the two booleans
+      // under it are the query editor's own state. Neither reaches the
+      // backend's decision, so without this key the rule ran a RANGE query,
+      // got a point per step back instead of one value, and every evaluation
+      // ended in `remote write failed: failed to read dataframe / unsupported
+      // time series type "timeseries-multi"`. The metric was never written
+      // once, from the rule's first deploy on 2026-09-29 until this landed,
+      // and the five Geoapify budget rules reading it were blind throughout.
+      //
+      // Measured against prod Loki on this rule's own expression and window:
+      // with this key the frame is `numeric-multi` and carries a single point,
+      // which is the shape the recording-rule writer accepts; without it the
+      // frame is `timeseries-multi` with 61 points, which it refuses.
+      //
+      // Note what the failure was NOT, because the story attached to this
+      // error says otherwise: the expression returns one unlabelled series,
+      // exactly as required. Series count and frame type are separate
+      // problems that produce the same message.
+      queryType: 'instant',
+      // Kept because the query editor reads them, so a human opening the rule
+      // in Grafana sees an instant query rather than a range one. They do not
+      // affect what is executed.
       instant: true,
       range: false,
       intervalMs: 1000,
@@ -92,6 +114,9 @@ export const recordingRuleExpression = (
       from: `${rule.fromSeconds}s`,
       to: `${rule.toSeconds}s`,
     },
+    // The DataQuery-level field. Kept so the saved rule reads as an instant
+    // query everywhere it is inspected, but it is `model.queryType` above that
+    // decides what Loki actually runs.
     query_type: 'instant',
     // Marks which expression is the rule's output. Without it the rule saves
     // cleanly and records nothing at all.

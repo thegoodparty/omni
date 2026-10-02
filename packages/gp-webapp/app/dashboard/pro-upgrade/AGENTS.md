@@ -284,14 +284,20 @@ this, and neither does the server-side `Account - Pro Subscription Confirmed`.
   else reads as `direct` / `generic`) and caps `cta`. An already-Pro candidate
   routed to success does not fire it.
 - `ProUpgradeModal` takes a `source` prop from whichever surface opens it
-  (`auto_modal` from `ProUpgradePrompt`, `contacts` from the CRM).
+  (`auto_modal` from `ProUpgradePrompt`).
+- `ProPitchDialog` (`app/dashboard/shared/membership/`) takes `source` and
+  `channel` from whichever wall opens it: the nav banner and chip pass
+  `navigation` / `generic`, the CRM's voter data walls pass `contacts` /
+  `voter-data`. It fires the same `Upgrade Interstitial` events as the outreach
+  pause screen, with that `channel`, so one event family covers every pitch.
 - The embedded `ProUpgradeFlow` fires the same event once on mount, from the
   `attribution` prop `OutreachGate` builds: the outreach flow's own source, the
   gate channel, the label of the button that opened the gate, and the tracker
   task when there is one. See `app/dashboard/outreach/AGENTS.md`'s Analytics
   section.
 - `InterstitialStep` reports its own view and both choices
-  (`Interstitial Viewed` / `Click join` / `Click maybe later`) with `channel`.
+  (`Upgrade Interstitial Viewed` / `Completed` for Join Pro / `Dismissed` for
+  Maybe later) with `channel`.
 
 ## Gotchas
 

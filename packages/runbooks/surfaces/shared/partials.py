@@ -34,12 +34,28 @@ LINKS = {
     "__CONSOLE_URL__": "https://claude.ai/artifact/VoKnptbR1DMRmtznatSXht",
 }
 
+# The explorer and the product map are one template (the explorer's): the map is that
+# page with its tree in place of the events table. These are the only places the two
+# differ. Each has the explorer's value by default, so the explorer build passes nothing
+# and the map build passes its own.
+PAGE_PARTS = {
+    "__PAGE_TITLE__": "Analytics Events Explorer",
+    "/* __MAP_CSS__ */": "",
+    "// __MAP_JS__": "",
+}
+
 # The page's own data goes in last, by the page, so a placeholder-shaped string inside
 # the data can never be mistaken for a partial.
 PAGE_OWNED = {"__DATA__"}
 
 
-def inline(html: str) -> str:
+def inline(html: str, page_parts=None) -> str:
+    page_parts = page_parts or {}
+    unknown = sorted(set(page_parts) - set(PAGE_PARTS))
+    if unknown:
+        raise SystemExit(f"not a page part: {', '.join(unknown)}")
+    for key, default in PAGE_PARTS.items():
+        html = html.replace(key, page_parts.get(key, default))
     for key, name in PARTIALS.items():
         html = html.replace(key, (HERE / name).read_text())
     for key, url in LINKS.items():

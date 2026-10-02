@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common'
 import {
   CONSTITUENT_NAME_TOKEN,
+  type OutreachEventDetails,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
   PhoneBankingScriptPurpose,
   type RaceTargetMetrics,
@@ -25,6 +26,7 @@ import {
   parseIsoDateString,
 } from '@/shared/util/date.util'
 import { Campaign } from '../../generated/prisma'
+import { eventDetailsContext } from '../util/eventDetails.util'
 import { TONE_STYLES } from '../util/messageTone.util'
 
 // The per-surface voice a draft/improve request writes in. Win and Serve
@@ -57,6 +59,7 @@ interface DraftInput<TPurpose extends string> {
   // Serve's community-input purpose only. Absent everywhere else, which is
   // why the block it produces is conditional rather than a fixed line.
   communityInputQuestion?: string
+  event?: OutreachEventDetails
 }
 
 // Product/politics prompt copy (CSV phonebank-script-prompts, 2026-08-31),
@@ -79,9 +82,8 @@ interface DraftInput<TPurpose extends string> {
 //   platform priorities               -> customIssues ("The candidate's
 //                                        stated issue positions")
 //   accomplishments                   -> not modeled
-//   event name/date/time/location     -> not modeled by context; carried
-//                                        via the candidate's own
-//                                        instructions field when given
+//   event date/time/location          -> eventDetailsContext, from the
+//                                        flow's event details step
 //   early-voting window / election    -> buildDateContext below (grounded
 //   day date                             from campaign.details + a live
 //                                        milestones fetch, early_voting only)
@@ -673,6 +675,7 @@ export class OutreachPhoneBankingGenerationService {
             role: 'user',
             content: [
               ...context,
+              ...eventDetailsContext(input.purpose, input.event),
               ...(input.previousDraft
                 ? buildPreviousDraftBlock(input.previousDraft, voice)
                 : []),

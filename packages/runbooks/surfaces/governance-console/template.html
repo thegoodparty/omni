@@ -1274,6 +1274,7 @@
     'okr',
     'elevated',
     'instrumented_pr',
+    'removed_by_pr',
     'location',
     'surface_type',
     'rubric_rule',
@@ -1294,6 +1295,7 @@
     last_seen_date: 'Last seen',
     divergence: 'Divergence',
     instrumented_pr: 'PR',
+    removed_by_pr: 'Removed by',
     okr: 'OKR',
     elevated: 'Elevated',
     location: 'File',
@@ -1323,7 +1325,7 @@
       add(td, chip)
       return td
     }
-    if (key === 'instrumented_pr' && value) {
+    if ((key === 'instrumented_pr' || key === 'removed_by_pr') && value) {
       const td = el('td', 'mono')
       const link = el('a', null, String(value).split('/').pop())
       link.href = value
@@ -1519,10 +1521,13 @@
   // to know before pressing it.
   const NOT_A_RETIREMENT = /^no removal:\s*/i
 
-  const effectOf = (queue, verdict, proof) => {
+  const effectOf = (queue, verdict, proof, scope) => {
     const effects = (DATA.verb_effects || {})[queue] || {}
     if (proof && NOT_A_RETIREMENT.test(proof) && effects[verdict + ':correction']) {
       return effects[verdict + ':correction']
+    }
+    if (scope === 'event' && effects[verdict + ':event']) {
+      return effects[verdict + ':event']
     }
     return effects[verdict] || ''
   }
@@ -1540,6 +1545,10 @@
 
   const REASON_REQUIRED =
     'Required: a dismissal never expires, so say why or nobody can audit the silence.'
+  // Events picked out of a cause have nowhere to be silenced (see `dismiss:event`), so
+  // their prompt must not claim the ruling is permanent.
+  const EVENT_REASON_REQUIRED =
+    'Required: say why these are fine. Nothing is silenced; they come back next run.'
 
   // `govern` is the one verb that leaves this repo. It writes prod Amplitude, and what
   // it usually writes is "this event is dead", which every consumer downstream then
@@ -1623,7 +1632,11 @@
     proof.type = 'text'
     proof.id = 'proof-' + key.replace(/[^A-Za-z0-9_-]/g, '-')
     proof.placeholder = PROOF_PLACEHOLDER
-    proof.value = (judgments[key] && judgments[key].proof) || ''
+    // Pre-filled with the PRs that deleted this cause's call sites, when the provenance
+    // walk found them, so the proof is shown rather than searched for. Still an input:
+    // the reviewer reads it and it records only when they pick the verb.
+    proof.value =
+      (judgments[key] && judgments[key].proof) || item.proof_hint || ''
     proof.hidden = true
 
     // A verdict chosen but not yet recorded, because a precondition is unmet. Held
@@ -1816,6 +1829,9 @@
     proof.id = 'picked-proof-' + item.id.replace(/[^A-Za-z0-9_-]/g, '-')
     proof.placeholder = PROOF_PLACEHOLDER
     proof.hidden = true
+    proof.addEventListener('input', () => {
+      proof.dataset.typed = proof.value ? '1' : ''
+    })
 
     const chip = el('span', 'chip verdict picked-chip')
     chip.hidden = true
@@ -1842,7 +1858,7 @@
     const apply = (verdict) => {
       if (NEEDS_REASON.has(verdict) && !reason.value.trim()) {
         reason.classList.add('required')
-        reason.placeholder = REASON_REQUIRED
+        reason.placeholder = EVENT_REASON_REQUIRED
         reason.focus()
         return
       }
@@ -1880,6 +1896,7 @@
     Object.entries(item.verbs || {}).forEach(([verdict, label]) => {
       const btn = el('button', null, label)
       btn.type = 'button'
+      btn.title = effectOf(item.queue, verdict, undefined, 'event')
       btn.addEventListener('click', () => apply(verdict))
       // Hovering or focusing the one verb that needs proof reveals the box, so the
       // requirement is visible before the click rather than after it.
@@ -1918,6 +1935,19 @@
         bar.hidden = !n
         reason.hidden = !n
         if (!n) proof.hidden = true
+        // The PRs that removed just these events, shown in the box as it opens. Only
+        // while the box holds nothing typed by hand, so a reviewer's own proof stands.
+        if (!proof.dataset.typed) {
+          const refs = []
+          ;(item.evidence || []).forEach((row) => {
+            if (events.indexOf(row.event_type) < 0 || !row.removed_by_pr) return
+            const m = /github\.com\/thegoodparty\/omni\/pull\/(\d+)/.exec(row.removed_by_pr)
+            const ref = m ? '#' + m[1] : row.removed_by_pr
+            if (refs.indexOf(ref) < 0) refs.push(ref)
+          })
+          proof.value = refs.join(', ')
+          if (refs.length) proof.hidden = false
+        }
       },
     }
   }
@@ -1933,6 +1963,9 @@
       el('span', 'caret', '▸'),
       el('span', 'chip ' + tone, 'rank ' + item.rank),
       el('span', 'title', item.label),
+      item.okr_break && item.okr_break.length
+        ? el('span', 'chip crit', 'needs action')
+        : null,
       item.elevated && item.elevated.length
         ? el('span', 'chip okr', item.elevated.length + ' elevated')
         : null,
@@ -2204,7 +2237,7 @@
     add(
       node,
       el('p', 'review-effect',
-        effectOf(block.queue, block.verdict, block.proof) ||
+        effectOf(block.queue, block.verdict, block.proof, n ? 'event' : undefined) ||
           block.verdict_label || block.verdict),
     )
     add(

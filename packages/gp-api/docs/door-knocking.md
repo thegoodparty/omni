@@ -697,9 +697,11 @@ walk.
 **Nothing rations this press, by decision.** There was a per-organization
 cap — five campaigns a rolling day — and it existed because creating a turf
 bought a route. Creating turfs is free now, so pacing it rationed nothing,
-and it was removed rather than moved here. What bounds door-knocking spend
-is the account-wide tiered alerting over the ledger (§ Spend visibility),
-which is the only thing that ever bounded the shared credit pool.
+and it was removed rather than moved here. What watches door-knocking spend
+is the account-wide tiered alerting over the ledger (§ Spend visibility) — and
+watching is all it does: those rules page, they do not refuse. Nothing in the
+code stops one organization spending the whole day's shared pool, which is why
+the pages have to be readable by somebody who has not read this file.
 
 **Two of the three failure modes cannot reach the paid press.** The draw step
 runs `DoorKnockingPreviewService`, which is this evaluation minus the vendor
@@ -835,19 +837,47 @@ fires and someone has to say which organization caused it.
 What a route costs is priced in `doorKnocking/utils/geoapifyCost.util.ts`, the
 one transcription of [Geoapify's cost
 calculator](https://www.geoapify.com/pricing-details/), and it is neither flat
-nor linear. A create makes **one** billed call: the Route Planner
-optimization, charged per location — every **block face** plus the agent's
-start and end anchors, squared rather than multiplied when there are fewer than
-ten of them. `fetchPathGeometry`'s Routing request was a second billed call and
-is no longer made, because a polyline through face representatives traces a
-route nobody walks; the code path survives behind `fetchGeometry` for a caller
-that wants it.
+nor linear. A route buy makes **two** billed calls:
 
-Faces are the unit that matters for money, and there are far fewer of them than
-stops — a 150-stop turf on a grid is a couple of dozen faces. So a stop no
-longer has a stable price, and the old rule of thumb (about eleven credits a
-stop, ~1,650 for a full turf) is now an upper bound rather than an estimate.
-Read cost off the face count, which is what the vendor was actually sent.
+- the **Route Planner** optimization, charged per location — every **block
+  face** plus the agent's start and end anchors, squared rather than multiplied
+  when there are fewer than ten of them, so ten credits a face at any realistic
+  size. The planner's own polyline is still not bought (`fetchGeometry: false`
+  in `orderFaces`), because a line threading face representatives traces a
+  route nobody walks.
+- the **Routing** request through the doors in walk order, one credit per door,
+  which `planStops` buys once that order is known (restored 2026-09-30 in
+  `094f34419`: without it the map drew the walk as straight lines through
+  buildings and water).
+
+So the price is roughly `10 × faces + doors`, and the second term is not small:
+`geoapify_credits_total` split the 2026-10-01 burst 7,563 planner credits to
+5,487 routing ones, so 42% of the bill was the street path. (The spend log
+makes the same burst 14,033 credits; the Prometheus counter reads a few percent
+lower because it resets on deploy and `increase()` estimates across the gap —
+read the log for a total and the counter for the split.) A route therefore
+costs about 70% more than it did before that commit, which is worth saying out
+loud because nothing else was re-calibrated for it: the pool buys ~340 average
+lists a day now rather than ~600.
+
+Faces are still the unit that dominates, and there are far fewer of them than
+stops — a 150-stop turf on a grid is a couple of dozen faces. A stop therefore
+has no stable price, but it has a usable average: **about two credits a door,
+~145 credits a list** (measured on 2026-10-01: 13,588 credits over 94 lists and
+6,046 doors). The pre-grouping rule of thumb (about eleven credits a stop,
+~1,650 for a full turf) is now a long way above reality — a full 150-door list
+is nearer 400. Read cost off the face count plus the door count, which is what
+the vendor was actually sent.
+
+**What a big campaign costs, and that nothing refuses it.** One press of Create
+campaign can save ~100 lists; buying a route for each of them is ~14,000
+credits, a quarter of the daily pool, and no cap in the code stands in the way
+(see § The account-wide budget). That is not hypothetical — it is incident 99,
+2026-10-01, where one campaign did exactly that between 02:20Z and 05:30Z and
+the 6h ceiling paged. Routes are bought one press at a time by whoever is about
+to walk the turf, so there is no single press that spends it and no screen that
+shows the total; the spend ledger and these alerts are the only places it
+appears.
 
 **`waypoints` is not credits divided by anything**: it counts stops, while
 credits are priced off faces, so the two convert into each other even less
@@ -1670,6 +1700,18 @@ Three consequences worth knowing before changing this:
   `DoorKnockingPackBuildFailed` log line, and that log line is what pages —
   the per-route status alert sees a 200. A response that ends with no pack
   frame makes the decoder throw rather than render an empty district.
+- **So anything decidable about the request runs in front of the envelope.**
+  `DoorKnockingPackService.stream` awaits `resolveEligibleDistrictId` — the
+  district resolve and the voter-data eligibility gate — and only then opens the
+  stream, handing the resolved `districtId` to the build. An org with no
+  district is not a failed build, it is a request that was never answerable, and
+  it gets the same 400 every other voter-data read gives it; the alert above
+  stays reserved for builds that really did die after the first byte. On 2026-09-30
+  it was the other way round and one ineligible campaign paged `@win-bugs` four
+  times in three seconds. The cost is the resolve's own latency ahead of the
+  head — ~32ms in prod, two election-api position reads and two small Postgres
+  reads — against a ~120s gateway ceiling, so it buys the status code back for
+  a fraction of the gap the envelope exists to close.
 - **The client's disconnect now cancels the build.** Destroying the response
   aborts the signal the drain checks between chunks, which relies on Fastify
   destroying the stream it is sending when the socket goes away. It does, and

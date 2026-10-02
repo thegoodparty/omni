@@ -38,6 +38,13 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
   out every agent call, and resume-looped nine compliance runs to death
   (2026-09-20..22). Budget exhausted with zero found is a 502 (retryable),
   never an empty list.
+- **The budget must never discard a verdict we already hold.** Checks run in
+  batches, and each check is raced against the remaining budget _individually_.
+  Racing the batch as one unit meant a single candidate still in registrar
+  backoff threw away every sibling result the batch had already settled — four
+  available, priced domains became "nothing could be checked" and a 502
+  (2026-09-30, campaign 327394). Only checks still in flight when the budget
+  runs out are lost, and those count as unchecked.
 - **The candidate cap applies after the TLD fan-out, not before it.**
   `MAX_PATTERN_CANDIDATES` bounds SLDs, and the fan-out then multiplies each
   by `SUPPORTED_TLDS`, so the nominal 50 was really up to 300 Route53 calls

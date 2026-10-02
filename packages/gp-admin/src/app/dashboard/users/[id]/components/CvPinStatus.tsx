@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
-import { Badge, Button, Checkbox, Flex, Text } from '@radix-ui/themes'
+import { Badge, Checkbox, Flex, Text } from '@radix-ui/themes'
 import { HiOutlineMail } from 'react-icons/hi'
 import {
   ComplianceStage,
@@ -16,9 +16,9 @@ import { describeActionFailure } from '@/shared/util/actionFailure.util'
 import {
   getCampaignComplianceState,
   listCampaigns,
-  resendCvPin,
   setInternalTestingApproval,
 } from '@/app/dashboard/campaigns/actions'
+import { ResendCvPinButton } from '@/app/dashboard/campaigns/components/ResendCvPinButton'
 import { useUser } from '../context/UserContext'
 import { CvValidationHold } from './CvValidationHold'
 import { EditCommitteeNameAction } from './EditCommitteeNameAction'
@@ -83,8 +83,6 @@ function CvPinStatusContent() {
   const { id: userId, email } = useUser()
   const { showToast } = useToast()
   const [info, setInfo] = useState<ComplianceInfo | null>(null)
-  const [resending, setResending] = useState(false)
-  const [resent, setResent] = useState(false)
   const [savingApproval, setSavingApproval] = useState(false)
 
   useEffect(() => {
@@ -118,25 +116,6 @@ function CvPinStatusContent() {
   // A record created by the real compliance flow must never be overwritten
   // or deleted from here — the endpoints refuse it, so disable the toggle.
   const hasRealComplianceRecord = state.hasComplianceRecord && !testingApproved
-
-  async function handleResend() {
-    setResending(true)
-    try {
-      const { error } = await resendCvPin(campaignId)
-      if (error) {
-        showToast(error)
-      } else {
-        setResent(true)
-        showToast('CV PIN resent')
-      }
-    } catch (error) {
-      // A rejection here never reached gp-api (deploy skew, expired session),
-      // so this catch is the failure's only trace anywhere — report it.
-      Sentry.captureException(error)
-      showToast(describeActionFailure(error, 'Failed to resend CV PIN'))
-    }
-    setResending(false)
-  }
 
   async function handleApprovalToggle(checked: boolean) {
     setSavingApproval(true)
@@ -247,14 +226,10 @@ function CvPinStatusContent() {
         requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
         hideWhenUnauthorized
       >
-        <Button
-          variant="outline"
-          onClick={handleResend}
-          disabled={resending || resent}
-        >
-          <HiOutlineMail className="w-4 h-4" />
-          {resent ? 'PIN resent' : resending ? 'Resending...' : 'Resend CV PIN'}
-        </Button>
+        <ResendCvPinButton
+          campaignId={campaignId}
+          icon={<HiOutlineMail className="w-4 h-4" />}
+        />
       </ProtectedContent>
       {committeeNameRow}
     </Flex>

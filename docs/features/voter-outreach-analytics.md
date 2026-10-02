@@ -9,7 +9,7 @@ candidate do outreach, through what, and to how many people."
 Three per-channel completion events (`Outreach - Door Knocking: Complete`,
 `Outreach - Phone Banking: Complete`, `Outreach - Social Media: Complete`) went
 dark in late August when the v2 outreach hub replaced the surfaces that fired
-them, and `ce:Outreach - All` still unions them. It was worse than that:
+them, and `ce:Outreach - All` unioned them. It was worse than that:
 when the legacy `TaskFlow` tree was deleted, `Outreach - Campaign
 Completed` was left firing from exactly two places — a native door-knocking
 walk session and the campaign-manager log-progress modal. **Text, robocall,
@@ -31,10 +31,16 @@ That difference rides on the event as `fanout`, so a chart can aggregate
 correctly without embedding a channel list:
 
 - **"did outreach"** = `Outreach - Campaign Completed` where
-  `fanout = one-to-many`, OR a `Door Knocking - Door Logged` /
-  `Outreach - Phone Banking: Call Logged`.
+  `fanout = one-to-many`, OR an `Outreach - Door Knocking Door Logged` /
+  `Outreach - Phone Banking Call Logged`. A chart reaching back before
+  2026-09-29 must also accept `fanout = (none)`: no earlier row carries it, so
+  `one-to-many` alone drops all pre-cutover history. `ce:Outreach - All`
+  already does this.
 - **"voters reached"** = SUM(`recipientCount`) where `fanout = one-to-many`,
-  plus COUNT of the two contact events.
+  plus COUNT of the two contact events. This measure starts at 2026-09-29.
+  Earlier rows carry no `fanout`, and every completion before then was a
+  number the candidate typed in (see Migration), so accepting `(none)` here
+  would mix self-reported counts into a measured total.
 
 The `fanout = one-to-many` filter is what stops the two one-to-one channels
 being counted twice — once per finished list and again per contact.
@@ -111,16 +117,18 @@ rename below is therefore recorded as a supersession rather than a rename, and
 a chart spanning the cutover has to union the old name with the new, unless
 the pair has been joined with Govern's merge (UI only):
 
-| Old name                                               | New name                                         | History                                               |
-| ------------------------------------------------------ | ------------------------------------------------ | ----------------------------------------------------- |
-| `Voter Outreach - Campaign Completed`                  | `Outreach - Campaign Completed`                  | live since 2025-06-26; merged 2026-09-30              |
-| `Voter Outreach - Phone Banking Call List Created`     | `Outreach - Phone Banking Call List Created`     | live since 2026-08-27                                 |
-| `Voter Outreach - Phone Banking Call Sheet Downloaded` | `Outreach - Phone Banking Call Sheet Downloaded` | live since 2026-08-29                                 |
-| `Outreach - Phone Banking: Call Logged`                | `Outreach - Phone Banking Call Logged`           | 365 events from 2026-09-01 stay on the old name       |
-| `Outreach - Phone Banking: Contact Viewed`             | `Outreach - Phone Banking Contact Viewed`        | 1,675 events; merged 2026-09-30                       |
-| `Door Knocking - Door Logged`                          | `Outreach - Door Knocking Door Logged`           | 300 events from 2026-08-19 stay on the old name       |
-| the rest of `Door Knocking - *`                        | `Outreach - Door Knocking <Thing>`               | low volume; stays on the old names                    |
-| `Dashboard - Campaign Task Status Updated`             | `Dashboard - Campaign Task Completed`            | already dark since 2026-09-01, so nothing is stranded |
+| Old name                                                                                     | New name                                         | History                                                                                              |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `Voter Outreach - Campaign Completed`                                                        | `Outreach - Campaign Completed`                  | live since 2025-06-26; merged 2026-09-30                                                             |
+| `Voter Outreach - Phone Banking Call List Created`                                           | `Outreach - Phone Banking Call List Created`     | live since 2026-08-27; merged 2026-09-30                                                             |
+| `Voter Outreach - Phone Banking Call Sheet Downloaded`                                       | `Outreach - Phone Banking Call Sheet Downloaded` | live since 2026-08-29; merged 2026-09-30                                                             |
+| `Outreach - Phone Banking: Call Logged`                                                      | `Outreach - Phone Banking Call Logged`           | live since 2026-09-01; merged 2026-09-30                                                             |
+| `Outreach - Phone Banking: Contact Viewed`                                                   | `Outreach - Phone Banking Contact Viewed`        | live since 2026-08-29; merged 2026-09-30                                                             |
+| `Door Knocking - Door Logged`                                                                | `Outreach - Door Knocking Door Logged`           | live since 2026-08-19; merged 2026-09-30                                                             |
+| `Door Knocking - List Created`, `Session Started`, `Session Abandoned`                       | `Outreach - Door Knocking <Thing>`               | merged 2026-09-30                                                                                    |
+| `Door Knocking - Route Build Failed`                                                         | `Outreach - Door Knocking Route Build Failed`    | merged 2026-10-01                                                                                    |
+| `Door Knocking - Session Completed`, `List Deleted`, `List Edited`, `Not A Voter Reason Set` | `Outreach - Door Knocking <Thing>`               | 33 events in all; left unmerged by decision, so a chart spanning the cutover unions both names       |
+| `Dashboard - Campaign Task Status Updated`                                                   | `Dashboard - Campaign Task Completed`            | dark since 2026-09-01; merged 2026-09-30, so the series before the cutover also holds un-completions |
 
 Every old name above now carries its `supersession:` line in Amplitude, so a
 chart author lands on where the series continues. The eleven that were
@@ -251,7 +259,7 @@ diagnostics: the door-knocking one carries route geometry (`stops`, `loop`,
 (`listSize`, `filtersApplied`). Neither is comparable across channels; this one
 is, which is what makes a created → contacted → completed funnel countable.
 
-### `Door Knocking - Door Logged` / `Outreach - Phone Banking: Call Logged`
+### `Outreach - Door Knocking Door Logged` / `Outreach - Phone Banking Call Logged`
 
 One door, one call. Both keep every property they had and gain `medium`,
 `fanout` and the parent `listId`. On a one-to-one channel these are the
@@ -262,10 +270,10 @@ per-voter completion signal; the campaign event fires once for the whole list.
 The per-stage funnel, now fired by every channel flow: phone banking and door
 knocking joined text, robocall and social. Both events add two properties.
 
-| Property | Values                                                                                                           |
-| -------- | ---------------------------------------------------------------------------------------------------------------- |
+| Property | Values                                                                                                         |
+| -------- | -------------------------------------------------------------------------------------------------------------- |
 | `source` | `outreach_page`, `draft`, `campaign_plan`, `campaign_manager`, `voter_data`, `door_knocking_page`, `deep_link` |
-| `locked` | `true` when this attempt started behind the Pro wall, `false` when it started on an unlocked channel            |
+| `locked` | `true` when this attempt started behind the Pro wall, `false` when it started on an unlocked channel           |
 
 `source` is `OutreachFlowSource` in `outreachAnalytics.ts`, worked out once
 per open by whatever opened the flow: the hub for its tiles, draft rows and
@@ -312,17 +320,19 @@ gone and the Amplitude events carry `not in use` with their supersession.
 `ce:Voter Outreach - All`, which costs nothing: a custom event is a query-time
 construct and charts follow its id.
 
-It is **deliberately not yet redefined** — the definition it becomes depends on
-`fanout`, which no row carries until this ships, and changing it twice would
-put two discontinuities into that series instead of one. Its description
-records the target: three members, each unioned with the name its history sits
-on.
+It was redefined on 2026-09-30, after the old names were merged into the new
+ones:
 
-1. `Outreach - Campaign Completed` WHERE `fanout = one-to-many`, plus
-   `Voter Outreach - Campaign Completed`
-2. `Outreach - Door Knocking Door Logged`, plus `Door Knocking - Door Logged`
-3. `Outreach - Phone Banking Call Logged`, plus
-   `Outreach - Phone Banking: Call Logged`
+1. `Outreach - Campaign Completed` WHERE `fanout` is `(none)` or `one-to-many`
+2. `Outreach - Door Knocking Door Logged`
+3. `Outreach - Phone Banking Call Logged`
+
+The filter keeps `(none)` because the merges bring every pre-cutover row in
+through these members, and none of those rows carry `fanout`. Filtering on
+`fanout = one-to-many` alone would drop all history before 2026-09-29. The three
+per-channel `: Complete` members were removed; they overlapped with
+`Campaign Completed`, so event totals before September read lower than under the
+old definition.
 
 ## Migration
 
@@ -356,8 +366,7 @@ defensively but have never been fired on this event. Any chart or cohort
 filtering `medium = events` has to accept both spellings across the cutover.
 
 There is no backfill. `fanout` is absent on every pre-cutover row, which is why
-`ce:Outreach - All` cannot take its `fanout = one-to-many` filter until
-this ships.
+`ce:Outreach - All` keeps `(none)` in its `fanout` filter.
 
 One property is dropped: `price: 0` on the manual log — a hardcoded zero
 rather than a measurement, so it is now absent where no cost exists and an
@@ -383,26 +392,32 @@ block carries the same date.
 
 ## Monitoring
 
-Not yet built. What to create now that the new events are firing:
+A volume anomaly monitor watches `Outreach - Campaign Completed` **grouped by
+`medium`** (Amplitude monitor `zxdr3o2w` on chart `xdxrdhf6`, created
+2026-10-01): automatic anomaly detection at 99%, drops and spikes, checked
+daily. The grouping is the point: one channel dropping to zero alerts instead
+of hiding inside a flat total. This is the check that would have caught the
+August break in a day rather than a month. The chart starts at 2026-09-30, so
+the baseline only sees post-cutover rows.
 
-- A volume anomaly monitor on `Outreach - Campaign Completed` **grouped
-  by `medium`**, so one channel dropping to zero alerts instead of hiding
-  inside a flat total. This is the check that would have caught the August
-  break in a day rather than a month.
+Not built:
+
 - Volume monitors on `Outreach - Door Knocking Door Logged` and
-  `Outreach - Phone Banking Call Logged`.
+  `Outreach - Phone Banking Call Logged`. Optional; add them if the campaign
+  monitor proves useful.
 - A CI check that fails a PR removing an event literal a live Amplitude custom
   event, cohort or saved chart depends on.
 
 ## Still open
 
 - **`Campaign Plan - Weekly Tasks Digest`** lost roughly two thirds of its
-  weekly audience after 2026-08-31. No change to
-  `packages/gp-api/src/campaigns/tasks/` explains it in that window — the only
-  commits are a legacy-backend teardown (ENG-11015) and a test-fixtures API —
-  so the likely cause is an audience change upstream (the digest mirrors the
-  tracker's active-week set, which only exists for the `campaign-story`
-  cohort). Needs its own look.
+  weekly audience after 2026-08-31. Diagnosed, not an instrumentation break:
+  the digest reads only `campaign_tracker_tasks` (the legacy `campaign_task`
+  digest was torn down in ENG-11015), and tracker rows only existed for a
+  campaign that had completed a Campaign Story. Removing that story gate from
+  plan generation and tracker bootstrap returns the rest of the population to
+  the cohort, so volume should recover as those campaigns generate plans.
+  Watch the weekly count for the recovery rather than treating it as fixed.
 
 ## Related
 

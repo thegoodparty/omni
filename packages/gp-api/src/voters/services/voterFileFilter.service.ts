@@ -8,11 +8,13 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.util'
 import {
+  Organization,
   OutreachStatus,
   OutreachType,
   Prisma,
   VoterFileFilter,
 } from '../../generated/prisma'
+import { savedFilterBlockedForElectedOffice } from '@/contacts/utils/voterFileFilter.utils'
 import { VoterFileFilterGeoService } from './voterFileFilterGeo.service'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
@@ -223,6 +225,18 @@ export class VoterFileFilterService extends createPrismaBase(
       orderBy: { name: 'asc' },
       include: ACTIVITY_CONDITIONS_INCLUDE,
     })
+  }
+
+  // The saved lists a surface may offer this org. An elected-office org can't
+  // resolve Win-only dimensions (party, ethnicity, recommended, contacts-made)
+  // — the detail/count/download paths 400 on them — so a legacy list carrying
+  // one is dropped rather than shown as a row that breaks the moment it opens.
+  async findUsableByOrganizationSlug(
+    organization: Organization,
+  ): Promise<VoterFileFilterWithConditions[]> {
+    const filters = await this.findByOrganizationSlug(organization.slug)
+    if (!organization.slug.startsWith('eo-')) return filters
+    return filters.filter((f) => !savedFilterBlockedForElectedOffice(f))
   }
 
   // Most-recently-saved lists first, capped at `limit` — the overlap-count

@@ -25,7 +25,11 @@ runs and for the stage-2 code investigation, which is agent work the schedule ca
   alignment check) disables itself for the run, and the digest says so with a red "OKR
   dormancy checks degraded" line rather than failing. A laptop run without the token
   now reads the sem files through the reviewer's own `gh` auth first, so it degrades
-  only when that also has no access.
+  only when that also has no access. `sem_anchors.py refresh-vendored` writes a committed
+  copy to `instrumentation_data/sem/` on every Monday/Thursday run; the pre-merge
+  **Analytics guard** (`governance_guard.py`, DATA-2432) reads only that copy, as it stands
+  at the PR's merge base, never the network, so a PR check stays fast and a PR cannot edit
+  away the leg it breaks.
 - **Tools**: `uv`, `git`, `ripgrep` (`rg`), a clone of the omni monorepo (this package lives in it).
 - **Setup**: `cd scripts/python && uv sync`.
 - **Code axis**: `scripts/python/instrumentation_data/amplitude_event_provenance.csv` must be
@@ -57,15 +61,15 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | deprecating | set | last fire on/before `retired_date`, within 30d holding window | informational (fresh retirees land here even while pre-retirement traffic still sits in the 30d count) |
 | orphaned_firing | set | last fire *after* `retired_date` (+ small grace for deploy/pipeline lag) | highest severity, escalate |
 | retired | set | quiet 30d+ | none |
-| code_unknown | no provenance row | any | auto-tracked or brand-new; anomaly-watched only |
-| instrumented_never_observed | present, not retired | never in catalog | possible broken instrumentation; flag |
+| code_unknown | no provenance row, or a blank one | any | auto-tracked, fired from outside this repo, or never built; anomaly-watched only |
+| instrumented_never_observed | found in code, not retired | never in catalog | possible broken instrumentation; flag once 30 days past `instrumented_date` (`NEVER_OBSERVED_GRACE_DAYS`). Before that it is counted in the digest as "too new to judge", not flagged. An undated row, or an elevated event (watchlist, onboarding, activation, compliance), gets no grace |
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); anomaly-watched, never a status flag |
 
 Severity ranks (0 = loudest): 0 OKR anchor dormant (latched), see DATA-2421, or counter
 blind spot — zero call sites but firing normally, a tooling alert, see DATA-2106 · 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
 removed, name constant survives (DATA-2046) · 3 anomaly drop on an active elevated event · 4
 anomaly drop on any active/system event · 5 intent divergence · 6 dormant elevated · 7
-instrumented-never-observed · 8 dormant (collapsed to a single tail line in the digest).
+instrumented-never-observed, past its 30-day grace · 8 dormant (collapsed to a single tail line in the digest).
 
 ## Stage 1 — run the monitor
 
@@ -125,7 +129,8 @@ not a silent break.
 
 This flag's propose-and-confirm flow (never auto-decide):
 
-1. Confirm in git. The row's `call_site_retired_date` already names the day; the CSV's
+1. Confirm in git. The row's `call_site_retired_date` already names the day and
+   `call_site_retired_pr` the PR (the event health console pre-fills it as the proof); the CSV's
    walk is wrap-tolerant, so trust it over your own search. To read the removing diff,
    pickaxe the **leaf key** (`git log -S'CheckGender' -- packages/gp-webapp`) rather than
    the dotted key-path: Prettier wraps a long path across lines, so `-S'EVENTS.<KeyPath>'`
