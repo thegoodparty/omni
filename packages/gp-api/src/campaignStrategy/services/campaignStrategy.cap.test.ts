@@ -1230,16 +1230,67 @@ describe('CampaignStrategyService', () => {
       expect(trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
     })
 
-    it('does nothing when the plan already generated with the story', async () => {
+    // The cheap exit that makes firing on every story write affordable: the
+    // story page saves each field separately, so one edit arrives as several
+    // messages that all hash alike once it has settled.
+    it('does nothing when the plan was generated from this exact story', async () => {
       storyState.read.mockResolvedValue(STORY)
       prisma.campaignStrategy.findFirst.mockResolvedValue(
-        planRow({ generatedWithStory: true }),
+        planRow({
+          storyFingerprint: fingerprintStory(STORY),
+          generatedWithStory: true,
+        }),
       )
 
       await service.regenerateOnStoryComplete(99)
 
+      // Returns before even loading the campaign, which is what proves the
+      // fingerprint guard fired rather than something downstream throwing.
+      expect(prisma.campaign.findUnique).not.toHaveBeenCalled()
       expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
       expect(trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
+    })
+
+    // A pre-fingerprint row built from this story: the content is already
+    // right, so the write path must adopt the hash rather than pay to rebuild
+    // what it has. Everything downstream of align is reached, which is why
+    // the assertion is on dispatch rather than on an early return.
+    it('adopts the fingerprint without regenerating a legacy story-built plan', async () => {
+      storyState.read.mockResolvedValue(STORY)
+      prisma.campaignStrategy.findFirst.mockResolvedValue(
+        planRow({
+          storyFingerprint: null,
+          generatedWithStory: true,
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaign.findUnique.mockResolvedValue(campaign())
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          storyFingerprint: null,
+          generatedWithStory: true,
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaignStrategy.updateMany.mockResolvedValue({ count: 1 })
+      prisma.campaignStrategy.findUnique.mockResolvedValue({
+        opportunities: [],
+        challenges: [],
+        opponents: [],
+      })
+
+      await service.regenerateOnStoryComplete(99)
+
+      expect(prisma.campaignStrategy.updateMany).toHaveBeenCalledWith({
+        where: { id: 42, storyFingerprint: null },
+        data: { storyFingerprint: fingerprintStory(STORY) },
+      })
+      expect(
+        prisma.campaignStrategyOpportunity.deleteMany,
+      ).not.toHaveBeenCalled()
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     })
 
     it('regenerates the plan and refreshes the tracker tasks', async () => {

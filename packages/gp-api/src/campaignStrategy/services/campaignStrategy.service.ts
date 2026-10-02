@@ -918,12 +918,17 @@ export class CampaignStrategyService extends createPrismaBase(
         where: { id: plan.id, storyFingerprint: null },
         data: { storyFingerprint: fingerprint },
       })
+      // The loser yields, like every other claim here. Adoption dispatches
+      // nothing itself, which is what made `false` look right, but the caller
+      // dispatches whatever the sections still need — so on a legacy plan
+      // holding a stuck or failed section, winner and loser would both reach
+      // attemptOpposition/attemptOpportunities and each burn a slot.
       return {
         plan:
           count === 0
             ? await this.model.findUniqueOrThrow({ where: { id: plan.id } })
             : { ...plan, storyFingerprint: fingerprint },
-        lostClaim: false,
+        lostClaim: count === 0,
       }
     }
 
