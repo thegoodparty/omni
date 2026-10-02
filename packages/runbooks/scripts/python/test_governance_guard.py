@@ -624,3 +624,81 @@ def test_snapshot_carries_route_texts_and_the_product_map():
     }))
     assert set(snap.route_texts) == {"packages/gp-webapp/app/dashboard/page.tsx"}
     assert "Profile" in snap.product_map
+
+
+SURFACE_REG = """export const EVENTS = {
+  Office: {
+    Searched: 'Onboarding - Candidate Office Searched',
+  },
+}
+"""
+APPD = "packages/gp-webapp/app/"
+OFFICE_STEP = APPD + "onboarding/step/components/OfficeStep.tsx"
+LIVE_ONBOARDING = {
+    APPD + "onboarding/step/page.tsx": "import OfficeStep from './components/OfficeStep'\nexport default function P() { return <OfficeStep/> }",
+    OFFICE_STEP: "export default function OfficeStep() { trackEvent(EVENTS.Office.Searched) }",
+    APPD + "dashboard/profile/page.tsx": "import OfficeStep from 'app/onboarding/step/components/OfficeStep'\nexport default function P() { return <OfficeStep/> }",
+}
+REDIRECTED = dict(LIVE_ONBOARDING)
+REDIRECTED[APPD + "onboarding/step/page.tsx"] = "import { redirect } from 'next/navigation'\nexport default async function P(): Promise<never> {\n  redirect('/x')\n}\n"
+GOOD_ROW = '  - {event: "Onboarding - Candidate Office Searched", surface: "step", display_name: "Profile - Candidate Office Searched", reason: "moved to profile", date: "2026-10-02"}\n'
+
+
+def _surface_report(base_files, head_files, head_watchlist=WATCHLIST_YAML):
+    base = gg.build_snapshot(tree(base_files, web=SURFACE_REG))
+    head = gg.build_snapshot(tree(head_files, web=SURFACE_REG, watchlist=head_watchlist))
+    return gg.evaluate(base, head, {"m": [sa.Leg("Some - Okr")]}, "2026-10-01", {})
+
+
+def test_redirecting_the_old_page_warns_surface_moved():
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED)
+    hits = [f for f in report.warns if f.rule == "surface_moved"]
+    assert [f.event for f in hits] == ["Onboarding - Candidate Office Searched"]
+    assert "do not rename" in hits[0].fix.lower()
+    assert not report.blocks
+
+
+def test_mounting_on_one_more_page_does_not_warn():
+    base = {k: v for k, v in LIVE_ONBOARDING.items() if "dashboard/profile" not in k}
+    report = _surface_report(base, LIVE_ONBOARDING)
+    assert not [f for f in report.warns if f.rule == "surface_moved"]
+
+
+def test_reviving_a_dead_component_elsewhere_warns():
+    base = {k: v for k, v in REDIRECTED.items() if "dashboard/profile" not in k}
+    report = _surface_report(base, REDIRECTED)
+    assert [f.event for f in report.warns if f.rule == "surface_moved"] == ["Onboarding - Candidate Office Searched"]
+
+
+def test_flow_prefix_events_are_skipped():
+    watch = WATCHLIST_YAML + "flow_prefixes:\n  - Onboarding\n"
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch)
+    assert not [f for f in report.warns if f.rule == "surface_moved"]
+
+
+def test_a_relabel_row_added_in_the_change_clears_the_warning():
+    watch = "events: []\nbehaviors: []\ndismissed: []\nintents:\nrelabels:\n" + GOOD_ROW.replace('"step"', '"profile"')
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch)
+    assert not [f for f in report.warns if f.rule == "surface_moved"]
+    assert [f.rule for f in report.cleared] == ["surface_moved"]
+
+
+def test_a_relabel_row_with_an_unknown_surface_is_invalid():
+    watch = "events: []\nbehaviors: []\ndismissed: []\nintents:\nrelabels:\n" + GOOD_ROW.replace('"step"', '"nowhere-at-all"')
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch)
+    rules = sorted(f.rule for f in report.warns)
+    assert "invalid_relabel" in rules
+    assert "surface_moved" in rules
+
+
+def test_a_relabel_row_with_a_placeholder_is_invalid():
+    watch = ("events: []\nbehaviors: []\ndismissed: []\nintents:\nrelabels:\n"
+             + GOOD_ROW.replace('"step"', '"profile"').replace('"moved to profile"', '"<why>"'))
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch)
+    assert any(f.rule == "invalid_relabel" for f in report.warns)
+
+
+def test_examined_counts_traced_events():
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED)
+    assert report.examined["surface_traced"] == 1
+    assert "traced 1 webapp events" in gg.render_markdown(report)

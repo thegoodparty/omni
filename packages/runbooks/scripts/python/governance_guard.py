@@ -564,6 +564,100 @@ def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
     return remaining, cleared
 
 
+def _areas_text(reach: er.Reach) -> str:
+    return ", ".join(a.label for a in reach.areas) or "nowhere live"
+
+
+def _relabel_fix(event: str, after: er.Reach) -> str:
+    target = sorted(after.areas[0].names)[0] if len(after.areas) == 1 else "<area-slug>"
+    label = after.areas[0].label if len(after.areas) == 1 else "<Area>"
+    rest = event.split(" - ", 1)[1] if " - " in event else event
+    return (
+        "Relabel, do not rename: the raw event name stays, so charts and OKR legs keep "
+        "working. Add a row to relabels: in packages/runbooks/scripts/python/"
+        f"monitored_events.yaml:\n```yaml\n  - {{event: \"{event}\", surface: \"{target}\", "
+        f"display_name: \"{label} - {rest}\", reason: \"<why>\", date: \"YYYY-MM-DD\"}}\n```\n"
+        "The surface is the nav label, or the page title for a page not in the nav, in "
+        "lower-kebab. Triage writes it to Amplitude Govern after merge. This warning never "
+        "blocks."
+    )
+
+
+def surface_findings(base: Snapshot, head: Snapshot, b_idx: er.ReachIndex,
+                     h_idx: er.ReachIndex) -> list[Finding]:
+    """Warn when a change stops an event firing from an area it fired from, or brings a
+    dead one back somewhere new. A component mounted on one more page does not warn: the
+    label may still be right, and the weekly detector reads labels, which this cannot."""
+    flows = set(head.watchlist.get("flow_prefixes") or [])
+    out = []
+    for name in sorted(set(base.registries["web"]) & set(head.registries["web"])):
+        if " - " in name and name.split(" - ", 1)[0].strip() in flows:
+            continue
+        before, after = b_idx.reach(name), h_idx.reach(name)
+        if not before or not after or not after.areas:
+            continue
+        if before.dashboard_wide and after.dashboard_wide:
+            continue
+        dropped = before.area_keys - after.area_keys
+        revived = not before.areas
+        if dropped or revived:
+            out.append(Finding(
+                "surface_moved", "warn", name,
+                f"It fired from {_areas_text(before)}; after this change it fires only from "
+                f"{_areas_text(after)}.",
+                _relabel_fix(name, after)))
+    return out
+
+
+_RELABEL_REQUIRED = ("event", "surface", "display_name", "reason", "date")
+
+
+def relabel_problems(row: Mapping, head: Snapshot, h_idx: er.ReachIndex) -> list[str]:
+    if not isinstance(row, Mapping):
+        return [f"relabel row is not a mapping: {row!r}"]
+    event = row.get("event")
+    problems = [f"relabel row for {event!r} is missing {k}"
+                for k in _RELABEL_REQUIRED if not str(row.get(k) or "").strip()]
+    for k in _RELABEL_REQUIRED:
+        value = str(row.get(k) or "")
+        if "<" in value or value == "YYYY-MM-DD":
+            problems.append(f"relabel row for {event!r} still has the placeholder {k}: {value!r}")
+    if str(row.get("date") or "").strip() and "<" not in str(row["date"]) \
+            and str(row["date"]) != "YYYY-MM-DD" and not _iso_date(row["date"]):
+        problems.append(f"relabel row for {event!r} has date {row['date']!r}; use YYYY-MM-DD")
+    if event and not head.has_key(str(event)):
+        problems.append(f"relabel row names {event!r}, which is not in the EVENTS registry")
+    surface = str(row.get("surface") or "")
+    known = {n for a in h_idx.areas.all_areas() for n in a.names}
+    if surface and "<" not in surface and surface not in known:
+        problems.append(f"relabel row for {event!r} has surface {surface!r}, which is not a "
+                        "nav label or page title slug this repo has")
+    return problems
+
+
+def _relabel_rows(snap: Snapshot) -> list[Mapping]:
+    return [r for r in snap.watchlist.get("relabels") or [] if isinstance(r, Mapping)]
+
+
+def apply_relabels(findings: list[Finding], base: Snapshot, head: Snapshot,
+                   h_idx: er.ReachIndex) -> tuple[list[Finding], list[Finding]]:
+    on_base = {(str(r.get("event")), str(r.get("surface"))) for r in _relabel_rows(base)}
+    added = [r for r in _relabel_rows(head) if (str(r.get("event")), str(r.get("surface"))) not in on_base]
+    invalid: list[Finding] = []
+    valid_events: set[str] = set()
+    for row in added:
+        problems = relabel_problems(row, head, h_idx)
+        if problems:
+            invalid.extend(Finding("invalid_relabel", "warn", str(row.get("event")), p,
+                                   "Fix the row in monitored_events.yaml relabels:.") for p in problems)
+        else:
+            valid_events.add(str(row["event"]))
+    remaining, cleared = [], []
+    for f in findings:
+        (cleared if f.rule == "surface_moved" and f.event in valid_events else remaining).append(f)
+    return remaining + invalid, cleared
+
+
 @dataclass
 class Report:
     blocks: list[Finding]
@@ -577,10 +671,14 @@ def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.L
     event_legs, path_legs = watched_legs(anchors)
     if not event_legs and not path_legs:
         raise GuardError("no watched OKR legs loaded from instrumentation_data/sem; refusing to report a pass")
+    b_idx, h_idx = er.ReachIndex(base, _resolve), er.ReachIndex(head, _resolve)
     found = (okr_findings(base, head, event_legs, path_legs, renames) + dead_listings(base, head)
              + stale_surface_paths(base, head) + watchlist_findings(base, head)
-             + hubspot_warnings(base, head) + new_key_warnings(base, head))
+             + hubspot_warnings(base, head) + new_key_warnings(base, head)
+             + surface_findings(base, head, b_idx, h_idx))
+    found, relabel_cleared = apply_relabels(found, base, head, h_idx)
     remaining, cleared = apply_intents(found, base, head)
+    cleared = cleared + relabel_cleared
     # A path leg whose route matches no page is silently unguarded by okr_findings (which only
     # reacts to a route disappearing between base and head), so surface it explicitly: a
     # disabled check must not look like a passing one.
@@ -592,7 +690,8 @@ def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.L
         examined={"events_compared": len(base.registered() | head.registered()),
                   "okr_legs": len(event_legs) + len(path_legs),
                   "files_scanned": len(head.files), "sem_copy_date": sem_date,
-                  "unmatched_path_legs": unmatched},
+                  "unmatched_path_legs": unmatched,
+                  "surface_traced": len(h_idx.reach_all())},
     )
 
 
@@ -608,6 +707,8 @@ _TITLES = {
     "hubspot_event_removed": "HubSpot event removed",
     "naming": "Event name",
     "no_provenance_row": "No provenance row",
+    "surface_moved": "Event now fires from a different place",
+    "invalid_relabel": "Relabel row is not valid",
 }
 
 
@@ -640,10 +741,12 @@ def render_markdown(report: Report, limit: int | None = None) -> str:
         lines += [f"**{heading}**", ""] + _grouped(items)
     if report.cleared:
         lines += ["**Cleared by an intent row in this change**", ""]
-        lines += [f"- `{f.event}` ({', '.join(f.metrics) or 'not_a_change'})" for f in report.cleared] + [""]
+        lines += [f"- `{f.event}` ({', '.join(f.metrics) or ('relabel' if f.rule == 'surface_moved' else 'not_a_change')})"
+                  for f in report.cleared] + [""]
     e = report.examined
     footer = [f"_Examined {e['events_compared']} events, {e['okr_legs']} OKR legs, "
-              f"{e['files_scanned']} files. OKR definitions as of {e['sem_copy_date']}._"]
+              f"{e['files_scanned']} files; traced {e.get('surface_traced', 0)} webapp events to "
+              f"their pages. OKR definitions as of {e['sem_copy_date']}._"]
     if e["unmatched_path_legs"]:
         footer.append("_Path legs with no matching page (not guarded): "
                       f"{', '.join(e['unmatched_path_legs'])}._")
