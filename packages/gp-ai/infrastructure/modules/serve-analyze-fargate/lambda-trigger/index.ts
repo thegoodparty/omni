@@ -19,6 +19,9 @@ interface PipelineRequest {
   skipClustering?: boolean
   apiUrl?: string
   environment?: string
+  sourceType?: string
+  sourceId?: string
+  topN?: number
 }
 
 interface PipelineResponse {
@@ -95,6 +98,17 @@ async function processPipeline(
 
   const environmentOverrides = [
     { Name: 'CAMPAIGN_NAME', Value: campaign },
+    // Only when the body carries them, so a poll's task gets exactly the
+    // overrides it always had and the pipeline defaults whatever is absent.
+    ...(request.sourceType
+      ? [{ Name: 'SOURCE_TYPE', Value: request.sourceType }]
+      : []),
+    ...(request.sourceId
+      ? [{ Name: 'SOURCE_ID', Value: request.sourceId }]
+      : []),
+    ...(request.topN
+      ? [{ Name: 'PUBLISH_TOP_N', Value: String(request.topN) }]
+      : []),
     { Name: 'S3_INPUT_PATH', Value: s3InputPath },
     {
       Name: 'S3_OUTPUT_PATH',

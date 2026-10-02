@@ -419,3 +419,103 @@ class TestValidation:
         body = json.loads(s3_calls[0][1]["Body"])
         assert len(body) == 1, "Should upload real JSON, not empty array fallback"
         assert body[0]["atomicId"] == "a1"
+
+
+class TestFeedbackCompletion:
+    @pytest.mark.asyncio
+    async def test_event_matches_the_feedback_contract_field_for_field(
+        self, publisher: SQSEventPublisher, call_log: list[tuple[str, dict[str, Any]]]
+    ) -> None:
+        records = [
+            _make_record("memo-a", "run-1"),
+            _make_record("memo-b", "run-1"),
+            _make_record("memo-c", "run-1", cluster_id=2, theme="Water"),
+        ]
+        await publisher.publish_feedback_completion(
+            source_type="constituent_feedback", source_id="run-1", unified_records=records
+        )
+
+        sqs_calls = [c for c in call_log if c[0] == "sqs_send_message"]
+        assert len(sqs_calls) == 1
+        body = json.loads(sqs_calls[0][1]["MessageBody"])
+        assert body == {
+            "type": "feedbackSynthesisComplete",
+            "data": {
+                "sourceType": "constituent_feedback",
+                "sourceId": "run-1",
+                "totalResponses": 3,
+                "responsesLocation": None,
+                "issues": [
+                    {
+                        "rank": 1,
+                        "theme": "Roads",
+                        "summary": "Summary for Roads",
+                        "analysis": "Analysis for Roads",
+                        "responseCount": 2,
+                        "quotes": [{"quote": "Fix the roads", "respondent_id": "memo-a"}],
+                        "memberIds": ["memo-a", "memo-b"],
+                    },
+                    {
+                        "rank": 2,
+                        "theme": "Water",
+                        "summary": "Summary for Water",
+                        "analysis": "Analysis for Water",
+                        "responseCount": 1,
+                        "quotes": [{"quote": "Fix the roads", "respondent_id": "memo-c"}],
+                        "memberIds": ["memo-c"],
+                    },
+                ],
+            },
+        }
+
+    @pytest.mark.asyncio
+    async def test_message_group_is_keyed_by_the_source_id(
+        self, publisher: SQSEventPublisher, call_log: list[tuple[str, dict[str, Any]]]
+    ) -> None:
+        await publisher.publish_feedback_completion(
+            source_type="constituent_feedback", source_id="run-1", unified_records=[_make_record("memo-a", "run-1")]
+        )
+
+        send = next(c[1] for c in call_log if c[0] == "sqs_send_message")
+        assert send["QueueUrl"] == "https://sqs.us-west-2.amazonaws.com/123/test-queue.fifo"
+        assert send["MessageGroupId"] == "feedback-run-1"
+        uuid.UUID(send["MessageDeduplicationId"])
+
+    @pytest.mark.asyncio
+    async def test_member_ids_list_every_respondent_not_only_the_quoted(
+        self, publisher: SQSEventPublisher, call_log: list[tuple[str, dict[str, Any]]]
+    ) -> None:
+        records = [_make_record(f"memo-{i}", "run-1") for i in range(4)]
+
+        await publisher.publish_feedback_completion(
+            source_type="constituent_feedback", source_id="run-1", unified_records=records
+        )
+
+        body = json.loads(next(c[1]["MessageBody"] for c in call_log if c[0] == "sqs_send_message"))
+        issue = body["data"]["issues"][0]
+        assert [quote["respondent_id"] for quote in issue["quotes"]] == ["memo-0"]
+        assert issue["memberIds"] == ["memo-0", "memo-1", "memo-2", "memo-3"]
+
+    @pytest.mark.asyncio
+    async def test_no_response_rows_are_uploaded(
+        self, publisher: SQSEventPublisher, call_log: list[tuple[str, dict[str, Any]]]
+    ) -> None:
+        await publisher.publish_feedback_completion(
+            source_type="constituent_feedback", source_id="run-1", unified_records=[_make_record("memo-a", "run-1")]
+        )
+
+        assert [c for c in call_log if c[0] == "s3_put_object"] == []
+
+    @pytest.mark.asyncio
+    async def test_saves_the_event_locally(self, tmp_path: Path, mock_s3: MagicMock) -> None:
+        pub = SQSEventPublisher(_make_config(tmp_path, publish_to_sqs=False), s3_client=mock_s3)
+
+        await pub.publish_feedback_completion(
+            source_type="constituent_feedback", source_id="run-1", unified_records=[_make_record("memo-a", "run-1")]
+        )
+
+        event_files = list((tmp_path / "output" / "events").glob("events_*.json"))
+        assert len(event_files) == 1
+        events = json.loads(event_files[0].read_text())
+        assert [event["type"] for event in events] == ["feedbackSynthesisComplete"]
+        assert events[0]["data"]["sourceId"] == "run-1"
