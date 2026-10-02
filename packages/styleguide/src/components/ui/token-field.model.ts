@@ -31,8 +31,14 @@ export interface TokenSpec {
 // delivered exactly as it reads.
 export interface ProtectedSpec {
   id: string
-  // Matched and locked verbatim, at its first occurrence only.
+  // Matched and locked verbatim, at its first occurrence only, unless
+  // `start` says where.
   text: string
+  // Where in the value the locked copy starts, when the same words can
+  // appear more than once and the first copy is not the one to lock (a
+  // body quoting the footer it closes on). Ignored when the text is not
+  // there, which falls back to the first occurrence.
+  start?: number
   // Why it is locked, for the caller to surface on a blocked edit. The field
   // never renders it, so no copy lives in the styleguide.
   reason: string
@@ -128,7 +134,8 @@ const lineContent = (
 }
 
 // One paragraph per line. Tokens are recognised wherever they appear; each
-// protected span is anchored to its FIRST occurrence only, because the
+// protected span is anchored at its `start` when the caller gives one and
+// the text is there, otherwise to its FIRST occurrence, because the
 // validators it mirrors need one match anywhere. A second copy the user types
 // is plain text and theirs to delete.
 export const valueToContent = (
@@ -151,6 +158,28 @@ export const valueToContent = (
     // A span cannot cross a line, and an empty one protects nothing.
     if (spec.text.length === 0 || spec.text.includes('\n')) continue
     let placed = false
+    if (spec.start !== undefined) {
+      // The value offset as a line and column: each line is followed by the
+      // one newline the split removed.
+      let offset = 0
+      for (let row = 0; row < lines.length; row += 1) {
+        const line = lines[row] ?? ''
+        if (spec.start <= offset + line.length) {
+          const start = spec.start - offset
+          const hit = { start, end: start + spec.text.length, spec }
+          const taken = [...(tokenHits[row] ?? []), ...(anchors[row] ?? [])]
+          if (
+            line.slice(hit.start, hit.end) === spec.text &&
+            !taken.some((other) => overlaps(hit, other))
+          ) {
+            anchors[row]?.push(hit)
+            placed = true
+          }
+          break
+        }
+        offset += line.length + 1
+      }
+    }
     for (let row = 0; row < lines.length && !placed; row += 1) {
       const line = lines[row] ?? ''
       let from = 0

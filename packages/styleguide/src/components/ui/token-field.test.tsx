@@ -235,4 +235,26 @@ describe('TokenField', () => {
     })
     expect(editor.getText()).toBe('Hi there.')
   })
+
+  // A body may quote the line the message closes on; the caller says which
+  // copy is the locked one, and an edit to the other is the user's.
+  it('anchors a phrase at its given start, not its first copy', async () => {
+    const value = 'It ends "Reply STOP to opt out."\n\nReply STOP to opt out.'
+    const { editor, onChange } = await mount({
+      value,
+      tokens: [],
+      protectedRanges: [
+        { ...OPT_OUT, start: value.lastIndexOf('Reply STOP to opt out.') },
+      ],
+    })
+    // The quote is plain text: deleting a character of it goes through.
+    act(() => {
+      const at = positionOf(editor, 'STOP')
+      editor.view.dispatch(editor.state.tr.delete(at, at + 1))
+    })
+    expect(editor.getText({ blockSeparator: '\n' })).toBe(
+      'It ends "Reply TOP to opt out."\n\nReply STOP to opt out.',
+    )
+    expect(onChange).toHaveBeenCalled()
+  })
 })

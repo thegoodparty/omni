@@ -130,6 +130,8 @@ export const RobocallComposeStep = ({
   const protectedRanges: ProtectedSpec[] = protectedParts.map((part) => ({
     id: part.rule,
     text: part.text,
+    // The copy the lock rules chose (the closing line, not a quote of it).
+    start: part.start,
     reason: LOCK_REASONS[part.rule],
   }))
   const isImprove = aiAction === 'improve'

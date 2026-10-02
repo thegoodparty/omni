@@ -199,6 +199,8 @@ export const SmsComposeStep = ({
           {
             id: part.rule,
             text: part.text,
+            // The copy the lock rules chose (the footer, not a quote of it).
+            start: part.start,
             reason: LOCK_REASONS[part.rule] ?? LOCKED_FALLBACK,
           },
         ]

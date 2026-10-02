@@ -120,7 +120,7 @@ function TokenField({
       text,
       required,
     })),
-    byId(protectedRanges).map(({ id, text }) => ({ id, text })),
+    byId(protectedRanges).map(({ id, text, start }) => ({ id, text, start })),
   ])
   const loadedSpecKey = React.useRef(specKey)
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
