@@ -169,7 +169,7 @@ export class OutreachServeSocialController {
 
   @Post('social')
   @ResponseSchema(OutreachDetailSchema)
-  save(
+  async save(
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @Body(new ZodValidationPipe(ServeSocialSaveRequestSchema))
     input: ServeSocialSaveRequest,
@@ -178,9 +178,18 @@ export class OutreachServeSocialController {
       input.purpose,
       input.assets.map((asset) => asset.platform),
     )
+    const { proposalKey, priorityId, stepId, side, ...save } = input
+    const link = await this.socialService.resolveProposalLink(
+      { proposalKey, priorityId, stepId, side },
+      electedOffice.id,
+    )
     return this.socialService.saveSocialOutreach(
-      { campaignId: null, organizationSlug: electedOffice.organizationSlug },
-      input,
+      {
+        campaignId: null,
+        organizationSlug: electedOffice.organizationSlug,
+        ...link,
+      },
+      save,
     )
   }
 

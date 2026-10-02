@@ -1,6 +1,9 @@
 import { useQueries } from '@tanstack/react-query'
 import type { ChatCard, Person } from '@goodparty_org/contracts'
-import { CardLoading, CardNote, CardShell } from './cardShell'
+import { useOrganization } from '@shared/organization-picker'
+import { PersonRecord } from 'app/dashboard/contacts/crm/person/PersonOverlay'
+import { CardDetail } from './cardDetail'
+import { CompactCard, CompactCardLoading } from './cardShell'
 import { cardContactQueryOptions } from './cardQueries'
 
 export const SERVE_CONSTITUENTS_CARD_COPY = {
@@ -16,34 +19,25 @@ const contactName = (person: Person) =>
 const contactWhere = (person: Person) =>
   [person.address.line1, person.address.city].filter(Boolean).join(', ')
 
-const ContactRow = ({ person }: { person: Person }) => {
-  const where = contactWhere(person)
-  return (
-    <a
-      href={`/dashboard/contacts/${person.id}`}
-      className="hover:bg-muted/50 -mx-2 flex min-w-0 flex-col rounded-lg px-2 py-2 no-underline"
-    >
-      <span className="truncate text-sm font-medium">
-        {contactName(person)}
-      </span>
-      {where ? (
-        <span className="text-muted-foreground truncate text-xs">{where}</span>
-      ) : null}
-    </a>
-  )
-}
-
+// One row per person, each opening that constituent's own record the way the
+// contacts page renders it (PersonRecord), in the panel rather than off on
+// another page. The parts of that record that read the contacts table's own
+// queries (top issues, the activity feed) are not here, and neither is the
+// map: the address already says where they live.
 export const ConstituentsCard = ({
   card,
+  detailKey,
 }: {
   card: Extract<ChatCard, { kind: 'constituents' }>
+  detailKey?: string
 }) => {
+  const orgSlug = useOrganization()?.slug
   const results = useQueries({
-    queries: card.contactIds.map((id) => cardContactQueryOptions(id)),
+    queries: card.contactIds.map((id) => cardContactQueryOptions(id, orgSlug)),
   })
 
   if (results.some((result) => result.isPending)) {
-    return <CardLoading rows={card.contactIds.length} />
+    return <CompactCardLoading />
   }
 
   const people = results
@@ -54,15 +48,35 @@ export const ConstituentsCard = ({
   if (people.length === 0) return null
 
   return (
-    <CardShell>
-      <div className="flex flex-col">
-        {people.map((person) => (
-          <ContactRow key={person.id} person={person} />
-        ))}
-      </div>
-      <div className="mt-3">
-        <CardNote>{card.note}</CardNote>
-      </div>
-    </CardShell>
+    <div className="flex w-full max-w-md flex-col gap-2">
+      {people.map((person) => {
+        const name = contactName(person)
+        const where = contactWhere(person)
+        return (
+          <CardDetail
+            key={person.id}
+            {...(detailKey !== undefined && {
+              detailKey: `${detailKey}:${person.id}`,
+            })}
+            title={name}
+            chip={({ open, expanded }) => (
+              <CompactCard
+                title={name}
+                {...(where && { subtitle: where })}
+                expanded={expanded}
+                onOpen={open}
+              />
+            )}
+          >
+            <PersonRecord
+              person={person}
+              isServe
+              showWinActivities={false}
+              showMap={false}
+            />
+          </CardDetail>
+        )
+      })}
+    </div>
   )
 }

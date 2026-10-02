@@ -45,10 +45,18 @@ as a plain `deep_link`.
 Three seeds ride the deep link into the flow: `campaignPlanDueDate` (a task's
 due date, persisted on the outreach record and forwarded into the CAS Slack
 notification — for robocall this is on the `POST /v1/outreach/robocall` draft
-contract), `initialScript` (text only; opens the flow on the `custom` purpose,
-the one that never AI-drafts, so a preset message is not immediately drafted
-over), and `preselectedListId` (applied once its row arrives in the picker; an
-id naming no list of yours is a missed preselection, never a broken step).
+contract), `initialScript` (text and phone banking; opens the flow on the
+`custom` purpose, the one that never AI-drafts, so a preset message is not
+immediately drafted over), and `preselectedListId` (applied once its row
+arrives in the picker; an id naming no list of yours is a missed preselection,
+never a broken step). A chat card's proposal mounts the Serve flows itself
+(`shared/agent-chat/cards/proposalFlows.tsx`) and adds two seeds: phone
+banking's `initialName`, and `proposedAudience` on phone banking and SMS, an
+audience the agent counted but did not save. That one opens the audience step
+in the builder already filled in (`useOutreachAudience`'s reset seeds it), so
+the list is saved where the flow always saves one: when the official confirms
+and names it. Phone banking with a preselected list and an `initialScript`
+lands on the script step once the list resolves.
 
 The voter data page's "Choose a channel" picker (`contacts/crm/shared/channelPicker/`)
 links here with the flow named — `?compose=text|robocall|phoneBanking|social&source=voter_data`

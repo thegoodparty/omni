@@ -926,6 +926,34 @@ outreach proposal can carry the same details as `event` (contracts
   controller derives the scope from which route was called, never from
   whether the org happens to have a `Campaign` row, so a dual-role org keeps
   Win and Serve lists isolated the same way social does.
+- **A chat card's proposal link rides on the Serve creates.** The Serve phone
+  banking create, `POST /outreach/serve/social` and `POST /outreach/serve/sms`
+  accept an optional `proposalKey` + `priorityId`, plus the check it puts out
+  (`stepId` + `side`) (contracts `ProposalLinkSchema`, the key the card
+  derives and never the model). `resolveProposalLink`
+  (`priorities/util/proposalLink.util.ts`) checks the priority against the
+  caller's own office and that the step is a gate with both halves given;
+  the four land on the outreach row in its INSERT. A phone banking or social
+  create carrying a key that already names this org's outreach of the same
+  channel returns that outreach instead of building another (a race loses to
+  the unique index and reads the winner back); a key held by another org or
+  another channel is a 409. The phone banking replay reports `hasMore:
+  false`: it hands back what was built, not a fresh build. A text holds the
+  key from its unpaid draft on: re-entering the flow moves the key to the
+  fresh draft, and once a draft under it is paid the key is spent (409).
+  `findByProposalKey` skips `pending_payment`, so an unpaid text reads as
+  not sent. Each create (and each replay) calls
+  `PriorityStatusService.recordOutreachSentOrLog` after its own commit,
+  which moves that side of the priority's check to out and logs rather than
+  throws, since the send stands either way; the text records from the
+  purchase handler once paid and enqueued, where a throw makes Stripe
+  redeliver. A write that fails is healed by the next replay or by
+  `healSends`, which the priority flow runs before each turn reads the
+  status. Door knocking takes the link on `POST
+  /door-knocking/serve/turfs` (`CreateServeDoorKnockingTurfSchema`) and
+  writes it on a new campaign's anchor envelope only; a key this org already
+  spent on a walk leaves the next walk unlinked. See
+  `gp-webapp/app/dashboard/shared/agent-chat/AGENTS.md` ("Cards").
 - Tone vocabulary (`util/messageTone.util.ts`) is shared across every
   stateless compose endpoint — don't redefine `TONE_STYLES` per channel.
 - `nativePhoneBanking` and `nativeDoorKnocking` envelopes are never touched
@@ -1276,6 +1304,9 @@ Serve SMS and the delivery layer are covered by colocated suites rather than
 the HTTP harness, except the controller: `outreachServeSms.controller.test.ts`
 covers both routes' feature-flag gate (404 when off, composing nothing and
 writing no row) and the pass-through when on;
+`tests/outreachServeSmsProposal.test.ts` runs a card's text through the
+harness (the key moving to a fresh draft, an unpaid draft reading as unsent,
+the paid send putting the priority's check out, a spent key 409ing);
 `services/outreachServeSmsCreate.service.test.ts` covers the create
 (a client-supplied count ignored, below-25 rejected by name, exactly-25
 accepted, an empty audience rejected, weekend / too-soon / too-far / unreal

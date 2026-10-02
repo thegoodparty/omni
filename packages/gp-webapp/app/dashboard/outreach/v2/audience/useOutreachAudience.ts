@@ -83,6 +83,17 @@ interface UseOutreachAudienceParams {
   // card would. Whether that has happened lives here rather than in the
   // step, which unmounts between steps.
   preselectedRecommendedVariant?: RecommendedListVariant
+  // An audience counted but not saved yet (a chat card's proposal). Opens the
+  // builder already filled in, so the list is saved where it always is: when
+  // the official confirms the audience and names it.
+  proposedAudience?: ProposedAudience
+}
+
+export type ProposedAudience = {
+  filters: VoterFileFilters
+  supportStatus: SupportStatusRollup[]
+  precincts: string[]
+  name: string
 }
 
 export interface OutreachAudience {
@@ -231,6 +242,7 @@ export const useOutreachAudience = ({
   recommendedListIntent = null,
   preselectedListId,
   preselectedRecommendedVariant,
+  proposedAudience,
 }: UseOutreachAudienceParams): OutreachAudience => {
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
@@ -451,6 +463,8 @@ export const useOutreachAudience = ({
   listsRef.current = lists
   const preselectedListIdRef = useRef(preselectedListId)
   preselectedListIdRef.current = preselectedListId
+  const proposedAudienceRef = useRef(proposedAudience)
+  proposedAudienceRef.current = proposedAudience
 
   // Apply the caller's preselected list once its row arrives. Spent on
   // application rather than bound to the prop: the candidate must be able to
@@ -604,6 +618,14 @@ export const useOutreachAudience = ({
     resetCreateMutation()
   }, [resetCreateMutation])
 
+  const seedProposedAudience = useCallback((proposed: ProposedAudience) => {
+    setMode('filters')
+    setBuilderFilters(proposed.filters)
+    setBuilderSupportStatus(proposed.supportStatus)
+    setBuilderPrecincts(proposed.precincts)
+    setBuilderName(proposed.name)
+  }, [])
+
   const reset = useCallback(() => {
     // A preselected list whose row is already here survives the reset: the
     // hook's own preselect effect runs BEFORE the flow's open effect calls
@@ -632,7 +654,11 @@ export const useOutreachAudience = ({
     setBuilderName('')
     setRecommendedMeta(null)
     resetCreateMutation()
-  }, [resetCreateMutation, resetUniverseMutation])
+    // Seeded here rather than beside the flow's own open effect, which calls
+    // this reset after anything it could set first.
+    const proposed = preselectReady ? undefined : proposedAudienceRef.current
+    if (proposed) seedProposedAudience(proposed)
+  }, [resetCreateMutation, resetUniverseMutation, seedProposedAudience])
 
   // Opening the builder leaves a selected recommendation behind: what gets
   // cut from here is a new audience, not that card.

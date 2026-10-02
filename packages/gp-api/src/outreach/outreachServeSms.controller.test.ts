@@ -175,7 +175,7 @@ describe('POST /v1/outreach/serve/sms', () => {
     const res = await postCreate(createInput)
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(createDraft).toHaveBeenCalledWith(eoOrgSlug, createInput)
+    expect(createDraft).toHaveBeenCalledWith(eoOrgSlug, createInput, {})
     expect(res.data).toEqual({
       outreachId: 12,
       recipientCount: 480,
@@ -194,6 +194,7 @@ describe('POST /v1/outreach/serve/sms', () => {
     expect(createDraft).toHaveBeenCalledWith(
       eoOrgSlug,
       expect.not.objectContaining({ organizationSlug: 'eo-somebody-else' }),
+      {},
     )
   })
 

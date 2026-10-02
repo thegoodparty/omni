@@ -68,12 +68,33 @@ is worse than the move itself.
 in the transcript from an empty status. That is why a reloaded thread reads the
 same as it did live.
 
+## Cards are compact, and a card's detail opens over the page
+
+Every card is one row in the stream; see "Cards" in
+`shared/agent-chat/AGENTS.md`. The people cards open their detail in the
+shared `CardDetailSheetHost`, the same right-side sheet a constituent opens
+in on the contacts page and in Chief of Staff; the status rail stays where it
+is. `PriorityWorkspace` wraps everything in `CardDetailProvider`, so a panel
+opened on the live turn stays open when the turn settles and the persisted
+copy of the card replaces it.
+
+Outreach cards never open a panel. A proposal's button opens that channel's
+own flow over this conversation (`ProposalFlowsProvider`, mounted here
+around the workspace), filled in, and the official finishes it there; the
+route never changes. The card carries this priority's id (the widget
+context), so the phone banking or social outreach they finish is linked to
+the priority and a second completion returns the first. Priorities hands off
+to the workflow that owns the job; it does not re-implement it. The agent
+counts the audience but does not save it (the card carries the filter), picks
+one channel, and says why these people and why that channel in its own
+message, so the card never has to.
+
 ## A step carries whether its people were asked
 
 `define`, `options`, `method` and `plan` always end with a check. The agent
 picks who by the affectedness method in the prompt (`AFFECTEDNESS_BLOCK` in
 `gp-api/.../priority-flow/priorityFlow.prompt.ts`, from Samuel's Serve lists
-runbook), builds the saved list, writes the one question, and offers it as
+runbook), counts the group without saving it, writes the one question, and offers it as
 work already done through `present_outreach_proposal` on whichever channel
 those people answer on, door knocking included. Every check has two sides,
 both always offered: the most affected, and the least affected (exposure
@@ -104,6 +125,18 @@ Three more holds, because the model also called the official's own agreement
   on a step that is not a gate is refused, and the client merge ignores one.
 - **An unanswered `asked` lets one step open past its gate, and no further.**
   After that, the agent has to ask again or record the answer.
+- **A real send puts a side out, not the agent.** A proposal names the check
+  it puts out (`stepId`, `side`), and the create that sends it carries them.
+  Once the send is real (the phone list built, the post saved, the text paid
+  for, the walk drawn) `PriorityStatusService.recordOutreachSent` moves that side to `out`
+  through the same merge, stamping `sentAt` and `sentProposalKey`; a side
+  already out on a send keeps it, and a side constituents already answered
+  keeps its answer. A deferred or declined side does move: the send is what
+  happened. A status write that fails after the send committed is logged,
+  and `healSends` puts it out before the next turn reads the status. The `<status>` block shows `Sent:`, the
+  proposal tool refuses to offer a sent side again, and the workspace tells
+  the agent with one hidden `PROPOSAL_SENT_MARKER` turn (see "Cards" in
+  `shared/agent-chat/AGENTS.md`).
 
 Listening is not a gate. The answer lives on the step as `check`
 (`PriorityStepCheckSchema` in contracts): `asked`, `out`, `confirmed`,
@@ -133,22 +166,13 @@ separately.
 ## Cards are keyed, not trusted
 
 A card is a tool call rendered inline through `shared/agent-chat/cards/ChatCardRenderer`.
-Two values in an outreach proposal are **derived in
-`shared/agent-chat/cards/toChatCard.ts`, never read off the model's args**:
-
-- `proposalKey` — `mintProposalKey(conversationId, toolCallId)` from
-  `@goodparty_org/contracts`. Deterministic uuidv5, so the browser and the
-  server arrive at the same key and the card can resolve the outreach it would
-  create. This needs `toolCallId`, which the SSE event and the persisted
-  segment both carry; a proposal without one drops rather than minting a key
-  the server would not agree with.
-- `deepLinkOnly` — `channel !== 'phoneBanking'`. Only phone banking can be
-  completed from a card. Social carries no platform in the proposal contract,
-  text lands `pending_payment` behind Stripe, so a Send button there would
-  leave an unpaid draft, and door knocking is cut on a map: its card links to
-  `/dashboard/door-knocking?create=1&listId=`, the shape the CRM channel
-  picker uses, so the create flow opens on the saved list. The API's 400 is
-  the backstop; the guard is that the button never renders.
+`proposalKey` is **derived in `shared/agent-chat/cards/toChatCard.ts`, never
+read off the model's args**: `mintProposalKey(conversationId, toolCallId)`
+from `@goodparty_org/contracts`. Deterministic uuidv5, so the browser and the
+server arrive at the same key and the card can resolve the outreach sent
+under it, which is how a proposal reads as sent. This needs `toolCallId`,
+which the SSE event and the persisted segment both carry; a proposal without
+one drops rather than minting a key the server would not agree with.
 
 Args that fail to parse drop the card and leave the turn's prose alone.
 `read_past_outreach` is a data read whose args are `{ channel? }`, so it always
@@ -203,4 +227,6 @@ knocking's walk is the other case.
 
 The rail is an `aside` from `lg` up. Below that it collapses into a sheet
 opened from a button in the page header, next to the title — not a fixed
-bottom affordance, which would fight the composer.
+bottom affordance, which would fight the composer. A card's detail follows
+the same split, and `useIsMobile` (the `lg` boundary) decides which of the two
+mounts the detail, since only one may hold the portal target.

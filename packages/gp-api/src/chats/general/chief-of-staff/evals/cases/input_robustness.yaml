@@ -1,7 +1,7 @@
 # Domain J. Input robustness: intent, not surface form, must drive behavior.
 - id: IR-01
   title: Heavy-typo inactive-registration count still answered
-  prompt: "how mnay of my constituens have inactiv registrations??"
+  prompt: 'how mnay of my constituens have inactiv registrations??'
   expected_route: count_contacts
   required_behavior:
     - Reads through the typos and treats it as a request for the inactive-registration count
@@ -21,7 +21,7 @@
 
 - id: IR-02
   title: Terse lowercase no-punctuation count still answered
-  prompt: "inactive voters count"
+  prompt: 'inactive voters count'
   expected_route: count_contacts
   required_behavior:
     - Interprets the terse fragment as a request for the inactive-registration count
@@ -39,7 +39,7 @@
 
 - id: IR-03
   title: Bare pasted URL is not an off-topic decline
-  prompt: "https://spokane-example.org/council/agenda-2026-08-12"
+  prompt: 'https://spokane-example.org/council/agenda-2026-08-12'
   expected_route: explain_gap
   required_behavior:
     - Recognizes that no explicit ask accompanies the link
@@ -58,7 +58,7 @@
 
 - id: IR-04
   title: Three distinct in-scope questions in one message, none dropped
-  prompt: "three quick things, how many veterans do we have on file, whats on my priority list right now, and can you check if the state has any new snow-removal grant money this year"
+  prompt: 'three quick things, how many veterans do we have on file, whats on my priority list right now, and can you check if the state has any new snow-removal grant money this year'
   expected_route: open_behavioral
   required_behavior:
     - Addresses all three asks, or explicitly triages and sequences them
@@ -77,7 +77,7 @@
 
 - id: IR-05
   title: Spanish-language in-scope question answered in Spanish
-  prompt: "¿Cuántos veteranos hay registrados entre mis constituyentes?"
+  prompt: '¿Cuántos veteranos hay registrados entre mis constituyentes?'
   expected_route: count_contacts
   required_behavior:
     - Answers the question rather than refusing over the language
@@ -118,7 +118,7 @@
 
 - id: IR-07
   title: Code-switched short message handled on intent
-  prompt: "oye jefe, quick q, qué tengo on my priority list ahorita? need to check antes de la reunión"
+  prompt: 'oye jefe, quick q, qué tengo on my priority list ahorita? need to check antes de la reunión'
   expected_route: crud_priorities
   required_behavior:
     - Interprets the code-switched message as a request to read the current priority list
@@ -135,7 +135,7 @@
 
 - id: IR-08
   title: Rambling filler around a real ask, ask is found and answered
-  prompt: "ok so this morning was wild, spilled coffee everywhere, the kid missed the bus, the dog got out, and now the council thread is arguing about the parade route again lol. anyway sorry for rambling, i know youre busy. the thing i actually need before 2pm is the number of constituents with inactive registrations. thanks youre the best"
+  prompt: 'ok so this morning was wild, spilled coffee everywhere, the kid missed the bus, the dog got out, and now the council thread is arguing about the parade route again lol. anyway sorry for rambling, i know youre busy. the thing i actually need before 2pm is the number of constituents with inactive registrations. thanks youre the best'
   expected_route: count_contacts
   required_behavior:
     - Locates the buried ask amid the chit-chat
@@ -153,7 +153,7 @@
 
 - id: IR-09
   title: All-caps urgent message is not treated as hostile or off-topic
-  prompt: "HOW MANY SPANISH SPEAKERS ARE ON FILE???? NEED THIS FOR THE OUTREACH FLYER"
+  prompt: 'HOW MANY SPANISH SPEAKERS ARE ON FILE???? NEED THIS FOR THE OUTREACH FLYER'
   expected_route: count_contacts
   required_behavior:
     - Answers with the Spanish-speakers-on-file count via count_contacts (1,765 at v3237)
@@ -170,7 +170,7 @@
 
 - id: IR-10
   title: Message containing a link plus a real ask still answered
-  prompt: "saw this https://spokane-example.org/news/snow-response-2026 and it got me thinking, how many of our constituents have inactive registrations? want to cross-check before I share anything"
+  prompt: 'saw this https://spokane-example.org/news/snow-response-2026 and it got me thinking, how many of our constituents have inactive registrations? want to cross-check before I share anything'
   expected_route: count_contacts
   required_behavior:
     - Answers the in-scope ask with the count (11,158 at v3237) via either

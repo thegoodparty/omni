@@ -15,6 +15,7 @@ import type {
   SmsPurpose,
   SmsStandardsRule,
   SocialTone,
+  ProposalLink,
 } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
 import {
@@ -62,6 +63,7 @@ import {
 import {
   intentForOutreachPurpose,
   useOutreachAudience,
+  type ProposedAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { REVIEW_GATE_CTA } from '../gate/gateCopy'
@@ -314,6 +316,14 @@ interface SmsFlowProps {
   // details step opens on it.
   initialEvent?: ProposalEvent
   preselectedListId?: number
+  // An audience a chat card counted but did not save: the audience step
+  // opens on the list builder already filled in, and saves it when the
+  // official confirms and names it.
+  proposedAudience?: ProposedAudience
+  // The chat card proposal this flow was opened from. Rides on the Serve
+  // create, so the draft holds the card's key (a paid one reads as sent and
+  // cannot be paid twice) and the paid send puts the priority's check out.
+  proposalLink?: ProposalLink
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
@@ -484,6 +494,8 @@ export const SmsFlow = ({
   initialEvent,
   source,
   initialScript,
+  proposedAudience,
+  proposalLink,
   preselectedListId,
   preselectedRecommendedVariant,
   resumeDraft = null,
@@ -634,6 +646,7 @@ export const SmsFlow = ({
     recommendedListIntent,
     preselectedListId: resumedListId ?? preselectedListId,
     preselectedRecommendedVariant,
+    ...(proposedAudience && !resumeDraft && { proposedAudience }),
   })
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList
@@ -875,6 +888,7 @@ export const SmsFlow = ({
     draftOutreachId,
     audience,
     tracker,
+    ...(proposalLink && !resumeDraft && { proposalLink }),
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,
