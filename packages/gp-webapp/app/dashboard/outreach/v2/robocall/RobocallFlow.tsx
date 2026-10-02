@@ -45,6 +45,7 @@ import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useUser } from '@shared/hooks/useUser'
 import { provisionalCommitteeName } from '../sms/smsCompose.util'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
@@ -184,13 +185,22 @@ export const RobocallFlow = ({
 
   const [campaign] = useCampaign()
   const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
+  const [user] = useUser()
   // Who the disclosure says paid for the call: the recorded committee, or,
   // until verification records one, the candidate and office, as on SMS.
+  // The candidate's name is the campaign owner's, then the compliance
+  // record's, then the signed-in user's, so the line always has a sponsor:
+  // a script with no disclosure cannot pass the recording check, and "the
+  // campaign" is never a sponsor (docs/features/message-composer.md).
   const ownerName = campaign?.ownerName ?? ''
+  const sponsorName =
+    ownerName ||
+    gate.tcrCompliance?.candidateName ||
+    `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
   const sponsor =
     gate.tcrCompliance?.committeeName ??
     provisionalCommitteeName(
-      ownerName,
+      sponsorName,
       campaign?.positionName || campaign?.details?.normalizedOffice || '',
     )
 

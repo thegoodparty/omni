@@ -33,10 +33,16 @@ const scriptText = () => scriptEditor().getText({ blockSeparator: '\n' })
 // The disclosure names the candidate and office until a committee is
 // recorded, so the campaign carries both. No state: the schedule cases read
 // the time zone off its absence.
+const campaignMock = {
+  ownerName: 'Sarah Chen',
+  positionName: 'City Council',
+  details: {},
+}
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [
-    { ownerName: 'Sarah Chen', positionName: 'City Council', details: {} },
-  ],
+  useCampaign: () => [campaignMock],
+}))
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [{ firstName: 'Sarah', lastName: 'Chen' }],
 }))
 
 vi.mock('../gate/useOutreachGate', async () => {
@@ -485,6 +491,7 @@ describe('RobocallFlow', () => {
   // useElectedOffice fires on mount (no enable guard); 404 => not an elected
   // official (data null), exercising the hook's real 404->null branch.
   beforeEach(() => {
+    campaignMock.ownerName = 'Sarah Chen'
     api.mock('GET /v1/elected-office/current', {
       status: 404,
       data: { message: 'No elected office' },
@@ -1210,6 +1217,19 @@ describe('RobocallFlow', () => {
       /^A grounded script\. Vote early\.\n\nPaid for by .+, 202-555-0147\.$/,
     )
     await waitFor(() => expect(scriptText()).toMatch(/Please vote early!/))
+  })
+
+  // An owner with no name on file still gets a sponsor: the script has to
+  // carry the disclosure to pass the recording check.
+  it('names the signed-in user as sponsor when the owner has no name', async () => {
+    campaignMock.ownerName = ''
+    mockDraft()
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(
+        /\n\nPaid for by \S.* for City Council, 202-555-0147\.$/,
+      ),
+    )
   })
 
   // The model never writes the disclosure, so it is never handed the number.
