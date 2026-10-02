@@ -1269,3 +1269,154 @@ describe('judge.yml mints one test organization for both arms', () => {
     })
   })
 })
+
+// THE PLAN COMMENT AND THE SUMMARIES LINK WHAT THEY NAME: the candidate commit,
+// the base branch, and each case list at the commit being judged. Run through
+// bash rather than matched as text, so what is checked is the markdown a
+// reader gets, quoting and all.
+describe('judge.yml links the commits, the base and the case lists', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const SHA = 'a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0'
+  const ENV = {
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'thegoodparty/omni',
+    CANDIDATE_SHA: SHA,
+    // Not `main`, so a link hardcoded to the default branch cannot pass.
+    BASE_REF: 'feat/x-1',
+    BASE_SHA: 'f'.repeat(40),
+    WORKSPACE: 'packages/gp-api',
+  }
+  const bash = (script: string, env: Record<string, string> = {}) =>
+    execFileSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, ...ENV, ...env },
+    })
+  const lines = (prefix: string) =>
+    yaml
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith(prefix))
+
+  it('links the candidate commit on every row that names it', () => {
+    const rows = lines('echo "| candidate |')
+    expect(rows.length).toBeGreaterThanOrEqual(7)
+    for (const row of rows) {
+      expect(bash(row)).toBe(
+        `| candidate | [\`${SHA.slice(0, 12)}\`](https://github.com/thegoodparty/omni/commit/${SHA}) |\n`,
+      )
+    }
+  })
+
+  it('links the base branch on every row that names it', () => {
+    const rows = lines('echo "| base |')
+    expect(rows.length).toBeGreaterThanOrEqual(7)
+    for (const row of rows) {
+      // Exactly, on the rows that carry no base commit; the one that does is
+      // checked exactly below.
+      if (row.includes('$base_commit')) continue
+      expect(bash(row)).toBe(
+        '| base | [`feat/x-1`](https://github.com/thegoodparty/omni/tree/feat/x-1) |\n',
+      )
+    }
+  })
+
+  // The summary's base row also links the resolved base commit, and says
+  // `unresolved` when the worktree step never ran.
+  it('links the resolved base commit, or says it is unresolved', () => {
+    const at = yaml.indexOf('base_commit=unresolved')
+    const prelude = yaml.slice(at, yaml.indexOf('fi\n', at) + 2)
+    const [row] = lines('echo "| base |').filter((one) =>
+      one.includes('$base_commit'),
+    )
+    expect(at).toBeGreaterThan(-1)
+    expect(row).toBeDefined()
+    const render = (env: Record<string, string>) =>
+      bash(`${prelude}\n${row ?? ''}`, env)
+    expect(render({})).toBe(
+      `| base | [\`feat/x-1\`](https://github.com/thegoodparty/omni/tree/feat/x-1) ([\`ffffffffffff\`](https://github.com/thegoodparty/omni/commit/${'f'.repeat(40)})) |\n`,
+    )
+    expect(render({ BASE_SHA: '' })).toBe(
+      '| base | [`feat/x-1`](https://github.com/thegoodparty/omni/tree/feat/x-1) (unresolved) |\n',
+    )
+  })
+
+  // THE RUN PAGE IS NOT ON THE PR, so both summaries say which PR they judged.
+  // Only a numeric PR number becomes a link; anything else links nowhere.
+  describe('the pull request on the run page', () => {
+    // Supplied by the tests below, so they cannot see a step that lacks it:
+    // without it the link is silently never rendered.
+    it('gives both summary steps the PR number', () => {
+      const holders = stepsOf(yaml).filter(
+        (step) =>
+          step.body.includes('pull_request=none') ||
+          step.body.includes('echo "Pull request:'),
+      )
+      expect(holders).toHaveLength(2)
+      for (const step of holders) {
+        expect(envValue(step.body, 'PR_NUMBER')).toBe('${{ inputs.pr_number }}')
+      }
+    })
+
+    it.each<[string, string, string]>([
+      [
+        '2371',
+        '[#2371](https://github.com/thegoodparty/omni/pull/2371)',
+        'links',
+      ],
+      ['', 'none', 'says none for'],
+      ['12)](https://evil.example', 'none', 'refuses'],
+    ])('the sweep summary %s', (pr, expected) => {
+      const at = yaml.indexOf('pull_request=none')
+      const prelude = yaml.slice(at, yaml.indexOf('fi\n', at) + 2)
+      const [row] = lines('echo "| pull request |')
+      expect(at).toBeGreaterThan(-1)
+      expect(bash(`${prelude}\n${row ?? ''}`, { PR_NUMBER: pr })).toBe(
+        `| pull request | ${expected} |\n`,
+      )
+    })
+
+    it.each<[string, string]>([
+      [
+        '2371',
+        'Pull request: [#2371](https://github.com/thegoodparty/omni/pull/2371)\n\nPLAN\n',
+      ],
+      ['', 'PLAN\n'],
+      ['1; echo pwned', 'PLAN\n'],
+    ])('puts the plan summary under PR %j as expected', (pr, expected) => {
+      const at = yaml.indexOf(
+        'if [[ "${PR_NUMBER:-}" =~ ^[0-9]+$ ]]; then\n              echo "Pull request:',
+      )
+      expect(at).toBeGreaterThan(-1)
+      const block = yaml.slice(at, yaml.indexOf('fi\n', at) + 2)
+      const dir = mkdtempSync(path.join(tmpdir(), 'judge-plan-summary-'))
+      writeFileSync(path.join(dir, 'plan.md'), 'PLAN\n')
+      expect(
+        bash(`{\n${block}\ncat "${dir}/plan.md"\n}`, { PR_NUMBER: pr }),
+      ).toBe(expected)
+    })
+  })
+
+  // The case list is arbitrary CLI output, so it is a link only when it is a
+  // plain file name; anything else stays a code span and points nowhere.
+  describe('the case-list cell', () => {
+    const start = yaml.indexOf('if [[ "$safe_cases" =~')
+    const block = yaml.slice(start, yaml.indexOf('fi\n', start) + 2)
+    const cell = (safeCases: string) =>
+      bash(`${block}\nprintf '%s' "$cell"`, { safe_cases: safeCases })
+
+    it('links a plain case-list file at the commit being judged', () => {
+      expect(cell('chief_of_staff.json')).toBe(
+        `[\`chief_of_staff.json\`](https://github.com/thegoodparty/omni/blob/${SHA}/packages/gp-api/src/chats/evals/judge/cases/chief_of_staff.json)`,
+      )
+    })
+
+    it.each([
+      'x.json](https://evil.example)',
+      '../../secrets.json',
+      'NO CASE LIST YET',
+      'Chief.json',
+    ])('leaves %j as a code span', (value) => {
+      expect(cell(value)).toBe(`\`${value}\``)
+    })
+  })
+})

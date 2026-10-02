@@ -133,7 +133,9 @@ const changeLine = (ci: CiContext | null): string =>
     ? '_No CI context on these records, so this verdict cannot be traced ' +
       'back to a pull request. That means it came from a local run._'
     : `Change under test: ${ci.repo}` +
-      (ci.prNumber === undefined ? '' : ` #${ci.prNumber}`) +
+      (ci.prNumber === undefined
+        ? ''
+        : ` [#${ci.prNumber}](https://github.com/${ci.repo}/pull/${ci.prNumber})`) +
       ` — [workflow run ${ci.workflowRunId}](${ci.workflowRunUrl})` +
       (ci.workflowRunAttempt > 1 ? ` (attempt ${ci.workflowRunAttempt})` : '')
 
