@@ -1,7 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { installIndexedDbShim } from 'helpers/test-utils/indexedDbShim'
+import {
+  enqueue,
+  listQueue,
+  removeFromQueue,
+} from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
 import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
@@ -13,6 +19,23 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
+
+// Passed through, and watched: with the flag off a save must not touch the
+// phone's queue at all.
+vi.mock(
+  'app/dashboard/shared/dictation/offlineMemoQueue',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('app/dashboard/shared/dictation/offlineMemoQueue')
+      >()
+    return {
+      ...actual,
+      enqueue: vi.fn(actual.enqueue),
+      removeFromQueue: vi.fn(actual.removeFromQueue),
+    }
+  },
+)
 
 vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
   useServeIssueCaptureFlag: vi.fn(),
@@ -554,5 +577,104 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
       channel: 'phoneBanking',
       product: 'win',
     })
+  })
+})
+
+// No signal: the call and its memo wait on the phone, call first, and the
+// caller is told so in place of a confirm card.
+describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
+  let online = false
+
+  beforeEach(() => {
+    installIndexedDbShim()
+    online = false
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      get: () => online,
+    })
+  })
+
+  afterEach(() => {
+    online = true
+  })
+
+  it('holds the call and the memo on the phone and says so', async () => {
+    const calls = vi.fn()
+    api.mock('POST /v1/phone-banking/lists/:id/calls', () => {
+      calls()
+      return {
+        status: 200,
+        data: { entryId: ENTRY_ID, results: [], envelopeCompleted: false },
+      }
+    })
+    const { onSaved } = renderForm()
+    callAndSave()
+
+    expect(
+      await screen.findByText(
+        'Saved on your phone. It will be sent when you have signal.',
+      ),
+    ).toBeVisible()
+    expect(calls).not.toHaveBeenCalled()
+    expect(captureBodies).toEqual([])
+    // The list moves on now, with what the server will record.
+    expect(onSaved).toHaveBeenCalledWith([
+      {
+        personId: 'person-1',
+        interaction: {
+          outcome: 'answered',
+          supportAnswer: null,
+          willVote: null,
+          followUp: 'yes',
+          occurredAt: expect.any(Date),
+        },
+      },
+    ])
+    expect(screen.queryByText('Is this right?')).toBeNull()
+
+    const queued = await listQueue()
+    const call = queued.find((entry) => entry.kind === 'call')
+    const memo = queued.find((entry) => entry.kind === 'memo')
+    expect(call?.id).toBe(`call:${ENTRY_ID}:person-1`)
+    expect(call?.payload).toEqual({
+      listId: 9,
+      request: {
+        entryId: ENTRY_ID,
+        outcome: 'answered',
+        personId: 'person-1',
+        followUp: 'yes',
+      },
+    })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.PhoneBanking.CallLogged,
+      expect.objectContaining({ answerStatus: 'answered' }),
+    )
+    expect(memo?.id).toBe(`memo:${ENTRY_ID}:person-1`)
+    expect(memo?.payload).toEqual({
+      reference: {
+        channel: 'phone_bank',
+        entryId: ENTRY_ID,
+        personId: 'person-1',
+        clientKey: expect.any(String),
+      },
+      text: { transcript: MEMO, captureMethod: 'dictation' },
+      analytics: { channel: 'phoneBanking', product: 'serve' },
+    })
+  })
+})
+
+describe('PhoneBankingOutcomeForm with capture off', () => {
+  // The form is exactly what it was: an online save does not wait on the
+  // phone's storage.
+  it('leaves the queue alone on an online save', async () => {
+    setFlags({ serve: false, win: false })
+    vi.mocked(enqueue).mockClear()
+    vi.mocked(removeFromQueue).mockClear()
+    const { onSaved } = renderForm()
+    callAndSave(false)
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(removeFromQueue).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
   })
 })

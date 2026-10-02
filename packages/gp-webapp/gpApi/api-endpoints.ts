@@ -11,9 +11,12 @@ import type {
   GeoJsonPolygon,
   GeoJsonShape,
   ServeDoorKnockingTalkingPointsPurpose,
+  AudioUploadUrlRequest,
+  AudioUploadUrlResponse,
   ConfirmConstituentFeedback,
   ConstituentFeedbackListResponse,
   ConstituentFeedbackRecord,
+  PendingFeedbackResponse,
   FeedbackReportResponse,
   FeedbackThemeDetail,
   IssueTag,
@@ -1644,6 +1647,24 @@ export type APIEndpoints = {
   'GET /v1/constituent-feedback': {
     Request: { personId: string }
     Response: ConstituentFeedbackListResponse
+  }
+  // Offline memos. Where the phone puts a recording it held with no signal;
+  // the memo then posts the key to POST /v1/constituent-feedback in place of
+  // a transcript.
+  'POST /v1/constituent-feedback/audio-upload-url': {
+    Request: AudioUploadUrlRequest
+    Response: AudioUploadUrlResponse
+  }
+  // "Notes to review": an effort's unconfirmed memos. A volunteer gets their
+  // own, an owner or manager everyone's.
+  'GET /v1/constituent-feedback/pending': {
+    Request: { outreachId: number }
+    Response: PendingFeedbackResponse
+  }
+  // Transcribes or extracts a pending memo again.
+  'POST /v1/constituent-feedback/:id/retry': {
+    Request: {}
+    Response: ConstituentFeedbackRecord
   }
   // The effort's report: what the "What we heard" page renders, and what
   // the turf and phone entry rows read their two counts from.

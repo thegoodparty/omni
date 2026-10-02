@@ -8,21 +8,24 @@ its own flag. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
 
 ## Files
 
-| File                                                     | Role                                                          |
-| -------------------------------------------------------- | ------------------------------------------------------------- |
-| `issueCaptureAccess.ts`                                  | The server gate every page calls; returns `isServe`           |
-| `[outreachId]/page.tsx`                                  | The report route                                              |
-| `[outreachId]/theme/[themeId]/page.tsx`                  | One theme                                                     |
-| `[outreachId]/queries.ts`                                | Report (polls while a run is in flight), theme, proposed tags |
-| `[outreachId]/components/WhatWeHeardPage.tsx`            | The report's client boundary and its four states              |
-| `[outreachId]/components/SummarizeButton.tsx`            | "Summarize what we heard" and its refusals                    |
-| `[outreachId]/components/ThemeGrid.tsx`, `ThemeCard.tsx` | Ranked cards                                                  |
-| `[outreachId]/components/MemoList.tsx`                   | The notes, on the report and as a theme's members             |
-| `[outreachId]/components/NewTagsStrip.tsx`               | Proposed tags to accept or dismiss                            |
-| `copy.ts`                                                | Every string, mode-keyed                                      |
-| `analytics.ts`                                           | The `channel` value each effort reports under                 |
-| `WhatWeHeardLink.tsx`                                    | The entry row on the turf and the phone list                  |
-| `WhatWeHeardAction.tsx`                                  | The outreach drawer's link, at any status                     |
+| File                                                     | Role                                                           |
+| -------------------------------------------------------- | -------------------------------------------------------------- |
+| `issueCaptureAccess.ts`                                  | The server gates (dashboard, and flag only); return `isServe`  |
+| `[outreachId]/page.tsx`                                  | The report route                                               |
+| `[outreachId]/theme/[themeId]/page.tsx`                  | One theme                                                      |
+| `[outreachId]/queries.ts`                                | Report and review list (each polls while waiting), theme, tags |
+| `[outreachId]/components/WhatWeHeardPage.tsx`            | The report's client boundary and its four states               |
+| `[outreachId]/components/SummarizeButton.tsx`            | "Summarize what we heard" and its refusals                     |
+| `[outreachId]/components/ThemeGrid.tsx`, `ThemeCard.tsx` | Ranked cards                                                   |
+| `[outreachId]/components/MemoList.tsx`                   | The notes, on the report and as a theme's members              |
+| `[outreachId]/components/NewTagsStrip.tsx`               | Proposed tags to accept or dismiss                             |
+| `[outreachId]/review/page.tsx`                           | "Notes to review": the effort's unconfirmed memos              |
+| `[outreachId]/review/components/PendingMemoList.tsx`     | The review list, its retry and its typed re-record             |
+| `copy.ts`                                                | Every string, mode-keyed                                       |
+| `analytics.ts`                                           | The `channel` value each effort reports under                  |
+| `WhatWeHeardLink.tsx`                                    | The entry row on the turf and the phone list                   |
+| `NotesToReviewLink.tsx`                                  | "Notes to review: N" on the turf sheet and volunteer walk      |
+| `WhatWeHeardAction.tsx`                                  | The outreach drawer's link, at any status                      |
 
 ## Access
 
@@ -62,9 +65,9 @@ fires on the press, refused or not.
 
 - **The caption states every denominator**: "84 people answered. 61 left a
   note. 54 confirmed, 7 waiting for review." The last clause drops when
-  nothing is pending. Only confirmed notes enter a theme, and the caption is
-  what stops a card's count being read as more than it is. The pending count
-  is plain text until a review page exists to link it to.
+  nothing is pending, and links to the review page when something is. Only
+  confirmed notes enter a theme, and the caption is what stops a card's
+  count being read as more than it is.
 - **Cards rank by `conversationCount`**, the run's `rank` breaking ties: the
   issue several people raised rises. A count is "conversations that touched
   this theme", never a share, since one note can sit in two themes. The stance
@@ -88,6 +91,41 @@ fires on the press, refused or not.
   open proposes new tags. Accept is `PATCH { action: 'accept' }`, Dismiss is
   `{ action: 'retire' }`, and both invalidate the report.
 
+## Notes to review
+
+`[outreachId]/review` lists the effort's unconfirmed memos
+(`GET pending?outreachId=`, newest first; gp-api gives a volunteer only
+their own). Each is the canvasser's summary with, under it:
+
+- **Still transcribing** (`extractionStatus: pending`): the line and nothing
+  else. The query polls every 5 seconds while one is in this state.
+- **Extracted**: `IssueCaptureConfirmCard` with the proposal, and no Skip:
+  leaving the page leaves the note unconfirmed.
+- **Failed**: what went wrong ("couldn't make out" with no transcript,
+  "couldn't pull anything" with one), "Try again" (`POST :id/retry`, which
+  transcribes or extracts again) and "Type it instead", which opens a text
+  field and re-records the memo as typed text (`POST /v1/constituent-feedback`
+  with the item's `reference` and `clientKey`, `captureMethod: typed`). The
+  re-read then shows the extracted card. Typed text has to become the
+  transcript, because synthesis groups transcripts: a row with only
+  confirmed fields never reaches a theme. No typing when `reference` is null.
+
+A confirm fires `PendingMemoConfirmed` and re-reads the list and the
+report. Each row has a polite `role="status"` line that reads "Still
+transcribing" and then "Ready to review", so a card arriving while the page
+is open is announced; error lines are `role="alert"`; and every row button's
+accessible name carries the note's first words (or who took it and when), so
+a page of them is not one name said several times. This is where a memo recorded with no signal is confirmed, and the
+retry for one whose transcription or extraction failed online.
+
+Two pages mount `PendingMemoList`: the manager's
+`[outreachId]/review` (behind `issueCaptureAccess()`), and the volunteer's
+`app/volunteer/door-knocking/[turfId]/review`, which takes the turf's
+`outreachId` from the turf read the walk already makes, checks only the
+flag (`issueCaptureFlagGate`; the volunteer layout is the role gate), and
+points its back arrow at the walk. gp-api narrows a volunteer to the notes
+they recorded.
+
 ## Entry points
 
 `WhatWeHeardLink` reads `N conversations · M notes` from the report and links
@@ -97,7 +135,11 @@ until somebody has answered. It does not poll.
 
 - **Turf**: `TurfSummaryRow` fills `TurfSummaryCard`'s `heard` slot with it,
   keyed on `turf.outreachId`, and `TurfDetailsSheet` carries it under
-  Progress. See `door-knocking/AGENTS.md`.
+  Progress, followed by `NotesToReviewLink` ("Notes to review: N", only
+  while N > 0, same flag rule). See `door-knocking/AGENTS.md`.
+- **Report**: the caption's "N waiting for review" clause.
+- **Volunteer walk**: `VolunteerWalkPage` floats `NotesToReviewLink` over
+  the top of the map, pointed at the volunteer's review page.
 - **Phone list**: the caller page shows it under its title bar, manager
   surface only. The list read carries no envelope, so the outreach drawer's
   Continue calling and the create flow's Go to call list pass it as
@@ -119,8 +161,13 @@ shows each memo's accepted tags as badges under it.
 `doorKnocking` or `phoneBanking` (`analytics.ts`) to match the capture
 events. Counts only, never a memo's words or a tag's name.
 
-| Event                | Fires                               | Properties                                                   |
-| -------------------- | ----------------------------------- | ------------------------------------------------------------ |
-| `ReportViewed`       | Once per visit, on the first report | `scope: 'effort'`, `channel`, `themeCount`, `confirmedCount` |
-| `SynthesisRequested` | On the button's press               | `scope: 'effort'`, `channel`, `confirmedCount`               |
-| `TagAccepted`        | After an accept lands               | `source: 'report'` (the surface it was accepted on)          |
+| Event                  | Fires                                | Properties                                                   |
+| ---------------------- | ------------------------------------ | ------------------------------------------------------------ |
+| `ReportViewed`         | Once per visit, on the first report  | `scope: 'effort'`, `channel`, `themeCount`, `confirmedCount` |
+| `SynthesisRequested`   | On the button's press                | `scope: 'effort'`, `channel`, `confirmedCount`               |
+| `TagAccepted`          | After an accept lands                | `source: 'report'` (the surface it was accepted on)          |
+| `PendingMemoConfirmed` | A confirm from the review list lands | `channel`, `ageHours` (since the memo was saved, to 0.1)     |
+
+The offline path's other two, `MemoQueuedOffline` (`channel`) and
+`MemoUploaded` (`channel`, `queuedForMs`), fire from
+`app/dashboard/shared/dictation/useOfflineMemo.ts`.

@@ -3,12 +3,17 @@
 import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
+import {
+  OFFLINE_MEMO_COPY,
+  isNetworkError,
+  useOfflineMemo,
+} from 'app/dashboard/shared/dictation/useOfflineMemo'
+import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import IssueCaptureConfirmCard from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
 import type {
-  ConstituentFeedbackCaptureMethod,
   PhoneBankingCallResult,
   PhoneBankingInteraction,
   ConstituentFeedbackTriple,
@@ -82,12 +87,14 @@ interface SaveInput {
   draft: PhoneBankingOutcomeDraft
   capturesIssues: boolean
   transcript: string
-  captureMethod: ConstituentFeedbackCaptureMethod
+  captureMethod: 'dictation' | 'typed'
+  // A memo the phone recorded with no signal to dictate over.
+  recording: Blob | null
 }
 
 interface CaptureInput {
   transcript: string
-  captureMethod: ConstituentFeedbackCaptureMethod
+  captureMethod: 'dictation' | 'typed'
 }
 
 interface PhoneBankingOutcomeFormProps {
@@ -155,6 +162,29 @@ export default function PhoneBankingOutcomeForm({
       setSpoken(true)
     },
   })
+  // `answered` is only the branch INTO the engagement question, and two of
+  // its three answers are non-conversations: a refused or hung-up call is a
+  // person-attributed outcome, not something the person said. Capturing
+  // there would file a memo about a conversation that did not happen.
+  const capturesIssues =
+    captureEnabled &&
+    draft.outcome === 'answered' &&
+    draft.engagement === 'engaged'
+  // With no signal the mic records on the phone, and Save holds the call and
+  // its memo there until there is, call first. Only where a memo can be
+  // captured: elsewhere the mic is the ordinary dictation mic.
+  const offline = useOfflineMemo({ dictation, enabled: capturesIssues })
+  // The call the queue files this save and its memo under, so saving it
+  // again replaces them rather than queueing a second pair.
+  const callKey = `${entryId}:${personId}`
+  // Shown where the confirm card would be: nothing is extracted until the
+  // memo reaches the server, so the triple waits in "Notes to review".
+  // `saved` when nothing reached the server, `sending` when the call did and
+  // only the recording waits.
+  const [queued, setQueued] = useState<keyof typeof OFFLINE_MEMO_COPY | null>(
+    null,
+  )
+  const [holdFailed, setHoldFailed] = useState(false)
 
   // `captureMethod` rides the mutation's variables rather than being read off
   // `spoken` twice. The two reads happen a round trip apart — the request on
@@ -208,15 +238,6 @@ export default function PhoneBankingOutcomeForm({
     onSettled: () => setCaptured(null),
   })
 
-  // `answered` is only the branch INTO the engagement question, and two of
-  // its three answers are non-conversations: a refused or hung-up call is a
-  // person-attributed outcome, not something the person said. Capturing
-  // there would file a memo about a conversation that did not happen.
-  const capturesIssues =
-    captureEnabled &&
-    draft.outcome === 'answered' &&
-    draft.engagement === 'engaged'
-
   const logCallAnalytics = (savedDraft: PhoneBankingOutcomeDraft): void => {
     if (!savedDraft.outcome) return
     // What the API stored, not the raw pill: engage = Refused/Hung up
@@ -245,6 +266,74 @@ export default function PhoneBankingOutcomeForm({
     })
   }
 
+  const memoFor = (input: SaveInput): QueuedMemo | null =>
+    input.capturesIssues && (input.transcript || input.recording)
+      ? {
+          reference: {
+            channel: 'phone_bank',
+            entryId,
+            personId,
+            clientKey: memoKeyRef.current,
+          },
+          ...(input.transcript
+            ? {
+                text: {
+                  transcript: input.transcript,
+                  captureMethod: input.captureMethod,
+                },
+              }
+            : {}),
+          analytics: { channel: 'phoneBanking', product },
+        }
+      : null
+
+  // `withCall` is false when the call itself already saved online and only
+  // the recording has to wait.
+  const hold = async (input: SaveInput, withCall: boolean) => {
+    const request = buildRecordCallRequest(
+      entryId,
+      input.draft,
+      personId,
+      input.markHouseholdDone,
+    )
+    try {
+      await offline.hold({
+        key: callKey,
+        interaction: withCall
+          ? { kind: 'call', payload: { listId, request } }
+          : null,
+        memo: memoFor(input),
+      })
+    } catch {
+      // A call that already saved stays saved; only the recording is lost.
+      if (withCall) setHoldFailed(true)
+      return
+    }
+    if (withCall) {
+      // Logged on the phone, so the list moves on now with what the server
+      // will record for this person; the caller page re-reads the list once
+      // the queue drains, which also settles anything this cannot know,
+      // like the rest of a household marked done.
+      onSaved([
+        {
+          personId,
+          interaction: {
+            outcome: request.outcome,
+            supportAnswer: request.supportAnswer ?? null,
+            willVote: request.willVote ?? null,
+            followUp: request.followUp ?? null,
+            occurredAt: new Date(),
+          },
+        },
+      ])
+      logCallAnalytics(input.draft)
+    }
+    setMemo('')
+    setSpoken(false)
+    setIsEditing(false)
+    setQueued(withCall ? 'saved' : 'sending')
+  }
+
   const saveMutation = useMutation({
     mutationFn: (input: SaveInput) =>
       clientRequest('POST /v1/phone-banking/lists/:id/calls', {
@@ -256,7 +345,12 @@ export default function PhoneBankingOutcomeForm({
           input.markHouseholdDone,
         ),
       }).then((res) => res.data),
-    onSuccess: (data, input) => {
+    onSuccess: async (data, input) => {
+      // This save supersedes whatever the phone still held for the call, so
+      // a later drain cannot send an older one over it.
+      // Only where capture is on: with the flag off the form is exactly what
+      // it was, and has queued nothing to supersede.
+      if (captureEnabled) await offline.forget(callKey).catch(() => undefined)
       // The call is logged before the memo is even posted, and the panel is
       // told so immediately — unlike the door, where the walk is HELD at the
       // stop until the triple is answered. A caller picks their next entry
@@ -271,29 +365,50 @@ export default function PhoneBankingOutcomeForm({
       // reported as dictated even when it was typed.
       setMemo('')
       setSpoken(false)
+      // Words win over a recording, as they do in the queue. A recording
+      // made earlier with no signal, and no words, goes the offline way,
+      // after the call it belongs to.
       if (input.capturesIssues && input.transcript.length > 0) {
         capture.mutate({
           transcript: input.transcript,
           captureMethod: input.captureMethod,
         })
+      } else if (input.capturesIssues && input.recording !== null) {
+        void hold(input, false)
       }
+    },
+    // A request that got no answer at all is a dead zone the browser has not
+    // noticed: the call is held like any offline one.
+    onError: (error, input) => {
+      if (captureEnabled && isNetworkError(error)) void hold(input, true)
     },
   })
 
   // The one place the snapshot is taken, so the two Save presses cannot
   // disagree about what they froze.
-  const save = (markHouseholdDone: boolean) =>
-    saveMutation.mutate({
+  const save = (markHouseholdDone: boolean) => {
+    const input: SaveInput = {
       markHouseholdDone,
       draft,
       capturesIssues,
       transcript: memo.trim(),
       captureMethod: spoken ? 'dictation' : 'typed',
-    })
+      recording: offline.audio,
+    }
+    setHoldFailed(false)
+    // No signal, or a socket that would not open for this call: a save sent
+    // now would only fail, so it waits on the phone with its memo.
+    if (captureEnabled && (!navigator.onLine || offline.fellBack)) {
+      void hold(input, true)
+      return
+    }
+    saveMutation.mutate(input)
+  }
 
   const handleCancel = () => {
     setDraft(draftFromInteraction(interaction, isServe))
     setIsEditing(!interaction)
+    offline.discard()
   }
 
   if (captured !== null) {
@@ -314,9 +429,23 @@ export default function PhoneBankingOutcomeForm({
     )
   }
 
+  // Held on the phone with nothing the server has said back to summarize.
+  if (queued !== null && !interaction) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {OFFLINE_MEMO_COPY[queued]}
+      </p>
+    )
+  }
+
   if (!isEditing && interaction) {
     return (
       <div className="flex flex-col gap-2">
+        {queued !== null && (
+          <p className="text-sm text-muted-foreground">
+            {OFFLINE_MEMO_COPY[queued]}
+          </p>
+        )}
         {failedMemo !== null && (
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm text-destructive">
@@ -552,7 +681,7 @@ export default function PhoneBankingOutcomeForm({
               onChange={(e) => setMemo(e.target.value)}
             />
             <DictationMicButton
-              dictation={dictation}
+              dictation={offline.mic}
               idleLabel="Dictate summary"
               recordingLabel="Stop dictation"
               disabled={saveMutation.isPending}
@@ -561,7 +690,12 @@ export default function PhoneBankingOutcomeForm({
           <p className="mt-2 text-xs text-muted-foreground">
             {MEMO_CONSENT_LINE[product]}
           </p>
-          <DictationFeedback dictation={dictation} />
+          {offline.audio !== null && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {OFFLINE_MEMO_COPY.recorded}
+            </p>
+          )}
+          <DictationFeedback dictation={offline.mic} />
         </div>
       )}
 
@@ -602,7 +736,11 @@ export default function PhoneBankingOutcomeForm({
           >
             Cancel
           </Button>
-          {saveMutation.isError && (
+          {/* A network error with capture on is being held on the phone,
+              not a failed save; `holdFailed` says so if holding fails too. */}
+          {((saveMutation.isError &&
+            !(captureEnabled && isNetworkError(saveMutation.error))) ||
+            holdFailed) && (
             <p className="text-sm text-destructive">
               Couldn&apos;t save this call. Please try again.
             </p>

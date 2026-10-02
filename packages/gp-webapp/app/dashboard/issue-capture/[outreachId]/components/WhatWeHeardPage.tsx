@@ -148,6 +148,7 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
                 </h1>
                 <ReportCaption
                   denominators={report.denominators}
+                  outreachId={outreachId}
                   isServe={isServe}
                 />
               </div>

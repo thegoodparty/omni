@@ -21,15 +21,17 @@ export const WHAT_WE_HEARD_COPY = {
   win: {
     title: 'What we heard',
     // Confirmed only, and the rest are stated rather than hidden, so the
-    // numbers on the cards cannot be read as more than they are.
-    caption: (d: Denominators): string =>
+    // numbers on the cards cannot be read as more than they are. The
+    // waiting clause follows as a link to the review list, and the
+    // sentence ends after whichever comes last.
+    captionCounts: (d: Denominators): string =>
       [
         `${count(d.conversations, 'person', 'people')} answered.`,
         `${d.memos.toLocaleString()} left a note.`,
-        d.pending > 0
-          ? `${d.confirmed.toLocaleString()} confirmed, ${d.pending.toLocaleString()} waiting for review.`
-          : `${d.confirmed.toLocaleString()} confirmed.`,
+        `${d.confirmed.toLocaleString()} confirmed`,
       ].join(' '),
+    waitingForReview: (pending: number): string =>
+      `${pending.toLocaleString()} waiting for review`,
     summarizing:
       'Summarizing what you heard. This usually takes a few minutes.',
     soFarHeading: 'What people said so far',
@@ -65,22 +67,57 @@ export const WHAT_WE_HEARD_COPY = {
     dismiss: 'Dismiss',
     tagFailed: "We couldn't update that tag. Try again.",
     back: 'Back to what we heard',
+    backToWalk: 'Back to the walk',
     details: 'Details',
     whatPeopleWant: 'What people want',
     theNotes: 'The notes',
     entryCounts: (d: Pick<Denominators, 'conversations' | 'memos'>): string =>
       `${count(d.conversations, 'conversation', 'conversations')} · ${count(d.memos, 'note', 'notes')}`,
+    // "Notes to review": memos nobody who was there has confirmed yet,
+    // including the ones recorded with no signal and transcribed since.
+    notesToReview: (pending: number): string =>
+      `Notes to review: ${pending.toLocaleString()}`,
+    reviewTitle: 'Notes to review',
+    reviewCaption: 'Check what each note says, then confirm it.',
+    reviewEmpty: 'Nothing to review. New notes show up here.',
+    stillTranscribing: 'Still transcribing',
+    readyToReview: 'Ready to review',
+    // Each row's buttons say which note they act on, for a screen reader
+    // moving through a page of them: its first words, or who took it and when.
+    noteFrom: (actorName: string | null, occurredAt: Date): string =>
+      `Note from ${actorName ?? 'your team'}, ${new Date(
+        occurredAt,
+      ).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })}`,
+    confirmFor: (note: string): string => `Looks right: ${note}`,
+    tryAgainFor: (note: string): string => `Try again: ${note}`,
+    typeItInsteadFor: (note: string): string => `Type it instead: ${note}`,
+    couldNotHear: "We couldn't make out this note. Try again or type it.",
+    couldNotRead:
+      "We couldn't pull anything from this note. Try again or type it.",
+    tryAgain: 'Try again',
+    typeItInstead: 'Type it instead',
+    typeLabel: 'Their note',
+    typePlaceholder: 'What did they tell you?',
+    saveNote: 'Save note',
+    cancel: 'Cancel',
+    retryFailed: "That didn't work. Try again in a moment.",
+    confirmFailed: "We couldn't save that. Try again.",
   },
   serve: {
     title: 'What we heard',
-    caption: (d: Denominators): string =>
+    captionCounts: (d: Denominators): string =>
       [
         `${count(d.conversations, 'person', 'people')} answered.`,
         `${d.memos.toLocaleString()} left a note.`,
-        d.pending > 0
-          ? `${d.confirmed.toLocaleString()} confirmed, ${d.pending.toLocaleString()} waiting for review.`
-          : `${d.confirmed.toLocaleString()} confirmed.`,
+        `${d.confirmed.toLocaleString()} confirmed`,
       ].join(' '),
+    waitingForReview: (pending: number): string =>
+      `${pending.toLocaleString()} waiting for review`,
     summarizing:
       'Summarizing what you heard. This usually takes a few minutes.',
     soFarHeading: 'What people said so far',
@@ -113,11 +150,46 @@ export const WHAT_WE_HEARD_COPY = {
     dismiss: 'Dismiss',
     tagFailed: "We couldn't update that tag. Try again.",
     back: 'Back to what we heard',
+    backToWalk: 'Back to the walk',
     details: 'Details',
     whatPeopleWant: 'What people want',
     theNotes: 'The notes',
     entryCounts: (d: Pick<Denominators, 'conversations' | 'memos'>): string =>
       `${count(d.conversations, 'conversation', 'conversations')} · ${count(d.memos, 'note', 'notes')}`,
+    // "Notes to review": memos nobody who was there has confirmed yet,
+    // including the ones recorded with no signal and transcribed since.
+    notesToReview: (pending: number): string =>
+      `Notes to review: ${pending.toLocaleString()}`,
+    reviewTitle: 'Notes to review',
+    reviewCaption: 'Check what each note says, then confirm it.',
+    reviewEmpty: 'Nothing to review. New notes show up here.',
+    stillTranscribing: 'Still transcribing',
+    readyToReview: 'Ready to review',
+    // Each row's buttons say which note they act on, for a screen reader
+    // moving through a page of them: its first words, or who took it and when.
+    noteFrom: (actorName: string | null, occurredAt: Date): string =>
+      `Note from ${actorName ?? 'your team'}, ${new Date(
+        occurredAt,
+      ).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })}`,
+    confirmFor: (note: string): string => `Looks right: ${note}`,
+    tryAgainFor: (note: string): string => `Try again: ${note}`,
+    typeItInsteadFor: (note: string): string => `Type it instead: ${note}`,
+    couldNotHear: "We couldn't make out this note. Try again or type it.",
+    couldNotRead:
+      "We couldn't pull anything from this note. Try again or type it.",
+    tryAgain: 'Try again',
+    typeItInstead: 'Type it instead',
+    typeLabel: 'Their note',
+    typePlaceholder: 'What did they tell you?',
+    saveNote: 'Save note',
+    cancel: 'Cancel',
+    retryFailed: "That didn't work. Try again in a moment.",
+    confirmFailed: "We couldn't save that. Try again.",
   },
 }
 

@@ -23,6 +23,28 @@ export const reportQueryOptions = (outreachId: number) =>
         : false,
   })
 
+// Every effort's review list, for a write that cannot say which effort it
+// touched.
+export const PENDING_QUERY_KEY_PREFIX = ['issue-capture', 'pending'] as const
+
+export const pendingQueryKey = (outreachId: number) =>
+  [...PENDING_QUERY_KEY_PREFIX, outreachId] as const
+
+// The review list. Polls while a memo is still transcribing, which a batch
+// job finishes in about a minute, and stops by itself once none is.
+export const pendingQueryOptions = (outreachId: number) =>
+  queryOptions({
+    queryKey: pendingQueryKey(outreachId),
+    queryFn: () =>
+      clientRequest('GET /v1/constituent-feedback/pending', {
+        outreachId,
+      }).then((res) => res.data.feedback),
+    refetchInterval: (query) =>
+      query.state.data?.some((memo) => memo.extractionStatus === 'pending')
+        ? REPORT_POLL_INTERVAL_MS
+        : false,
+  })
+
 export const themeQueryOptions = (themeId: string) =>
   queryOptions({
     queryKey: ['issue-capture', 'theme', themeId] as const,

@@ -86,7 +86,12 @@ interface IssueCaptureConfirmCardProps {
   saving: boolean
   isServe: boolean
   onConfirm: (triple: ConstituentFeedbackTriple) => void
-  onSkip: () => void
+  // Absent where there is nothing to skip to: the review list leaves an
+  // unconfirmed note where it is.
+  onSkip?: () => void
+  // The confirm button's accessible name where several cards share a page,
+  // so each says which note it confirms.
+  confirmLabel?: string
 }
 
 // The triple, handed back for the one person who can judge it: whoever just
@@ -98,6 +103,7 @@ export default function IssueCaptureConfirmCard({
   isServe,
   onConfirm,
   onSkip,
+  confirmLabel,
 }: IssueCaptureConfirmCardProps) {
   const copy = isServe ? CAPTURE_COPY.serve : CAPTURE_COPY.win
   const stanceLabels = isServe ? STANCE_LABELS.serve : STANCE_LABELS.win
@@ -171,6 +177,7 @@ export default function IssueCaptureConfirmCard({
         <Button
           className="w-full"
           disabled={saving}
+          aria-label={confirmLabel}
           onClick={() =>
             onConfirm({
               issueLabel: trimmedIssue === '' ? null : trimmedIssue,
@@ -186,14 +193,16 @@ export default function IssueCaptureConfirmCard({
             unconfirmed row from a confirmed one, so the canvasser is never
             held at a door by a question about a conversation they have
             already finished. */}
-        <Button
-          className="w-full"
-          variant="outline"
-          disabled={saving}
-          onClick={onSkip}
-        >
-          {copy.skip}
-        </Button>
+        {onSkip !== undefined && (
+          <Button
+            className="w-full"
+            variant="outline"
+            disabled={saving}
+            onClick={onSkip}
+          >
+            {copy.skip}
+          </Button>
+        )}
       </div>
     </div>
   )

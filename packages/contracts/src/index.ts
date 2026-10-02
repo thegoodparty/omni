@@ -1287,6 +1287,8 @@ export {
   CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_AUDIO_KEY_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
   ConstituentFeedbackTripleSchema,
   type ConstituentFeedbackTriple,
   RecordConstituentFeedbackSchema,
@@ -1301,6 +1303,16 @@ export {
   type ConstituentFeedbackListResponse,
   IssueTagRefSchema,
   type IssueTagRef,
+  AudioUploadUrlRequestSchema,
+  type AudioUploadUrlRequest,
+  AudioUploadUrlResponseSchema,
+  type AudioUploadUrlResponse,
+  PendingFeedbackReferenceSchema,
+  type PendingFeedbackReference,
+  PendingFeedbackSchema,
+  type PendingFeedback,
+  PendingFeedbackResponseSchema,
+  type PendingFeedbackResponse,
 } from './constituentFeedback/ConstituentFeedback.schema'
 
 export {

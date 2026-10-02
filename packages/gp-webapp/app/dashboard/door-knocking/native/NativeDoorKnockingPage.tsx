@@ -63,6 +63,7 @@ import { geoapifyStaticUrl } from './createFlow/geoapifyStaticUrl'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { usePrecinctOptions } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { useOrganization } from '@shared/organization-picker'
+import { useOfflineQueueDrain } from 'app/dashboard/shared/dictation/useOfflineMemo'
 
 // One loading vocabulary for both waits that show behind the walk drawer:
 // the pack download (4.5s p50 / 34s p95) AND the VoterMapCanvas chunk
@@ -176,6 +177,9 @@ export default function NativeDoorKnockingPage({
   createSource,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
+  // Doors logged with no signal wait on the phone; this sends them when it
+  // returns, whether or not a door's form is open.
+  useOfflineQueueDrain()
   const router = useRouter()
   const organization = useOrganization()
   const isElectedOfficial = Boolean(organization?.electedOfficeId)
