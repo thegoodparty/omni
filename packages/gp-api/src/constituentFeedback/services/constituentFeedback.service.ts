@@ -285,11 +285,19 @@ export class ConstituentFeedbackService extends createPrismaBase(
           sourceId: knockClientKey,
         },
       },
-      select: { id: true, personId: true },
+      select: {
+        id: true,
+        personId: true,
+        outreach: {
+          select: {
+            id: true,
+            doorKnockingTurf: { select: { communityInputQuestion: true } },
+          },
+        },
+      },
     })
     if (knock === null) throw new NotFoundException()
 
-    // A knock row carries no turf, and the turf is what holds the question.
     // Scoped through the turf's own organization so a stop target from
     // another org cannot pull its question into this row.
     const target = await this.client.doorKnockingStopTarget.findFirst({
@@ -312,14 +320,25 @@ export class ConstituentFeedbackService extends createPrismaBase(
       },
     })
     if (target === null) throw new NotFoundException()
-    const outreachId = target.stop.turf.outreach?.id
+
+    // The knock's own envelope wins. It was resolved server-side when the
+    // knock was written, where `stopTargetId` is only what the client sent
+    // with the memo, and a person can sit in two turfs. The question comes
+    // from the same envelope so the row never pairs one effort with
+    // another's prompt. The stop target's turf covers knocks written before
+    // the knock row kept its envelope.
+    const outreachId = knock.outreach?.id ?? target.stop.turf.outreach?.id
     if (outreachId === undefined) throw new NotFoundException()
+    const effortQuestion =
+      knock.outreach === null
+        ? target.stop.turf.communityInputQuestion
+        : (knock.outreach.doorKnockingTurf?.communityInputQuestion ?? null)
 
     return {
       personId: knock.personId,
       doorKnockInteractionId: knock.id,
       phoneBankingInteractionId: null,
-      effortQuestion: target.stop.turf.communityInputQuestion,
+      effortQuestion,
       outreachId,
     }
   }

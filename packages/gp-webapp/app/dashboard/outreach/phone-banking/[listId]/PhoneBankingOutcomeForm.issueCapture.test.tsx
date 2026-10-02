@@ -4,6 +4,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
+import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
 import type { PhoneBankingInteraction } from '@goodparty_org/contracts'
 import PhoneBankingOutcomeForm from './PhoneBankingOutcomeForm'
 
@@ -16,6 +17,21 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
   useServeIssueCaptureFlag: vi.fn(),
 }))
+
+vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
+  useWinIssueCaptureFlag: vi.fn(),
+}))
+
+const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
+  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
+    ready: true,
+    enabled: serve,
+  })
+  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
+    ready: true,
+    enabled: win,
+  })
+}
 
 const mocks = vi.hoisted(() => ({
   input: {
@@ -107,10 +123,7 @@ let captureBodies: {
 beforeEach(() => {
   testQueryClient.clear()
   vi.mocked(trackEvent).mockClear()
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: true,
-  })
+  setFlags({ serve: true, win: false })
   mocks.input.current = null
   captureBodies = []
 
@@ -232,8 +245,8 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.ConstituentFeedback.IssueConfirmed,
-        { channel: 'phoneBanking', corrected: true },
+        EVENTS.IssueCapture.MemoConfirmed,
+        { channel: 'phoneBanking', corrected: true, product: 'serve' },
       ),
     )
   })
@@ -246,8 +259,8 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.ConstituentFeedback.IssueConfirmed,
-        { channel: 'phoneBanking', corrected: false },
+        EVENTS.IssueCapture.MemoConfirmed,
+        { channel: 'phoneBanking', corrected: false, product: 'serve' },
       ),
     )
   })
@@ -258,10 +271,10 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ConstituentFeedback.IssueSkipped,
-      { channel: 'phoneBanking' },
-    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+      channel: 'phoneBanking',
+      product: 'serve',
+    })
     await waitFor(() => expect(screen.queryByText('Is this right?')).toBeNull())
   })
 
@@ -421,11 +434,8 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     expect(captureBodies[0]?.transcript).toBe(MEMO)
   })
 
-  it('asks for no memo when the flag is off', async () => {
-    vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-      ready: true,
-      enabled: false,
-    })
+  it('asks for no memo when the Serve flag is off', async () => {
+    setFlags({ serve: false, win: true })
     const { onSaved } = renderForm()
 
     expect(screen.queryByText('What did they say?')).toBeNull()
@@ -435,11 +445,109 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     expect(captureBodies).toHaveLength(0)
   })
 
-  // Win has no constituents to capture feedback from, and the flag says
-  // nothing about that — the surface does.
-  it('asks for no memo on the Win surface', async () => {
+  // The caller speaks after the call, about it. The other person is never
+  // recorded, and the field says so where the mic is.
+  it('tells the caller to speak for themselves', () => {
+    renderForm()
+    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Engaged' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Yes' }))
+
+    expect(
+      screen.getByText(
+        "Say what they told you. Don't record the other person.",
+      ),
+    ).toBeVisible()
+  })
+
+  it('reports the memo as a Serve one', async () => {
+    renderForm()
+    callAndSave()
+
+    await screen.findByText('Is this right?')
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoRecorded, {
+      channel: 'phoneBanking',
+      captureMethod: 'dictation',
+      extractionStatus: 'extracted',
+      product: 'serve',
+    })
+  })
+})
+
+// A candidate's call list, where the memo is what a voter told the caller.
+// Same form, gated on Win's own flag.
+describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
+  // Support, then turnout: the will-vote row only opens once support is in,
+  // so its "Yes" is the second one on screen.
+  const answerWinQuestions = () => {
+    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Engaged' }))
+    fireEvent.click(
+      screen.getAllByRole('radio', { name: 'Yes' })[0] as HTMLElement,
+    )
+    fireEvent.click(
+      screen.getAllByRole('radio', { name: 'Yes' })[1] as HTMLElement,
+    )
+  }
+
+  const winCallAndSave = () => {
+    answerWinQuestions()
+    dictate(MEMO)
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  }
+
+  beforeEach(() => {
+    setFlags({ serve: false, win: true })
+  })
+
+  it('captures and confirms on win-issue-capture alone', async () => {
+    const { onSaved } = renderForm({ isServe: false })
+    winCallAndSave()
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    await waitFor(() => expect(captureBodies).toHaveLength(1))
+    expect(captureBodies[0]?.transcript).toBe(MEMO)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Looks right' }))
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.IssueCapture.MemoConfirmed,
+        { channel: 'phoneBanking', corrected: false, product: 'win' },
+      ),
+    )
+  })
+
+  it('asks for no memo when only the Serve flag is on', () => {
+    setFlags({ serve: true, win: false })
     renderForm({ isServe: false })
+    answerWinQuestions()
 
     expect(screen.queryByText('What did they say?')).toBeNull()
+  })
+
+  it('asks what they told you, in Win’s words', () => {
+    renderForm({ isServe: false })
+    answerWinQuestions()
+
+    expect(screen.getByPlaceholderText('What did they tell you?')).toBeVisible()
+    expect(
+      screen.getByText(
+        "Say what they told you. Don't record the other person.",
+      ),
+    ).toBeVisible()
+    expect(document.body.textContent ?? '').not.toMatch(/constituent/i)
+  })
+
+  it('reports the skip as a Win one', async () => {
+    renderForm({ isServe: false })
+    winCallAndSave()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+      channel: 'phoneBanking',
+      product: 'win',
+    })
   })
 })

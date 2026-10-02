@@ -7,19 +7,41 @@ import { clientRequest } from 'gpApi/typed-request'
 import { MessageSquareIcon } from '@styleguide'
 import { InfoSection } from './InfoSection'
 
-// Serve-only: every consumer of this section is gated on an elected office.
-const SERVE_FEEDBACK_COPY = {
-  title: 'What they told us',
-  empty: 'Nothing recorded yet.',
-  unconfirmed: 'Not yet reviewed',
-  wants: 'Wants',
+// On a voter's record and on a constituent's, so the copy is mode-keyed
+// (docs/product-vocabulary.md) and the Serve branch is where the vocabulary
+// gate reads it. The two read the same today because nothing here names the
+// person: Win must never say constituent, and Serve must never say voter.
+const FEEDBACK_COPY = {
+  win: {
+    title: 'What they told us',
+    empty: 'Nothing recorded yet.',
+    unconfirmed: 'Not yet reviewed',
+    wants: 'Wants',
+  },
+  serve: {
+    title: 'What they told us',
+    empty: 'Nothing recorded yet.',
+    unconfirmed: 'Not yet reviewed',
+    wants: 'Wants',
+  },
 }
 
-const SERVE_STANCE_LABELS: Record<ConstituentFeedbackStance, string> = {
-  supports: 'For it',
-  opposes: 'Against it',
-  mixed: 'Mixed',
-  unclear: 'Unclear',
+const STANCE_LABELS: Record<
+  'win' | 'serve',
+  Record<ConstituentFeedbackStance, string>
+> = {
+  win: {
+    supports: 'For it',
+    opposes: 'Against it',
+    mixed: 'Mixed',
+    unclear: 'Unclear',
+  },
+  serve: {
+    supports: 'For it',
+    opposes: 'Against it',
+    mixed: 'Mixed',
+    unclear: 'Unclear',
+  },
 }
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -34,28 +56,34 @@ const formatDate = (value: Date): string =>
     year: 'numeric',
   })
 
-const FeedbackRow = ({ entry }: { entry: ConstituentFeedbackRecord }) => (
+const FeedbackRow = ({
+  entry,
+  mode,
+}: {
+  entry: ConstituentFeedbackRecord
+  mode: 'win' | 'serve'
+}) => (
   <div className="flex flex-col gap-1 border-b border-border pb-3 last:border-b-0 last:pb-0">
     <div className="flex flex-wrap items-baseline gap-x-2">
       <span className="text-sm font-semibold text-foreground">
-        {entry.issueLabel ?? SERVE_FEEDBACK_COPY.empty}
+        {entry.issueLabel ?? FEEDBACK_COPY[mode].empty}
       </span>
       {entry.stance !== null && (
         <span className="text-sm text-muted-foreground">
-          · {SERVE_STANCE_LABELS[entry.stance]}
+          · {STANCE_LABELS[mode][entry.stance]}
         </span>
       )}
     </div>
 
     {entry.desiredOutcome !== null && (
       <p className="text-sm text-foreground">
-        {SERVE_FEEDBACK_COPY.wants}: {entry.desiredOutcome}
+        {FEEDBACK_COPY[mode].wants}: {entry.desiredOutcome}
       </p>
     )}
 
     {/* The memo itself, kept under the triple rather than replacing it. The
-        official recorded this about the constituent, so it is their own
-        summary and not a quotation — see the module's Prisma comment. */}
+        canvasser recorded this about the person, so it is their own summary
+        and not a quotation — see the module's Prisma comment. */}
     {entry.transcript !== null && (
       <p className="text-sm italic text-muted-foreground">{entry.transcript}</p>
     )}
@@ -68,7 +96,7 @@ const FeedbackRow = ({ entry }: { entry: ConstituentFeedbackRecord }) => (
       {/* An unconfirmed row is a model's reading that nobody who was there
           has checked. Saying so here is the same honesty the reporting owes
           later: it is not evidence until a person agreed with it. */}
-      {entry.confirmedAt === null && ` · ${SERVE_FEEDBACK_COPY.unconfirmed}`}
+      {entry.confirmedAt === null && ` · ${FEEDBACK_COPY[mode].unconfirmed}`}
     </p>
   </div>
 )
@@ -78,9 +106,12 @@ const FeedbackRow = ({ entry }: { entry: ConstituentFeedbackRecord }) => (
 // and this section is additive to a surface that is already long.
 export const ConstituentFeedbackSection = ({
   personId,
+  isServe,
 }: {
   personId: string
+  isServe: boolean
 }) => {
+  const mode = isServe ? 'serve' : 'win'
   const { data } = useQuery({
     queryKey: ['constituent-feedback', personId],
     queryFn: () =>
@@ -94,11 +125,11 @@ export const ConstituentFeedbackSection = ({
 
   return (
     <InfoSection
-      title={SERVE_FEEDBACK_COPY.title}
+      title={FEEDBACK_COPY[mode].title}
       icon={<MessageSquareIcon size={24} />}
     >
       {entries.map((entry) => (
-        <FeedbackRow key={entry.id} entry={entry} />
+        <FeedbackRow key={entry.id} entry={entry} mode={mode} />
       ))}
     </InfoSection>
   )

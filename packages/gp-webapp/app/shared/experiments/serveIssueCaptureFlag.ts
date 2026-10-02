@@ -11,7 +11,9 @@ import { useFlagOn } from './FeatureFlagsProvider'
 // reaches it whatever this one says.
 //
 // The flag gates rollout, not access. serveAccess() on the client and
-// @UseElectedOffice() at gp-api remain the real checks.
+// @UseOrganization() at gp-api remain the real checks. Win rolls out
+// separately on `win-issue-capture`; the shared forms read whichever applies
+// through `useIssueCaptureFlag`.
 export const SERVE_ISSUE_CAPTURE_FLAG_KEY = 'serve-issue-capture'
 
 interface UseServeIssueCaptureFlagResult {

@@ -16,27 +16,61 @@ import {
   ToggleGroupItem,
 } from '@styleguide'
 
-// Serve-only copy, in a SERVE_ declaration so the vocabulary gate can read it
-// (docs/product-vocabulary.md). This surface is only ever rendered for an
-// elected official's canvasser.
-const SERVE_CAPTURE_COPY = {
-  heading: 'Is this right?',
-  caption: 'Fix anything that is off. It takes one tap.',
-  issue: 'Issue',
-  issuePlaceholder: 'What they talked about',
-  stance: 'Where they stand',
-  outcome: 'What they want',
-  outcomePlaceholder: 'What would fix it for them',
-  confirm: 'Looks right',
-  skip: 'Skip',
-  empty: 'We could not pull anything out. Add it yourself or skip.',
+// Rendered for a candidate's canvasser and an elected official's, so the copy
+// is mode-keyed (docs/product-vocabulary.md) and the Serve branch is where the
+// vocabulary gate reads it. The two read the same today because nothing here
+// names the person on the other side of the door: Win must never say
+// constituent, and Serve must never say voter.
+const CAPTURE_COPY = {
+  win: {
+    heading: 'Is this right?',
+    caption: 'Fix anything that is off. It takes one tap.',
+    issue: 'Issue',
+    issuePlaceholder: 'What they talked about',
+    stance: 'Where they stand',
+    outcome: 'What they want',
+    outcomePlaceholder: 'What would fix it for them',
+    confirm: 'Looks right',
+    skip: 'Skip',
+    empty: 'We could not pull anything out. Add it yourself or skip.',
+  },
+  serve: {
+    heading: 'Is this right?',
+    caption: 'Fix anything that is off. It takes one tap.',
+    issue: 'Issue',
+    issuePlaceholder: 'What they talked about',
+    stance: 'Where they stand',
+    outcome: 'What they want',
+    outcomePlaceholder: 'What would fix it for them',
+    confirm: 'Looks right',
+    skip: 'Skip',
+    empty: 'We could not pull anything out. Add it yourself or skip.',
+  },
 }
 
-const SERVE_STANCE_OPTIONS: Array<[ConstituentFeedbackStance, string]> = [
-  ['supports', 'For it'],
-  ['opposes', 'Against it'],
-  ['mixed', 'Mixed'],
-  ['unclear', 'Unclear'],
+const STANCE_LABELS: Record<
+  'win' | 'serve',
+  Record<ConstituentFeedbackStance, string>
+> = {
+  win: {
+    supports: 'For it',
+    opposes: 'Against it',
+    mixed: 'Mixed',
+    unclear: 'Unclear',
+  },
+  serve: {
+    supports: 'For it',
+    opposes: 'Against it',
+    mixed: 'Mixed',
+    unclear: 'Unclear',
+  },
+}
+
+const STANCE_ORDER: ConstituentFeedbackStance[] = [
+  'supports',
+  'opposes',
+  'mixed',
+  'unclear',
 ]
 
 // Borrowed verbatim from RecordKnockForm so the confirm step reads as the last
@@ -50,6 +84,7 @@ const QUESTION_LABEL_CLASSNAME =
 interface IssueCaptureConfirmCardProps {
   proposed: ConstituentFeedbackTriple | null
   saving: boolean
+  isServe: boolean
   onConfirm: (triple: ConstituentFeedbackTriple) => void
   onSkip: () => void
 }
@@ -60,9 +95,12 @@ interface IssueCaptureConfirmCardProps {
 export default function IssueCaptureConfirmCard({
   proposed,
   saving,
+  isServe,
   onConfirm,
   onSkip,
 }: IssueCaptureConfirmCardProps) {
+  const copy = isServe ? CAPTURE_COPY.serve : CAPTURE_COPY.win
+  const stanceLabels = isServe ? STANCE_LABELS.serve : STANCE_LABELS.win
   const [issueLabel, setIssueLabel] = useState(proposed?.issueLabel ?? '')
   const [stance, setStance] = useState<ConstituentFeedbackStance | undefined>(
     proposed?.stance ?? undefined,
@@ -77,67 +115,53 @@ export default function IssueCaptureConfirmCard({
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-components-input-border p-4">
       <div>
-        <p className="text-sm font-semibold text-foreground">
-          {SERVE_CAPTURE_COPY.heading}
-        </p>
+        <p className="text-sm font-semibold text-foreground">{copy.heading}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          {proposed === null
-            ? SERVE_CAPTURE_COPY.empty
-            : SERVE_CAPTURE_COPY.caption}
+          {proposed === null ? copy.empty : copy.caption}
         </p>
       </div>
 
       <div>
-        <span className={QUESTION_LABEL_CLASSNAME}>
-          {SERVE_CAPTURE_COPY.issue}
-        </span>
+        <span className={QUESTION_LABEL_CLASSNAME}>{copy.issue}</span>
         <Input
           className="mt-2"
           value={issueLabel}
           maxLength={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
-          placeholder={SERVE_CAPTURE_COPY.issuePlaceholder}
+          placeholder={copy.issuePlaceholder}
           onChange={(e) => setIssueLabel(e.target.value)}
         />
       </div>
 
       <div>
-        <span className={QUESTION_LABEL_CLASSNAME}>
-          {SERVE_CAPTURE_COPY.stance}
-        </span>
+        <span className={QUESTION_LABEL_CLASSNAME}>{copy.stance}</span>
         <ToggleGroup
           type="single"
           value={stance ?? ''}
           onValueChange={(next) =>
-            setStance(
-              SERVE_STANCE_OPTIONS.map(([id]) => id).find(
-                (id) => id === next,
-              ) ?? undefined,
-            )
+            setStance(STANCE_ORDER.find((id) => id === next) ?? undefined)
           }
-          aria-label={SERVE_CAPTURE_COPY.stance}
+          aria-label={copy.stance}
           className="mt-2 flex flex-wrap justify-start gap-2"
         >
-          {SERVE_STANCE_OPTIONS.map(([option, label]) => (
+          {STANCE_ORDER.map((option) => (
             <ToggleGroupItem
               key={option}
               value={option}
               className={PILL_ITEM_CLASSNAME}
             >
-              {label}
+              {stanceLabels[option]}
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
       </div>
 
       <div>
-        <span className={QUESTION_LABEL_CLASSNAME}>
-          {SERVE_CAPTURE_COPY.outcome}
-        </span>
+        <span className={QUESTION_LABEL_CLASSNAME}>{copy.outcome}</span>
         <Textarea
           className="mt-2 min-h-16"
           value={desiredOutcome}
           maxLength={CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH}
-          placeholder={SERVE_CAPTURE_COPY.outcomePlaceholder}
+          placeholder={copy.outcomePlaceholder}
           rows={2}
           onChange={(e) => setDesiredOutcome(e.target.value)}
         />
@@ -155,7 +179,7 @@ export default function IssueCaptureConfirmCard({
             })
           }
         >
-          {saving ? 'Saving…' : SERVE_CAPTURE_COPY.confirm}
+          {saving ? 'Saving…' : copy.confirm}
         </Button>
         {/* Skipping leaves the memo and its unconfirmed triple on the record
             and moves the walk on. Nothing is lost, and reporting can tell an
@@ -168,7 +192,7 @@ export default function IssueCaptureConfirmCard({
           disabled={saving}
           onClick={onSkip}
         >
-          {SERVE_CAPTURE_COPY.skip}
+          {copy.skip}
         </Button>
       </div>
     </div>

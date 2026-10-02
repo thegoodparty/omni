@@ -5,7 +5,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import IssueCaptureConfirmCard from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
 import type {
   ConstituentFeedbackCaptureMethod,
@@ -25,7 +25,10 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { outreachEventProps } from '../../util/outreachAnalytics'
+import {
+  outreachEventProps,
+  outreachProduct,
+} from '../../util/outreachAnalytics'
 import {
   OUTCOME_DOT_CLASS,
   OUTCOME_LABEL,
@@ -44,6 +47,22 @@ import {
   isDraftComplete,
   type PhoneBankingOutcomeDraft,
 } from './phoneBankingOutcome.util'
+
+// The memo prompt, in each product's own words.
+const MEMO_PLACEHOLDER = {
+  win: 'What did they tell you?',
+  serve:
+    'Record the issues and positions this person cares most about. ' +
+    "Say it out loud, we'll clean it up",
+}
+
+// The memo is the caller's own voice, after the call. The other person is
+// never recorded, which keeps call-recording and two-party-consent law out of
+// the feature, and the field says so where the mic is.
+const MEMO_CONSENT_LINE = {
+  win: "Say what they told you. Don't record the other person.",
+  serve: "Say what they told you. Don't record the other person.",
+}
 
 // Everything `onSuccess` needs, frozen when Save is pressed. react-query
 // refreshes a mutation's callbacks on every render, so `onSuccess` runs
@@ -101,9 +120,10 @@ export default function PhoneBankingOutcomeForm({
   // Edit — mirrors the canvas's sticky log-call bar.
   const [isEditing, setIsEditing] = useState(!interaction)
 
-  // Issue capture. Serve only, flag only, and only once the call is answered
-  // — there is nothing to summarize about a voicemail.
-  const { enabled: captureEnabled } = useServeIssueCaptureFlag()
+  // Issue capture. Behind the product's own flag, and only once the call is
+  // answered — there is nothing to summarize about a voicemail.
+  const { enabled: captureEnabled } = useIssueCaptureFlag(isServe)
+  const product = outreachProduct(isServe)
   const [memo, setMemo] = useState('')
   const [spoken, setSpoken] = useState(false)
   const [captured, setCaptured] = useState<{
@@ -146,10 +166,11 @@ export default function PhoneBankingOutcomeForm({
         captureMethod: input.captureMethod,
       }).then((res) => res.data),
     onSuccess: (data, input) => {
-      trackEvent(EVENTS.ConstituentFeedback.IssueCaptured, {
+      trackEvent(EVENTS.IssueCapture.MemoRecorded, {
         channel: 'phoneBanking',
         captureMethod: input.captureMethod,
         extractionStatus: data.extractionStatus,
+        product,
       })
       setCaptured({ id: data.id, proposed: data.extraction })
       setFailedMemo(null)
@@ -164,15 +185,16 @@ export default function PhoneBankingOutcomeForm({
         ...triple,
       }).then((res) => res.data),
     onSuccess: (_data, triple) => {
-      trackEvent(EVENTS.ConstituentFeedback.IssueConfirmed, {
+      trackEvent(EVENTS.IssueCapture.MemoConfirmed, {
         channel: 'phoneBanking',
         // Whether the caller changed what the model proposed, never what
-        // either of them said — a constituent's words are not analytics.
+        // either of them said — a person's words are not analytics.
         corrected:
           triple.issueLabel !== (captured?.proposed?.issueLabel ?? null) ||
           triple.stance !== (captured?.proposed?.stance ?? null) ||
           triple.desiredOutcome !==
             (captured?.proposed?.desiredOutcome ?? null),
+        product,
       })
     },
     // Dismiss either way: a failed confirm leaves the memo saved and
@@ -182,11 +204,10 @@ export default function PhoneBankingOutcomeForm({
 
   // `answered` is only the branch INTO the engagement question, and two of
   // its three answers are non-conversations: a refused or hung-up call is a
-  // person-attributed outcome, not something a constituent said. Capturing
+  // person-attributed outcome, not something the person said. Capturing
   // there would file a memo about a conversation that did not happen.
   const capturesIssues =
     captureEnabled &&
-    isServe &&
     draft.outcome === 'answered' &&
     draft.engagement === 'engaged'
 
@@ -274,10 +295,12 @@ export default function PhoneBankingOutcomeForm({
       <IssueCaptureConfirmCard
         proposed={captured.proposed}
         saving={confirmCapture.isPending}
+        isServe={isServe}
         onConfirm={(triple) => confirmCapture.mutate(triple)}
         onSkip={() => {
-          trackEvent(EVENTS.ConstituentFeedback.IssueSkipped, {
+          trackEvent(EVENTS.IssueCapture.MemoSkipped, {
             channel: 'phoneBanking',
+            product,
           })
           setCaptured(null)
         }}
@@ -514,10 +537,10 @@ export default function PhoneBankingOutcomeForm({
             <Textarea
               value={memo}
               maxLength={CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH}
-              // Names what to record, not just how: the extraction reads
-              // for an issue and a position, so the prompt asks for those
-              // rather than leaving the caller to guess what is useful.
-              placeholder="Record the issues and positions this person cares most about. Say it out loud, we'll clean it up"
+              // Serve's names what to record, not just how: the extraction
+              // reads for an issue and a position, so the prompt asks for
+              // those rather than leaving the caller to guess what is useful.
+              placeholder={MEMO_PLACEHOLDER[product]}
               rows={3}
               className="min-h-20 pr-12"
               onChange={(e) => setMemo(e.target.value)}
@@ -529,6 +552,9 @@ export default function PhoneBankingOutcomeForm({
               disabled={saveMutation.isPending}
             />
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {MEMO_CONSENT_LINE[product]}
+          </p>
           <DictationFeedback dictation={dictation} />
         </div>
       )}
