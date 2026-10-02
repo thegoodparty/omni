@@ -35,6 +35,7 @@ const THEME: FeedbackThemeDetail = {
       transcript: 'He thinks the new bike lanes slow down deliveries.',
       issues: [
         {
+          id: 'issue-delivery-delays',
           position: 0,
           issueLabel: 'Delivery delays',
           stance: 'opposes',
@@ -51,6 +52,7 @@ const THEME: FeedbackThemeDetail = {
       transcript: 'She feels safer walking her kids to school.',
       issues: [
         {
+          id: 'issue-school-run-safety',
           position: 0,
           issueLabel: 'School run safety',
           stance: 'supports',
@@ -153,12 +155,14 @@ describe('ThemeDetailPage', () => {
           ...THEME.members[0]!,
           issues: [
             {
+              id: 'issue-delivery-delays',
               position: 0,
               issueLabel: 'Delivery delays',
               stance: 'opposes',
               desiredOutcome: 'Move the loading zone',
             },
             {
+              id: 'issue-parking',
               position: 1,
               issueLabel: 'Parking',
               stance: 'mixed',

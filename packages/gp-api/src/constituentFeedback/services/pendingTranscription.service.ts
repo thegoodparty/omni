@@ -29,7 +29,7 @@ const AWAITING_TRANSCRIPT = {
   transcript: null,
 } satisfies Prisma.ConstituentFeedbackWhereInput
 
-// Turns offline memos' recordings into transcripts and triples. Every
+// Turns offline memos' recordings into transcripts and issues. Every
 // minute, because a batch job takes about that long and the canvasser who
 // just got signal back is the one waiting to review it.
 //

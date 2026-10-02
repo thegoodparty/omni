@@ -71,8 +71,10 @@ fires on the press, refused or not.
 - **Cards rank by `conversationCount`**, the run's `rank` breaking ties: the
   issue several people raised rises. A count is "conversations that touched
   this theme", never a share, since one note can sit in two themes. The stance
-  split is four counts, not a chart, for the same reason, and it counts
-  issues: a note that named two adds two stances.
+  split is four counts, not a chart, for the same reason. It counts the
+  issues that matched the theme: all of a note that raised one, and of a
+  note that raised several only the one named like the theme's tag, so it
+  can sum below the conversation count.
 - **Every note is labeled as the canvasser's summary** ("Summary by ..."),
   never quoted as the other person's words, with its issues listed under it
   (`MemoList`). A pending note says "Not yet reviewed". A theme's members are

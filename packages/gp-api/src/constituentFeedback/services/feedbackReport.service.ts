@@ -17,6 +17,7 @@ import {
   SynthesisRunStatus,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { normalizeTagName } from '../util/issueTagName.util'
 
 // Provisional, until dev runs at 20, 40 and 80 memos show where grouping
 // stops splintering. Under it the report lists the memos instead of themes:
@@ -35,6 +36,7 @@ const CONFIRMED_MEMBERS = {
 const ISSUE_SELECT = {
   orderBy: { position: Prisma.SortOrder.asc },
   select: {
+    id: true,
     position: true,
     issueLabel: true,
     stance: true,
@@ -42,8 +44,12 @@ const ISSUE_SELECT = {
   },
 } as const satisfies Prisma.ConstituentFeedbackIssueFindManyArgs
 
+const TAG_SELECT = {
+  select: { id: true, name: true, status: true, normalizedName: true },
+} as const satisfies Prisma.IssueTagDefaultArgs
+
 const THEME_INCLUDE = {
-  tag: { select: { id: true, name: true, status: true } },
+  tag: TAG_SELECT,
   members: {
     ...CONFIRMED_MEMBERS,
     select: { feedback: { select: { issues: ISSUE_SELECT } } },
@@ -51,7 +57,7 @@ const THEME_INCLUDE = {
 } as const satisfies Prisma.FeedbackThemeInclude
 
 const THEME_DETAIL_INCLUDE = {
-  tag: { select: { id: true, name: true, status: true } },
+  tag: TAG_SELECT,
   members: {
     ...CONFIRMED_MEMBERS,
     orderBy: { feedback: { occurredAt: Prisma.SortOrder.desc } },
@@ -105,14 +111,24 @@ export type Denominators = FeedbackReportResponse['denominators']
 // counts fragments, not conversations, and a memo re-recorded after a run
 // loses its confirmation and must stop counting without a new run.
 //
-// Conversations are memos; stances and outcomes are the issues on them, so
-// a conversation that named two issues adds two stances.
+// Conversations are memos; stances and outcomes are the issues that matched
+// the theme. Membership is per memo, so a member that raised one issue
+// counts it whatever it was labelled, and one that raised several counts
+// only those named like the theme's tag; its other issues belong to other
+// themes. With no tag there is nothing to match them against.
 const summarize = (
   theme: ThemeRow,
   outcomeLimit: number,
 ): FeedbackThemeSummary => {
   const memos = theme.members.map((member) => member.feedback)
-  const issues = memos.flatMap((memo) => memo.issues)
+  const tagName = theme.tag?.normalizedName
+  const issues = memos.flatMap((memo) =>
+    memo.issues.length === 1
+      ? memo.issues
+      : memo.issues.filter(
+          (issue) => normalizeTagName(issue.issueLabel) === tagName,
+        ),
+  )
   const count = (stance: ConstituentFeedbackStance) =>
     issues.filter((issue) => issue.stance === stance).length
   const outcomes = issues
@@ -138,7 +154,10 @@ const summarize = (
       ).length,
     },
     desiredOutcomes: [...new Set(outcomes)].slice(0, outcomeLimit),
-    tag: theme.tag,
+    tag:
+      theme.tag === null
+        ? null
+        : { id: theme.tag.id, name: theme.tag.name, status: theme.tag.status },
   }
 }
 

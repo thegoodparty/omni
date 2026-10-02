@@ -34,6 +34,7 @@ export const CONSTITUENT_FEEDBACK_MAX_ISSUES = 5
 // position. It is the field that turns a count into something an elected
 // official can act on, and the reason survives in the transcript anyway.
 export const ConstituentFeedbackIssueSchema = z.object({
+  id: z.string(),
   position: z.number().int(),
   issueLabel: z.string().max(CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH),
   stance: ConstituentFeedbackStanceSchema.nullable(),
@@ -174,11 +175,11 @@ const ConfirmedIssueSchema = z
       .string()
       .max(CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH)
       .nullable(),
-    // The `position` of the proposed issue this one accepts or corrects.
-    // Positions are reassigned in list order, so without it the model's
-    // proposal could not stay beside the answer that corrected it. Omitted
-    // on an issue the canvasser wrote themselves.
-    fromPosition: z.number().int().min(0).optional(),
+    // The `id` of the issue this one accepts or corrects, which keeps that
+    // row and the model's proposal on it. An id rather than a position:
+    // confirming renumbers positions, so a repeated confirm would point at
+    // the wrong issue. Omitted on an issue the canvasser wrote themselves.
+    fromIssueId: z.string().optional(),
   })
   .strict()
 

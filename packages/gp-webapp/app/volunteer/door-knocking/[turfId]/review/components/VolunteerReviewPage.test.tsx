@@ -37,6 +37,7 @@ const theirMemo: PendingFeedback = {
   transcript: 'She wants the storm drain on her corner cleared.',
   issues: [
     {
+      id: 'issue-street-flooding',
       position: 0,
       issueLabel: 'Street flooding',
       stance: 'opposes',

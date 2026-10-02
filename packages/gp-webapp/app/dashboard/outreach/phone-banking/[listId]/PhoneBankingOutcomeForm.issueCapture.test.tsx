@@ -165,6 +165,7 @@ beforeEach(() => {
         extraction: {
           issues: [
             {
+              id: 'issue-compost-collection',
               position: 0,
               issueLabel: 'Compost collection',
               stance: 'mixed',
@@ -185,6 +186,7 @@ beforeEach(() => {
       transcript: MEMO,
       issues: [
         {
+          id: 'issue-compost-collection',
           position: 0,
           issueLabel: 'Compost collection',
           stance: 'mixed',
@@ -367,6 +369,7 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
           extraction: {
             issues: [
               {
+                id: 'issue-compost-collection',
                 position: 0,
                 issueLabel: 'Compost collection',
                 stance: 'mixed',

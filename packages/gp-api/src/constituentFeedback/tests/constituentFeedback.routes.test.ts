@@ -241,7 +241,7 @@ describe('constituent feedback routes', () => {
     expect(res.status).toBe(201)
     expect(res.data.extractionStatus).toBe('extracted')
     expect(res.data.extraction).toEqual({
-      issues: [{ position: 0, ...COMPOST }],
+      issues: [{ id: expect.any(String), position: 0, ...COMPOST }],
     })
   })
 
@@ -260,8 +260,8 @@ describe('constituent feedback routes', () => {
     expect(res.status).toBe(201)
     expect(res.data.extraction).toEqual({
       issues: [
-        { position: 0, ...COMPOST },
-        { position: 1, ...RODENTS },
+        { id: expect.any(String), position: 0, ...COMPOST },
+        { id: expect.any(String), position: 1, ...RODENTS },
       ],
     })
     const issues = await service.prisma.constituentFeedbackIssue.findMany({
@@ -295,6 +295,7 @@ describe('constituent feedback routes', () => {
       confidence: 0.7,
     }
     const recorded = await capture('Compost, and the rats.')
+    const rodents = recorded.data.extraction.issues[1]
 
     const confirmed = await service.client.patch(
       `/v1/constituent-feedback/${recorded.data.id}/confirm`,
@@ -304,7 +305,7 @@ describe('constituent feedback routes', () => {
             issueLabel: 'Rats',
             stance: 'opposes',
             desiredOutcome: 'Sealed bins',
-            fromPosition: 1,
+            fromIssueId: rodents.id,
           },
         ],
       },
@@ -314,6 +315,7 @@ describe('constituent feedback routes', () => {
     expect(confirmed.status).toBe(200)
     expect(confirmed.data.issues).toEqual([
       {
+        id: rodents.id,
         position: 0,
         issueLabel: 'Rats',
         stance: 'opposes',
@@ -332,6 +334,188 @@ describe('constituent feedback routes', () => {
         proposedDesiredOutcome: null,
       }),
     ])
+  })
+
+  // A confirm whose response is lost on one bar of signal gets tapped again.
+  // The second has to land on the same rows, not on whatever now sits at
+  // the positions the first one renumbered.
+  it('keeps each issue’s row and proposal across a repeated confirm', async () => {
+    const issue = (label: string): ModelIssue => ({
+      issueLabel: label,
+      stance: 'opposes',
+      desiredOutcome: null,
+    })
+    extraction = {
+      issues: [issue('Ants'), issue('Bees'), issue('Crows')],
+      confidence: 0.7,
+    }
+    const recorded = await capture('Ants, bees and crows.')
+    const [, bees, crows] = recorded.data.extraction.issues
+    const body = {
+      issues: [
+        {
+          issueLabel: 'Wasps',
+          stance: 'mixed',
+          desiredOutcome: null,
+          fromIssueId: bees.id,
+        },
+        {
+          issueLabel: 'Crows',
+          stance: 'opposes',
+          desiredOutcome: null,
+          fromIssueId: crows.id,
+        },
+      ],
+    }
+    const rows = () =>
+      service.prisma.constituentFeedbackIssue.findMany({
+        where: { feedbackId: recorded.data.id },
+        orderBy: { position: 'asc' },
+      })
+
+    for (const attempt of [1, 2]) {
+      const confirmed = await service.client.patch(
+        `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+        body,
+        headers(),
+      )
+      expect(confirmed.status, `attempt ${attempt}`).toBe(200)
+      expect(await rows()).toEqual([
+        expect.objectContaining({
+          id: bees.id,
+          position: 0,
+          issueLabel: 'Wasps',
+          proposedIssueLabel: 'Bees',
+        }),
+        expect.objectContaining({
+          id: crows.id,
+          position: 1,
+          issueLabel: 'Crows',
+          proposedIssueLabel: 'Crows',
+        }),
+      ])
+    }
+  })
+
+  // Naming an issue the memo does not hold, or one twice, would attach a
+  // proposal to the wrong answer or to two.
+  it('refuses an issue id that is not one of the memo’s, or one twice', async () => {
+    const recorded = await capture('Rosa wants weekly compost pickup.')
+    const compost = recorded.data.extraction.issues[0]
+    const confirm = (fromIssueIds: string[]) =>
+      service.client.patch(
+        `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+        {
+          issues: fromIssueIds.map((fromIssueId) => ({
+            issueLabel: 'Compost',
+            stance: null,
+            desiredOutcome: null,
+            fromIssueId,
+          })),
+        },
+        { ...headers(), validateStatus: () => true },
+      )
+
+    expect((await confirm([randomUUID()])).status).toBe(422)
+    expect((await confirm([compost.id, compost.id])).status).toBe(422)
+    const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+      where: { id: recorded.data.id },
+      include: { issues: true },
+    })
+    expect(row.confirmedAt).toBeNull()
+    expect(row.issues).toEqual([
+      expect.objectContaining({
+        id: compost.id,
+        issueLabel: COMPOST.issueLabel,
+      }),
+    ])
+  })
+
+  // The model is asked for five at most but nothing makes it; a sixth must
+  // not throw away the five before it.
+  it('keeps the first five issues when the model returns more', async () => {
+    extraction = {
+      issues: ['A', 'B', 'C', 'D', 'E', 'F'].map((label) => ({
+        issueLabel: label,
+        stance: null,
+        desiredOutcome: null,
+      })),
+      confidence: 0.5,
+    }
+
+    const res = await capture('Six things.')
+
+    expect(res.status).toBe(201)
+    expect(
+      res.data.extraction.issues.map(
+        (issue: { issueLabel: string }) => issue.issueLabel,
+      ),
+    ).toEqual(['A', 'B', 'C', 'D', 'E'])
+  })
+
+  // A blank label is not an issue anyone could confirm or file.
+  it('drops an issue the model left unnamed', async () => {
+    extraction = {
+      issues: [
+        { issueLabel: '  ', stance: 'opposes', desiredOutcome: null },
+        { issueLabel: 'Rodents', stance: 'opposes', desiredOutcome: null },
+      ],
+      confidence: 0.5,
+    }
+
+    const res = await capture('Something, and the rats.')
+
+    expect(res.status).toBe(201)
+    expect(res.data.extraction.issues).toEqual([
+      {
+        id: expect.any(String),
+        position: 0,
+        issueLabel: 'Rodents',
+        stance: 'opposes',
+        desiredOutcome: null,
+      },
+    ])
+  })
+
+  // The canvasser can confirm from the review list while a retry is waiting
+  // on the model. The retry's proposal must not replace their answer.
+  it('keeps a confirmation that lands while a retry asks the model', async () => {
+    const recorded = await capture('Rosa wants weekly compost pickup.')
+    vi.mocked(
+      service.app.get(ConstituentFeedbackExtractionService).extract,
+    ).mockImplementationOnce(async () => {
+      await service.prisma.constituentFeedbackIssue.updateMany({
+        where: { feedbackId: recorded.data.id },
+        data: { issueLabel: 'Food scraps' },
+      })
+      await service.prisma.constituentFeedback.update({
+        where: { id: recorded.data.id },
+        data: { confirmedAt: new Date() },
+      })
+      return {
+        extraction: {
+          issues: [
+            { issueLabel: 'Rodents', stance: 'opposes', desiredOutcome: null },
+          ],
+          confidence: 0.5,
+        },
+        model: 'claude-test',
+      }
+    })
+
+    const retried = await service.client.post(
+      `/v1/constituent-feedback/${recorded.data.id}/retry`,
+      {},
+      { ...headers(), validateStatus: () => true },
+    )
+
+    expect(retried.status).toBe(201)
+    const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+      where: { id: recorded.data.id },
+      include: { issues: true },
+    })
+    expect(row.confirmedAt).not.toBeNull()
+    expect(row.issues.map((issue) => issue.issueLabel)).toEqual(['Food scraps'])
   })
 
   it('confirms a memo that named no issue with an empty list', async () => {
@@ -452,7 +636,7 @@ describe('constituent feedback routes', () => {
             issueLabel: 'Compost collection',
             stance: 'supports',
             desiredOutcome: 'Weekly pickup',
-            fromPosition: 0,
+            fromIssueId: first.data.extraction.issues[0].id,
           },
         ],
       },
@@ -540,7 +724,9 @@ describe('constituent feedback routes', () => {
 
     expect(res.status).toBe(200)
     expect(res.data.feedback).toHaveLength(1)
-    expect(res.data.feedback[0]?.issues).toEqual([{ position: 0, ...COMPOST }])
+    expect(res.data.feedback[0]?.issues).toEqual([
+      { id: expect.any(String), position: 0, ...COMPOST },
+    ])
     const envelope = await service.prisma.outreach.findUniqueOrThrow({
       where: { phoneBankingListId: listId },
     })
@@ -804,7 +990,7 @@ describe('constituent feedback routes', () => {
       expect(res.status).toBe(201)
       expect(res.data.personId).toBe(seeded.knockPersonId)
       expect(res.data.extraction).toEqual({
-        issues: [{ position: 0, ...COMPOST }],
+        issues: [{ id: expect.any(String), position: 0, ...COMPOST }],
       })
 
       const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
@@ -986,7 +1172,6 @@ describe('constituent feedback routes', () => {
             issueLabel: 'Road bond',
             stance: 'supports',
             desiredOutcome: 'Spend it on the roads',
-            fromPosition: 0,
           },
         ],
       }

@@ -351,7 +351,7 @@ export default function PhoneBankingOutcomeForm({
       if (captureEnabled) await offline.forget(callKey).catch(() => undefined)
       // The call is logged before the memo is even posted, and the panel is
       // told so immediately — unlike the door, where the walk is HELD at the
-      // stop until the triple is answered. A caller picks their next entry
+      // stop until the issues are answered. A caller picks their next entry
       // themselves, so there is nothing to hold, and leaving the list stale
       // while a second request runs would be the worse trade.
       onSaved(data.results)

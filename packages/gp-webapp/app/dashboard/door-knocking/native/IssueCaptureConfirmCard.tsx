@@ -93,10 +93,11 @@ const QUESTION_LABEL_CLASSNAME =
 
 type ProposedIssues = { issues: ConstituentFeedbackIssue[] } | null
 
-// One issue as the canvasser is editing it. `fromPosition` is the proposal
-// it started as, sent back so the server keeps the two side by side.
+// One issue as the canvasser is editing it. `fromIssueId` is the proposed
+// issue it started as, sent back so the server keeps that row, and the
+// model's proposal on it, beside the answer.
 type IssueDraft = {
-  fromPosition: number | undefined
+  fromIssueId: string | undefined
   issueLabel: string
   stance: ConstituentFeedbackStance | undefined
   desiredOutcome: string
@@ -127,14 +128,14 @@ const initialDrafts = (proposed: ProposedIssues): IssueDraft[] =>
   proposed === null
     ? [
         {
-          fromPosition: undefined,
+          fromIssueId: undefined,
           issueLabel: '',
           stance: undefined,
           desiredOutcome: '',
         },
       ]
     : proposed.issues.map((issue) => ({
-        fromPosition: issue.position,
+        fromIssueId: issue.id,
         issueLabel: issue.issueLabel,
         stance: issue.stance ?? undefined,
         desiredOutcome: issue.desiredOutcome ?? '',
@@ -154,9 +155,9 @@ const toConfirmed = (
         issueLabel,
         stance: draft.stance ?? null,
         desiredOutcome: desiredOutcome === '' ? null : desiredOutcome,
-        ...(draft.fromPosition === undefined
+        ...(draft.fromIssueId === undefined
           ? {}
-          : { fromPosition: draft.fromPosition }),
+          : { fromIssueId: draft.fromIssueId }),
       },
     ]
   })
@@ -217,9 +218,9 @@ export default function IssueCaptureConfirmCard({
         const name = copy.issueNumber(index + 1)
         return (
           <div
-            // The proposal an issue came from never changes while the card is
-            // up, so it keys the block through removals of the ones above it.
-            key={draft.fromPosition ?? 'written'}
+            // The issue a block came from never changes while the card is up,
+            // so it keys the block through removals of the ones above it.
+            key={draft.fromIssueId ?? 'written'}
             role="group"
             aria-label={name}
             className={cn(
