@@ -393,6 +393,62 @@ describe('serve phone banking routes', () => {
       expect(afterSecond?.sentAt).toBe(afterFirst?.sentAt)
     })
 
+    // A send that happened is what is true. An official who put the check
+    // off, or turned it down, and then sent it anyway changed their mind; a
+    // side left deferred would be raised again about people already asked.
+    it.each(['deferred', 'declined'] as const)(
+      'moves a %s side to out when it is sent anyway',
+      async (state) => {
+        mockPeoplePage([fakePerson({ cellPhone: '3075770010' })])
+        const priority = await officePriority()
+        await service.prisma.priority.update({
+          where: { id: priority.id },
+          data: {
+            status: {
+              version: 3,
+              steps: [
+                {
+                  id: 'options',
+                  state: 'settled',
+                  summary: 'Three ways to fix it.',
+                  check: {
+                    state,
+                    who: 'Parents on Main',
+                    question: 'Which would you back?',
+                    raised: 1,
+                  },
+                },
+              ],
+            },
+          },
+        })
+
+        const res = await service.client.post(
+          '/v1/phone-banking/serve/lists',
+          buildBody({
+            proposalKey: PROPOSAL_KEY,
+            priorityId: priority.id,
+            stepId: 'options',
+            side: 'main',
+          }),
+          eoHeaders(),
+        )
+
+        expect(res.status).toBe(201)
+        const check = parsePriorityStatus(
+          (
+            await service.prisma.priority.findUniqueOrThrow({
+              where: { id: priority.id },
+            })
+          ).status,
+        ).steps.find((step) => step.id === 'options')?.check
+        expect(check).toMatchObject({
+          state: 'out',
+          sentProposalKey: PROPOSAL_KEY,
+        })
+      },
+    )
+
     it('refuses a check on a step that carries none', async () => {
       mockPeoplePage([fakePerson({ cellPhone: '3075770006' })])
       const priority = await officePriority()

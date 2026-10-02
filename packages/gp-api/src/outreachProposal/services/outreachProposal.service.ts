@@ -63,6 +63,7 @@ export class OutreachProposalService {
     // send off someone else's.
     const link = await this.phoneBankingLists.resolveProposalLink(
       {
+        proposalKey,
         ...(input.priorityId != null && { priorityId: input.priorityId }),
         ...(input.stepId !== undefined && { stepId: input.stepId }),
         ...(input.side !== undefined && { side: input.side }),
