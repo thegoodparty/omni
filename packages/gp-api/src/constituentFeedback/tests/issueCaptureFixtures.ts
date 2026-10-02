@@ -150,8 +150,15 @@ export const knock = async (
     },
   })
 
+type SeededIssue = {
+  issueLabel: string
+  stance: ConstituentFeedbackStance | null
+  desiredOutcome: string | null
+}
+
 // An answered knock and the memo recorded against it, confirmed unless
-// told otherwise.
+// told otherwise. One street-flooding issue shaped by `stance` and
+// `desiredOutcome`, unless `issues` names them all.
 export const seedKnockMemo = async (
   service: TestServiceContext,
   input: {
@@ -161,6 +168,7 @@ export const seedKnockMemo = async (
     confirmed?: boolean
     stance?: ConstituentFeedbackStance | null
     desiredOutcome?: string | null
+    issues?: SeededIssue[]
     transcript?: string
   },
 ) => {
@@ -175,13 +183,23 @@ export const seedKnockMemo = async (
       doorKnockInteractionId: row.id,
       transcript: input.transcript ?? 'The storm drain on her corner floods.',
       captureMethod: ConstituentFeedbackCaptureMethod.dictation,
-      issueLabel: 'Street flooding',
-      stance:
-        input.stance === undefined
-          ? ConstituentFeedbackStance.opposes
-          : input.stance,
-      desiredOutcome:
-        input.desiredOutcome === undefined ? null : input.desiredOutcome,
+      issues: {
+        create: (
+          input.issues ?? [
+            {
+              issueLabel: 'Street flooding',
+              stance:
+                input.stance === undefined
+                  ? ConstituentFeedbackStance.opposes
+                  : input.stance,
+              desiredOutcome:
+                input.desiredOutcome === undefined
+                  ? null
+                  : input.desiredOutcome,
+            },
+          ]
+        ).map((issue, position) => ({ position, ...issue })),
+      },
       extractionStatus: ConstituentFeedbackExtractionStatus.extracted,
       confirmedAt: input.confirmed === false ? null : new Date(),
       clientKey: row.sourceId!,
@@ -281,8 +299,13 @@ export const seedCallMemo = async (
       phoneBankingInteractionId: input.phoneBankingInteractionId,
       transcript: 'He wants the compost pilot on his street.',
       captureMethod: ConstituentFeedbackCaptureMethod.dictation,
-      issueLabel: 'Composting pilot',
-      stance: ConstituentFeedbackStance.supports,
+      issues: {
+        create: {
+          position: 0,
+          issueLabel: 'Composting pilot',
+          stance: ConstituentFeedbackStance.supports,
+        },
+      },
       extractionStatus: ConstituentFeedbackExtractionStatus.extracted,
       confirmedAt: new Date(),
       clientKey: randomUUID(),

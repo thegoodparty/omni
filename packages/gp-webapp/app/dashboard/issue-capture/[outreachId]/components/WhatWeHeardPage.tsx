@@ -25,8 +25,7 @@ import UnderFloorList from './UnderFloorList'
 const toListItem = (memo: FeedbackReportMemo): MemoListItem => ({
   id: memo.id,
   transcript: memo.transcript,
-  stance: memo.stance,
-  desiredOutcome: memo.desiredOutcome,
+  issues: memo.issues,
   actorName: memo.actorName,
   channel: memo.channel,
   occurredAt: memo.occurredAt,

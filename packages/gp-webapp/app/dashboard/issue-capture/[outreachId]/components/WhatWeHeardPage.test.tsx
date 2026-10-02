@@ -36,8 +36,14 @@ const memo = (
   occurredAt: new Date('2026-09-25T18:00:00.000Z'),
   channel: 'door_knock',
   transcript: 'She wants the storm drains on Elm cleared before winter.',
-  stance: 'supports',
-  desiredOutcome: 'Clear the drains',
+  issues: [
+    {
+      position: 0,
+      issueLabel: 'Storm drains',
+      stance: 'supports',
+      desiredOutcome: 'Clear the drains',
+    },
+  ],
   actorName: 'Kamal Al Sawafi',
   confirmedAt: new Date('2026-09-25T18:01:00.000Z'),
   ...fields,
@@ -63,8 +69,14 @@ const MEMOS = [
     id: 'memo-2',
     personId: 'person-2',
     transcript: 'He thinks the new bike lanes slow down deliveries.',
-    stance: 'opposes',
-    desiredOutcome: null,
+    issues: [
+      {
+        position: 0,
+        issueLabel: 'Delivery delays',
+        stance: 'opposes',
+        desiredOutcome: null,
+      },
+    ],
     actorName: null,
     confirmedAt: null,
   }),

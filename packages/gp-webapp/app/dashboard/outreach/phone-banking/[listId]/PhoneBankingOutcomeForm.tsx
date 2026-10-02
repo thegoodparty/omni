@@ -12,11 +12,14 @@ import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
-import IssueCaptureConfirmCard from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
+import IssueCaptureConfirmCard, {
+  wasCorrected,
+} from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
 import type {
   PhoneBankingCallResult,
   PhoneBankingInteraction,
-  ConstituentFeedbackTriple,
+  ConfirmedConstituentFeedbackIssue,
+  RecordConstituentFeedbackResponse,
 } from '@goodparty_org/contracts'
 import { CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
@@ -141,7 +144,7 @@ export default function PhoneBankingOutcomeForm({
   const [spoken, setSpoken] = useState(false)
   const [captured, setCaptured] = useState<{
     id: string
-    proposed: ConstituentFeedbackTriple | null
+    proposed: RecordConstituentFeedbackResponse['extraction']
   } | null>(null)
   // A failed capture is the one failure on this surface that loses DATA: the
   // call's own payload carries no memo, so unlike the door — where the note
@@ -178,7 +181,7 @@ export default function PhoneBankingOutcomeForm({
   // again replaces them rather than queueing a second pair.
   const callKey = `${entryId}:${personId}`
   // Shown where the confirm card would be: nothing is extracted until the
-  // memo reaches the server, so the triple waits in "Notes to review".
+  // memo reaches the server, so the issues wait in "Notes to review".
   // `saved` when nothing reached the server, `sending` when the call did and
   // only the recording waits.
   const [queued, setQueued] = useState<keyof typeof OFFLINE_MEMO_COPY | null>(
@@ -215,21 +218,16 @@ export default function PhoneBankingOutcomeForm({
   })
 
   const confirmCapture = useMutation({
-    mutationFn: (triple: ConstituentFeedbackTriple) =>
+    mutationFn: (issues: ConfirmedConstituentFeedbackIssue[]) =>
       clientRequest('PATCH /v1/constituent-feedback/:id/confirm', {
         id: captured?.id ?? '',
-        ...triple,
+        issues,
       }).then((res) => res.data),
-    onSuccess: (_data, triple) => {
+    onSuccess: (_data, issues) => {
       trackEvent(EVENTS.IssueCapture.MemoConfirmed, {
         channel: 'phoneBanking',
-        // Whether the caller changed what the model proposed, never what
-        // either of them said — a person's words are not analytics.
-        corrected:
-          triple.issueLabel !== (captured?.proposed?.issueLabel ?? null) ||
-          triple.stance !== (captured?.proposed?.stance ?? null) ||
-          triple.desiredOutcome !==
-            (captured?.proposed?.desiredOutcome ?? null),
+        corrected: wasCorrected(captured?.proposed ?? null, issues),
+        issueCount: issues.length,
         product,
       })
     },
@@ -417,7 +415,7 @@ export default function PhoneBankingOutcomeForm({
         proposed={captured.proposed}
         saving={confirmCapture.isPending}
         isServe={isServe}
-        onConfirm={(triple) => confirmCapture.mutate(triple)}
+        onConfirm={(issues) => confirmCapture.mutate(issues)}
         onSkip={() => {
           trackEvent(EVENTS.IssueCapture.MemoSkipped, {
             channel: 'phoneBanking',

@@ -179,7 +179,7 @@ const WIN_AREAS: ProductArea[] = [
       'Recommended voter lists sit above the saved lists: ready-made audiences (voters who have not heard from you, persuadable independent-leaning voters, your supporters to invite or turn out) with a Details view and a Send outreach button, no saving needed',
       'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',
       'Opening a list shows its filter summary and outreach history, never a table of individual voters',
-      'A voter’s record can carry What they told us: what they said at the door or on the phone, the issue, where they stand, what they want, and any accepted tags. It is being rolled out account by account',
+      'A voter’s record can carry What they told us: what they said at the door or on the phone, the issues they raised, where they stand on each and what they want, and any accepted tags. It is being rolled out account by account',
     ],
     gate: 'Filtering the voter file needs the Pro upgrade, and so does seeing which precincts it covers. Without Pro the page still shows district aggregates and a blurred preview.',
   },

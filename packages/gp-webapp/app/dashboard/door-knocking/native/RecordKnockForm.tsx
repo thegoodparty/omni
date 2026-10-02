@@ -3,10 +3,11 @@
 import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
-  ConstituentFeedbackTriple,
+  ConfirmedConstituentFeedbackIssue,
   DoorKnockOutcome,
   DoorKnockStatus,
   FollowUpAnswer,
+  RecordConstituentFeedbackResponse,
   RecordDoorKnockInteraction,
   RoutePayloadTarget,
   SupportAnswer,
@@ -31,7 +32,9 @@ import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicB
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
-import IssueCaptureConfirmCard from './IssueCaptureConfirmCard'
+import IssueCaptureConfirmCard, {
+  wasCorrected,
+} from './IssueCaptureConfirmCard'
 import {
   ANSWER_OPTIONS,
   engagementOptions,
@@ -242,7 +245,7 @@ export default function RecordKnockForm({
   } | null>(null)
   const [captured, setCaptured] = useState<{
     id: string
-    proposed: ConstituentFeedbackTriple | null
+    proposed: RecordConstituentFeedbackResponse['extraction']
   } | null>(null)
 
   // The one place the walk moves on, so confirmed, skipped and failed all
@@ -306,7 +309,7 @@ export default function RecordKnockForm({
 
   // The phone keeps what it cannot send yet, and the walk moves on. There is
   // no confirm card: nothing is extracted until the memo reaches the server,
-  // so the triple waits in "Notes to review".
+  // so the issues wait in "Notes to review".
   const hold = async (
     input: KnockInput,
     interaction: RecordDoorKnockInteraction | null,
@@ -429,21 +432,16 @@ export default function RecordKnockForm({
   })
 
   const confirm = useMutation({
-    mutationFn: (triple: ConstituentFeedbackTriple) =>
+    mutationFn: (issues: ConfirmedConstituentFeedbackIssue[]) =>
       clientRequest('PATCH /v1/constituent-feedback/:id/confirm', {
         id: captured?.id ?? '',
-        ...triple,
+        issues,
       }).then((res) => res.data),
-    onSuccess: (_data, triple) => {
+    onSuccess: (_data, issues) => {
       trackEvent(EVENTS.IssueCapture.MemoConfirmed, {
         channel: 'doorKnocking',
-        // Whether the canvasser changed what the model proposed, never what
-        // either of them said — a person's words are not analytics.
-        corrected:
-          triple.issueLabel !== (captured?.proposed?.issueLabel ?? null) ||
-          triple.stance !== (captured?.proposed?.stance ?? null) ||
-          triple.desiredOutcome !==
-            (captured?.proposed?.desiredOutcome ?? null),
+        corrected: wasCorrected(captured?.proposed ?? null, issues),
+        issueCount: issues.length,
         product,
       })
       advance()
@@ -527,7 +525,7 @@ export default function RecordKnockForm({
         proposed={captured.proposed}
         saving={confirm.isPending}
         isServe={serveMode}
-        onConfirm={(triple) => confirm.mutate(triple)}
+        onConfirm={(issues) => confirm.mutate(issues)}
         onSkip={() => {
           trackEvent(EVENTS.IssueCapture.MemoSkipped, {
             channel: 'doorKnocking',
