@@ -857,7 +857,8 @@ describe('the judge policy grants what the sweep job calls', () => {
   const tf = readFileSync(POLICY, 'utf8')
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const statement = (sid: string): string => {
-    const at = tf.indexOf(`Sid    = "${sid}"`)
+    // Alignment is terraform fmt's, so it moves with the neighbouring keys.
+    const at = tf.search(new RegExp(`Sid\\s*=\\s*"${sid}"`))
     expect(at, `no ${sid} statement`).toBeGreaterThan(-1)
     // To the end of the Resource list: an ARN interpolates `${...}`, so the
     // first `}` is inside it, not the statement's end.
