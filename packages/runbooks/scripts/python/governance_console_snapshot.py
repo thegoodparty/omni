@@ -31,6 +31,7 @@ PY = Path(__file__).resolve().parent
 sys.path.insert(0, str(PY))
 
 import analytics_event_health as aeh  # noqa: E402
+import digest_triage as dt  # noqa: E402
 
 GAPS = PY / "instrumentation_data" / "instrumentation_gaps.json"
 REPORT = PY / "instrumentation_data" / "analytics_event_health_report.json"
@@ -365,20 +366,15 @@ CAUSE_CAVEATS = {
     "never_observed": _caveat(
         "Amplitude holds a definition for each of these events and no data behind it. "
         "Not one of them has ever fired.",
-        "Less than it sounds like. The list of events we check comes from the "
-        "definitions people write in Amplitude, not from the code. So an event that "
-        "somebody defined and never built scores exactly the same here as one that "
-        "shipped last Thursday and has not fired yet.",
-        "The group mixes three unrelated things. Counted on 2026-09-28, of 69 events: "
-        "34 were never built at all, about 32 shipped too recently to judge, and 4 are "
-        "the real finding. An event that was never built stays here even after it is "
-        "deleted from Amplitude, and ruling on some events here does not stop them "
-        "coming back next run; an event leaves on its own the first time it fires.",
-        "Split it before ruling on it, which the buttons above the table do for you. "
-        "'not found in code' selects the ones nobody ever built, and the age column "
-        "separates what shipped in the last fortnight from what has been silent for "
-        "months.",
-        "instrumented_never_observed, DATA-2508, DATA-2587, DATA-2588",
+        "Every event here was found in the code and either shipped more than 30 days "
+        "ago or is one we watch closely, so the silence means something. Other events "
+        "that shipped more recently and have not fired yet are left out of this group, "
+        "and the digest counts them as too new to judge.",
+        "Ruling on some events here does not stop them coming back next run; an event "
+        "leaves on its own the first time it fires.",
+        "Before calling one broken, check that the code that sends it can still run and "
+        "that the action behind it is one people actually take.",
+        "instrumented_never_observed, DATA-2588",
     ),
     "dormant": _caveat(
         "Nothing fired in the last 30 days.",
@@ -722,7 +718,8 @@ def _sorted_evidence(rows: list[dict]) -> list[dict]:
 
 
 def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]:
-    """The flagged set as one row per cause, in the digest's own grouping and order.
+    """The flagged set as one row per cause, in the digest's own grouping and order, with
+    any cause holding an OKR break moved to the top.
 
     A cause, not an event, is the unit: one deploy that stranded twenty-two name
     constants is one ruling, not twenty-two. ``aeh.cluster_flagged`` already does the
@@ -762,6 +759,9 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
             "count": group["count"],
             "events": group["events"],
             "elevated": group["elevated"],
+            "okr_break": sorted(
+                r["event_type"] for r in by_cause.get(cause, []) if dt.is_okr_break(r)
+            ),
             "dismissable": dismissable,
             "dismissed": {"reason": reason} if reason is not None else None,
             "elevated_note": _elevated_note(
@@ -770,6 +770,9 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
             "evidence": evidence,
             "proof_hint": removal_proof(evidence),
         })
+    # The digest raises an OKR break every run, whatever its rank, so the console has to
+    # lead with it too, or the one item Slack calls urgent sits tenth on this page.
+    items.sort(key=lambda item: not item["okr_break"])
     return items
 
 

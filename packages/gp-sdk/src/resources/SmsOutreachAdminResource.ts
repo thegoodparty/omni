@@ -9,6 +9,7 @@ import type {
   SmsApprovalQueueResponse,
   SmsTestMessageRequest,
   SmsTestMessageResponse,
+  SmsVendorBalanceResponse,
 } from '@goodparty_org/contracts'
 import { BaseResource } from './BaseResource'
 
@@ -19,6 +20,13 @@ export class SmsOutreachAdminResource extends BaseResource {
 
   getQueue = (): Promise<SmsApprovalQueueResponse> =>
     this.getRequest<SmsApprovalQueueResponse>(`${this.resourceBasePath}/queue`)
+
+  // The vendor account's prepaid balance; `account` is null when the live
+  // vendor read failed.
+  getBalance = (): Promise<SmsVendorBalanceResponse> =>
+    this.getRequest<SmsVendorBalanceResponse>(
+      `${this.resourceBasePath}/balance`,
+    )
 
   getDetail = (id: number): Promise<SmsAdminDetailResponse> =>
     this.getRequest<SmsAdminDetailResponse>(`${this.resourceBasePath}/${id}`)

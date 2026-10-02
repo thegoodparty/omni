@@ -73,13 +73,19 @@ export const judgeRunId = (suffix: string): string => {
   return runId
 }
 
+// `replaceAll`, not `replace`. `replace` with a string pattern substitutes the
+// FIRST match only, so a filename with two dots would reach the pattern with
+// its second dot unescaped — and an unescaped dot matches any character, which
+// would let a key validate that is not the file the schema names. Correct for
+// today's two single-dot leaves, and silently wrong for the first one that is
+// not.
 const judgeObjectKey = (filename: string) =>
   z
     .string()
     .regex(
       new RegExp(
         `^${JUDGE_KEY_PREFIX}${KEY_SEGMENT_SOURCE}/${KEY_SEGMENT_SOURCE}/` +
-          `${filename.replace('.', '\\.')}$`,
+          `${filename.replaceAll('.', '\\.')}$`,
       ),
       { message: `must be ${JUDGE_KEY_PREFIX}<agentId>/<digest>/${filename}` },
     )

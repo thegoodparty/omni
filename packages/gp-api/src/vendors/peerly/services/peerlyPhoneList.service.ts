@@ -5,6 +5,8 @@ import FormData from 'form-data'
 import {
   PhoneListDetailsResponseDto,
   PhoneListStatusResponseDto,
+  PhoneListSummary,
+  PhoneListSummaryListDto,
   UploadPhoneListResponseDto,
 } from '../schemas/peerlyPhoneList.schema'
 import {
@@ -17,6 +19,11 @@ import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 
 const P2P_SUPPRESS_CELL_PHONES = '4'
+// Peerly's "test list": the same phone list upload with a different
+// suppression mode. At most 5 numbers, scoped to one identity, and the
+// only place a number can live for Peerly to accept it as a test
+// recipient. https://api-docs.peerly.com/reference/send-test-message
+export const TEST_SUPPRESS_CELL_PHONES = 6
 const MAX_FILE_SIZE = 104857600
 
 interface UploadPhoneListParams {
@@ -24,6 +31,12 @@ interface UploadPhoneListParams {
   csvBuffer: Buffer
   identityId?: string
   fileSize?: number
+}
+
+interface UploadTestPhoneListParams {
+  listName: string
+  phone: string
+  identityId: string
 }
 
 @Injectable()
@@ -56,13 +69,25 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
       dnc_suppress_initials: P2P_DNC_SUPPRESS_INITIALS,
     }
 
+    return this.postPhoneList({ formFields, csvBuffer, filename: 'voters.csv' })
+  }
+
+  private async postPhoneList({
+    formFields,
+    csvBuffer,
+    filename,
+  }: {
+    formFields: Record<string, string | number>
+    csvBuffer: Buffer
+    filename: string
+  }): Promise<string> {
     const form = new FormData()
     Object.entries(formFields).forEach(([key, value]) => {
       form.append(key, value)
     })
 
     form.append('file', csvBuffer, {
-      filename: 'voters.csv',
+      filename,
       contentType: 'text/csv',
     })
 
@@ -80,6 +105,73 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
         'upload',
       )
       return validated.Data.token
+    } catch (error) {
+      return this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+      })
+    }
+  }
+
+  // A one-number test list for the CAS test send: the same upload in
+  // Peerly's test mode. The CSV carries the phone alone — a staff handset
+  // has no voter record, and inventing an address to fill the voter column
+  // map would put made-up data in the vendor. DNC scrubbing matches the
+  // P2P upload, so a staff number on the national list still receives its
+  // own test.
+  async uploadTestPhoneList(
+    params: UploadTestPhoneListParams,
+  ): Promise<string> {
+    const { listName, phone, identityId } = params
+    return this.postPhoneList({
+      formFields: {
+        account: this.accountNumber,
+        identity_id: identityId,
+        list_name: listName,
+        suppress_cell_phones: String(TEST_SUPPRESS_CELL_PHONES),
+        list_map: JSON.stringify({ lead_phone: 1 }),
+        use_nat_dnc: P2P_DNC_SCRUBBING,
+        dnc_suppress_initials: P2P_DNC_SUPPRESS_INITIALS,
+      },
+      // Header row then the number, the shape the voter upload's column
+      // map already assumes.
+      csvBuffer: Buffer.from(`lead_phone\n${phone}\n`, 'utf8'),
+      filename: 'test-list.csv',
+    })
+  }
+
+  // Every list in one identity, with the columns that say which are test
+  // lists and which are usable. Peerly caps test lists per identity, so a
+  // caller has to look before it creates one.
+  async listPhoneLists(identityId: string): Promise<PhoneListSummary[]> {
+    try {
+      const response = await this.peerlyHttpService.get(
+        '/phonelists/listByAccount',
+        { params: { account: this.accountNumber, identity_id: identityId } },
+      )
+
+      return this.peerlyHttpService.validateResponse(
+        response.data,
+        PhoneListSummaryListDto,
+        'list phone lists',
+      )
+    } catch (error) {
+      return this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+      })
+    }
+  }
+
+  // Adds one number to a list that already exists, which is how a second
+  // reviewer's handset joins a test list without uploading another one.
+  // Throws Peerly's own message through — the caller decides whether a
+  // rejection (already present, list full) is fatal.
+  async addContactToPhoneList(listId: number, phone: string): Promise<void> {
+    try {
+      await this.peerlyHttpService.post(`/phonelists/${listId}/addcontact`, {
+        contact: { contact_phone: phone },
+      })
     } catch (error) {
       return this.peerlyErrorHandling.handleApiError({
         error,

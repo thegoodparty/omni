@@ -221,6 +221,22 @@ export class OutreachNotificationService {
     )
   }
 
+  /**
+   * Alert CAS when a robocall could not send because the CallHub account is
+   * out of credit. Actionable (top up the account) where the generic failure
+   * log is not, and fires in the channel CAS already watches. Best-effort.
+   */
+  async notifyRobocallLowCredit(
+    campaignSlug: string,
+    outreachId: number,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `⚠️ Robocall could not send — the CallHub account is out of credit. ` +
+        `Top up CallHub to resume. ${campaignSlug} · outreach #${outreachId}`,
+      outreachId,
+    )
+  }
+
   private async postRobocallLine(
     text: string,
     outreachId: number,

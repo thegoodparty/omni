@@ -631,35 +631,55 @@ export class DomainsService
         break
       }
       const batch = candidates.slice(i, i + AVAILABILITY_CHECK_BATCH_SIZE)
-      // Race the batch against the remaining budget: a single throttled
-      // Route53 check can back off for minutes, so a between-batches elapsed
-      // check alone can't bound the request. An abandoned batch settles later
-      // into nothing (allSettled never rejects).
-      const checked = await Promise.race([
-        Promise.allSettled(
-          batch.map((domain) => this.checkPatternedCandidate(domain, maxPrice)),
+      // The budget has to bound the request from inside a batch — a single
+      // throttled Route53 check can back off for tens of seconds, so an
+      // elapsed check between batches cannot do it — but it must not cost us
+      // verdicts we already hold. Racing the batch as one unit discarded every
+      // result the batch had settled: on 2026-09-30 four candidates came back
+      // available and priced in 1.6s, the fifth answered 0.2s after the
+      // deadline, and all four were thrown away, so a search that had found
+      // four domains reported that nothing could be checked and 502'd.
+      //
+      // So race each check on its own against one shared deadline: whatever
+      // has an answer when the budget runs out is kept, and only the checks
+      // still in flight are lost. Those settle later into nothing.
+      const budgetExpired = this.deadline(remainingMs)
+      const checked = await Promise.all(
+        batch.map((domain) =>
+          Promise.race([
+            this.checkPatternedCandidate(domain, maxPrice).then(
+              (value) => ({ status: 'fulfilled', value }) as const,
+              (reason: unknown) => ({ status: 'rejected', reason }) as const,
+            ),
+            budgetExpired,
+          ]),
         ),
-        this.deadline(remainingMs),
-      ])
-      if (checked === null) {
-        outOfBudget = true
-        break
-      }
+      )
       for (const r of checked) {
-        if (r.status === 'rejected') {
+        if (r === null) {
+          // Still in flight when the budget ran out, so it never reached a
+          // verdict — the same thing a throttled check is, and counted the
+          // same way.
+          outOfBudget = true
+          unchecked += 1
+        } else if (r.status === 'rejected') {
           const err =
             r.reason instanceof Error ? r.reason : new Error(String(r.reason))
           this.logger.warn(
             { err, fn: 'searchDomainsForCampaign' },
-            'candidate availability check failed; skipping',
+            'candidate availability check failed; candidate not checked',
           )
+          // A fault we did not anticipate is not a verdict either. Counting it
+          // as one let an unexpected throw across every candidate return an
+          // empty list the caller reads as "the namespace is taken".
+          unchecked += 1
         } else if (r.value === UNCHECKED) {
           unchecked += 1
         } else if (r.value !== null) {
           found.push(r.value)
         }
       }
-      if (found.length >= SEARCH_TARGET_CANDIDATE_COUNT) {
+      if (outOfBudget || found.length >= SEARCH_TARGET_CANDIDATE_COUNT) {
         break
       }
     }

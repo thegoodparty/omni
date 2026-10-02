@@ -1963,6 +1963,9 @@
       el('span', 'caret', '▸'),
       el('span', 'chip ' + tone, 'rank ' + item.rank),
       el('span', 'title', item.label),
+      item.okr_break && item.okr_break.length
+        ? el('span', 'chip crit', 'needs action')
+        : null,
       item.elevated && item.elevated.length
         ? el('span', 'chip okr', item.elevated.length + ' elevated')
         : null,

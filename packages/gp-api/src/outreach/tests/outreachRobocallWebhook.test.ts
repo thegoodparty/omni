@@ -139,6 +139,13 @@ describe('OutreachRobocallWebhookService', () => {
 
       const satellite = await readSatellite(outreachId)
       expect(satellite.settleState).toBe(RobocallSettleState.cancelled)
+      // A pending_payment satellite pairs with a pending_payment spine (no hold
+      // committed yet), so the spine must flip to canceled too rather than
+      // dangle while the satellite reads cancelled.
+      const spine = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+      })
+      expect(spine.status).toBe('canceled')
       expect(paymentIntentsCancel).not.toHaveBeenCalled()
     })
 

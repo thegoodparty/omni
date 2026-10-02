@@ -32,6 +32,7 @@ import {
   QueueType,
 } from '../../../queue/queue.types'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
+import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import {
   SlackChannel,
   SlackMessageBlock,
@@ -269,6 +270,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
   constructor(
     private readonly queueService: QueueProducerService,
     private readonly slack: SlackService,
+    private readonly crmCampaigns: CrmCampaignsService,
   ) {
     super()
   }
@@ -402,7 +404,17 @@ export class Nightly10DlcReportService extends createPrismaBase(
   // verbatim with the gp-admin 10DLC status page (getAdminStatusSnapshot) so
   // the two can't drift. Pure read: no Slack posts, no escalation claims —
   // those stay in handleNightlyReport and the escalation job.
-  async collectStatusSnapshot(now: Date) {
+  //
+  // awaitingPinFloorDays is the one knob the two consumers disagree on: the
+  // report nudges staff only once a PIN has sat >7d, while the admin page
+  // lists every issued PIN so staff can find-and-resend before the nudge
+  // window (close to an election, candidates ask within days — ENG-11210).
+  // It floors only the awaiting-PIN bucket; cvUnissued keeps the nudge
+  // window on both surfaces.
+  async collectStatusSnapshot(
+    now: Date,
+    { awaitingPinFloorDays = AWAITING_PIN_NUDGE_DAYS } = {},
+  ) {
     const proOnly = { campaign: reportableCampaign }
     const billingBlockScope = notActivelyBillingBlocked(now)
 
@@ -487,14 +499,20 @@ export class Nightly10DlcReportService extends createPrismaBase(
               PeerlyCvVerificationStatus.IN_REVIEW,
             ],
           },
-          // Coarse floor only: a record created less than the nudge window
-          // ago cannot have been waiting longer than it, so this can never
-          // over-exclude. The precise clock is applied per section in code
-          // below — the two sections measure different things, and the
-          // `updatedAt` this filter used to key off is bumped by *any* write
-          // to the row (including the nightly poll's own status write), which
-          // silently reset the age.
-          createdAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
+          // Coarse floor only: a record created less than the window ago
+          // cannot have been waiting longer than it, so this can never
+          // over-exclude. It has to be the smaller of the two sections'
+          // windows, since both populate from this one query; the precise
+          // clock is applied per section in code below — the two sections
+          // measure different things, and the `updatedAt` this filter used
+          // to key off is bumped by *any* write to the row (including the
+          // nightly poll's own status write), which silently reset the age.
+          createdAt: {
+            lt: subDays(
+              now,
+              Math.min(awaitingPinFloorDays, AWAITING_PIN_NUDGE_DAYS),
+            ),
+          },
         },
         include: { campaign: true },
       }),
@@ -664,6 +682,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
         : null,
     }))
 
+    const awaitingPinCutoff = subDays(now, awaitingPinFloorDays)
     const nudgeCutoff = subDays(now, AWAITING_PIN_NUDGE_DAYS)
     // When the PIN went out: the detection sweep's stamp, else when CV reached
     // APPROVED (Peerly issues the PIN on that transition). Never `updatedAt` —
@@ -688,7 +707,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       const sentAt = pinSentAt(record)
       return record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED &&
         sentAt !== null &&
-        isBefore(sentAt, nudgeCutoff)
+        isBefore(sentAt, awaitingPinCutoff)
         ? [{ record, sentAt }]
         : []
     })
@@ -739,7 +758,27 @@ export class Nightly10DlcReportService extends createPrismaBase(
   // pings, not a triage queue.
   async getAdminStatusSnapshot(): Promise<TenDlcStatusSnapshot> {
     const now = new Date()
-    const snapshot = await this.collectStatusSnapshot(now)
+    // Floor 0: the page lists every issued PIN so staff can resend on the
+    // first "my PIN never arrived" report, not after the report's 7d nudge.
+    const snapshot = await this.collectStatusSnapshot(now, {
+      awaitingPinFloorDays: 0,
+    })
+    const assignedPas = await this.assignedPasByCampaign([
+      ...[
+        ...snapshot.stuckSubmissions.map(({ record }) => record),
+        ...snapshot.errorRecords,
+        ...snapshot.rejectedRecords,
+        ...snapshot.billingBlocked,
+        ...snapshot.inReviewToEscalate,
+        ...snapshot.waitingToFinalizeToEscalate,
+        ...snapshot.deferredDispatch,
+        ...snapshot.agingAwaitingPin.map(({ record }) => record),
+        ...snapshot.agingCvUnissued.map(({ record }) => record),
+      ].map((record) => record.campaign),
+      ...[...snapshot.stuckDomains, ...snapshot.heldDomains].map(
+        (domain) => domain.website.campaign,
+      ),
+    ])
     const keys = TenDlcStatusBucketKeySchema.enum
     const entry = (
       record: RecordWithCampaign,
@@ -750,6 +789,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       campaignSlug: record.campaign.slug,
       userId: record.campaign.userId,
       committeeName: record.committeeName,
+      assignedPa: assignedPas.get(record.campaignId) ?? null,
       peerlyIdentityId: record.peerlyIdentityId,
       filingUrl: record.filingUrl,
       since: since?.toISOString() ?? null,
@@ -768,6 +808,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       campaignSlug: domain.website.campaign.slug,
       userId: domain.website.campaign.userId,
       committeeName: null,
+      assignedPa: assignedPas.get(domain.website.campaignId) ?? null,
       peerlyIdentityId: null,
       filingUrl: null,
       since: domain.createdAt.toISOString(),
@@ -857,6 +898,40 @@ export class Nightly10DlcReportService extends createPrismaBase(
         },
       ],
     }
+  }
+
+  // The campaign's assigned success person is its HubSpot company owner —
+  // the same live, best-effort read the SMS console's queue makes (one read
+  // per company). getCrmCompanyOwnerName never rejects — every HubSpot
+  // failure inside it logs, alerts, and resolves '' — so an empty name is
+  // the only unassigned signal to normalize. Admin-snapshot only: the
+  // nightly Slack report never pays this CRM cost.
+  private async assignedPasByCampaign(
+    campaigns: Campaign[],
+  ): Promise<Map<number, string | null>> {
+    const hubspotIdByCampaign = new Map<number, string | undefined>(
+      campaigns.map((campaign) => [campaign.id, campaign.data?.hubspotId]),
+    )
+    const nameByHubspotId = new Map<string, Promise<string | null>>()
+    const ownerName = (hubspotId: string) => {
+      const pending =
+        nameByHubspotId.get(hubspotId) ??
+        this.crmCampaigns
+          .getCrmCompanyOwnerName(hubspotId)
+          .then((name) => name.trim() || null)
+      nameByHubspotId.set(hubspotId, pending)
+      return pending
+    }
+    const byCampaign = new Map<number, string | null>()
+    await Promise.all(
+      [...hubspotIdByCampaign].map(async ([campaignId, hubspotId]) => {
+        byCampaign.set(
+          campaignId,
+          hubspotId ? await ownerName(hubspotId) : null,
+        )
+      }),
+    )
+    return byCampaign
   }
 
   // Returns false (SQS redelivery) when the Slack post fails, so a missed

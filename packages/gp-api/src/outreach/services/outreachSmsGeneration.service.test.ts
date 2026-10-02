@@ -4,7 +4,11 @@ import { SERVE_OUTREACH_PURPOSE_VALUES } from '@goodparty_org/contracts'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { LlmService } from '@/llm/services/llm.service'
 import { SERVE_SMS_VOICE } from '../util/serveSmsVoice.util'
-import { OutreachSmsGenerationService } from './outreachSmsGeneration.service'
+import {
+  OutreachSmsGenerationService,
+  SMS_IMPROVE_IDENTIFICATION_RULE,
+  SMS_NO_NAME_PLACEHOLDER_RULE,
+} from './outreachSmsGeneration.service'
 
 const buildService = () => {
   const jsonCompletion = vi
@@ -170,5 +174,68 @@ describe('OutreachSmsGenerationService — SERVE_SMS_VOICE', () => {
         'Custom-purpose messages are written by the elected official',
       ),
     )
+  })
+})
+
+// The webapp writes the identification sentence and restores it when a draft
+// comes back without it, so every prompt has to leave it to the app on a
+// fresh draft, keep it on a polish, and never bracket a name.
+describe('OutreachSmsGenerationService — identification', () => {
+  it('keeps a fresh Win draft from greeting, introducing, or bracketing a name', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraft(
+      { purpose: 'introduce_myself', tone: 'warm' },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+
+    const { systemPrompt } = promptsOf(jsonCompletion)
+    expect(systemPrompt).toContain('do not greet, and')
+    expect(systemPrompt).toContain('do not sign off')
+    expect(systemPrompt).toContain(SMS_NO_NAME_PLACEHOLDER_RULE)
+  })
+
+  it('keeps a fresh Serve draft from signing off or bracketing a name', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraftWithVoice(
+      { purpose: 'introduce_myself', tone: 'warm' },
+      'Bryan Levine',
+      'City Council Member',
+      '7',
+      [],
+      SERVE_SMS_VOICE,
+    )
+
+    const { systemPrompt } = promptsOf(jsonCompletion)
+    expect(systemPrompt).toContain('Do not greet')
+    expect(systemPrompt).toContain('Do not sign off')
+    expect(systemPrompt).toContain(SMS_NO_NAME_PLACEHOLDER_RULE)
+  })
+
+  it('makes a polish keep the name on both surfaces', async () => {
+    const win = buildService()
+    await win.service.generateDraft(
+      { purpose: 'custom', tone: 'warm', currentDraft: 'Vote Tuesday.' },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+    const serve = buildService()
+    await serve.service.generateDraftWithVoice(
+      { purpose: 'custom', tone: 'warm', currentDraft: 'Town hall Tuesday.' },
+      'Bryan Levine',
+      'City Council Member',
+      '7',
+      [],
+      SERVE_SMS_VOICE,
+    )
+
+    for (const { jsonCompletion } of [win, serve]) {
+      const { systemPrompt } = promptsOf(jsonCompletion)
+      expect(systemPrompt).toContain(SMS_IMPROVE_IDENTIFICATION_RULE)
+    }
   })
 })

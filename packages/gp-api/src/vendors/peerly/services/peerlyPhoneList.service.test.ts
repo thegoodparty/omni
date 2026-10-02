@@ -5,6 +5,7 @@ import {
   AxiosRequestConfig,
   AxiosResponse,
 } from 'axios'
+import FormData from 'form-data'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
@@ -42,6 +43,7 @@ describe('PeerlyPhoneListService', () => {
   let mockLogger: PinoLogger
   let mockHttpService: {
     get: ReturnType<typeof vi.fn>
+    post: ReturnType<typeof vi.fn>
     validateResponse: ReturnType<typeof vi.fn>
   }
   let mockErrorHandling: {
@@ -52,6 +54,7 @@ describe('PeerlyPhoneListService', () => {
     mockLogger = createMockLogger()
     mockHttpService = {
       get: vi.fn(),
+      post: vi.fn(),
       validateResponse: vi.fn(),
     }
     mockErrorHandling = {
@@ -135,6 +138,34 @@ describe('PeerlyPhoneListService', () => {
         BadGatewayException,
       )
       expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
+  describe('uploadTestPhoneList', () => {
+    // Peerly only texts a number that sits on a TEST list, and test mode is
+    // the one upload field that makes a list one. A list uploaded in P2P
+    // mode by mistake is accepted here and refused at send time.
+    it('uploads the number in test mode, in the campaign identity', async () => {
+      mockHttpService.post.mockResolvedValue({ data: {} })
+      mockHttpService.validateResponse.mockReturnValue({
+        Data: { token: 'upload-token' },
+      })
+
+      const token = await service.uploadTestPhoneList({
+        listName: 'GoodParty test list identity-1',
+        phone: '5551234567',
+        identityId: 'identity-1',
+      })
+
+      expect(token).toBe('upload-token')
+      const [path, form] = mockHttpService.post.mock.calls[0] as [
+        string,
+        FormData,
+      ]
+      expect(path).toBe('/phonelists')
+      const body = form.getBuffer().toString()
+      expect(body).toContain('name="suppress_cell_phones"\r\n\r\n6')
+      expect(body).toContain('name="identity_id"\r\n\r\nidentity-1')
+      expect(body).toContain('5551234567')
     })
   })
 })

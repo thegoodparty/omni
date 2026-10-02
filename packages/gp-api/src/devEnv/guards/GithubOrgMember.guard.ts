@@ -22,10 +22,15 @@ const ACTIVE_MEMBERSHIP_STATE = 'active'
 const GITHUB_TIMEOUT_MS = 10_000
 const GITHUB_UNREACHABLE = 'Could not reach GitHub'
 const BEARER_PREFIX = 'Bearer '
+// Dedicated header, NOT Authorization: the global SessionGuard tries every
+// Authorization bearer as a Clerk session first, and a verification failure
+// there is an UnauthorizedException it rethrows even on @PublicAccess
+// routes — so a gho_ token in Authorization 401s before this guard runs.
+export const GITHUB_TOKEN_HEADER = 'x-github-token'
 
 // Authorizes a caller purely on "is an active member of the thegoodparty
 // GitHub org" — the one credential a brand-new contributor already has. The
-// bearer token is a GitHub user token, is spent on this single membership
+// X-GitHub-Token header carries a GitHub user token, spent on this single membership
 // call, and is never persisted, logged, or sent anywhere else.
 //
 // Rejections are deliberately detail-free: the caller learns that it was
@@ -46,15 +51,14 @@ export class GithubOrgMemberGuard implements CanActivate {
     }
 
     const req = context.switchToHttp().getRequest<DevEnvRequest>()
-    const authorization = req.headers.authorization
+    const headerValue = req.headers[GITHUB_TOKEN_HEADER]
+    const token = Array.isArray(headerValue) ? headerValue[0] : headerValue
 
-    if (!authorization?.startsWith(BEARER_PREFIX)) {
+    if (!token) {
       throw new UnauthorizedException()
     }
 
-    const membership = await this.fetchMembership(
-      authorization.slice(BEARER_PREFIX.length),
-    )
+    const membership = await this.fetchMembership(token)
 
     if (membership.state !== ACTIVE_MEMBERSHIP_STATE) {
       throw new ForbiddenException()

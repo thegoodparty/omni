@@ -721,6 +721,28 @@ describe('PaymentEventsService', () => {
       ).toHaveBeenCalledOnce()
     })
 
+    it('tracks Pro past due once, when a renewal charge first fails', async () => {
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent(
+          { status: 'past_due', canceled_at: null },
+          { status: 'active' },
+        ),
+      )
+
+      expect(analytics.track).toHaveBeenCalledExactlyOnceWith(
+        mockUser.id,
+        EVENTS.Account.ProSubscriptionPastDue,
+        { subscriptionId: 'sub_test_unmatched' },
+      )
+
+      analytics.track.mockClear()
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent({ status: 'past_due', canceled_at: null }),
+      )
+
+      expect(analytics.track).not.toHaveBeenCalled()
+    })
+
     // The id this lookup reads is written by our own fulfillment, seconds after
     // checkout, and Stripe delivers a subscription's sibling events
     // concurrently with that write. Acknowledging a miss this young would drop
@@ -859,6 +881,30 @@ describe('PaymentEventsService', () => {
       )
 
       campaignsService.findBySubscriptionId.mockResolvedValue(null)
+      await service.customerSubscriptionDeletedHandler(deletedEvent())
+
+      expect(
+        campaignsService.persistCampaignProCancellation,
+      ).toHaveBeenCalledOnce()
+      expect(slackService.message).toHaveBeenCalledOnce()
+    })
+
+    it('tracks the Pro cancellation with the reason Stripe gave', async () => {
+      await service.customerSubscriptionDeletedHandler(deletedEvent())
+
+      expect(analytics.track).toHaveBeenCalledExactlyOnceWith(
+        mockUser.id,
+        EVENTS.Account.ProSubscriptionEnded,
+        {
+          subscriptionId: 'sub_test_unmatched',
+          cancellationReason: 'payment_failed',
+        },
+      )
+    })
+
+    it('still un-Pros and posts to Slack when tracking the cancellation fails', async () => {
+      analytics.track.mockRejectedValueOnce(new Error('segment down'))
+
       await service.customerSubscriptionDeletedHandler(deletedEvent())
 
       expect(

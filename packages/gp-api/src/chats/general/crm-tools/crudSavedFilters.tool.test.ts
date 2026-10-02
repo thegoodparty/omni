@@ -24,7 +24,7 @@ const buildDeps = (over: {
     create: vi.fn(),
     updateByIdAndOrganizationSlug: vi.fn(),
     deleteByIdAndOrganizationSlug: vi.fn(),
-    findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
+    findUsableByOrganizationSlug: vi.fn(() => Promise.resolve([])),
     findByIdAndOrganizationSlug: vi.fn(() => Promise.resolve(null)),
     filterAccessCheck: vi.fn(() => Promise.resolve()),
     ...over.voterFileFilters,
@@ -94,7 +94,7 @@ describe('crud_saved_filters execute', () => {
   it('list returns { id, name, hasBoundary } and no geometry', async () => {
     const { tool } = buildTool({
       voterFileFilters: {
-        findByOrganizationSlug: vi.fn(() =>
+        findUsableByOrganizationSlug: vi.fn(() =>
           Promise.resolve([
             {
               id: 1,

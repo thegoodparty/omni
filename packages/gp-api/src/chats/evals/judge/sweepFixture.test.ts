@@ -165,7 +165,7 @@ describe('mintJudgeFixture', () => {
 
   // The POST already minted a Clerk user by then. Throwing without deleting
   // would discard the only id that can reclaim it deliberately, leaving the
-  // 6-hourly cron as the sole reaper — and Clerk's Backend API budget is the
+  // hourly cron as the sole reaper — and Clerk's Backend API budget is the
   // scarce resource here.
   it('deletes the user it minted when the fixture is unusable', async () => {
     const { api, calls } = stubApi({

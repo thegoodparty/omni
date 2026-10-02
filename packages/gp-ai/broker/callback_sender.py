@@ -17,7 +17,7 @@ class CallbackSender:
         status: str,
         artifact_key: str = "",
         artifact_bucket: str = "",
-        duration_seconds: float = 0,
+        duration_seconds: float | None = None,
         cost_usd: float | None = None,
         reason_code: str = "",
         detail: str = "",
@@ -29,7 +29,6 @@ class CallbackSender:
             "status": status,
             "artifactKey": artifact_key,
             "artifactBucket": artifact_bucket,
-            "durationSeconds": duration_seconds,
             "reasonCode": reason_code,
             "detail": detail,
             # gp-api's queue consumer reads data.error to populate
@@ -50,6 +49,13 @@ class CallbackSender:
         # `AgentRun.schema.ts` already types it as (`z.number().nullable()`).
         if cost_usd is not None:
             data["costUsd"] = cost_usd
+        # Duration, for the same two reasons. A run whose duration nobody
+        # measured must not arrive as a measured-looking 0 seconds, and the
+        # zod field is `durationSeconds: z.number().optional()` too — so the
+        # key is omitted, never sent as null, which would dead-letter the
+        # callback. The consumer writes `data.durationSeconds ?? null`.
+        if duration_seconds is not None:
+            data["durationSeconds"] = duration_seconds
         body = {"type": "agentExperimentResult", "data": data}
         if not self.queue_url:
             logger.info("callback skipped (no queue_url): %s %s", run_id, status)
