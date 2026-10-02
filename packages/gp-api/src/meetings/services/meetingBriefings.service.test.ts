@@ -2537,7 +2537,7 @@ describe('publication gate: ready briefings must show an available agenda', () =
     expect(await rowFor(eo.id)).not.toBeNull()
   })
 
-  it('writes no row when a ready artifact cites no agenda or government-website source with text', async () => {
+  it('writes no row when a ready artifact cites no agenda source with text', async () => {
     const { eo, briefingRun } = await setupRun({
       ...readyWith({ agenda_availability: 'full_packet' }),
       sources: [
@@ -2549,7 +2549,7 @@ describe('publication gate: ready briefings must show an available agenda', () =
     expect(await rowFor(eo.id)).toBeNull()
   })
 
-  it('accepts an HTML agenda page cited as a government website', async () => {
+  it('writes no row when an HTML agenda page is cited only as a government website', async () => {
     const { eo, briefingRun } = await setupRun({
       ...readyWith({
         agenda_availability: 'html_agenda',
@@ -2563,7 +2563,7 @@ describe('publication gate: ready briefings must show an available agenda', () =
       ],
     })
     await complete(briefingRun)
-    expect(await rowFor(eo.id)).not.toBeNull()
+    expect(await rowFor(eo.id)).toBeNull()
   })
 
   it('still writes the row when the packet URL is empty (warning only for now)', async () => {

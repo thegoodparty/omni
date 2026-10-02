@@ -578,12 +578,20 @@ class TestAgendaAvailabilityConsistency:
         v.check_agenda_availability_consistency(_ready_artifact("full_packet", sources=news_only), findings)
         assert [f.check for f in findings if f.severity == "error"] == ["agenda_availability.no_agenda_evidence"]
 
-    def test_html_agenda_cited_as_government_website_counts_as_evidence(self):
+    def test_html_agenda_cited_only_as_government_website_is_not_evidence(self):
         v = _load_validator()
         findings: list = []
         gov_page = [_agenda_source(source_type="government_website", url="https://portal.example.gov/event/1")]
         v.check_agenda_availability_consistency(
             _ready_artifact("html_agenda", sources=gov_page, packet_url="https://portal.example.gov/event/1"), findings
+        )
+        assert [f.check for f in findings if f.severity == "error"] == ["agenda_availability.no_agenda_evidence"]
+
+    def test_user_provided_with_null_packet_url_has_no_warning(self):
+        v = _load_validator()
+        findings: list = []
+        v.check_agenda_availability_consistency(
+            _ready_artifact("full_packet", status="agenda_provided_by_user", packet_url=None), findings
         )
         assert findings == []
 

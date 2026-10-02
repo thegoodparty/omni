@@ -615,7 +615,7 @@ def _framing_leak(text: str, strict: bool):
 
 _READY_STATUSES = frozenset({"briefing_ready", "agenda_provided_by_user"})
 _REFUSED_AVAILABILITY = frozenset({"partial", "not_published", "inferred_from_prior"})
-_AGENDA_EVIDENCE_TYPES = frozenset({"agenda_packet", "government_website"})
+_AGENDA_EVIDENCE_TYPES = frozenset({"agenda_packet"})
 # Audit phrases only. Coarse on purpose: this check observes, it never gates.
 _UNAVAILABLE_AGENDA_PHRASES = (
     "not yet published",
@@ -670,9 +670,11 @@ def check_agenda_availability_consistency(artifact: dict, findings: list[Finding
 
     Mirrors the gp-api publication gate: ready or user-provided status with an
     availability value that says the agenda was unavailable is an error, and so
-    is a ready artifact that cites no agenda or government-website source with
-    text at all. A missing availability value and an empty agenda_packet_url are
-    warnings for now; both become errors once every live run records them.
+    is a ready artifact that cites no agenda_packet source with text at all (an
+    HTML agenda page is cited as agenda_packet too). A missing availability value
+    is a warning for now, and so is an empty agenda_packet_url on briefing_ready;
+    uploaded packets have no URL. Both become errors once every live run records
+    them.
     """
     status = artifact.get("briefing_status")
     if status not in _READY_STATUSES:
@@ -705,10 +707,10 @@ def check_agenda_availability_consistency(artifact: dict, findings: list[Finding
         findings.append(Finding(
             "agenda_availability.no_agenda_evidence",
             "error",
-            f"briefing_status='{status}' but no agenda_packet or government_website source carries "
+            f"briefing_status='{status}' but no agenda_packet source carries "
             "retrieved text. Nothing in the artifact shows an agenda was read.",
         ))
-    if not (rm.get("agenda_packet_url") or "").strip():
+    if status == "briefing_ready" and not (rm.get("agenda_packet_url") or "").strip():
         findings.append(Finding(
             "agenda_packet_url.empty_on_ready",
             "warning",

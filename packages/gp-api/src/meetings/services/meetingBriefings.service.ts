@@ -129,11 +129,11 @@ const PUBLISHABLE_AGENDA_AVAILABILITY: ReadonlySet<string> = new Set([
   'full_packet',
   'html_agenda',
 ])
-// Source types that count as evidence an agenda was read. government_website
-// covers the agenda page itself when the PDF packet sits behind a sign-in wall.
+// Source types that count as evidence an agenda was read. An HTML agenda page
+// is cited as agenda_packet too (instruction, verification rule case c), so a
+// generic government page never stands in for the agenda.
 const AGENDA_EVIDENCE_SOURCE_TYPES: ReadonlySet<string> = new Set([
   'agenda_packet',
-  'government_website',
 ])
 // A user-pasted packet whose stated date is this far from the target meeting
 // is treated as a different meeting. Holiday shifts of a day or two pass.
@@ -1362,8 +1362,11 @@ export class MeetingBriefingsService extends createPrismaBase(
    * instruction forbids a ready briefing when this meeting's agenda was
    * unavailable, and this is where that rule is enforced rather than trusted.
    * The remaining checks are the evidence gp-api can observe for itself: at
-   * least one agenda or government-website source with text, an upload row
-   * for the user-provided path, and the date the packet states.
+   * least one agenda_packet source with text, an upload row for the
+   * user-provided path, and the date the packet states. The stated-date check
+   * applies only to user-provided packets. For a discovered agenda the date
+   * heuristic is a QA warning, because in the review it refused good
+   * briefings and missed two misleading ones.
    *
    * Two allowances are deliberate and temporary: an artifact without
    * agenda_availability (produced before the field existed) is published with
@@ -1402,8 +1405,13 @@ export class MeetingBriefingsService extends createPrismaBase(
       return 'no_agenda_evidence'
     }
 
+    // Uploaded packets have no permanent URL, so only a discovered agenda is
+    // expected to carry one.
     const packetUrl = readStringField(runMetadata, 'agenda_packet_url')
-    if (!packetUrl || packetUrl.trim().length === 0) {
+    if (
+      briefingStatus === 'briefing_ready' &&
+      (!packetUrl || packetUrl.trim().length === 0)
+    ) {
       this.logger.warn(
         { runId: run.runId, briefingStatus },
         'meeting_briefing published with an empty agenda_packet_url',
