@@ -569,7 +569,7 @@ def _areas_text(reach: er.Reach) -> str:
 
 
 def _relabel_fix(event: str, after: er.Reach) -> str:
-    target = sorted(after.areas[0].names)[0] if len(after.areas) == 1 else "<area-slug>"
+    target = er.slug(after.areas[0].label) if len(after.areas) == 1 else "<area-slug>"
     label = after.areas[0].label if len(after.areas) == 1 else "<Area>"
     rest = event.split(" - ", 1)[1] if " - " in event else event
     return (
@@ -586,8 +586,10 @@ def _relabel_fix(event: str, after: er.Reach) -> str:
 def surface_findings(base: Snapshot, head: Snapshot, b_idx: er.ReachIndex,
                      h_idx: er.ReachIndex) -> list[Finding]:
     """Warn when a change stops an event firing from an area it fired from, or brings a
-    dead one back somewhere new. A component mounted on one more page does not warn: the
-    label may still be right, and the weekly detector reads labels, which this cannot."""
+    dead one back somewhere new. `revived` also fires when the base side had only a gap
+    (no live area), since that reads the same as dead. A change that leaves an event with
+    no live page is not warned here. A component mounted on one more page does not warn:
+    the label may still be right, and the weekly detector reads labels, which this cannot."""
     flows = set(head.watchlist.get("flow_prefixes") or [])
     out = []
     for name in sorted(set(base.registries["web"]) & set(head.registries["web"])):
@@ -671,13 +673,23 @@ def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.L
     event_legs, path_legs = watched_legs(anchors)
     if not event_legs and not path_legs:
         raise GuardError("no watched OKR legs loaded from instrumentation_data/sem; refusing to report a pass")
-    b_idx, h_idx = er.ReachIndex(base, _resolve), er.ReachIndex(head, _resolve)
     found = (okr_findings(base, head, event_legs, path_legs, renames) + dead_listings(base, head)
              + stale_surface_paths(base, head) + watchlist_findings(base, head)
-             + hubspot_warnings(base, head) + new_key_warnings(base, head)
-             + surface_findings(base, head, b_idx, h_idx))
-    found, relabel_cleared = apply_relabels(found, base, head, h_idx)
-    remaining, cleared = apply_intents(found, base, head)
+             + hubspot_warnings(base, head) + new_key_warnings(base, head))
+    try:
+        b_idx, h_idx = er.ReachIndex(base, _resolve), er.ReachIndex(head, _resolve)
+        with_surface, relabel_cleared = apply_relabels(
+            found + surface_findings(base, head, b_idx, h_idx), base, head, h_idx)
+        traced = len(h_idx.reach_all())
+    except Exception as exc:  # noqa: BLE001
+        # The surface rule only ever warns, so a bug in it must not cost the PR its OKR
+        # blocks the way a GUARD ERROR exit would.
+        with_surface = found + [Finding(
+            "surface_check_failed", "warn", "surface drift",
+            f"The surface check did not run: {type(exc).__name__}: {exc}",
+            "Nothing to do in this PR; report it so the guard can be fixed.")]
+        relabel_cleared, traced = [], 0
+    remaining, cleared = apply_intents(with_surface, base, head)
     cleared = cleared + relabel_cleared
     # A path leg whose route matches no page is silently unguarded by okr_findings (which only
     # reacts to a route disappearing between base and head), so surface it explicitly: a
@@ -691,7 +703,7 @@ def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.L
                   "okr_legs": len(event_legs) + len(path_legs),
                   "files_scanned": len(head.files), "sem_copy_date": sem_date,
                   "unmatched_path_legs": unmatched,
-                  "surface_traced": len(h_idx.reach_all())},
+                  "surface_traced": traced},
     )
 
 
@@ -709,6 +721,7 @@ _TITLES = {
     "no_provenance_row": "No provenance row",
     "surface_moved": "Event now fires from a different place",
     "invalid_relabel": "Relabel row is not valid",
+    "surface_check_failed": "Surface check did not run",
 }
 
 
@@ -740,7 +753,7 @@ def render_markdown(report: Report, limit: int | None = None) -> str:
             continue
         lines += [f"**{heading}**", ""] + _grouped(items)
     if report.cleared:
-        lines += ["**Cleared by an intent row in this change**", ""]
+        lines += ["**Cleared by a row in this change**", ""]
         lines += [f"- `{f.event}` ({', '.join(f.metrics) or ('relabel' if f.rule == 'surface_moved' else 'not_a_change')})"
                   for f in report.cleared] + [""]
     e = report.examined

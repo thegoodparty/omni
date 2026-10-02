@@ -702,3 +702,40 @@ def test_examined_counts_traced_events():
     report = _surface_report(LIVE_ONBOARDING, REDIRECTED)
     assert report.examined["surface_traced"] == 1
     assert "traced 1 webapp events" in gg.render_markdown(report)
+
+
+def test_the_relabel_fix_proposes_the_label_slug_not_the_alphabetically_first_name():
+    import event_reach as er
+    area = er.Area("/dashboard/profile", "Profile", frozenset({"profile", "my-profile"}))
+    after = er.Reach(areas=(area,), live_routes=frozenset({"/dashboard/profile"}), dead_routes=frozenset(),
+                     gap_files=frozenset(), dashboard_wide=False, visited=frozenset())
+    fix = gg._relabel_fix("Onboarding - Candidate Office Searched", after)
+    assert 'surface: "profile"' in fix
+    assert 'display_name: "Profile - Candidate Office Searched"' in fix
+
+
+def test_a_crash_in_the_surface_pass_warns_once_and_keeps_every_okr_block(monkeypatch):
+    import event_reach as er
+    cc = "trackEvent(EVENTS.Outreach.CampaignCompleted)"
+    base = gg.build_snapshot(tree({TASKFLOW: cc, MODAL: cc}))
+    head = gg.build_snapshot(tree({MODAL: cc}))
+    expected = gg.evaluate(base, head, LEGS, "2026-10-01", renames={})
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("reach blew up")
+    monkeypatch.setattr(er, "ReachIndex", boom)
+    report = gg.evaluate(base, head, LEGS, "2026-10-01", renames={})
+    assert [f.rule for f in report.blocks] == [f.rule for f in expected.blocks]
+    assert "okr_call_site_lost" in [f.rule for f in report.blocks]
+    failed = [f for f in report.warns if f.rule == "surface_check_failed"]
+    assert len(failed) == 1 and "RuntimeError: reach blew up" in failed[0].detail
+    assert [f for f in report.warns if f.rule != "surface_check_failed"] == expected.warns
+    assert report.cleared == expected.cleared
+    assert report.examined["surface_traced"] == 0
+    assert f"#### {gg._TITLES['surface_check_failed']}" in gg.render_markdown(report)
+
+
+def test_the_cleared_heading_covers_relabel_rows_too():
+    watch = "events: []\nbehaviors: []\ndismissed: []\nintents:\nrelabels:\n" + GOOD_ROW.replace('"step"', '"profile"')
+    md = gg.render_markdown(_surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch))
+    assert "**Cleared by a row in this change**" in md
