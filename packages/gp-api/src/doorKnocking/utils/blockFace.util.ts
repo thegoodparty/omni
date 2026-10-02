@@ -267,7 +267,7 @@ export type SequencedRoute = {
   totalMeters: number
 }
 
-const legFromMeters = (
+export const legFromMeters = (
   meters: number,
   mode: DoorKnockingMode,
 ): { seconds: number; meters: number } => {
