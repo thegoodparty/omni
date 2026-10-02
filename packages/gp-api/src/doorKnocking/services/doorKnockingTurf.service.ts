@@ -555,11 +555,18 @@ export class DoorKnockingTurfService extends createPrismaBase(
     organizationSlug: string,
     outreachIds: number[],
   ): void {
-    const synthesis = this.moduleRef.get(FeedbackSynthesisService, {
-      strict: false,
-    })
-    for (const outreachId of outreachIds) {
-      synthesis.requestRunOnEffortCompleted({ organizationSlug, outreachId })
+    try {
+      const synthesis = this.moduleRef.get(FeedbackSynthesisService, {
+        strict: false,
+      })
+      for (const outreachId of outreachIds) {
+        synthesis.requestRunOnEffortCompleted({ organizationSlug, outreachId })
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, organizationSlug, outreachIds },
+        'Could not start synthesis for completed turfs',
+      )
     }
   }
 }

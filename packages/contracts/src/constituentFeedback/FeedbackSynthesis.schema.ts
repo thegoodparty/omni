@@ -40,7 +40,6 @@ export const FeedbackSynthesisCompleteEventSchema = z.object({
   type: z.literal('feedbackSynthesisComplete'),
   data: z.object({
     sourceType: z.literal(FEEDBACK_SYNTHESIS_SOURCE_TYPE),
-    // The FeedbackSynthesisRun id.
     sourceId: z.string(),
     totalResponses: z.number(),
     responsesLocation: z.string().nullable(),

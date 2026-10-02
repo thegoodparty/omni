@@ -78,7 +78,11 @@ export class PipelineSynthesisEngine
       return 'not configured'
     }
 
-    const key = `input/feedback/${run.id}.csv`
+    // Not under `input/`: the bucket notifies the pipeline's trigger Lambda
+    // on every `input/*.csv` and treats it as a poll, so a key there would
+    // start each run twice, once as a poll. The POST below is the only
+    // trigger.
+    const key = `feedback-input/${run.id}.csv`
     const body: FeedbackSynthesisRequest = {
       sourceType: FEEDBACK_SYNTHESIS_SOURCE_TYPE,
       sourceId: run.id,

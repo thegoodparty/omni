@@ -578,6 +578,55 @@ describe('feedback synthesis routes', () => {
       expect(themes.map((t) => t.members.length)).toEqual([3, 2])
     })
 
+    // An engine that names nobody in scope would otherwise supersede a good
+    // run with an empty one.
+    it('fails a run with no members in scope and keeps the previous themes', async () => {
+      const memos = await seedConfirmed(effort.targets.slice(0, 5))
+      const firstRunId = await completeRun([
+        { theme: 'Flooding', memberIds: memos.map((m) => m.memo.id) },
+      ])
+      await ageCompletedRuns()
+      const elsewhere = await seedTurfEffort(service, slug, { people: 1 })
+      const stranger = await seedKnockMemo(service, {
+        slug,
+        outreachId: elsewhere.outreachId,
+        personId: elsewhere.targets[0]!.personId,
+      })
+
+      const secondRunId = await completeRun([
+        { theme: 'Potholes', memberIds: [stranger.memo.id, randomUUID()] },
+      ])
+
+      const second =
+        await service.prisma.feedbackSynthesisRun.findUniqueOrThrow({
+          where: { id: secondRunId },
+        })
+      expect(second).toMatchObject({
+        status: SynthesisRunStatus.failed,
+        error: 'no_members_in_scope',
+        activeKey: null,
+      })
+      expect(
+        await service.prisma.feedbackTheme.count({
+          where: { runId: secondRunId },
+        }),
+      ).toBe(0)
+      const first = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow(
+        { where: { id: firstRunId } },
+      )
+      expect(first.status).toBe(SynthesisRunStatus.completed)
+      expect(
+        await service.prisma.constituentFeedbackTag.count({
+          where: { runId: firstRunId },
+        }),
+      ).toBe(5)
+      const read = await report()
+      expect(read.data.run).toMatchObject({ id: secondRunId, status: 'failed' })
+      expect(read.data.themes.map((t: { title: string }) => t.title)).toEqual([
+        'Flooding',
+      ])
+    })
+
     it('ignores an event for a run that is no longer running', async () => {
       const memos = await seedConfirmed(effort.targets.slice(0, 5))
       const runId = await completeRun([
@@ -928,6 +977,35 @@ describe('feedback synthesis routes', () => {
 
       expect(read.status).toBe(HttpStatus.FORBIDDEN)
       expect(run.status).toBe(HttpStatus.FORBIDDEN)
+
+      const others = await Promise.all([
+        service.client.get(
+          `/v1/constituent-feedback/themes/${randomUUID()}`,
+          config,
+        ),
+        service.client.get('/v1/constituent-feedback/tags', config),
+        service.client.patch(
+          `/v1/constituent-feedback/tags/${randomUUID()}`,
+          { action: 'accept' },
+          config,
+        ),
+        service.client.post(
+          '/v1/constituent-feedback/seed',
+          { outreachId: winEffort.outreachId, count: 5 },
+          config,
+        ),
+      ])
+      expect(others.map((res) => res.status)).toEqual([
+        HttpStatus.FORBIDDEN,
+        HttpStatus.FORBIDDEN,
+        HttpStatus.FORBIDDEN,
+        HttpStatus.FORBIDDEN,
+      ])
+      expect(
+        await service.prisma.constituentFeedback.count({
+          where: { organizationSlug: win.slug },
+        }),
+      ).toBe(0)
     })
   })
 
@@ -1057,6 +1135,75 @@ describe('feedback synthesis routes', () => {
         where: { id: effort.outreachId },
       })
       expect(envelope.status).toBe(OutreachStatus.completed)
+      expect(await waitForRun(slug, 10)).toBeNull()
+    })
+
+    // Every turf a campaign's Done flips is an effort of its own.
+    it('starts a run for each turf a campaign completion finishes', async () => {
+      await seedConfirmed(effort.targets.slice(0, 5))
+      const sibling = await seedTurfEffort(service, slug, { people: 5 })
+      await service.prisma.outreach.update({
+        where: { id: sibling.outreachId },
+        data: { campaignOutreachId: effort.outreachId },
+      })
+      for (const target of sibling.targets) {
+        await seedKnockMemo(service, {
+          slug,
+          outreachId: sibling.outreachId,
+          personId: target.personId,
+        })
+      }
+
+      const res = await service.client.post(
+        `/v1/door-knocking/campaigns/${effort.outreachId}/complete`,
+        {},
+        ownerHeaders(slug),
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      let runs: Array<{ outreachId: number | null }> = []
+      for (let i = 0; i < 50 && runs.length < 2; i++) {
+        runs = await service.prisma.feedbackSynthesisRun.findMany({
+          where: { organizationSlug: slug },
+          select: { outreachId: true },
+        })
+        if (runs.length < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+      }
+      expect(runs.map((run) => run.outreachId).sort()).toEqual(
+        [effort.outreachId, sibling.outreachId].sort(),
+      )
+    })
+
+    // The routes are gated per request; the trigger has no request, so it
+    // asks the flag itself. Turning the product off stops automatic runs.
+    it('starts nothing when the org’s flag is off', async () => {
+      const flags = vi
+        .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+        .mockImplementation(
+          async ({ feature }) => feature !== 'serve-issue-capture',
+        )
+      onTestFinished(() => flags.mockRestore())
+      await seedConfirmed(effort.targets.slice(0, 5))
+
+      const res = await service.client.post(
+        `/v1/door-knocking/turfs/${effort.turfId}/complete`,
+        {},
+        ownerHeaders(slug),
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const asked = async () =>
+        flags.mock.calls.some(
+          ([params]) =>
+            params.feature === 'serve-issue-capture' &&
+            params.user === service.user.id,
+        )
+      for (let i = 0; i < 50 && !(await asked()); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      expect(await asked()).toBe(true)
       expect(await waitForRun(slug, 10)).toBeNull()
     })
   })

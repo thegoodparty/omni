@@ -214,7 +214,6 @@ export enum MessageGroup {
   default = 'default',
   domainEmailRedirect = 'domainEmailRedirect',
   polls = 'polls',
-  feedbackSynthesis = 'feedbackSynthesis',
   outreachTextSend = 'outreachTextSend',
   weeklyTasksDigest = 'weeklyTasksDigest',
   agenticComplianceKickoff = 'agenticComplianceKickoff',

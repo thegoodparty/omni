@@ -61,10 +61,39 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
         ]),
       ],
     }))
-    const inScope = await this.idsInScope(
-      run,
+    const candidateIds = new Set(
       candidates.flatMap((candidate) => candidate.memberIds),
     )
+    const inScope = await this.idsInScope(run, [...candidateIds])
+    const themes = candidates.map(({ issue, memberIds }) => ({
+      issue,
+      members: memberIds.filter((id) => inScope.has(id)),
+    }))
+    const droppedCount = candidateIds.size - inScope.size
+    if (droppedCount > 0) {
+      this.logger.warn(
+        { runId: run.id, droppedCount },
+        'Dropped synthesis respondents outside the run scope',
+      )
+    }
+
+    // Themes nobody in scope belongs to would supersede a good run with an
+    // empty one, so the run fails instead and the previous themes stay up.
+    if (themes.every((theme) => theme.members.length === 0)) {
+      await this.model.updateMany({
+        where: { id: run.id, status: SynthesisRunStatus.running },
+        data: {
+          status: SynthesisRunStatus.failed,
+          activeKey: null,
+          error: 'no_members_in_scope',
+        },
+      })
+      this.logger.warn(
+        { runId: run.id, themeCount: issues.length, droppedCount },
+        'Synthesis run had no members in scope',
+      )
+      return
+    }
 
     const completedAt = new Date()
     const written = await this.client.$transaction(async (tx) => {
@@ -82,8 +111,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       if (claim.count === 0) return false
 
       const applied: Array<{ feedbackId: string; tagId: string }> = []
-      for (const { issue, memberIds } of candidates) {
-        const members = memberIds.filter((id) => inScope.has(id))
+      for (const { issue, members } of themes) {
         const tagId = await this.resolveTag(tx, run, issue)
         const theme = await tx.feedbackTheme.create({
           data: {
@@ -132,32 +160,41 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       },
       'Feedback synthesis completed',
     )
-    if (written) await this.trackCompleted(run, issues.length)
+    if (written) this.trackCompleted(run, issues.length)
   }
 
   // Attributed to whoever pressed the button, or to the org's owner when
-  // the effort's completion started the run.
-  private async trackCompleted(
-    run: FeedbackSynthesisRun,
-    themeCount: number,
-  ): Promise<void> {
-    const userId =
-      run.requestedByUserId ??
-      (
-        await this.client.organization.findUniqueOrThrow({
-          where: { slug: run.organizationSlug },
-          select: { ownerId: true },
-        })
-      ).ownerId
-    void this.analytics
-      .track(userId, EVENTS.IssueCapture.SynthesisCompleted, {
-        scope: run.scope,
-        outreachId: run.outreachId,
-        themeCount,
-        confirmedCount: run.confirmed,
-        product: run.organizationSlug.startsWith('eo-') ? 'serve' : 'win',
-      })
-      .catch(() => undefined)
+  // the effort's completion started the run. Everything here, the owner
+  // lookup included, runs after the commit and must never reject handle():
+  // a rejection would requeue an event whose run is already completed.
+  private trackCompleted(run: FeedbackSynthesisRun, themeCount: number): void {
+    const send = async () => {
+      const userId =
+        run.requestedByUserId ??
+        (
+          await this.client.organization.findUniqueOrThrow({
+            where: { slug: run.organizationSlug },
+            select: { ownerId: true },
+          })
+        ).ownerId
+      await this.analytics.track(
+        userId,
+        EVENTS.IssueCapture.SynthesisCompleted,
+        {
+          scope: run.scope,
+          outreachId: run.outreachId,
+          themeCount,
+          confirmedCount: run.confirmed,
+          product: run.organizationSlug.startsWith('eo-') ? 'serve' : 'win',
+        },
+      )
+    }
+    void send().catch((err: Error) =>
+      this.logger.warn(
+        { err, runId: run.id },
+        'Synthesis Completed event not sent',
+      ),
+    )
   }
 
   private async readResponseRows(location: string) {
@@ -182,7 +219,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
   ): Promise<Set<string>> {
     const rows = await this.client.constituentFeedback.findMany({
       where: {
-        id: { in: [...new Set(ids)] },
+        id: { in: ids },
         organizationSlug: run.organizationSlug,
         ...(run.scope === SynthesisScope.effort
           ? { outreachId: run.outreachId }
@@ -228,6 +265,11 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       })
       return created.id
     }
+
+    // A person merged this name into another tag. The theme follows that
+    // decision rather than reviving the merged-away name. Merge targets are
+    // accepted and a merge re-points earlier ones, so one hop is enough.
+    if (existing.mergedIntoId !== null) return existing.mergedIntoId
 
     if (existing.status === IssueTagStatus.proposed) {
       // Moved to this run so superseding the run that first proposed it

@@ -107,7 +107,7 @@ describe('feedback synthesis workers', () => {
 
       await service.app.get(PipelineSynthesisEngine).start(run, memos)
 
-      const key = `input/feedback/${run.id}.csv`
+      const key = `feedback-input/${run.id}.csv`
       expect(upload).toHaveBeenCalledWith(
         'serve-analyze-test',
         [

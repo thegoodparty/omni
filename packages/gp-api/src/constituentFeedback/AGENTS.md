@@ -115,7 +115,9 @@ guard are the access check; the flag gates rollout, not access.
 button, and the effort completing (a turf's Done in
 `doorKnockingTurf.service.ts`, a list's last call in
 `phoneBankingCall.service.ts`), which calls `requestRunOnEffortCompleted`
-fire-and-forget and swallows the three refusals. The first run of a Win org
+fire-and-forget and swallows the three refusals. That path has no request to
+flag-gate, so it checks the floor and then the product's flag for the org's
+owner itself; turning a flag off stops automatic runs too. The first run of a Win org
 seeds accepted tags from its `CampaignPosition`s first.
 
 - **The race guard is the index.** `activeKey` is
@@ -123,8 +125,11 @@ seeds accepted tags from its `CampaignPosition`s first.
   the trigger racing each other cannot both insert. The P2002 maps to 409.
   There is no read-then-insert check, on purpose.
 - **Two engines, one ingest.** `FEEDBACK_SYNTHESIS_ENGINE=mock|pipeline`
-  (unset is `pipeline`) picks the engine at boot. The pipeline engine writes
-  `input/feedback/{runId}.csv` to `SERVE_ANALYSIS_BUCKET_NAME` and POSTs
+  (unset is `pipeline`) picks the engine at boot; any other value, or a
+  `FEEDBACK_SYNTHESIS_MOCK_GROUPING` other than `llm|canned`, fails boot.
+  The pipeline engine writes `feedback-input/{runId}.csv` to
+  `SERVE_ANALYSIS_BUCKET_NAME` (outside `input/`, whose S3 notification
+  would start the run a second time as a poll) and POSTs
   `AI_PIPELINE_BASE_URL/serve/messages/process`; the pipeline answers later
   with `feedbackSynthesisComplete` on the shared queue. The mock waits five
   seconds and builds the same event in-process, with one LLM call or, under
@@ -144,10 +149,13 @@ One transaction, claimed first with a conditional update on
 - A theme's members are the union of the S3 rows at `responsesLocation`
   matching its title (the pipeline writes them; the mock sends null), its
   quotes, and its `memberIds`. Ids outside the run's effort or org are
-  dropped.
-- One tag per theme, by `normalizedName`: accepted is linked; retired is
-  revived to `proposed`; proposed is relinked to this run; none is created
-  `proposed`, `source: synthesis`. Relinking carries `updatedAt` over, so it
+  dropped and counted in the log. If no theme keeps a member, the run fails
+  (`error: no_members_in_scope`) rather than superseding a good one.
+- One tag per theme, by `normalizedName`: merged away follows
+  `mergedIntoId` to its target (one hop; targets are accepted and merges
+  re-point earlier ones); accepted is linked; retired is revived to
+  `proposed`; proposed is relinked to this run; none is created `proposed`,
+  `source: synthesis`. Relinking carries `updatedAt` over, so it
   does not count as a human touching the tag.
 - **Old runs are kept.** The previous completed run for the scope becomes
   `superseded`; its themes and members stay as history. Its tag rows and its

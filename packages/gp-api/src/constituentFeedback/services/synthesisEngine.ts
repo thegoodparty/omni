@@ -20,3 +20,18 @@ export type SynthesisEngine = {
   readonly name: string
   start(run: FeedbackSynthesisRun, memos: SynthesisMemo[]): Promise<void>
 }
+
+// Read once at boot. Unset means the deployed pipeline. Any other value is a
+// typo that would otherwise quietly run the pipeline from a laptop, so boot
+// refuses it.
+export const selectSynthesisEngine = (engines: {
+  mock: SynthesisEngine
+  pipeline: SynthesisEngine
+}): SynthesisEngine => {
+  const value = process.env.FEEDBACK_SYNTHESIS_ENGINE || 'pipeline'
+  if (value === 'mock') return engines.mock
+  if (value === 'pipeline') return engines.pipeline
+  throw new Error(
+    `FEEDBACK_SYNTHESIS_ENGINE must be "mock" or "pipeline", got "${value}"`,
+  )
+}

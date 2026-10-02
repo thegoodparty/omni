@@ -9,11 +9,13 @@ import {
 import type { SynthesisRun } from '@goodparty_org/contracts'
 import { addMilliseconds, isAfter } from 'date-fns'
 import { Prisma, SynthesisRunStatus, SynthesisScope } from '@/generated/prisma'
+import { FeaturesService } from '@/features/services/features.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isPrismaError } from '@/prisma/util/prismaErrors.util'
 import { FeedbackReportService } from './feedbackReport.service'
 import { IssueTagSeedService } from './issueTagSeed.service'
 import { SYNTHESIS_ENGINE, type SynthesisEngine } from './synthesisEngine'
+import { issueCaptureFlagFor } from '../util/issueCaptureFlag.util'
 
 // Provisional, until dev runs at 20, 40 and 80 memos show where grouping
 // stops splintering. Under it the report lists the memos instead of themes:
@@ -56,6 +58,7 @@ export class FeedbackSynthesisService extends createPrismaBase(
     @Inject(SYNTHESIS_ENGINE) private readonly engine: SynthesisEngine,
     private readonly report: FeedbackReportService,
     private readonly tagSeed: IssueTagSeedService,
+    private readonly features: FeaturesService,
   ) {
     super()
   }
@@ -185,19 +188,43 @@ export class FeedbackSynthesisService extends createPrismaBase(
     organizationSlug: string
     outreachId: number
   }): void {
-    this.requestRun({ ...input, requestedByUserId: null }).catch(
-      (err: Error) => {
-        if (
-          err instanceof HttpException &&
-          EXPECTED_TRIGGER_REFUSALS.has(err.getStatus())
-        ) {
-          return
-        }
-        this.logger.error(
-          { err, ...input },
-          'Synthesis on effort completion failed',
-        )
-      },
-    )
+    this.runIfRolledOut(input).catch((err: Error) => {
+      if (
+        err instanceof HttpException &&
+        EXPECTED_TRIGGER_REFUSALS.has(err.getStatus())
+      ) {
+        return
+      }
+      this.logger.error(
+        { err, ...input },
+        'Synthesis on effort completion failed',
+      )
+    })
+  }
+
+  // The routes are flag-gated per request; this path has no request, so it
+  // asks for the org's owner, the same subject the completion event uses.
+  // Turning a product's flag off has to stop the automatic runs too. Most
+  // completed efforts have no memos at all, so the floor is checked first
+  // and keeps a flag lookup off nearly every turf's Done.
+  private async runIfRolledOut(input: {
+    organizationSlug: string
+    outreachId: number
+  }): Promise<void> {
+    const confirmed = await this.client.constituentFeedback.count({
+      where: { ...input, confirmedAt: { not: null } },
+    })
+    if (confirmed < MIN_CONFIRMED_FOR_SYNTHESIS) return
+
+    const { ownerId } = await this.client.organization.findUniqueOrThrow({
+      where: { slug: input.organizationSlug },
+      select: { ownerId: true },
+    })
+    const enabled = await this.features.isFeatureEnabled({
+      user: ownerId,
+      feature: issueCaptureFlagFor(input.organizationSlug),
+    })
+    if (!enabled) return
+    await this.requestRun({ ...input, requestedByUserId: null })
   }
 }
