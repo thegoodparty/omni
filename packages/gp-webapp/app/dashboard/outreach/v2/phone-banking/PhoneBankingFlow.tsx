@@ -42,6 +42,7 @@ import {
   useEventDetails,
 } from '../eventDetails'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { CommunityResourceLink } from '../CommunityResourceLink'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { EXPLAINER_COPY } from '../gate/gateCopy'
@@ -855,6 +856,15 @@ export const PhoneBankingFlow = ({
           type={OUTREACH_TYPES.nativePhoneBanking}
           locked={gate.requirement !== null && !saved && !gateOpen}
         />
+      }
+      headerNote={
+        surface.isServe || gateOpen ? undefined : (
+          <CommunityResourceLink
+            channel="phone-bank"
+            purpose={purpose}
+            surface="flow"
+          />
+        )
       }
       currentStep={stepIndex + 1}
       totalSteps={stepOrder.length}

@@ -51,6 +51,11 @@ interface OutreachFlowShellProps {
   // omitted the header's left half is empty and the Exit button sits alone
   // on the right.
   headerBadge?: ReactNode
+  // One line under the stepper bars — the community training that fits
+  // what the candidate is building (CommunityResourceLink). Hidden with the
+  // rest of the header on the success screen. Callers pass it only on Win,
+  // and drop it while the gate sub-flow borrows this chrome.
+  headerNote?: ReactNode
   // 1-based; totalSteps 0 marks the success screen: the stepper hides and
   // the whole visible header is replaced (per the prototype), keeping only
   // the sr-only accessible title.
@@ -106,6 +111,7 @@ export const OutreachFlowShell = ({
   onClose,
   title,
   headerBadge,
+  headerNote,
   currentStep,
   totalSteps,
   onBack,
@@ -223,13 +229,16 @@ export const OutreachFlowShell = ({
                 button all rendered by the styleguide component). */}
             <DrawerTitle className="sr-only">{title}</DrawerTitle>
             {totalSteps > 0 && (
-              <Stepper
-                variant="bar"
-                currentStep={currentStep}
-                totalSteps={totalSteps}
-                overline={headerBadge}
-                onExit={() => requestClose(false)}
-              />
+              <>
+                <Stepper
+                  variant="bar"
+                  currentStep={currentStep}
+                  totalSteps={totalSteps}
+                  overline={headerBadge}
+                  onExit={() => requestClose(false)}
+                />
+                {headerNote && <div className="mt-3">{headerNote}</div>}
+              </>
             )}
           </>
         }

@@ -29,6 +29,7 @@ import {
 import { ChannelBadge } from '../channelMeta'
 import { OUTREACH_TYPES } from '../../constants'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { CommunityResourceLink } from '../CommunityResourceLink'
 import { ALL_SOCIAL_PLATFORM_IDS } from '../socialPlatforms'
 import { SOCIAL_PURPOSES, socialPurposeNameSuggestion } from '../socialPurposes'
 import {
@@ -558,6 +559,15 @@ export const SocialFlow = ({
       onClose={onClose}
       title={saved ? 'Done' : STEP_TITLES[stepId]}
       headerBadge={<ChannelBadge type={OUTREACH_TYPES.socialMedia} />}
+      headerNote={
+        surface.isServe ? undefined : (
+          <CommunityResourceLink
+            channel="social"
+            purpose={purpose}
+            surface="flow"
+          />
+        )
+      }
       channel="social"
       source={source}
       trackedStep={saved ? null : stepId}

@@ -21,6 +21,7 @@ import {
 import { createRobocallDraft } from 'helpers/createOutreachDraft'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { CommunityResourceLink } from '../CommunityResourceLink'
 import {
   OUTREACH_OPTIONS,
   OUTREACH_TYPES,
@@ -859,6 +860,15 @@ export const RobocallFlow = ({
           <ChannelBadge
             type={OUTREACH_TYPES.robocall}
             locked={gate.requirement !== null && !settled && !gateOpen}
+          />
+        )
+      }
+      headerNote={
+        showGateChrome ? undefined : (
+          <CommunityResourceLink
+            channel="robocall"
+            purpose={purpose}
+            surface="flow"
           />
         )
       }

@@ -82,6 +82,43 @@ describe('OutreachFlowShell banner slot', () => {
   })
 })
 
+describe('OutreachFlowShell header note', () => {
+  it('renders the note under the stepper, inside the header', () => {
+    render(
+      <OutreachFlowShell
+        {...baseProps}
+        totalSteps={3}
+        headerNote={<p>Training line</p>}
+        cta={null}
+      >
+        Body
+      </OutreachFlowShell>,
+    )
+
+    const note = screen.getByText('Training line')
+    const progress = screen.getByRole('progressbar', { name: 'Progress' })
+    expect(note.closest('[data-slot="drawer-header"]')).not.toBeNull()
+    expect(
+      progress.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('hides the note with the rest of the header on the success screen', () => {
+    render(
+      <OutreachFlowShell
+        {...baseProps}
+        totalSteps={0}
+        headerNote={<p>Training line</p>}
+        cta={null}
+      >
+        Body
+      </OutreachFlowShell>,
+    )
+
+    expect(screen.queryByText('Training line')).toBeNull()
+  })
+})
+
 describe('OutreachFlowShell stage tracking', () => {
   beforeEach(() => {
     vi.mocked(trackEvent).mockClear()

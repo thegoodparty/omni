@@ -51,6 +51,7 @@ import { dollarsToCents } from 'helpers/numberHelper'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { CommunityResourceLink } from '../CommunityResourceLink'
 import {
   combineScheduledAt,
   resolveCampaignTimeZone,
@@ -1544,6 +1545,15 @@ export const SmsFlow = ({
           <ChannelBadge
             type={OUTREACH_TYPES.text}
             locked={gate.requirement !== null && !scheduled && !gateOpen}
+          />
+        )
+      }
+      headerNote={
+        surface.isServe || showGateChrome ? undefined : (
+          <CommunityResourceLink
+            channel="sms"
+            purpose={purpose}
+            surface="flow"
           />
         )
       }
