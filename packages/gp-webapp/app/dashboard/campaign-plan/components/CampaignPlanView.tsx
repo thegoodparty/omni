@@ -13,6 +13,7 @@ import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPla
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
 import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
 import CampaignTrackerHero from './CampaignTrackerHero'
+import CampaignPlanStoryCard from './CampaignPlanStoryCard'
 
 const planEvents = EVENTS.Dashboard.CampaignPlan
 
@@ -160,6 +161,7 @@ const CampaignPlanView = ({
           downloading={heroDownloading}
           canDownload={data.planReady}
         />
+        <CampaignPlanStoryCard />
         <CampaignStrategySection />
       </div>
       <PlanView

@@ -1,9 +1,5 @@
-# Committed copy of gp-data-platform's sem_analytics__users_serve.yml (DATA-2421).
-# Lets the anchor parser be tested without network access or a cross-repo checkout.
-# Nothing here detects drift from the real file — test_sem_anchors runs against this
-# copy only, never over the network, so if the real file's anchored_on legs (or eras)
-# change and this copy is not updated by hand to match, every test still passes green.
-# Refresh this file by hand whenever `anchored_on` changes upstream.
+# Frozen copy for parser tests only. The live copy the guard and tests of the real
+# registry read is instrumentation_data/sem/, refreshed every Monday and Thursday.
 semantic_models:
   - name: users_serve
     description: >

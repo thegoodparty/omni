@@ -281,9 +281,12 @@ export const mintJudgeFixture = async (
 // finished sweep's outcome with a cleanup error; swallowing it here instead
 // would hide a leaked Clerk identity from the one place that could report it.
 // Wrap the call, do not weaken it.
+// Takes only the id, because that is all a delete reads — and the delete runs
+// in a later workflow step than the mint, where the identifiers are not in
+// hand and the id is.
 export const deleteJudgeFixture = async (
   api: FixtureApi,
-  fixture: JudgeFixture,
+  fixture: Pick<JudgeFixture, 'userId'>,
 ): Promise<DeleteTestFixtureUsersResponse> =>
   DeleteTestFixtureUsersResponseSchema.parse(
     await deleteFixtureUser(api, fixture.userId),

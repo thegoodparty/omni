@@ -3,10 +3,8 @@ import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { RewriteCampaignStoryInput } from '@/campaignStory/schemas/rewriteCampaignStory.schema'
 import type { StrategicLandscapeFailedReason } from '@/campaignStrategy/schemas/strategicLandscape.schema'
-import {
-  CampaignStoryIntakeService,
-  StoryState,
-} from './campaignStoryIntake.service'
+import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
+import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 
 // One tool covers the whole Campaign Story intake so the model has a single
 // surface. campaignId + candidateName are bound server-side from context, never

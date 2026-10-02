@@ -26,6 +26,11 @@ cards the candidate checks off. Feature overview + backend:
   `isDefaultTask` outreach dated in it. The gp-api weekly digest mirrors that
   active-week set (dynamic + text/robocall outreach, not the setup checklist), so
   keep the two in sync or the page and the email disagree.
+- **A row's link label comes from its own `cta`, falling back to "Open".**
+  Only the story task sets `cta` today ("Add your story"), and it has to match
+  the card pinned above the rail; the manager's task list prefers the same
+  column. Before this the tracker hardcoded "Open" for every linked row, so a
+  row could disagree with the surface next to it.
 - **Phase status has two axes.** `done` = every task in the phase completed;
   "happening now" (active) is date-driven (the first non-empty phase still in
   play). Empty intermediate phases are skipped so they can't strand a later
@@ -39,15 +44,10 @@ cards the candidate checks off. Feature overview + backend:
   the one gated phase: hidden behind a window message until the election is
   within 30 days. Both the navigator window and the GOTV gate are deterministic
   here, not in the agent.
-- **The section renders only for the story cohort, only from persisted rows.**
-  `CampaignPlanView` branches on the `campaign-story` flag: story cohort gets
-  the tracker, story-off gets the legacy plan content (incl. community events)
-  with no tracker. There is no client-catalog fallback. When the fetch settles
-  with no rows the section shows a "setting up your tracker" state (bootstrap in
-  flight). This section only renders once the story is complete: `CampaignPlanRouter`
-  gates the plan/tracker on `useCampaignStoryComplete`, so an incomplete-story
-  campaign is routed to the story gate rather than here — a rendered tracker means
-  the story is complete and the bootstrap will fire (or has).
+- **The section renders only from persisted rows.** `CampaignPlanView` renders
+  it for every campaign; there is no client-catalog fallback and no story gate
+  upstream. When the fetch settles with no rows the section shows a "setting up
+  your tracker" state (bootstrap in flight).
 - **Non-prod "Generate tasks" override.** `CampaignStrategySection` renders a
   `{!IS_PROD}` button (from `appEnv`) that hits `POST
 /v1/campaigns/tracker-tasks/generate` (gp-api 404s it in prod). It exists
@@ -74,12 +74,10 @@ cards the candidate checks off. Feature overview + backend:
   both shapes and anchored to local midnight.
 - `useTrackerTasks` can't tell "generation failed/never-dispatched" from "still
   generating" (no backend signal yet); the fast-poll budget caps the cost, but
-  the "setting up" spinner can still persist for a campaign that has a complete
-  story yet whose dispatch genuinely no-ops (e.g. missing raceId/clerkId/name).
-  The common flag-on-but-no-story case is now handled upstream — `CampaignPlanRouter`
-  gates on `useCampaignStoryComplete`, so an incomplete-story campaign never
-  reaches this section. A backend generation-status signal (+ a UI timeout) for
-  the residual case is the real fix and remains a follow-up.
+  the "setting up" spinner can still persist for a campaign whose dispatch
+  genuinely no-ops (e.g. missing raceId/clerkId/name). A backend
+  generation-status signal (+ a UI timeout) is the real fix and remains a
+  follow-up.
 - **There is no `loading.tsx` in the `campaign-plan/` route segment** (removed on
   purpose). It rendered a bare full-screen `RouteLoading` with no dashboard
   shell, so every tab click flashed the whole page — including the sidebar — into

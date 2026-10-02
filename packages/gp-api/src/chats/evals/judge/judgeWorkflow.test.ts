@@ -1,8 +1,12 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
+import { budgetOutputLines } from './armBudget'
+import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
+import { fixtureOutputLines } from './judgeFixture'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
@@ -513,5 +517,755 @@ describe('judge.yml refuses a ref that cannot reach the model', () => {
     const firstSpend = names.findIndex((name) => name.startsWith('Capture the'))
     expect(guard).toBeGreaterThan(-1)
     expect(firstSpend).toBeGreaterThan(guard)
+  })
+})
+
+// A BACKGROUND DISPATCH NEEDS A DESTINATION, and getting there takes two
+// steps that have to happen in order and before either arm runs. Both of them
+// fail quietly by design — the credential exchange is continue-on-error and
+// the queue lookup warns — so a dropped line here does not go red in CI. It
+// shows up as every background agent refused by name, one step after the
+// workspace build and possibly after the other arm has been billed.
+describe('judge.yml tells both arms where a background run goes', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const arms = steps.filter((step) =>
+    step.body.includes('npx vitest run "$SWEEP_SUITE"'),
+  )
+  const resolver = steps.find((step) =>
+    step.name.startsWith('Resolve where a background dispatch goes'),
+  )
+
+  const DESTINATION = [
+    'JUDGE_METADATA_BUCKET',
+    'JUDGE_ARTIFACT_BUCKET',
+    'JUDGE_DISPATCH_QUEUE_URL',
+  ]
+
+  // A $GITHUB_ENV write, which `setsEnv` cannot see: that matcher looks for a
+  // `NAME:` entry under a step's own `env:` block, and these are exported by
+  // an earlier step instead.
+  //
+  // Anchored on `echo "` immediately followed by the name, and on the
+  // redirect, so a comment cannot satisfy it and neither can a line that
+  // merely contains the name inside some other string — a `::warning::`
+  // mentioning a variable, or a `NAME_OLD=` prefix collision.
+  //
+  // WHAT IT STILL CANNOT SEE: that the line RUNS. The queue URL is exported
+  // inside the success branch of an `if url="$(aws sqs get-queue-url …)"`,
+  // so a line moved into the `else` branch satisfies every assertion here.
+  const exportsVar = (body: string, name: string): boolean =>
+    new RegExp(`^\\s*echo "${name}=.*>> "\\$GITHUB_ENV"`, 'm').test(body)
+
+  it('finds both arm steps and the resolver', () => {
+    expect(arms).toHaveLength(2)
+    expect(resolver).toBeDefined()
+  })
+
+  it.each(DESTINATION)('exports %s to the job environment', (name) => {
+    expect(exportsVar(resolver?.body ?? '', name)).toBe(true)
+  })
+
+  // ONE resolver for both arms, which is how they are guaranteed the same
+  // destination. The data version is kept in step by the same argument — two
+  // arms that each resolved their own would compare two different worlds —
+  // but here it is structural rather than asserted value-by-value: there is
+  // one step, so there is one value.
+  it('resolves the destination once, not per arm', () => {
+    const resolvers = steps.filter((step) =>
+      DESTINATION.every((name) => exportsVar(step.body, name)),
+    )
+    expect(resolvers).toHaveLength(1)
+    for (const arm of arms) {
+      for (const name of DESTINATION) {
+        expect(setsEnv(arm.body, name)).toBe(false)
+      }
+    }
+  })
+
+  // Derived, not hardcoded. A literal bucket name here would be a second
+  // place the environment is written down, and the one that silently stopped
+  // matching. What is asserted is that both come off the same variable the
+  // step sets once.
+  it('names one environment and derives every destination from it', () => {
+    expect(resolver?.body).toMatch(/^ {10}JUDGE_ENVIRONMENT: dev$/m)
+    for (const name of DESTINATION) {
+      const line = new RegExp(`echo "${name}=([^"]*)"`).exec(
+        resolver?.body ?? '',
+      )?.[1]
+      expect(line, `${name} is not exported`).toBeDefined()
+    }
+    expect(resolver?.body).toContain(
+      'agent-experiment-metadata-$JUDGE_ENVIRONMENT',
+    )
+    expect(resolver?.body).toContain('gp-agent-artifacts-$JUDGE_ENVIRONMENT')
+    expect(resolver?.body).toContain('agent-dispatch-$JUDGE_ENVIRONMENT.fifo')
+  })
+
+  // BOTH ORDERINGS MATTER AND NEITHER IS ENFORCED BY ANYTHING ELSE. The
+  // credential exchange has to precede the queue lookup, which uses it, and
+  // the lookup has to precede both arms, which read what it exported. A step
+  // reordering is the kind of edit that looks harmless in a diff.
+  it('gets credentials, then resolves, then runs the arms', () => {
+    const names = steps.map((step) => step.name)
+    const credentials = names.findIndex((name) =>
+      name.startsWith('Get credentials for staging'),
+    )
+    const resolved = names.findIndex((name) =>
+      name.startsWith('Resolve where a background dispatch goes'),
+    )
+    const firstArm = names.findIndex((name) => name.startsWith('Capture the'))
+    expect(credentials).toBeGreaterThan(-1)
+    expect(resolved).toBeGreaterThan(credentials)
+    expect(firstArm).toBeGreaterThan(resolved)
+  })
+})
+
+// THE ROLE IS THE WHOLE BLAST RADIUS. This job stages an agent config and
+// sends a dispatch that starts a Fargate run, so what it may do is decided
+// entirely by which role it assumes — and the convenient wrong answer, the
+// admin deploy role every other workflow in this repo uses, is one word away.
+describe('judge.yml assumes a role scoped to the judge', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const credentials = stepsOf(yaml).find((step) =>
+    step.name.startsWith('Get credentials for staging'),
+  )
+
+  it('exchanges the OIDC token for credentials at all', () => {
+    expect(credentials?.body).toContain(
+      'uses: aws-actions/configure-aws-credentials@v5',
+    )
+  })
+
+  it('assumes the judge role and not the admin deploy role', () => {
+    expect(credentials?.body).toContain(
+      'role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep',
+    )
+    expect(credentials?.body).not.toContain('AWS_ROLE_ARN')
+    expect(credentials?.body).not.toContain('pulumi-deploy')
+  })
+
+  // A chat-only sweep touches no AWS. Failing the job on a role that is not
+  // deployed yet would mean one missing IAM grant stops every sweep of every
+  // shape, rather than the background ones that actually need it.
+  it('does not fail a chat-only sweep when the role is unavailable', () => {
+    expect(credentials?.body).toContain('continue-on-error: true')
+  })
+
+  // THE SESSION HAS TO OUTLAST THE JOB. A background case polls S3 until a
+  // Fargate artifact lands, and the agents declare timeouts up to an hour
+  // each. At the action's one-hour default the credentials expire mid-poll —
+  // after the dispatch, so the task keeps billing while the poll dies on an
+  // auth error recorded as an infraError: paid for, then excluded.
+  //
+  // THE SWEEP JOB'S TIMEOUT, not the first one in the file. Written as a bare
+  // search for `timeout-minutes` this read the PLAN job's 20 minutes, so a
+  // one-hour session cleared a 20-minute bar and the assertion passed on
+  // exactly the bug it was written for. The sweep job is the one holding
+  // these credentials.
+  it('holds credentials longer than the job that uses them can run', () => {
+    const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:'))
+    const jobMinutes = Number(
+      /timeout-minutes: (\d+)/.exec(sweepJob)?.[1] ?? '0',
+    )
+    expect(jobMinutes).toBeGreaterThan(0)
+    const seconds = Number(
+      /role-duration-seconds: (\d+)/.exec(credentials?.body ?? '')?.[1],
+    )
+    expect(seconds).toBeGreaterThan(jobMinutes * 60)
+  })
+
+  // The permission without the exchange is the state this replaced: a token
+  // minted and nothing that accepts it.
+  it('holds the permission that makes the exchange possible', () => {
+    expect(yaml).toContain('id-token: write')
+  })
+})
+
+// THE ROLE'S TRUST, held from the workflow side. It lives in gp-ai's
+// Terraform beside the policy it attaches, so a merged omni PR can change who
+// gets AWS credentials; these are the review that change does not otherwise
+// get. Text scans, like the rest of this file: gp-api declares no HCL parser,
+// and what matters is a handful of exact values in one block we own.
+describe('the judge role trusts exactly judge.yml on main', () => {
+  const MODULE = path.resolve(
+    __dirname,
+    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
+  )
+  const tf = readFileSync(MODULE, 'utf8')
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const role = tf.slice(tf.indexOf('resource "aws_iam_role" "judge_sweep"'))
+  const roleBlock = role.slice(0, role.indexOf('\n}\n') + 2)
+  const trust = roleBlock.slice(roleBlock.indexOf('assume_role_policy'))
+  // The `{ ... }` that follows `key =`, braces balanced, quotes optional on
+  // the key: HCL accepts `Effect` and `"Effect"` alike, and a check that saw
+  // only one spelling let a second statement through in the other.
+  const KEY = (name: string) => `(?:"${name}"|\\b${name})\\s*=`
+  const blockAfter = (text: string, name: string): string[] => {
+    const out: string[] = []
+    const re = new RegExp(`${KEY(name)}\\s*\\{`, 'g')
+    for (const match of text.matchAll(re)) {
+      let depth = 0
+      const start = (match.index ?? 0) + match[0].length - 1
+      for (let at = start; at < text.length; at += 1) {
+        if (text[at] === '{') depth += 1
+        if (text[at] === '}') depth -= 1
+        if (depth === 0) {
+          out.push(text.slice(start + 1, at))
+          break
+        }
+      }
+    }
+    return out
+  }
+  // The keys written at the top level of an object body, quoted or not.
+  const topKeys = (body: string): string[] => {
+    const keys: string[] = []
+    let depth = 0
+    for (const line of body.split('\n')) {
+      if (depth === 0) {
+        const key = /^\s*"?([A-Za-z0-9_:.-]+)"?\s*=/.exec(line)?.[1]
+        if (key) keys.push(key)
+      }
+      depth += (line.match(/[{[]/g) ?? []).length
+      depth -= (line.match(/[}\]]/g) ?? []).length
+    }
+    return keys
+  }
+  const condition = (key: string): string[] =>
+    [
+      ...trust.matchAll(
+        new RegExp(
+          `"token\\.actions\\.githubusercontent\\.com:${key}"\\s*=\\s*"([^"]*)"`,
+          'g',
+        ),
+      ),
+    ].map((match) => match[1] ?? '')
+
+  it('finds the role and its trust', () => {
+    expect(roleBlock).toContain('assume_role_policy')
+    expect(trust).toContain('jsonencode(')
+  })
+
+  // The name judge.yml assumes, read off judge.yml rather than restated: a
+  // rename on one side leaves the sweep with credentials for nothing.
+  it('is the role judge.yml assumes', () => {
+    const arn = /role-to-assume: (arn:aws:iam::\d+:role\/(\S+))/.exec(yaml)
+    expect(arn?.[2]).toBeDefined()
+    expect(tf).toMatch(
+      new RegExp(`judge_role_name\\s*=\\s*"${arn?.[2] ?? 'missing'}"`),
+    )
+    expect(roleBlock).toMatch(/^ {2}name\s*=\s*local\.judge_role_name$/m)
+  })
+
+  it('trusts exactly one statement, by web identity, from GitHub', () => {
+    for (const name of ['Effect', 'Principal', 'Action', 'Condition']) {
+      expect(trust.match(new RegExp(KEY(name), 'g'))).toHaveLength(1)
+    }
+    const principal = blockAfter(trust, 'Principal')
+    expect(principal).toHaveLength(1)
+    expect(topKeys(principal[0] ?? '')).toEqual(['Federated'])
+    expect(trust).toMatch(/Action\s*=\s*"sts:AssumeRoleWithWebIdentity"/)
+    expect(trust).toMatch(
+      /Federated\s*=\s*"arn:aws:iam::\$\{data\.aws_caller_identity\.current\.account_id\}:oidc-provider\/\$\{local\.github_oidc\}"/,
+    )
+    expect(tf).toMatch(
+      /github_oidc\s*=\s*"token\.actions\.githubusercontent\.com"/,
+    )
+  })
+
+  // StringEquals only: a StringLike or ForAnyValue operator is how a pattern
+  // or a list would sneak a second subject in.
+  it('compares every claim exactly', () => {
+    const conditions = blockAfter(trust, 'Condition')
+    expect(conditions).toHaveLength(1)
+    expect(topKeys(conditions[0] ?? '')).toEqual(['StringEquals'])
+    const equals = blockAfter(conditions[0] ?? '', 'StringEquals')
+    expect(topKeys(equals[0] ?? '').sort()).toEqual(
+      [
+        'token.actions.githubusercontent.com:aud',
+        'token.actions.githubusercontent.com:job_workflow_ref',
+        'token.actions.githubusercontent.com:sub',
+      ].sort(),
+    )
+    expect(trust).not.toMatch(/StringLike|ForAnyValue|ForAllValues/)
+    expect(trust).not.toContain('*')
+    expect(trust).not.toContain('pull_request')
+  })
+
+  it('pins the audience, the ref and the one workflow file', () => {
+    expect(condition('aud')).toEqual(['sts.amazonaws.com'])
+    expect(condition('sub')).toEqual([
+      'repo:thegoodparty/omni:ref:refs/heads/main',
+    ])
+    expect(condition('job_workflow_ref')).toEqual([
+      `thegoodparty/omni/.github/workflows/${path.basename(WORKFLOW)}@refs/heads/main`,
+    ])
+  })
+
+  // The two claims have to name the same ref, or neither pin means anything:
+  // judge.yml is reached by relative path, so GitHub resolves it from the
+  // caller's ref, and a job on a branch presents that branch in both claims.
+  it('names the same ref in both claims', () => {
+    const subjectRef = condition('sub')[0]?.split(':ref:')[1]
+    const workflowRef = condition('job_workflow_ref')[0]?.split('@')[1]
+    expect(subjectRef).toBe('refs/heads/main')
+    expect(workflowRef).toBe(subjectRef)
+  })
+
+  // Exactly what judge.yml asks for, which is longer than the sweep job and
+  // no longer than four hours. A shorter cap makes the assume FAIL, not
+  // shorten: the request names a duration the role refuses.
+  it('allows exactly the session judge.yml asks for', () => {
+    const asked = Number(/role-duration-seconds: (\d+)/.exec(yaml)?.[1])
+    const allowed = Number(
+      /max_session_duration\s*=\s*(\d+)/.exec(roleBlock)?.[1],
+    )
+    expect(asked).toBeGreaterThan(0)
+    expect(allowed).toBe(asked)
+    expect(allowed).toBeLessThanOrEqual(4 * 3600)
+  })
+
+  // The judge's own policy, and no other: attaching the deploy role's would
+  // undo the point of a role of its own.
+  it('attaches the judge policy and nothing else', () => {
+    const attachments = [
+      ...tf.matchAll(
+        /resource "aws_iam_role_policy_attachment" "\w+" \{([^}]*)\}/g,
+      ),
+    ].map((match) => match[1] ?? '')
+    expect(attachments).toHaveLength(1)
+    expect(attachments[0]).toMatch(/role\s*=\s*aws_iam_role\.judge_sweep\.name/)
+    expect(attachments[0]).toMatch(
+      /policy_arn\s*=\s*aws_iam_policy\.judge_sweep\.arn/,
+    )
+    expect(tf).not.toMatch(
+      /aws_iam_role_policy"|managed_policy_arns|inline_policy/,
+    )
+  })
+})
+
+// ONE BACKGROUND BUDGET, AND ONE ADMITTED LIST, FOR BOTH ARMS. The base arm
+// reads the base ref's config.ts and manifests, so a budget or an admission
+// each arm decided for itself would differ whenever a branch changed either.
+// The workflow decides once instead, and these pin the plumbing exactly:
+// every way it can go wrong here leaves both arms quietly walking their own.
+describe('judge.yml hands both arms one background budget', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const names = steps.map((step) => step.name)
+  const resolver = steps.find((step) =>
+    step.name.startsWith('Resolve the background case and attempt budget'),
+  )
+  const arms = steps.filter((step) => step.name.startsWith('Capture the '))
+
+  // The resolver's OWN output keys, read off the function that writes them —
+  // not restated here, where a rename in one place would leave the two
+  // agreeing with each other and with nothing else.
+  const OUTPUT_KEYS = budgetOutputLines()
+    .trim()
+    .split('\n')
+    .map((line) => line.split('=')[0])
+  const ENV_FOR: Record<string, string> = {
+    attempts: 'JUDGE_BACKGROUND_ATTEMPTS',
+    max_cases: 'JUDGE_BACKGROUND_MAX_CASES',
+    admitted: 'JUDGE_BACKGROUND_ADMITTED',
+    refused: 'JUDGE_BACKGROUND_REFUSED',
+    arm_budget_ms: 'JUDGE_ARM_BUDGET_MS',
+  }
+
+  it('covers every output the resolver writes', () => {
+    expect([...OUTPUT_KEYS].sort()).toEqual(Object.keys(ENV_FOR).sort())
+  })
+
+  // EXACT, because GitHub resolves an unknown output to '' and '' reads as
+  // "no cap" and "none admitted". A misspelled output name on both arms used
+  // to pass: the two agreed with each other and both silently walked the
+  // full list. Each arm must read exactly the key the resolver writes.
+  it.each(Object.entries(ENV_FOR))(
+    'gives both arms %s as %s, from the resolver',
+    (key, name) => {
+      expect(arms).toHaveLength(2)
+      for (const arm of arms) {
+        expect(envValue(arm.body, name)).toBe(
+          `\${{ steps.budget.outputs.${key} }}`,
+        )
+      }
+    },
+  )
+
+  // EXACTLY THIS SCRIPT. `toContain` accepted `npx tsx … || true`, which
+  // swallows a failure and leaves every output blank — and blank reads as
+  // "no budget resolved", which drops both arms back onto their own config.
+  it('runs the resolver and nothing that could swallow its failure', () => {
+    // Trimmed only because runBlockOf keeps the blank lines that trail a
+    // block; `|| true`, a second command or a dropped `set -e` all still
+    // change what is compared.
+    expect(runBlockOf(resolver?.body ?? '').trim()).toBe(
+      'set -euo pipefail\nnpx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"',
+    )
+    expect(resolver?.body).not.toContain('continue-on-error')
+    // Nor skipped. An `if:` that skipped it leaves every output blank, and a
+    // blank attempts count reads as "nothing resolved" — so both arms would
+    // quietly go back to deciding for themselves.
+    expect(resolver?.body).not.toMatch(/^ {8}if:/m)
+    expect(yaml).toContain('BUDGET_ENTRY: src/chats/evals/judge/armBudget.ts')
+  })
+
+  // The working directory is what makes it read the CANDIDATE: it runs this
+  // checkout's armBudget.ts. The two env values are what make it read the
+  // BASE and the same selection the arms walk.
+  it('reads the candidate checkout, the base worktree and the selection', () => {
+    expect(resolver?.body).toMatch(
+      /^ {8}working-directory: \$\{\{ env\.WORKSPACE \}\}$/m,
+    )
+    expect(envValue(resolver?.body ?? '', 'BASE_DIR')).toBe(
+      '${{ steps.base.outputs.dir }}',
+    )
+    // The resolver AND both arms, each pinned to the one source. Compared to
+    // each other, two wrong values agreed; and the candidate arm's was never
+    // checked at all, so it could select something the resolver never saw.
+    for (const step of [resolver, ...arms]) {
+      expect(envValue(step?.body ?? '', 'JUDGE_AGENTS')).toBe(
+        '${{ needs.plan.outputs.agents }}',
+      )
+    }
+  })
+
+  // After the base worktree exists, because it reads it; before either arm,
+  // because nothing may have been spent when it decides.
+  it('runs between the base checkout and the first capture', () => {
+    const resolved = names.findIndex((name) =>
+      name.startsWith('Resolve the background case and attempt budget'),
+    )
+    const baseCheckout = names.findIndex((name) =>
+      name.startsWith('Check out the base arm'),
+    )
+    const firstCapture = names.findIndex((name) =>
+      name.startsWith('Capture the '),
+    )
+    expect(baseCheckout).toBeGreaterThan(-1)
+    expect(resolved).toBeGreaterThan(baseCheckout)
+    expect(firstCapture).toBeGreaterThan(resolved)
+  })
+})
+
+// THE ARM BUDGET HAS TO FIT TWICE IN THE JOB. Both arms run one after the
+// other inside the one sweep job, then the judging step. If two arm budgets
+// exceed the job's timeout, an arm that is inside its own budget is still
+// killed by GitHub — with no manifest written, so judging fails on a missing
+// arm. The budget is a constant in TypeScript and the timeout is a number in
+// YAML, and nothing else connects them.
+describe('the arm budget fits the sweep job', () => {
+  it('leaves room for both arms and the judging step', () => {
+    const yaml = readFileSync(WORKFLOW, 'utf8')
+    const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:'))
+    const jobMinutes = Number(
+      /timeout-minutes: (\d+)/.exec(sweepJob)?.[1] ?? '0',
+    )
+    expect(jobMinutes).toBeGreaterThan(0)
+    // Twenty minutes for the workspace build and the judging step.
+    expect(2 * (ARM_BUDGET_MS / 60_000) + 20).toBeLessThanOrEqual(jobMinutes)
+  })
+})
+
+// THE TEST ORGANIZATION CROSSES THE SAME SEAM AS THE BUDGET, minted once and
+// read by two arms in two worktrees. And minting takes a secret whose token
+// opens every admin route on dev, so WHERE it runs is pinned as tightly as
+// what it writes: on its own runner, from main's code, never on a runner the
+// branch's code has touched.
+describe('judge.yml mints one test organization for both arms', () => {
+  const WORKFLOWS = path.dirname(WORKFLOW)
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+
+  // A job runs from its two-space key to the next one. Jobs are the only
+  // two-space keys after `jobs:`.
+  const jobsText = yaml.slice(yaml.indexOf('\njobs:\n'))
+  const jobs = new Map(
+    jobsText
+      .split(/^(?= {2}[a-z][a-z-]*:$)/m)
+      .slice(1)
+      .map((text) => [text.split(':')[0]?.trim() ?? '', text] as const),
+  )
+  const job = (name: string): string => jobs.get(name) ?? ''
+  const arms = stepsOf(job('sweep')).filter((step) =>
+    step.name.startsWith('Capture the '),
+  )
+  const FIXTURE_JOBS = ['fixture', 'fixture-cleanup']
+
+  // Read off the function that writes them, as the budget's are. user_id is
+  // the cleanup job's and must not reach an arm.
+  const OUTPUT_KEYS = fixtureOutputLines({
+    identifiers: { orgSlug: 'o', raceId: 'r', userEmail: 'e' },
+    userId: 1,
+  })
+    .trim()
+    .split('\n')
+    .map((line) => line.split('=')[0] ?? '')
+  const ENV_FOR: Record<string, string> = {
+    org_slug: JUDGE_FIXTURE_ENV_NAMES.orgSlug,
+    race_id: JUDGE_FIXTURE_ENV_NAMES.raceId,
+    user_email: JUDGE_FIXTURE_ENV_NAMES.userEmail,
+  }
+
+  it('finds the jobs it is about', () => {
+    for (const name of ['plan', 'sweep', ...FIXTURE_JOBS]) {
+      expect(job(name)).not.toBe('')
+    }
+  })
+
+  it('covers every identifier the mint writes', () => {
+    expect([...OUTPUT_KEYS].sort()).toEqual(
+      [...Object.keys(ENV_FOR), 'user_id'].sort(),
+    )
+  })
+
+  // Job outputs are declared, unlike step outputs: one left off here is ''
+  // downstream with no error anywhere.
+  it.each(OUTPUT_KEYS)('publishes %s from the mint step', (key) => {
+    expect(job('fixture')).toMatch(
+      new RegExp(
+        `^ {6}${key}: \\$\\{\\{ steps\\.mint\\.outputs\\.${key} \\}\\}$`,
+        'm',
+      ),
+    )
+  })
+
+  // EXACT, for the reason the budget's are: an unknown output resolves to '',
+  // which reads as "not minted", so a misspelling on both arms would agree
+  // with itself and refuse every background agent for no visible reason.
+  it.each(Object.entries(ENV_FOR))(
+    'gives both arms %s as %s, from the fixture job',
+    (key, name) => {
+      expect(arms).toHaveLength(2)
+      for (const arm of arms) {
+        expect(envValue(arm.body, name)).toBe(
+          `\${{ needs.fixture.outputs.${key} }}`,
+        )
+      }
+    },
+  )
+
+  it('keeps the user id away from the arms', () => {
+    for (const arm of arms) {
+      expect(arm.body).not.toContain('outputs.user_id')
+    }
+  })
+
+  // THE TRUST BOUNDARY. The secret is in the two fixture jobs and in no other
+  // job, no workflow-level env and no caller: every other job runs, or runs
+  // after, the branch's own code.
+  it('reads the machine secret in the two fixture jobs and nowhere else', () => {
+    const holders = [...jobs]
+      .filter(([, text]) => text.includes('JUDGE_CLERK_MACHINE_SECRET'))
+      .map(([name]) => name)
+    expect(holders.sort()).toEqual([...FIXTURE_JOBS].sort())
+    const beforeJobs = yaml.slice(0, yaml.indexOf('\njobs:\n'))
+    expect(beforeJobs).not.toContain('JUDGE_CLERK_MACHINE_SECRET')
+  })
+
+  // An environment secret, not a repository one passed through workflow_call:
+  // a caller that can pass it can be a branch's own edited copy.
+  it.each(['judge-request.yml', 'judge-comment.yml'])(
+    '%s does not pass the machine secret',
+    (caller) => {
+      expect(readFileSync(path.join(WORKFLOWS, caller), 'utf8')).not.toContain(
+        'JUDGE_CLERK_MACHINE_SECRET',
+      )
+    },
+  )
+
+  // Each fixture job checks out main, installs, runs the one entry, and
+  // nothing else: no candidate ref, no AWS role, no other command.
+  it.each(FIXTURE_JOBS)('runs %s from main and nothing else', (name) => {
+    const text = job(name)
+    expect(text).toMatch(/^ {4}environment: judge-fixture$/m)
+    expect(text).toMatch(/^ {10}ref: main$/m)
+    expect(text.match(/uses: actions\/checkout@/g)).toHaveLength(1)
+    expect(text).not.toMatch(/candidate_sha|steps\.base|id-token/)
+    expect(text).toMatch(/^ {4}permissions:\n {6}contents: read\n {4}\S/m)
+    const runs = [
+      ...text.matchAll(/^ {8}run: \|\n([\s\S]*?)(?=^ {0,8}\S|$(?![\s\S]))/gm),
+    ]
+    // Two scripts: the install, and the entry. The install exactly, so
+    // nothing else can be slipped in front of the secret.
+    expect(runs).toHaveLength(2)
+    expect(runs[0]?.[1]?.trimEnd()).toBe(
+      '          set -euo pipefail\n' +
+        '          npm ci --no-audit --no-fund\n' +
+        '          npm run build -w packages/contracts',
+    )
+    expect(runs[1]?.[1]).toMatch(/npx tsx "\$FIXTURE_ENTRY" (mint|delete) /)
+    // NOTHING RESTORED. A cache the branch's code can write in main's scope
+    // would hand this job a tampered tsx; the shared setup action restores
+    // one, and setup-node turns its own on for a declared package manager.
+    expect(text).not.toMatch(/uses: \S*(setup-node-workspace|actions\/cache)/)
+    expect(text).toMatch(/^ {10}package-manager-cache: false$/m)
+    expect(text.match(/uses: /g)).toHaveLength(2)
+    expect(text.match(/^ {6}- uses: actions\/setup-node@v6$/gm)).toHaveLength(1)
+    expect(text).not.toMatch(/^ {10}cache:/m)
+    // Every `run:` in the job, one-line ones included: two, and no more.
+    expect(text.match(/^ {8}run:/gm)).toHaveLength(2)
+    const entry = stepsOf(text).at(-1)?.body ?? ''
+    expect(envValue(entry, 'JUDGE_FIXTURE_API_URL')).toBe(
+      'https://gp-api-dev.goodparty.org',
+    )
+    // From the repo root, `src/chats/...` resolves to nothing and every mint
+    // fails in a way that looks like a missing secret.
+    expect(entry).toMatch(
+      /^ {8}working-directory: \$\{\{ env\.WORKSPACE \}\}$/m,
+    )
+    // Nothing it does may outlive the step.
+    expect(text).not.toContain('GITHUB_ENV')
+  })
+
+  // THE PREMISE THE ENVIRONMENT RESTS ON. No caller runs on a pull request
+  // event, whose workflow files come from the PR's own branch; the two that
+  // exist run from main (`issue_comment`) or from the ref a person dispatched,
+  // which the environment's main-only branch rule refuses. A pull request
+  // trigger added later would need its own answer for the fixture jobs.
+  it.each(['judge-request.yml', 'judge-comment.yml'])(
+    '%s has no pull request trigger',
+    (caller) => {
+      const text = readFileSync(path.join(WORKFLOWS, caller), 'utf8')
+      expect(text).toMatch(/^on:$/m)
+      expect(text).not.toMatch(/^ {2}pull_request(_target)?:/m)
+    },
+  )
+
+  it('never hands every secret to anything', () => {
+    expect(yaml).not.toMatch(/toJSON\(\s*secrets\s*\)/)
+  })
+
+  // The job outputs read `steps.mint`, so the step has to BE `mint`. Renamed,
+  // every output is '' and the arms refuse every background agent silently.
+  it('names the mint step what the job outputs read', () => {
+    const mint = stepsOf(job('fixture')).find(
+      (step) => step.name === 'Mint the test organization',
+    )
+    expect(mint?.body).toMatch(/^ {8}id: mint$/m)
+  })
+
+  it('points the entry at the file that exists', () => {
+    // Anchored: a commented-out line contains the same text.
+    expect(yaml).toMatch(
+      /^ {2}FIXTURE_ENTRY: src\/chats\/evals\/judge\/judgeFixture\.ts$/m,
+    )
+  })
+
+  // Live only, and alongside the plan rather than after it.
+  it('mints on a live run, without waiting for the plan', () => {
+    expect(job('fixture')).toMatch(/^ {4}if: inputs\.live == true$/m)
+    expect(job('fixture')).not.toMatch(/^ {4}needs:/m)
+  })
+
+  // The sweep needs the fixture job's OUTPUTS and must not need its success:
+  // a failed mint still leaves the chat agents worth judging.
+  it('waits for the fixture without depending on it succeeding', () => {
+    const sweep = job('sweep')
+    expect(sweep).toMatch(/^ {4}needs: \[plan, fixture\]$/m)
+    expect(sweep).toMatch(/^ {4}if: >-\n {6}!cancelled\(\)\n/m)
+    expect(sweep).not.toContain('needs.fixture.result')
+  })
+
+  // `always()`, because a failed or cancelled sweep is the one most likely to
+  // leak; gated on the id so a run that minted nothing deletes nothing.
+  it('deletes after the sweep on every outcome', () => {
+    const cleanup = job('fixture-cleanup')
+    expect(cleanup).toMatch(/^ {4}needs: \[fixture, sweep\]$/m)
+    expect(cleanup).toMatch(
+      /^ {4}if: always\(\) && needs\.fixture\.outputs\.user_id != ''$/m,
+    )
+    expect(envValue(cleanup, 'FIXTURE_USER_ID')).toBe(
+      '${{ needs.fixture.outputs.user_id }}',
+    )
+  })
+
+  // THE DELETE'S RUN BLOCK, EXECUTED: nothing else reads it, so a block that
+  // echoed the id instead of deleting it would leak every fixture to the cron.
+  it('deletes the minted id when run', () => {
+    const cleanup = stepsOf(job('fixture-cleanup')).find(
+      (step) => step.name === 'Delete the test organization',
+    )
+    const dir = mkdtempSync(path.join(tmpdir(), 'judge-delete-'))
+    const seen = path.join(dir, 'argv')
+    writeFileSync(
+      path.join(dir, 'npx'),
+      `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${seen}"\n`,
+    )
+    chmodSync(path.join(dir, 'npx'), 0o755)
+    const script = path.join(dir, 'run.sh')
+    writeFileSync(script, runBlockOf(cleanup?.body ?? ''))
+    execFileSync('bash', [script], {
+      cwd: dir,
+      env: {
+        PATH: `${dir}:${process.env.PATH}`,
+        FIXTURE_ENTRY: 'the-entry',
+        FIXTURE_USER_ID: '77',
+      },
+    })
+    expect(readFileSync(seen, 'utf8')).toBe('tsx\nthe-entry\ndelete\n77\n')
+  })
+
+  // THE MINT'S RUN BLOCK, EXECUTED, against a stand-in `npx`. What it must do
+  // is a property of the shell, not of any string in it: a failed mint must
+  // leave the outputs empty and the job green; a good one must reach the
+  // outputs whole.
+  describe('the mint step, run', () => {
+    const mint = stepsOf(job('fixture')).find(
+      (step) => step.name === 'Mint the test organization',
+    )
+    // The stand-in refuses any invocation but the real one, so the command,
+    // the entry and the subcommand are all under test, not just the shell.
+    const runMint = (npx: string) => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'judge-mint-'))
+      writeFileSync(
+        path.join(dir, 'npx'),
+        '#!/usr/bin/env bash\n' +
+          '[ "$1" = tsx ] && [ "$2" = the-entry ] && [ "$3" = mint ] || exit 97\n' +
+          `${npx}\n`,
+      )
+      chmodSync(path.join(dir, 'npx'), 0o755)
+      const output = path.join(dir, 'github-output')
+      writeFileSync(output, '')
+      const script = path.join(dir, 'run.sh')
+      writeFileSync(script, runBlockOf(mint?.body ?? ''))
+      const stdout = execFileSync('bash', [script], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: {
+          PATH: `${dir}:${process.env.PATH}`,
+          RUNNER_TEMP: dir,
+          GITHUB_OUTPUT: output,
+          FIXTURE_ENTRY: 'the-entry',
+        },
+      })
+      return { stdout, outputs: readFileSync(output, 'utf8') }
+    }
+
+    it('copies a good mint into the outputs', () => {
+      const lines = fixtureOutputLines({
+        identifiers: {
+          orgSlug: 'judge-org-1',
+          raceId: 'race-2',
+          userEmail: 'qa@goodparty.org',
+        },
+        userId: 77,
+      })
+      // $1 tsx, $2 the entry, $3 `mint`, $4 the file.
+      const { outputs } = runMint(`printf '%s' '${lines}' >> "$4"`)
+      expect(outputs).toBe(lines)
+    })
+
+    // A mint that wrote part of its file and then failed leaves NOTHING, not
+    // the part: an org slug with no user id would dispatch against a fixture
+    // nobody deletes.
+    it('leaves the outputs empty and the job green when the mint fails', () => {
+      const { stdout, outputs } = runMint(
+        `printf 'org_slug=judge-half\\n' >> "$4"; exit 1`,
+      )
+      expect(outputs).toBe('')
+      expect(stdout).toContain('::warning::')
+    })
   })
 })

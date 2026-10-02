@@ -7,6 +7,8 @@ import { SERVE_SMS_VOICE } from '../util/serveSmsVoice.util'
 import {
   OutreachSmsGenerationService,
   type SmsImproveProtection,
+  SMS_IMPROVE_IDENTIFICATION_RULE,
+  SMS_NO_NAME_PLACEHOLDER_RULE,
 } from './outreachSmsGeneration.service'
 
 const buildService = () => {
@@ -25,6 +27,13 @@ const WIN_PROTECTION: SmsImproveProtection = {
   committeeName: 'Friends of Sarah Chen',
   channel: 'peerly',
   ignoredRules: [],
+}
+
+const SERVE_PROTECTION: SmsImproveProtection = {
+  candidateNames: [],
+  committeeName: null,
+  channel: 'serve',
+  ignoredRules: ['paid_for_by'],
 }
 
 const promptsOf = (jsonCompletion: ReturnType<typeof vi.fn>) => {
@@ -267,4 +276,203 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException)
   })
+})
+
+// The webapp writes the identification sentence and restores it when a draft
+// comes back without it, so every prompt has to leave it to the app on a
+// fresh draft, keep it on a polish, and never bracket a name.
+describe('OutreachSmsGenerationService — identification', () => {
+  it('keeps a fresh Win draft from greeting, introducing, or bracketing a name', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraft(
+      { purpose: 'introduce_myself', tone: 'warm' },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+
+    const { systemPrompt } = promptsOf(jsonCompletion)
+    expect(systemPrompt).toContain('do not greet, and')
+    expect(systemPrompt).toContain('do not sign off')
+    expect(systemPrompt).toContain(SMS_NO_NAME_PLACEHOLDER_RULE)
+  })
+
+  it('keeps a fresh Serve draft from signing off or bracketing a name', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraftWithVoice(
+      { purpose: 'introduce_myself', tone: 'warm' },
+      'Bryan Levine',
+      'City Council Member',
+      '7',
+      [],
+      SERVE_SMS_VOICE,
+    )
+
+    const { systemPrompt } = promptsOf(jsonCompletion)
+    expect(systemPrompt).toContain('Do not greet')
+    expect(systemPrompt).toContain('Do not sign off')
+    expect(systemPrompt).toContain(SMS_NO_NAME_PLACEHOLDER_RULE)
+  })
+
+  it('makes a polish keep the name on both surfaces', async () => {
+    const win = buildService()
+    await win.service.generateDraft(
+      { purpose: 'custom', tone: 'warm', currentDraft: 'Vote Tuesday.' },
+      'Jane Doe',
+      'City Council',
+      '7',
+      [],
+      WIN_PROTECTION,
+    )
+    const serve = buildService()
+    await serve.service.generateDraftWithVoice(
+      { purpose: 'custom', tone: 'warm', currentDraft: 'Town hall Tuesday.' },
+      'Bryan Levine',
+      'City Council Member',
+      '7',
+      [],
+      SERVE_SMS_VOICE,
+      SERVE_PROTECTION,
+    )
+
+    for (const { jsonCompletion } of [win, serve]) {
+      const { systemPrompt } = promptsOf(jsonCompletion)
+      expect(systemPrompt).toContain(SMS_IMPROVE_IDENTIFICATION_RULE)
+    }
+  })
+})
+
+const LOGISTICS_BRACKET = /\[(date|time|location|hours|phone number)\]/i
+
+describe('OutreachSmsGenerationService — event invite details', () => {
+  const EVENT = {
+    date: '2026-10-17',
+    time: '18:30',
+    location: 'Georgetown  Public\nLibrary',
+  }
+
+  it('writes the given details into a Win invite', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraft(
+      { purpose: 'event_invite', tone: 'warm', event: EVENT },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+
+    const { systemPrompt, userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).toContain('Date: Saturday, October 17')
+    expect(userPrompt).toContain('Time: 6:30 PM')
+    expect(userPrompt).toContain('Location: Georgetown Public Library')
+    expect(`${systemPrompt}\n${userPrompt}`).not.toMatch(LOGISTICS_BRACKET)
+  })
+
+  it('writes the given details into a Serve invite', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraftWithVoice(
+      { purpose: 'event_invite', tone: 'warm', event: EVENT },
+      'Alex Rivera',
+      'City Council',
+      '7',
+      [],
+      SERVE_SMS_VOICE,
+    )
+
+    const { systemPrompt, userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).toContain('Date: Saturday, October 17')
+    expect(userPrompt).toContain('Location: Georgetown Public Library')
+    expect(`${systemPrompt}\n${userPrompt}`).not.toMatch(LOGISTICS_BRACKET)
+  })
+
+  it('asks for no logistics line when an invite has no details', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraft(
+      { purpose: 'event_invite', tone: 'warm' },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+
+    const { userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).toContain('No event date, time or place was given.')
+    expect(userPrompt).not.toContain('Date:')
+  })
+
+  it('adds no event block to another purpose or to a polish', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraft(
+      { purpose: 'introduce_myself', tone: 'warm', event: EVENT },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+    await service.generateDraft(
+      {
+        purpose: 'event_invite',
+        tone: 'warm',
+        currentDraft: 'Join us Saturday at the library.',
+        event: EVENT,
+      },
+      'Jane Doe',
+      'City Council',
+      '7',
+      [],
+      WIN_PROTECTION,
+    )
+
+    expect(jsonCompletion).toHaveBeenCalledTimes(2)
+    for (const [call] of jsonCompletion.mock.calls) {
+      const { messages } = call as {
+        messages: Array<{ role: string; content: string }>
+      }
+      const user = messages.find((m) => m.role === 'user')?.content
+      expect(user).not.toContain('Event details.')
+      expect(user).not.toContain('No event date')
+    }
+  })
+
+  it.each([
+    'introduce_myself',
+    'persuade_voters',
+    'event_invite',
+    'early_voting',
+    'election_day_turnout',
+  ] as const)('never asks a Win %s draft for a bracket', async (purpose) => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraft(
+      { purpose, tone: 'warm' },
+      'Jane Doe',
+      'City Council',
+      '7',
+    )
+
+    const { systemPrompt, userPrompt } = promptsOf(jsonCompletion)
+    expect(`${systemPrompt}\n${userPrompt}`).not.toMatch(LOGISTICS_BRACKET)
+  })
+
+  it.each(freshServePurposes)(
+    'never asks a Serve %s draft for a bracket',
+    async (purpose) => {
+      const { service, jsonCompletion } = buildService()
+
+      await service.generateDraftWithVoice(
+        { purpose, tone: 'warm' },
+        'Alex Rivera',
+        'City Council',
+        '7',
+        [],
+        SERVE_SMS_VOICE,
+      )
+
+      const { systemPrompt, userPrompt } = promptsOf(jsonCompletion)
+      expect(`${systemPrompt}\n${userPrompt}`).not.toMatch(LOGISTICS_BRACKET)
+    },
+  )
 })

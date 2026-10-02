@@ -31,6 +31,7 @@ PY = Path(__file__).resolve().parent
 sys.path.insert(0, str(PY))
 
 import analytics_event_health as aeh  # noqa: E402
+import digest_triage as dt  # noqa: E402
 
 GAPS = PY / "instrumentation_data" / "instrumentation_gaps.json"
 REPORT = PY / "instrumentation_data" / "analytics_event_health_report.json"
@@ -717,7 +718,8 @@ def _sorted_evidence(rows: list[dict]) -> list[dict]:
 
 
 def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]:
-    """The flagged set as one row per cause, in the digest's own grouping and order.
+    """The flagged set as one row per cause, in the digest's own grouping and order, with
+    any cause holding an OKR break moved to the top.
 
     A cause, not an event, is the unit: one deploy that stranded twenty-two name
     constants is one ruling, not twenty-two. ``aeh.cluster_flagged`` already does the
@@ -757,6 +759,9 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
             "count": group["count"],
             "events": group["events"],
             "elevated": group["elevated"],
+            "okr_break": sorted(
+                r["event_type"] for r in by_cause.get(cause, []) if dt.is_okr_break(r)
+            ),
             "dismissable": dismissable,
             "dismissed": {"reason": reason} if reason is not None else None,
             "elevated_note": _elevated_note(
@@ -765,6 +770,9 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
             "evidence": evidence,
             "proof_hint": removal_proof(evidence),
         })
+    # The digest raises an OKR break every run, whatever its rank, so the console has to
+    # lead with it too, or the one item Slack calls urgent sits tenth on this page.
+    items.sort(key=lambda item: not item["okr_break"])
     return items
 
 

@@ -478,6 +478,9 @@ jobs:
       - name: apply dev/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-engine-control-plane
+      - name: apply dev/universal-judge-sweep-policy
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/universal-judge-sweep-policy
       - name: apply dev/broker
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/broker broker-${{ needs.await-checks.outputs.sha }}
@@ -543,6 +546,9 @@ jobs:
       - name: reverify dev/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra
+      - name: reverify dev/universal-judge-sweep-policy
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/universal-judge-sweep-policy
 
       - wait-all:
 

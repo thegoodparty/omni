@@ -246,3 +246,92 @@ describe('buildTrackerStrategy', () => {
     expect(data.phases.find((p) => p.key === 'active')?.status).toBe('active')
   })
 })
+
+// The story task is a `preLaunch` default row dated at the end of that block.
+describe('buildTrackerStrategy with the campaign story task', () => {
+  const today = startOfDay(new Date('2026-06-10'))
+  const storyRow = (over: Partial<CampaignTrackerTask> = {}) =>
+    row({
+      id: 'story',
+      title: 'Tell us your campaign story',
+      phase: 'preLaunch',
+      date: '2026-06-15',
+      isDefaultTask: true,
+      link: '/dashboard?personalize=1',
+      cta: 'Add your story',
+      ...over,
+    })
+
+  it('renders in the pre-launch phase', () => {
+    const data = buildTrackerStrategy([storyRow()], {
+      electionDate: null,
+      today,
+    })
+    const pre = data.phases.find((p) => p.key === 'preLaunch')
+    const ids = pre?.groups.flatMap((g) => g.tasks.map((t) => t.id)) ?? []
+    expect(ids).toContain('story')
+  })
+
+  // The tracker used to hardcode "Open" for any row with a link, so the story
+  // task's own CTA never reached the screen and the rail disagreed with the
+  // card above it.
+  it('labels the link with the row own CTA', () => {
+    const data = buildTrackerStrategy([storyRow()], {
+      electionDate: null,
+      today,
+    })
+    const tasks =
+      data.phases
+        .find((p) => p.key === 'preLaunch')
+        ?.groups.flatMap((g) => g.tasks) ?? []
+    expect(tasks.find((t) => t.id === 'story')?.hrefLabel).toBe(
+      'Add your story',
+    )
+  })
+
+  it('falls back to Open for a row with a link and no CTA', () => {
+    const data = buildTrackerStrategy([storyRow({ cta: null })], {
+      electionDate: null,
+      today,
+    })
+    const tasks =
+      data.phases
+        .find((p) => p.key === 'preLaunch')
+        ?.groups.flatMap((g) => g.tasks) ?? []
+    expect(tasks.find((t) => t.id === 'story')?.hrefLabel).toBe('Open')
+  })
+
+  it('reads as done once the story is complete and the row is ticked', () => {
+    const data = buildTrackerStrategy([storyRow({ completed: true })], {
+      electionDate: null,
+      today,
+    })
+    const tasks =
+      data.phases
+        .find((p) => p.key === 'preLaunch')
+        ?.groups.flatMap((g) => g.tasks) ?? []
+    expect(tasks.find((t) => t.id === 'story')?.completed).toBe(true)
+  })
+
+  // KNOWN, and tracked separately: "happening now" is the first phase whose
+  // latest task date has arrived and that still has open work, so an open
+  // pre-launch row dated in the present pulls a mid-campaign candidate's rail
+  // back to Pre-launch.
+  //
+  // Note what does NOT rescue it: ticking the story row changes nothing,
+  // because the phase is pulled in by the row's DATE, not by whether its work
+  // is outstanding. That is the date-driven phase model needing a rethink
+  // rather than this row's placement, and it is tracked on its own. This test
+  // records the behaviour so it is not rediscovered as a surprise.
+  it('pulls the rail back to pre-launch for a mid-campaign candidate (known)', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({ id: 'old-pre', phase: 'preLaunch', date: '2026-01-05' }),
+        row({ id: 'this-week', phase: 'active', date: '2026-06-11' }),
+        storyRow(),
+      ],
+      { electionDate: startOfDay(new Date('2026-11-03')), today },
+    )
+    expect(data.phases.find((p) => p.key === 'active')?.status).toBe('upcoming')
+  })
+})

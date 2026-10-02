@@ -235,8 +235,6 @@ export const EVENTS = {
       // Completion only — an uncomplete is a correction, not an activation
       // signal, and an event named Completed must not fire on one.
       TaskCompleted: 'Dashboard - Campaign Task Completed',
-      VoterContactDialogViewed: 'Dashboard - Voter Contact Dialog Viewed',
-      VoterContactRecorded: 'Dashboard - Voter Contact Recorded',
       MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
       StrategicLandscapeRequested:
         'Dashboard - Campaign Plan: Strategic Landscape Requested',
@@ -343,7 +341,6 @@ export const EVENTS = {
     CommitteeCheck: {
       HoverEinHelp:
         'Pro Upgrade - Committee Check Page: Hover "EIN number" help',
-      ClickUpload: 'Pro Upgrade - Committee Check Page: Click Upload ',
     },
     // Agentic Pro Upgrade → 10DLC compliance funnel (ENG-10294). Kept separate
     // from the legacy Modal / SplashPage / CommitteeCheck events above, which

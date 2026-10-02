@@ -187,6 +187,7 @@ const completedRun = (input: BackgroundRunInput, runId: string) =>
 const idFor = (input: BackgroundRunInput) =>
   judgeRunId({
     sweepId: input.sweepId,
+    agentId: input.agentId,
     caseId: input.agentCase.caseId,
     arm: input.arm,
     attempt: input.attempt,
@@ -314,15 +315,21 @@ describe('stageAgentConfig', () => {
 describe('judgeRunId', () => {
   const parts = {
     sweepId: 'swp1',
+    agentId: 'meeting_briefing',
     caseId: 'brief-2025-11-04',
     arm: 'candidate' as Arm,
     attempt: 1,
   }
 
   it('stays readable when the ids are short enough to fit', () => {
-    const runId = judgeRunId({ ...parts, sweepId: 's1', caseId: 'c1' })
+    const runId = judgeRunId({
+      ...parts,
+      sweepId: 's1',
+      agentId: 'a1',
+      caseId: 'c1',
+    })
 
-    expect(runId).toBe('_judge-s1-c1-candidate-1')
+    expect(runId).toBe('_judge-s1-a1-c1-candidate-1')
     expect(isJudgeRunId(runId)).toBe(true)
   })
 
@@ -364,6 +371,26 @@ describe('judgeRunId', () => {
     ])
 
     expect(ids.size).toBe(3)
+  })
+
+  // Two agents' lists share case ids, and the platform keys its job table on
+  // the run id alone: the same id for both would drop the second dispatch.
+  // Short ids and long ones, since a long id goes through the digest.
+  it('separates two agents walking the same case', () => {
+    expect(judgeRunId({ ...parts, agentId: 'trending_issues' })).not.toBe(
+      judgeRunId({ ...parts, agentId: 'top_community_issues' }),
+    )
+    expect(
+      judgeRunId({ ...parts, sweepId: 's1', agentId: 'a1', caseId: 'c1' }),
+    ).not.toBe(
+      judgeRunId({ ...parts, sweepId: 's1', agentId: 'a2', caseId: 'c1' }),
+    )
+  })
+
+  it('refuses an agent id the dispatch handler would reject', () => {
+    expect(() => judgeRunId({ ...parts, agentId: 'a/b' })).toThrow(
+      /unsafe agentId/,
+    )
   })
 
   // Substituting the offending characters would be worse than refusing them:
@@ -1515,14 +1542,27 @@ describe('the judge run-id contract shared with the dispatch Lambda', () => {
     )
 
     for (const p of [
-      { sweepId: 's1', caseId: 'c1', arm: 'candidate' as Arm, attempt: 1 },
+      {
+        sweepId: 's1',
+        agentId: 'a1',
+        caseId: 'c1',
+        arm: 'candidate' as Arm,
+        attempt: 1,
+      },
       {
         sweepId: 'sweep-2026-09-30-a',
+        agentId: 'meeting_briefing',
         caseId: 'brief-2025-11-04-long-case-name',
         arm: 'candidate' as Arm,
         attempt: 12,
       },
-      { sweepId: 'swp1', caseId: 'c1', arm: 'base' as Arm, attempt: 1 },
+      {
+        sweepId: 'swp1',
+        agentId: 'a1',
+        caseId: 'c1',
+        arm: 'base' as Arm,
+        attempt: 1,
+      },
     ]) {
       const runId = judgeRunId(p)
       expect(runId).toMatch(consumer)

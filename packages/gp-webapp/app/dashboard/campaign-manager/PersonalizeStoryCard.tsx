@@ -22,7 +22,7 @@ interface Props {
 export default function PersonalizeStoryCard({
   onPersonalize,
 }: Props): React.JSX.Element | null {
-  const { isComplete, isLoading } = useCampaignStoryComplete(true)
+  const { isComplete, isLoading, isError } = useCampaignStoryComplete(true)
   const [dismissed, setDismissed] = useState(false)
   useEffect(() => {
     try {
@@ -43,14 +43,21 @@ export default function PersonalizeStoryCard({
     setDismissed(true)
   }
 
-  if (isLoading || isComplete || dismissed) return null
+  // isError for the same reason the plan page's card checks it: the hook fails
+  // closed on a story-fetch error, so without this a candidate who already
+  // wrote their story gets told to go write it.
+  if (isLoading || isError || isComplete || dismissed) return null
 
   return (
     // onPersonalize opens the manager AND auto-launches the story intake chat
     // flow (see CampaignManagerHome's startStory).
+    // Title and description match the plan page's pinned card and the
+    // tracker's story task, so the three surfaces don't each name this
+    // differently. The CTA label stays as-is: it mirrors the manager's own
+    // "Personalize your campaign" starter chip, which opens the same flow.
     <ManagerPromptCard
-      title="Personalize your campaign messaging"
-      description="Tell me your reasons for running and I can personalize your voter outreach plan to match."
+      title="Tell us your campaign story"
+      description="Share your why, your background, and the issues you care about to sharpen your plan."
       ctaLabel="Personalize your campaign"
       onCta={onPersonalize}
       onSkip={onSkip}

@@ -106,6 +106,8 @@ env:
   # reason the judging entry is: it needs no `useTestService()`, so a workflow
   # step can invoke it as a command and capture its stdout.
   DATA_VERSION_ENTRY: src/chats/evals/judge/dataVersion.ts
+  BUDGET_ENTRY: src/chats/evals/judge/armBudget.ts
+  FIXTURE_ENTRY: src/chats/evals/judge/judgeFixture.ts
 
 jobs:
   # GUARD 2 of 3, second layer. Both callers declare a workflow-level group on
@@ -1323,11 +1325,96 @@ jobs:
   #
   # `inputs.live == true` is the affirmative form: see the note at the top of
   # the file for why it is not `dry_run == false`.
+  # THE SWEEP'S TEST ORGANIZATION, minted in a job of its own from main's code.
+  #
+  # Every background dispatch runs against a `judge-` organization, and two
+  # arms that minted their own would compare two organizations, so one is
+  # minted here and both arms read it from this job's outputs, the way they
+  # read the mart's version from a step's.
+  #
+  # NOT A STEP OF THE SWEEP JOB, and not the branch's code. Minting takes the
+  # judge's Clerk machine secret, and the M2M token it buys passes gp-api's
+  # AdminOrM2MGuard, which opens every admin route on dev and not only test
+  # fixtures. The sweep job runs the branch's code from its first `npx tsx`
+  # onward, and code that has run on a runner can rewrite any file or
+  # $GITHUB_ENV a later step there trusts. So the secret is only ever on a
+  # fresh runner that checks out main and runs nothing else, and it lives in
+  # the `judge-fixture` environment, restricted to main, so a branch's own
+  # copy of this workflow cannot read it either.
+  #
+  # Alongside the plan rather than after it, so it costs no wall clock. A plan
+  # that then skips leaves a fixture nothing used, which the cleanup job below
+  # deletes like any other. Only the identifiers leave it: the mint response
+  # also carries the test user's password, session token and sign-in ticket,
+  # and judgeFixture.ts writes none of them out.
+  #
+  # NEVER FAILS THE SWEEP. Without a fixture each background agent is refused
+  # by name on both arms, before anything is staged; chat agents still run.
+  fixture:
+    name: Mint the sweep's test organization
+    if: inputs.live == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: judge-fixture
+    permissions:
+      contents: read
+    outputs:
+      org_slug: ${{ steps.mint.outputs.org_slug }}
+      race_id: ${{ steps.mint.outputs.race_id }}
+      user_email: ${{ steps.mint.outputs.user_email }}
+      user_id: ${{ steps.mint.outputs.user_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      # NO CACHE, and not setup-node-workspace. That action restores
+      # node_modules from a cache keyed on the lockfile, and on the comment
+      # path the plan and sweep jobs run the branch's code in main's cache
+      # scope, where any of it can write an entry under that key. A restored
+      # `tsx` would then run here with the secret set. So these two jobs
+      # install from main's lockfile, every time, with nothing restored.
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Install from main's lockfile
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build -w packages/contracts
+
+      - name: Mint the test organization
+        id: mint
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          JUDGE_CLERK_MACHINE_SECRET: ${{ secrets.JUDGE_CLERK_MACHINE_SECRET }}
+          JUDGE_FIXTURE_API_URL: https://gp-api-dev.goodparty.org
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/judge-fixture"
+          : > "$out"
+          # Into a file and then copied whole, so a mint that failed part way
+          # leaves no half a fixture in the outputs. The entry writes all four
+          # lines in one append, after the fixture is complete.
+          if ! npx tsx "$FIXTURE_ENTRY" mint "$out"; then
+            echo "::warning::No test organization was minted for this sweep — see the message above for why. Every background agent will be refused by name on both arms, before anything is staged or billed; chat agents are unaffected. If JUDGE_CLERK_MACHINE_SECRET is not set, it belongs in the judge-fixture environment."
+            : > "$out"
+          fi
+          cat "$out" >> "$GITHUB_OUTPUT"
+
   sweep:
     name: Sweep
-    needs: plan
+    # The fixture job too, for its outputs, but NOT its success: a sweep whose
+    # mint failed still judges its chat agents, and refuses each background
+    # one by name. `!cancelled()` is what lets it run when the fixture job
+    # failed; without it a failed `needs` skips this job outright.
+    needs: [plan, fixture]
     if: >-
-      needs.plan.result == 'success'
+      !cancelled()
+      && needs.plan.result == 'success'
       && needs.plan.outputs.skip != 'true'
       && needs.plan.outputs.cli_present == 'true'
       && needs.plan.outputs.sweep_capable == 'true'
@@ -1342,6 +1429,12 @@ jobs:
     # is exactly how a job ends up holding what it never asked for.
     permissions:
       contents: read
+      # TO ASSUME THE AWS ROLE, and nothing more. A background agent is
+      # dispatched by staging a config in S3 and sending one SQS message, so
+      # the sweep needs AWS the way every other job that touches it does:
+      # short-lived credentials from an OIDC exchange, never a stored key.
+      # Still no `pull-requests: write` — this job writes no comment.
+      id-token: write
     concurrency:
       group: judge-sweep-${{ inputs.pr_number || github.run_id }}
       cancel-in-progress: true
@@ -1465,6 +1558,87 @@ jobs:
       # turns that into a warning annotation and an empty output, the arms read
       # an empty `JUDGE_DATA_VERSION` as "not pinned", and the report names
       # every run that then queried the mart anyway.
+      # WHERE A BACKGROUND DISPATCH GOES, derived rather than configured.
+      #
+      # These are not credentials and they are not free-form: terraform names
+      # them `agent-experiment-metadata-${environment}`,
+      # `gp-agent-artifacts-${environment}` and
+      # `agent-dispatch-${environment}.fifo`. Putting them in repository
+      # variables would mean a human step on first use, a second place they
+      # can drift from terraform, and no review when one changes. The two
+      # buckets are therefore literals built from the same scheme, and the
+      # queue URL — the only one that needs the account id — is resolved from
+      # the queue NAME by the role this job already assumes.
+      #
+      # dev, hardcoded, because the judge override path is dev-only: the
+      # broker refuses it unless ENVIRONMENT is 'dev' and the dispatch Lambda
+      # refuses it again. A sweep that could name another environment could
+      # only name one that would refuse it.
+      #
+      # IT DOES NOT FAIL THE JOB. Most sweeps are chat-only and need none of
+      # this; `parseArmEnv` takes all three as optional and
+      # `backgroundDestinationFrom` refuses by name — listing every missing
+      # one at once — when a background agent is actually captured. So a
+      # resolution failure costs a background sweep and leaves a chat sweep
+      # working, which is the same trade the mart resolver makes above.
+      # THE OTHER HALF OF `id-token: write`. The permission mints an OIDC
+      # token; this is what exchanges it for credentials. Without it the job
+      # holds a token nothing accepts, and every AWS call below fails with no
+      # credentials rather than with a denial.
+      #
+      # A ROLE OF THE JUDGE'S OWN, not `vars.AWS_ROLE_ARN`. That variable names
+      # github-actions-pulumi-deploy, which carries AdministratorAccess; this
+      # job stages agent configs and sends dispatch messages, so it gets
+      # github-actions-judge-sweep and the one scoped policy attached to it.
+      # Written as a literal rather than a repository variable because the role
+      # name is fixed by the IaC that creates it (gp-ai's
+      # modules/universal-judge-sweep-policy) — a variable would add a hand-set
+      # value that can only ever disagree with it.
+      #
+      # continue-on-error, deliberately. A chat-only sweep needs no AWS at all,
+      # and failing the whole job here would turn "the judge role is not
+      # deployed yet" into "no sweep of any kind runs". When the exchange
+      # fails, the queue lookup below fails too, the warning fires, and a
+      # background agent is refused by name at capture before anything is
+      # staged or billed — which is the behaviour that warning already
+      # describes.
+      - name: Get credentials for staging and dispatching
+        id: judge_credentials
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
+          role-session-name: judge-sweep-${{ github.run_id }}
+          aws-region: us-west-2
+          # LONGER THAN THE JOB, because this one waits rather than deploys.
+          # A background case dispatches a Fargate run and then polls S3 until
+          # the artifact lands, and the agents declare timeouts of up to an
+          # hour each. At the action's one-hour default the credentials expire
+          # mid-poll — after the dispatch, so the task keeps running and
+          # billing while the poll dies on an auth error the sweep records as
+          # an infraError. Paid for, then excluded from the comparison.
+          #
+          # Capped by the role's own max_session_duration (gp-ai's
+          # modules/universal-judge-sweep-policy), which is why the two numbers
+          # match and why this cannot be raised here alone;
+          # judgeWorkflow.test.ts holds them equal.
+          role-duration-seconds: 14400
+
+      - name: Resolve where a background dispatch goes
+        env:
+          JUDGE_ENVIRONMENT: dev
+        run: |
+          set -euo pipefail
+          echo "JUDGE_METADATA_BUCKET=agent-experiment-metadata-$JUDGE_ENVIRONMENT" >> "$GITHUB_ENV"
+          echo "JUDGE_ARTIFACT_BUCKET=gp-agent-artifacts-$JUDGE_ENVIRONMENT" >> "$GITHUB_ENV"
+          queue="agent-dispatch-$JUDGE_ENVIRONMENT.fifo"
+          if url="$(aws sqs get-queue-url --queue-name "$queue" --output text --query QueueUrl 2>/dev/null)"; then
+            echo "JUDGE_DISPATCH_QUEUE_URL=$url" >> "$GITHUB_ENV"
+            echo "background runs dispatch to $url"
+          else
+            echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries UniversalJudgeSweep-$JUDGE_ENVIRONMENT."
+          fi
+
       - name: Resolve the voter mart's Delta version
         id: mart
         working-directory: ${{ env.WORKSPACE }}
@@ -1574,6 +1748,48 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "base arm: origin/$BASE_REF at $commit"
 
+      # ONE BUDGET, AND ONE LIST OF ADMITTED BACKGROUND AGENTS, FOR BOTH ARMS.
+      #
+      # Both live behind a per-worktree read. The case and attempt budget is a
+      # constant in config.ts, and which agents fit depends on each agent's
+      # timeout, read from its manifest — and the base arm reads the base
+      # ref's copy of both. Two arms deciding for themselves disagree the
+      # moment a branch changes either: one admits an agent the other refuses,
+      # and because the budget is spent down in walk order, that one
+      # disagreement moves every agent after it. Both arms bill and nothing
+      # pairs. So this decides once, and both arms obey it.
+      #
+      # AFTER the base worktree exists, because it reads both trees: an agent
+      # is admitted only if it fits on whichever arm is SLOWER (a branch that
+      # lowers a timeout would otherwise be admitted on the candidate's number
+      # and then overrun the base arm), and an agent missing from the base ref
+      # is refused before anyone pays — it has nothing to be compared with. It
+      # reads the base tree's files raw rather than running this branch's
+      # validators over them, so a base list in an older format cannot be
+      # refused for its format. BEFORE either arm, so nothing is spent yet.
+      #
+      # The CANDIDATE's budget, because the sweep is a question about the
+      # candidate, run from the primary checkout (candidate_sha).
+      #
+      # Fails the job rather than warning, unlike the mart: that resolver can
+      # fail on the network; this one reads files from two checkouts, so a
+      # failure means the judge code is broken and the arms would fail anyway.
+      #
+      # A base ref that predates these inputs would ignore them and walk
+      # background agents at its own old budget, refusing every one, while the
+      # candidate walked what was admitted — paid runs pairing with nothing. So
+      # the resolver checks the base tree first and, against such a base,
+      # admits nothing and refuses every background agent by name.
+      - name: Resolve the background case and attempt budget
+        id: budget
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          BASE_DIR: ${{ steps.base.outputs.dir }}
+          JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
+        run: |
+          set -euo pipefail
+          npx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"
+
       # Mirrors setup-node-workspace, which cannot be pointed at another
       # directory. Every step the action runs that the base arm needs, run
       # there instead: its own install, its own contracts and nest-common
@@ -1638,6 +1854,14 @@ jobs:
           # the sweep then runs against the live mart and the report says so,
           # rather than a whole paid sweep dying over an unpinnable table.
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
+          JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
+          JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
+          JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
+          JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
+          JUDGE_FIXTURE_ORG_SLUG: ${{ needs.fixture.outputs.org_slug }}
+          JUDGE_FIXTURE_RACE_ID: ${{ needs.fixture.outputs.race_id }}
+          JUDGE_FIXTURE_USER_EMAIL: ${{ needs.fixture.outputs.user_email }}
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
           # existing eval suites self-skip on, and the sweep suite is not one
           # of them: it skips on JUDGE_ARM being absent, which is the value
@@ -1678,6 +1902,14 @@ jobs:
           # expression: two arms on different versions is worse than two arms
           # on none, because each would report a pin nothing held.
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
+          JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
+          JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
+          JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
+          JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
+          JUDGE_FIXTURE_ORG_SLUG: ${{ needs.fixture.outputs.org_slug }}
+          JUDGE_FIXTURE_RACE_ID: ${{ needs.fixture.outputs.race_id }}
+          JUDGE_FIXTURE_USER_EMAIL: ${{ needs.fixture.outputs.user_email }}
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"
@@ -1821,3 +2053,51 @@ jobs:
             echo 'kept: they carry the agents'"'"' answers and generated SQL, and omni is'
             echo 'public, so they wait for the private bucket rather than an artifact.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # After the sweep, on every outcome, because a sweep that failed is exactly
+  # the one most likely to leave its fixture behind. On a fresh runner from
+  # main's code for the same reason the mint is: the sweep job ran the
+  # branch's code, and nothing on its runner can be trusted with the secret
+  # afterwards. Never fails anything that matters: the verdict is already
+  # written, and a missed delete is the sweepTestUsers cron's a day later.
+  fixture-cleanup:
+    name: Delete the sweep's test organization
+    needs: [fixture, sweep]
+    if: always() && needs.fixture.outputs.user_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: judge-fixture
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      # NO CACHE, and not setup-node-workspace. That action restores
+      # node_modules from a cache keyed on the lockfile, and on the comment
+      # path the plan and sweep jobs run the branch's code in main's cache
+      # scope, where any of it can write an entry under that key. A restored
+      # `tsx` would then run here with the secret set. So these two jobs
+      # install from main's lockfile, every time, with nothing restored.
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Install from main's lockfile
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build -w packages/contracts
+
+      - name: Delete the test organization
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          JUDGE_CLERK_MACHINE_SECRET: ${{ secrets.JUDGE_CLERK_MACHINE_SECRET }}
+          JUDGE_FIXTURE_API_URL: https://gp-api-dev.goodparty.org
+          FIXTURE_USER_ID: ${{ needs.fixture.outputs.user_id }}
+        run: |
+          set -euo pipefail
+          npx tsx "$FIXTURE_ENTRY" delete "$FIXTURE_USER_ID"

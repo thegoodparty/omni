@@ -7,6 +7,7 @@ import {
   checkSmsStandards,
   deriveSmsProtectedParts,
   type MergeTagChannel,
+  type OutreachEventDetails,
   SMS_COMPOSED_MAX_LENGTH,
   SmsPurpose,
   type SmsStandardsRule,
@@ -35,6 +36,7 @@ export interface SmsImproveProtection {
 // One retry: a reply that drops or reorders a marker is usually a one-off,
 // and a second miss is better reported than looped on.
 const IMPROVE_ATTEMPTS = 2
+import { eventDetailsContext } from '../util/eventDetails.util'
 
 // The per-surface voice a draft/improve request writes in. Win and Serve
 // share every other piece of this pipeline (the LLM call plumbing, the tone
@@ -68,6 +70,7 @@ interface SmsDraftInput<TPurpose extends string> {
   purpose: TPurpose
   tone: SocialTone
   currentDraft?: string
+  event?: OutreachEventDetails
 }
 
 const PURPOSE_GOALS: Record<SmsPurpose, string> = {
@@ -108,24 +111,24 @@ const PURPOSE_STRUCTURES: Record<SmsPurpose, string> = {
     'will be different.',
   event_invite:
     'Structure: a warm invitation naming why the gathering matters; ' +
-    'then a details line the candidate fills in before sending, ' +
-    'formatted exactly as \"📅 [Date] | 🕐 [Time] | 📍 [Location]\"; then a ' +
+    'then one details line with the event details given below, ' +
+    'formatted as "📅 <date> | 🕐 <time> | 📍 <location>"; leave the ' +
+    'line out entirely if no event details are given; then a ' +
     'reply-to-RSVP ask. Never invent event specifics.',
   early_voting:
     'Structure (the early-voting text): lead with the fact that early ' +
     'voting is underway and why local races matter; ask directly for ' +
     'their vote; then one line "My focus: ..." listing two or three ' +
     'stated priorities from the materials; then a logistics line with ' +
-    'poll hours and the early-voting end date — as \"[hours]\" and ' +
-    '\"[date]\" placeholders unless the materials provide them; close ' +
-    'by encouraging them to make a plan to vote.',
+    'poll hours and the early-voting end date, only as the materials ' +
+    'give them, leaving out whatever they do not; close by encouraging ' +
+    'them to make a plan to vote.',
   election_day_turnout:
     'Structure: lead with election day being here and why local races ' +
     'matter; ask directly for their vote; then one line "My focus: ' +
     '...\" listing two or three stated priorities from the materials; ' +
-    'then a deadline line with the poll closing time — as a ' +
-    '\"[time]\" placeholder unless the materials provide it; close by ' +
-    'urging them to the polls today.',
+    'then a deadline line with the poll closing time, only if the ' +
+    'materials give it; close by urging them to the polls today.',
   custom: '',
 }
 
@@ -154,6 +157,24 @@ const TONE_STYLES: Record<SocialTone, string> = {
 export const FRESH_DRAFT_TARGET_LENGTH = 700
 export const IMPROVE_DRAFT_TARGET_LENGTH = 800
 
+// Every text must say who is sending it (the candidate_name standard in
+// contracts' checkSmsStandards). The webapp owns that sentence, opening a
+// fresh draft on it and locking the name in it, so the model must neither
+// write its own (it would read as a second introduction) nor stand in for the
+// name with a bracket the sender has to notice and fill. Shared by Win and
+// Serve, so it names neither a candidate nor an official.
+export const SMS_NO_NAME_PLACEHOLDER_RULE = [
+  "- Never write a placeholder for anyone's name, such as [Your Name],",
+  '  [Name] or [your name].',
+].join('\n')
+
+export const SMS_IMPROVE_IDENTIFICATION_RULE = [
+  "- The message opens with the sender's identification: their name and",
+  '  office. Keep it word for word. Never swap the name for a placeholder',
+  '  like [Your Name], and do not add a second greeting, introduction, or',
+  '  sign-off.',
+].join('\n')
+
 // The flow wraps the body in system-owned regions (identification intro
 // and opt-out footer), so the model must produce ONLY the middle and
 // leave headroom inside the composed cap. The structure and length rules
@@ -174,12 +195,16 @@ const DRAFT_SYSTEM_PROMPT = [
   '- Invite responses as replies to this message (\"You can reply here',
   '  with questions\") — never \"text me back\" or \"call me\": the',
   '  message is sent from a temporary campaign number.',
-  '- For logistics the materials do not provide (poll hours, dates,',
-  '  times, locations), use short square-bracket placeholders like',
-  '  [time] or [date] for the candidate to fill in before sending;',
-  '  never invent real-sounding specifics.',
-  '- Do NOT introduce the candidate by name or office, and do NOT add',
-  '  any opt-out or paid-for-by language: the app wraps your text with',
+  '- Never write a square-bracket placeholder. Logistics (poll hours,',
+  '  dates, times, locations) come only from the event details or the',
+  '  materials; leave out any they do not give, and never invent',
+  '  real-sounding specifics.',
+  '- Do NOT introduce the candidate by name or office, do not greet, and',
+  '  do not sign off: the app has ALREADY opened the text with "Hello',
+  '  <first name>, this is <name>, candidate for <office>." Start with',
+  '  substance.',
+  SMS_NO_NAME_PLACEHOLDER_RULE,
+  '- Do NOT add any opt-out or paid-for-by language: the app appends',
   '  both.',
   "- Ground positions, issues, and specifics in the candidate's own",
   '  campaign materials when they are provided; never invent policy',
@@ -206,6 +231,7 @@ const IMPROVE_SYSTEM_PROMPT = [
   '  any website the author included, unchanged, and keep any',
   '  square-bracket placeholders like [time] exactly as written.',
   PROTECTED_MARKER_RULE,
+  SMS_IMPROVE_IDENTIFICATION_RULE,
   '- Never add policy positions, issue stances, endorsements,',
   '  statistics, dates, places, or events the original text does not',
   '  contain — campaign materials, when provided, are context for tone',
@@ -284,6 +310,9 @@ export class OutreachSmsGenerationService {
       // override the improve prompt's keep-their-structure rule.
       ...(!input.currentDraft && voice.purposeStructures[input.purpose]
         ? [voice.purposeStructures[input.purpose]]
+        : []),
+      ...(!input.currentDraft
+        ? eventDetailsContext(input.purpose, input.event)
         : []),
       `Tone: ${TONE_STYLES[input.tone]}`,
       ...composeContext,

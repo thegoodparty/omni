@@ -272,6 +272,12 @@ export const OutreachDetailsDrawer = ({
   // (spine status `pending`, created through the P2P flow) is cancelable —
   // the backend enforces the same set.
   const isCancelableSms = isPaidFlowSms && row?.status === 'pending'
+  // A robocall is cancelable until it dials: spine `pending` is before the
+  // send sweep flips it to `in_progress`. The backend enforces the precise
+  // not-yet-dialed settle states.
+  const isCancelableRobocall =
+    row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'pending'
+  const isCancelable = isCancelableSms || isCancelableRobocall
   // Delete is reserved for canceled campaigns — cancel already unwound the
   // vendor job and the charge, so the row is pure history. The backend
   // rejects every other status.
@@ -635,7 +641,7 @@ export const OutreachDetailsDrawer = ({
       </div>
     ) : null
 
-  const smsFooter = isCancelableSms ? (
+  const smsFooter = isCancelable ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px] gap-3">
         {/* Candidate editing is gone (the campaign success team fixes
@@ -1379,8 +1385,9 @@ export const OutreachDetailsDrawer = ({
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel this campaign?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure? This can&apos;t be undone. Your texts won&apos;t
-              send, and any payment is refunded automatically.
+              {isCancelableRobocall
+                ? "Are you sure? This can't be undone. Your calls won't be placed, and you won't be charged."
+                : "Are you sure? This can't be undone. Your texts won't send, and any payment is refunded automatically."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -818,3 +818,15 @@ dismissed:
   - {event: "Pro Upgrade - Candidate Profile Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
   - {event: "Briefing Assistant - TOC Item Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
   - {event: "Briefing Assistant - List Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+
+# Intent rows (DATA-2432). The pre-merge guard blocks a change that removes, moves or
+# unmounts a call site of an event an OKR counts. A row here, added in the same PR, says
+# what is happening to that activity and clears the block. One line per metric:
+#   - {metric: <sem metric>, event: "<event>", intent: <kind>, reason: "<why>", date: "YYYY-MM-DD"}
+# kind: retire_activity (stop counting it) | successor (+ successor: "<event>") |
+#       relocated (+ route: "/path") | not_a_change (the guard was wrong; say why)
+# A not_a_change row with no metric: reports a dead listing the guard got wrong (the
+# event still fires in a way it cannot see) and clears that block; triage treats it as a guard bug.
+# Queue C turns each row into the gp-data-platform anchored_on change, then deletes it.
+# Empty most of the time. Leave the key bare (not `intents: []`) so a row can be appended.
+intents:

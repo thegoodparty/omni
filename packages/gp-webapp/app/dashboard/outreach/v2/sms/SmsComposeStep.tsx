@@ -98,6 +98,7 @@ interface SmsComposeStepProps {
   onToneChange: (tone: SocialTone) => void
   audienceName: string
   standardsFailures: SmsStandardsRule[]
+  unfilledBrackets: string[]
   identificationExample: string
   // The whole message as sent: greeting, body, disclaimer and opt-out.
   message: string
@@ -149,6 +150,7 @@ export const SmsComposeStep = ({
   onToneChange,
   audienceName,
   standardsFailures,
+  unfilledBrackets,
   identificationExample,
   message,
   onMessageChange,
@@ -422,6 +424,13 @@ export const SmsComposeStep = ({
                 Compliance: {standardsFailureCopy(rule, identificationExample)}
               </p>
             ))}
+        {unfilledBrackets.length > 0 && (
+          <p className="text-xs text-destructive">
+            Your message still has {unfilledBrackets.join(', ')}. Replace{' '}
+            {unfilledBrackets.length === 1 ? 'it' : 'them'} with the real
+            details before you send.
+          </p>
+        )}
         {overLimit && (
           <p className="text-xs text-destructive">
             Keep the whole message (including the identification and opt-out

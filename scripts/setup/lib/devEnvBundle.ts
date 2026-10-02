@@ -31,7 +31,10 @@ export const fetchDevEnvBundles = async (
     response = await fetchImpl(new URL('/v1/dev-env/bundle', apiUrl), {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
+        // Dedicated header: gp-api's global SessionGuard 401s any
+        // Authorization bearer that is not a Clerk token, even on public
+        // routes, before the GitHub membership guard can run.
+        'X-GitHub-Token': token,
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
@@ -49,10 +52,16 @@ export const fetchDevEnvBundles = async (
       `${apiUrl} has dev env vending configured off (503).`,
     )
   }
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     throw new DevEnvBundleFetchError(
-      `${apiUrl} rejected the GitHub token (${response.status}) — confirm ` +
-        'you are an active member of the thegoodparty GitHub org.',
+      `${apiUrl} rejected the GitHub token (401) — the token was invalid ` +
+        'or expired; re-run setup to go through the device flow again.',
+    )
+  }
+  if (response.status === 403) {
+    throw new DevEnvBundleFetchError(
+      `${apiUrl} refused the request (403) — confirm you are an active ` +
+        'member of the thegoodparty GitHub org.',
     )
   }
   if (!response.ok) {

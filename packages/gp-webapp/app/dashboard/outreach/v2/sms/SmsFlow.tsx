@@ -5,7 +5,9 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   OutreachDetail,
+  OutreachEventDetails,
   OutreachReceipt,
+  ProposalEvent,
   RecommendedList,
   RecommendedListVariant,
   ServeSmsDraftRequest,
@@ -74,6 +76,12 @@ import {
   SERVE_SMS_PURPOSES,
   serveSmsPurposeNameSuggestion,
 } from '../serveSmsPurposes'
+import { EventDetailsStep } from '../EventDetailsStep'
+import {
+  EVENT_DETAILS_TITLE,
+  isEventInvite,
+  useEventDetails,
+} from '../eventDetails'
 import { SMS_PURPOSE_INTRO_BODY, SmsPurposeStep } from './SmsPurposeStep'
 import {
   NAME_ONLY_COPY,
@@ -86,10 +94,13 @@ import { SmsReviewStep } from './SmsReviewStep'
 import {
   composeScript,
   composeServeScript,
+  ensureSmsIdentification,
   identificationIntro,
   provisionalCommitteeName,
+  openWithSmsIdentification,
   SMS_PURPOSES,
   type SmsFlowPurpose,
+  unfilledBrackets,
   upgradeScriptFooter,
 } from './smsCompose.util'
 import {
@@ -99,7 +110,13 @@ import {
   type ServeSmsCreateFn,
 } from './useServeSmsSend'
 
-type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review'
+type StepId =
+  | 'purpose'
+  | 'details'
+  | 'audience'
+  | 'schedule'
+  | 'compose'
+  | 'review'
 const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
@@ -123,6 +140,7 @@ const VERIFY_BUILD_STEP_ORDER: StepId[] = [...PRO_BUILD_STEP_ORDER, 'review']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
+  details: EVENT_DETAILS_TITLE,
   audience: 'Who do you want to reach?',
   schedule: 'When do you want to send?',
   compose: 'What do you want to say?',
@@ -180,6 +198,7 @@ interface SmsFlowDraftInput {
   purpose: SmsFlowPurpose
   tone: SocialTone
   currentDraft?: string
+  event?: OutreachEventDetails
 }
 
 // A caller-supplied surface parametrizes the purpose cards and their intro,
@@ -293,6 +312,9 @@ interface SmsFlowProps {
   // AI-drafts, so the seeded words are what they edit rather than something
   // a draft immediately overwrites.
   initialScript?: string
+  // What an agent's proposal knows about the event it invites people to; the
+  // details step opens on it.
+  initialEvent?: ProposalEvent
   preselectedListId?: number
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
@@ -461,6 +483,7 @@ export const SmsFlow = ({
   surface = WIN_SMS_SURFACE,
   campaignPlanDueDate,
   tracker,
+  initialEvent,
   source,
   initialScript,
   preselectedListId,
@@ -481,6 +504,15 @@ export const SmsFlow = ({
 
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsFlowPurpose | null>(null)
+  const eventDetails = useEventDetails({
+    enabled: open && isEventInvite(purpose),
+    isServe: surface.isServe,
+    proposed: initialEvent,
+  })
+  const { reset: resetEventDetails } = eventDetails
+  // The details the current body was written from: changing them on the way
+  // back through the details step makes that body stale.
+  const confirmedEventRef = useRef<string | null>(null)
   const [tone, setTone] = useState<SocialTone>('warm')
   // The whole message as sent. The greeting, disclaimer and opt-out line
   // live in it as locked parts rather than around it as separate regions.
@@ -528,6 +560,10 @@ export const SmsFlow = ({
   const [paidSend, setPaidSend] = useState(false)
 
   const draftRequestRef = useRef(0)
+  // The body of a seed carried in from outside the flow, held until it has
+  // been checked for the sender's identification. Cleared by the check, or
+  // by the first keystroke, so hand-typed text is never rewritten.
+  const seedUncheckedRef = useRef<string | null>(null)
 
   // Every saved-draft and gate concern — the row, the resume switch, the
   // gate/explainer visibility, and the origin that says what finishing the
@@ -574,11 +610,16 @@ export const SmsFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
-  const stepOrder = !buildMode
+  const baseStepOrder = !buildMode
     ? STEP_ORDER
     : gate.requirement === 'pro'
       ? PRO_BUILD_STEP_ORDER
       : VERIFY_BUILD_STEP_ORDER
+  const stepOrder: StepId[] = isEventInvite(purpose)
+    ? baseStepOrder.flatMap((id) =>
+        id === 'purpose' ? ['purpose', 'details'] : [id],
+      )
+    : baseStepOrder
 
   // Reference equality against the Win singleton, not a purpose check:
   // recommended lists are Win-only (the endpoint 400s an eo- org outright),
@@ -631,17 +672,24 @@ export const SmsFlow = ({
     setStepId(
       resumeDraft
         ? 'schedule'
-        : initialScript || carriedPurpose
+        : initialScript
           ? 'audience'
-          : 'purpose',
+          : carriedPurpose
+            ? isEventInvite(carriedPurpose)
+              ? 'details'
+              : 'audience'
+            : 'purpose',
     )
     setPurpose(initialScript ? 'custom' : carriedPurpose)
+    resetEventDetails()
+    confirmedEventRef.current = null
     setTone('warm')
     const seeded = initialScript
       ? surface.composeMessage(initialScript, null)
       : ''
     setMessage(seeded)
     setLockSource(seeded)
+    seedUncheckedRef.current = initialScript || null
     setManuallyEdited(Boolean(initialScript))
     setOwnWords(Boolean(initialScript))
     setUndoText(null)
@@ -668,6 +716,7 @@ export const SmsFlow = ({
     open,
     resetDraftMutation,
     resetAudience,
+    resetEventDetails,
     initialScript,
     preselectedRecommendedVariant,
     resumeDraft,
@@ -713,6 +762,41 @@ export const SmsFlow = ({
           candidateFirstName,
           campaign?.positionName || campaign?.details?.normalizedOffice || '',
         )
+  const identificationNames = [
+    candidateFullName,
+    tcrCompliance?.candidateName,
+  ].filter((name): name is string => !!name)
+  // Every body the flow sets that the official did not type goes through
+  // this, so the compose step never opens on a candidate_name failure.
+  const identificationFor = (t: SocialTone) => ({
+    intro: introFor(t),
+    firstName: candidateFirstName,
+    candidateNames: identificationNames,
+  })
+  const withIdentification = (text: string, t: SocialTone): string =>
+    ensureSmsIdentification(text, identificationFor(t))
+  // The seed lands in the open effect, before the sender's name may be
+  // known: Win waits on the campaign (a Campaign Manager's own session name
+  // is not the candidate's), Serve on the user, and both on a name to check
+  // against, since an empty list would wave the seed through unchecked.
+  const identificationReady =
+    (surface.isServe ? Boolean(user) : campaign != null) &&
+    identificationNames.length > 0
+  useEffect(() => {
+    const seed = seedUncheckedRef.current
+    if (!open || seed === null || !identificationReady) return
+    seedUncheckedRef.current = null
+    // Repaired as a body, then composed: the identification follows the
+    // greeting. Composed without a committee; the footer effect below adds
+    // the line the message should name.
+    const repaired = surface.composeMessage(
+      withIdentification(seed, 'warm'),
+      null,
+    )
+    setMessage(repaired)
+    setLockSource(repaired)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per seed, when the name resolves
+  }, [open, initialScript, identificationReady])
   // Paid-for-by is a campaign-finance disclaimer naming a candidate
   // committee, which a Serve org does not have. Nulled at the source rather
   // than only inside composeMessage so the submitted script, the preview
@@ -760,12 +844,8 @@ export const SmsFlow = ({
   const hasWrittenBody =
     message.replace(/\s+/g, '') !== '' &&
     message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
-  const candidateNames = [
-    candidateFullName,
-    tcrCompliance?.candidateName,
-  ].filter((name): name is string => !!name)
   const rawStandards = checkSmsStandards(composedMessage, {
-    candidateNames,
+    candidateNames: identificationNames,
     committeeName,
   })
   // Win ignores nothing once a committee exists, so this is the raw verdict
@@ -787,11 +867,12 @@ export const SmsFlow = ({
   // Locks the provisional line too: the verdict ignores it, but the
   // candidate still must not edit the disclaimer out.
   const protectedParts = deriveSmsProtectedParts(lockSource, {
-    candidateNames,
+    candidateNames: identificationNames,
     committeeName: footerCommittee,
     channel: surface.isServe ? 'serve' : 'peerly',
     ignoredRules: surface.ignoredStandardsRules,
   })
+  const bracketsToFill = unfilledBrackets(message)
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
   // gate), so the send floor is the hard 48-hour scheduling window.
@@ -894,11 +975,13 @@ export const SmsFlow = ({
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draftMutation.mutate(
       {
         purpose: nextPurpose,
         tone: nextTone,
         ...(currentDraft === undefined ? {} : { currentDraft }),
+        ...(event ? { event } : {}),
       },
       {
         onSuccess: (generated) => {
@@ -909,13 +992,18 @@ export const SmsFlow = ({
           }
           // The model writes the body only, so a fresh draft is composed
           // around it here: greeting, the identification (the body's
-          // editable first sentence), disclaimer and opt-out. Improve sends
-          // the whole message and gets the whole message back, its locked
-          // parts restored server-side.
+          // editable first sentence, replacing any the model wrote),
+          // disclaimer and opt-out. Improve sends the whole message and gets
+          // the whole message back as is: gp-api locks the name, so a reply
+          // cannot drop it, and repairing the identification here would put
+          // an intro in front of the greeting.
           const full =
             currentDraft === undefined
               ? surface.composeMessage(
-                  `${introFor(nextTone)} ${generated}`,
+                  openWithSmsIdentification(
+                    generated,
+                    identificationFor(nextTone),
+                  ),
                   footerCommittee,
                 )
               : generated
@@ -951,6 +1039,23 @@ export const SmsFlow = ({
     setOwnWords(selected === 'custom')
     setToneDrafts({})
     resetDraftMutation()
+    confirmedEventRef.current = null
+    setStepId(isEventInvite(selected) ? 'details' : 'audience')
+  }
+
+  const handleEventDetailsContinue = () => {
+    const confirmed = JSON.stringify(eventDetails.event)
+    if (confirmedEventRef.current !== confirmed) {
+      confirmedEventRef.current = confirmed
+      draftRequestRef.current += 1
+      setMessage('')
+      setLockSource('')
+      setOwnWords(false)
+      setToneDrafts({})
+      setUndoText(null)
+      setManuallyEdited(false)
+      resetDraftMutation()
+    }
     setStepId('audience')
   }
 
@@ -980,6 +1085,8 @@ export const SmsFlow = ({
     if (remembered !== undefined && remembered.trim().length > 0) {
       draftRequestRef.current += 1
       resetDraftMutation()
+      // Not re-checked: a generated entry was identified when it arrived,
+      // and any other entry is the candidate's own typing.
       loadMessage(remembered)
       setManuallyEdited(false)
       return
@@ -988,6 +1095,7 @@ export const SmsFlow = ({
   }
 
   const handleMessageChange = (value: string) => {
+    seedUncheckedRef.current = null
     setMessage(value)
     setManuallyEdited(true)
     setOwnWords(true)
@@ -1367,7 +1475,7 @@ export const SmsFlow = ({
 
   const reviewGateCta =
     gate.requirement !== null ? REVIEW_GATE_CTA[gate.requirement] : undefined
-  const cta: FlowShellCta | null = scheduled
+  const baseCta: FlowShellCta | null = scheduled
     ? null
     : // The gate screens carry their own buttons.
       gateOpen
@@ -1478,6 +1586,7 @@ export const SmsFlow = ({
                       disabled:
                         !hasWrittenBody ||
                         !standards.passed ||
+                        bracketsToFill.length > 0 ||
                         composedLength > SMS_COMPOSED_MAX_LENGTH ||
                         // Win only: Peerly rejects an imageless text/p2p send.
                         // Serve is fulfilled by the shared delivery layer, whose
@@ -1501,6 +1610,15 @@ export const SmsFlow = ({
                         loading: draftGate.savingDraft,
                       }
                     : null
+
+  const cta: FlowShellCta | null =
+    stepId === 'details' && !scheduled && !gateOpen
+      ? {
+          label: 'Continue',
+          onClick: handleEventDetailsContinue,
+          disabled: eventDetails.event === null,
+        }
+      : baseCta
 
   // Mirrors the review step's isFree: a free send reads "Review and send" /
   // "Schedule campaign" instead of the pay vocabulary (design prototype).
@@ -1626,6 +1744,13 @@ export const SmsFlow = ({
           onSelect={handleSelectPurpose}
           purposes={surface.purposes}
           introBody={surface.purposeIntroBody}
+        />
+      ) : stepId === 'details' ? (
+        <EventDetailsStep
+          details={eventDetails.details}
+          onChange={eventDetails.setDetails}
+          destination="message"
+          prefillNote={eventDetails.prefillNote}
         />
       ) : stepId === 'audience' ? (
         <>
@@ -1766,6 +1891,7 @@ export const SmsFlow = ({
           onToneChange={handleToneChange}
           audienceName={selectedList?.name ?? audience.builderName}
           standardsFailures={standards.failures}
+          unfilledBrackets={bracketsToFill}
           identificationExample={introFor(tone)}
           message={message}
           onMessageChange={handleMessageChange}

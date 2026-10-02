@@ -1431,7 +1431,7 @@ def run_monitor(
         latches=latches, today=today,
         dismissed=aa.load_dismissals(watchlist_path),
         partial_read=bool(read_problems),
-    )
+    ) + aa.intent_findings(watchlist_path, anchors)
 
     # Walk `records`, not `flagged`: a latched break is by construction one whose
     # detect_anomaly has gone quiet, so its record already ranks 99 and has dropped out of
