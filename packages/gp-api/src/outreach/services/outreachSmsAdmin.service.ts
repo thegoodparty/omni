@@ -949,6 +949,21 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         phone,
         testListId,
       )
+      // The only record that a reviewer ever saw a campaign on a handset.
+      // A 200 on the route says the vendor accepted the send and nothing
+      // else; these ids are what make a later failure diagnosable and let
+      // anyone count which campaigns were checked before approval. Never
+      // the phone — it is a staff number and logs are not the place.
+      this.logger.info(
+        {
+          outreachId,
+          campaignId: row.campaignId,
+          identityId: row.identityId,
+          testJobId,
+          testListId,
+        },
+        'Sent the CAS test text',
+      )
     } catch (error) {
       this.testSendClaims.delete(outreachId)
       throw error

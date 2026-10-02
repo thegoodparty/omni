@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyTestListService } from '@/vendors/peerly/services/peerlyTestList.service'
+import { OutreachSmsAdminService } from '../services/outreachSmsAdmin.service'
 import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
 
 const service = useTestService()
@@ -115,6 +116,36 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
       '5551234567',
       169614,
     )
+  })
+
+  // Nothing else in the system records that a reviewer saw a campaign on a
+  // handset: a 200 says only that Peerly accepted the send. This line is
+  // what makes "which campaigns were checked before approval" answerable,
+  // and the phone must stay out of it.
+  it('records the successful send, without the phone number', async () => {
+    const row = await seedOutreach()
+    const admin = service.app.get(OutreachSmsAdminService)
+    const logSpy = vi.spyOn(
+      (admin as unknown as { logger: { info: (...args: unknown[]) => void } })
+        .logger,
+      'info',
+    )
+
+    await service.client.post(`/v1/outreach/admin/sms/${row.id}/test`, {
+      phone: '+15551234567',
+    })
+
+    expect(logSpy).toHaveBeenCalledWith(
+      {
+        outreachId: row.id,
+        campaignId,
+        identityId: 'identity-1',
+        testJobId: 'test-job-1',
+        testListId: 169614,
+      },
+      'Sent the CAS test text',
+    )
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain('5551234567')
   })
 
   it('reuses an existing test job on a repeat send', async () => {
