@@ -321,6 +321,12 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(prompt).toContain('finished their Campaign Story')
     expect(prompt).not.toContain('one at a time')
+    // Editing an answer regenerates the plan off the save itself, so the
+    // manager must neither ask nor call generate — generate is a no-op on an
+    // already-generated plan, which is how the old "offer to regenerate"
+    // instruction produced an acceptance that did nothing.
+    expect(prompt.toLowerCase()).toContain('do not ask whether to regenerate')
+    expect(prompt).not.toContain('offer to regenerate')
   })
 
   it('says nothing about ballot status when the candidate never answered', () => {

@@ -604,6 +604,71 @@ describe('DatabricksVoterService', () => {
       expect(people).toHaveLength(1)
       expect(query).toHaveBeenCalledTimes(3)
     })
+
+    const sampleWithin = (seedKey?: string) =>
+      samplePeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        size: 2,
+        filters: { hasCellPhone: true, homeowner: { in: ['No'] } },
+        ...(seedKey && { seedKey }),
+      })
+
+    it('sizes a draw within an audience by counting that audience', async () => {
+      stubDistrict('US_Congressional_District', '29')
+      query
+        .mockResolvedValueOnce({ columns: [], rows: [['60']] })
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [
+            personRow('11111111-1111-4111-8111-111111111111'),
+            personRow('22222222-2222-4222-8222-222222222222'),
+          ],
+        })
+
+      const people = await service.samplePeople(sampleWithin('proposal-1'))
+
+      expect(people).toHaveLength(2)
+      // No district stats: the count is the audience's, not the district's.
+      expect(query).toHaveBeenCalledTimes(2)
+      const [countSql = '', drawSql = ''] = query.mock.calls.map(
+        ([statement]) => (statement as { sql: string }).sql,
+      )
+      expect(countSql).toContain('COUNT(*)')
+      expect(countSql).toContain('Homeowner_Probability_Model')
+      expect(drawSql).toContain('Homeowner_Probability_Model')
+      expect(drawSql).toContain('pmod(xxhash64')
+      // An audience carries its own reachability; nothing is forced on top.
+      expect(
+        drawSql.match(/VoterTelephones_CellPhoneFormatted` IS NOT NULL/g),
+      ).toHaveLength(1)
+    })
+
+    it('takes the same slice again for the same seed key', async () => {
+      const seedOf = async (seedKey: string) => {
+        stubDistrict('US_Congressional_District', '29')
+        query
+          .mockResolvedValueOnce({ columns: [], rows: [['60']] })
+          .mockResolvedValueOnce({ columns: [], rows: [] })
+        await service.samplePeople(sampleWithin(seedKey))
+        const draw = query.mock.calls.at(-1)?.[0] as {
+          params: { value: string | null; type: string }[]
+        }
+        return draw.params.filter((param) => param.type === 'INT')[0]?.value
+      }
+
+      const first = await seedOf('proposal-1')
+      expect(await seedOf('proposal-1')).toBe(first)
+      expect(await seedOf('proposal-2')).not.toBe(first)
+    })
+
+    it('still refuses an audience smaller than the draw', async () => {
+      stubDistrict('US_Congressional_District', '29')
+      query.mockResolvedValueOnce({ columns: [], rows: [['1']] })
+
+      await expect(
+        service.samplePeople(sampleWithin('proposal-1')),
+      ).rejects.toThrow('Not enough non-excluded constituents 1')
+    })
   })
 
   describe('findPerson', () => {

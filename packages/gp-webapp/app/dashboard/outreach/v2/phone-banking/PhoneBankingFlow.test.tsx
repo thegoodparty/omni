@@ -276,6 +276,41 @@ describe('PhoneBankingFlow', () => {
     )
   })
 
+  // Win's create is strict, and a chat card's link is Serve's: none of it,
+  // the check fields included, may reach the Win route.
+  it('sends nothing of a proposal link to the Win create', async () => {
+    mockDraft()
+    const createCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    render(
+      <PhoneBankingFlow
+        source="outreach_page"
+        open
+        onClose={vi.fn()}
+        proposalLink={{
+          proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7',
+          priorityId: 'priority-1',
+          stepId: 'define',
+          side: 'main',
+        }}
+      />,
+    )
+    await advanceToSheets()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(createCalls).toHaveLength(1))
+    expect(Object.keys(createCalls[0] ?? {}).sort()).toEqual([
+      'name',
+      'purpose',
+      'script',
+      'sheetCount',
+      'voterFileFilterId',
+    ])
+  })
+
   it('offers a ZIP download link for a multi-sheet list', async () => {
     mockDraft()
     const multiSheetResponse = { ...createResponse, sheetCount: 3 }

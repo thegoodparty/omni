@@ -667,6 +667,9 @@ export {
   MAX_CHECK_RAISES,
   PRIORITY_GATE_STEPS,
   PRIORITY_LISTEN_GATES,
+  PRIORITY_CHECK_SIDES,
+  PriorityCheckSideSchema,
+  type PriorityCheckSide,
   isCheckAnswered,
   openListenBefore,
   PriorityCheckStateSchema,
@@ -714,6 +717,11 @@ export {
   ContactRefSchema,
   OutsideContactSchema,
   ChatCardSchema,
+  ProposalLinkSchema,
+  PROPOSAL_SENT_MARKER,
+  ProposalAudienceFiltersSchema,
+  type ProposalAudienceFilters,
+  type ProposalLink,
   type ChatCardKind,
   type ProposalChannel,
   type OutreachProposal,
@@ -1175,6 +1183,12 @@ export {
 } from './people/PeopleOverlapCount.schema'
 
 export {
+  MAX_LIST_SAMPLE_SIZE,
+  ListSampleSchema,
+  type ListSample,
+} from './people/ListSample.schema'
+
+export {
   DoorKnockingEvaluateRequestSchema,
   type DoorKnockingEvaluateRequest,
   DoorKnockingEvaluatedPersonSchema,
@@ -1263,6 +1277,8 @@ export {
   type GeoJsonPolygon,
   CreateDoorKnockingTurfSchema,
   type CreateDoorKnockingTurf,
+  CreateServeDoorKnockingTurfSchema,
+  type CreateServeDoorKnockingTurf,
   UpdateDoorKnockingTurfSchema,
   type UpdateDoorKnockingTurf,
   DoorKnockingTurfSchema,

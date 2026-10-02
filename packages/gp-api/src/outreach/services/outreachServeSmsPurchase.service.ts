@@ -6,6 +6,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
 import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
+import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
 
 /**
  * The Serve SMS purchase handler: paying for a text send from an elected
@@ -56,7 +57,10 @@ export class OutreachServeSmsPurchaseHandlerService
   extends createPrismaBase(MODELS.Outreach)
   implements PurchaseHandler<unknown>
 {
-  constructor(private readonly queueProducer: QueueProducerService) {
+  constructor(
+    private readonly queueProducer: QueueProducerService,
+    private readonly priorityStatus: PriorityStatusService,
+  ) {
     super()
   }
 
@@ -174,6 +178,9 @@ export class OutreachServeSmsPurchaseHandlerService
 
     if (claimed.count === 0) {
       await this.confirmClaimed(outreachId, organizationSlug)
+      // A redelivery records it again, which is how a status write that
+      // failed after the send was enqueued gets another try.
+      await this.priorityStatus.recordOutreachSent(outreachId)
       return
     }
 
@@ -208,6 +215,11 @@ export class OutreachServeSmsPurchaseHandlerService
       { outreachId, organizationSlug, sessionId },
       'Serve SMS send claimed and enqueued after payment',
     )
+
+    // Paid and scheduled is when a text counts as out. Outside the revert
+    // above: the send stands even if this write fails, and the throw makes
+    // Stripe redeliver, which lands in the lost-claim branch and records it.
+    await this.priorityStatus.recordOutreachSent(outreachId)
   }
 
   private parseMetadata(rawMetadata: unknown): ServeSmsPurchaseMetadata {

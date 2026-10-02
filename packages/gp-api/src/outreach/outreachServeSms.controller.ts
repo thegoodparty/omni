@@ -192,7 +192,16 @@ export class OutreachServeSmsController {
     await this.assertFeatureEnabled(user)
     // The org comes from the ElectedOffice row the guard resolved, never from
     // the body — the same posture every route on this controller takes.
-    return this.createService.createDraft(electedOffice.organizationSlug, input)
+    const { proposalKey, priorityId, stepId, side, ...draft } = input
+    const link = await this.createService.resolveProposalLink(
+      { proposalKey, priorityId, stepId, side },
+      electedOffice.id,
+    )
+    return this.createService.createDraft(
+      electedOffice.organizationSlug,
+      draft,
+      link,
+    )
   }
 
   // The Statistics card, org-scoped. Deliberately NOT behind

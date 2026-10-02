@@ -133,6 +133,15 @@ export const samplePeopleSchema = withDistrictInput({
   size: z.coerce.number().int().min(1).max(10000).optional().default(500),
   hasCellPhone: z.coerce.boolean().optional(),
   excludeIds: z.array(z.guid()).optional(),
+  // A sample drawn within an audience rather than the whole district: the
+  // same scope a count or a list of these filters reads.
+  filters: filtersSchema.optional(),
+  idOverrides: IdOverridesSchema.optional(),
+  contactsMadeIdOverrides: IdOverridesSchema.optional(),
+  search: z.string().optional(),
+  // Names the draw, so asking again with the same key takes the same slice.
+  // Without one the slice rotates every minute.
+  seedKey: z.string().min(1).optional(),
 })
 
 export class SamplePeopleDTO extends createZodDto(samplePeopleSchema) {}

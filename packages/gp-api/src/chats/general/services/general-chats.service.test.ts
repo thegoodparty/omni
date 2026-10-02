@@ -366,6 +366,9 @@ describe('GeneralChatsService', () => {
           attachmentsFlag: expectedFlag,
         })
       }
+      // scope travels alongside the resolved flag so the shared
+      // ChatStreamService can attribute AttachedDocumentQueried correctly.
+      expect(streamArgs.value).toMatchObject({ scope })
     }
   })
 

@@ -8,6 +8,7 @@ import {
   ChatConversation,
   ChatMessage,
   ChatMessageRole,
+  ChatScope,
 } from '../../generated/prisma'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import type {
@@ -363,6 +364,7 @@ const baseStreamArgs = (
     maxSteps: number
     attachmentIds: string[]
     attachmentsFlag: string
+    scope: ChatScope
   }> = {},
 ) => ({
   conversationId: overrides.conversationId ?? CONVERSATION_ID,
@@ -381,6 +383,7 @@ const baseStreamArgs = (
   ...(overrides.attachmentsFlag !== undefined && {
     attachmentsFlag: overrides.attachmentsFlag,
   }),
+  ...(overrides.scope !== undefined && { scope: overrides.scope }),
 })
 
 const expectErrorChunk = (chunks: ChatStreamChunk[]) => {
@@ -2269,6 +2272,56 @@ describe('ChatStreamService', () => {
         OWNER_ID,
         EVENTS.ChiefOfStaff.AttachedDocumentQueried,
         { documentId: 'att-a', turnIndex: expect.any(Number) },
+      )
+    })
+
+    it('tags AttachedDocumentQueried with the caller-supplied scope', async () => {
+      const row = (id: string, storageKey: string): AttachmentRow => ({
+        id,
+        storageKey,
+        fileName: `${id}.txt`,
+        mimeType: 'text/plain',
+        pageCount: null,
+        source: ChatAttachmentSource.UPLOAD,
+        sourceUrl: null,
+        status: ChatAttachmentStatus.ready,
+        extractedText: 'The council resolves to allocate $500K.',
+      })
+      const { fakeLlmSrc, svc, analyticsTrack } = buildAttachmentService({
+        flagEnabled: true,
+        rows: [row('att-a', 'key-a')],
+      })
+
+      fakeLlmSrc.setScript([
+        { kind: 'text', delta: 'Per the document, ' },
+        {
+          kind: 'source',
+          sourceType: 'document',
+          id: 'src-1',
+          filename: 'att-a',
+          providerMetadata: {
+            anthropic: {
+              citedText: 'allocate',
+              startCharIndex: 28,
+              endCharIndex: 36,
+            },
+          },
+        },
+        { kind: 'text', delta: 'the budget is set.' },
+      ])
+
+      await collect(
+        svc.stream(attachmentArgs({ scope: ChatScope.campaign_assistant })),
+      )
+
+      expect(analyticsTrack).toHaveBeenCalledWith(
+        OWNER_ID,
+        EVENTS.ChiefOfStaff.AttachedDocumentQueried,
+        {
+          documentId: 'att-a',
+          turnIndex: expect.any(Number),
+          scope: ChatScope.campaign_assistant,
+        },
       )
     })
 

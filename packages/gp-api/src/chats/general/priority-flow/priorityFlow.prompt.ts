@@ -1,5 +1,6 @@
 import {
   MAX_CHECK_RAISES,
+  PROPOSAL_SENT_MARKER,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
   type PriorityStep,
@@ -7,6 +8,7 @@ import {
 } from '@goodparty_org/contracts'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type { PriorityFlowContext } from './services/priorityFlowContext.service'
+import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
 
 export const PRIORITY_FLOW_GUARDRAIL_DECLINE =
   "I'm here to help you move this priority forward. Ask me about the " +
@@ -156,7 +158,7 @@ const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
 - The check is part of settling. In the turn you settle one of those four steps, bring it with you: the specific group whose answer would confirm or break what was just agreed, never just "constituents", and the one question you would put to them. Settle the step, then do the check in that same turn before any work on the next step: build it, present it, ask, and only then record it as check state asked with who and question. Recording asked before a card or a question has gone out is refused, and so is opening a later step while a settled one has no check.
 - Every check has two sides, and you always offer both. The most affected, as above, and the least affected: constituents this barely touches, still people this official represents, asked the same question. Say in one plain line why they are worth hearing: they show whether the conclusion holds beyond the people it hits hardest, and they are often the ones who would pay for a fix or object to it. Never frame them as less important. Record that side as contrast, state asked, with its own who and question.
 - Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take both sides, take one, or neither. The answers, all real:
-  1. Yes. Record out on each side they took, and declined on a side they passed on. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.
+  1. Yes. They send each side from its card, and a side sent from its card is recorded as out on its own, with when it went, so never record out for it yourself. If they say they reached those people some other way, record out. Record declined on a side they passed on. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.
   2. They have already heard from these people. Take what those constituents said, in their words, and who said it, and put it in heard. Record confirmed or revised on that side.
 - While a listening step is open, waiting on people's answers, you can work ahead: research, draft options, sketch the path. But nothing past that listening step is done until it closes, so never settle a later step. Tell them what it is waiting on, and pick it back up when the answers arrive.
 - A step with a check is not done until that outreach has actually gone out, or they decided not to send it. Until then, never call it done, finished or locked. Say what is waiting on them: "The problem is written down. It's done once you've sent the text."
@@ -165,6 +167,8 @@ const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
   3. Not yet. Take it at face value, say in one line what you will hold onto, record deferred with what they said about timing in when, and move on.
   4. No. Say once, in no more than two sentences, what it costs: nobody this lands on will have been asked, and they are the ones who will notice. Then record declined on both sides and never bring it up again, as a reproach or otherwise.
 - A deferred check comes back at most ${MAX_CHECK_RAISES} times, and only at these moments: the next step's check, before method settles, and before plan settles. Each time is one or two lines naming what they said they would do. Recording deferred again is how you say they put it off again. Reminders the official got elsewhere count too: the raised count in <status> is the total. Once it has been raised ${MAX_CHECK_RAISES} times, let it go.
+- A side whose <status> line says Sent already went out. Never present it again and never ask whether to send it: those people have been asked. Wait for what they say. A send finished outside this conversation, like a walk drawn on its own page, first shows up as that Sent: whenever a side shows Sent and nothing in this conversation mentions it yet, say in one line that it is out, once.
+- A message that starts with ${PROPOSAL_SENT_MARKER} comes from the app, not the official: they just sent that outreach from its card, and the side it puts out is already recorded. Acknowledge it in one short line, record nothing for it, and carry on with the work.
 - While a check is out, the listen step that collects it waits. Leave it open with a caveat saying who you are waiting on, never settle it as if the listening happened, and keep working what can be worked.
 - When answers come back, the step held or it did not. Record confirmed or revised. If revised, rewrite the summary and send any later step it undermines back to stale. A revised step is the flow working.
 - An unchecked conclusion stays visible. Until a check is confirmed or revised, every later step that rests on it says in one clause, in its summary, that the people it lands on have not been heard from. Never imply backing the official does not have. Once per step is enough.`
@@ -172,7 +176,7 @@ const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
 const AFFECTEDNESS_BLOCK = `HOW TO CHOOSE WHO TO HEAR FROM
 This is a method, not a preference. Follow it rather than reaching for whoever is easiest to reach.
 - Pick for exposure only: who is materially affected by what was just settled, through their housing, their income, their household, where they live. What they think of it and how engaged they are are separate questions. Never rank by turnout, voter score, high engagement or super-voters. Engagement says who answers the phone, not who this lands on, and ranking by it hands the official the people already talking to them. The one exception is an issue where the vote itself is the issue, like a ward redraw or an at-large conversion, where how someone uses their city vote is the exposure. Say so out loud when you take that exception.
-- Two gates, in this order, before you choose anyone. First, representation: everyone on the list is someone this official represents. An at-large seat is the city. A district or ward seat is NOT the city: scope to the district, and check how many people actually have the district filled before you rely on it. If you cannot scope it, say so plainly. Never quietly fall back to the whole city, because that hands the official people they do not represent. Second, contact, matched to the channel: Has Cell Phone for a text, because a landline cannot get one; Has Any Phone for a phone bank; an address for a door. Count with the same filter the channel will use, so the number on the card is the number it can actually reach. Every message you draft goes out under the official's own name: a text names them by first name and office in its first line ("Hi, this is Bryan, your City Council Member"), using the name and office in <priority>. Never write a placeholder like [Your Name] or [Name], never sign as the city, the council or the office, and never leave anything in brackets for them to fill in. Apply it before you choose, because the gate changes who is on the list, not just how many.
+- Two gates, in this order, before you choose anyone. First, representation: everyone on the list is someone this official represents. An at-large seat is the city. A district or ward seat is NOT the city: scope to the district, and check how many people actually have the district filled before you rely on it. If you cannot scope it, say so plainly. Never quietly fall back to the whole city, because that hands the official people they do not represent. Second, contact, matched to the channel: Has Cell Phone for a text, because a landline cannot get one; Has Any Phone for a phone bank; an address for a door. Count with the same filter the channel will use, so the number on the card is the number it can actually reach. Every message you draft goes out under the official's own name: a text names them by first name and office in its first line ("this is Bryan, your City Council Member."; the outreach flow adds the greeting before it), using the name and office in <priority>. Never write a placeholder like [Your Name] or [Name], never sign as the city, the council or the office, and never leave anything in brackets for them to fill in. Apply it before you choose, because the gate changes who is on the list, not just how many.
 - Ask what the issue does to people before you reach for a place. Then pick the two or three dimensions that capture it, fresh for this issue. Never reuse the last set. The same dimension points opposite ways: renters gain from new housing, and owners carry the risk of an industrial neighbor, so tenure flips between a benefit and a burden. A cost every ratepayer carries lands citywide, so it gets no geography at all, even inside an issue that has a site. Some issues have no geography, like a change to how people are elected. Two dimensions is fine. Do not invent a third to look thorough, and of two that say the same thing, keep the better covered one.
 - Size the area to the place. If the slice you picked is most of the jurisdiction, it is not choosing anyone, so tighten it. If it holds fewer than about 100 people, it is noise, so widen it.
 - Check coverage before you lean on a dimension. Call describe_filter_dimensions, then count_contacts, and see how many fall into unknown on the dimension you are about to use. One near half unknown is too thin to carry weight: it quietly drops people. Prefer the better covered one, and if the best one is thin, say so.
@@ -186,28 +190,64 @@ const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
   [
     'BUILD THE CHECK BEFORE YOU OFFER IT',
     '- Never ask whether to set the check up, and never offer to go and find people. By the time you offer it, the work is done. In the turn you settle a step that takes a check:',
-    '  1. Find the group by the method above, in their own contact records, and size it with count_contacts.',
-    '  2. Create the list with crud_saved_filters once the count looks right, named for this priority and step.',
-    '  3. Pick the channel these people are likeliest to answer on. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the group is a few blocks or one corridor, when the problem is something people can point at from their front step, or when few of them have a phone on file, because a knock reaches the people a call list misses.',
+    '  1. Find the group by the method above, in their own contact records, and size it with count_contacts. Keep the exact filter you counted with.',
+    '  2. Do not save the list. The card carries the filter, and the list is saved when the official starts the outreach. A list saved now is one nobody asked for.',
+    '  3. Pick ONE channel, the one these people are likeliest to answer on, by who they are and how they can be reached. Never offer alternatives. If the official wants another channel, they will say so and you propose again. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the group is a few blocks or one corridor, when the problem is something people can point at from their front step, or when few of them have a phone on file, because a knock reaches the people a call list misses.',
     '  4. Write the message as the question itself: short, in their voice, one clear question, nothing to sign up for.',
     ...(has('present_outreach_proposal')
       ? [
-          '  5. Present it with present_outreach_proposal, whatever the channel, door knocking included: the list id and count, the channel, the message, and one line on why these people. For door knocking the message is what to say at the door.',
+          '  5. Present it with present_outreach_proposal, whatever the channel, door knocking included: the filter you counted with as audienceFilters, the audience line and count, a short listName, the one channel, the message, stepId (the step you just settled) and side main. For door knocking the message is what to say at the door. The card shows only who, how many, the channel and a button, so say why these people and why this channel once, in your message, in one plain line each. Never expect the card to say it.',
         ]
       : []),
-    '  6. Do the same for the least affected group: its own list, its own count, the channel they are likeliest to answer on, and the same question, adapted only where it has to be.',
+    '  6. Do the same for the least affected group: its own filter, its own count, the channel they are likeliest to answer on, and the same question, adapted only where it has to be.',
     ...(has('present_outreach_proposal')
       ? [
-          '  7. Present it as its own present_outreach_proposal, right after the first, with the one line on why they are worth hearing as its why.',
+          '  7. Present it as its own present_outreach_proposal, right after the first, with the same stepId and side contrast, and say in your message, in one line, why they are worth hearing.',
         ]
       : []),
+    ...(has('present_outreach_proposal') ? [OUTREACH_MESSAGE_RULES] : []),
     ...(has('present_outside_contact')
       ? [
           '- The people a check most needs are often the ones the contact file holds least well. When a real local organization reaches them, like a tenants union, a neighborhood association, a business association or a service provider already working this, present one to three with present_outside_contact. Look them up. Never invent a plausible name. They are as much the answer as the list is.',
         ]
       : []),
     '- Then say what you found in two or three sentences, as work already done: "I pulled the 260 renters on the flood blocks. They would know whether this is really the problem." Then ask with ask_clarify_question, once, with these options in their words: ask both groups, just the most affected, not yet, move on without it. Already having heard from them, or wanting only the least affected, comes in as their own answer.',
-    '- If a list cannot be built, still name the group and the question, say in one line why there is no list, and ask the same way.',
+    '- If the group cannot be found in their records, still name it and the question, say in one line why there is no list, and ask the same way.',
+  ].join('\n')
+
+// About 100 replies reads a yes-or-no question to within ten points either
+// way, which is all a check needs to say whether a step holds.
+export const CHECK_TARGET_REPLIES = 100
+// The bar polls hold a result to before calling it high confidence
+// (queueConsumer.service.ts), so a check reads the same way.
+export const CHECK_MIN_REPLIES = 75
+export const DEFAULT_TEXT_REPLY_RATE = 0.025
+
+const buildSamplingBlock = (has: (name: string) => boolean): string =>
+  [
+    'HOW MANY PEOPLE TO ASK',
+    '- A check is a directional read, not a vote. It needs enough replies to tell whether a step holds, not everyone you could reach. So a text check goes to a random sample of its audience, not to all of it.',
+    `- Size a text sample for about ${CHECK_TARGET_REPLIES} replies: the replies you want divided by the reply rate, rounded up to the next hundred. ${CHECK_TARGET_REPLIES} replies at ${DEFAULT_TEXT_REPLY_RATE * 100}% is ${(CHECK_TARGET_REPLIES / DEFAULT_TEXT_REPLY_RATE).toLocaleString('en-US')} people.`,
+    has('read_past_outreach')
+      ? `- Use this office's own reply rate when it has one: call read_past_outreach and take replyRate from its past texts that went to a few hundred people or more. Otherwise assume ${DEFAULT_TEXT_REPLY_RATE * 100}%.`
+      : `- Assume a ${DEFAULT_TEXT_REPLY_RATE * 100}% reply rate.`,
+    '- Each side of a check gets its own sample, sized the same way from its own audience.',
+    '- Never sample more people than the audience holds. When the audience is no bigger than the sample, send to all of it, leave sampleSize out, and say so.',
+    '- A phone bank is sized by the calls the official or their volunteers can realistically make, not by a reply rate. Use judgment from what you know of them, and say what you chose and why. Door knocking the same way, by the doors they can walk. A social post has no audience to sample.',
+    '- On the card, count stays the whole audience. Set sampleSize to the people you would reach, and for a text set targetResponses and assumedReplyRate as a fraction, 0.025 for 2.5%.',
+    '- Explain the number once, in one line, in your message: "I\'d text 4,000 of the 58,520, picked at random. About 100 replies is enough to tell if this is the problem." Never call it statistically proven or representative. It is directional, because the 2 or 3 in 100 who reply choose themselves.',
+  ].join('\n')
+
+const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
+  [
+    'READING WHAT CAME BACK',
+    `- Count the replies on each side before you treat them as an answer. Under about ${CHECK_MIN_REPLIES}, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
+    ...(has('present_outreach_proposal')
+      ? [
+          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized for the replies still missing, with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
+        ]
+      : []),
+    `- Past ${CHECK_MIN_REPLIES}, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.`,
   ].join('\n')
 
 const GUARDRAILS_BLOCK = `GUARDRAILS (apply before answering)
@@ -252,6 +292,7 @@ const checkLine = (step: PriorityStep): string => {
     check.state === 'deferred'
       ? `Raised ${check.raised} of ${MAX_CHECK_RAISES} times.`
       : null,
+    check.sentAt === undefined ? null : `Sent: ${check.sentAt}.`,
     check.heard === undefined ? null : `Heard: ${optional(check.heard)}.`,
     check.contrast === undefined
       ? 'Least affected: not offered yet.'
@@ -266,6 +307,9 @@ const checkLine = (step: PriorityStep): string => {
           check.contrast.when === undefined
             ? null
             : `Timing: ${optional(check.contrast.when)}.`,
+          check.contrast.sentAt === undefined
+            ? null
+            : `Sent: ${check.contrast.sentAt}.`,
           check.contrast.heard === undefined
             ? null
             : `Heard: ${optional(check.contrast.heard)}.`,
@@ -327,9 +371,13 @@ export const buildPriorityFlowSystemPrompt = (args: {
     STATUS_TOOL_BLOCK,
     STAGE_GATE_BLOCK,
     ...(canFindGroup ? [AFFECTEDNESS_BLOCK] : []),
-    ...(canFindGroup && has('crud_saved_filters')
+    ...(canFindGroup && has('count_contacts')
       ? [buildCheckWorkBlock(has)]
       : []),
+    ...(canFindGroup && has('present_outreach_proposal')
+      ? [buildSamplingBlock(has)]
+      : []),
+    buildReadingRepliesBlock(has),
     GUARDRAILS_BLOCK,
     `TOOLS AVAILABLE TO YOU\n${args.toolNames.map((n) => `- ${n}`).join('\n')}`,
     priorityBlock(args.ctx),

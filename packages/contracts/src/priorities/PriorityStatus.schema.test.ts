@@ -271,6 +271,43 @@ describe('mergeStepCheck', () => {
     ).toBe(NOW)
   })
 
+  // Only the server's send path writes the sent stamp, so an agent's later
+  // patch (an answer coming back, say) must not wipe the record of the send.
+  it('keeps each side’s sent stamp through a patch', () => {
+    const stored = {
+      state: 'out' as const,
+      who: 'Renters',
+      question: 'Is it the drains?',
+      raised: 0,
+      sentAt: '2026-09-30T12:00:00Z',
+      sentProposalKey: 'key-main',
+      contrast: {
+        state: 'out' as const,
+        who: 'Owners',
+        question: 'Is it the drains?',
+        sentAt: '2026-09-30T13:00:00Z',
+        sentProposalKey: 'key-contrast',
+      },
+    }
+    const merged = mergeStepCheck(
+      stored,
+      {
+        state: 'confirmed',
+        heard: 'Yes, the drains',
+        contrast: { state: 'revised', heard: 'It is the curb' },
+      },
+      NOW,
+    )
+    expect(merged).toMatchObject({
+      sentAt: '2026-09-30T12:00:00Z',
+      sentProposalKey: 'key-main',
+      contrast: {
+        sentAt: '2026-09-30T13:00:00Z',
+        sentProposalKey: 'key-contrast',
+      },
+    })
+  })
+
   it('never counts past the cap', () => {
     const atCap: PriorityStepCheck = { ...deferred, raised: MAX_CHECK_RAISES }
     expect(mergeStepCheck(atCap, { state: 'deferred' }, NOW)?.raised).toBe(

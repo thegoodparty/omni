@@ -1,5 +1,11 @@
 import { ProposalEventSchema } from '../outreach/OutreachEvent.schema'
 import { z } from 'zod'
+import { SupportStatusRollupSchema } from '../generated/enums'
+import {
+  PriorityCheckSideSchema,
+  PriorityStepIdSchema,
+} from '../priorities/PriorityStatus.schema'
+import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 
 /**
  * Anchored views: the cards an agent can leave in a chat.
@@ -38,8 +44,56 @@ export const ProposalChannelSchema = z.enum(PROPOSAL_CHANNELS)
 export type ProposalChannel = z.infer<typeof ProposalChannelSchema>
 
 /**
- * A ready-to-send piece of outreach. The agent has already built the list and
- * written the message, so the only act left is sending it.
+ * The audience as the filter the agent counted with, so no list is saved
+ * until the official starts the outreach. Only what the outreach flows'
+ * list builder can show: voter-file booleans, language, income, precincts
+ * and support status. Activity conditions and free-text search would build a
+ * list the official cannot see before saving, so they are not accepted here.
+ */
+export const PROPOSAL_AUDIENCE_LIST_KEYS = [
+  'languageCodes',
+  'incomeRanges',
+  'precincts',
+  'supportStatus',
+] as const
+
+const PROPOSAL_AUDIENCE_LIST_KEY_SET: ReadonlySet<string> = new Set(
+  PROPOSAL_AUDIENCE_LIST_KEYS,
+)
+
+export const ProposalAudienceFiltersSchema = z
+  .record(z.string(), z.union([z.boolean(), z.array(z.string())]))
+  .superRefine((filters, ctx) => {
+    for (const [key, value] of Object.entries(filters)) {
+      if (Array.isArray(value) !== PROPOSAL_AUDIENCE_LIST_KEY_SET.has(key)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: Array.isArray(value)
+            ? `${key} is not a list filter`
+            : `${key} takes a list`,
+        })
+      }
+    }
+    const status = filters.supportStatus
+    if (
+      Array.isArray(status) &&
+      !status.every((s) => SupportStatusRollupSchema.safeParse(s).success)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['supportStatus'],
+        message: 'Unknown support status',
+      })
+    }
+  })
+export type ProposalAudienceFilters = z.infer<
+  typeof ProposalAudienceFiltersSchema
+>
+
+/**
+ * A ready-to-send piece of outreach. The agent has counted the audience and
+ * written the message; the official finishes it in the channel's own flow.
  *
  * `proposalKey` is minted SERVER-SIDE from the tool call, never by the model,
  * and is what links this card to the Outreach row once one exists. The card
@@ -56,19 +110,68 @@ export const OutreachProposalSchema = z.object({
   audience: z.string().min(1),
   count: z.number().int().nonnegative(),
   channel: ProposalChannelSchema,
+  /** A list saved before the card. Cards written before audienceFilters. */
   savedFilterId: z.number().int().positive().nullish(),
+  /** The audience, unsaved. The flow saves it when the official confirms. */
+  audienceFilters: ProposalAudienceFiltersSchema.optional(),
   listName: z.string().nullish(),
   /** What goes out under the official's name. */
   message: z.string().min(1),
-  /** One line on why these people and this channel. */
-  why: z.string().min(1),
+  /**
+   * Nothing shows this: the agent says why in its message. Kept so cards
+   * already persisted with it still parse.
+   */
+  why: z.string().min(1).optional(),
   /**
    * True when the channel cannot be completed from a card (door knocking is
    * drawn on a map), so the only action is the deep link into the full flow.
    */
   deepLinkOnly: z.boolean().default(false),
+  /**
+   * The check this outreach puts out, on a priority: the gate step and which
+   * side of it. A real send moves that side to out.
+   */
+  stepId: PriorityStepIdSchema.optional(),
+  side: PriorityCheckSideSchema.optional(),
+  /**
+   * How many of the audience to reach, picked at random, when a check needs
+   * a read and not everyone. Absent, or no smaller than `count`, means the
+   * whole audience.
+   */
+  sampleSize: z.number().int().positive().max(MAX_LIST_SAMPLE_SIZE).optional(),
+  /** The replies a text sample was sized to bring back. */
+  targetResponses: z.number().int().positive().optional(),
+  /** The reply rate it was sized with, as a fraction: 0.025 is 2.5%. */
+  assumedReplyRate: z.number().positive().max(1).optional(),
+  /**
+   * Earlier sends to a sample of this same audience. Whoever they reached is
+   * left out of this one, so asking again reaches new people.
+   */
+  widensOutreachIds: z.array(z.number().int().positive()).max(20).optional(),
 })
 export type OutreachProposal = z.infer<typeof OutreachProposalSchema>
+
+/**
+ * What a channel's own create carries when a proposal card handed the
+ * official into it: the card's derived key, so a second completion returns
+ * the first outreach instead of making another, and the priority it was
+ * proposed under, with the check on it that the send puts out. All optional,
+ * because the same create serves every other way into the flow.
+ */
+export const ProposalLinkSchema = z.object({
+  proposalKey: z.string().uuid().optional(),
+  priorityId: z.string().min(1).optional(),
+  stepId: PriorityStepIdSchema.optional(),
+  side: PriorityCheckSideSchema.optional(),
+})
+export type ProposalLink = z.infer<typeof ProposalLinkSchema>
+
+/**
+ * Opens the hidden turn the app sends when the official finishes outreach a
+ * card opened, so the agent hears about the send and the transcript can
+ * leave it out. The proposal key follows it, so a reload sends it once.
+ */
+export const PROPOSAL_SENT_MARKER = '[Sent from a card]'
 
 /** A prior send worth looking at, resolved live from the outreach history. */
 export const PastOutreachRefSchema = z.object({

@@ -30,7 +30,10 @@ import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
-import { CampaignStoryStateService } from '@/campaignStory/services/campaignStoryState.service'
+import {
+  CampaignStoryStateService,
+  fingerprintStory,
+} from '@/campaignStory/services/campaignStoryState.service'
 import { isTestCampaign } from '@/users/util/users.util'
 import { isDateTodayOrFuture } from 'src/shared/util/date.util'
 
@@ -882,17 +885,52 @@ export class CampaignStrategyService extends createPrismaBase(
   // let the caller's dispatchPending regenerate it, so the row survives and the
   // user sees skeletons rather than a vanished plan.
   //
-  // `generatedWithStory` doubles as the claim. The plan endpoint is polled, so
-  // without a conditional update two concurrent polls would each reset and
-  // double-dispatch. Attempt counters deliberately survive — they bound
-  // lifetime Fargate spend per campaign.
+  // `storyFingerprint` doubles as the claim, as a compare-and-swap rather than
+  // a one-way flag: every write below is conditional on the row still holding
+  // the fingerprint this call read. The plan endpoint is polled, so without
+  // that two concurrent polls would each reset and double-dispatch. Attempt
+  // counters deliberately survive — they bound lifetime Fargate spend per
+  // campaign.
   private async alignPlanWithStory(
     plan: CampaignStrategy,
   ): Promise<StoryAlignment> {
-    if (plan.generatedWithStory) return { plan, lostClaim: false }
+    const story = await this.storyState.read(plan.campaignId)
+    if (!story.complete) return { plan, lostClaim: false }
 
-    const { complete } = await this.storyState.read(plan.campaignId)
-    if (!complete) return { plan, lostClaim: false }
+    const fingerprint = fingerprintStory(story)
+    // Already generated from exactly this story. The common case by far, and
+    // the reason regeneration can be driven off every story write without
+    // paying for one: the story page saves each field separately, so a single
+    // edit arrives as several writes that hash the same once it settles.
+    if (plan.storyFingerprint === fingerprint) {
+      return { plan, lostClaim: false }
+    }
+
+    // A plan generated from a story before fingerprints existed. Its content
+    // already reflects that story, so adopt the current hash instead of
+    // paying to regenerate what we already have — otherwise this column's
+    // arrival would bill a regeneration for every campaign with a finished
+    // story at once. Only for legacy rows: a plan generated WITHOUT a story
+    // has the flag false and falls through to regenerate, which is the whole
+    // point of it.
+    if (plan.storyFingerprint === null && plan.generatedWithStory) {
+      const { count } = await this.model.updateMany({
+        where: { id: plan.id, storyFingerprint: null },
+        data: { storyFingerprint: fingerprint },
+      })
+      // The loser yields, like every other claim here. Adoption dispatches
+      // nothing itself, which is what made `false` look right, but the caller
+      // dispatches whatever the sections still need — so on a legacy plan
+      // holding a stuck or failed section, winner and loser would both reach
+      // attemptOpposition/attemptOpportunities and each burn a slot.
+      return {
+        plan:
+          count === 0
+            ? await this.model.findUniqueOrThrow({ where: { id: plan.id } })
+            : { ...plan, storyFingerprint: fingerprint },
+        lostClaim: count === 0,
+      }
+    }
 
     // The two sections carry their own runId and persistedAt, so the state
     // that matters here is per-section, not per-plan: a section holding a
@@ -938,8 +976,8 @@ export class CampaignStrategyService extends createPrismaBase(
     // follows picks the story up as params, which is the whole point.
     if (nothingPersisted) {
       const { count } = await this.model.updateMany({
-        where: { id: plan.id, generatedWithStory: false },
-        data: { generatedWithStory: true },
+        where: { id: plan.id, storyFingerprint: plan.storyFingerprint },
+        data: { storyFingerprint: fingerprint, generatedWithStory: true },
       })
       // The loser yields here too. No content was wiped, but that is not what
       // is contended: the winner is about to dispatch, and a loser that falls
@@ -950,7 +988,7 @@ export class CampaignStrategyService extends createPrismaBase(
         plan:
           count === 0
             ? await this.model.findUniqueOrThrow({ where: { id: plan.id } })
-            : { ...plan, generatedWithStory: true },
+            : { ...plan, storyFingerprint: fingerprint },
         lostClaim: count === 0,
       }
     }
@@ -958,8 +996,9 @@ export class CampaignStrategyService extends createPrismaBase(
     let claimed = false
     await this.client.$transaction(async (tx) => {
       const { count } = await tx.campaignStrategy.updateMany({
-        where: { id: plan.id, generatedWithStory: false },
+        where: { id: plan.id, storyFingerprint: plan.storyFingerprint },
         data: {
+          storyFingerprint: fingerprint,
           generatedWithStory: true,
           oppositionRunId: null,
           opportunitiesRunId: null,
@@ -1005,10 +1044,16 @@ export class CampaignStrategyService extends createPrismaBase(
   async regenerateOnStoryComplete(campaignId: number): Promise<void> {
     try {
       const plan = await this.findFirst({ where: { campaignId } })
-      if (!plan || plan.generatedWithStory) return
+      if (!plan) return
 
-      const { complete } = await this.storyState.read(campaignId)
-      if (!complete) return
+      const story = await this.storyState.read(campaignId)
+      if (!story.complete) return
+      // Fires on every story write, so the cheap exit has to be the common
+      // one: the story page saves each field independently and the chat saves
+      // each answer as it is given, so one edit arrives as several messages
+      // that all hash the same once the edit has settled. Only a hash that
+      // differs from what the plan was generated from reaches align.
+      if (plan.storyFingerprint === fingerprintStory(story)) return
 
       const campaign = await this.client.campaign.findUnique({
         where: { id: campaignId },

@@ -2,12 +2,12 @@ import { z } from 'zod'
 import type { AgentEntry } from '../agents'
 import type { JudgeConfig } from '../config'
 import type { PlaceholderValues } from '../caseParams'
-import { substituteBackgroundCases } from '../caseParams'
-import type { CaseList } from '../cases'
+import { missingValues, substituteBackgroundCases } from '../caseParams'
+import type { BackgroundCase, CaseList } from '../cases'
 import { isChatCase, loadBackgroundCases, loadCaseList } from '../cases'
 import type { ArmCaseRequest } from '../sweepArm'
 import type { ArmEnv } from '../sweepEnv'
-import { backgroundDestinationFrom } from '../sweepEnv'
+import { armConfigFor, backgroundDestinationFrom } from '../sweepEnv'
 import { agentConfigFor } from './agentConfig'
 import type { AgentConfig, BackgroundRunInput } from './background'
 
@@ -98,8 +98,21 @@ const modelOf = (config: AgentConfig): string => {
   return model
 }
 
+// The cases an arm will actually walk for an agent: the first `maxCases` of
+// its list, as the loader caps them. A value only a later case needs is not
+// a reason anything was refused.
+export const walkedBackgroundCases = (
+  agent: AgentEntry,
+  env: ArmEnv,
+  load: (agent: AgentEntry) => BackgroundCase[] = loadBackgroundCases,
+): BackgroundCase[] => {
+  const all = load(agent)
+  const { maxCases } = armConfigFor(env).background
+  return maxCases === undefined ? all : all.slice(0, maxCases)
+}
+
 // WHETHER A BACKGROUND AGENT IS REFUSED BY DESIGN, before anything is staged:
-// the sweep did not admit it, minted no organization for it, or could not
+// the sweep did not admit it, resolved no identifiers for it, or could not
 // resolve the queue to dispatch it to. Each of those is refused by name
 // further in — by the loader or by backgroundRunInputFor below — and each is
 // an ordinary sweep, not a failed one.
@@ -112,14 +125,26 @@ const modelOf = (config: AgentConfig): string => {
 // Not the local spend-down refusal. A local run has no admitted list and its
 // loader refuses an agent that overruns the arm, which still turns that run
 // red; CI always resolves an admitted list, so it never reaches that path.
-export const refusedBeforeSpend = (agent: AgentEntry, env: ArmEnv): boolean =>
+//
+// And an agent whose walked cases need a value the sweep could not resolve:
+// a race id goes missing whenever the named election has passed, and the
+// loader then refuses exactly the lists that need one.
+export const refusedBeforeSpend = (
+  agent: AgentEntry,
+  env: ArmEnv,
+  casesFor: (agent: AgentEntry) => readonly Pick<BackgroundCase, 'params'>[] = (
+    one,
+  ) => walkedBackgroundCases(one, env),
+): boolean =>
   agent.shape === 'background' &&
   ((env.backgroundAdmitted !== undefined &&
     !env.backgroundAdmitted.has(agent.agentId)) ||
-    // Also what a mint that silently produced nothing looks like, and it is
-    // meant to: that sweep still judges its chat agents.
+    // Also what a resolution that silently produced nothing looks like, and
+    // it is meant to: that sweep still judges its chat agents.
     env.fixtureValues.orgSlug === undefined ||
-    env.dispatchQueueUrl === undefined)
+    env.dispatchQueueUrl === undefined ||
+    (agent.cases !== null &&
+      missingValues(casesFor(agent), env.fixtureValues).length > 0))
 
 // THE AGENTS AN ARM MUST HAVE CAPTURED, for the arm suite's final check. A
 // skip of any of these is paid work that did not happen, and the suite turns
@@ -133,6 +158,7 @@ export const capturableAgents = (
   requested: readonly string[],
   env: ArmEnv,
   find: (agentId: string) => AgentEntry | undefined,
+  casesFor?: Parameters<typeof refusedBeforeSpend>[2],
 ): string[] =>
   requested.filter((id) => {
     const entry = find(id)
@@ -140,8 +166,10 @@ export const capturableAgents = (
     // cannot resolve is refused outright by captureArm, so it can never be
     // in a manifest and must not be expected there.
     if (entry === undefined) return false
-    if (refusedBeforeSpend(entry, env)) return false
-    return entry.cases !== null && entry.status !== 'blocked'
+    // Before the refusal check, which reads the list: a blocked agent or one
+    // with no list was never going to be captured either way.
+    if (entry.cases === null || entry.status === 'blocked') return false
+    return !refusedBeforeSpend(entry, env, casesFor)
   })
 
 export const backgroundRunInputFor = (
@@ -160,13 +188,14 @@ export const backgroundRunInputFor = (
   const orgSlug = env.fixtureValues.orgSlug
   // Refused by name BEFORE anything is staged or sent. The dispatch builder
   // enforces the `judge-` prefix itself, but its message is about a slug it
-  // was handed; this one is about the sweep not having minted a fixture, which
-  // is the actual fault and names the variable that fixes it.
+  // was handed; this one is about the sweep not having resolved its
+  // identifiers, which is the actual fault and names the step that fixes it.
   if (orgSlug === undefined) {
     throw new Error(
-      `${request.agent.agentId} is a background agent and this sweep minted ` +
-        'no dev organization, so there is no judge- slug to dispatch ' +
-        'against; see sweepFixture.ts and JUDGE_FIXTURE_ORG_SLUG',
+      `${request.agent.agentId} is a background agent and this sweep ` +
+        'resolved no judge identifiers, so there is no judge- slug to ' +
+        "dispatch against; see the 'Resolve the background agents' " +
+        "identifiers' step and judgeIdentifiers.ts",
     )
   }
   const config = loadConfig(request.agent.agentId)

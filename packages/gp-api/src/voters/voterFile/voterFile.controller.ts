@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  BadRequestException,
   ForbiddenException,
   Get,
   HttpCode,
@@ -97,6 +98,13 @@ export class VoterFileController {
     @ReqOrganization() organization: Organization,
     @Body() voterFileFilter: CreateVoterFileFilterSchema,
   ) {
+    // A draft's boundary resolves only once the list has an id, so a sample
+    // drawn before saving would ignore it and hold people outside the shape.
+    if (voterFileFilter.sample && voterFileFilter.geoPoly) {
+      throw new BadRequestException(
+        'A list drawn on the map cannot also be saved as a sample',
+      )
+    }
     return this.voterFileFilterService.create(
       organization.slug,
       voterFileFilter,
@@ -104,6 +112,13 @@ export class VoterFileController {
         ? await this.contacts.resolveGeoMemberIds(
             organization,
             voterFileFilter.geoPoly,
+          )
+        : null,
+      voterFileFilter.sample
+        ? await this.contacts.drawListSample(
+            organization,
+            voterFileFilter,
+            voterFileFilter.sample,
           )
         : null,
     )
