@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
+import { budgetOutputLines } from './armBudget'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
@@ -675,5 +677,129 @@ describe('judge.yml assumes a role scoped to the judge', () => {
   // minted and nothing that accepts it.
   it('holds the permission that makes the exchange possible', () => {
     expect(yaml).toContain('id-token: write')
+  })
+})
+
+// ONE BACKGROUND BUDGET, AND ONE ADMITTED LIST, FOR BOTH ARMS. The base arm
+// reads the base ref's config.ts and manifests, so a budget or an admission
+// each arm decided for itself would differ whenever a branch changed either.
+// The workflow decides once instead, and these pin the plumbing exactly:
+// every way it can go wrong here leaves both arms quietly walking their own.
+describe('judge.yml hands both arms one background budget', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const names = steps.map((step) => step.name)
+  const resolver = steps.find((step) =>
+    step.name.startsWith('Resolve the background case and attempt budget'),
+  )
+  const arms = steps.filter((step) => step.name.startsWith('Capture the '))
+
+  // The resolver's OWN output keys, read off the function that writes them —
+  // not restated here, where a rename in one place would leave the two
+  // agreeing with each other and with nothing else.
+  const OUTPUT_KEYS = budgetOutputLines()
+    .trim()
+    .split('\n')
+    .map((line) => line.split('=')[0])
+  const ENV_FOR: Record<string, string> = {
+    attempts: 'JUDGE_BACKGROUND_ATTEMPTS',
+    max_cases: 'JUDGE_BACKGROUND_MAX_CASES',
+    admitted: 'JUDGE_BACKGROUND_ADMITTED',
+    refused: 'JUDGE_BACKGROUND_REFUSED',
+    arm_budget_ms: 'JUDGE_ARM_BUDGET_MS',
+  }
+
+  it('covers every output the resolver writes', () => {
+    expect([...OUTPUT_KEYS].sort()).toEqual(Object.keys(ENV_FOR).sort())
+  })
+
+  // EXACT, because GitHub resolves an unknown output to '' and '' reads as
+  // "no cap" and "none admitted". A misspelled output name on both arms used
+  // to pass: the two agreed with each other and both silently walked the
+  // full list. Each arm must read exactly the key the resolver writes.
+  it.each(Object.entries(ENV_FOR))(
+    'gives both arms %s as %s, from the resolver',
+    (key, name) => {
+      expect(arms).toHaveLength(2)
+      for (const arm of arms) {
+        expect(envValue(arm.body, name)).toBe(
+          `\${{ steps.budget.outputs.${key} }}`,
+        )
+      }
+    },
+  )
+
+  // EXACTLY THIS SCRIPT. `toContain` accepted `npx tsx … || true`, which
+  // swallows a failure and leaves every output blank — and blank reads as
+  // "no budget resolved", which drops both arms back onto their own config.
+  it('runs the resolver and nothing that could swallow its failure', () => {
+    // Trimmed only because runBlockOf keeps the blank lines that trail a
+    // block; `|| true`, a second command or a dropped `set -e` all still
+    // change what is compared.
+    expect(runBlockOf(resolver?.body ?? '').trim()).toBe(
+      'set -euo pipefail\nnpx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"',
+    )
+    expect(resolver?.body).not.toContain('continue-on-error')
+    // Nor skipped. An `if:` that skipped it leaves every output blank, and a
+    // blank attempts count reads as "nothing resolved" — so both arms would
+    // quietly go back to deciding for themselves.
+    expect(resolver?.body).not.toMatch(/^ {8}if:/m)
+    expect(yaml).toContain('BUDGET_ENTRY: src/chats/evals/judge/armBudget.ts')
+  })
+
+  // The working directory is what makes it read the CANDIDATE: it runs this
+  // checkout's armBudget.ts. The two env values are what make it read the
+  // BASE and the same selection the arms walk.
+  it('reads the candidate checkout, the base worktree and the selection', () => {
+    expect(resolver?.body).toMatch(
+      /^ {8}working-directory: \$\{\{ env\.WORKSPACE \}\}$/m,
+    )
+    expect(envValue(resolver?.body ?? '', 'BASE_DIR')).toBe(
+      '${{ steps.base.outputs.dir }}',
+    )
+    // The resolver AND both arms, each pinned to the one source. Compared to
+    // each other, two wrong values agreed; and the candidate arm's was never
+    // checked at all, so it could select something the resolver never saw.
+    for (const step of [resolver, ...arms]) {
+      expect(envValue(step?.body ?? '', 'JUDGE_AGENTS')).toBe(
+        '${{ needs.plan.outputs.agents }}',
+      )
+    }
+  })
+
+  // After the base worktree exists, because it reads it; before either arm,
+  // because nothing may have been spent when it decides.
+  it('runs between the base checkout and the first capture', () => {
+    const resolved = names.findIndex((name) =>
+      name.startsWith('Resolve the background case and attempt budget'),
+    )
+    const baseCheckout = names.findIndex((name) =>
+      name.startsWith('Check out the base arm'),
+    )
+    const firstCapture = names.findIndex((name) =>
+      name.startsWith('Capture the '),
+    )
+    expect(baseCheckout).toBeGreaterThan(-1)
+    expect(resolved).toBeGreaterThan(baseCheckout)
+    expect(firstCapture).toBeGreaterThan(resolved)
+  })
+})
+
+// THE ARM BUDGET HAS TO FIT TWICE IN THE JOB. Both arms run one after the
+// other inside the one sweep job, then the judging step. If two arm budgets
+// exceed the job's timeout, an arm that is inside its own budget is still
+// killed by GitHub — with no manifest written, so judging fails on a missing
+// arm. The budget is a constant in TypeScript and the timeout is a number in
+// YAML, and nothing else connects them.
+describe('the arm budget fits the sweep job', () => {
+  it('leaves room for both arms and the judging step', () => {
+    const yaml = readFileSync(WORKFLOW, 'utf8')
+    const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:'))
+    const jobMinutes = Number(
+      /timeout-minutes: (\d+)/.exec(sweepJob)?.[1] ?? '0',
+    )
+    expect(jobMinutes).toBeGreaterThan(0)
+    // Twenty minutes for the workspace build and the judging step.
+    expect(2 * (ARM_BUDGET_MS / 60_000) + 20).toBeLessThanOrEqual(jobMinutes)
   })
 })

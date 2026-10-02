@@ -106,6 +106,7 @@ env:
   # reason the judging entry is: it needs no `useTestService()`, so a workflow
   # step can invoke it as a command and capture its stdout.
   DATA_VERSION_ENTRY: src/chats/evals/judge/dataVersion.ts
+  BUDGET_ENTRY: src/chats/evals/judge/armBudget.ts
 
 jobs:
   # GUARD 2 of 3, second layer. Both callers declare a workflow-level group on
@@ -1660,6 +1661,48 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "base arm: origin/$BASE_REF at $commit"
 
+      # ONE BUDGET, AND ONE LIST OF ADMITTED BACKGROUND AGENTS, FOR BOTH ARMS.
+      #
+      # Both live behind a per-worktree read. The case and attempt budget is a
+      # constant in config.ts, and which agents fit depends on each agent's
+      # timeout, read from its manifest — and the base arm reads the base
+      # ref's copy of both. Two arms deciding for themselves disagree the
+      # moment a branch changes either: one admits an agent the other refuses,
+      # and because the budget is spent down in walk order, that one
+      # disagreement moves every agent after it. Both arms bill and nothing
+      # pairs. So this decides once, and both arms obey it.
+      #
+      # AFTER the base worktree exists, because it reads both trees: an agent
+      # is admitted only if it fits on whichever arm is SLOWER (a branch that
+      # lowers a timeout would otherwise be admitted on the candidate's number
+      # and then overrun the base arm), and an agent missing from the base ref
+      # is refused before anyone pays — it has nothing to be compared with. It
+      # reads the base tree's files raw rather than running this branch's
+      # validators over them, so a base list in an older format cannot be
+      # refused for its format. BEFORE either arm, so nothing is spent yet.
+      #
+      # The CANDIDATE's budget, because the sweep is a question about the
+      # candidate, run from the primary checkout (candidate_sha).
+      #
+      # Fails the job rather than warning, unlike the mart: that resolver can
+      # fail on the network; this one reads files from two checkouts, so a
+      # failure means the judge code is broken and the arms would fail anyway.
+      #
+      # A base ref that predates these inputs would ignore them and walk
+      # background agents at its own old budget, refusing every one, while the
+      # candidate walked what was admitted — paid runs pairing with nothing. So
+      # the resolver checks the base tree first and, against such a base,
+      # admits nothing and refuses every background agent by name.
+      - name: Resolve the background case and attempt budget
+        id: budget
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          BASE_DIR: ${{ steps.base.outputs.dir }}
+          JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
+        run: |
+          set -euo pipefail
+          npx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"
+
       # Mirrors setup-node-workspace, which cannot be pointed at another
       # directory. Every step the action runs that the base arm needs, run
       # there instead: its own install, its own contracts and nest-common
@@ -1724,6 +1767,11 @@ jobs:
           # the sweep then runs against the live mart and the report says so,
           # rather than a whole paid sweep dying over an unpinnable table.
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
+          JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
+          JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
+          JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
+          JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
           # existing eval suites self-skip on, and the sweep suite is not one
           # of them: it skips on JUDGE_ARM being absent, which is the value
@@ -1764,6 +1812,11 @@ jobs:
           # expression: two arms on different versions is worse than two arms
           # on none, because each would report a pin nothing held.
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
+          JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
+          JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
+          JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
+          JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"

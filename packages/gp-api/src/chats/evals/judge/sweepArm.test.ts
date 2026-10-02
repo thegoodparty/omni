@@ -267,6 +267,36 @@ describe('captureArm', () => {
     expect(await d.store.listRecords('swp_1', 'candidate')).toHaveLength(6)
   })
 
+  // THE SHAPE DECIDES THE ATTEMPTS, and this is the only test that can see
+  // it. Every other captureArm test runs on a config whose two attempt
+  // numbers are equal, so reverting captureArm to the chat number left the
+  // whole suite green — the manifest's `attempts` would then claim 3 for an
+  // agent walked once, which is only noticed beside a bill.
+  it('gives each shape its own attempt count, and records which', async () => {
+    // NON-DEFAULT numbers on both sides. Read off DEFAULT_JUDGE_CONFIG, this
+    // only told the shapes apart because the defaults happen to be 3 and 1.
+    const config = {
+      ...DEFAULT_JUDGE_CONFIG,
+      attemptsPerCase: 2,
+      background: { attemptsPerCase: 5 },
+    }
+    const d = await deps({
+      runCase: echoRunner([]),
+      loadCases: () => caseList(1),
+      config,
+    })
+    const manifest = await captureArm(
+      d,
+      env({ agentIds: ['chief_of_staff', 'meeting_briefing'] }),
+      [COS, BACKGROUND],
+    )
+    expect(JSON.stringify(manifest.skipped)).toBe('[]')
+    expect(manifest.agents.map((a) => [a.agentId, a.attempts])).toEqual([
+      ['chief_of_staff', 2],
+      ['meeting_briefing', 5],
+    ])
+  })
+
   it('stamps the capture window the arm gap is measured from', async () => {
     // `captureArm` reads the clock once at the start and once at the end, so
     // the first call is the window's open and every later one its close.

@@ -223,6 +223,16 @@ const captureAgent = async (
   }
 }
 
+// Background takes its own number. Read here rather than at the config so the
+// manifest's `attempts` field records what the agent was ACTUALLY walked
+// with — a manifest saying 3 for an agent walked once is the kind of
+// discrepancy that is only noticed while reading a verdict that disagrees
+// with the bill.
+export const attemptsFor = (agent: AgentEntry, config: JudgeConfig): number =>
+  agent.shape === 'background'
+    ? config.background.attemptsPerCase
+    : config.attemptsPerCase
+
 const walkCases = async (
   deps: CaptureArmDeps,
   env: ArmEnv,
@@ -297,7 +307,7 @@ export const captureArm = async (
     try {
       const list = loadCases(agent)
       agents.push(
-        await captureAgent(deps, env, agent, list, config.attemptsPerCase),
+        await captureAgent(deps, env, agent, list, attemptsFor(agent, config)),
       )
     } catch (err) {
       // One agent's capture failing leaves the others usable, which the design
