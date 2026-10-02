@@ -94,9 +94,14 @@ const ReportBody = ({
           for a failed run as well as a completed one. */}
       {report.themes.length > 0 && (
         <>
-          {report.run && (
-            <NewTagsStrip isServe={isServe} runId={report.run.id} />
-          )}
+          {/* By the themes, not report.run, which can be failed or in
+              flight while these come from the last completed run. */}
+          <NewTagsStrip
+            isServe={isServe}
+            themeTagIds={report.themes.flatMap((theme) =>
+              theme.tag?.status === 'proposed' ? [theme.tag.id] : [],
+            )}
+          />
           <ThemeGrid
             themes={report.themes}
             outreachId={outreachId}
