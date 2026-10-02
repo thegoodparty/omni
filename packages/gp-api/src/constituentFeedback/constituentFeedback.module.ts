@@ -15,10 +15,11 @@ import { IssueTagService } from './services/issueTag.service'
 import { IssueTagSeedService } from './services/issueTagSeed.service'
 import { MockSynthesisEngine } from './services/mockSynthesisEngine'
 import { PipelineSynthesisEngine } from './services/pipelineSynthesisEngine'
-import { SYNTHESIS_ENGINE } from './services/synthesisEngine'
+import {
+  SYNTHESIS_ENGINE,
+  selectSynthesisEngine,
+} from './services/synthesisEngine'
 import { SynthesisStaleRunSweepService } from './services/synthesisStaleRunSweep.service'
-
-const MOCK_ENGINE = 'mock'
 
 @Module({
   imports: [
@@ -41,15 +42,12 @@ const MOCK_ENGINE = 'mock'
     MockSynthesisEngine,
     PipelineSynthesisEngine,
     SynthesisStaleRunSweepService,
-    // Read once at boot. Unset means the deployed pipeline; `mock` keeps a
-    // laptop or a dev box off S3 and the AI service entirely.
     {
       provide: SYNTHESIS_ENGINE,
       useFactory: (
         mock: MockSynthesisEngine,
         pipeline: PipelineSynthesisEngine,
-      ) =>
-        process.env.FEEDBACK_SYNTHESIS_ENGINE === MOCK_ENGINE ? mock : pipeline,
+      ) => selectSynthesisEngine({ mock, pipeline }),
       inject: [MockSynthesisEngine, PipelineSynthesisEngine],
     },
   ],

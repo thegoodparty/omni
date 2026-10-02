@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, OnModuleInit } from '@nestjs/common'
 import {
   FEEDBACK_SYNTHESIS_SOURCE_TYPE,
   type FeedbackSynthesisCompleteEvent,
@@ -14,7 +14,15 @@ import type { SynthesisEngine, SynthesisMemo } from './synthesisEngine'
 // short enough not to wait on. Fixed: nothing should tune a fake.
 export const MOCK_SYNTHESIS_DELAY_MS = 5_000
 
-const CANNED_GROUPING = 'canned'
+// Unset means one model call. Validated at boot (onModuleInit) so a typo
+// fails loudly instead of quietly spending a model call per run.
+export const readMockGrouping = (): 'llm' | 'canned' => {
+  const value = process.env.FEEDBACK_SYNTHESIS_MOCK_GROUPING || 'llm'
+  if (value === 'llm' || value === 'canned') return value
+  throw new Error(
+    `FEEDBACK_SYNTHESIS_MOCK_GROUPING must be "llm" or "canned", got "${value}"`,
+  )
+}
 
 const QUOTES_PER_THEME = 3
 
@@ -90,7 +98,7 @@ const cannedGroups = (memos: SynthesisMemo[]): Group[] =>
 // in-process, after a short delay. FEEDBACK_SYNTHESIS_MOCK_GROUPING=canned
 // skips the model entirely and splits memos round-robin into fixed themes.
 @Injectable()
-export class MockSynthesisEngine implements SynthesisEngine {
+export class MockSynthesisEngine implements SynthesisEngine, OnModuleInit {
   readonly name = 'mock'
 
   constructor(
@@ -99,6 +107,10 @@ export class MockSynthesisEngine implements SynthesisEngine {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(MockSynthesisEngine.name)
+  }
+
+  onModuleInit(): void {
+    readMockGrouping()
   }
 
   async start(
@@ -120,7 +132,7 @@ export class MockSynthesisEngine implements SynthesisEngine {
 
   async complete(runId: string, memos: SynthesisMemo[]): Promise<void> {
     const groups =
-      process.env.FEEDBACK_SYNTHESIS_MOCK_GROUPING === CANNED_GROUPING
+      readMockGrouping() === 'canned'
         ? cannedGroups(memos)
         : await this.modelGroups(runId, memos)
     await this.ingest.handle(this.toEvent(runId, memos, groups))

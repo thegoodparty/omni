@@ -131,14 +131,22 @@ export class PhoneBankingCallService extends createPrismaBase(
     await this.emitFollowUpEvents(rows)
 
     // The list just finished: its memos can be summarized. Fire-and-forget,
-    // resolved lazily like the turf's trigger; the call is already saved.
+    // resolved lazily like the turf's trigger. The call is already saved, so
+    // nothing here may fail the request.
     if (envelope.completedNowId !== null) {
-      this.moduleRef
-        .get(FeedbackSynthesisService, { strict: false })
-        .requestRunOnEffortCompleted({
-          organizationSlug,
-          outreachId: envelope.completedNowId,
-        })
+      try {
+        this.moduleRef
+          .get(FeedbackSynthesisService, { strict: false })
+          .requestRunOnEffortCompleted({
+            organizationSlug,
+            outreachId: envelope.completedNowId,
+          })
+      } catch (err) {
+        this.logger.error(
+          { err, organizationSlug, outreachId: envelope.completedNowId },
+          'Could not start synthesis for a completed list',
+        )
+      }
     }
 
     return {

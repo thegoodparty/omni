@@ -52,6 +52,7 @@ import {
   ListIssueTagsQuerySchema,
   type ListIssueTagsQuery,
 } from './schemas/listIssueTags.schema'
+import { issueCaptureFlagFor } from './util/issueCaptureFlag.util'
 
 // Every route is gated, unlike the Serve SMS controller which gates only its
 // writes. There is no inert read here: the reads ARE the feature, and a
@@ -60,10 +61,7 @@ import {
 //
 // This gates ROLLOUT, not authorization. @UseOrganization() and its role
 // guard are the real access check and stay that way whatever the flag says.
-// Each product rolls out on its own key, chosen by the org's product: an
-// `eo-` slug is an elected official's office, anything else a campaign.
-const SERVE_ISSUE_CAPTURE_FLAG = 'serve-issue-capture'
-const WIN_ISSUE_CAPTURE_FLAG = 'win-issue-capture'
+// Each product rolls out on its own key (issueCaptureFlagFor).
 
 // The two writes carry @AllowVolunteer(), the posture of the knock and call
 // routes they follow: the person who had the conversation is who records and
@@ -161,8 +159,6 @@ export class ConstituentFeedbackController {
     })
   }
 
-  // 422 under the floor with { confirmed, required }, 429 inside the
-  // cooldown, 409 while a run for the effort is in flight.
   @Post('efforts/:outreachId/synthesize')
   @ResponseSchema(SynthesisRunSchema)
   async synthesize(
@@ -255,9 +251,7 @@ export class ConstituentFeedbackController {
   ): Promise<void> {
     const enabled = await this.features.isFeatureEnabled({
       user,
-      feature: organization.slug.startsWith('eo-')
-        ? SERVE_ISSUE_CAPTURE_FLAG
-        : WIN_ISSUE_CAPTURE_FLAG,
+      feature: issueCaptureFlagFor(organization.slug),
     })
     if (!enabled) throw new NotFoundException()
   }

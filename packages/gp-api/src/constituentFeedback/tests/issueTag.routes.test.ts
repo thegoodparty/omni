@@ -216,6 +216,59 @@ describe('issue tag routes', () => {
     expect(movedTheme.tagId).toBe(target.id)
   })
 
+  // A person decided this name means the other tag. A later theme with the
+  // merged-away name follows that decision instead of reviving the name.
+  it('links a theme named after a merged tag to the tag it was merged into', async () => {
+    const effort = await seedTurfEffort(service, slug, { people: 5 })
+    const merged = await createTag('Flood')
+    const target = await createTag('Flooding', IssueTagStatus.accepted)
+    const res = await patch(merged.id, {
+      action: 'merge',
+      intoTagId: target.id,
+    })
+    expect(res.status).toBe(HttpStatus.OK)
+    const memoIds: string[] = []
+    for (const person of effort.targets) {
+      const { memo } = await seedKnockMemo(service, {
+        slug,
+        outreachId: effort.outreachId,
+        personId: person.personId,
+      })
+      memoIds.push(memo.id)
+    }
+    const synthesized = await service.client.post(
+      `/v1/constituent-feedback/efforts/${effort.outreachId}/synthesize`,
+      {},
+      ownerHeaders(slug),
+    )
+    expect(synthesized.status).toBe(HttpStatus.CREATED)
+
+    await service.app
+      .get(FeedbackSynthesisIngestService)
+      .handle(
+        completionEvent(synthesized.data.id, [
+          { theme: 'flood', memberIds: memoIds },
+        ]),
+      )
+
+    const theme = await service.prisma.feedbackTheme.findFirstOrThrow({
+      where: { runId: synthesized.data.id },
+    })
+    expect(theme.tagId).toBe(target.id)
+    const applied = await service.prisma.constituentFeedbackTag.findMany({
+      where: { feedbackId: { in: memoIds } },
+    })
+    expect(applied).toHaveLength(5)
+    expect(applied.every((row) => row.tagId === target.id)).toBe(true)
+    const after = await service.prisma.issueTag.findUniqueOrThrow({
+      where: { id: merged.id },
+    })
+    expect(after).toMatchObject({
+      status: IssueTagStatus.retired,
+      mergedIntoId: target.id,
+    })
+  })
+
   it('retires a tag, and a later proposal with its name revives it', async () => {
     const effort = await seedTurfEffort(service, slug, { people: 5 })
     const tag = await createTag('Composting pilot', IssueTagStatus.accepted)
