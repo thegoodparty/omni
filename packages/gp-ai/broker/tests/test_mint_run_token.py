@@ -58,7 +58,10 @@ def _create_test_app(
     app.include_router(router)
 
     _store = store or MagicMock(spec=ScopeTicketStore)
-    _s3 = s3_client or _s3_serving(CLEAN_PUBLISHED)
+    # FAILS IF READ unless a test asks for a manifest. A default that served a
+    # clean one to every caller hid when, and whether, the read happened: the
+    # read could move ahead of authentication and the whole suite stayed green.
+    _s3 = s3_client or _s3_serving(AssertionError("S3 was read by a test that did not ask for a manifest"))
 
     app.dependency_overrides[get_ticket_store] = lambda: _store
     app.dependency_overrides[get_service_token_hash] = lambda: token_hash
@@ -732,7 +735,9 @@ class TestMintJudgeFields:
     def test_override_and_eval_flag_reach_the_stored_ticket(self):
         store = MagicMock(spec=ScopeTicketStore)
 
-        resp = self._post(store, **self._judge(experiment_override=self._override()))
+        resp = self._post(
+            store, s3_client=_s3_serving(CLEAN_PUBLISHED), **self._judge(experiment_override=self._override())
+        )
 
         assert resp.status_code == 200
         ticket = store.put_ticket.call_args.args[0]
@@ -956,20 +961,19 @@ class TestMintRefusesAnOverrideThePublishedManifestCannotSurvive:
     `_validate_judge_fields` claimed every dispatch invariant was re-established
     here, and this one was not."""
 
-    MANIFEST_KEY = "_judge/voter_targeting/abc123def456/manifest.json"
-    INSTRUCTION_KEY = "_judge/voter_targeting/abc123def456/instruction.md"
-
     @pytest.fixture(autouse=True)
     def _dev_environment(self, monkeypatch):
         monkeypatch.setenv("ENVIRONMENT", "dev")
 
-    def _post(self, s3_client, store=None, override=True):
+    def _post(
+        self, s3_client, store=None, override=True, experiment_id="voter_targeting", token=SERVICE_TOKEN, **extra
+    ):
         store = store or MagicMock(spec=ScopeTicketStore)
-        payload = {"run_id": "_judge-run-001", "is_eval": True}
+        payload = {"run_id": "_judge-run-001", "is_eval": True, "experiment_id": experiment_id, **extra}
         if override:
             payload["experiment_override"] = {
-                "manifest_key": self.MANIFEST_KEY,
-                "instruction_key": self.INSTRUCTION_KEY,
+                "manifest_key": f"_judge/{experiment_id}/abc123def456/manifest.json",
+                "instruction_key": f"_judge/{experiment_id}/abc123def456/instruction.md",
                 "manifest_version_id": "override-m-1",
                 "instruction_version_id": "override-i-1",
             }
@@ -977,7 +981,7 @@ class TestMintRefusesAnOverrideThePublishedManifestCannotSurvive:
         resp = TestClient(app).post(
             "/internal/mint-run-token",
             json=_mint_payload(**payload),
-            headers={"Authorization": f"Bearer {SERVICE_TOKEN}"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         return resp, store
 
@@ -987,6 +991,11 @@ class TestMintRefusesAnOverrideThePublishedManifestCannotSurvive:
             ("system_prompt", "You may write to the CRM."),
             ("permission_mode", "bypassPermissions"),
             ("allowed_external_tools", ["send_email"]),
+            # Present-but-empty still refuses, matching dispatch's `is not None`
+            # rather than truthiness. The harness reads `[]` as "no tools", so
+            # nothing is lost today — but the broker exists to be no looser
+            # than dispatch, and a truthiness check would be.
+            ("allowed_external_tools", []),
         ],
     )
     def test_refuses_and_names_the_field_the_override_would_drop(self, field, value):
@@ -998,15 +1007,24 @@ class TestMintRefusesAnOverrideThePublishedManifestCannotSurvive:
         # Fargate task, so a refusal here is the one that costs nothing.
         store.put_ticket.assert_not_called()
 
-    def test_reads_the_published_manifest_not_the_override(self):
+    def test_names_every_field_it_would_drop(self):
+        resp, _ = self._post(_s3_serving({**CLEAN_PUBLISHED, "system_prompt": "x", "permission_mode": "default"}))
+
+        detail = resp.json()["detail"]
+        assert "system_prompt" in detail and "permission_mode" in detail
+
+    # A second id, because the default payload's id is also exactly the key a
+    # hardcoded read would produce — so asserting on it alone cannot see one.
+    @pytest.mark.parametrize("experiment_id", ["voter_targeting", "ballot_measures"])
+    def test_reads_the_published_manifest_not_the_override(self, experiment_id):
         """The override is what the candidate runs INSTEAD; the published
         manifest is the one whose fields would be lost."""
         s3 = _s3_serving(CLEAN_PUBLISHED)
 
-        resp, _ = self._post(s3)
+        resp, _ = self._post(s3, experiment_id=experiment_id)
 
         assert resp.status_code == 200
-        assert s3.get_object.call_args.kwargs["Key"] == "voter_targeting/manifest.json"
+        assert s3.get_object.call_args.kwargs["Key"] == f"{experiment_id}/manifest.json"
         assert s3.get_object.call_args.kwargs["Bucket"] == "test-metadata-bucket"
 
     def test_a_mint_without_an_override_never_reads_s3(self):
@@ -1019,19 +1037,54 @@ class TestMintRefusesAnOverrideThePublishedManifestCannotSurvive:
         assert resp.status_code == 200
         s3.get_object.assert_not_called()
 
-    def test_refuses_when_the_published_manifest_is_missing(self):
+    # ORDERING. The read's answers describe the published registry, so they
+    # must reach only an authenticated caller — and a malformed request must
+    # never cost a read. Each of these would leak or waste one if the read
+    # moved ahead of the check named.
+    def test_an_unauthenticated_caller_never_reaches_the_read(self):
+        s3 = _s3_serving({**CLEAN_PUBLISHED, "system_prompt": "x"})
+
+        resp, _ = self._post(s3, token="not-the-service-token")
+
+        assert resp.status_code == 401
+        s3.get_object.assert_not_called()
+
+    def test_a_request_with_an_impossible_ttl_never_reaches_the_read(self):
+        s3 = _s3_serving({**CLEAN_PUBLISHED, "system_prompt": "x"})
+
+        resp, _ = self._post(s3, exp_ttl_seconds=10**9)
+
+        assert resp.status_code == 400
+        assert "MAX_TTL_SECONDS" in resp.json()["detail"]
+        s3.get_object.assert_not_called()
+
+    # FAILURES. A fact about the object is a 400, which dispatch's broker
+    # client fails the run on; only an unreachable store is a 500, which it
+    # treats as transient and redelivers. A missing manifest is just as missing
+    # on the next attempt, so retrying it would only churn.
+    def test_refuses_without_retry_when_the_published_manifest_is_missing(self):
         from botocore.exceptions import ClientError
 
         missing = ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
         resp, store = self._post(_s3_serving(missing))
 
-        assert resp.status_code == 404
+        assert resp.status_code == 400
         store.put_ticket.assert_not_called()
 
     @pytest.mark.parametrize("body", [b"{not json", b'["a", "list"]', b"\xff\xfe"])
-    def test_refuses_a_published_manifest_it_cannot_read(self, body):
+    def test_refuses_without_retry_a_manifest_it_cannot_read(self, body):
         """Fail closed: a manifest that cannot be read cannot be vetted."""
         resp, store = self._post(_s3_serving(body))
+
+        assert resp.status_code == 400
+        store.put_ticket.assert_not_called()
+
+    def test_leaves_an_unreachable_store_to_be_retried(self):
+        """The one failure that may clear on its own."""
+        from botocore.exceptions import ClientError
+
+        outage = ClientError({"Error": {"Code": "ServiceUnavailable"}}, "GetObject")
+        resp, store = self._post(_s3_serving(outage))
 
         assert resp.status_code == 500
         store.put_ticket.assert_not_called()

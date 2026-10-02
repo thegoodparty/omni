@@ -37,9 +37,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
-# 48h ceiling supports long-running campaign-plan and similar runs. The actual
-# ceiling is bounded by the Clerk session lifetime (default 7 days), not what
-# we set here — so 48h is comfortably within Clerk's bounds.
 # The published-manifest fields an override cannot carry. A judge override is
 # served IN PLACE of the published manifest, and dispatch's behavior allowlist
 # admits none of these — so a run overriding an experiment that sets one
@@ -55,6 +52,9 @@ router = APIRouter(prefix="/internal", tags=["internal"])
 # set dispatch refuses, so the two cannot drift apart unnoticed.
 JUDGE_OVERRIDE_REFUSED_FIELDS = ("system_prompt", "permission_mode", "allowed_external_tools")
 
+# 48h ceiling supports long-running campaign-plan and similar runs. The actual
+# ceiling is bounded by the Clerk session lifetime (default 7 days), not what
+# we set here — so 48h is comfortably within Clerk's bounds.
 MAX_TTL_SECONDS = 172800
 # The ticket must outlive the experiment's timeout so the agent's final
 # publish/report_status calls don't get 401'd mid-stride (which leaves the
@@ -299,28 +299,41 @@ def _published_fields_an_override_cannot_carry(s3_client, bucket: str, experimen
     time from the same object, and a publish landing in between can only make
     this refuse more, never less.
 
-    Fails closed. A missing published manifest is a 404 from `_fetch_object`;
-    one that is not a JSON object is refused here. Either way no ticket is
-    minted, which is the safe direction: dispatch mints before it launches the
-    Fargate task, so a refusal here costs nothing.
+    Fails closed: a missing, unparseable or non-object manifest is refused,
+    and no ticket is minted. That is the safe direction — dispatch mints
+    before it launches the Fargate task, so a refusal here costs nothing.
     """
-    body, _ = _fetch_object(
-        s3_client,
-        bucket,
-        f"{experiment_id}/manifest.json",
-        run_id,
-        label="published manifest",
-    )
+    # 400 for every failure that is a fact about the object, 500 only for the
+    # store being unreachable. The difference decides what dispatch does next:
+    # broker_client fails the run on a 400 and treats anything else as
+    # transient and redelivers. A missing or unparseable manifest will be just
+    # as missing on the next attempt, so retrying it only churns; an S3 outage
+    # may well clear, so that one is left to retry.
+    try:
+        body, _ = _fetch_object(
+            s3_client,
+            bucket,
+            f"{experiment_id}/manifest.json",
+            run_id,
+            label="published manifest",
+        )
+    except HTTPException as err:
+        if err.status_code != 404:
+            raise
+        raise HTTPException(
+            status_code=400,
+            detail=f"experiment {experiment_id!r} has no published manifest, so an override against it cannot be vetted",
+        ) from err
     try:
         manifest = json.loads(body)
     except (ValueError, UnicodeDecodeError) as err:
         raise HTTPException(
-            status_code=500,
+            status_code=400,
             detail="the published manifest is not valid JSON, so an override against it cannot be vetted",
         ) from err
     if not isinstance(manifest, dict):
         raise HTTPException(
-            status_code=500,
+            status_code=400,
             detail="the published manifest is not a JSON object, so an override against it cannot be vetted",
         )
     return [field for field in JUDGE_OVERRIDE_REFUSED_FIELDS if manifest.get(field) is not None]
@@ -358,33 +371,6 @@ async def mint_run_token(
         request.is_eval,
         request.run_id,
     )
-    # After the cheap checks, so a malformed request never costs an S3 read,
-    # and only when there is an override: a base arm and every production run
-    # mint with none, and must not gain a dependency on S3 here.
-    if request.experiment_override is not None:
-        lost = await asyncio.to_thread(
-            _published_fields_an_override_cannot_carry,
-            s3_client,
-            metadata_bucket,
-            request.experiment_id,
-            request.run_id,
-        )
-        if lost:
-            logger.warning(
-                "mint_run_token override_would_drop_fields run_id=%s experiment_id=%s fields=%s",
-                request.run_id,
-                request.experiment_id,
-                ",".join(lost),
-            )
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"experiment_override is not supported for {request.experiment_id!r}: its published "
-                    f"manifest sets {', '.join(lost)}, which an override cannot carry, so the candidate arm "
-                    "would silently lose it and the comparison would measure that loss instead of the branch"
-                ),
-            )
-
     broker_token = str(uuid.uuid4())
     now = int(time.time())
 
@@ -429,6 +415,40 @@ async def mint_run_token(
         effective_ttl = max(effective_ttl, required_ttl)
 
     exp = now + effective_ttl
+
+    # AFTER EVERY CHEAP CHECK — authentication, the judge fields, both TTL
+    # bounds — and before the ticket exists. Two reasons. A malformed request
+    # must never cost an S3 read. And the read's answers (404 for no manifest,
+    # 400 naming a refused field) describe the published registry, so they
+    # must only ever reach a caller that has already been authenticated: run
+    # any earlier and an unauthenticated request could probe which experiments
+    # exist and which write-action fields they set.
+    #
+    # Only when there is an override: a base arm and every production run mint
+    # with none, and must not gain an S3 read on the dispatch path.
+    if request.experiment_override is not None:
+        lost = await asyncio.to_thread(
+            _published_fields_an_override_cannot_carry,
+            s3_client,
+            metadata_bucket,
+            request.experiment_id,
+            request.run_id,
+        )
+        if lost:
+            logger.warning(
+                "mint_run_token override_would_drop_fields run_id=%s experiment_id=%s fields=%s",
+                request.run_id,
+                request.experiment_id,
+                ",".join(lost),
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"experiment_override is not supported for {request.experiment_id!r}: its published "
+                    f"manifest sets {', '.join(lost)}, which an override cannot carry, so the candidate arm "
+                    "would silently lose it and the comparison would measure that loss instead of the branch"
+                ),
+            )
 
     ticket = ScopeTicket(
         pk=broker_token,
