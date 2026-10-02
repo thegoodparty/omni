@@ -2,7 +2,7 @@ import { appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { AGENTS, type AgentEntry } from './agents'
-import { loadBackgroundCases } from './cases'
+import { loadBackgroundCases, loadCaseList } from './cases'
 import { selectAgents } from './cli'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { agentConfigFor } from './runners/agentConfig'
@@ -10,6 +10,7 @@ import {
   ARM_BUDGET_MS,
   admitBackground,
   pollTimeoutMsFor,
+  refuseChat,
 } from './runners/backgroundDispatch'
 import { parseAgentIds } from './sweepEnv'
 
@@ -151,6 +152,97 @@ export const baseWalksConcurrently = (baseDir: string): boolean => {
   } catch {
     return false
   }
+}
+
+// WHETHER THE BASE ARM REFUSES THE CHAT AGENTS IT IS TOLD TO. Probed for the
+// reason the two above are, and anchored for the same reason.
+export const BASE_BOUNDS_CHAT = /^export const CHAT_TIME_BOUNDED = true$/m
+
+export const baseBoundsChat = (baseDir: string): boolean => {
+  try {
+    return BASE_BOUNDS_CHAT.test(
+      readFileSync(
+        join(
+          baseDir,
+          'packages/gp-api/src/chats/evals/judge/runners/backgroundDispatch.ts',
+        ),
+        'utf8',
+      ),
+    )
+  } catch {
+    return false
+  }
+}
+
+// How many cases a chat agent's list holds on the base ref, read raw for the
+// reason baseCost is. Undefined when it cannot be read: that arm then fails
+// or skips the agent on its own, and the candidate's count still stands.
+const baseChatCases = (
+  baseDir: string,
+  agent: AgentEntry,
+): number | undefined => {
+  try {
+    return CASES_ONLY.parse(
+      JSON.parse(
+        readFileSync(
+          join(
+            baseDir,
+            'packages/gp-api/src/chats/evals/judge/cases',
+            agent.cases ?? '',
+          ),
+          'utf8',
+        ),
+      ),
+    ).cases.length
+  } catch {
+    return undefined
+  }
+}
+
+// Zero when this branch cannot read the list, for the same reason: the arm
+// reports the real error by name, and this is only a time estimate.
+const candidateChatCases = (agent: AgentEntry): number => {
+  try {
+    return loadCaseList(agent).cases.length
+  } catch {
+    return 0
+  }
+}
+
+// THE CHAT AGENTS NEITHER ARM MAY WALK, decided once for the reason
+// background admission is: each arm reads its own case lists, and two arms
+// refusing different agents pay for turns that pair with nothing. Each
+// agent is costed on whichever arm has more cases.
+//
+// Against a base that would not obey, nothing is refused, which leaves the
+// sweep exactly as unbounded as that base already was.
+export const resolveChatRefusals = (
+  agentIds: readonly string[],
+  baseDir: string,
+  config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+  registry: readonly AgentEntry[] = AGENTS,
+  costs: {
+    candidate: (agent: AgentEntry) => number
+    base: (baseDir: string, agent: AgentEntry) => number | undefined
+    boundsChat: (baseDir: string) => boolean
+  } = {
+    candidate: candidateChatCases,
+    base: baseChatCases,
+    boundsChat: baseBoundsChat,
+  },
+): { agentId: string; reason: string }[] => {
+  if (!costs.boundsChat(baseDir)) return []
+  const selected = selectAgents(
+    { kind: 'list', ids: [...new Set(agentIds)] },
+    registry,
+  ).selected
+  return refuseChat(
+    selected,
+    (agent) =>
+      Math.max(costs.candidate(agent), costs.base(baseDir, agent) ?? 0) *
+      config.attemptsPerCase,
+    ARM_BUDGET_MS,
+  )
 }
 
 const candidateCost = (agent: AgentEntry, config: JudgeConfig): ArmWalk => {
@@ -324,10 +416,22 @@ if (require.main === module) {
     )
     process.exit(2)
   }
-  const { admitted, refused } = resolveAdmission(
-    parseAgentIds(process.env.JUDGE_AGENTS ?? ''),
-    baseDir,
-  )
+  const agentIds = parseAgentIds(process.env.JUDGE_AGENTS ?? '')
+  const background = resolveAdmission(agentIds, baseDir)
+  const admitted = background.admitted
+  // One map for both shapes, which the arms already carry: a background
+  // agent is refused by its absence from `admitted`, a chat one by its name
+  // here.
+  const refused = [
+    ...background.refused,
+    ...resolveChatRefusals(agentIds, baseDir),
+  ]
+  if (!baseBoundsChat(baseDir)) {
+    process.stderr.write(
+      "the base ref's arm does not refuse chat agents, so none are refused " +
+        'and the chat half of each arm is unbounded\n',
+    )
+  }
   appendFileSync(
     outPath,
     budgetOutputLines(DEFAULT_JUDGE_CONFIG, admitted, refused, ARM_BUDGET_MS),

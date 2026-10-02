@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { AGENTS, findAgent, type AgentEntry } from './agents'
 import {
+  BASE_BOUNDS_CHAT,
   BASE_HONOURS_ADMISSION,
   BASE_WALKS_CONCURRENTLY,
   baseWalksConcurrently,
@@ -23,7 +24,12 @@ import {
   type ShapeBudget,
 } from './config'
 import { armEnvFor } from './fixtures/sweep'
-import { ARM_BUDGET_MS, armCaseLoader } from './runners/backgroundDispatch'
+import {
+  ARM_BUDGET_MS,
+  armCaseLoader,
+  armDeps,
+  capturableAgents,
+} from './runners/backgroundDispatch'
 import { SWEEP_VALUES } from './fixtures/sweep'
 import {
   armConfigFor,
@@ -89,6 +95,10 @@ const baseTree = (spec: {
   // Replaces the copied case list with one holding exactly these ids — how a
   // base ref whose list differs from the branch's is modelled.
   caseIds?: Record<string, string[]>
+  // Whether the base arm refuses the chat agents it is told to.
+  boundsChat?: boolean
+  // A chat agent's case list on the base, as a number of cases.
+  chatCases?: Record<string, number>
 }): string => {
   const root = mkdtempSync(join(tmpdir(), 'base-tree-'))
   const judgeDir = join(root, 'packages/gp-api/src/chats/evals/judge')
@@ -101,6 +111,21 @@ const baseTree = (spec: {
     join(judgeDir, 'sweepArm.ts'),
     spec.concurrent === true ? NEW_ARM_WALK : OLD_ARM_WALK,
   )
+  if (spec.boundsChat === true) {
+    mkdirSync(join(judgeDir, 'runners'))
+    writeFileSync(
+      join(judgeDir, 'runners/backgroundDispatch.ts'),
+      'export const CHAT_TIME_BOUNDED = true\n',
+    )
+  }
+  for (const [agentId, count] of Object.entries(spec.chatCases ?? {})) {
+    writeFileSync(
+      join(judgeDir, 'cases', `${agentId}.json`),
+      JSON.stringify({
+        cases: Array.from({ length: count }, (_, i) => ({ caseId: `c${i}` })),
+      }),
+    )
+  }
   for (const [agentId, timeout] of Object.entries(spec.timeouts)) {
     const cases = findAgent(agentId)?.cases
     if (!cases) throw new Error(`${agentId} has no case list to copy`)
@@ -951,4 +976,100 @@ describe('reading the budget an arm was handed', () => {
       ).toThrow(SweepEnvError)
     },
   )
+})
+
+// THE CHAT HALF, decided once like the background half: each arm reads its
+// own case lists, and two arms refusing different chat agents pay for turns
+// that pair with nothing.
+describe('the chat agents refused for time', () => {
+  const ALL_CHAT =
+    'chief_of_staff,campaign_assistant,ordinance_flow,priority_flow'
+  const chatTree = (over: Parameters<typeof baseTree>[0] = { timeouts: {} }) =>
+    baseTree({
+      boundsChat: true,
+      chatCases: {
+        chief_of_staff: 8,
+        campaign_assistant: 8,
+        ordinance_flow: 8,
+        priority_flow: 8,
+      },
+      ...over,
+    })
+
+  // Every chat agent at today's lists: 8 + 48 minutes fit the 65 the arm
+  // leaves chat, and the two after are refused by name. Read back through the
+  // arm's own loader, so the resolver is tied to what the arm refuses.
+  it('refuses what does not fit, and both arms refuse exactly that', () => {
+    const { status, stderr, written } = runEntry({
+      BASE_DIR: chatTree(),
+      JUDGE_AGENTS: ALL_CHAT,
+    })
+    expect(status).toBe(0)
+    expect(stderr).toMatch(
+      /refused ordinance_flow: would take about 48 minutes for 24 chat turns/,
+    )
+    const arm = parseArmEnv(intoArmEnv(PARSE(written)))
+    expect([...(arm.backgroundRefused?.keys() ?? [])]).toEqual([
+      'ordinance_flow',
+      'priority_flow',
+    ])
+    const { loadCases } = armDeps(arm, armConfigFor(arm))
+    const agent = (id: string): AgentEntry => {
+      const found = findAgent(id)
+      if (found === undefined) throw new Error(`${id} is not registered`)
+      return found
+    }
+    expect(() => loadCases(agent('ordinance_flow'))).toThrow(
+      /^ordinance_flow was not admitted to this sweep: would take about 48/,
+    )
+    expect(loadCases(agent('campaign_assistant')).cases).toHaveLength(8)
+    expect(capturableAgents(ALL_CHAT.split(','), arm, findAgent)).toEqual([
+      'chief_of_staff',
+      'campaign_assistant',
+    ])
+  })
+
+  // Against a base that would walk them anyway, refusing on the candidate
+  // only pays the base for turns that pair with nothing.
+  it('refuses no chat agent against a base that would not obey', () => {
+    const { written, stderr } = runEntry({
+      BASE_DIR: chatTree({ timeouts: {}, boundsChat: false }),
+      JUDGE_AGENTS: ALL_CHAT,
+    })
+    expect(written).toMatch(/^refused=\{\}$/m)
+    expect(stderr).toMatch(/does not refuse chat agents/)
+  })
+
+  // The slower arm decides, as it does for background.
+  it('costs an agent on whichever arm has more cases', () => {
+    const { written } = runEntry({
+      BASE_DIR: chatTree({ timeouts: {}, chatCases: { chief_of_staff: 200 } }),
+      JUDGE_AGENTS: 'chief_of_staff',
+    })
+    expect(
+      parseArmEnv(intoArmEnv(PARSE(written))).backgroundRefused?.get(
+        'chief_of_staff',
+      ),
+    ).toMatch(/^would take about 200 minutes for 600 chat turns/)
+  })
+})
+
+describe('the probe for whether the base arm refuses chat agents', () => {
+  it('finds the declaration in this branch', () => {
+    expect(
+      BASE_BOUNDS_CHAT.test(
+        readFileSync(join(__dirname, 'runners/backgroundDispatch.ts'), 'utf8'),
+      ),
+    ).toBe(true)
+  })
+
+  it.each([
+    ['the name in a comment', '// CHAT_TIME_BOUNDED is not declared here\n'],
+    [
+      'a declaration that says false',
+      'export const CHAT_TIME_BOUNDED = false\n',
+    ],
+  ])('does not mistake %s for an arm that does', (_label, text) => {
+    expect(BASE_BOUNDS_CHAT.test(text)).toBe(false)
+  })
 })

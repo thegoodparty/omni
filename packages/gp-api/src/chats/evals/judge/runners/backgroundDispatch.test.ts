@@ -1,21 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
   ARM_BUDGET_MS,
+  CHAT_TURN_MS,
   POLL_HEADROOM_MS,
+  UNMEASURED_CHAT_TURN_MS,
   admitBackground,
   armDeps,
   backgroundRunInputFor,
   caseLoaderFor,
   capturableAgents,
+  chatTurnMsFor,
   refusedBeforeSpend,
+  refuseChat,
   walkedBackgroundCases,
 } from './backgroundDispatch'
 import { DEFAULT_JUDGE_CONFIG } from '../config'
-import { findAgent, type AgentEntry } from '../agents'
+import { AGENTS, findAgent, type AgentEntry } from '../agents'
 import { SWEEP_VALUES } from '../fixtures/sweep'
 import type { AgentConfig } from './background'
 import type { ArmCaseRequest } from '../sweepArm'
 import type { ArmEnv } from '../sweepEnv'
+import { loadCaseList } from '../cases'
 import type { BackgroundCase, CaseList, JudgeCase } from '../cases'
 
 // WHAT THIS FILE IS FOR. Every argument of the dispatch used to be built
@@ -1234,6 +1239,147 @@ describe('capturableAgents', () => {
         env({ fixtureValues: {} }),
         find,
         () => [],
+      ),
+    ).toEqual(['chief_of_staff'])
+  })
+})
+
+// THE CHAT HALF OF THE ARM. Nothing times a chat turn out, so before this a
+// selection with more turns than an arm holds was killed by the vitest
+// timeout with no manifest written.
+describe('the chat budget', () => {
+  const chatAgent = (agentId: string): AgentEntry => ({
+    agentId,
+    shape: 'chat',
+    cases: `${agentId}.json`,
+    status: 'pending',
+  })
+  const turns = (count: number): JudgeCase[] =>
+    Array.from({ length: count }, (_, i) => ({
+      caseId: `c${i}`,
+      turns: ['hello'],
+    }))
+
+  // 65 minutes for chat. chief_of_staff 8 minutes, priority_flow 48, and
+  // ordinance_flow's 48 more does not fit; campaign_assistant's 6 still
+  // does, which only holds if the refused agent left its share behind.
+  it('refuses by name what does not fit, and leaves its share to the next', () => {
+    const count: Record<string, number> = {
+      chief_of_staff: 24,
+      priority_flow: 24,
+      ordinance_flow: 24,
+      campaign_assistant: 3,
+    }
+    const refused = refuseChat(
+      Object.keys(count).map(chatAgent),
+      (agent) => count[agent.agentId] ?? 0,
+      ARM_BUDGET_MS,
+    )
+    expect(refused.map((one) => one.agentId)).toEqual(['ordinance_flow'])
+    expect(refused[0]?.reason).toMatch(
+      /^would take about 48 minutes for 24 chat turns at 120s each, and 9 of the arm's 70/,
+    )
+  })
+
+  it('plans an agent nobody has timed at the slowest measured turn', () => {
+    expect(chatTurnMsFor('a_new_chat_agent')).toBe(UNMEASURED_CHAT_TURN_MS)
+    expect(UNMEASURED_CHAT_TURN_MS).toBe(
+      Math.max(...Object.values(CHAT_TURN_MS).map((ms) => ms ?? 0)),
+    )
+  })
+
+  it('leaves background agents and chat agents with no list to others', () => {
+    const background: AgentEntry = {
+      ...chatAgent('meeting_briefing'),
+      shape: 'background',
+    }
+    const noList: AgentEntry = { ...chatAgent('no_list'), cases: null }
+    expect(
+      refuseChat([background, noList], () => 10_000, ARM_BUDGET_MS),
+    ).toEqual([])
+  })
+
+  // THE PIN ON THE REAL REGISTRY. Any one chat agent has to fit an arm on its
+  // own, or naming it alone is a sweep that can never judge it. Fails when a
+  // case list or config.attemptsPerCase grows past what an arm holds.
+  it.each(
+    AGENTS.filter(
+      (agent) =>
+        agent.shape === 'chat' &&
+        agent.status !== 'blocked' &&
+        agent.cases !== null,
+    ).map((agent) => [agent.agentId, agent] as const),
+  )('fits %s in an arm on its own', (_id, agent) => {
+    expect(
+      refuseChat(
+        [agent],
+        (one) =>
+          loadCaseList(one).cases.length * DEFAULT_JUDGE_CONFIG.attemptsPerCase,
+        ARM_BUDGET_MS,
+      ),
+    ).toEqual([])
+  })
+
+  const loader = (
+    budget: Partial<Parameters<typeof caseLoaderFor>[1]>,
+    cases: Record<string, number>,
+  ) =>
+    caseLoaderFor(
+      {},
+      {
+        budgetMs: ARM_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: undefined,
+        maxInFlight: 12,
+        ...budget,
+      },
+      {
+        load: (agent) =>
+          caseList('chat', agent.agentId, turns(cases[agent.agentId] ?? 0)),
+      },
+    )
+
+  // A sweep obeys the resolver's names and nothing else, so both arms
+  // refuse the same agents whatever their own lists hold.
+  it('refuses a chat agent the resolver named, with its reason', () => {
+    const load = loader(
+      {
+        admitted: new Set(),
+        refusedReasons: new Map([['ordinance_flow', 'would take 99 minutes']]),
+        chatAttemptsPerCase: 3,
+      },
+      { ordinance_flow: 1, chief_of_staff: 1_000 },
+    )
+    expect(() => load(chatAgent('ordinance_flow'))).toThrow(
+      /^ordinance_flow was not admitted to this sweep: would take 99 minutes$/,
+    )
+    expect(load(chatAgent('chief_of_staff')).cases).toHaveLength(1_000)
+  })
+
+  // A local run has no resolver, so it spends its own chat budget down.
+  it('spends a local run down in walk order', () => {
+    const load = loader(
+      { chatAttemptsPerCase: 3 },
+      { chief_of_staff: 8, campaign_assistant: 8, priority_flow: 8 },
+    )
+    expect(load(chatAgent('chief_of_staff')).cases).toHaveLength(8)
+    expect(load(chatAgent('campaign_assistant')).cases).toHaveLength(8)
+    expect(() => load(chatAgent('priority_flow'))).toThrow(
+      /^priority_flow was not admitted to this sweep: would take about 48 minutes for 24 chat turns at 120s each, and 9 of/,
+    )
+  })
+
+  // The arm suite's final check: a chat agent the resolver refused is a
+  // designed skip, not a failed capture that turns the arm red.
+  it('counts a chat agent the resolver named as refused before spend', () => {
+    const named = env({
+      backgroundRefused: new Map([['ordinance_flow', 'too slow']]),
+    })
+    expect(refusedBeforeSpend(chatAgent('ordinance_flow'), named)).toBe(true)
+    expect(refusedBeforeSpend(chatAgent('chief_of_staff'), named)).toBe(false)
+    expect(
+      capturableAgents(['chief_of_staff', 'ordinance_flow'], named, (id) =>
+        chatAgent(id),
       ),
     ).toEqual(['chief_of_staff'])
   })
