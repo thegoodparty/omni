@@ -446,20 +446,13 @@ export class CampaignStrategyService extends createPrismaBase(
 
   // Materialize the tracker's static rows at plan-generation start so they
   // render immediately, rather than waiting for the plan-completion bootstrap
-  // (which is CAP/SQS-driven and never fires locally). Story-gated to the
-  // tracker cohort so legacy campaigns never get tracker rows, and best-effort
-  // so a tracker hiccup can't fail plan generation. materializeStaticTasks is
+  // (which is CAP/SQS-driven and never fires locally). Best-effort so a
+  // tracker hiccup can't fail plan generation. materializeStaticTasks is
   // idempotent and race-safe, so calling it on every poll is cheap and the
   // initial dynamic dispatch still happens once, from the bootstrap below.
   private async ensureTrackerStaticTasks(
     campaign: CampaignWith<'user'>,
   ): Promise<void> {
-    const story = await this.client.campaignStory.findUnique({
-      where: { campaignId: campaign.id },
-      select: { id: true },
-    })
-    if (!story) return
-
     await this.campaignTrackerTasks
       .materializeStaticTasks(campaign)
       .catch((err: unknown) =>
@@ -480,16 +473,6 @@ export class CampaignStrategyService extends createPrismaBase(
   ): Promise<void> {
     const plan = await this.findFirst({ where: { id: planId } })
     if (!plan?.oppositionPersistedAt || !plan.opportunitiesPersistedAt) return
-
-    // The tracker uses the campaign story as input, so it only exists once the
-    // campaign has gone through campaign story. Legacy (campaign-story off)
-    // campaigns never write a story, so they stay on the legacy task path and
-    // never bootstrap the tracker even though their plan still generates. This
-    // gate is on story data (not the flag) so it holds regardless of the flag.
-    const story = await this.client.campaignStory.findUnique({
-      where: { campaignId },
-    })
-    if (!story) return
 
     const campaign = await this.client.campaign.findUnique({
       where: { id: campaignId },

@@ -1179,12 +1179,16 @@ export default function OnboardingFlow({
 
   // Leaving the story (from the final issues step) for signup-goal, the story
   // block's successor. Persistence and the per-step funnel events already
-  // happened in advanceStory; here we only kick off plan generation, once, when
-  // every question was answered this session.
+  // happened in advanceStory; here we only kick off plan generation, once.
+  //
+  // Deliberately NOT gated on the story being answered. The story sharpens a
+  // plan, it does not qualify a candidate for one, and gating here was the
+  // reason a candidate who skipped these steps finished signup with nothing
+  // generated and had to go press a button on the plan tab to get started.
+  // They get a generic plan now, and completing the story later regenerates
+  // it.
   const leaveStory = async (): Promise<void> => {
-    const answered = storyAnsweredRef.current
-    const complete = answered.why && answered.background && answered.issues
-    if (complete && !storyGenFiredRef.current) {
+    if (!storyGenFiredRef.current) {
       storyGenFiredRef.current = true
       // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
       // raceId) and prewarmStrategicLandscape swallows that, so a candidate

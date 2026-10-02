@@ -14,7 +14,7 @@ onboarding-only).
 
 The `sections.ts` + `useCampaignStory*` modules are shared: `sections.ts` (which
 owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS`) is read by the
-plan tab's `CampaignPlanStoryGate` (`campaign-plan/components/`). The old
+plan tab's `CampaignPlanGenerateGate` (`campaign-plan/components/`). The old
 self-saving cards (`CampaignStoryWhyCard`, `CampaignStoryCard`,
 `StoryCardActions`, `OnboardingCampaignStoryStep`) have been **deleted** —
 everything now runs through the onboarding `StoryIntakeCard` / `StoryIssuesCard`.
@@ -74,16 +74,20 @@ already round-trips through `Website.content.about`.
 |------|------|
 | `components/CampaignStoryPage.tsx` | The "Your Story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies); one Save commits all dirty fields, a bottom Start over clears them. Its title comes from `DashboardLayout`'s shared `navHeader` (icon + tab name from `shared/navLabels.ts`), and `StoryEditorForm`'s Save portals into that bar via `DashboardNavHeaderAction` — the feature-local `StoryHeaderBar` band (gray `bg-base-muted`, `text-xl`, sticky) is gone |
 | `components/useStoryRewrite.ts` | Shared "Improve with AI" logic (request, apply-in-place, undo, the 403 limit, analytics) — used by the onboarding cards (`StoryFieldBar`) |
-| `sections.ts` | Owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS` (the `background` prompt), read by the plan-tab `CampaignPlanStoryGate` |
+| `sections.ts` | Owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS` (the `background` prompt), read by the plan-tab `CampaignPlanGenerateGate` |
 
 ## Patterns
 
 - **Always on** — the onboarding story steps, the "Your Story" dashboard page,
-  the plan tab's "Campaign Plan" label and routing (`CampaignPlanRouter.tsx`,
-  `CampaignPlanView.tsx`, `DashboardMenu.tsx`), and the story-completeness gate
-  (`CampaignPlanStoryGate`) all run unconditionally now — there is no flag.
+  and the plan tab's "Campaign Plan" label and routing
+  (`CampaignPlanRouter.tsx`, `CampaignPlanView.tsx`, `DashboardMenu.tsx`) all
+  run unconditionally — there is no flag.
+- **The story does not gate the plan.** It is input that sharpens a plan, not a
+  precondition for one: `CampaignPlanRouter` does not read story state at all,
+  and a candidate with no story gets a generic plan and tracker. The story is
+  invited alongside the plan, not by withholding the page.
 - **Persistence (background).** Consumers (the onboarding story draft, the
-  "Your Story" page, `CampaignPlanStoryGate`) read the story client-side via
+  "Your Story" page, `CampaignPlanGenerateGate`) read the story client-side via
   `useCampaignStory()` (`GET /v1/campaigns/mine/story`) and write via
   `PUT /v1/campaigns/mine/story`. Backed by the `campaign_story` table in
   gp-api (`src/campaignStory/`); response shape is `CampaignStory`
@@ -140,30 +144,30 @@ already round-trips through `Website.content.about`.
   both invalidate; keep that up in any new writer.
 - **Plan tab review + generation.** The actual review + confirm + generation
   UI lives on the plan tab
-  (`campaign-plan/components/CampaignPlanStoryGate.tsx`), which shows the why
-  (from the website bio) + background (from the story) and the issues (from
-  the website query), an "Open your campaign manager" / "Edit in campaign
-  manager" link to `/dashboard?personalize=1` (a deep link `CampaignManagerHome`
-  consumes to open the manager and auto-launch the story-intake chat flow,
-  same as the manager home's own story card), and a confirm modal before
-  generating.
+  (`campaign-plan/components/CampaignPlanGenerateGate.tsx`), which offers
+  generation to every candidate and reviews whatever story content exists — the
+  why (from the website bio), the background (from the story) and the issues
+  (from the website query), each rendered only when non-empty, so a storyless
+  candidate sees no empty labels. It carries an "Add your story" / "Edit in
+  campaign manager" link to `/dashboard?personalize=1` (a deep link
+  `CampaignManagerHome` consumes to open the manager and auto-launch the
+  story-intake chat flow, same as the manager home's own story card), and a
+  confirm modal before generating.
   Whether a plan already exists (including one the **campaign manager chat**
   kicked off) is decided by `campaign-plan/page.tsx` (`GET
   /v1/campaignStrategy/mine/exists`) and threaded through
   `CampaignPlanRouter.tsx`, not by anything in this directory.
-- **Completeness gate.** `isCampaignStoryComplete(story, hasWhy, hasIssues)`
+- **Completeness check.** `isCampaignStoryComplete(story, hasWhy, hasIssues)`
   (`useCampaignStory.ts`) requires `hasWhy` + non-empty `background` + `hasIssues`.
   Callers source `hasWhy` from the website bio (`content.about.bio`) and
   `hasIssues` from the website issues (`content.about.issues`), not the story.
   `useCampaignStoryComplete(enabled)` (`useCampaignStoryComplete.ts`) packages
-  this up — it fetches the story + website (only when `enabled`, so the non-story
-  cohort never triggers the fetches) and returns `{ isComplete, isLoading,
-  isError }` with the same fail-open (website error) / fail-closed (story error)
-  semantics `CampaignPlanStoryGate` uses. `CampaignPlanRouter` reads it to gate
-  the plan/tracker: a story-cohort user only reaches the plan once the story is
-  complete, so a flag-on account that generated a plan before completing its
-  story (e.g. pre-flag) is routed to the story gate instead of a tracker that can
-  never populate.
+  this up — it fetches the story + website (only when `enabled`) and returns
+  `{ isComplete, isLoading, isError }`, fail-open on a website error and
+  fail-closed on a story error. It decides **whether to prompt**, never whether
+  to show the plan: the callers are the manager's `PersonalizeStoryCard` /
+  `StoryReadyCard`. `CampaignPlanGenerateGate` uses the underlying
+  `isCampaignStoryComplete` directly, only to pick which copy to show.
 - **Shared why copy.** The "why" instruction is a single constant,
   `WHY_RUNNING_PROMPT` (candidate-profile `candidateProfile.utils.ts`), reused by
   the why card here, the Pro-upgrade `CandidateProfileFields`, and the
@@ -181,8 +185,8 @@ already round-trips through `Website.content.about`.
   Save + Start over) — see `app/onboarding/CLAUDE.md`.
 - `app/dashboard/shared/DashboardMenu.tsx` — always labels the plan tab
   "Campaign Plan" and always renders the "Your Story" sidebar entry.
-- `app/dashboard/campaign-plan/components/CampaignPlanStoryGate.tsx` — reads
-  the story + website to gate/preview the plan tab before generation.
+- `app/dashboard/campaign-plan/components/CampaignPlanGenerateGate.tsx` — reads
+  the story + website to preview whatever exists before generation.
 - `packages/gp-api/src/campaignStory/` — `campaign_story` table (`background`,
   `rewrite_count`), endpoints, rewrite service.
 - `app/dashboard/profile/texting-compliance/candidate-profile/` — the shared
