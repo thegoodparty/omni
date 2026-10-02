@@ -163,6 +163,19 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   [JUDGE_FIXTURE_ENV_NAMES.orgSlug]: BLANK_IS_UNSET,
   [JUDGE_FIXTURE_ENV_NAMES.raceId]: BLANK_IS_UNSET,
   [JUDGE_FIXTURE_ENV_NAMES.userEmail]: BLANK_IS_UNSET,
+  // WHERE A BACKGROUND DISPATCH GOES, and all three optional because a chat
+  // sweep needs none of them. An arm that will not start over a variable most
+  // of its agents never read is a worse failure than the one below: a
+  // background agent whose destination is missing is refused by name when its
+  // capture is attempted, after the chat agents in the same sweep have already
+  // produced their verdicts.
+  //
+  // Not defaulted to a bucket name built from the environment, deliberately.
+  // A wrong-but-plausible default would dispatch somewhere real; an absent one
+  // cannot.
+  JUDGE_METADATA_BUCKET: BLANK_IS_UNSET,
+  JUDGE_ARTIFACT_BUCKET: BLANK_IS_UNSET,
+  JUDGE_DISPATCH_QUEUE_URL: BLANK_IS_UNSET,
 })
 
 export class SweepEnvError extends Error {}
@@ -234,6 +247,50 @@ export interface ArmEnv extends SweepEnv {
   // supplies none — so the absence is an empty object rather than an optional
   // field, and `substituteBackgroundCases` takes it either way.
   fixtureValues: PlaceholderValues
+  // Absent on a chat-only sweep. `backgroundDestinationFrom` turns the three
+  // into one value or one sentence, so nothing downstream has to decide what a
+  // half-configured destination means.
+  metadataBucket?: string
+  artifactBucket?: string
+  dispatchQueueUrl?: string
+}
+
+export interface BackgroundDestination {
+  metadataBucket: string
+  artifactBucket: string
+  dispatchQueueUrl: string
+}
+
+// ALL THREE OR NONE, and the error names every one that is missing rather than
+// the first. A sweep configured with two of the three is a workflow edit that
+// dropped a line, and finding out one variable at a time costs a capture
+// attempt each.
+export const backgroundDestinationFrom = (
+  env: ArmEnv,
+): BackgroundDestination => {
+  const missing = [
+    ['JUDGE_METADATA_BUCKET', env.metadataBucket],
+    ['JUDGE_ARTIFACT_BUCKET', env.artifactBucket],
+    ['JUDGE_DISPATCH_QUEUE_URL', env.dispatchQueueUrl],
+  ]
+    .filter(([, value]) => value === undefined)
+    .map(([name]) => name)
+  if (
+    missing.length > 0 ||
+    env.metadataBucket === undefined ||
+    env.artifactBucket === undefined ||
+    env.dispatchQueueUrl === undefined
+  ) {
+    throw new SweepEnvError(
+      `a background agent cannot be dispatched without ${missing.join(', ')}` +
+        '; set them on the arm steps or select only chat agents',
+    )
+  }
+  return {
+    metadataBucket: env.metadataBucket,
+    artifactBucket: env.artifactBucket,
+    dispatchQueueUrl: env.dispatchQueueUrl,
+  }
 }
 
 type ParsedArm = z.infer<typeof ArmEnvSchema>
@@ -315,6 +372,15 @@ export const parseArmEnv = (
     candidateSha: data.JUDGE_CANDIDATE_SHA,
     armCommit: data.JUDGE_ARM_COMMIT,
     fixtureValues: fixtureValuesFrom(data),
+    ...(data.JUDGE_METADATA_BUCKET !== undefined && {
+      metadataBucket: data.JUDGE_METADATA_BUCKET,
+    }),
+    ...(data.JUDGE_ARTIFACT_BUCKET !== undefined && {
+      artifactBucket: data.JUDGE_ARTIFACT_BUCKET,
+    }),
+    ...(data.JUDGE_DISPATCH_QUEUE_URL !== undefined && {
+      dispatchQueueUrl: data.JUDGE_DISPATCH_QUEUE_URL,
+    }),
     ...(data.JUDGE_CANDIDATE_REF !== undefined && {
       candidateRef: data.JUDGE_CANDIDATE_REF,
     }),

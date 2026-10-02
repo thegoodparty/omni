@@ -3,6 +3,7 @@ import {
   EXPLICIT_SELECTION,
   SELECTION_ENV,
   SweepEnvError,
+  backgroundDestinationFrom,
   parseArmEnv,
   parseSweepEnv,
   variantFor,
@@ -371,4 +372,59 @@ describe('the spend switch is one value, not two', () => {
       expect(spendsRealMoney({ [SPEND_ENV]: value })).toBe(false)
     },
   )
+})
+
+// ALL THREE OR NONE. A sweep configured with two of the three is a workflow
+// edit that dropped a line, and finding that out one variable at a time costs
+// a capture attempt each.
+describe('backgroundDestinationFrom', () => {
+  const withDestination = (over: Record<string, string> = {}) =>
+    parseArmEnv(
+      armEnv({
+        JUDGE_METADATA_BUCKET: 'agent-experiment-metadata-dev',
+        JUDGE_ARTIFACT_BUCKET: 'gp-agent-artifacts-dev',
+        JUDGE_DISPATCH_QUEUE_URL: 'https://sqs.test/agent-dispatch-dev.fifo',
+        ...over,
+      }),
+    )
+
+  it('returns all three when all three are set', () => {
+    const d = backgroundDestinationFrom(withDestination())
+    expect(d).toEqual({
+      metadataBucket: 'agent-experiment-metadata-dev',
+      artifactBucket: 'gp-agent-artifacts-dev',
+      dispatchQueueUrl: 'https://sqs.test/agent-dispatch-dev.fifo',
+    })
+  })
+
+  it.each([
+    ['JUDGE_METADATA_BUCKET'],
+    ['JUDGE_ARTIFACT_BUCKET'],
+    ['JUDGE_DISPATCH_QUEUE_URL'],
+  ])('refuses and names %s when it is missing', (name) => {
+    expect(() =>
+      backgroundDestinationFrom(withDestination({ [name]: '' })),
+    ).toThrow(new RegExp(name))
+  })
+
+  // Every missing one, not the first. Two capture attempts to learn two
+  // variable names is the failure this replaces.
+  it('names every missing variable at once', () => {
+    const env = parseArmEnv(armEnv())
+    try {
+      backgroundDestinationFrom(env)
+      expect.unreachable('should have refused')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      expect(message).toContain('JUDGE_METADATA_BUCKET')
+      expect(message).toContain('JUDGE_ARTIFACT_BUCKET')
+      expect(message).toContain('JUDGE_DISPATCH_QUEUE_URL')
+    }
+  })
+
+  // A chat-only sweep sets none of them and must still parse: refusing at
+  // parse time would stop an arm over variables most of its agents never read.
+  it('leaves a chat-only arm env parseable', () => {
+    expect(() => parseArmEnv(armEnv())).not.toThrow()
+  })
 })

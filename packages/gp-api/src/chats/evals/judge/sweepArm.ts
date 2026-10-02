@@ -55,14 +55,6 @@ export interface CaptureArmDeps {
   config?: JudgeConfig
 }
 
-// Named rather than silent. An agent that quietly produced no records is
-// indistinguishable downstream from an agent that found nothing to compare,
-// and the second is a finding while the first is a gap.
-const BACKGROUND_NOT_WIRED =
-  'the background runner has not landed yet, so a background agent cannot ' +
-  'be driven from this suite; it is skipped rather than failed so the chat ' +
-  'agents in the same sweep still produce a verdict'
-
 export class ArmCaptureError extends Error {}
 
 // A skip reason ends up in the manifest, then in a refusal, then in
@@ -302,10 +294,6 @@ export const captureArm = async (
   }))
 
   for (const agent of selection.selected) {
-    if (agent.shape === 'background') {
-      skipped.push({ agentId: agent.agentId, reason: BACKGROUND_NOT_WIRED })
-      continue
-    }
     try {
       const list = loadCases(agent)
       agents.push(

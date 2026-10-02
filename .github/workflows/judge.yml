@@ -1342,6 +1342,12 @@ jobs:
     # is exactly how a job ends up holding what it never asked for.
     permissions:
       contents: read
+      # TO ASSUME THE AWS ROLE, and nothing more. A background agent is
+      # dispatched by staging a config in S3 and sending one SQS message, so
+      # the sweep needs AWS the way every other job that touches it does:
+      # short-lived credentials from an OIDC exchange, never a stored key.
+      # Still no `pull-requests: write` — this job writes no comment.
+      id-token: write
     concurrency:
       group: judge-sweep-${{ inputs.pr_number || github.run_id }}
       cancel-in-progress: true
@@ -1465,6 +1471,86 @@ jobs:
       # turns that into a warning annotation and an empty output, the arms read
       # an empty `JUDGE_DATA_VERSION` as "not pinned", and the report names
       # every run that then queried the mart anyway.
+      # WHERE A BACKGROUND DISPATCH GOES, derived rather than configured.
+      #
+      # These are not credentials and they are not free-form: terraform names
+      # them `agent-experiment-metadata-${environment}`,
+      # `gp-agent-artifacts-${environment}` and
+      # `agent-dispatch-${environment}.fifo`. Putting them in repository
+      # variables would mean a human step on first use, a second place they
+      # can drift from terraform, and no review when one changes. The two
+      # buckets are therefore literals built from the same scheme, and the
+      # queue URL — the only one that needs the account id — is resolved from
+      # the queue NAME by the role this job already assumes.
+      #
+      # dev, hardcoded, because the judge override path is dev-only: the
+      # broker refuses it unless ENVIRONMENT is 'dev' and the dispatch Lambda
+      # refuses it again. A sweep that could name another environment could
+      # only name one that would refuse it.
+      #
+      # IT DOES NOT FAIL THE JOB. Most sweeps are chat-only and need none of
+      # this; `parseArmEnv` takes all three as optional and
+      # `backgroundDestinationFrom` refuses by name — listing every missing
+      # one at once — when a background agent is actually captured. So a
+      # resolution failure costs a background sweep and leaves a chat sweep
+      # working, which is the same trade the mart resolver makes above.
+      # THE OTHER HALF OF `id-token: write`. The permission mints an OIDC
+      # token; this is what exchanges it for credentials. Without it the job
+      # holds a token nothing accepts, and every AWS call below fails with no
+      # credentials rather than with a denial.
+      #
+      # A ROLE OF THE JUDGE'S OWN, not `vars.AWS_ROLE_ARN`. That variable names
+      # github-actions-pulumi-deploy, which carries AdministratorAccess; this
+      # job stages agent configs and sends dispatch messages, so it gets
+      # github-actions-judge-sweep and the one scoped policy attached to it.
+      # Written as a literal rather than a repository variable because the role
+      # name is fixed by the IaC that creates it (thegoodparty/ops,
+      # deploy/components/ci-roles.ts) — a variable would add a hand-set value
+      # that can only ever disagree with it.
+      #
+      # continue-on-error, deliberately. A chat-only sweep needs no AWS at all,
+      # and failing the whole job here would turn "the judge role is not
+      # deployed yet" into "no sweep of any kind runs". When the exchange
+      # fails, the queue lookup below fails too, the warning fires, and a
+      # background agent is refused by name at capture before anything is
+      # staged or billed — which is the behaviour that warning already
+      # describes.
+      - name: Get credentials for staging and dispatching
+        id: judge_credentials
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
+          role-session-name: judge-sweep-${{ github.run_id }}
+          aws-region: us-west-2
+          # LONGER THAN THE JOB, because this one waits rather than deploys.
+          # A background case dispatches a Fargate run and then polls S3 until
+          # the artifact lands, and the agents declare timeouts of up to an
+          # hour each. At the action's one-hour default the credentials expire
+          # mid-poll — after the dispatch, so the task keeps running and
+          # billing while the poll dies on an auth error the sweep records as
+          # an infraError. Paid for, then excluded from the comparison.
+          #
+          # Capped by the role's own maxSessionDuration (thegoodparty/ops,
+          # deploy/components/ci-roles.ts), which is why the two numbers match
+          # and why this cannot be raised here alone.
+          role-duration-seconds: 14400
+
+      - name: Resolve where a background dispatch goes
+        env:
+          JUDGE_ENVIRONMENT: dev
+        run: |
+          set -euo pipefail
+          echo "JUDGE_METADATA_BUCKET=agent-experiment-metadata-$JUDGE_ENVIRONMENT" >> "$GITHUB_ENV"
+          echo "JUDGE_ARTIFACT_BUCKET=gp-agent-artifacts-$JUDGE_ENVIRONMENT" >> "$GITHUB_ENV"
+          queue="agent-dispatch-$JUDGE_ENVIRONMENT.fifo"
+          if url="$(aws sqs get-queue-url --queue-name "$queue" --output text --query QueueUrl 2>/dev/null)"; then
+            echo "JUDGE_DISPATCH_QUEUE_URL=$url" >> "$GITHUB_ENV"
+            echo "background runs dispatch to $url"
+          else
+            echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries UniversalJudgeSweep-$JUDGE_ENVIRONMENT."
+          fi
+
       - name: Resolve the voter mart's Delta version
         id: mart
         working-directory: ${{ env.WORKSPACE }}

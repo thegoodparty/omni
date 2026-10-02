@@ -1,13 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
-import { findAgent } from './agents'
-import { isChatCase, loadCaseList } from './cases'
+import { isChatCase } from './cases'
 import type { ChatTurnScript } from './runners/chatSeam'
 import { ciContextFromEnv, runChatCase } from './runners/chat'
 import { seedChatOrg, seedOptionsFor } from './runners/seedChatOrg'
 import { captureArm, unjudgeableRecords, type ArmCaseRequest } from './sweepArm'
 import { restoreRealModelKey } from './modelKey'
-import { parseArmEnv, storeFromEnv } from './sweepEnv'
+import { S3Client } from '@aws-sdk/client-s3'
+import { SQSClient } from '@aws-sdk/client-sqs'
+import {
+  realClock,
+  s3ObjectStore,
+  sqsDispatchQueue,
+} from './runners/awsAdapters'
+import type { BackgroundRunnerDeps } from './runners/background'
+import { runBackgroundCase } from './runners/background'
+import {
+  backgroundRunInputFor,
+  caseLoaderFor,
+} from './runners/backgroundDispatch'
+import { findAgent } from './agents'
+import { DEFAULT_JUDGE_CONFIG } from './config'
+import {
+  backgroundDestinationFrom,
+  parseArmEnv,
+  storeFromEnv,
+} from './sweepEnv'
 
 // ONE ARM OF ONE SWEEP. Steps 1 and 2 of three: this file runs twice, once in
 // the base worktree with JUDGE_ARM=base and once in the candidate worktree
@@ -42,8 +60,12 @@ const service = useTestService()
 // whole config parsing cleanly.
 const sweepRequested = process.env.JUDGE_ARM !== undefined
 
-// Long: one arm of a 3-case, 3-attempt sweep is nine real turns.
-const ARM_TIMEOUT_MS = 30 * 60 * 1000
+// The whole budget this arm may spend, and the number the refusal below is
+// measured against. It is the sweep job's `timeout-minutes: 180` less what the
+// workspace build, the other arm's share and the judging step need — so a
+// background sweep that would overrun it is refused by name rather than cut
+// off partway, and a chat sweep that finishes in minutes is unaffected.
+const ARM_TIMEOUT_MS = 70 * 60 * 1000
 
 // What the model says when the sweep is not spending. Deterministic on
 // purpose: it makes the pipeline exercisable end to end for nothing, which is
@@ -72,12 +94,44 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
       const store = storeFromEnv(env)
       const ci = ciContextFromEnv()
 
+      // ONE PAIR OF CLIENTS FOR THE ARM, not one per case. Built lazily so a
+      // chat-only sweep never constructs them, and memoised so a 24-case
+      // background agent does not leave two dozen undestroyed SDK clients
+      // behind. The destination is resolved once here rather than again
+      // beside every dispatch.
+      let ports: BackgroundRunnerDeps | undefined
+      const backgroundPorts = (): BackgroundRunnerDeps => {
+        ports ??= {
+          store: s3ObjectStore(new S3Client({})),
+          queue: sqsDispatchQueue(
+            new SQSClient({}),
+            backgroundDestinationFrom(env).dispatchQueueUrl,
+          ),
+          clock: realClock,
+        }
+        return ports
+      }
+
       const manifest = await captureArm(
         {
           store,
           now: () => new Date(),
-          loadCases: loadCaseList,
+          loadCases: caseLoaderFor(
+            env.fixtureValues,
+            ARM_TIMEOUT_MS,
+            DEFAULT_JUDGE_CONFIG.attemptsPerCase,
+          ),
           runCase: async (request) => {
+            // THE ONE PLACE THE TWO RUNNERS DIVERGE. `captureArm` walks cases
+            // the same way for both shapes and `walkCases` validates whatever
+            // comes back against the same record schema, so the shape only
+            // decides which runner drives the case and what it needs to do it.
+            if (request.agent.shape === 'background') {
+              return runBackgroundCase(
+                backgroundPorts(),
+                backgroundRunInputFor(request, env),
+              )
+            }
             if (request.agent.shape !== 'chat') {
               throw new Error(
                 `${request.agent.agentId} is a ${request.agent.shape} ` +
@@ -174,17 +228,24 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
       // No agent silently dropped between the selection and the manifest.
       expect(accounted).toEqual(requested)
 
-      // Every chat agent with a case list must actually have been captured.
+      // Every agent with a case list must actually have been captured.
       // A skip here means paid work that did not happen, and the reason is in
       // the manifest — this assertion is what turns that into a red job
       // rather than a quiet coverage gap.
       const capturable = requested.filter((id) => {
         const entry = findAgent(id)
-        return (
-          entry?.shape === 'chat' &&
-          entry.cases !== null &&
-          entry.status !== 'blocked'
-        )
+        // No `shape` clause. Both shapes are captured now, and a filter that
+        // still named one of them would fail this assertion AFTER both arms
+        // had been fully billed — the manifest would carry the background
+        // agents and this list would not.
+        //
+        // The `entry === undefined` arm is explicit rather than left to
+        // optional chaining: `undefined !== null` is true, so an id the
+        // registry cannot resolve counted as capturable and was then expected
+        // in a manifest that can never contain it. captureArm refuses an
+        // unknown id outright, so it is not capturable here either.
+        if (entry === undefined) return false
+        return entry.cases !== null && entry.status !== 'blocked'
       })
       expect(
         manifest.agents.map((a) => a.agentId).sort(),
