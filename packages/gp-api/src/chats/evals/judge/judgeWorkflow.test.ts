@@ -682,6 +682,119 @@ describe('judge.yml assumes a role scoped to the judge', () => {
   })
 })
 
+// THE ROLE'S TRUST, held from the workflow side. It lives in gp-ai's
+// Terraform beside the policy it attaches, so a merged omni PR can change who
+// gets AWS credentials; these are the review that change does not otherwise
+// get. Text scans, like the rest of this file: gp-api declares no HCL parser,
+// and what matters is a handful of exact values in one block we own.
+describe('the judge role trusts exactly judge.yml on main', () => {
+  const MODULE = path.resolve(
+    __dirname,
+    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
+  )
+  const tf = readFileSync(MODULE, 'utf8')
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const role = tf.slice(tf.indexOf('resource "aws_iam_role" "judge_sweep"'))
+  const roleBlock = role.slice(0, role.indexOf('\n}\n') + 2)
+  const trust = roleBlock.slice(roleBlock.indexOf('assume_role_policy'))
+  const condition = (key: string): string[] =>
+    [
+      ...trust.matchAll(
+        new RegExp(
+          `"token\\.actions\\.githubusercontent\\.com:${key}"\\s*=\\s*"([^"]*)"`,
+          'g',
+        ),
+      ),
+    ].map((match) => match[1] ?? '')
+
+  it('finds the role and its trust', () => {
+    expect(roleBlock).toContain('assume_role_policy')
+    expect(trust).toContain('jsonencode(')
+  })
+
+  // The name judge.yml assumes, read off judge.yml rather than restated: a
+  // rename on one side leaves the sweep with credentials for nothing.
+  it('is the role judge.yml assumes', () => {
+    const arn = /role-to-assume: (arn:aws:iam::\d+:role\/(\S+))/.exec(yaml)
+    expect(arn?.[2]).toBeDefined()
+    expect(tf).toMatch(
+      new RegExp(`judge_role_name\\s*=\\s*"${arn?.[2] ?? 'missing'}"`),
+    )
+    expect(roleBlock).toMatch(/^ {2}name\s*=\s*local\.judge_role_name$/m)
+  })
+
+  it('trusts exactly one statement, by web identity, from GitHub', () => {
+    expect(trust.match(/Effect\s*=/g)).toHaveLength(1)
+    expect(trust).toMatch(/Action\s*=\s*"sts:AssumeRoleWithWebIdentity"/)
+    expect(trust).toMatch(
+      /Federated\s*=\s*"arn:aws:iam::\$\{data\.aws_caller_identity\.current\.account_id\}:oidc-provider\/\$\{local\.github_oidc\}"/,
+    )
+    expect(tf).toMatch(
+      /github_oidc\s*=\s*"token\.actions\.githubusercontent\.com"/,
+    )
+  })
+
+  // StringEquals only: a StringLike or ForAnyValue operator is how a pattern
+  // or a list would sneak a second subject in.
+  it('compares every claim exactly', () => {
+    expect(trust).toContain('StringEquals')
+    expect(trust).not.toMatch(/StringLike|ForAnyValue|ForAllValues/)
+    expect(trust).not.toContain('*')
+    expect(trust).not.toContain('pull_request')
+  })
+
+  it('pins the audience, the ref and the one workflow file', () => {
+    expect(condition('aud')).toEqual(['sts.amazonaws.com'])
+    expect(condition('sub')).toEqual([
+      'repo:thegoodparty/omni:ref:refs/heads/main',
+    ])
+    expect(condition('job_workflow_ref')).toEqual([
+      `thegoodparty/omni/.github/workflows/${path.basename(WORKFLOW)}@refs/heads/main`,
+    ])
+  })
+
+  // The two claims have to name the same ref, or neither pin means anything:
+  // judge.yml is reached by relative path, so GitHub resolves it from the
+  // caller's ref, and a job on a branch presents that branch in both claims.
+  it('names the same ref in both claims', () => {
+    const subjectRef = condition('sub')[0]?.split(':ref:')[1]
+    const workflowRef = condition('job_workflow_ref')[0]?.split('@')[1]
+    expect(subjectRef).toBe('refs/heads/main')
+    expect(workflowRef).toBe(subjectRef)
+  })
+
+  // Exactly what judge.yml asks for, which is longer than the sweep job and
+  // no longer than four hours. A shorter cap makes the assume FAIL, not
+  // shorten: the request names a duration the role refuses.
+  it('allows exactly the session judge.yml asks for', () => {
+    const asked = Number(/role-duration-seconds: (\d+)/.exec(yaml)?.[1])
+    const allowed = Number(
+      /max_session_duration\s*=\s*(\d+)/.exec(roleBlock)?.[1],
+    )
+    expect(asked).toBeGreaterThan(0)
+    expect(allowed).toBe(asked)
+    expect(allowed).toBeLessThanOrEqual(4 * 3600)
+  })
+
+  // The judge's own policy, and no other: attaching the deploy role's would
+  // undo the point of a role of its own.
+  it('attaches the judge policy and nothing else', () => {
+    const attachments = [
+      ...tf.matchAll(
+        /resource "aws_iam_role_policy_attachment" "\w+" \{([^}]*)\}/g,
+      ),
+    ].map((match) => match[1] ?? '')
+    expect(attachments).toHaveLength(1)
+    expect(attachments[0]).toMatch(/role\s*=\s*aws_iam_role\.judge_sweep\.name/)
+    expect(attachments[0]).toMatch(
+      /policy_arn\s*=\s*aws_iam_policy\.judge_sweep\.arn/,
+    )
+    expect(tf).not.toMatch(
+      /aws_iam_role_policy"|managed_policy_arns|inline_policy/,
+    )
+  })
+})
+
 // ONE BACKGROUND BUDGET, AND ONE ADMITTED LIST, FOR BOTH ARMS. The base arm
 // reads the base ref's config.ts and manifests, so a budget or an admission
 // each arm decided for itself would differ whenever a branch changed either.

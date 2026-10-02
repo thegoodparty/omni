@@ -1591,9 +1591,9 @@ jobs:
       # job stages agent configs and sends dispatch messages, so it gets
       # github-actions-judge-sweep and the one scoped policy attached to it.
       # Written as a literal rather than a repository variable because the role
-      # name is fixed by the IaC that creates it (thegoodparty/ops,
-      # deploy/components/ci-roles.ts) — a variable would add a hand-set value
-      # that can only ever disagree with it.
+      # name is fixed by the IaC that creates it (gp-ai's
+      # modules/universal-judge-sweep-policy) — a variable would add a hand-set
+      # value that can only ever disagree with it.
       #
       # continue-on-error, deliberately. A chat-only sweep needs no AWS at all,
       # and failing the whole job here would turn "the judge role is not
@@ -1618,9 +1618,10 @@ jobs:
           # billing while the poll dies on an auth error the sweep records as
           # an infraError. Paid for, then excluded from the comparison.
           #
-          # Capped by the role's own maxSessionDuration (thegoodparty/ops,
-          # deploy/components/ci-roles.ts), which is why the two numbers match
-          # and why this cannot be raised here alone.
+          # Capped by the role's own max_session_duration (gp-ai's
+          # modules/universal-judge-sweep-policy), which is why the two numbers
+          # match and why this cannot be raised here alone;
+          # judgeWorkflow.test.ts holds them equal.
           role-duration-seconds: 14400
 
       - name: Resolve where a background dispatch goes
