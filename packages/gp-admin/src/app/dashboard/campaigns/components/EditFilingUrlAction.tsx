@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { Button, Dialog, Flex, Text, TextField } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
@@ -28,6 +28,14 @@ export function EditFilingUrlAction({
   const [saved, setSaved] = useState(false)
   const [draft, setDraft] = useState(filingUrl)
 
+  // A refetch can hand this still-mounted component a new filingUrl (the
+  // replacement URL can itself fail validation, keeping the hold view up) —
+  // the new prop is a new editable value, so the dead state must lift.
+  useEffect(() => {
+    setSaved(false)
+    setDraft(filingUrl)
+  }, [filingUrl])
+
   const trimmed = draft.trim()
   const unsaveable = trimmed.length === 0 || trimmed === filingUrl
 
@@ -51,7 +59,18 @@ export function EditFilingUrlAction({
       )
       setOpen(false)
       setSaved(true)
-      await onResolved?.()
+      // Own catch: the server write already succeeded, so a refetch failure
+      // must not fall into the generic failure toast below and contradict
+      // the success toast.
+      try {
+        await onResolved?.()
+      } catch (refreshError) {
+        Sentry.captureException(refreshError)
+        showToast(
+          'Filing link saved, but refreshing the page failed — reload to ' +
+            'see the updated status'
+        )
+      }
     } catch (error) {
       Sentry.captureException(error)
       showToast(describeActionFailure(error, 'Failed to update filing link'))
