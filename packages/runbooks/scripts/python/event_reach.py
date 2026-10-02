@@ -9,8 +9,10 @@ page's title, which is what a person sees on a page that has no nav entry.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections import defaultdict, deque
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Protocol
 
 APP = "packages/gp-webapp/app/"
 WEB = "packages/gp-webapp/"
@@ -142,3 +144,96 @@ class AreaIndex:
             a = self.area(route)
             found.setdefault(a.key, a)
         return sorted(found.values(), key=lambda a: a.key)
+
+
+DASHBOARD_WIDE_AREAS = 5
+WIDE_LAYOUT_ROUTES = frozenset({"/", "/dashboard"})
+EXCLUDED_ROUTE_PREFIXES = ("/dev",)
+
+Resolve = Callable[[str, str, set[str]], "str | None"]
+
+
+class SnapshotLike(Protocol):
+    files: Mapping
+    all_paths: set[str]
+    route_texts: Mapping[str, str]
+    product_map: str
+    registries: Mapping[str, Mapping[str, str]]
+
+    def files_for(self, name: str) -> dict[str, int]: ...
+
+
+@dataclass(frozen=True)
+class Reach:
+    areas: tuple[Area, ...]
+    live_routes: frozenset[str]
+    dead_routes: frozenset[str]
+    gap_files: frozenset[str]
+    dashboard_wide: bool
+    visited: frozenset[str]
+
+    @property
+    def area_keys(self) -> frozenset[str]:
+        return frozenset(a.key for a in self.areas)
+
+
+def _excluded(route: str) -> bool:
+    return any(route == p or route.startswith(p + "/") for p in EXCLUDED_ROUTE_PREFIXES)
+
+
+class ReachIndex:
+    def __init__(self, snap: SnapshotLike, resolve: Resolve):
+        self._snap = snap
+        self.rev: dict[str, set[str]] = defaultdict(set)
+        for path, refs in snap.files.items():
+            if not path.startswith(WEB):
+                continue
+            for spec in refs.imports:
+                target = resolve(path, spec, snap.all_paths)
+                if target and target != path:
+                    self.rev[target].add(path)
+        pages = {route_of(p): t for p, t in snap.route_texts.items() if route_kind(p) == "page"}
+        self.areas = AreaIndex(snap.product_map, pages)
+
+    def reach(self, event: str) -> Reach | None:
+        sites = sorted(p for p in self._snap.files_for(event) if p.startswith(WEB))
+        if not sites:
+            return None
+        live: set[str] = set()
+        dead: set[str] = set()
+        layouts: set[str] = set()
+        gaps: set[str] = set()
+        seen, queue = set(sites), deque(sites)
+        while queue:
+            f = queue.popleft()
+            kind = route_kind(f)
+            if kind:
+                route = route_of(f)
+                if kind == "api" or _excluded(route):
+                    continue
+                if kind == "page":
+                    (dead if is_bare_redirect(self._snap.route_texts.get(f, "")) else live).add(route)
+                elif kind == "layout":
+                    layouts.add(route)
+                else:
+                    live.add(route)
+                continue
+            ups = self.rev.get(f)
+            if not ups:
+                gaps.add(f)
+                continue
+            for up in sorted(ups - seen):
+                seen.add(up)
+                queue.append(up)
+        areas = {self.areas.area(r) for r in live | (layouts - WIDE_LAYOUT_ROUTES)}
+        return Reach(
+            areas=tuple(sorted(areas, key=lambda a: a.key)),
+            live_routes=frozenset(live),
+            dead_routes=frozenset(dead),
+            gap_files=frozenset(gaps),
+            dashboard_wide=bool(layouts & WIDE_LAYOUT_ROUTES) or len(areas) >= DASHBOARD_WIDE_AREAS,
+            visited=frozenset(seen),
+        )
+
+    def reach_all(self) -> dict[str, Reach]:
+        return {name: r for name in sorted(self._snap.registries["web"]) if (r := self.reach(name))}
