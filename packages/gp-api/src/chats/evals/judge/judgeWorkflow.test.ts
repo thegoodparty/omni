@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
 import { budgetOutputLines } from './armBudget'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
+import { DEFAULT_JUDGE_CONFIG } from './config'
 import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
@@ -335,7 +336,7 @@ describe('judge.yml tells every judge process who asked', () => {
   })
 
   // The price and the guard state belong in the same comment: a reader
-  // approving ~$264 of sweep should be able to see whether two arms that hash
+  // approving ~$632 of sweep should be able to see whether two arms that hash
   // alike will be judged or refused.
   it('says in the plan comment which mode the request is in', () => {
     const estimate = steps.find(
@@ -1254,5 +1255,100 @@ describe('judge.yml links the commits, the base and the case lists', () => {
     ])('leaves %j as a code span', (value) => {
       expect(cell(value)).toBe(`\`${value}\``)
     })
+  })
+})
+
+// THE BACKGROUND PRICE IS A FUNCTION OF THE BACKGROUND BUDGET. It was a bare
+// $13 that outlived the budget it priced, so it is recomputed here from
+// config.background: a change to the budget that does not reach the workflow
+// fails this rather than quietly mispricing every plan comment.
+describe('judge.yml prices a background agent from config.background', () => {
+  const estimate = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
+    (step) => step.name === 'Estimate the cost and case count',
+  )
+  const script = runBlockOf(estimate?.body ?? '')
+
+  // Rounded up from the worst measured mean, meeting_briefing's ~$7.74.
+  const RUN_CENTS = 800
+  // The base-arm cache is not read by the sweep yet, so both arms run.
+  const ARMS = 2
+  // A chat agent other than ordinance_flow, from the design doc.
+  const CHAT_CENTS = 700
+
+  it('matches arms x cases x attempts x the per-run cost', () => {
+    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
+    expect(maxCases).toBeDefined()
+    const assigned = [...script.matchAll(/^background_cents=(\d+)$/gm)]
+    expect(assigned).toHaveLength(1)
+    expect(Number(assigned[0]?.[1])).toBe(
+      ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS,
+    )
+  })
+
+  // Run, not read: the step is `set -u`, so a constant that is right but
+  // assigned after the loop that reads it matches every text check above and
+  // kills the step on the first background row. The WHOLE run block, with a
+  // fake `npx` standing in for the CLI, so no slice boundary decides what is
+  // tested.
+  it('prices a chat and a background row, run through bash', () => {
+    expect(script.split('\n')[0]).toBe('set -euo pipefail')
+    const dir = mkdtempSync(path.join(tmpdir(), 'judge-estimate-'))
+    const bin = path.join(dir, 'bin')
+    execFileSync('mkdir', [bin])
+    writeFileSync(
+      path.join(dir, 'plan.fixture'),
+      'Universal Judge — plan (2 agents)\n\n' +
+        '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
+        '  self_research  [background]  cases: self_research.json\n',
+    )
+    writeFileSync(
+      path.join(bin, 'npx'),
+      `#!/bin/bash\ncat "${path.join(dir, 'plan.fixture')}"\n`,
+    )
+    chmodSync(path.join(bin, 'npx'), 0o755)
+    const output = path.join(dir, 'output')
+    const summary = path.join(dir, 'summary')
+    writeFileSync(output, '')
+    writeFileSync(summary, '')
+    execFileSync('bash', ['--noprofile', '--norc', '-c', script], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        RUNNER_TEMP: dir,
+        GITHUB_OUTPUT: output,
+        GITHUB_STEP_SUMMARY: summary,
+        GITHUB_SERVER_URL: 'https://github.com',
+        GITHUB_REPOSITORY: 'thegoodparty/omni',
+        WORKSPACE: 'packages/gp-api',
+        CLI: 'src/chats/evals/judge/cli.ts',
+        AGENTS: 'chief_of_staff,self_research',
+        REQUESTED: 'chief_of_staff,self_research',
+        SELECTION: EXPLICIT_SELECTION,
+        LIVE: 'false',
+        SWEEP_CAPABLE: 'true',
+        REQUESTED_BY: 'octocat',
+        CANDIDATE_SHA: 'a'.repeat(40),
+        BASE_REF: 'main',
+        PR_NUMBER: '1',
+        RUN_URL: 'https://github.com/thegoodparty/omni/actions/runs/1',
+      },
+    })
+    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
+    const background = ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS
+    const dollars = (cents: number) =>
+      `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
+    const outputs = readFileSync(output, 'utf8')
+    expect(outputs).toMatch(
+      new RegExp(`^usd=${dollars(CHAT_CENTS + background)}$`, 'm'),
+    )
+    expect(outputs).toMatch(/^sweep_agents=chief_of_staff,self_research$/m)
+    const comment = readFileSync(path.join(dir, 'plan-comment.md'), 'utf8')
+    const row = (id: string, shape: string, cents: number) =>
+      new RegExp(
+        `^\\| ${id} \\| ${shape} \\| .* \\| ~${dollars(cents)} \\|$`,
+        'm',
+      )
+    expect(comment).toMatch(row('chief_of_staff', 'chat', CHAT_CENTS))
+    expect(comment).toMatch(row('self_research', 'background', background))
   })
 })

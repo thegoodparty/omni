@@ -50,7 +50,7 @@ excluded and why, and an agent that couldn't be compared is listed as
 refused, with the reason.
 
 A sweep of one chat agent takes about half an hour. The plan comment shows the
-estimate before anything runs: about $7 for a chat agent, $13 for a background
+estimate before anything runs: about $7 for a chat agent, $48 for a background
 agent, $35 for `ordinance_flow`.
 
 **A second request on the same PR cancels the first**, from a comment or from

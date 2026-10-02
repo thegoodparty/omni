@@ -497,7 +497,7 @@ jobs:
                 # directory name reaches `--agents=` unchanged. Both are valid
                 # snake_case, so the allowlist below passes them through: a
                 # directory named `all` turns this one-agent request into the
-                # 20-agent ~$264 sweep that every other guard in this file
+                # 16-agent ~$632 sweep that every other guard in this file
                 # exists to prevent, and one named `auto` makes the CLI throw.
                 # Rejected here rather than filtered out, because silently
                 # judging nothing would hide a directory nobody can ever judge.
@@ -694,7 +694,7 @@ jobs:
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
       #
-      # An accidental `all` is the failure this exists for. It is roughly $260
+      # An accidental `all` is the failure this exists for. It is roughly $632
       # against roughly $7 for the normal one-agent case, and the difference
       # between those two is one word in a PR comment. So the number goes in
       # front of a person, in the job summary and on the PR, and the live sweep
@@ -707,12 +707,14 @@ jobs:
       # visibility guarantee, deliberately, and not an approval gate; the PR
       # says what it would take to make it one.
       #
-      # The dollar figures are the design doc's measured sweep costs, not a
+      # The chat figures are the design doc's measured sweep costs, not a
       # model of them: ~$7 for a chat agent, ~5x that for ordinance_flow (whose
-      # per-step cost is five times every other chat agent), ~$13 for a
-      # background agent. Per-agent case lists come from the CLI's own plan,
-      # which is reproduced verbatim below the table, so the two facts a reader
-      # needs are never assembled by this YAML.
+      # per-step cost is five times every other chat agent). The background
+      # figure is derived below from config.background and pinned to it by a
+      # test, because the budget it prices moved after the design doc did.
+      # Per-agent case lists come from the CLI's own plan, which is reproduced
+      # verbatim below the table, so the two facts a reader needs are never
+      # assembled by this YAML.
       - name: Estimate the cost and case count
         id: estimate
         if: >-
@@ -962,6 +964,23 @@ jobs:
             refuse "The judge CLI planned $planned agents and this workflow could read only $parsed of them out of the plan, so the pricing regex and the plan format have drifted apart. Under-reporting a bill is worse than refusing to report one, so it stops here rather than pricing part of a sweep. That is a fault in the judge, not in this PR."
           fi
 
+          # 2 arms x 3 cases x 1 attempt x $8 a run = $48, from
+          # DEFAULT_JUDGE_CONFIG.background (maxCases 3, attemptsPerCase 1).
+          # Both arms, because the sweep does not read the base-arm cache yet.
+          #
+          # $8 IS DELIBERATELY HIGH. This number exists to make a sweep visible
+          # before it spends, so it rounds up the worst measured mean per run
+          # rather than averaging: meeting_briefing's ~$7.74, invoice-confirmed
+          # (.claude/skills/analyze-cap-agent-costs/profiles/meeting_briefing.md).
+          # The other measurements sit under it: $2.45 to $5.27 for the
+          # community-issues pair (profiles/community_issues.md). Judging is a
+          # few cents on one seat and is not added.
+          #
+          # Set before the loop that reads it, under `set -u`.
+          # judgeWorkflow.test.ts recomputes it from the config and runs the
+          # loop, so a budget change that does not reach here fails there.
+          background_cents=4800
+
           total=0
           sweep_agents=""
           keep() {
@@ -993,7 +1012,7 @@ jobs:
               esac
               case "$id" in
                 ordinance_flow) cents=3500 ;;  # ~5x per step, per the design doc
-                *) [ "$shape" = "chat" ] && cents=700 || cents=1300 ;;
+                *) [ "$shape" = "chat" ] && cents=700 || cents=$background_cents ;;
               esac
               total=$((total + cents))
               keep "$id"
@@ -1078,8 +1097,9 @@ jobs:
             echo ''
             cat "$RUNNER_TEMP/table.md"
             echo ''
-            echo 'Estimates are the design doc'"'"'s measured sweep costs, rounded. They exist'
-            echo 'to make an accidental all-agents sweep visible before it is expensive,'
+            echo 'Chat estimates are the design doc'"'"'s measured sweep costs; the background'
+            echo 'estimate rounds up the worst measured per-run cost. Both exist to make an'
+            echo 'accidental all-agents sweep visible before it is expensive,'
             echo 'not to bill anyone. An agent with no case list yet is listed but'
             echo 'neither priced nor swept, because it has nothing to compare.'
             echo ''

@@ -182,7 +182,7 @@ const advise = (found: readonly Finding[]): string => {
 //     a plain string with at most `minLength: 1` — no pattern, no format — and
 //     `{judgeOrgSlug}` is fourteen characters, so the manifest passes it, the
 //     message is accepted, a Fargate task launches, and the agent runs against
-//     an organization that does not exist. A roughly $13 background sweep is
+//     an organization that does not exist. A roughly $48 background sweep is
 //     then spent on an artifact that is an error or an invention, on BOTH arms,
 //     and the verdict looks like a real comparison.
 //   - A token in a KEY is refused, but only by fourteen of the sixteen
