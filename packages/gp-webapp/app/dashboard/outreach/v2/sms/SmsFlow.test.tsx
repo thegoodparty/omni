@@ -578,6 +578,133 @@ describe('SmsFlow', () => {
       expect(await screen.findByText(/Likely voters/)).toBeInTheDocument()
     })
 
+    // Words the product carried in or wrote are checked for the sender's
+    // name before the compose step shows them; words the candidate typed
+    // never are.
+    describe('identification', () => {
+      const INTRO = 'this is Jane, candidate for City Council.'
+
+      const reachCompose = async (initialScript: string) => {
+        openSeeded({ initialScript, preselectedListId: 41 })
+        await userEvent.click(
+          await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+        )
+        await userEvent.click(await screen.findByText('Pick a date'))
+        await userEvent.click(
+          await screen.findByRole('button', { name: dayName(4) }),
+        )
+        await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+        return (await screen.findByLabelText(
+          'Message body',
+        )) as HTMLTextAreaElement
+      }
+
+      it('opens a seed with no name on the intro', async () => {
+        const box = await reachCompose('Hello {first_name}, vote Tuesday.')
+
+        expect(box.value).toBe(`${INTRO} Vote Tuesday.`)
+        expect(
+          screen.queryByText(/messages must include your name/),
+        ).not.toBeInTheDocument()
+      })
+
+      it('replaces a placeholder opener and fills the real name', async () => {
+        const box = await reachCompose(
+          'Hi, this is [Your Name] from the City of Austin. Vote Tuesday. Questions? Ask for [your name].',
+        )
+
+        expect(box.value).toBe(
+          `${INTRO} Vote Tuesday. Questions? Ask for Jane.`,
+        )
+      })
+
+      it('leaves a seed that already names the candidate alone', async () => {
+        const box = await reachCompose(`${INTRO} Vote Tuesday.`)
+
+        expect(box.value).toBe(`${INTRO} Vote Tuesday.`)
+      })
+
+      it('never rewrites what the candidate typed', async () => {
+        const box = await reachCompose('Vote Tuesday.')
+        await userEvent.clear(box)
+        await userEvent.type(box, 'Vote early, friends.')
+
+        expect(box.value).toBe('Vote early, friends.')
+      })
+
+      it('puts the name back when Improve drops it, without doubling it', async () => {
+        const replies = ['Please vote early, friends!', `${INTRO} Vote early!`]
+        api.mock('POST /v1/outreach/sms/draft', () => ({
+          status: 200,
+          data: { draft: replies.shift() ?? '' },
+        }))
+        const box = await reachCompose('Vote Tuesday.')
+        await userEvent.clear(box)
+        await userEvent.type(box, 'Vote early, friends.')
+
+        await userEvent.click(
+          screen.getByRole('button', { name: /Improve with AI/ }),
+        )
+        await waitFor(() =>
+          expect(box.value).toBe(`${INTRO} Please vote early, friends!`),
+        )
+
+        await userEvent.type(box, ' ')
+        await userEvent.click(
+          screen.getByRole('button', { name: /Improve with AI/ }),
+        )
+        await waitFor(() => expect(box.value).toBe(`${INTRO} Vote early!`))
+      })
+
+      it('keeps one intro per tone across fresh drafts and tone switches', async () => {
+        api.mock('POST /v1/outreach/sms/draft', ({ body }) => ({
+          status: 200,
+          data: {
+            draft:
+              body.tone === 'direct'
+                ? 'Hi, this is Jane, running for City Council. Vote early.'
+                : 'Vote Tuesday.',
+          },
+        }))
+        openFlow()
+        await userEvent.click(screen.getByText('Introduce myself to voters'))
+        await userEvent.click(await screen.findByText('Choose a voter list'))
+        await userEvent.click(await screen.findByText('Likely voters'))
+        await userEvent.click(
+          await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+        )
+        await userEvent.click(await screen.findByText('Pick a date'))
+        await userEvent.click(
+          await screen.findByRole('button', { name: dayName(4) }),
+        )
+        await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+        const box = (await screen.findByLabelText(
+          'Message body',
+        )) as HTMLTextAreaElement
+        const direct = 'Jane here, candidate for City Council. Vote early.'
+
+        await waitFor(() => expect(box.value).toBe(`${INTRO} Vote Tuesday.`))
+        await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
+        await waitFor(() => expect(box.value).toBe(direct))
+        await userEvent.click(screen.getByRole('radio', { name: /Warm/ }))
+        expect(box.value).toBe(`${INTRO} Vote Tuesday.`)
+        await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
+        expect(box.value).toBe(direct)
+      })
+
+      it('flags brackets left to fill and holds Continue', async () => {
+        await reachCompose('Rally at [Location] on [Date].')
+        await attachImage()
+
+        expect(
+          screen.getByText(
+            'Your message still has [Location], [Date]. Replace them with the real details before you send.',
+          ),
+        ).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+      })
+    })
+
     it('ignores a preselected list that names no row of yours', async () => {
       openSeeded({
         initialScript: 'Hello {first_name}, vote Tuesday.',
