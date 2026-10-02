@@ -924,8 +924,21 @@ describe('judge.yml mints one test organization for both arms', () => {
     const runs = [
       ...text.matchAll(/^ {8}run: \|\n([\s\S]*?)(?=^ {0,8}\S|$(?![\s\S]))/gm),
     ]
-    expect(runs).toHaveLength(1)
-    expect(runs[0]?.[1]).toMatch(/npx tsx "\$FIXTURE_ENTRY" (mint|delete) /)
+    // Two scripts: the install, and the entry. The install exactly, so
+    // nothing else can be slipped in front of the secret.
+    expect(runs).toHaveLength(2)
+    expect(runs[0]?.[1]?.trimEnd()).toBe(
+      '          set -euo pipefail\n' +
+        '          npm ci --no-audit --no-fund\n' +
+        '          npm run build -w packages/contracts',
+    )
+    expect(runs[1]?.[1]).toMatch(/npx tsx "\$FIXTURE_ENTRY" (mint|delete) /)
+    // NOTHING RESTORED. A cache the branch's code can write in main's scope
+    // would hand this job a tampered tsx; the shared setup action restores
+    // one, and setup-node turns its own on for a declared package manager.
+    expect(text).not.toMatch(/uses: \S*(setup-node-workspace|actions\/cache)/)
+    expect(text).toMatch(/^ {10}package-manager-cache: false$/m)
+    expect(text.match(/uses: /g)).toHaveLength(2)
     const entry = stepsOf(text).at(-1)?.body ?? ''
     expect(envValue(entry, 'JUDGE_FIXTURE_API_URL')).toBe(
       'https://gp-api-dev.goodparty.org',
@@ -938,6 +951,20 @@ describe('judge.yml mints one test organization for both arms', () => {
     // Nothing it does may outlive the step.
     expect(text).not.toContain('GITHUB_ENV')
   })
+
+  // THE PREMISE THE ENVIRONMENT RESTS ON. No caller runs on a pull request
+  // event, whose workflow files come from the PR's own branch; the two that
+  // exist run from main (`issue_comment`) or from the ref a person dispatched,
+  // which the environment's main-only branch rule refuses. A pull request
+  // trigger added later would need its own answer for the fixture jobs.
+  it.each(['judge-request.yml', 'judge-comment.yml'])(
+    '%s has no pull request trigger',
+    (caller) => {
+      const text = readFileSync(path.join(WORKFLOWS, caller), 'utf8')
+      expect(text).toMatch(/^on:$/m)
+      expect(text).not.toMatch(/^ {2}pull_request(_target)?:/m)
+    },
+  )
 
   it('never hands every secret to anything', () => {
     expect(yaml).not.toMatch(/toJSON\(\s*secrets\s*\)/)

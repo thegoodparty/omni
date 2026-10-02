@@ -1369,11 +1369,22 @@ jobs:
           ref: main
           persist-credentials: false
 
-      - uses: ./.github/actions/setup-node-workspace
+      # NO CACHE, and not setup-node-workspace. That action restores
+      # node_modules from a cache keyed on the lockfile, and on the comment
+      # path the plan and sweep jobs run the branch's code in main's cache
+      # scope, where any of it can write an entry under that key. A restored
+      # `tsx` would then run here with the secret set. So these two jobs
+      # install from main's lockfile, every time, with nothing restored.
+      - uses: actions/setup-node@v6
         with:
-          app: gp-api
-          workspace: ${{ env.WORKSPACE }}
-          build-contracts: 'true'
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Install from main's lockfile
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build -w packages/contracts
 
       - name: Mint the test organization
         id: mint
@@ -2063,11 +2074,22 @@ jobs:
           ref: main
           persist-credentials: false
 
-      - uses: ./.github/actions/setup-node-workspace
+      # NO CACHE, and not setup-node-workspace. That action restores
+      # node_modules from a cache keyed on the lockfile, and on the comment
+      # path the plan and sweep jobs run the branch's code in main's cache
+      # scope, where any of it can write an entry under that key. A restored
+      # `tsx` would then run here with the secret set. So these two jobs
+      # install from main's lockfile, every time, with nothing restored.
+      - uses: actions/setup-node@v6
         with:
-          app: gp-api
-          workspace: ${{ env.WORKSPACE }}
-          build-contracts: 'true'
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Install from main's lockfile
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build -w packages/contracts
 
       - name: Delete the test organization
         working-directory: ${{ env.WORKSPACE }}
