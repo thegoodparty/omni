@@ -58,7 +58,7 @@ jobs:
           approvers=""
           for login in $candidates; do
             perm=$(gh api "repos/$REPO/collaborators/$login/permission" --jq .permission) || perm=none
-            if [[ "$perm" == "admin" || "$perm" == "write" ]]; then
+            if [[ "$perm" == "admin" || "$perm" == "maintain" || "$perm" == "write" ]]; then
               approvers="${approvers:+$approvers, }$login"
             fi
           done
