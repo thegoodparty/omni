@@ -265,15 +265,16 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
-### Only humans merge to `main`
+### Human approval for agent-authored PRs
 
 The `main` ruleset requires one approval, and delegate-reviewer's approval
-counts, so review alone would let an agent approve and merge its own work. A
-second ruleset, **"main: only humans merge"**, restricts updates to `main`: only
-the `gp-contrib` team and the `omni-automaton` app (its dependabot and analytics
-governance merges) can merge, both through PRs only. Agents still push branches,
-open PRs and push fixes; a human presses merge. To let another app merge, add it
-to that ruleset's bypass list. Never add an agent that writes code.
+counts. So `human-approval.yml` runs a required **"Human approval"** check: on a
+PR opened by an author in its `GATED_AUTHORS` list (today `bugboss-gp[bot]`) it
+fails until an org member approves the current head commit. A push after the
+approval turns it red again. Every other PR passes it immediately. To gate
+another agent, add its `login[bot]` to `GATED_AUTHORS`. The agents' GitHub Apps
+hold no `workflows` permission, which is what stops them editing the file to
+make it pass; never grant one that permission.
 
 ### Analytics guard
 
