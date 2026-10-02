@@ -423,8 +423,8 @@ jobs:
               echo ''
               echo "| | |"
               echo "| --- | --- |"
-              echo "| candidate | \`$CANDIDATE_SHA\` |"
-              echo "| base | \`$BASE_REF\` |"
+              echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+              echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
               echo ''
               echo "This run is red, and that is the answer rather than a hiccup:"
               echo "the annotation is in [the run log]($RUN_URL)."
@@ -681,8 +681,8 @@ jobs:
             else
               echo "| agents | \`$AGENTS\` (asked for: \`$REQUESTED\`) |"
             fi
-            echo "| candidate | \`$CANDIDATE_SHA\` |"
-            echo "| base | \`$BASE_REF\` |"
+            echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+            echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
             if [ -n "$credit" ]; then
               echo ''
               echo "Requested by @$credit."
@@ -800,8 +800,8 @@ jobs:
               else
                 echo "| agents | \`$AGENTS\` (asked for: \`$REQUESTED\`) |"
               fi
-              echo "| candidate | \`$CANDIDATE_SHA\` |"
-              echo "| base | \`$BASE_REF\` |"
+              echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+              echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
               if [ -s "$RUNNER_TEMP/plan.txt" ]; then
                 echo ''
                 echo '<details><summary>What the CLI printed</summary>'
@@ -859,8 +859,8 @@ jobs:
               else
                 echo "| agents | \`$AGENTS\` (asked for: \`$REQUESTED\`) |"
               fi
-              echo "| candidate | \`$CANDIDATE_SHA\` |"
-              echo "| base | \`$BASE_REF\` |"
+              echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+              echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
               echo ''
               echo '<details><summary>Plan</summary>'
               echo ''
@@ -1006,8 +1006,17 @@ jobs:
               # gone.
               safe_cases="$(printf '%s' "$cases" | tr -d '\r`' \
                 | sed 's/|/\\|/g' | cut -c1-120)"
-              printf '| %s | %s | `%s` | ~%d.%02d |\n' \
-                "$id" "$shape" "$safe_cases" "$((cents / 100))" "$((cents % 100))"
+              # Linked to the file at the commit being judged, but only when
+              # it is a plain case-list file name. Anything else stays the
+              # escaped code span above: it is arbitrary CLI output, and a
+              # link built from it would point wherever that output said.
+              if [[ "$safe_cases" =~ ^[a-z0-9_]+\.json$ ]]; then
+                cell="[\`$safe_cases\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$CANDIDATE_SHA/$WORKSPACE/src/chats/evals/judge/cases/$safe_cases)"
+              else
+                cell="\`$safe_cases\`"
+              fi
+              printf '| %s | %s | %s | ~%d.%02d |\n' \
+                "$id" "$shape" "$cell" "$((cents / 100))" "$((cents % 100))"
             done <<<"$rows"
           } > "$RUNNER_TEMP/table.md"
 
@@ -1063,8 +1072,8 @@ jobs:
             else
               echo "| selection | \`auto\`, from the diff, so two arms that hash alike are refused |"
             fi
-            echo "| candidate | \`$CANDIDATE_SHA\` |"
-            echo "| base | \`$BASE_REF\` |"
+            echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+            echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
             echo ''
             cat "$RUNNER_TEMP/table.md"
             echo ''
@@ -1161,8 +1170,8 @@ jobs:
             echo "| | |"
             echo "| --- | --- |"
             echo "| asked for | \`$REQUESTED\` |"
-            echo "| candidate | \`$CANDIDATE_SHA\` |"
-            echo "| base | \`$BASE_REF\` |"
+            echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+            echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) |"
             if [ -n "$credit" ]; then
               echo ''
               echo "Requested by @$credit."
@@ -2026,6 +2035,13 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          # The base commit, linked, or `unresolved` when the worktree step
+          # never ran. Built here because `${BASE_SHA:-unresolved}` would
+          # repeat the SHA after its own link.
+          base_commit=unresolved
+          if [ -n "${BASE_SHA:-}" ]; then
+            base_commit="[\`${BASE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$BASE_SHA)"
+          fi
           {
             echo '### Universal Judge sweep'
             echo ''
@@ -2041,8 +2057,8 @@ jobs:
             # is only meaningful in the plan summary, and that is where it
             # stays.
             echo "| swept | \`$AGENTS\` |"
-            echo "| candidate | \`$CANDIDATE_SHA\` |"
-            echo "| base | \`$BASE_REF\` (\`${BASE_SHA:-unresolved}\`) |"
+            echo "| candidate | [\`${CANDIDATE_SHA:0:12}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$CANDIDATE_SHA) |"
+            echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) ($base_commit) |"
             echo "| sweep id | \`$SWEEP_ID\` |"
             echo "| estimated before the run | ~\$$ESTIMATE_USD |"
             echo "| outcome | $JOB_STATUS |"
