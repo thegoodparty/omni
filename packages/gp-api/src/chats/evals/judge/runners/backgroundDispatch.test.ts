@@ -6,6 +6,7 @@ import {
   armDeps,
   backgroundRunInputFor,
   caseLoaderFor,
+  refusedBeforeSpend,
 } from './backgroundDispatch'
 import { DEFAULT_JUDGE_CONFIG } from '../config'
 import { findAgent } from '../agents'
@@ -721,5 +722,91 @@ describe('armDeps', () => {
     expect(() => loadCases(real('opportunities_and_challenges'))).toThrow(
       /not admitted/,
     )
+  })
+})
+
+// THE ARM SUITE'S RULE FOR A SKIP THAT IS NOT A FAILURE, held to the code that
+// actually refuses. A predicate that drifted from the refusals would either
+// turn a designed refusal red, which skips the candidate arm and strands every
+// chat agent already paid for, or wave through a capture that broke.
+describe('refusedBeforeSpend', () => {
+  const background = request().agent
+  const chat = {
+    ...background,
+    agentId: 'chief_of_staff',
+    shape: 'chat' as const,
+  }
+  const one: BackgroundCase[] = [{ caseId: 'case-1', params: {} }]
+  const loaderDeps = {
+    load: () => caseList('background', background.agentId, one),
+    loadBackground: () => one,
+    loadConfig: () => config(),
+  }
+  // What the arm does with this env: load the agent's cases through the
+  // loader the arm builds, then build the first dispatch. Either throwing is a
+  // refusal before anything is staged.
+  const armRefuses = (arm: ArmEnv): boolean => {
+    try {
+      const budget = {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: undefined,
+      }
+      caseLoaderFor(
+        arm.fixtureValues,
+        arm.backgroundAdmitted === undefined
+          ? budget
+          : { ...budget, admitted: arm.backgroundAdmitted },
+        loaderDeps,
+      )(background)
+      backgroundRunInputFor(request(), arm, () => config())
+      return false
+    } catch {
+      return true
+    }
+  }
+
+  it.each<[string, Partial<ArmEnv>]>([
+    ['not admitted', { backgroundAdmitted: new Set(['someone_else']) }],
+    ['admitted list empty', { backgroundAdmitted: new Set() }],
+    ['no organization minted', { fixtureValues: {} }],
+    ['no metadata bucket', { metadataBucket: undefined }],
+    ['no artifact bucket', { artifactBucket: undefined }],
+    ['no dispatch queue', { dispatchQueueUrl: undefined }],
+  ])('counts %s as refused, and the arm does refuse it', (_, over) => {
+    const arm = env(over)
+    expect(armRefuses(arm)).toBe(true)
+    expect(refusedBeforeSpend(background, arm)).toBe(true)
+  })
+
+  it.each<[string, Partial<ArmEnv>]>([
+    [
+      'admitted, with everything it needs',
+      {
+        backgroundAdmitted: new Set([background.agentId]),
+      },
+    ],
+    ['a local run, which has no admitted list', {}],
+  ])('does not count %s, and the arm does dispatch it', (_, over) => {
+    const arm = env(over)
+    expect(armRefuses(arm)).toBe(false)
+    expect(refusedBeforeSpend(background, arm)).toBe(false)
+  })
+
+  // A chat agent needs none of it, so an env missing all of it refuses no
+  // chat agent — and a chat skip stays the red job it should be.
+  it('never counts a chat agent', () => {
+    expect(
+      refusedBeforeSpend(
+        chat,
+        env({
+          backgroundAdmitted: new Set(),
+          fixtureValues: {},
+          metadataBucket: undefined,
+          artifactBucket: undefined,
+          dispatchQueueUrl: undefined,
+        }),
+      ),
+    ).toBe(false)
   })
 })

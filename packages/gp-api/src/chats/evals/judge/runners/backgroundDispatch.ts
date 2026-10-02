@@ -97,6 +97,26 @@ const modelOf = (config: AgentConfig): string => {
   return model
 }
 
+// WHETHER A BACKGROUND AGENT IS REFUSED BY DESIGN, before anything is staged:
+// the sweep did not admit it, minted no organization for it, or has nowhere
+// to dispatch it. Each of those is refused by name further in — by the loader
+// or by backgroundRunInputFor below — and each is an ordinary sweep, not a
+// failed one.
+//
+// The arm suite reads this to tell those skips from a capture that broke. It
+// lives here, where CI runs it, because that suite is skipped in CI. An arm
+// that went red over one did worse than refuse: the candidate arm runs only
+// after a green base arm, so every chat agent in the same sweep was billed on
+// one arm and paired with nothing.
+export const refusedBeforeSpend = (agent: AgentEntry, env: ArmEnv): boolean =>
+  agent.shape === 'background' &&
+  ((env.backgroundAdmitted !== undefined &&
+    !env.backgroundAdmitted.has(agent.agentId)) ||
+    env.fixtureValues.orgSlug === undefined ||
+    env.metadataBucket === undefined ||
+    env.artifactBucket === undefined ||
+    env.dispatchQueueUrl === undefined)
+
 export const backgroundRunInputFor = (
   request: ArmCaseRequest,
   env: ArmEnv,

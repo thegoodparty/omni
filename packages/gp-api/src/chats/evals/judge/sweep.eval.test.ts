@@ -19,6 +19,7 @@ import {
   ARM_BUDGET_MS,
   armDeps,
   backgroundRunInputFor,
+  refusedBeforeSpend,
 } from './runners/backgroundDispatch'
 import { findAgent } from './agents'
 import {
@@ -247,6 +248,10 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
         // in a manifest that can never contain it. captureArm refuses an
         // unknown id outright, so it is not capturable here either.
         if (entry === undefined) return false
+        // A background agent refused by design is a named skip, not a broken
+        // capture. Turned red, it would skip the candidate arm and strand
+        // every chat agent this arm already paid for.
+        if (refusedBeforeSpend(entry, env)) return false
         return entry.cases !== null && entry.status !== 'blocked'
       })
       expect(
