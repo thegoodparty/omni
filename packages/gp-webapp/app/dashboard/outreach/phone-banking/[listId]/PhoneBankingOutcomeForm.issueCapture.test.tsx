@@ -163,9 +163,15 @@ beforeEach(() => {
         personId: 'person-1',
         extractionStatus: 'extracted',
         extraction: {
-          issueLabel: 'Compost collection',
-          stance: 'mixed',
-          desiredOutcome: 'Weekly pickup instead of fortnightly',
+          issues: [
+            {
+              id: 'issue-compost-collection',
+              position: 0,
+              issueLabel: 'Compost collection',
+              stance: 'mixed',
+              desiredOutcome: 'Weekly pickup instead of fortnightly',
+            },
+          ],
         },
       },
     }
@@ -178,9 +184,15 @@ beforeEach(() => {
       occurredAt: new Date('2026-09-26T00:00:00.000Z'),
       channel: 'phone_bank',
       transcript: MEMO,
-      issueLabel: 'Compost collection',
-      stance: 'mixed',
-      desiredOutcome: 'Weekly pickup instead of fortnightly',
+      issues: [
+        {
+          id: 'issue-compost-collection',
+          position: 0,
+          issueLabel: 'Compost collection',
+          stance: 'mixed',
+          desiredOutcome: 'Weekly pickup instead of fortnightly',
+        },
+      ],
       extractionStatus: 'extracted',
       confirmedAt: new Date('2026-09-26T00:00:01.000Z'),
       outreachId: 7,
@@ -191,10 +203,10 @@ beforeEach(() => {
 })
 
 describe('PhoneBankingOutcomeForm issue capture', () => {
-  // Unlike the door, where the walk is HELD until the triple is answered, the
+  // Unlike the door, where the walk is HELD until the issues are answered, the
   // caller is released the moment the call is logged — they pick their own
   // next entry, so there is nothing to hold.
-  it('logs the call first, then offers the triple over the top', async () => {
+  it('logs the call first, then offers the issues over the top', async () => {
     const { onSaved } = renderForm()
     callAndSave()
 
@@ -270,7 +282,12 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.IssueCapture.MemoConfirmed,
-        { channel: 'phoneBanking', corrected: true, product: 'serve' },
+        {
+          channel: 'phoneBanking',
+          corrected: true,
+          issueCount: 1,
+          product: 'serve',
+        },
       ),
     )
   })
@@ -284,7 +301,12 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.IssueCapture.MemoConfirmed,
-        { channel: 'phoneBanking', corrected: false, product: 'serve' },
+        {
+          channel: 'phoneBanking',
+          corrected: false,
+          issueCount: 1,
+          product: 'serve',
+        },
       ),
     )
   })
@@ -345,9 +367,15 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
           personId: 'person-1',
           extractionStatus: 'extracted',
           extraction: {
-            issueLabel: 'Compost collection',
-            stance: 'mixed',
-            desiredOutcome: 'Weekly pickup instead of fortnightly',
+            issues: [
+              {
+                id: 'issue-compost-collection',
+                position: 0,
+                issueLabel: 'Compost collection',
+                stance: 'mixed',
+                desiredOutcome: 'Weekly pickup instead of fortnightly',
+              },
+            ],
           },
         },
       }
@@ -537,7 +565,12 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.IssueCapture.MemoConfirmed,
-        { channel: 'phoneBanking', corrected: false, product: 'win' },
+        {
+          channel: 'phoneBanking',
+          corrected: false,
+          issueCount: 1,
+          product: 'win',
+        },
       ),
     )
   })

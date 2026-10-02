@@ -17,6 +17,7 @@ import {
   SynthesisRunStatus,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { normalizeTagName } from '../util/issueTagName.util'
 
 // Provisional, until dev runs at 20, 40 and 80 memos show where grouping
 // stops splintering. Under it the report lists the memos instead of themes:
@@ -32,16 +33,31 @@ const CONFIRMED_MEMBERS = {
   where: { feedback: { confirmedAt: { not: null } } },
 } as const
 
+const ISSUE_SELECT = {
+  orderBy: { position: Prisma.SortOrder.asc },
+  select: {
+    id: true,
+    position: true,
+    issueLabel: true,
+    stance: true,
+    desiredOutcome: true,
+  },
+} as const satisfies Prisma.ConstituentFeedbackIssueFindManyArgs
+
+const TAG_SELECT = {
+  select: { id: true, name: true, status: true, normalizedName: true },
+} as const satisfies Prisma.IssueTagDefaultArgs
+
 const THEME_INCLUDE = {
-  tag: { select: { id: true, name: true, status: true } },
+  tag: TAG_SELECT,
   members: {
     ...CONFIRMED_MEMBERS,
-    select: { feedback: { select: { stance: true, desiredOutcome: true } } },
+    select: { feedback: { select: { issues: ISSUE_SELECT } } },
   },
 } as const satisfies Prisma.FeedbackThemeInclude
 
 const THEME_DETAIL_INCLUDE = {
-  tag: { select: { id: true, name: true, status: true } },
+  tag: TAG_SELECT,
   members: {
     ...CONFIRMED_MEMBERS,
     orderBy: { feedback: { occurredAt: Prisma.SortOrder.desc } },
@@ -53,8 +69,7 @@ const THEME_DETAIL_INCLUDE = {
           occurredAt: true,
           channel: true,
           transcript: true,
-          stance: true,
-          desiredOutcome: true,
+          issues: ISSUE_SELECT,
           actor: { select: { firstName: true, lastName: true } },
         },
       },
@@ -68,8 +83,7 @@ const MEMO_SELECT = {
   occurredAt: true,
   channel: true,
   transcript: true,
-  stance: true,
-  desiredOutcome: true,
+  issues: ISSUE_SELECT,
   confirmedAt: true,
   actor: { select: { firstName: true, lastName: true } },
 } as const satisfies Prisma.ConstituentFeedbackSelect
@@ -96,15 +110,29 @@ export type Denominators = FeedbackReportResponse['denominators']
 // confirmed now. Two reasons not to store them on the run: the pipeline
 // counts fragments, not conversations, and a memo re-recorded after a run
 // loses its confirmation and must stop counting without a new run.
+//
+// Conversations are memos; stances and outcomes are the issues that matched
+// the theme. Membership is per memo, so a member that raised one issue
+// counts it whatever it was labelled, and one that raised several counts
+// only those named like the theme's tag; its other issues belong to other
+// themes. With no tag there is nothing to match them against.
 const summarize = (
   theme: ThemeRow,
   outcomeLimit: number,
 ): FeedbackThemeSummary => {
   const memos = theme.members.map((member) => member.feedback)
+  const tagName = theme.tag?.normalizedName
+  const issues = memos.flatMap((memo) =>
+    memo.issues.length === 1
+      ? memo.issues
+      : memo.issues.filter(
+          (issue) => normalizeTagName(issue.issueLabel) === tagName,
+        ),
+  )
   const count = (stance: ConstituentFeedbackStance) =>
-    memos.filter((memo) => memo.stance === stance).length
-  const outcomes = memos
-    .map((memo) => memo.desiredOutcome?.trim() ?? '')
+    issues.filter((issue) => issue.stance === stance).length
+  const outcomes = issues
+    .map((issue) => issue.desiredOutcome?.trim() ?? '')
     .filter((outcome) => outcome !== '')
 
   return {
@@ -117,16 +145,19 @@ const summarize = (
       supports: count(ConstituentFeedbackStance.supports),
       opposes: count(ConstituentFeedbackStance.opposes),
       mixed: count(ConstituentFeedbackStance.mixed),
-      // A memo with no stance recorded a conversation but no position,
-      // which is what unclear means.
-      unclear: memos.filter(
-        (memo) =>
-          memo.stance === null ||
-          memo.stance === ConstituentFeedbackStance.unclear,
+      // An issue with no stance was raised without a position, which is
+      // what unclear means.
+      unclear: issues.filter(
+        (issue) =>
+          issue.stance === null ||
+          issue.stance === ConstituentFeedbackStance.unclear,
       ).length,
     },
     desiredOutcomes: [...new Set(outcomes)].slice(0, outcomeLimit),
-    tag: theme.tag,
+    tag:
+      theme.tag === null
+        ? null
+        : { id: theme.tag.id, name: theme.tag.name, status: theme.tag.status },
   }
 }
 
@@ -301,8 +332,7 @@ export class FeedbackReportService extends createPrismaBase(
         occurredAt: feedback.occurredAt,
         channel: feedback.channel,
         transcript: feedback.transcript,
-        stance: feedback.stance,
-        desiredOutcome: feedback.desiredOutcome,
+        issues: feedback.issues,
         actorName: actorName(feedback.actor),
       })),
     }

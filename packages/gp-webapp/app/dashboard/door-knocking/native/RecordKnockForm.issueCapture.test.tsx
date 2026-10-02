@@ -114,6 +114,14 @@ const target: RoutePayloadTarget = {
 
 const MEMO = 'Bob is against the Flock cameras, wants the data deleted.'
 
+const FLOCK = {
+  id: 'issue-flock-cameras',
+  position: 0,
+  issueLabel: 'Flock cameras',
+  stance: 'opposes' as const,
+  desiredOutcome: 'Remove them and delete the data',
+}
+
 const dictate = (text: string) => act(() => mocks.input.current?.onChange(text))
 
 const question = (label: string) =>
@@ -160,11 +168,7 @@ beforeEach(() => {
       id: 'feedback-1',
       personId: 'person-1',
       extractionStatus: 'extracted',
-      extraction: {
-        issueLabel: 'Flock cameras',
-        stance: 'opposes',
-        desiredOutcome: 'Remove them and delete the data',
-      },
+      extraction: { issues: [FLOCK] },
     },
   })
   api.mock('PATCH /v1/constituent-feedback/:id/confirm', {
@@ -175,9 +179,7 @@ beforeEach(() => {
       occurredAt: new Date('2026-09-25T00:00:00.000Z'),
       channel: 'door_knock',
       transcript: MEMO,
-      issueLabel: 'Flock cameras',
-      stance: 'opposes',
-      desiredOutcome: 'Remove them and delete the data',
+      issues: [FLOCK],
       extractionStatus: 'extracted',
       confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
       outreachId: 7,
@@ -188,14 +190,14 @@ beforeEach(() => {
 })
 
 describe('RecordKnockForm issue capture', () => {
-  it('offers the extracted triple for confirmation instead of advancing', async () => {
+  it('offers the extracted issue for confirmation instead of advancing', async () => {
     const onRecorded = renderForm()
     await walkAndSave()
 
     expect(await screen.findByText('Is this right?')).toBeVisible()
     expect(screen.getByDisplayValue('Flock cameras')).toBeVisible()
     expect(screen.getByRole('radio', { name: 'Against it' })).toBeChecked()
-    // The walk is held at this door until the triple is answered.
+    // The walk is held at this door until the issues are answered.
     expect(onRecorded).not.toHaveBeenCalled()
   })
 
@@ -255,9 +257,120 @@ describe('RecordKnockForm issue capture', () => {
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.IssueCapture.MemoConfirmed,
-        { channel: 'doorKnocking', corrected: true, product: 'serve' },
+        {
+          channel: 'doorKnocking',
+          corrected: true,
+          issueCount: 1,
+          product: 'serve',
+        },
       ),
     )
+  })
+
+  // A canvass run only to gather issues often hears two or three in one
+  // conversation, and the canvasser answers for each: keeping, correcting
+  // or removing it.
+  it('offers each issue the note named and confirms the ones kept', async () => {
+    api.mock('POST /v1/constituent-feedback', {
+      status: 200,
+      data: {
+        id: 'feedback-1',
+        personId: 'person-1',
+        extractionStatus: 'extracted',
+        extraction: {
+          issues: [
+            FLOCK,
+            {
+              id: 'issue-street-flooding',
+              position: 1,
+              issueLabel: 'Street flooding',
+              stance: 'supports',
+              desiredOutcome: 'Clear the storm drain',
+            },
+          ],
+        },
+      },
+    })
+    let confirmed: unknown = null
+    api.mock('PATCH /v1/constituent-feedback/:id/confirm', ({ body }) => {
+      confirmed = body
+      return {
+        status: 200,
+        data: {
+          id: 'feedback-1',
+          personId: 'person-1',
+          occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+          channel: 'door_knock',
+          transcript: MEMO,
+          issues: [],
+          extractionStatus: 'extracted',
+          confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+          outreachId: 7,
+          actorName: null,
+          tags: [],
+        },
+      }
+    })
+    renderForm()
+    await walkAndSave()
+
+    expect(await screen.findByDisplayValue('Flock cameras')).toBeVisible()
+    expect(screen.getByDisplayValue('Street flooding')).toBeVisible()
+    expect(screen.getByDisplayValue('Clear the storm drain')).toBeVisible()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove Flock cameras' }),
+    )
+    expect(screen.queryByDisplayValue('Flock cameras')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Looks right' }))
+
+    await waitFor(() =>
+      expect(confirmed).toEqual({
+        issues: [
+          {
+            issueLabel: 'Street flooding',
+            stance: 'supports',
+            desiredOutcome: 'Clear the storm drain',
+            fromIssueId: 'issue-street-flooding',
+          },
+        ],
+      }),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoConfirmed, {
+      channel: 'doorKnocking',
+      corrected: true,
+      issueCount: 1,
+      product: 'serve',
+    })
+  })
+
+  // A note that named no issue has nothing to fill in, and confirming it
+  // says so.
+  it('confirms a note that named no issue', async () => {
+    api.mock('POST /v1/constituent-feedback', {
+      status: 200,
+      data: {
+        id: 'feedback-1',
+        personId: 'person-1',
+        extractionStatus: 'extracted',
+        extraction: { issues: [] },
+      },
+    })
+    let confirmed: unknown = null
+    api.mock('PATCH /v1/constituent-feedback/:id/confirm', ({ body }) => {
+      confirmed = body
+      return { status: 500, data: { message: 'boom' } }
+    })
+    renderForm()
+    await walkAndSave()
+
+    expect(
+      await screen.findByText('No issue came up in this note.'),
+    ).toBeVisible()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Looks right' }))
+
+    await waitFor(() => expect(confirmed).toEqual({ issues: [] }))
   })
 
   // The note field is deliberately offered on every branch, including a
@@ -371,8 +484,8 @@ describe('RecordKnockForm issue capture', () => {
 // A candidate's door, where the memo is what a voter told the canvasser. Same
 // form, same sequencing, gated on Win's own flag.
 // A dead zone: the knock and its memo wait on the phone, knock first, and
-// the walk moves on as it would online. Nobody can confirm a triple that
-// has not been extracted yet, so there is no card to hold the door for.
+// the walk moves on as it would online. Nobody can confirm issues that
+// have not been extracted yet, so there is no card to hold the door for.
 describe('RecordKnockForm issue capture with no signal', () => {
   let online = false
 
@@ -671,6 +784,7 @@ describe('RecordKnockForm issue capture on a Win door', () => {
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoConfirmed, {
       channel: 'doorKnocking',
       corrected: false,
+      issueCount: 1,
       product: 'win',
     })
   })

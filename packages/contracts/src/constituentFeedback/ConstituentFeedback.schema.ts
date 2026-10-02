@@ -20,27 +20,31 @@ export const CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH = 1_000
 // long slug.
 export const CONSTITUENT_FEEDBACK_AUDIO_KEY_MAX_LENGTH = 300
 
-// The triple: what the constituent cares about, where they stand on it, and
-// what they would change if they could. Every field is nullable because a
+// The most issues one memo holds. A conversation at the door usually names
+// one; a canvass run only to gather issues can name a few.
+export const CONSTITUENT_FEEDBACK_MAX_ISSUES = 5
+
+// One issue the person raised: what they care about, where they stand on it,
+// and what they would change if they could. A memo holds them in the order
+// they came up, from `position` 0. Stance and outcome are nullable because a
 // memo can name an issue without a position, or a complaint without a remedy,
 // and a partial answer is a real record rather than a failed one.
 //
 // `desiredOutcome` is the magic-wand answer, not the reason behind the
 // position. It is the field that turns a count into something an elected
 // official can act on, and the reason survives in the transcript anyway.
-export const ConstituentFeedbackTripleSchema = z.object({
-  issueLabel: z
-    .string()
-    .max(CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH)
-    .nullable(),
+export const ConstituentFeedbackIssueSchema = z.object({
+  id: z.string(),
+  position: z.number().int(),
+  issueLabel: z.string().max(CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH),
   stance: ConstituentFeedbackStanceSchema.nullable(),
   desiredOutcome: z
     .string()
     .max(CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH)
     .nullable(),
 })
-export type ConstituentFeedbackTriple = z.infer<
-  typeof ConstituentFeedbackTripleSchema
+export type ConstituentFeedbackIssue = z.infer<
+  typeof ConstituentFeedbackIssueSchema
 >
 
 // What the surface sends. organizationSlug comes from auth, actorUserId from
@@ -143,31 +147,61 @@ export type RecordConstituentFeedback = z.infer<
 
 // The capture response hands back what the model proposed so the person who
 // was just at the door can accept or correct it. `extractionStatus` is
-// `failed` when no triple could be produced; the row and its transcript
-// persist either way, so the surface shows an empty triple to fill in rather
+// `failed` when nothing could be extracted; the row and its transcript
+// persist either way, so the surface shows an empty issue to fill in rather
 // than an error.
 export const RecordConstituentFeedbackResponseSchema = z.object({
   id: z.string(),
   personId: z.string(),
   extractionStatus: ConstituentFeedbackExtractionStatusSchema,
-  // Null when extraction failed.
-  extraction: ConstituentFeedbackTripleSchema.nullable(),
+  // Null when extraction failed. An empty list is a note that named no issue.
+  extraction: z
+    .object({ issues: z.array(ConstituentFeedbackIssueSchema) })
+    .nullable(),
 })
 export type RecordConstituentFeedbackResponse = z.infer<
   typeof RecordConstituentFeedbackResponseSchema
 >
 
-// Confirming the triple. This is the whole point of extracting in the request
+const ConfirmedIssueSchema = z
+  .object({
+    issueLabel: z
+      .string()
+      .trim()
+      .min(1)
+      .max(CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH),
+    stance: ConstituentFeedbackStanceSchema.nullable(),
+    desiredOutcome: z
+      .string()
+      .max(CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH)
+      .nullable(),
+    // The `id` of the issue this one accepts or corrects, which keeps that
+    // row and the model's proposal on it. An id rather than a position:
+    // confirming renumbers positions, so a repeated confirm would point at
+    // the wrong issue. Omitted on an issue the canvasser wrote themselves.
+    fromIssueId: z.string().optional(),
+  })
+  .strict()
+
+// Confirming the issues. This is the whole point of extracting in the request
 // rather than on a queue: the canvasser still remembers the conversation, so
 // the values they send here are first-hand rather than reconstructed from a
 // transcript weeks later by someone who was not there.
 //
-// The body is the full triple, not a patch, because a confirmation is a
-// statement about all three fields — including the ones left null on purpose.
-export const ConfirmConstituentFeedbackSchema =
-  ConstituentFeedbackTripleSchema.strict()
+// The body is the full list, not a patch: it REPLACES the memo's issues, in
+// this order. Removing one means leaving it out, and an empty list confirms
+// a memo that named no issue. A confirmation is a statement about every
+// field, including the ones left null on purpose.
+export const ConfirmConstituentFeedbackSchema = z
+  .object({
+    issues: z.array(ConfirmedIssueSchema).max(CONSTITUENT_FEEDBACK_MAX_ISSUES),
+  })
+  .strict()
 export type ConfirmConstituentFeedback = z.infer<
   typeof ConfirmConstituentFeedbackSchema
+>
+export type ConfirmedConstituentFeedbackIssue = z.infer<
+  typeof ConfirmedIssueSchema
 >
 
 // Declared here rather than beside the rest of the tag shapes so the
@@ -185,9 +219,9 @@ export const ConstituentFeedbackSchema = z.object({
   occurredAt: zCoerceDate(),
   channel: z.string(),
   transcript: z.string().nullable(),
-  issueLabel: z.string().nullable(),
-  stance: ConstituentFeedbackStanceSchema.nullable(),
-  desiredOutcome: z.string().nullable(),
+  // In the order they came up. Empty when the memo named no issue, and
+  // while it waits on transcription or after its extraction failed.
+  issues: z.array(ConstituentFeedbackIssueSchema),
   extractionStatus: ConstituentFeedbackExtractionStatusSchema,
   confirmedAt: zCoerceDate().nullable(),
   // The outreach envelope the conversation happened under. Null when the

@@ -61,6 +61,7 @@ export const WHAT_WE_HEARD_COPY = {
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
     wants: 'Wants',
+    issues: 'Issues',
     newTags: 'New tags to review',
     newTagsCaption: 'Accepted tags show on each person’s record.',
     accept: 'Accept',
@@ -144,6 +145,7 @@ export const WHAT_WE_HEARD_COPY = {
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
     wants: 'Wants',
+    issues: 'Issues',
     newTags: 'New tags to review',
     newTagsCaption: 'Accepted tags show on each person’s record.',
     accept: 'Accept',
