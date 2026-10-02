@@ -354,8 +354,8 @@ without them, `--slack` warns and skips while the monitor runs normally.
 
 ## Surface drift (DATA-2531)
 
-A separate weekly detector, `surface_drift.py`, flags analytics events whose label — a
-`surface:` tag, or the name prefix before `" - "` — no longer matches where the code can
+A separate weekly detector, `surface_drift.py`, flags analytics events whose label (a
+`surface:` tag, or the name prefix before `" - "`) no longer matches where the code can
 fire them. It runs in the same `analytics-governance` job, right after the explorer
 snapshot (`event_explorer_snapshot.py`), because it reads that snapshot's `surface:` tags
 and `okr_metrics` and walks webapp routes through `event_reach.py`, the same module the
@@ -371,7 +371,7 @@ applied through the `event-metadata` skill's Mode: RELABEL.
 | `moved` | Reachable areas exclude the area the label claims | Relabel proposal |
 | `stale_area_name` | Same area by route, but the label uses a name the nav no longer shows, or a `surface:` tag names an area that no longer exists while the code resolves to one area | Relabel proposal, batched per prefix, lower priority |
 | `dashboard_wide` | The event's code reaches 5 or more areas | Reported, nothing proposed |
-| `moved_then_quiet` | `moved`, and zero fires in the last 30 days | A relabel proposal too, proposed confidence only — see below |
+| `moved_then_quiet` | `moved`, and zero fires in the last 30 days | A relabel proposal too, proposed confidence only; see below |
 | `unclear` | Walk has gaps, no call site, or code and volume data disagree | A human |
 | `consistent` | Otherwise | Nothing |
 
@@ -388,7 +388,7 @@ elsewhere in this book.
 - the event is not counted by any semantic-layer metric (`okr_metrics` is empty);
 - the page-path signal agrees: at least 0.8 agreement, at least 10 attributed fires, at
   least 0.5 attribution coverage, and at least 5 distinct users (`MIN_USERS`, added in
-  calibration — a signal can clear every other floor on two people).
+  calibration: a signal can clear every other floor on two people).
 
 Everything else that is `moved` or `stale_area_name` is `proposed`: shown in the console,
 not pre-checked, with the options laid out.
@@ -396,8 +396,8 @@ not pre-checked, with the options laid out.
 The page-path signal attributes each fire to the user's last `Viewed` event within 30
 minutes. A page that emits few `Viewed` events of its own (Account Settings is the
 measured case) reads low agreement and low coverage, which costs a missed `high` grade,
-never a false one — attribution inherits the page the user came from, it never invents
-the reached area.
+never a false one, because attribution inherits the page the user came from and it never
+invents the reached area.
 
 ### `meta.backend_not_examined` and `meta.unmapped_prefixes`
 
@@ -405,11 +405,11 @@ Backend (gp-api) events are out of scope; `meta.backend_not_examined` is how man
 skipped, so a clean run can be told from one that silently covered less.
 
 `meta.unmapped_prefixes` lists name prefixes the detector could not match to any area and
-that are not already a flow prefix — never guessed. For each, add a row in
+that are not already a flow prefix (never guessed). For each, add a row in
 `monitored_events.yaml`: to `flow_prefixes:` if it names a flow rather than a place (Pro
 Upgrade, 10DLC, Navigation, …), or to `prefix_areas:` if it is a real surface the
 detector's own name matching misses. A `prefix_areas:` alias **adds** the area it names to
-the prefix's own name match — it does not replace it — because one prefix can span pages
+the prefix's own name match, rather than replacing it, because one prefix can span pages
 with different area names: `Serve Onboarding` fires from both `/serve/onboarding`, whose
 area is named only `onboarding`, and `/polls/onboarding`, named
 `welcome-to-goodparty-org-serve-onboarding`; the alias covers the first without breaking
@@ -422,7 +422,7 @@ Running Against events, and the Settings upload event) and a 30-event sample of
 `consistent` events across 14 areas. All 14 positives landed on the expected verdict and
 zero negatives reached `high`. Two positives reached `high`: Settings - Personal Info:
 Click Upload (96 fires, 73 users) and Profile - Running Against: Click Save (33 fires, 33
-users). Median page-path coverage was 0.96 for positives and 0.94 for negatives —
+users). Median page-path coverage was 0.96 for positives and 0.94 for negatives;
 coverage was not the binding constraint, agreement was. The user floor (`MIN_USERS = 5`)
 was added during this pass: two Running Against events cleared every other floor on 14
 fires from 2 users.

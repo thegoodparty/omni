@@ -1,6 +1,6 @@
 ---
 name: triage-instrumentation-gaps
-description: Run the weekly instrumentation-governance review over five queues — flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), registry-vs-semantic-layer alignment findings (anchor_alignment.py), and surface relabels (surface_drift.py) — entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest. Also use to resolve drift between a governed metric and the product with no digest in hand: an event a semantic-layer metric counts was renamed, moved or stopped firing, or the business group changed what a governed metric means.
+description: Run the weekly instrumentation-governance review over five queues, flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), registry-vs-semantic-layer alignment findings (anchor_alignment.py), and surface relabels (surface_drift.py), entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest. Also use to resolve drift between a governed metric and the product with no digest in hand: an event a semantic-layer metric counts was renamed, moved or stopped firing, or the business group changed what a governed metric means.
 ---
 
 # Triage instrumentation gaps
@@ -17,7 +17,7 @@ session, and one PR:
 - **Queue C — registry vs semantic layer** (`anchor_alignment.py`): a behavior in
   `monitored_events.yaml` and the governed metric it points at disagree about which
   events count.
-- **Queue D — surface relabels** (`surface_drift.py`): an event whose label (its
+- **Queue D, surface relabels** (`surface_drift.py`): an event whose label (its
   `surface:` tag, or its name prefix) no longer matches where the code fires it.
 
 This skill orchestrates existing Python modules and three other skills. It never
@@ -824,7 +824,7 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    (step 7.3) merged, or say why no `m_*.yaml` description needed it. Then update the
    docs that describe the metric, and move the ticket to done with a resolution comment.
 
-## Queue D — surface relabels
+## Queue D: surface relabels
 
 **Get the batch:** the console's surface queue, or `instrumentation_data/surface_drift.json`
 rows with disposition `new`/`open`. Rows already `accepted` (a console accept from an
