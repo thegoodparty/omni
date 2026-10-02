@@ -1,4 +1,5 @@
 import { format } from 'date-fns'
+import { SOCIAL_PURPOSE_VALUES } from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
@@ -79,6 +80,10 @@ export interface CampaignManagerContext {
   // opponents). Null until both plan sections have persisted, so the manager
   // never coaches from a partial plan.
   plan: StrategicLandscapeResult | null
+  // Whether the win-chat-attachments flag is on for this candidate. Gates
+  // both compose_handoff registration and its prompt rules below, so the
+  // two can never disagree about whether the tool is live.
+  attachmentsEnabled: boolean
 }
 
 const ROLE = `You are the candidate's AI campaign manager for a first-time \
@@ -431,6 +436,35 @@ const SEARCH_RULES = [
 const searchRulesBlock = (ctx: CampaignManagerContext): string | null =>
   ctx.webSearchEnabled ? SEARCH_RULES : null
 
+// Mirrors chief-of-staff's COMPOSE_HANDOFF_RULES in candidate vocabulary
+// (voters, campaign). The valid purpose slugs are Win's own
+// (packages/contracts/src/outreach/OutreachSocial.schema.ts
+// SOCIAL_PURPOSE_VALUES) — Serve's social purposes use a different
+// vocabulary, so naming the Win list here keeps the model from sending a
+// Serve slug through this channel.
+const COMPOSE_HANDOFF_RULES =
+  'COMPOSE HANDOFF RULES (apply whenever you call `compose_handoff`):\n' +
+  '- Call it only when the candidate clearly wants to act on the content ' +
+  '— post it, share it, or script it for outreach. A question, analysis, ' +
+  'or draft you read back without the candidate asking to send it does ' +
+  'not qualify.\n' +
+  '- Fill in every field you can from the conversation. Omit any field ' +
+  'you would have to guess — do not invent platform ids or details you ' +
+  "don't know.\n" +
+  '- `purpose`, when you set it, must be one of: ' +
+  SOCIAL_PURPOSE_VALUES.join(', ') +
+  '. Never send a purpose outside this list.\n' +
+  '- The result opens a prefilled drawer for the candidate to review ' +
+  'before anything sends. Confirm you called it and let them take it ' +
+  'from there.'
+
+// Gated on the same ctx.attachmentsEnabled flag buildTools reads to
+// register compose_handoff, so the prompt can never advertise a tool that
+// did not register.
+const composeHandoffRulesBlock = (
+  ctx: CampaignManagerContext,
+): string | null => (ctx.attachmentsEnabled ? COMPOSE_HANDOFF_RULES : null)
+
 // Candidates ask whether they may text a list, robocall, take a contribution,
 // or skip a disclaimer, and a confident answer reads as legal clearance. The
 // manager knows what the product does (the product map in this prompt) but
@@ -540,6 +574,7 @@ export const buildCampaignManagerSystemPrompt = (
     dataBlock(ctx),
     crmToolsBlock(ctx),
     searchRulesBlock(ctx),
+    composeHandoffRulesBlock(ctx),
     LEGAL_AND_COMPLIANCE_RULES,
     // What the product does and where it lives, plus the one support route.
     // A quarter of what candidates ask is a product question, and before this

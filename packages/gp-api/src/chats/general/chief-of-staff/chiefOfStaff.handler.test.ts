@@ -706,21 +706,21 @@ describe('ChiefOfStaffHandler', () => {
     })
 
     it('inputSchema converts to a top-level object json schema (Anthropic rejects anyOf roots)', async () => {
-      const tool = buildComposeHandoffTool()
+      const tool = buildComposeHandoffTool('serve_social')
       const converted = await asSchema(tool.inputSchema).jsonSchema
       expect(converted.type).toBe('object')
       expect(converted.anyOf).toBeUndefined()
     })
 
     it('execute returns the validated payload verbatim on valid input', async () => {
-      const tool = buildComposeHandoffTool()
+      const tool = buildComposeHandoffTool('serve_social')
       const input = { channel: 'serve_social' as const, draftText: 'Hello!' }
       const result = await tool.execute(input)
       expect(result).toEqual(input)
     })
 
     it('execute throws on invalid input (schema parse error)', () => {
-      const tool = buildComposeHandoffTool()
+      const tool = buildComposeHandoffTool('serve_social')
       type Input = Parameters<typeof tool.execute>[0]
       expect(() =>
         tool.execute({ channel: 'unknown' } as unknown as Input),
