@@ -16,6 +16,7 @@ import {
   refusedBeforeSpend,
   refuseChat,
   walkedBackgroundCases,
+  withChatRefusals,
 } from './backgroundDispatch'
 import { DEFAULT_JUDGE_CONFIG } from '../config'
 import { AGENTS, findAgent, type AgentEntry } from '../agents'
@@ -1416,5 +1417,70 @@ describe('the chat budget', () => {
         DEFAULT_JUDGE_CONFIG,
       ),
     ).toEqual(['chief_of_staff'])
+  })
+
+  // Required, so the suite cannot drop it and read a local refusal as a
+  // failure. Never called: tsc is what checks it.
+  it('requires the config', () => {
+    const omitted = () =>
+      // @ts-expect-error config is required
+      capturableAgents(['chief_of_staff'], env(), findAgent)
+    expect(typeof omitted).toBe('function')
+  })
+
+  it('counts a list it cannot read as no turns, and does not throw', () => {
+    const decided = withChatRefusals(
+      env({ agentIds: ['chief_of_staff'] }),
+      DEFAULT_JUDGE_CONFIG,
+      findAgent,
+      () => {
+        throw new Error('unreadable')
+      },
+    )
+    expect(decided.backgroundRefused).toEqual(new Map())
+  })
+
+  // Named twice, walked once: charged twice it would refuse itself.
+  it('decides an agent named twice once on a local run', () => {
+    expect(
+      withChatRefusals(
+        env({ agentIds: ['priority_flow', 'priority_flow'] }),
+        DEFAULT_JUDGE_CONFIG,
+      ).backgroundRefused,
+    ).toEqual(new Map())
+  })
+
+  // Through the registry the caller hands in, not the global one: big1 and
+  // big2 resolve only there, to two real 48-minute lists. loadCaseList ties
+  // a list to its own agent id, so each maps to the agent that owns it.
+  it('works the local refusals out from the registry it is given', () => {
+    const owners: Record<string, string> = {
+      big1: 'ordinance_flow',
+      big2: 'priority_flow',
+    }
+    const find = (id: string): AgentEntry | undefined => {
+      const owner = owners[id]
+      return owner === undefined ? undefined : registered(owner)
+    }
+    const ids = Object.keys(owners)
+    const each = (id: string): number => {
+      const agent = registered(owners[id] ?? '')
+      return (
+        chatTurnsIn(loadCaseList(agent)) *
+        DEFAULT_JUDGE_CONFIG.attemptsPerCase *
+        chatTurnMsFor(agent.agentId)
+      )
+    }
+    let msLeft = chatBudgetMs(ARM_BUDGET_MS)
+    const expected = ids.filter((id) => {
+      if (each(id) > msLeft) return false
+      msLeft -= each(id)
+      return true
+    })
+    expect(expected.length).toBeGreaterThan(0)
+    expect(expected.length).toBeLessThan(ids.length)
+    expect(
+      capturableAgents(ids, env({ agentIds: ids }), find, DEFAULT_JUDGE_CONFIG),
+    ).toEqual(expected)
   })
 })

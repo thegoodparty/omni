@@ -18,6 +18,7 @@ import {
   baseWalksConcurrently,
   budgetOutputLines,
   resolveAdmission,
+  candidateChatTurns,
   resolveChatRefusals,
 } from './armBudget'
 import {
@@ -1169,6 +1170,74 @@ describe('the chat agents refused for time', () => {
       resolve(['priority_flow', 'priority_flow', 'chief_of_staff']),
     ).toEqual([])
   })
+
+  // The larger attempts, not the base's: a base that walks fewer still has
+  // this branch's arm to fit.
+  it("keeps this branch's attempts when the base walks fewer", () => {
+    const refused = resolve(['chief_of_staff'], {
+      candidate: () => 200,
+      base: () => 200,
+      baseAttempts: () => 1,
+    })
+    expect(refused[0]?.reason).toMatch(/for 600 chat turns/)
+  })
+
+  // Unreadable base attempts plan low if the base walks more, so say so.
+  it("warns when the base's attempts cannot be read, and only then", () => {
+    const warnedWith = (baseAttempts: number | undefined): string[] => {
+      const warned: string[] = []
+      resolveChatRefusals(
+        ['chief_of_staff'],
+        '/no/base',
+        DEFAULT_JUDGE_CONFIG,
+        AGENTS,
+        {
+          candidate: () => 8,
+          base: () => 8,
+          baseAttempts: () => baseAttempts,
+          boundsChat: () => true,
+        },
+        (line) => warned.push(line),
+      )
+      return warned
+    }
+    expect(warnedWith(undefined)).toEqual([
+      expect.stringMatching(/chat attempts per case could not be read/),
+    ])
+    expect(warnedWith(3)).toEqual([])
+  })
+
+  // A base list that is there but will not parse here is warned about; one
+  // that is not there at all is a new agent, and says nothing.
+  it('warns when a base list is there but cannot be read', () => {
+    const root = chatTree({ timeouts: {}, chatCases: {} })
+    const broken = runEntry({ BASE_DIR: root, JUDGE_AGENTS: 'chief_of_staff' })
+    expect(broken.stderr).not.toMatch(/case list for chief_of_staff/)
+    writeFileSync(
+      join(judgeDirOf(root), 'cases/chief_of_staff.json'),
+      'not json',
+    )
+    expect(
+      runEntry({ BASE_DIR: root, JUDGE_AGENTS: 'chief_of_staff' }).stderr,
+    ).toMatch(/base ref's case list for chief_of_staff could not be read/)
+  })
+
+  it("counts this branch's turns, not its cases", () => {
+    const agent = findAgent('chief_of_staff')
+    if (agent === undefined) throw new Error('chief_of_staff is not registered')
+    expect(
+      candidateChatTurns(agent, () => ({
+        agentId: agent.agentId,
+        shape: 'chat',
+        placeholder: false,
+        source: 'chief_of_staff.json',
+        cases: [
+          { caseId: 'one', question: 'hello' },
+          { caseId: 'three', turns: ['a', 'b', 'c'] },
+        ],
+      })),
+    ).toBe(4)
+  })
 })
 
 describe('the probe for whether the base arm refuses chat agents', () => {
@@ -1206,5 +1275,16 @@ describe("the probe for the base arm's chat attempts", () => {
         readFileSync(join(__dirname, 'config.ts'), 'utf8'),
       )?.[1],
     ).toBe(String(DEFAULT_JUDGE_CONFIG.attemptsPerCase))
+  })
+
+  it.each([
+    [
+      'a nested key ahead of the top-level one',
+      '  background: {\n    attemptsPerCase: 1,\n  },\n  attemptsPerCase: 3,\n',
+      '3',
+    ],
+    ['a trailing comment', '  attemptsPerCase: 4, // v0, chosen\n', '4'],
+  ])('reads past %s', (_label, text, attempts) => {
+    expect(BASE_CHAT_ATTEMPTS.exec(text)?.[1]).toBe(attempts)
   })
 })

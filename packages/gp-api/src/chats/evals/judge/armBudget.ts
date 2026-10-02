@@ -2,7 +2,7 @@ import { appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { AGENTS, type AgentEntry } from './agents'
-import { loadBackgroundCases, loadCaseList } from './cases'
+import { loadBackgroundCases, loadCaseList, type CaseList } from './cases'
 import { selectAgents } from './cli'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { agentConfigFor } from './runners/agentConfig'
@@ -182,36 +182,59 @@ const CHAT_TURNS_ONLY = z.object({
   cases: z.array(z.object({ turns: z.array(z.string()).optional() })),
 })
 
+const warnLine = (line: string): void => {
+  process.stderr.write(`${line}\n`)
+}
+
 // How many turns a chat agent's list drives per attempt on the base ref.
-// Undefined when it cannot be read: that arm then fails or skips the agent
-// on its own, and the candidate's count still stands.
+// Undefined when there is none, and the candidate's count stands.
+//
+// A list that is there but will not parse here is warned about rather than
+// refused: the base arm reads it with its own parser, which may accept it
+// and walk every case, so the candidate's count can then be low.
 const baseChatTurns = (
   baseDir: string,
   agent: AgentEntry,
+  warn: (line: string) => void = warnLine,
 ): number | undefined => {
+  let text: string
   try {
-    return CHAT_TURNS_ONLY.parse(
-      JSON.parse(
-        readFileSync(
-          join(
-            baseDir,
-            'packages/gp-api/src/chats/evals/judge/cases',
-            agent.cases ?? '',
-          ),
-          'utf8',
-        ),
+    text = readFileSync(
+      join(
+        baseDir,
+        'packages/gp-api/src/chats/evals/judge/cases',
+        agent.cases ?? '',
       ),
-    ).cases.reduce((sum, one) => sum + (one.turns?.length ?? 1), 0)
+      'utf8',
+    )
   } catch {
     return undefined
   }
+  try {
+    return CHAT_TURNS_ONLY.parse(JSON.parse(text)).cases.reduce(
+      (sum, one) => sum + (one.turns?.length ?? 1),
+      0,
+    )
+  } catch {
+    warn(
+      `the base ref's case list for ${agent.agentId} could not be read, so ` +
+        "its chat time is planned at this branch's count alone",
+    )
+    return undefined
+  }
 }
+
+// What this branch's own list drives. A seam so the default is tested.
+export const candidateChatTurns = (
+  agent: AgentEntry,
+  load: (agent: AgentEntry) => CaseList = loadCaseList,
+): number => chatTurnsIn(load(agent))
 
 // The base arm's chat attempts per case, which it reads from ITS config.ts.
 // The top-level key is the only one at two spaces of indent; background's
 // sits inside its own object. Undefined when it cannot be found, and the
 // candidate's then stands.
-export const BASE_CHAT_ATTEMPTS = /^ {2}attemptsPerCase: (\d+),$/m
+export const BASE_CHAT_ATTEMPTS = /^ {2}attemptsPerCase: (\d+),(?:\s*\/\/.*)?$/m
 
 export const baseChatAttempts = (baseDir: string): number | undefined => {
   try {
@@ -246,21 +269,28 @@ export const resolveChatRefusals = (
     baseAttempts: (baseDir: string) => number | undefined
     boundsChat: (baseDir: string) => boolean
   } = {
-    candidate: (agent) => chatTurnsIn(loadCaseList(agent)),
+    candidate: candidateChatTurns,
     base: baseChatTurns,
     baseAttempts: baseChatAttempts,
     boundsChat: baseBoundsChat,
   },
+  warn: (line: string) => void = warnLine,
 ): { agentId: string; reason: string }[] => {
   if (!costs.boundsChat(baseDir)) return []
   const selected = selectAgents(
     { kind: 'list', ids: [...new Set(agentIds)] },
     registry,
   ).selected
-  const attempts = Math.max(
-    config.attemptsPerCase,
-    costs.baseAttempts(baseDir) ?? 0,
-  )
+  const baseAttempts = costs.baseAttempts(baseDir)
+  // Warned rather than refused: a base that walks more attempts than this
+  // branch is then planned low.
+  if (baseAttempts === undefined) {
+    warn(
+      "the base ref's chat attempts per case could not be read from its " +
+        "config.ts, so this branch's are used for both arms",
+    )
+  }
+  const attempts = Math.max(config.attemptsPerCase, baseAttempts ?? 0)
   // Zero when this branch cannot read the list: the arm reports the real
   // error by name, and this is only a time estimate.
   const onCandidate = (agent: AgentEntry): number => {
