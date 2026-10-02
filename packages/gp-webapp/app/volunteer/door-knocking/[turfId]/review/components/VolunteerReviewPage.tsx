@@ -40,7 +40,9 @@ const VolunteerReviewPage = ({ turfId, isServe }: VolunteerReviewPageProps) => {
           }}
         />
       ) : turfQuery.isError || turfQuery.data ? (
-        <p className="text-sm text-destructive">{copy.loadFailed}</p>
+        <p role="alert" className="text-sm text-destructive">
+          {copy.loadFailed}
+        </p>
       ) : (
         <div className="flex items-center justify-center gap-3 py-20">
           <Spinner />

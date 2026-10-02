@@ -23,6 +23,7 @@ import {
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import {
   OFFLINE_MEMO_COPY,
+  isNetworkError,
   useOfflineMemo,
 } from 'app/dashboard/shared/dictation/useOfflineMemo'
 import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue'
@@ -215,9 +216,20 @@ export default function RecordKnockForm({
       setSpoken(true)
     },
   })
+  const opened = outcome === 'answered'
+  const engaged = opened && engagement === 'answered'
+  // The render-time twin of the condition `record`'s onSuccess snapshots: it
+  // decides what the field ASKS for, where the snapshot decides what was
+  // asked for. Same facts, so the promise and the behavior agree.
+  const capturesIssues = captureEnabled && engaged
   // Doors are where signal drops. With none, the mic records on the phone,
-  // and Save holds the knock and its memo there until there is.
-  const offline = useOfflineMemo({ dictation })
+  // and Save holds the knock and its memo there until there is. Only where
+  // a memo can be captured: elsewhere the mic is the ordinary dictation mic,
+  // and the product's flag stays the way to turn the whole path off.
+  const offline = useOfflineMemo({ dictation, enabled: capturesIssues })
+  // The door the queue files this knock and its memo under, so saving it
+  // again replaces them rather than queueing a second pair.
+  const doorKey = String(target.stopTargetId)
   const { successSnackbar } = useSnackbar()
   const [holdFailed, setHoldFailed] = useState(false)
 
@@ -302,6 +314,7 @@ export default function RecordKnockForm({
   ): Promise<boolean> => {
     try {
       await offline.hold({
+        key: doorKey,
         interaction:
           interaction === null ? null : { kind: 'knock', payload: interaction },
         memo: memoFor(input),
@@ -313,7 +326,12 @@ export default function RecordKnockForm({
       else setHoldFailed(true)
       return false
     }
-    successSnackbar(OFFLINE_MEMO_COPY.saved)
+    // With the knock saved, only the recording waits, and it goes now.
+    successSnackbar(
+      interaction === null
+        ? OFFLINE_MEMO_COPY.sending
+        : OFFLINE_MEMO_COPY.saved,
+    )
     onRecorded(done.personId, done.knockStatus)
     return true
   }
@@ -340,8 +358,11 @@ export default function RecordKnockForm({
         'POST /v1/door-knocking/interactions',
         knockRequest(input),
       ).then((res) => res.data),
-    onSuccess: (data, input) => {
+    onSuccess: async (data, input) => {
       trackDoorLogged(input, data.knockStatus)
+      // This save supersedes whatever the phone still held for the door, so
+      // a later drain cannot send an older knock over it.
+      await offline.forget(doorKey).catch(() => undefined)
       // `engaged` and not merely `complete`: the note field is deliberately
       // offered on every branch, including a not-home door, so "dog in the
       // yard, come back Saturday" is a note the knock should keep but never a
@@ -351,9 +372,10 @@ export default function RecordKnockForm({
         onRecorded(data.personId, data.knockStatus)
         return
       }
-      // Signal for the knock but not for the socket: the recording goes the
-      // offline way, after the knock it belongs to.
-      if (input.recording !== null || memo.text === undefined) {
+      // A recording made earlier with no signal, and no words to send
+      // instead: it goes the offline way, after the knock it belongs to.
+      // Words win over a recording, as they do in the queue.
+      if (memo.text === undefined) {
         void hold(input, null, data)
         return
       }
@@ -362,6 +384,12 @@ export default function RecordKnockForm({
         knockStatus: data.knockStatus,
       }
       capture.mutate(memo.text)
+    },
+    // A request that got no answer at all is a dead zone the browser has not
+    // noticed: the knock is held like any offline one, so the canvasser is
+    // never kept at the door by "Saving failed".
+    onError: (error, input) => {
+      if (captureEnabled && isNetworkError(error)) void saveOffline(input)
     },
   })
 
@@ -423,12 +451,6 @@ export default function RecordKnockForm({
     onError: () => advance(),
   })
 
-  const opened = outcome === 'answered'
-  const engaged = opened && engagement === 'answered'
-  // The render-time twin of the condition `record`'s onSuccess snapshots: it
-  // decides what the field ASKS for, where the snapshot decides what was
-  // asked for. Same facts, so the promise and the behavior agree.
-  const capturesIssues = captureEnabled && engaged
   // The outcome the contract gets: step two replaces step one's `answered`,
   // which was only ever the branch into it.
   const finalOutcome = opened ? engagement : outcome
@@ -484,7 +506,9 @@ export default function RecordKnockForm({
       ...(trimmed ? { note: trimmed } : {}),
     }
     setHoldFailed(false)
-    if (!navigator.onLine) {
+    // No signal, or a socket that would not open for this door: a knock
+    // sent now would only fail, so it waits on the phone with its memo.
+    if (captureEnabled && (!navigator.onLine || offline.fellBack)) {
       void saveOffline(input)
       return
     }
@@ -648,7 +672,10 @@ export default function RecordKnockForm({
         </div>
       )}
 
-      {(record.isError || holdFailed) && (
+      {/* A network error with capture on is being held on the phone, not a
+          failed save; `holdFailed` says so if holding fails too. */}
+      {((record.isError && !(captureEnabled && isNetworkError(record.error))) ||
+        holdFailed) && (
         <p className="text-sm text-destructive">
           Saving failed — your answers are still here, try again.
         </p>

@@ -15,14 +15,19 @@ import type { UseDictationAppendResult } from './useDictationAppend'
 import {
   drainQueue,
   enqueue,
+  removeFromQueue,
   type QueueEntry,
   type QueuedMemo,
   type SendOutcome,
 } from './offlineMemoQueue'
 
-// Identical on both products: neither names the person on the other side.
+// Identical on both products: none of them names the person on the other
+// side.
 export const OFFLINE_MEMO_COPY = {
+  // Nothing reached the server: the knock or call and its memo wait.
   saved: 'Saved on your phone. It will be sent when you have signal.',
+  // The knock or call saved; only the recording waits, and it goes now.
+  sending: 'Note saved on your phone. Sending it now.',
   recorded: 'Note recorded on your phone.',
 }
 
@@ -30,8 +35,19 @@ export const OFFLINE_MEMO_COPY = {
 // so the phone records it instead.
 const SOCKET_OPEN_TIMEOUT_MS = 3_000
 
-// A memo is a sentence or two. This stops a mic left running in a pocket.
+// A memo is a sentence or two. This stops a mic left running in a pocket,
+// and keeps the recording under the upload's 5 MB cap.
 const MAX_RECORDING_MS = 2 * 60_000
+
+// What MediaRecorder writes when it does not say; the server reads the
+// container, not the type.
+const FALLBACK_AUDIO_TYPE = 'audio/webm'
+
+// The refusals the server will repeat, with the reason in a JSON body. A 401
+// or 403 is not one: right after the phone reconnects, the webapp proxy can
+// forward a request before the session token has refreshed, and dropping
+// the queue on that would lose every door it holds.
+const REFUSAL_STATUSES = new Set([400, 404, 409, 422])
 
 type LocalStatus = Extract<
   DictationStatus,
@@ -39,6 +55,9 @@ type LocalStatus = Extract<
 >
 
 export type HoldInput = {
+  // Names the door or the call: the stop target for a knock, and
+  // `entryId:personId` for a call. The memo shares it.
+  key: string
   interaction:
     | { kind: 'knock'; payload: RecordDoorKnockInteraction }
     | {
@@ -49,50 +68,54 @@ export type HoldInput = {
   memo: QueuedMemo | null
 }
 
-const memoKey = (reference: QueuedMemo['reference']): string =>
-  reference.channel === 'door_knock'
-    ? reference.knockClientKey
-    : `${reference.entryId}:${reference.personId}`
-
 const activeOrg = (): string => getCookie(ORG_SLUG_COOKIE) || ''
 
-// A refusal the server will repeat: drop the entry. Anything else (no
-// response, a 5xx, a timeout, a rate limit) is worth another try later.
-const isRefusal = (err: unknown): boolean => {
-  const status = err instanceof FetchError ? err.status : undefined
-  return (
-    status !== undefined &&
-    status >= 400 &&
-    status < 500 &&
-    status !== 408 &&
-    status !== 429
-  )
-}
+export const isRefusal = (err: unknown): boolean =>
+  err instanceof FetchError &&
+  err.status !== undefined &&
+  REFUSAL_STATUSES.has(err.status) &&
+  typeof err.data === 'object' &&
+  err.data !== null
+
+// A request that never got an answer: no signal, or not enough of it.
+export const isNetworkError = (err: unknown): boolean =>
+  err instanceof FetchError
+    ? err.response === undefined
+    : err instanceof TypeError
 
 const sendMemo = async (
   entry: Extract<QueueEntry, { kind: 'memo' }>,
 ): Promise<void> => {
   const { reference, text, analytics } = entry.payload
-  if (entry.blob !== undefined) {
+  // The contract takes one source of words. Text the canvasser typed or
+  // dictated is what they meant to keep, and it needs no transcription, so
+  // it wins; the recording is dropped with the entry once the text lands.
+  if (text !== undefined) {
+    await clientRequest('POST /v1/constituent-feedback', {
+      ...reference,
+      ...text,
+    })
+  } else if (entry.blob !== undefined) {
     const { data } = await clientRequest(
       'POST /v1/constituent-feedback/audio-upload-url',
-      { clientKey: reference.clientKey },
+      {
+        clientKey: reference.clientKey,
+        contentType: entry.blob.type || FALLBACK_AUDIO_TYPE,
+      },
     )
-    const upload = await fetch(data.uploadUrl, {
-      method: 'PUT',
-      body: entry.blob,
-    })
-    // An expired URL is renewed on the next drain, so this is a retry.
+    // A presigned POST: the policy fields, then the file last.
+    const form = new FormData()
+    Object.entries(data.fields).forEach(([name, value]) =>
+      form.append(name, value),
+    )
+    form.append('file', entry.blob)
+    const upload = await fetch(data.uploadUrl, { method: 'POST', body: form })
+    // An expired policy is renewed on the next drain, so this is a retry.
     if (!upload.ok) throw new Error(`Memo upload failed: ${upload.status}`)
     await clientRequest('POST /v1/constituent-feedback', {
       ...reference,
       audioKey: data.audioKey,
       captureMethod: 'dictation_offline',
-    })
-  } else if (text !== undefined) {
-    await clientRequest('POST /v1/constituent-feedback', {
-      ...reference,
-      ...text,
     })
   }
   trackEvent(EVENTS.IssueCapture.MemoUploaded, {
@@ -124,16 +147,14 @@ const send = async (entry: QueueEntry): Promise<SendOutcome> => {
 
 // A drain that stops early leaves the rest for the next one. One that sent
 // something re-reads the review lists, so "Notes to review" counts what just
-// arrived.
-const drain = (queryClient: QueryClient): void => {
+// arrived, and tells the page.
+const drain = (queryClient: QueryClient, onSent?: () => void): void => {
   if (!navigator.onLine) return
   drainQueue(send)
     .then((sent) => {
-      if (sent > 0) {
-        void queryClient.invalidateQueries({
-          queryKey: PENDING_QUERY_KEY_PREFIX,
-        })
-      }
+      if (sent === 0) return
+      void queryClient.invalidateQueries({ queryKey: PENDING_QUERY_KEY_PREFIX })
+      onSent?.()
     })
     .catch(() => undefined)
 }
@@ -143,19 +164,24 @@ const drain = (queryClient: QueryClient): void => {
 // once on each page that captures memos (the walk, the volunteer walk, the
 // phone caller), so a canvasser who closed the door's form and walked on
 // still sends everything, and by every capture form. `drainQueue` runs one
-// drain at a time, so the two never send an entry twice.
-export const useOfflineQueueDrain = (): void => {
+// drain at a time, so the two never send an entry twice. `onSent` lets a
+// page re-read what the drain changed.
+export const useOfflineQueueDrain = ({
+  onSent,
+}: { onSent?: () => void } = {}): void => {
   const queryClient = useQueryClient()
+  const onSentRef = useRef(onSent)
+  onSentRef.current = onSent
   useEffect(() => {
-    const onOnline = () => drain(queryClient)
+    const run = () => drain(queryClient, () => onSentRef.current?.())
     const onVisible = () => {
-      if (document.visibilityState === 'visible') drain(queryClient)
+      if (document.visibilityState === 'visible') run()
     }
-    drain(queryClient)
-    window.addEventListener('online', onOnline)
+    run()
+    window.addEventListener('online', run)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
-      window.removeEventListener('online', onOnline)
+      window.removeEventListener('online', run)
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [queryClient])
@@ -166,28 +192,45 @@ export const useOfflineQueueDrain = (): void => {
 // open in three seconds) the phone records the memo itself, and Save holds
 // it with its knock or call in IndexedDB until there is signal to send them,
 // knock first. It drains the queue too (`useOfflineQueueDrain`).
+//
+// `enabled` is whether a memo here can be captured at all: the product's
+// flag is on and the conversation happened. Off, the mic is the ordinary
+// dictation mic and never records on the phone, because there would be
+// nothing to send the recording with, and the flag stays the way to turn the
+// whole path off.
 export const useOfflineMemo = ({
   dictation,
+  enabled,
 }: {
   dictation: UseDictationAppendResult
+  enabled: boolean
 }): {
   // What the mic button and its feedback read.
   mic: UseDictationAppendResult
   // A finished recording, waiting for Save.
   audio: Blob | null
+  // The dictation socket failed to open for this form, so its signal will
+  // not carry a save either.
+  fellBack: boolean
   // Drops the recording, for a Cancel.
   discard: () => void
   hold: (input: HoldInput) => Promise<void>
+  // Drops whatever is queued for this door or call: a save that reached
+  // the server supersedes it.
+  forget: (key: string) => Promise<void>
 } => {
   const [mode, setMode] = useState<'live' | 'local'>('live')
   const [localStatus, setLocalStatus] = useState<LocalStatus>('idle')
   const [localError, setLocalError] = useState<string | null>(null)
   const [audio, setAudio] = useState<Blob | null>(null)
+  const [fellBack, setFellBack] = useState(false)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const limitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dictationRef = useRef(dictation)
   dictationRef.current = dictation
+  const enabledRef = useRef(enabled)
+  enabledRef.current = enabled
   const mountedRef = useRef(true)
   const queryClient = useQueryClient()
 
@@ -195,6 +238,19 @@ export const useOfflineMemo = ({
     if (limitRef.current !== null) clearTimeout(limitRef.current)
     limitRef.current = null
     if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+  }, [])
+
+  // Stops a recording and keeps nothing of it.
+  const dropLocal = useCallback(() => {
+    if (limitRef.current !== null) clearTimeout(limitRef.current)
+    limitRef.current = null
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.onstop = null
+      recorderRef.current.stop()
+    }
+    recorderRef.current = null
+    for (const track of streamRef.current?.getTracks() ?? []) track.stop()
+    streamRef.current = null
   }, [])
 
   const startLocal = useCallback(async (): Promise<void> => {
@@ -211,8 +267,9 @@ export const useOfflineMemo = ({
       setLocalStatus('error')
       return
     }
-    // The form closed while the mic was being granted.
-    if (!mountedRef.current) {
+    // The form closed, or the memo stopped being capturable, while the mic
+    // was being granted.
+    if (!mountedRef.current || !enabledRef.current) {
       for (const track of stream.getTracks()) track.stop()
       return
     }
@@ -225,7 +282,9 @@ export const useOfflineMemo = ({
       for (const track of stream.getTracks()) track.stop()
       recorderRef.current = null
       streamRef.current = null
-      setAudio(new Blob(chunks, { type: recorder.mimeType }))
+      setAudio(
+        new Blob(chunks, { type: recorder.mimeType || FALLBACK_AUDIO_TYPE }),
+      )
       setLocalStatus('idle')
     }
     recorderRef.current = recorder
@@ -237,23 +296,38 @@ export const useOfflineMemo = ({
 
   // The fallback. `connecting` is the stretch between the mic being granted
   // and the socket's first word; a session that fails inside it, or outlives
-  // the timeout, hands the memo to the phone.
+  // the timeout, hands the memo to the phone. Only where the memo can be
+  // captured: anywhere else the dictation fails the ordinary way.
   const previousStatus = useRef(dictation.status)
   useEffect(() => {
     const previous = previousStatus.current
     previousStatus.current = dictation.status
+    if (!enabled) return undefined
     if (dictation.status === 'connecting') {
       const timer = setTimeout(() => {
+        setFellBack(true)
         void dictationRef.current.stop()
         void startLocal()
       }, SOCKET_OPEN_TIMEOUT_MS)
       return () => clearTimeout(timer)
     }
     if (previous === 'connecting' && dictation.status === 'error') {
+      setFellBack(true)
       void startLocal()
     }
     return undefined
-  }, [dictation.status, startLocal])
+  }, [dictation.status, enabled, startLocal])
+
+  // A memo that stops being capturable (the door turned out not to engage)
+  // takes its recording with it, so nothing is kept that cannot be sent.
+  useEffect(() => {
+    if (enabled) return
+    dropLocal()
+    setAudio(null)
+    setMode('live')
+    setLocalStatus('idle')
+    setLocalError(null)
+  }, [enabled, dropLocal])
 
   useOfflineQueueDrain()
 
@@ -261,42 +335,36 @@ export const useOfflineMemo = ({
     mountedRef.current = true
     return () => {
       mountedRef.current = false
-      if (limitRef.current !== null) clearTimeout(limitRef.current)
       // Leaving mid-recording drops it: there is no Save left to hold it.
-      if (recorderRef.current?.state === 'recording') {
-        recorderRef.current.onstop = null
-        recorderRef.current.stop()
-      }
-      for (const track of streamRef.current?.getTracks() ?? []) track.stop()
+      dropLocal()
     }
-  }, [])
+  }, [dropLocal])
 
   const toggle = useCallback(async (): Promise<void> => {
     if (mode === 'local' && localStatus === 'recording') return stopLocal()
     if (mode === 'local' && localStatus === 'requesting_mic') return
     if (dictation.active) return dictation.stop()
-    if (!navigator.onLine) return startLocal()
+    if (enabled && !navigator.onLine) return startLocal()
     setMode('live')
     return dictation.start()
-  }, [dictation, localStatus, mode, startLocal, stopLocal])
+  }, [dictation, enabled, localStatus, mode, startLocal, stopLocal])
 
   const hold = useCallback(
-    async ({ interaction, memo }: HoldInput): Promise<void> => {
+    async ({ key, interaction, memo }: HoldInput): Promise<void> => {
       const createdAt = Date.now()
       const organizationSlug = activeOrg()
       const entries: QueueEntry[] = []
       if (interaction?.kind === 'knock') {
         entries.push({
-          id: `knock:${interaction.payload.clientKey}`,
+          id: `knock:${key}`,
           kind: 'knock',
           organizationSlug,
           payload: interaction.payload,
           createdAt,
         })
       } else if (interaction?.kind === 'call') {
-        const { entryId, personId } = interaction.payload.request
         entries.push({
-          id: `call:${entryId}:${personId ?? ''}`,
+          id: `call:${key}`,
           kind: 'call',
           organizationSlug,
           payload: interaction.payload,
@@ -305,7 +373,7 @@ export const useOfflineMemo = ({
       }
       if (memo !== null) {
         entries.push({
-          id: `memo:${memoKey(memo.reference)}`,
+          id: `memo:${key}`,
           kind: 'memo',
           organizationSlug,
           payload: memo,
@@ -323,6 +391,14 @@ export const useOfflineMemo = ({
     [audio, queryClient],
   )
 
+  const forget = useCallback(
+    (key: string) =>
+      removeFromQueue([`knock:${key}`, `call:${key}`, `memo:${key}`]),
+    [],
+  )
+
+  const discard = useCallback(() => setAudio(null), [])
+
   const mic: UseDictationAppendResult =
     mode === 'local'
       ? {
@@ -338,7 +414,5 @@ export const useOfflineMemo = ({
         }
       : { ...dictation, toggle }
 
-  const discard = useCallback(() => setAudio(null), [])
-
-  return { mic, audio, discard, hold }
+  return { mic, audio, fellBack, discard, hold, forget }
 }

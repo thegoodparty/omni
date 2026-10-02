@@ -81,9 +81,10 @@ All under `@Controller('constituent-feedback')`, all `@UseOrganization()`.
   it pending and starts a transcription job. `@AllowVolunteer()`.
 - `PATCH /:id/confirm`: the confirmed triple. Sets `confirmedAt`.
   `@AllowVolunteer()`.
-- `POST audio-upload-url`: `{ clientKey }` to `{ audioKey, uploadUrl,
-expiresAt }`. `@AllowVolunteer()`.
-- `PUT audio-upload/:clientKey`: the mock-mode upload sink; 404 otherwise.
+- `POST audio-upload-url`: `{ clientKey, contentType }` to `{ audioKey,
+uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
+- `POST audio-upload/:clientKey`: the mock-mode upload sink (multipart,
+  same 5 MB cap); 404 otherwise.
   `@AllowVolunteer()`.
 - `GET pending?outreachId=`: the effort's unconfirmed memos, newest first.
   `@AllowVolunteer()`; a volunteer gets only the ones they recorded.
@@ -233,9 +234,13 @@ signal returns it sends the knock or call, then the memo. The webapp side is
 1. `POST audio-upload-url` builds the key
    `constituent-feedback/{organizationSlug}/{clientKey}.webm` from the memo's
    own replay key, so a re-sent upload overwrites the same object and no key
-   names another org's audio, and returns a 15-minute presigned PUT on
-   `SPEECH_BUCKET`. `.webm` even for Safari's mp4: Transcribe reads the
-   container, not the name.
+   names another org's audio, and returns a 15-minute presigned POST on
+   `SPEECH_BUCKET` whose policy pins the recording's `audio/*` type and
+   caps it at `CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES` (5 MB, about two
+   minutes), so S3 refuses a runaway recording at upload time. The prod
+   bucket's CORS rule allows that POST from the prod app's origins
+   (`deploy/components/meeting-pipeline-bucket.ts`). `.webm` even for
+   Safari's mp4: Transcribe reads the container, not the name.
 2. `POST /` with that `audioKey` and `captureMethod: dictation_offline`
    resolves the knock or call and runs the volunteer check exactly as the
    transcript path does, refuses (400) a key that is not the one built from
@@ -251,7 +256,9 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    start the job if there is none, else poll it. On text it writes the
    transcript and runs extraction exactly as a live capture does
    (`completeTranscription`), leaving `confirmedAt` null. A failed job, an
-   empty transcript, or a row untouched for an hour becomes `failed`. Every
+   empty transcript, or a row untouched for an hour becomes `failed`; the
+   hour is applied after the poll, so a job that finished while the cron
+   was not running is read rather than failed. Every
    write is scoped by the job name, so a memo re-recorded or retried
    meanwhile is left to its own job. No deploy allowlist: it calls
    Transcribe only for memos recorded on its own database.
@@ -273,12 +280,12 @@ extraction failed online.
 **Mock mode.** `SPEECH_TRANSCRIBE_FILE_MODE=mock` (see `src/speech/AGENTS.md`
 for the transcription half). The upload URL then points at
 `{APP_ROOT}/api/v1/constituent-feedback/audio-upload/{clientKey}`: the
-webapp's `/api` proxy, which adds the session, to `PUT
-audio-upload/:clientKey` here, which keeps nothing. It is keyed by the
+webapp's `/api` proxy, which adds the session, to `POST
+audio-upload/:clientKey` here: a multipart form read through
+`FilesInterceptor` with the same 5 MB cap, kept nowhere. It is keyed by the
 `clientKey` because the whole audio key runs past Fastify's 100-character
 route parameter limit. The sink 404s outside mock mode or off a dev-only
-deploy, and `app.ts` registers an `audio/*` body parser only in mock mode,
-so no deployed route buffers audio. `.env.test` sets `mock`.
+deploy. `.env.test` sets `mock`.
 
 ## The extraction prompt names no product
 

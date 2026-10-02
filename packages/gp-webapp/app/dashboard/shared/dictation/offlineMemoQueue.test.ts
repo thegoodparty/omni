@@ -97,17 +97,24 @@ describe('offlineMemoQueue', () => {
   })
 
   // A request the server refused will be refused again, so it leaves the
-  // queue rather than blocking every memo behind it.
-  it('drops a refused entry and carries on', async () => {
-    await enqueue([knockEntry('a', 1), memoEntry('a', 2)])
+  // queue rather than blocking everything behind it, and takes the memo
+  // that rides on it: that memo resolves the knock on the server and would
+  // be refused too.
+  it('drops a refused knock and its memo, and carries on', async () => {
+    await enqueue([
+      knockEntry('a', 1),
+      memoEntry('a', 2),
+      knockEntry('b', 3),
+      memoEntry('b', 4),
+    ])
     const sent: string[] = []
 
     await drainQueue(async (entry) => {
       sent.push(entry.id)
-      return entry.kind === 'knock' ? 'rejected' : 'sent'
+      return entry.id === 'knock:a' ? 'rejected' : 'sent'
     })
 
-    expect(sent).toEqual(['knock:a', 'memo:a'])
+    expect(sent).toEqual(['knock:a', 'knock:b', 'memo:b'])
     expect(await listQueue()).toEqual([])
   })
 

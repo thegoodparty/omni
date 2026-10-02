@@ -81,6 +81,21 @@ export const WHAT_WE_HEARD_COPY = {
     reviewCaption: 'Check what each note says, then confirm it.',
     reviewEmpty: 'Nothing to review. New notes show up here.',
     stillTranscribing: 'Still transcribing',
+    readyToReview: 'Ready to review',
+    // Each row's buttons say which note they act on, for a screen reader
+    // moving through a page of them: its first words, or who took it and when.
+    noteFrom: (actorName: string | null, occurredAt: Date): string =>
+      `Note from ${actorName ?? 'your team'}, ${new Date(
+        occurredAt,
+      ).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })}`,
+    confirmFor: (note: string): string => `Looks right: ${note}`,
+    tryAgainFor: (note: string): string => `Try again: ${note}`,
+    typeItInsteadFor: (note: string): string => `Type it instead: ${note}`,
     couldNotHear: "We couldn't make out this note. Try again or type it.",
     couldNotRead:
       "We couldn't pull anything from this note. Try again or type it.",
@@ -149,6 +164,21 @@ export const WHAT_WE_HEARD_COPY = {
     reviewCaption: 'Check what each note says, then confirm it.',
     reviewEmpty: 'Nothing to review. New notes show up here.',
     stillTranscribing: 'Still transcribing',
+    readyToReview: 'Ready to review',
+    // Each row's buttons say which note they act on, for a screen reader
+    // moving through a page of them: its first words, or who took it and when.
+    noteFrom: (actorName: string | null, occurredAt: Date): string =>
+      `Note from ${actorName ?? 'your team'}, ${new Date(
+        occurredAt,
+      ).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })}`,
+    confirmFor: (note: string): string => `Looks right: ${note}`,
+    tryAgainFor: (note: string): string => `Try again: ${note}`,
+    typeItInsteadFor: (note: string): string => `Type it instead: ${note}`,
     couldNotHear: "We couldn't make out this note. Try again or type it.",
     couldNotRead:
       "We couldn't pull anything from this note. Try again or type it.",

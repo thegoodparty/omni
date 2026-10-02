@@ -2,9 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { RoutePayloadTarget } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
-import { api } from 'helpers/test-utils/api-mocking'
+import { http, HttpResponse } from 'msw'
+import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { installIndexedDbShim } from 'helpers/test-utils/indexedDbShim'
-import { listQueue } from 'app/dashboard/shared/dictation/offlineMemoQueue'
+import {
+  enqueue,
+  listQueue,
+} from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
 import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
@@ -40,6 +44,7 @@ const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
 
 const mocks = vi.hoisted(() => ({
   successSnackbar: vi.fn(),
+  start: vi.fn(),
   input: {
     current: null as null | {
       analyticsLabel: string
@@ -69,7 +74,7 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
       partialTranscript: '',
       active: false,
       busy: false,
-      start: vi.fn(),
+      start: mocks.start,
       stop: vi.fn(),
       toggle: vi.fn(),
     }
@@ -432,6 +437,172 @@ describe('RecordKnockForm issue capture with no signal', () => {
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'not_home'),
     )
     expect((await listQueue()).map((entry) => entry.kind)).toEqual(['knock'])
+  })
+})
+
+// The edges of the offline path: where it must not fire, where it must
+// fire although the browser thinks it is online, and how a second save of
+// the same door treats what the phone still holds.
+describe('RecordKnockForm offline edges', () => {
+  let online = true
+  const KEY = '6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90'
+
+  class FakeMediaRecorder {
+    state: 'inactive' | 'recording' = 'inactive'
+    mimeType = 'audio/webm;codecs=opus'
+    ondataavailable: ((event: { data: Blob }) => void) | null = null
+    onstop: (() => void) | null = null
+    start() {
+      this.state = 'recording'
+    }
+    stop() {
+      this.state = 'inactive'
+      this.ondataavailable?.({
+        data: new Blob(['what they said'], { type: this.mimeType }),
+      })
+      this.onstop?.()
+    }
+  }
+
+  beforeEach(() => {
+    installIndexedDbShim()
+    online = true
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      get: () => online,
+    })
+    Object.defineProperty(window.navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn(async () => ({
+          getTracks: () => [{ stop: vi.fn() }],
+        })),
+      },
+    })
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder)
+    mocks.successSnackbar.mockClear()
+  })
+
+  afterEach(() => {
+    online = true
+  })
+
+  // The flag is the rollback lever: with it off, nothing is held.
+  it('holds nothing with capture off, even offline', async () => {
+    setFlags({ serve: false, win: false })
+    online = false
+    const knocks = vi.fn()
+    api.mock('POST /v1/door-knocking/interactions', () => {
+      knocks()
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'needs_follow_up' },
+      }
+    })
+    renderForm()
+    await walkAndSave()
+
+    await waitFor(() => expect(knocks).toHaveBeenCalled())
+    expect(await listQueue()).toEqual([])
+  })
+
+  // The browser said online, but the request never got an answer.
+  it('holds a knock whose request got no answer, and walks on', async () => {
+    mswServer.use(
+      http.post('*/v1/door-knocking/interactions', () => HttpResponse.error()),
+    )
+    const onRecorded = renderForm()
+    await walkAndSave()
+
+    await waitFor(() =>
+      expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
+    )
+    expect((await listQueue()).map((entry) => entry.id).sort()).toEqual([
+      'knock:21',
+      'memo:21',
+    ])
+    expect(
+      screen.queryByText(
+        'Saving failed — your answers are still here, try again.',
+      ),
+    ).toBeNull()
+  })
+
+  it('replaces what it holds for a door saved again offline', async () => {
+    online = false
+    await enqueue([
+      {
+        id: 'knock:21',
+        kind: 'knock',
+        organizationSlug: '',
+        payload: { stopTargetId: 21, clientKey: KEY, outcome: 'not_home' },
+        createdAt: 1,
+      },
+    ])
+    const onRecorded = renderForm()
+    await walkAndSave()
+
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    const knocks = (await listQueue()).filter((entry) => entry.kind === 'knock')
+    expect(knocks).toHaveLength(1)
+    expect(knocks[0]?.payload).toEqual(
+      expect.objectContaining({ outcome: 'answered', followUp: 'yes' }),
+    )
+  })
+
+  // A save that reached the server supersedes the older one still queued,
+  // which would otherwise land later and read as the newer.
+  it('drops what it held for a door saved again online', async () => {
+    await enqueue([
+      {
+        id: 'knock:21',
+        kind: 'knock',
+        organizationSlug: 'someone-else',
+        payload: { stopTargetId: 21, clientKey: KEY, outcome: 'not_home' },
+        createdAt: 1,
+      },
+    ])
+    const onRecorded = renderForm()
+    answer('Did they answer?', 'Not home')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    await waitFor(async () => expect(await listQueue()).toEqual([]))
+  })
+
+  it('records a conversation on the phone with no signal and holds it', async () => {
+    online = false
+    const onRecorded = renderForm()
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Engaged')
+    answer('Do they need follow-up?', 'Yes')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate note' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Stop dictation' }),
+    )
+    expect(
+      await screen.findByText('Note recorded on your phone.'),
+    ).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    const memo = (await listQueue()).find((entry) => entry.kind === 'memo')
+    expect(memo?.kind === 'memo' && memo.blob).toBeInstanceOf(Blob)
+  })
+
+  // A door that did not engage has no conversation to capture, so the mic
+  // stays the ordinary dictation mic and nothing records on the phone.
+  it('never records on the phone at a door that did not engage', async () => {
+    online = false
+    renderForm()
+    answer('Did they answer?', 'Not home')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate note' }))
+
+    // The live dictation it wraps, which fails the ordinary way offline.
+    expect(mocks.start).toHaveBeenCalled()
+    expect(screen.queryByText('Note recorded on your phone.')).toBeNull()
   })
 })
 

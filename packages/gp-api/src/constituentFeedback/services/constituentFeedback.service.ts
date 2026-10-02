@@ -7,6 +7,7 @@ import {
 import { ModuleRef } from '@nestjs/core'
 import {
   AudioUploadUrlResponse,
+  CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
@@ -132,22 +133,36 @@ export class ConstituentFeedbackService extends createPrismaBase(
     super()
   }
 
-  // Where the phone puts a memo it recorded with no signal. In mock mode the
-  // URL is gp-api's own sink, reached through the webapp's `/api` proxy the
-  // way every other browser call is, so a laptop needs no bucket.
+  // Where the phone puts a memo it recorded with no signal: a presigned POST,
+  // whose policy pins the type and caps the size, so S3 refuses a runaway
+  // recording at upload time. In mock mode the URL is gp-api's own sink,
+  // reached through the webapp's `/api` proxy the way every other browser
+  // call is, so a laptop needs no bucket.
   async audioUploadUrl(input: {
     organizationSlug: string
     clientKey: string
+    contentType: string
   }): Promise<AudioUploadUrlResponse> {
     const audioKey = audioKeyFor(input.organizationSlug, input.clientKey)
     const expiresAt = new Date(Date.now() + AUDIO_UPLOAD_EXPIRES_SECONDS * 1000)
-    const uploadUrl =
-      this.transcribeFile.mode === 'mock'
-        ? `${APP_ROOT}${WEBAPP_API_PATH}constituent-feedback/audio-upload/${input.clientKey}`
-        : await this.s3.getSignedUrlForUpload(SPEECH_BUCKET, audioKey, {
-            expiresIn: AUDIO_UPLOAD_EXPIRES_SECONDS,
-          })
-    return { audioKey, uploadUrl, expiresAt }
+    if (this.transcribeFile.mode === 'mock') {
+      return {
+        audioKey,
+        uploadUrl: `${APP_ROOT}${WEBAPP_API_PATH}constituent-feedback/audio-upload/${input.clientKey}`,
+        fields: {},
+        expiresAt,
+      }
+    }
+    const { url, fields } = await this.s3.createPresignedUpload(
+      SPEECH_BUCKET,
+      audioKey,
+      {
+        expiresIn: AUDIO_UPLOAD_EXPIRES_SECONDS,
+        contentType: input.contentType,
+        maxBytes: CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
+      },
+    )
+    return { audioKey, uploadUrl: url, fields, expiresAt }
   }
 
   // The mock sink takes the bytes and keeps none. It exists only in mock

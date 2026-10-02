@@ -18,6 +18,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 import { SEED_MEMOS } from '../services/feedbackSeedMemos'
+import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
 import { PendingTranscriptionService } from '../services/pendingTranscription.service'
 import {
   call,
@@ -111,7 +112,7 @@ describe('offline memo capture', () => {
   const uploadUrl = (clientKey: string, config = ownerHeaders(slug)) =>
     service.client.post(
       '/v1/constituent-feedback/audio-upload-url',
-      { clientKey },
+      { clientKey, contentType: 'audio/webm;codecs=opus' },
       config,
     )
 
@@ -155,6 +156,7 @@ describe('offline memo capture', () => {
         `constituent-feedback/${slug}/${clientKey}.webm`,
       )
       expect(() => new URL(res.data.uploadUrl)).not.toThrow()
+      expect(res.data.fields).toEqual({})
       const expiresInMs = new Date(res.data.expiresAt).getTime() - before
       expect(expiresInMs).toBeGreaterThan(14 * 60_000)
       expect(expiresInMs).toBeLessThanOrEqual(15 * 60_000 + 5_000)
@@ -162,19 +164,33 @@ describe('offline memo capture', () => {
 
     // The mock's URL is gp-api's own sink, reached through the webapp's
     // /api proxy, so a laptop runs the whole upload with no bucket.
-    it('takes the audio at the mock sink', async () => {
+    const postToSink = async () => {
       const res = await uploadUrl(randomUUID())
       const path = new URL(res.data.uploadUrl).pathname.replace(/^\/api/, '')
-
-      const put = await service.client.put(path, Buffer.from('fake audio'), {
-        headers: {
-          'x-organization-slug': slug,
-          'Content-Type': 'audio/webm;codecs=opus',
-        },
+      const form = new FormData()
+      form.append(
+        'file',
+        new Blob([Buffer.from('fake audio')], { type: 'audio/webm' }),
+        'memo.webm',
+      )
+      return service.client.post(path, form, {
+        headers: { 'x-organization-slug': slug },
         validateStatus: () => true,
       })
+    }
 
-      expect(put.status).toBe(204)
+    it('takes the audio at the mock sink', async () => {
+      expect((await postToSink()).status).toBe(204)
+    })
+
+    // A write seam, so never on prod even if the mode were left on there.
+    it('has no mock sink on prod', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+      onTestFinished(() => {
+        vi.unstubAllEnvs()
+      })
+
+      expect((await postToSink()).status).toBe(404)
     })
 
     it('404s when the product flag is off', async () => {
@@ -288,6 +304,63 @@ describe('offline memo capture', () => {
       expect(saved.effortQuestion).toBe('What should the town fix first?')
       // Extracted is not confirmed: only the review list sets this.
       expect(saved.confirmedAt).toBeNull()
+    })
+
+    it('marks a memo failed when its job fails', async () => {
+      const { res } = await recordOffline()
+      const poll = vi
+        .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
+        .mockResolvedValue({ status: 'failed', reason: 'unsupported media' })
+      onTestFinished(() => poll.mockRestore())
+
+      await service.app.get(PendingTranscriptionService).pass(FIRST_SLOT)
+
+      const saved = await row(res.data.id)
+      expect(saved.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.failed,
+      )
+      expect(saved.transcript).toBeNull()
+    })
+
+    // An hour with no word, and the memo goes to "Notes to review" with
+    // "Try again" rather than holding a slot in every batch.
+    it('gives up on a job still running an hour on', async () => {
+      const { res } = await recordOffline()
+      const poll = vi
+        .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
+        .mockResolvedValue({ status: 'in_progress' })
+      onTestFinished(() => poll.mockRestore())
+
+      await service.app
+        .get(PendingTranscriptionService)
+        .pass(new Date(Date.now() + 61 * 60_000))
+
+      expect((await row(res.data.id)).extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.failed,
+      )
+    })
+
+    // Polled before the give-up: a job that finished while the cron was not
+    // running is read, not failed.
+    it('reads a job that finished while nobody polled it', async () => {
+      const { res } = await recordOffline()
+      const poll = vi
+        .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
+        .mockResolvedValue({
+          status: 'completed',
+          transcript: 'She wants the storm drain cleared.',
+        })
+      onTestFinished(() => poll.mockRestore())
+
+      await service.app
+        .get(PendingTranscriptionService)
+        .pass(new Date(Date.now() + 61 * 60_000))
+
+      const saved = await row(res.data.id)
+      expect(saved.transcript).toBe('She wants the storm drain cleared.')
+      expect(saved.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.extracted,
+      )
     })
 
     it('starts a job for a memo whose first start failed', async () => {

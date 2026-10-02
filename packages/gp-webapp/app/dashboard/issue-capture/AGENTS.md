@@ -111,7 +111,11 @@ their own). Each is the canvasser's summary with, under it:
   confirmed fields never reaches a theme. No typing when `reference` is null.
 
 A confirm fires `PendingMemoConfirmed` and re-reads the list and the
-report. This is where a memo recorded with no signal is confirmed, and the
+report. Each row has a polite `role="status"` line that reads "Still
+transcribing" and then "Ready to review", so a card arriving while the page
+is open is announced; error lines are `role="alert"`; and every row button's
+accessible name carries the note's first words (or who took it and when), so
+a page of them is not one name said several times. This is where a memo recorded with no signal is confirmed, and the
 retry for one whose transcription or extraction failed online.
 
 Two pages mount `PendingMemoList`: the manager's

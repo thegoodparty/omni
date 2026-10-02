@@ -30,6 +30,15 @@ import {
 
 const HOUR_MS = 60 * 60 * 1000
 
+const NAME_WORDS = 6
+
+const noteName = (memo: PendingFeedback, copy: WhatWeHeardCopy): string => {
+  const words = memo.transcript?.split(/\s+/).filter(Boolean) ?? []
+  if (words.length === 0) return copy.noteFrom(memo.actorName, memo.occurredAt)
+  const lead = words.slice(0, NAME_WORDS).join(' ')
+  return words.length > NAME_WORDS ? `${lead}…` : lead
+}
+
 const PendingMemo = ({
   memo,
   outreachId,
@@ -104,6 +113,8 @@ const PendingMemo = ({
     onSuccess: refresh,
   })
 
+  const name = noteName(memo, copy)
+
   if (memo.extractionStatus === 'pending') {
     return (
       <p className="text-sm text-muted-foreground">{copy.stillTranscribing}</p>
@@ -122,9 +133,12 @@ const PendingMemo = ({
           saving={confirm.isPending}
           isServe={isServe}
           onConfirm={(triple) => confirm.mutate(triple)}
+          confirmLabel={copy.confirmFor(name)}
         />
         {confirm.isError && (
-          <p className="text-sm text-destructive">{copy.confirmFailed}</p>
+          <p role="alert" className="text-sm text-destructive">
+            {copy.confirmFailed}
+          </p>
         )}
       </div>
     )
@@ -167,7 +181,9 @@ const PendingMemo = ({
           </Button>
         </div>
         {record.isError && (
-          <p className="text-sm text-destructive">{copy.confirmFailed}</p>
+          <p role="alert" className="text-sm text-destructive">
+            {copy.confirmFailed}
+          </p>
         )}
       </div>
     )
@@ -183,6 +199,7 @@ const PendingMemo = ({
           variant="outline"
           size="small"
           disabled={retry.isPending}
+          aria-label={copy.tryAgainFor(name)}
           onClick={() => retry.mutate()}
         >
           {copy.tryAgain}
@@ -191,6 +208,7 @@ const PendingMemo = ({
           <Button
             variant="outline"
             size="small"
+            aria-label={copy.typeItInsteadFor(name)}
             onClick={() => setTyping(true)}
           >
             {copy.typeItInstead}
@@ -198,7 +216,9 @@ const PendingMemo = ({
         )}
       </div>
       {retry.isError && (
-        <p className="text-sm text-destructive">{copy.retryFailed}</p>
+        <p role="alert" className="text-sm text-destructive">
+          {copy.retryFailed}
+        </p>
       )}
     </div>
   )
@@ -246,7 +266,9 @@ const PendingMemoList = ({
       </header>
       {memos === undefined ? (
         pendingQuery.isError ? (
-          <p className="text-sm text-destructive">{copy.loadFailed}</p>
+          <p role="alert" className="text-sm text-destructive">
+            {copy.loadFailed}
+          </p>
         ) : (
           <div className="flex items-center justify-center gap-3 py-20">
             <Spinner />
@@ -270,6 +292,16 @@ const PendingMemoList = ({
                   {memo.transcript}
                 </p>
               )}
+              {/* Polite and always there, so a note that finishes
+                  transcribing while the page is open is announced as ready
+                  rather than silently swapping in its card. */}
+              <p role="status" className="sr-only">
+                {memo.extractionStatus === 'pending'
+                  ? copy.stillTranscribing
+                  : memo.extractionStatus === 'extracted'
+                    ? copy.readyToReview
+                    : ''}
+              </p>
               <PendingMemo
                 memo={memo}
                 outreachId={outreachId}
