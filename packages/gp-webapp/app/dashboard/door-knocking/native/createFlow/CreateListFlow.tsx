@@ -1051,18 +1051,25 @@ export default function CreateListFlow({
       instructions?: string
       communityInputQuestion?: string
     }) => {
-      const body = { ...input, filters: draftFilters }
       // Two endpoints for one call, chosen by the same `serveMode` context the
       // create body below uses — a Serve official's card must never be written
       // by the prompt that says "running for".
       const { data } = await (serveMode
         ? clientRequest('POST /v1/outreach/serve/door-knocking/draft', {
-            ...body,
             purpose: input.purpose as ServeDoorKnockingPurpose,
+            filters: draftFilters,
+            currentDraft: input.currentDraft,
+            previousDraft: input.previousDraft,
+            instructions: input.instructions,
+            communityInputQuestion: input.communityInputQuestion,
           })
         : clientRequest('POST /v1/outreach/door-knocking/draft', {
-            ...body,
             purpose: input.purpose as DoorKnockingPurpose,
+            filters: draftFilters,
+            currentDraft: input.currentDraft,
+            previousDraft: input.previousDraft,
+            instructions: input.instructions,
+            communityInputQuestion: input.communityInputQuestion,
           }))
       return data
     },

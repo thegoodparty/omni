@@ -10,7 +10,7 @@ import {
   ServePhoneBankingPurposeSchema,
 } from '../phoneBanking/PhoneBankingCreate.schema'
 
-// Same six purpose values as PhoneBankingCreateSchema's audience step
+// Same seven purpose values as PhoneBankingCreateSchema's audience step
 // (canonical definition lives in phoneBanking/PhoneBankingCreate.schema.ts);
 // kept under this module's own names since outreachPhoneBankingGeneration
 // .service.ts imports them from here.

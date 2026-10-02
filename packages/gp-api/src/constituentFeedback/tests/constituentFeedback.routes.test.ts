@@ -102,7 +102,6 @@ const onlyFlagOn = (flag: string) => {
 const flagsAskedFor = (spy: ReturnType<typeof onlyFlagOn>) =>
   spy.mock.calls.map(([params]) => params.feature)
 
-// A volunteer member of `slug`, signed in as themselves.
 const createVolunteer = async (slug: string) => {
   const label = `cf-volunteer-${randomUUID()}`
   const user = await service.prisma.user.create({
@@ -539,10 +538,12 @@ describe('constituent feedback routes', () => {
     })
   })
 
-  // The door arm resolves through the TURF, because a knock row carries no
-  // turf and the turf is what holds the question. That nested
-  // `stop.turf.voterFileFilter.organizationSlug` filter is the only thing
-  // standing between a caller and another org's canvassing question.
+  // The door arm files the memo under the knock row's own envelope and reads
+  // the question from that envelope's turf, falling back to the stop target's
+  // turf for a knock written before the row kept its envelope. The stop
+  // target lookup is scoped by `stop.turf.voterFileFilter.organizationSlug`,
+  // so another org's stop target never resolves and its question never
+  // reaches this org's record.
   describe('the door-knock channel', () => {
     // Builds a turf carrying `question`, one stop with one target on it, and
     // a knock recorded against a fresh client key.

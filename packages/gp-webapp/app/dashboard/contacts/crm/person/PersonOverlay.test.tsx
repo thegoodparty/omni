@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import PersonOverlay from './PersonOverlay'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
@@ -1048,6 +1049,68 @@ describe('<PersonOverlay>', () => {
       expect(
         screen.queryByText('Support Status updated'),
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // What a voter told a Win canvasser shows on their record, behind Win's
+  // own capture flag, the way a constituent's does behind Serve's.
+  describe('what they told us, on Win', () => {
+    beforeEach(() => {
+      testQueryClient.clear()
+      api.mock('GET /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          feedback: [
+            {
+              id: 'feedback-1',
+              personId: 'p_1',
+              occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+              channel: 'door_knock',
+              transcript: 'She wants the bond spent on the roads.',
+              issueLabel: 'Road bond',
+              stance: 'supports',
+              desiredOutcome: 'Spend it on the roads',
+              extractionStatus: 'extracted',
+              confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+              outreachId: 7,
+              actorName: 'Kamal Al Sawafi',
+            },
+          ],
+        },
+      })
+      mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_1',
+      })
+    })
+
+    it('shows the section when win-issue-capture is on', async () => {
+      mockedUseFlagOn.mockImplementation((key) => ({
+        ready: true,
+        on: key === 'win-issue-capture',
+      }))
+
+      render(<PersonOverlay />)
+
+      expect(await screen.findByText('What they told us')).toBeInTheDocument()
+      expect(screen.getByText('Road bond')).toBeInTheDocument()
+    })
+
+    it('shows nothing when win-issue-capture is off', async () => {
+      mockedUseFlagOn.mockImplementation((key) => ({
+        ready: true,
+        on: key === 'serve-issue-capture',
+      }))
+
+      render(<PersonOverlay />)
+
+      // Long enough for the memo request to land had the section mounted.
+      await expect(
+        screen.findByText('What they told us', {}, { timeout: 500 }),
+      ).rejects.toThrow()
+      expect(screen.queryByText('Road bond')).not.toBeInTheDocument()
     })
   })
 })
