@@ -13,8 +13,6 @@ const COMPOSE_HANDOFF_CHANNEL_LABEL: Record<
   string
 > = {
   serve_social: 'Social Post',
-  // win_social lands here only once a Win surface registers this widget
-  // (ENG-11218); the label just keeps this Record exhaustive today.
   win_social: 'Social Post',
 }
 

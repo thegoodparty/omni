@@ -389,6 +389,7 @@ const OutreachHubContent = ({
           setComposeSeeds(null)
         }}
         onSaved={handleSocialSaved}
+        prefill={composeSeeds?.socialPrefill}
         tracker={composeSeeds?.tracker}
         source={composeFlowSource}
       />

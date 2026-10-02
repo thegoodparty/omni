@@ -391,6 +391,75 @@ describe('OutreachComposeDeepLink', () => {
   })
 })
 
+// A Campaign Manager compose_handoff: the nonce rides `?handoff=` instead of
+// the URL (which would expose the draft text), resolved against the
+// sessionStorage entry ChiefOfStaffChatBody wrote.
+describe('OutreachComposeDeepLink — Campaign Manager handoff', () => {
+  beforeEach(() => {
+    mockSearchParams = new URLSearchParams()
+    mockReplace.mockClear()
+    mockPush.mockClear()
+    onCompose.mockClear()
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  afterEach(() => {
+    sessionStorage.clear()
+  })
+
+  it('resolves a win_social nonce into socialPrefill and consumes it once', async () => {
+    sessionStorage.setItem(
+      'cos-handoff-n1',
+      JSON.stringify({
+        channel: 'win_social',
+        draftText: 'The bridge reopens Monday.',
+        purpose: 'event_invite',
+      }),
+    )
+    mockSearchParams = new URLSearchParams('compose=social&handoff=n1')
+    renderDeepLink({ isPro: false })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest()).toMatchObject({
+      type: 'socialMedia',
+      socialPrefill: {
+        draftText: 'The bridge reopens Monday.',
+        purpose: 'event_invite',
+      },
+    })
+    expect(sessionStorage.getItem('cos-handoff-n1')).toBeNull()
+  })
+
+  it('ignores a serve_social payload under the nonce', async () => {
+    sessionStorage.setItem(
+      'cos-handoff-n1',
+      JSON.stringify({ channel: 'serve_social', draftText: 'x' }),
+    )
+    mockSearchParams = new URLSearchParams('compose=social&handoff=n1')
+    renderDeepLink({ isPro: false })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest().socialPrefill).toBeUndefined()
+  })
+
+  it('opens a blank flow with no prefill and no throw when the nonce is missing', async () => {
+    mockSearchParams = new URLSearchParams('compose=social&handoff=expired')
+    renderDeepLink({ isPro: false })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest().socialPrefill).toBeUndefined()
+  })
+
+  it('opens a blank flow with no prefill and no throw on a malformed stored payload', async () => {
+    sessionStorage.setItem('cos-handoff-n1', 'not-json')
+    mockSearchParams = new URLSearchParams('compose=social&handoff=n1')
+    renderDeepLink({ isPro: false })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest().socialPrefill).toBeUndefined()
+  })
+})
+
 // Milestone 2: the deep link stops being the gate for the three channels
 // whose flows now carry one — it opens them and they pause themselves.
 describe('OutreachComposeDeepLink — flag on: the flows own the gate', () => {

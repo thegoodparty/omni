@@ -110,6 +110,22 @@ must return null for it from `toolLabel`.** `InlineSegments` treats it like any
 other tool, and a label map that falls back to the raw tool name would put
 `compose_handoff` on a pill. `AiChatBody` and `AskAiChatBody` do this.
 
+**`ChiefOfStaffChatBody` is the one surface that registers it, and it is
+shared by both products** — Serve's Chief of Staff and Win's Campaign Manager
+both mount this body, so its `handleComposeHandoff` routes on the payload's
+own `channel` rather than on which product opened the chat. Either way the
+payload is written to `sessionStorage` under `cos-handoff-<nonce>` (never the
+URL, which would expose the draft text) and the nonce rides a `?handoff=`
+query param. `serve_social` pushes
+`/dashboard/constituent-outreach?compose=social&handoff=<nonce>`;
+`win_social` (ENG-11218) pushes
+`/dashboard/outreach?compose=social&source=campaign_manager&handoff=<nonce>`.
+Each hub's own consumer resolves the nonce back into a prefill once, on
+arrival — `ConstituentOutreachPage.tsx` for Serve,
+`outreach/components/OutreachComposeDeepLink.tsx` for Win — and a payload
+whose channel doesn't match that hub (or a missing/expired/malformed nonce)
+is silently ignored rather than erroring.
+
 `ordinances/components/stepWidgets.tsx` is the reference registry. Chief of
 Staff's `show_list_map` is deliberately not on one: its map renders after the
 turn's prose and only once per turn, and a registry entry would move it to

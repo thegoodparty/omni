@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
+import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS } from 'helpers/analyticsHelper'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
@@ -2312,6 +2313,81 @@ describe('<ChiefOfStaffChatBody> widgets', () => {
       screen.getAllByRole('button', { name: 'Continue in compose' }),
     ).toHaveLength(1)
     expect(screen.queryByText('compose_handoff')).not.toBeInTheDocument()
+  })
+
+  // This body is shared by Serve's Chief of Staff and Win's Campaign
+  // Manager, so the handoff routes on the payload's own channel rather than
+  // which surface mounted it.
+  describe('compose_handoff routing', () => {
+    beforeEach(() => {
+      vi.mocked(router.push!).mockClear()
+    })
+
+    afterEach(() => {
+      sessionStorage.clear()
+    })
+
+    it('routes a win_social handoff to the Win hub with the nonce', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            { kind: 'text', text: 'Here is a draft.' },
+            {
+              kind: 'tool',
+              toolName: 'compose_handoff',
+              payload: {
+                channel: 'win_social',
+                draftText: 'The pothole crew starts Monday.',
+              },
+            },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv_win" />)
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(router.push).toHaveBeenCalledTimes(1)
+      const destination = vi.mocked(router.push!).mock.calls[0]?.[0] as string
+      expect(destination).toMatch(
+        /^\/dashboard\/outreach\?compose=social&source=campaign_manager&handoff=.+$/,
+      )
+      const nonce = destination.split('handoff=')[1]
+      expect(sessionStorage.getItem(`cos-handoff-${nonce}`)).toBe(
+        JSON.stringify({
+          channel: 'win_social',
+          draftText: 'The pothole crew starts Monday.',
+        }),
+      )
+    })
+
+    it('still routes a serve_social handoff to the Serve hub', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            { kind: 'text', text: 'Here is a draft.' },
+            { kind: 'tool', toolName: 'compose_handoff', payload: HANDOFF },
+          ],
+        }),
+      ])
+
+      render(
+        <ChiefOfStaffChatBody active conversationIdOverride="conv_serve" />,
+      )
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(router.push).toHaveBeenCalledTimes(1)
+      const destination = vi.mocked(router.push!).mock.calls[0]?.[0] as string
+      expect(destination).toMatch(
+        /^\/dashboard\/constituent-outreach\?compose=social&handoff=.+$/,
+      )
+    })
   })
 
   it('reloads an answered question with its answer checked', async () => {
