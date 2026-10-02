@@ -929,7 +929,9 @@ export const SmsFlow = ({
     if (remembered !== undefined && remembered.trim().length > 0) {
       draftRequestRef.current += 1
       resetDraftMutation()
-      setBody(withIdentification(remembered, nextTone))
+      // Not re-checked: a generated entry was identified when it arrived,
+      // and any other entry is the candidate's own typing.
+      setBody(remembered)
       setManuallyEdited(false)
       return
     }
