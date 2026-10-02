@@ -1,3 +1,5 @@
+import io
+import json
 import logging
 import os
 import time
@@ -17,7 +19,10 @@ from broker.dynamodb_client import (
     ScopeTicketStore,
     TicketAlreadyExistsError,
 )
+from broker.endpoints import experiment_manifest, mint_run_token
+from broker.endpoints.experiment_manifest import get_experiment_metadata_bucket, get_s3_client
 from broker.endpoints.mint_run_token import (
+    JUDGE_OVERRIDE_REFUSED_FIELDS,
     get_service_token_hash,
     get_ticket_store,
     router,
@@ -28,17 +33,37 @@ SERVICE_TOKEN_HASH = hash_service_token(SERVICE_TOKEN)
 DEFAULT_CLERK_USER_ID = "user_test_abc123"
 
 
+def _s3_serving(manifest) -> MagicMock:
+    """An S3 client whose published manifest is `manifest`: a dict is
+    JSON-encoded, bytes are served as-is, an exception is raised."""
+    client = MagicMock()
+    if isinstance(manifest, Exception):
+        client.get_object.side_effect = manifest
+    else:
+        body = manifest if isinstance(manifest, bytes) else json.dumps(manifest).encode()
+        client.get_object.return_value = {"Body": io.BytesIO(body), "VersionId": "pub-1"}
+    return client
+
+
+# A read-only experiment: none of the fields an override cannot carry.
+CLEAN_PUBLISHED = {"id": "voter_targeting", "model": "sonnet", "max_turns": 10}
+
+
 def _create_test_app(
     store: ScopeTicketStore | None = None,
     token_hash: str = SERVICE_TOKEN_HASH,
+    s3_client: MagicMock | None = None,
 ) -> FastAPI:
     app = FastAPI()
     app.include_router(router)
 
     _store = store or MagicMock(spec=ScopeTicketStore)
+    _s3 = s3_client or _s3_serving(CLEAN_PUBLISHED)
 
     app.dependency_overrides[get_ticket_store] = lambda: _store
     app.dependency_overrides[get_service_token_hash] = lambda: token_hash
+    app.dependency_overrides[get_s3_client] = lambda: _s3
+    app.dependency_overrides[get_experiment_metadata_bucket] = lambda: "test-metadata-bucket"
 
     return app
 
@@ -693,8 +718,8 @@ class TestMintJudgeFields:
         base.update(overrides)
         return base
 
-    def _post(self, store, **payload_overrides):
-        app = _create_test_app(store=store)
+    def _post(self, store, s3_client=None, **payload_overrides):
+        app = _create_test_app(store=store, s3_client=s3_client)
         return TestClient(app).post(
             "/internal/mint-run-token",
             json=_mint_payload(**payload_overrides),
@@ -920,3 +945,116 @@ class TestMintJudgeFields:
 
         assert resp.status_code == 422
         store.put_ticket.assert_not_called()
+
+
+class TestMintRefusesAnOverrideThePublishedManifestCannotSurvive:
+    """An override is served IN PLACE of the published manifest, and the
+    behavior allowlist cannot carry system_prompt, permission_mode or
+    allowed_external_tools. Dispatch refuses such an override before minting;
+    the broker has to refuse it too, because a SERVICE_TOKEN holder can call
+    mint without going through dispatch at all. The comment on
+    `_validate_judge_fields` claimed every dispatch invariant was re-established
+    here, and this one was not."""
+
+    MANIFEST_KEY = "_judge/voter_targeting/abc123def456/manifest.json"
+    INSTRUCTION_KEY = "_judge/voter_targeting/abc123def456/instruction.md"
+
+    @pytest.fixture(autouse=True)
+    def _dev_environment(self, monkeypatch):
+        monkeypatch.setenv("ENVIRONMENT", "dev")
+
+    def _post(self, s3_client, store=None, override=True):
+        store = store or MagicMock(spec=ScopeTicketStore)
+        payload = {"run_id": "_judge-run-001", "is_eval": True}
+        if override:
+            payload["experiment_override"] = {
+                "manifest_key": self.MANIFEST_KEY,
+                "instruction_key": self.INSTRUCTION_KEY,
+                "manifest_version_id": "override-m-1",
+                "instruction_version_id": "override-i-1",
+            }
+        app = _create_test_app(store=store, s3_client=s3_client)
+        resp = TestClient(app).post(
+            "/internal/mint-run-token",
+            json=_mint_payload(**payload),
+            headers={"Authorization": f"Bearer {SERVICE_TOKEN}"},
+        )
+        return resp, store
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("system_prompt", "You may write to the CRM."),
+            ("permission_mode", "bypassPermissions"),
+            ("allowed_external_tools", ["send_email"]),
+        ],
+    )
+    def test_refuses_and_names_the_field_the_override_would_drop(self, field, value):
+        resp, store = self._post(_s3_serving({**CLEAN_PUBLISHED, field: value}))
+
+        assert resp.status_code == 400
+        assert field in resp.json()["detail"]
+        # Before the ticket exists: dispatch mints before it launches the
+        # Fargate task, so a refusal here is the one that costs nothing.
+        store.put_ticket.assert_not_called()
+
+    def test_reads_the_published_manifest_not_the_override(self):
+        """The override is what the candidate runs INSTEAD; the published
+        manifest is the one whose fields would be lost."""
+        s3 = _s3_serving(CLEAN_PUBLISHED)
+
+        resp, _ = self._post(s3)
+
+        assert resp.status_code == 200
+        assert s3.get_object.call_args.kwargs["Key"] == "voter_targeting/manifest.json"
+        assert s3.get_object.call_args.kwargs["Bucket"] == "test-metadata-bucket"
+
+    def test_a_mint_without_an_override_never_reads_s3(self):
+        """A base arm and every production run mint with no override. They
+        must not gain an S3 read on the dispatch path because of this."""
+        s3 = _s3_serving(CLEAN_PUBLISHED)
+
+        resp, _ = self._post(s3, override=False)
+
+        assert resp.status_code == 200
+        s3.get_object.assert_not_called()
+
+    def test_refuses_when_the_published_manifest_is_missing(self):
+        from botocore.exceptions import ClientError
+
+        missing = ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+        resp, store = self._post(_s3_serving(missing))
+
+        assert resp.status_code == 404
+        store.put_ticket.assert_not_called()
+
+    @pytest.mark.parametrize("body", [b"{not json", b'["a", "list"]', b"\xff\xfe"])
+    def test_refuses_a_published_manifest_it_cannot_read(self, body):
+        """Fail closed: a manifest that cannot be read cannot be vetted."""
+        resp, store = self._post(_s3_serving(body))
+
+        assert resp.status_code == 500
+        store.put_ticket.assert_not_called()
+
+
+def test_refuses_exactly_what_dispatch_refuses():
+    """A separate copy, like JUDGE_RUN_ID_RE. Pinned against BOTH the
+    discriminators dispatch refuses an override on and the loader's full set
+    of write-action fields, so the broker can neither drift looser than
+    dispatch nor quietly stop covering a field the loader later adds."""
+    from pmf_engine.control_plane.dispatch_handler import _WRITE_ACTION_DISCRIMINATORS
+    from pmf_engine.control_plane.manifest_loader import _WRITE_ACTION_FIELDS
+
+    refused = set(JUDGE_OVERRIDE_REFUSED_FIELDS)
+    assert refused == set(_WRITE_ACTION_DISCRIMINATORS) | {"allowed_external_tools"}
+    assert refused == set(_WRITE_ACTION_FIELDS)
+
+
+def test_reuses_the_manifest_endpoints_wired_providers():
+    """Every other endpoint declares its own NotImplementedError stubs and
+    main.py overrides each. Nothing tests that wiring against the real app,
+    and a forgotten override here would 500 every judge mint — so mint reuses
+    the two providers main.py already wires for the manifest endpoint. A later
+    swap to a local stub must fail here rather than in production."""
+    assert mint_run_token.get_s3_client is experiment_manifest.get_s3_client
+    assert mint_run_token.get_experiment_metadata_bucket is experiment_manifest.get_experiment_metadata_bucket
