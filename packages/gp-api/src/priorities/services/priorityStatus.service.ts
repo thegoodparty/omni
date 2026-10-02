@@ -255,7 +255,15 @@ const checkDueFor = (
         CHECK_HOW
 }
 
-const ANSWERED: readonly PriorityStepCheck['state'][] = ['confirmed', 'revised']
+// Sides holding what constituents said, which a late send must not erase.
+// Narrower than contracts' isCheckAnswered on purpose: `declined` is left
+// out, because a send that actually happened is what is true. An official
+// who declined or deferred and then sent anyway changed their mind, and
+// leaving `declined` would claim nobody was asked when people were.
+const HAS_REPLIES: readonly PriorityStepCheck['state'][] = [
+  'confirmed',
+  'revised',
+]
 
 // The check with one side moved to out by a real send, or the same object
 // when there is nothing to record.
@@ -270,7 +278,7 @@ const withSend = (
   if (
     sideStored?.sentProposalKey === send.proposalKey ||
     (sideStored?.state === 'out' && sideStored.sentAt !== undefined) ||
-    (sideStored !== undefined && ANSWERED.includes(sideStored.state))
+    (sideStored !== undefined && HAS_REPLIES.includes(sideStored.state))
   ) {
     return stored
   }
