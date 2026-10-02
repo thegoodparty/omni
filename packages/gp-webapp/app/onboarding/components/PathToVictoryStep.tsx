@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Sparkles } from 'lucide-react'
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
   Card,
   CardContent,
   Dialog,
@@ -365,86 +369,94 @@ const ProjectionExplanation = ({
       : null
   let stepIndex = 1
 
+  // Collapsed by default, per the design: the hero carries the answer and the
+  // steps are there for a candidate who wants the working.
   return (
-    <div>
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">How we got this number</p>
-        <Dialog>
-          <DialogTrigger className="cursor-pointer text-sm text-muted-foreground underline-offset-4 hover:underline">
-            Methodology
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Methodology</DialogTitle>
-            </DialogHeader>
-            <DialogDescription asChild>
-              <div className="space-y-2">
-                <p>
-                  Our turnout projections are built on a national voter file
-                  covering more than 240 million voters and over 130,000
-                  elections each year.
-                </p>
-                <p>
-                  We analyze voter eligibility, historical voting behavior and
-                  election patterns to estimate the likelihood that each voter
-                  in your district will turn out in your race. Combining the
-                  voter-level predictions, we generate an accurate turnout
-                  projection and win number target tailored specifically to your
-                  election.
-                </p>
-                <p>
-                  In 2025, the model&rsquo;s predictions were calibrated within
-                  approximately 1.5 percentage points of actual voter turnout
-                  behavior on average. For more information, see{' '}
-                  <a
-                    href="https://goodparty.org/blog/article/calculate-win-numbers"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-components-input-active hover:underline"
-                  >
-                    our blog post
-                  </a>
-                  {'.'}
-                </p>
-              </div>
-            </DialogDescription>
-          </DialogContent>
-        </Dialog>
-      </div>
-      <ol className="space-y-3">
-        {showRegisteredVoters ? (
-          <ProjectionStep
-            index={stepIndex++}
-            title="Registered voters in your district"
-            description="The total pool of voters eligible to cast a ballot in your race."
-            value={numberFormatter(registeredVoters)}
-          />
-        ) : null}
-        <ProjectionStep
-          index={stepIndex++}
-          title="Projected voter turnout"
-          description="The number of voters we expect to cast a ballot based on similar past elections."
-          value={numberFormatter(projectedTurnout)}
-        />
-        {seatContext.kind === 'multi' && votesProjected !== null ? (
-          <ProjectionStep
-            index={stepIndex++}
-            title={VOTES_PROJECTED_STEP_TITLE}
-            description={votesProjectedStepDescription(
-              seatContext.seats,
-              votesProjected,
-            )}
-            value={numberFormatter(votesProjected)}
-          />
-        ) : null}
-        <ProjectionStep
-          index={stepIndex++}
-          title="Projected votes needed to win"
-          description={winNumberStepDescription(seatContext)}
-          value={numberFormatter(winNumber)}
-        />
-      </ol>
-    </div>
+    <Accordion type="single" collapsible>
+      <AccordionItem value="how-we-got-this-number" className="border-b-0">
+        <div className="flex items-center justify-between gap-4">
+          <AccordionTrigger className="py-0 font-normal text-muted-foreground">
+            How we got this number
+          </AccordionTrigger>
+          <Dialog>
+            <DialogTrigger className="cursor-pointer text-sm text-muted-foreground underline-offset-4 hover:underline">
+              Methodology
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Methodology</DialogTitle>
+              </DialogHeader>
+              <DialogDescription asChild>
+                <div className="space-y-2">
+                  <p>
+                    Our turnout projections are built on a national voter file
+                    covering more than 240 million voters and over 130,000
+                    elections each year.
+                  </p>
+                  <p>
+                    We analyze voter eligibility, historical voting behavior and
+                    election patterns to estimate the likelihood that each voter
+                    in your district will turn out in your race. Combining the
+                    voter-level predictions, we generate an accurate turnout
+                    projection and win number target tailored specifically to
+                    your election.
+                  </p>
+                  <p>
+                    In 2025, the model&rsquo;s predictions were calibrated
+                    within approximately 1.5 percentage points of actual voter
+                    turnout behavior on average. For more information, see{' '}
+                    <a
+                      href="https://goodparty.org/blog/article/calculate-win-numbers"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-components-input-active hover:underline"
+                    >
+                      our blog post
+                    </a>
+                    {'.'}
+                  </p>
+                </div>
+              </DialogDescription>
+            </DialogContent>
+          </Dialog>
+        </div>
+        <AccordionContent>
+          <ol className="space-y-3 pt-3">
+            {showRegisteredVoters ? (
+              <ProjectionStep
+                index={stepIndex++}
+                title="Registered voters in your district"
+                description="The total pool of voters eligible to cast a ballot in your race."
+                value={numberFormatter(registeredVoters)}
+              />
+            ) : null}
+            <ProjectionStep
+              index={stepIndex++}
+              title="Projected voter turnout"
+              description="The number of voters we expect to cast a ballot based on similar past elections."
+              value={numberFormatter(projectedTurnout)}
+            />
+            {seatContext.kind === 'multi' && votesProjected !== null ? (
+              <ProjectionStep
+                index={stepIndex++}
+                title={VOTES_PROJECTED_STEP_TITLE}
+                description={votesProjectedStepDescription(
+                  seatContext.seats,
+                  votesProjected,
+                )}
+                value={numberFormatter(votesProjected)}
+              />
+            ) : null}
+            <ProjectionStep
+              index={stepIndex++}
+              title="Projected votes needed to win"
+              description={winNumberStepDescription(seatContext)}
+              value={numberFormatter(winNumber)}
+            />
+          </ol>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   )
 }
 

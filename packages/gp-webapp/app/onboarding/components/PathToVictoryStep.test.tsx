@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { Campaign, RaceTargetMetrics } from 'helpers/types'
@@ -50,6 +51,11 @@ const renderCard = async () => {
   const campaign = { id: 1, raceTargetMetrics: BURBANK } as unknown as Campaign
   render(
     <PathToVictoryStep campaign={campaign} officeName={OFFICE} skipReveal />,
+  )
+  // The steps sit in a collapsed "How we got this number" accordion.
+  expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  await userEvent.click(
+    screen.getByRole('button', { name: 'How we got this number' }),
   )
   // The registered-voter row lands once the stats fetch resolves.
   await screen.findByText('68,231')
