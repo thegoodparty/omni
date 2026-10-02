@@ -44,8 +44,10 @@ Request/response shapes are in `@goodparty_org/contracts`
 Its issues are `ConstituentFeedbackIssue` rows
 (`this.client.constituentFeedbackIssue`), one per issue in `position` order
 from 0, unique on `(feedbackId, position)`.
-Every write replaces a memo's issues whole (`replaceIssues`: delete, then
-insert, in one transaction), never patches one.
+An extraction (capture, the offline cron, retry) replaces a memo's issues
+whole (`replaceIssues`: delete, then insert, in one transaction), keeping the
+first five with a name and dropping the rest. Confirm keeps the rows it
+names by id and updates them in place.
 Enums: `ConstituentFeedbackChannel`, `ConstituentFeedbackStance`,
 `ConstituentFeedbackCaptureMethod`, `ConstituentFeedbackExtractionStatus`.
 
@@ -86,10 +88,11 @@ All under `@Controller('constituent-feedback')`, all `@UseOrganization()`.
   failed, an empty list when the note named none). With an `audioKey` (the offline path), saves
   it pending and starts a transcription job. `@AllowVolunteer()`.
 - `PATCH /:id/confirm`: `{ issues }`, at most five, each `issueLabel`,
-  `stance`, `desiredOutcome` and an optional `fromPosition`. The list
+  `stance`, `desiredOutcome` and an optional `fromIssueId`. The list
   REPLACES the memo's issues, positions reassigned in list order: removing
   one is leaving it out, and an empty list confirms a memo that named none.
-  Sets `confirmedAt`. `@AllowVolunteer()`.
+  A `fromIssueId` keeps that row; one that is not this memo's, or is named
+  twice, is a 422. Sets `confirmedAt`. `@AllowVolunteer()`.
 - `POST audio-upload-url`: `{ clientKey, contentType }` to `{ audioKey,
 uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
 - `POST audio-upload/:clientKey`: the mock-mode upload sink (multipart,
@@ -217,11 +220,14 @@ effort's memos, confirmed and pending, newest first, capped at
 themes to show, under the floor and while a run is in flight.
 
 A theme's `conversationCount` is distinct confirmed member memos, but
-`stanceCounts` and `desiredOutcomes` are computed over those memos' issue
-rows: a conversation that named two issues adds two stances, so the four
-counts can sum past `conversationCount`. An issue with no stance counts as
-unclear; a memo that named no issue adds no stance. Membership is per memo,
-so a member's other issues count in this theme's split too. `channel` is
+`stanceCounts` and `desiredOutcomes` are the stances from the issues that
+matched the theme. Membership is per memo, so a member that raised one issue
+counts it whatever its label; one that raised several counts only the issues
+whose `normalizeTagName` label equals the theme's tag's `normalizedName`,
+since its other issues belong to other themes. A theme with no tag counts
+single-issue members only. So the four counts can sum below
+`conversationCount`. An issue with no stance counts as unclear; a memo that
+named no issue adds no stance. `channel` is
 the effort's own (a turf's envelope is `door_knock`, a list's `phone_bank`,
 memo or no memo), and `floor` is `MIN_CONFIRMED_FOR_SYNTHESIS`, sent so the
 page's "Themes appear after N" line cannot drift from the 422. The constant
@@ -291,7 +297,8 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    two batched lookups because neither row keeps the stop target or entry it
    was recorded against; null when they are gone. `POST :id/retry` on a
    memo with a recording and no words resets it to pending and starts a new
-   job; on one with words it extracts again. "Type it instead" posts the
+   job; on one with words it extracts again, and writes nothing if the memo
+   was confirmed while the model was answering. "Type it instead" posts the
    typed text to `POST /` with that reference and `clientKey` and
    `captureMethod: typed`: an ordinary re-record, so the row gets a
    transcript (what synthesis groups) and a fresh extraction. Confirming
@@ -346,11 +353,13 @@ them is the correction rate, and it is the labeled corpus the synthesis phase
 gets evaluated against — it cannot be reconstructed later, which is why it is
 written here.
 
-Confirm reassigns positions, so each confirmed issue names the proposal it
-started as in `fromPosition`, and the server carries that row's `proposed*`
-onto the new one. An issue with no `fromPosition` (written by hand) has null
-proposals. A proposed issue the canvasser removed is deleted with its
-proposal.
+Confirm keeps each issue it names in `fromIssueId`: the same row, its
+`proposed*` untouched, its confirmed values and position updated in place.
+An id and not a position, because confirming renumbers positions, and a
+confirm tapped again after its response was lost has to land on the same
+rows; repeating one changes nothing. An issue with no `fromIssueId` (written
+by hand) is a new row with null proposals. A proposed issue the canvasser
+removed is deleted with its proposal.
 
 `proposedStance` is text, not the enum. The model is prompted for one of four
 values but not bound to them, and `toStance()` drops an off-vocabulary answer

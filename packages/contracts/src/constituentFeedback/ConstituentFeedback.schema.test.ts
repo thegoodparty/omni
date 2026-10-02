@@ -190,7 +190,7 @@ describe('ConfirmConstituentFeedbackSchema', () => {
           issueLabel: 'Flock cameras',
           stance: 'opposes' as const,
           desiredOutcome: null,
-          fromPosition: 0,
+          fromIssueId: '0192f1c4-0000-7000-8000-000000000001',
         },
         {
           issueLabel: 'Street flooding',

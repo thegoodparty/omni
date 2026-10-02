@@ -24,6 +24,7 @@ const row = (fields: Partial<PendingFeedback> = {}): PendingFeedback => ({
   transcript: 'She wants the storm drains on Elm cleared before winter.',
   issues: [
     {
+      id: 'issue-street-flooding',
       position: 0,
       issueLabel: 'Street flooding',
       stance: 'opposes',
@@ -81,6 +82,7 @@ describe('PendingMemoList', () => {
         transcript: 'He wants the bike lanes kept.',
         issues: [
           {
+            id: 'issue-bike-lanes',
             position: 0,
             issueLabel: 'Bike lanes',
             stance: 'supports',
@@ -140,7 +142,7 @@ describe('PendingMemoList', () => {
               issueLabel: 'Street flooding',
               stance: 'opposes',
               desiredOutcome: 'Clear the drains',
-              fromPosition: 0,
+              fromIssueId: 'issue-street-flooding',
             },
           ],
         },
@@ -192,6 +194,7 @@ describe('PendingMemoList', () => {
               transcript: typed,
               issues: [
                 {
+                  id: 'issue-potholes',
                   position: 0,
                   issueLabel: 'Potholes',
                   stance: 'opposes',
@@ -215,6 +218,7 @@ describe('PendingMemoList', () => {
           extraction: {
             issues: [
               {
+                id: 'issue-potholes',
                 position: 0,
                 issueLabel: 'Potholes',
                 stance: 'opposes',

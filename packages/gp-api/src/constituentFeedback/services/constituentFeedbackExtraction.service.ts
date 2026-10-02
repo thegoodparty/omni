@@ -1,22 +1,21 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { CONSTITUENT_FEEDBACK_MAX_ISSUES } from '@goodparty_org/contracts'
 import { LlmService } from '@/llm/services/llm.service'
 
 // Deliberately looser than ConstituentFeedbackStance: this is unvalidated
 // model output, and a stance outside our vocabulary is worth storing and
-// seeing rather than rejecting into a retry loop.
+// seeing rather than rejecting into a retry loop. For the same reason there
+// is no cap on the list: a sixth issue would fail the whole extraction, so
+// the capture keeps the first five instead.
 const RawExtractionSchema = z.object({
-  issues: z
-    .array(
-      z.object({
-        issueLabel: z.string(),
-        stance: z.string().nullable(),
-        desiredOutcome: z.string().nullable(),
-      }),
-    )
-    .max(CONSTITUENT_FEEDBACK_MAX_ISSUES),
+  issues: z.array(
+    z.object({
+      issueLabel: z.string(),
+      stance: z.string().nullable(),
+      desiredOutcome: z.string().nullable(),
+    }),
+  ),
   confidence: z.number().min(0).max(1).nullable(),
 })
 

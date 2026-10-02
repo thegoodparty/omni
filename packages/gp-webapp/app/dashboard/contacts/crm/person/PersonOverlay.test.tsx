@@ -1069,6 +1069,7 @@ describe('<PersonOverlay>', () => {
               transcript: 'She wants the bond spent on the roads.',
               issues: [
                 {
+                  id: 'issue-road-bond',
                   position: 0,
                   issueLabel: 'Road bond',
                   stance: 'supports',
@@ -1123,12 +1124,14 @@ describe('<PersonOverlay>', () => {
               transcript: 'Wants the bond spent on roads, and the park lit.',
               issues: [
                 {
+                  id: 'issue-road-bond',
                   position: 0,
                   issueLabel: 'Road bond',
                   stance: 'supports',
                   desiredOutcome: 'Spend it on the roads',
                 },
                 {
+                  id: 'issue-park-lighting',
                   position: 1,
                   issueLabel: 'Park lighting',
                   stance: 'opposes',
@@ -1172,6 +1175,7 @@ describe('<PersonOverlay>', () => {
               transcript: 'She wants the bond spent on the roads.',
               issues: [
                 {
+                  id: 'issue-road-bond',
                   position: 0,
                   issueLabel: 'Road bond',
                   stance: 'supports',

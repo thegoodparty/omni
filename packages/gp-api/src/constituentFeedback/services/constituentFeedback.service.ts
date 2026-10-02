@@ -10,6 +10,7 @@ import {
   CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_MAX_ISSUES,
   CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
   ConfirmConstituentFeedback,
   ConstituentFeedbackIssue,
@@ -93,34 +94,44 @@ const toStance = (raw: string | null): ConstituentFeedbackStance | null =>
 
 // Until someone confirms them, the confirmed columns hold the model's
 // answer as the surface can show it, and `proposed*` what it actually said.
+// The model is asked for at most five named issues and bound to neither: a
+// blank label is nothing anyone could confirm, and the ones past five are
+// dropped rather than failing the whole extraction.
 const proposedIssues = (extracted: Extracted): IssueRow[] =>
   extracted === null
     ? []
-    : extracted.extraction.issues.map((issue, position) => ({
-        position,
-        issueLabel: clamp(
-          issue.issueLabel,
-          CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
-        ),
-        stance: toStance(issue.stance),
-        desiredOutcome:
-          issue.desiredOutcome === null
-            ? null
-            : clamp(
-                issue.desiredOutcome,
-                CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
-              ),
-        proposedIssueLabel: issue.issueLabel,
-        proposedStance: issue.stance,
-        proposedDesiredOutcome: issue.desiredOutcome,
-      }))
+    : extracted.extraction.issues
+        .filter((issue) => issue.issueLabel.trim() !== '')
+        .slice(0, CONSTITUENT_FEEDBACK_MAX_ISSUES)
+        .map((issue, position) => ({
+          position,
+          issueLabel: clamp(
+            issue.issueLabel,
+            CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+          ),
+          stance: toStance(issue.stance),
+          desiredOutcome:
+            issue.desiredOutcome === null
+              ? null
+              : clamp(
+                  issue.desiredOutcome,
+                  CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
+                ),
+          proposedIssueLabel: issue.issueLabel,
+          proposedStance: issue.stance,
+          proposedDesiredOutcome: issue.desiredOutcome,
+        }))
 
-const toIssue = (row: IssueRow): ConstituentFeedbackIssue => ({
-  position: row.position,
-  issueLabel: row.issueLabel,
-  stance: row.stance,
-  desiredOutcome: row.desiredOutcome,
-})
+const ISSUE_SELECT = {
+  orderBy: { position: Prisma.SortOrder.asc },
+  select: {
+    id: true,
+    position: true,
+    issueLabel: true,
+    stance: true,
+    desiredOutcome: true,
+  },
+} as const satisfies Prisma.ConstituentFeedbackIssueFindManyArgs
 
 // Two statements rather than one nested write, so the delete is certain to
 // land before the insert, which would otherwise collide on
@@ -129,23 +140,15 @@ const replaceIssues = async (
   tx: Prisma.TransactionClient,
   feedbackId: string,
   issues: IssueRow[],
-): Promise<void> => {
+): Promise<ConstituentFeedbackIssue[]> => {
   await tx.constituentFeedbackIssue.deleteMany({ where: { feedbackId } })
-  if (issues.length === 0) return
-  await tx.constituentFeedbackIssue.createMany({
+  if (issues.length === 0) return []
+  const created = await tx.constituentFeedbackIssue.createManyAndReturn({
     data: issues.map((issue) => ({ ...issue, feedbackId })),
+    select: ISSUE_SELECT.select,
   })
+  return created.sort((a, b) => a.position - b.position)
 }
-
-const ISSUE_SELECT = {
-  orderBy: { position: Prisma.SortOrder.asc },
-  select: {
-    position: true,
-    issueLabel: true,
-    stance: true,
-    desiredOutcome: true,
-  },
-} as const satisfies Prisma.ConstituentFeedbackIssueFindManyArgs
 
 // What a person's record reads with each memo. Accepted tags only: a
 // proposal is a suggestion nobody has agreed to yet.
@@ -277,8 +280,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
       target,
       input.body,
     )
-    const issues = proposedIssues(extracted)
-    const row = await this.client.$transaction(async (tx) => {
+    const { row, issues } = await this.client.$transaction(async (tx) => {
       const saved = await tx.constituentFeedback.upsert({
         where,
         create: {
@@ -316,15 +318,17 @@ export class ConstituentFeedbackService extends createPrismaBase(
           ...this.extractionFields(extracted),
         },
       })
-      await replaceIssues(tx, saved.id, issues)
-      return saved
+      return {
+        row: saved,
+        issues: await replaceIssues(tx, saved.id, proposedIssues(extracted)),
+      }
     })
 
     return {
       id: row.id,
       personId: row.personId,
       extractionStatus: row.extractionStatus,
-      extraction: extracted === null ? null : { issues: issues.map(toIssue) },
+      extraction: extracted === null ? null : { issues },
     }
   }
 
@@ -670,11 +674,15 @@ export class ConstituentFeedbackService extends createPrismaBase(
         effortQuestion: row.effortQuestion,
         userId: input.actorUserId,
       })
+      // Scoped to unconfirmed: the canvasser can confirm from the review
+      // list while the model is still answering, and a proposal must never
+      // replace what they confirmed.
       await this.client.$transaction(async (tx) => {
-        await tx.constituentFeedback.update({
-          where: { id: input.id },
+        const { count } = await tx.constituentFeedback.updateMany({
+          where: { id: input.id, confirmedAt: null },
           data: this.extractionFields(extracted),
         })
+        if (count === 0) return
         await replaceIssues(tx, input.id, proposedIssues(extracted))
       })
     } else if (row.audioKey !== null) {
@@ -700,7 +708,9 @@ export class ConstituentFeedbackService extends createPrismaBase(
 
   // The confirmed issues replace whatever the model proposed, in the order
   // sent: one left out is removed, and an empty list confirms a memo that
-  // named none. `confirmedAt` is what later reporting reads to tell a
+  // named none. An issue sent with `fromIssueId` keeps that row, so the
+  // model's proposal stays beside the answer and a repeated confirm lands on
+  // the same rows. `confirmedAt` is what later reporting reads to tell a
   // first-hand answer apart from an unreviewed guess, so it is only ever set
   // here.
   async confirm(input: {
@@ -731,40 +741,53 @@ export class ConstituentFeedbackService extends createPrismaBase(
     )
 
     const row = await this.client.$transaction(async (tx) => {
-      // Read before the replace deletes them: each confirmed issue keeps the
-      // proposal it came from, which is the only record of what got corrected.
-      const proposals = new Map(
-        (
-          await tx.constituentFeedbackIssue.findMany({
-            where: { feedbackId: input.id },
-            select: {
-              position: true,
-              proposedIssueLabel: true,
-              proposedStance: true,
-              proposedDesiredOutcome: true,
-            },
+      const held = await tx.constituentFeedbackIssue.findMany({
+        where: { feedbackId: input.id },
+        select: { id: true },
+      })
+      const heldIds = new Set(held.map((issue) => issue.id))
+      const kept = input.body.issues.flatMap((issue) =>
+        issue.fromIssueId === undefined ? [] : [issue.fromIssueId],
+      )
+      if (
+        new Set(kept).size !== kept.length ||
+        kept.some((id) => !heldIds.has(id))
+      ) {
+        throw new UnprocessableEntityException(
+          'Each fromIssueId must name one of this memo’s issues, once',
+        )
+      }
+
+      await tx.constituentFeedbackIssue.deleteMany({
+        where: { feedbackId: input.id, id: { notIn: kept } },
+      })
+      // Parked below zero first: positions are unique per memo, and moving a
+      // kept issue straight to its new place can land on another one's.
+      for (const [i, id] of kept.entries()) {
+        await tx.constituentFeedbackIssue.update({
+          where: { id },
+          data: { position: -1 - i },
+        })
+      }
+      for (const [position, issue] of input.body.issues.entries()) {
+        const answer = {
+          position,
+          issueLabel: issue.issueLabel,
+          stance: issue.stance,
+          desiredOutcome: issue.desiredOutcome,
+        }
+        if (issue.fromIssueId === undefined) {
+          await tx.constituentFeedbackIssue.create({
+            data: { ...answer, feedbackId: input.id },
           })
-        ).map(({ position, ...proposal }) => [position, proposal]),
-      )
-      await replaceIssues(
-        tx,
-        input.id,
-        input.body.issues.map((issue, position) => {
-          const proposal =
-            issue.fromPosition === undefined
-              ? undefined
-              : proposals.get(issue.fromPosition)
-          return {
-            position,
-            issueLabel: issue.issueLabel,
-            stance: issue.stance,
-            desiredOutcome: issue.desiredOutcome,
-            proposedIssueLabel: proposal?.proposedIssueLabel ?? null,
-            proposedStance: proposal?.proposedStance ?? null,
-            proposedDesiredOutcome: proposal?.proposedDesiredOutcome ?? null,
-          }
-        }),
-      )
+        } else {
+          await tx.constituentFeedbackIssue.update({
+            where: { id: issue.fromIssueId },
+            data: answer,
+          })
+        }
+      }
+
       return tx.constituentFeedback.update({
         where: { id: input.id },
         data: { confirmedAt: new Date() },

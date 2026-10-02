@@ -471,6 +471,7 @@ describe('offline memo capture', () => {
       expect(typed.data.extraction).toEqual({
         issues: [
           {
+            id: expect.any(String),
             position: 0,
             issueLabel: 'Street flooding',
             stance: 'opposes',
@@ -550,6 +551,7 @@ describe('offline memo capture', () => {
       expect(res.data.extractionStatus).toBe('extracted')
       expect(res.data.issues).toEqual([
         {
+          id: expect.any(String),
           position: 0,
           issueLabel: 'Street flooding',
           stance: 'opposes',

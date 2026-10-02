@@ -115,6 +115,7 @@ const target: RoutePayloadTarget = {
 const MEMO = 'Bob is against the Flock cameras, wants the data deleted.'
 
 const FLOCK = {
+  id: 'issue-flock-cameras',
   position: 0,
   issueLabel: 'Flock cameras',
   stance: 'opposes' as const,
@@ -280,6 +281,7 @@ describe('RecordKnockForm issue capture', () => {
           issues: [
             FLOCK,
             {
+              id: 'issue-street-flooding',
               position: 1,
               issueLabel: 'Street flooding',
               stance: 'supports',
@@ -329,7 +331,7 @@ describe('RecordKnockForm issue capture', () => {
             issueLabel: 'Street flooding',
             stance: 'supports',
             desiredOutcome: 'Clear the storm drain',
-            fromPosition: 1,
+            fromIssueId: 'issue-street-flooding',
           },
         ],
       }),

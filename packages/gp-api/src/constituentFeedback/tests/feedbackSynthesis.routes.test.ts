@@ -769,6 +769,7 @@ describe('feedback synthesis routes', () => {
           transcript: newer.memo.transcript,
           issues: [
             {
+              id: expect.any(String),
               position: 0,
               issueLabel: 'Street flooding',
               stance: null,
@@ -786,6 +787,7 @@ describe('feedback synthesis routes', () => {
           transcript: older.memo.transcript,
           issues: [
             {
+              id: expect.any(String),
               position: 0,
               issueLabel: 'Street flooding',
               stance: 'opposes',
@@ -983,42 +985,40 @@ describe('feedback synthesis routes', () => {
       expect(runId).toBe(res.data.run.id)
     })
 
-    // Membership is per conversation, but a stance belongs to an issue, so
-    // a conversation that named two issues adds two stances and two asks.
-    it('counts stances and outcomes over issues, not memos', async () => {
+    // Membership is per conversation, but a stance belongs to an issue. A
+    // conversation that raised only this theme's issue counts whatever it
+    // was labelled; one that raised several counts only the issue matching
+    // the theme's tag, so its other issues cannot leak into this split.
+    it('counts a several-issue memo only by the issue matching the theme', async () => {
+      const { opposes, supports, mixed } = ConstituentFeedbackStance
+      const issue = (
+        issueLabel: string,
+        stance: ConstituentFeedbackStance,
+        desiredOutcome: string | null = null,
+      ) => ({ issueLabel, stance, desiredOutcome })
+      const shapes = [
+        [
+          issue('Street flooding', opposes, 'Clear the drain'),
+          issue('Property taxes', supports, 'A freeze for seniors'),
+        ],
+        [issue('  street   FLOODING ', opposes), issue('Parks', supports)],
+        [issue('Street flooding', supports)],
+        [issue('Potholes', mixed, 'Fill the potholes')],
+        [issue('Street flooding', opposes)],
+      ]
       const memos: Array<Awaited<ReturnType<typeof seedKnockMemo>>> = []
-      for (const [i, target] of effort.targets.slice(0, 5).entries()) {
+      for (const [i, issues] of shapes.entries()) {
         memos.push(
           await seedKnockMemo(service, {
             slug,
             outreachId: effort.outreachId,
-            personId: target.personId,
-            issues:
-              i < 2
-                ? [
-                    {
-                      issueLabel: 'Street flooding',
-                      stance: ConstituentFeedbackStance.opposes,
-                      desiredOutcome: 'Clear the drain',
-                    },
-                    {
-                      issueLabel: 'Property taxes',
-                      stance: ConstituentFeedbackStance.supports,
-                      desiredOutcome: 'A freeze for seniors',
-                    },
-                  ]
-                : [
-                    {
-                      issueLabel: 'Street flooding',
-                      stance: ConstituentFeedbackStance.opposes,
-                      desiredOutcome: null,
-                    },
-                  ],
+            personId: effort.targets[i]!.personId,
+            issues,
           }),
         )
       }
-      await completeRun([
-        { theme: 'Flooding', memberIds: memos.map((m) => m.memo.id) },
+      const runId = await completeRun([
+        { theme: 'Street flooding', memberIds: memos.map((m) => m.memo.id) },
       ])
 
       const res = await report()
@@ -1026,32 +1026,42 @@ describe('feedback synthesis routes', () => {
       expect(res.data.themes[0]).toEqual(
         expect.objectContaining({
           conversationCount: 5,
-          stanceCounts: { supports: 2, opposes: 5, mixed: 0, unclear: 0 },
-          desiredOutcomes: ['Clear the drain', 'A freeze for seniors'],
+          stanceCounts: { supports: 1, opposes: 3, mixed: 1, unclear: 0 },
+          desiredOutcomes: ['Clear the drain', 'Fill the potholes'],
         }),
       )
       const detail = await service.client.get(
         `/v1/constituent-feedback/themes/${res.data.themes[0].id}`,
         ownerHeaders(slug),
       )
+      expect(detail.data.stanceCounts).toEqual({
+        supports: 1,
+        opposes: 3,
+        mixed: 1,
+        unclear: 0,
+      })
+      // The member still lists every issue it raised.
       const twoIssues = detail.data.members.find(
         (member: { feedbackId: string }) =>
           member.feedbackId === memos[0]!.memo.id,
       )
-      expect(twoIssues.issues).toEqual([
-        {
-          position: 0,
-          issueLabel: 'Street flooding',
-          stance: 'opposes',
-          desiredOutcome: 'Clear the drain',
-        },
-        {
-          position: 1,
-          issueLabel: 'Property taxes',
-          stance: 'supports',
-          desiredOutcome: 'A freeze for seniors',
-        },
-      ])
+      expect(
+        twoIssues.issues.map((i: { issueLabel: string }) => i.issueLabel),
+      ).toEqual(['Street flooding', 'Property taxes'])
+
+      // With no tag there is nothing to match, so only the memos that
+      // raised one issue count.
+      await service.prisma.feedbackTheme.updateMany({
+        where: { runId },
+        data: { tagId: null },
+      })
+      const untagged = await report()
+      expect(untagged.data.themes[0].stanceCounts).toEqual({
+        supports: 1,
+        opposes: 1,
+        mixed: 1,
+        unclear: 0,
+      })
     })
 
     it('404s a theme from another org', async () => {

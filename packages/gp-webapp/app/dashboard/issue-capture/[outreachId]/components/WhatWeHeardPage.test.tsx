@@ -38,6 +38,7 @@ const memo = (
   transcript: 'She wants the storm drains on Elm cleared before winter.',
   issues: [
     {
+      id: 'issue-storm-drains',
       position: 0,
       issueLabel: 'Storm drains',
       stance: 'supports',
@@ -71,6 +72,7 @@ const MEMOS = [
     transcript: 'He thinks the new bike lanes slow down deliveries.',
     issues: [
       {
+        id: 'issue-delivery-delays',
         position: 0,
         issueLabel: 'Delivery delays',
         stance: 'opposes',

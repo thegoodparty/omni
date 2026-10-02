@@ -87,6 +87,30 @@ describe('ConstituentFeedbackExtractionService', () => {
     expect(system).toContain('up to five')
   })
 
+  // The prompt asks for five at most, but a model that names a sixth must
+  // not fail the whole extraction: the schema it is held to takes any
+  // number, and the service keeps the first five.
+  it('holds the model to a schema that takes a sixth issue', async () => {
+    const llm = llmReturning({ issues: [], confidence: 0.2 })
+    const service = new ConstituentFeedbackExtractionService(llm, logger())
+
+    await service.extract({
+      transcript: TRANSCRIPT,
+      effortQuestion: null,
+      userId: 1,
+    })
+
+    const schema = vi.mocked(llm.jsonCompletion).mock.calls[0]?.[0].schema
+    const six = Array.from({ length: 6 }, (_, i) => ({
+      issueLabel: `Issue ${i}`,
+      stance: null,
+      desiredOutcome: null,
+    }))
+    expect(schema?.safeParse({ issues: six, confidence: 0.5 }).success).toBe(
+      true,
+    )
+  })
+
   // The memo is the record worth keeping. A provider outage must leave the
   // canvasser an empty issue to fill in, not lose what they just recorded.
   it('returns null instead of throwing when the model call fails', async () => {
