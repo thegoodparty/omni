@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { Editor } from '@tiptap/react'
 import type {
   ChatCard,
   ServePhoneBankingCreate,
@@ -186,7 +187,14 @@ describe('ProposalFlowsProvider', () => {
       name: 'Flood block renters',
       homeownerNo: true,
     })
-    expect(screen.getByDisplayValue(SCRIPT)).toBeInTheDocument()
+    // The script field is a TokenField: its text lives in the editor.
+    expect(
+      (
+        screen.getByRole('textbox', { name: 'Call script' }) as HTMLElement & {
+          editor: Editor
+        }
+      ).editor.getText(),
+    ).toBe(SCRIPT)
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(

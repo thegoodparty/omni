@@ -9,6 +9,8 @@ import {
   OPT_OUT_FOOTER,
   SERVE_SMS_IDENTIFICATION_FALLBACK,
   serveIdentificationIntro,
+  provisionalCommitteeName,
+  restoreSmsSystemRegions,
   unfilledBrackets,
   upgradeScriptFooter,
 } from './smsCompose.util'
@@ -100,7 +102,25 @@ describe('upgradeScriptFooter', () => {
   it('never doubles an existing paid-for-by line', () => {
     const verified = composeScript('body', 'Jane for Mayor')
     expect(upgradeScriptFooter(verified, 'Jane for Mayor')).toBe(verified)
-    expect(upgradeScriptFooter(verified, 'Another Committee')).toBe(verified)
+  })
+
+  // The footer is locked and system-written, so a footer naming another
+  // committee is one the system wrote earlier (a provisional name, or one
+  // computed before the campaign finished loading): it is brought current.
+  // Drafts saved while the footer was two lines are brought onto one.
+  it('rewrites a two-line footer onto one line', () => {
+    const twoLine =
+      'Hello {first_name}, body\n\nPaid for by Jane Doe.\nReply STOP to opt out.'
+    expect(upgradeScriptFooter(twoLine, 'Friends of Jane')).toBe(
+      composeScript('body', 'Friends of Jane'),
+    )
+  })
+
+  it('rewrites a footer naming an earlier committee', () => {
+    const earlier = composeScript('body', 'Jane Doe')
+    expect(upgradeScriptFooter(earlier, 'Friends of Jane')).toBe(
+      composeScript('body', 'Friends of Jane'),
+    )
   })
 
   // The delegate-caught case: the guard must be structural, because a body
@@ -120,10 +140,30 @@ describe('upgradeScriptFooter', () => {
     )
   })
 
+  it('swaps a provisional committee for the real one', () => {
+    const provisional = composeScript(
+      'this is Jane, candidate for Mayor.',
+      'Jane Doe for Mayor',
+    )
+    expect(upgradeScriptFooter(provisional, 'Friends of Jane')).toBe(
+      composeScript('this is Jane, candidate for Mayor.', 'Friends of Jane'),
+    )
+  })
+
   it('leaves a script that does not end with the system footer alone', () => {
     const edited = `${draftScript} PS vote early`
     expect(upgradeScriptFooter(edited, 'Jane for Mayor')).toBe(edited)
     expect(edited.includes(OPT_OUT_FOOTER)).toBe(true)
+  })
+})
+
+describe('provisionalCommitteeName', () => {
+  it('names the candidate alone, with no office', () => {
+    expect(provisionalCommitteeName(' Sarah Chen ')).toBe('Sarah Chen')
+  })
+
+  it('is nothing without a name', () => {
+    expect(provisionalCommitteeName('  ')).toBeNull()
   })
 })
 
@@ -250,6 +290,75 @@ describe('openWithSmsIdentification', () => {
   it('opens a plain body on the intro', () => {
     expect(openWithSmsIdentification('Vote early.', win)).toBe(
       'Jane here, candidate for City Council. Vote early.',
+    )
+  })
+})
+
+describe('restoreSmsSystemRegions', () => {
+  const regions = {
+    greeting: 'Hello {first_name},',
+    footer: 'Paid for by Friends of Sarah Chen. Reply STOP to opt out.',
+    token: '{first_name}',
+  }
+
+  it('returns a reply that kept its parts unchanged', () => {
+    const reply = `Hello {first_name}, vote Tuesday.\n\n${regions.footer}`
+    expect(restoreSmsSystemRegions(reply, regions)).toBe(reply)
+  })
+
+  it('keeps a footer the model closed on after a single line break', () => {
+    expect(
+      restoreSmsSystemRegions(
+        `Hello {first_name}, vote Tuesday.\n${regions.footer}`,
+        regions,
+      ),
+    ).toBe(`Hello {first_name}, vote Tuesday.\n\n${regions.footer}`)
+  })
+
+  it('composes the greeting and footer around a body-only reply', () => {
+    expect(restoreSmsSystemRegions('Vote Tuesday.', regions)).toBe(
+      `Hello {first_name}, Vote Tuesday.\n\n${regions.footer}`,
+    )
+  })
+
+  // The greeting's words are not locked, only the token is.
+  it('keeps a reworded greeting that kept the token, without a second one', () => {
+    const reply = `Hi {first_name}! Vote Tuesday.\n\n${regions.footer}`
+    expect(restoreSmsSystemRegions(reply, regions)).toBe(reply)
+  })
+
+  it('never eats a body sentence that says reply STOP', () => {
+    expect(
+      restoreSmsSystemRegions(
+        'Hello {first_name}, questions? Reply STOP is not how to reach me.',
+        regions,
+      ),
+    ).toBe(
+      'Hello {first_name}, questions? Reply STOP is not how to reach me.' +
+        `\n\n${regions.footer}`,
+    )
+  })
+
+  it('replaces a closing paragraph that is a rewritten footer', () => {
+    expect(
+      restoreSmsSystemRegions(
+        'Hello {first_name}, vote Tuesday.\n\nReply STOP to unsubscribe.',
+        regions,
+      ),
+    ).toBe(`Hello {first_name}, vote Tuesday.\n\n${regions.footer}`)
+  })
+
+  // A last paragraph that only mentions the footer's words is the
+  // candidate's, and stays.
+  it('keeps a closing paragraph that only mentions paid for by', () => {
+    expect(
+      restoreSmsSystemRegions(
+        'Hello {first_name}, vote Tuesday.\n\nOur event was paid for by the community.',
+        regions,
+      ),
+    ).toBe(
+      'Hello {first_name}, vote Tuesday.\n\nOur event was paid for by the community.' +
+        `\n\n${regions.footer}`,
     )
   })
 })

@@ -590,7 +590,6 @@ export const SocialFlow = ({
         />
       ) : stepId === 'compose' ? (
         <ComposeStep
-          isServe={surface.isServe}
           tone={tone}
           onToneChange={handleToneChange}
           draft={draft}
@@ -616,7 +615,6 @@ export const SocialFlow = ({
         />
       ) : (
         <ShareStep
-          isServe={surface.isServe}
           platforms={platforms}
           assets={assets}
           isGenerating={generateMutation.isPending}

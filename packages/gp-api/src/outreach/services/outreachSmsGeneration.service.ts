@@ -4,15 +4,38 @@ import {
   Injectable,
 } from '@nestjs/common'
 import {
+  checkSmsStandards,
+  deriveSmsProtectedParts,
+  type MergeTagChannel,
   type OutreachEventDetails,
   SMS_COMPOSED_MAX_LENGTH,
   SmsPurpose,
+  type SmsStandardsRule,
   SocialTone,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
+import {
+  maskProtectedParts,
+  PROTECTED_MARKER_RULE,
+  restoreProtectedParts,
+} from '../util/smsProtectedImprove.util'
+
+// What the composer locks in the message an Improve request carries, so the
+// model can be kept away from it: the same inputs checkSmsStandards takes at
+// scheduling, plus the surface's merge-tag form and the rules it ignores.
+export interface SmsImproveProtection {
+  candidateNames: string[]
+  committeeName: string | null
+  channel: MergeTagChannel
+  ignoredRules: SmsStandardsRule[]
+}
+
+// One retry: a reply that drops or reorders a marker is usually a one-off,
+// and a second miss is better reported than looped on.
+const IMPROVE_ATTEMPTS = 2
 import { eventDetailsContext } from '../util/eventDetails.util'
 
 // The per-surface voice a draft/improve request writes in. Win and Serve
@@ -135,9 +158,9 @@ export const FRESH_DRAFT_TARGET_LENGTH = 700
 export const IMPROVE_DRAFT_TARGET_LENGTH = 800
 
 // Every text must say who is sending it (the candidate_name standard in
-// contracts' checkSmsStandards). The webapp owns that sentence and puts it
-// back if a draft arrives without it, so the model must neither write its
-// own (it would read as a second introduction) nor ever stand in for the
+// contracts' checkSmsStandards). The webapp owns that sentence, opening a
+// fresh draft on it and locking the name in it, so the model must neither
+// write its own (it would read as a second introduction) nor stand in for the
 // name with a bracket the sender has to notice and fill. Shared by Win and
 // Serve, so it names neither a candidate nor an official.
 export const SMS_NO_NAME_PLACEHOLDER_RULE = [
@@ -194,8 +217,7 @@ const DRAFT_SYSTEM_PROMPT = [
 
 const IMPROVE_SYSTEM_PROMPT = [
   'You are a campaign writing assistant helping an independent,',
-  'non-partisan local candidate polish the body of one SMS they wrote',
-  'themselves.',
+  'non-partisan local candidate polish one SMS they wrote themselves.',
   'This is a light edit, NOT a rewrite. Rules:',
   '- Every concrete detail in the original MUST appear in your output:',
   '  dates, deadlines, places, events, times, names, numbers, asks.',
@@ -208,8 +230,8 @@ const IMPROVE_SYSTEM_PROMPT = [
   "  Keep the author's line breaks, bullets, and emojis. No hashtags; keep",
   '  any website the author included, unchanged, and keep any',
   '  square-bracket placeholders like [time] exactly as written.',
+  PROTECTED_MARKER_RULE,
   SMS_IMPROVE_IDENTIFICATION_RULE,
-  '- Do NOT add any opt-out language: the app appends it.',
   '- Never add policy positions, issue stances, endorsements,',
   '  statistics, dates, places, or events the original text does not',
   '  contain — campaign materials, when provided, are context for tone',
@@ -251,6 +273,7 @@ export class OutreachSmsGenerationService {
     office: string,
     userId: string,
     campaignContext: string[] = [],
+    protection?: SmsImproveProtection,
   ): Promise<string> {
     return this.generateDraftWithVoice(
       input,
@@ -259,6 +282,7 @@ export class OutreachSmsGenerationService {
       userId,
       campaignContext,
       WIN_SMS_VOICE,
+      protection,
     )
   }
 
@@ -270,6 +294,7 @@ export class OutreachSmsGenerationService {
     userId: string,
     composeContext: string[],
     voice: SmsVoiceConfig<TPurpose>,
+    protection?: SmsImproveProtection,
   ): Promise<string> {
     // Fresh generation only: improve mode polishes the author's own
     // words, so it applies to custom-purpose messages too.
@@ -292,37 +317,23 @@ export class OutreachSmsGenerationService {
       `Tone: ${TONE_STYLES[input.tone]}`,
       ...composeContext,
     ]
-    const messages: LlmMessage[] = input.currentDraft
-      ? [
-          { role: 'system', content: voice.improveSystemPrompt },
-          {
-            role: 'user',
-            content: [
-              ...context,
-              `${voice.subjectFallback}'s SMS body to polish:`,
-              '"""',
-              input.currentDraft,
-              '"""',
-              ...(input.currentDraft.length > IMPROVE_DRAFT_TARGET_LENGTH
-                ? [
-                    `The original runs ${input.currentDraft.length} ` +
-                      'characters; bring it under ' +
-                      `${IMPROVE_DRAFT_TARGET_LENGTH} without dropping a ` +
-                      'detail.',
-                  ]
-                : []),
-              'Polish the message.',
-            ].join('\n'),
-          },
-        ]
-      : [
-          { role: 'system', content: voice.draftSystemPrompt },
-          {
-            role: 'user',
-            content: [...context, 'Write the SMS body.'].join('\n'),
-          },
-        ]
+    if (input.currentDraft) {
+      return this.improveProtected(
+        input.currentDraft,
+        context,
+        voice,
+        userId,
+        protection,
+      )
+    }
 
+    const messages: LlmMessage[] = [
+      { role: 'system', content: voice.draftSystemPrompt },
+      {
+        role: 'user',
+        content: [...context, 'Write the SMS body.'].join('\n'),
+      },
+    ]
     try {
       const { object } = await this.llm.jsonCompletion({
         messages,
@@ -337,5 +348,99 @@ export class OutreachSmsGenerationService {
       this.logger.error({ err }, 'SMS draft generation failed')
       throw new BadGatewayException('SMS draft generation failed')
     }
+  }
+
+  // Improve polishes the WHOLE message the candidate is looking at, locked
+  // parts included, so those parts are masked before the model sees them and
+  // the reply is used only if it restores cleanly. It also may not fail a
+  // compliance rule the original passed: a polish that breaks compliance is
+  // worse than no polish. Either way out is a 502, which the composer
+  // already reports as "try again", never a changed disclaimer.
+  private async improveProtected<TPurpose extends string>(
+    currentDraft: string,
+    context: string[],
+    voice: SmsVoiceConfig<TPurpose>,
+    userId: string,
+    protection: SmsImproveProtection | undefined,
+  ): Promise<string> {
+    if (!protection) {
+      // Every caller passes it; a missing one is a wiring bug, and polishing
+      // unprotected text is exactly what this path exists to prevent.
+      throw new BadRequestException('Improve needs the message protection')
+    }
+    const standards = (script: string) =>
+      checkSmsStandards(script, protection).failures.filter(
+        (rule) => !protection.ignoredRules.includes(rule),
+      )
+    const failingBefore = new Set(standards(currentDraft))
+    const { masked, locked } = maskProtectedParts(
+      currentDraft,
+      deriveSmsProtectedParts(currentDraft, protection),
+    )
+    const messages: LlmMessage[] = [
+      { role: 'system', content: voice.improveSystemPrompt },
+      {
+        role: 'user',
+        content: [
+          ...context,
+          `${voice.subjectFallback}'s SMS to polish:`,
+          '"""',
+          masked,
+          '"""',
+          // The message as sent, not as masked: the markers are shorter than
+          // the text they hold, which is restored before anyone sees it.
+          ...(currentDraft.length > IMPROVE_DRAFT_TARGET_LENGTH
+            ? [
+                `The original runs ${currentDraft.length} ` +
+                  'characters; bring it under ' +
+                  `${IMPROVE_DRAFT_TARGET_LENGTH} without dropping a ` +
+                  'detail.',
+              ]
+            : []),
+          'Polish the message.',
+        ].join('\n'),
+      },
+    ]
+
+    for (let attempt = 1; attempt <= IMPROVE_ATTEMPTS; attempt++) {
+      let reply: string
+      try {
+        const { object } = await this.llm.jsonCompletion({
+          messages,
+          schema: DraftSchema,
+          temperature: 0.8,
+          maxTokens: 512,
+          userId,
+        })
+        reply = object.draft
+      } catch (err) {
+        this.logger.error({ err }, 'SMS draft generation failed')
+        throw new BadGatewayException('SMS draft generation failed')
+      }
+      const restored = restoreProtectedParts(reply, locked)
+      if (restored === null) {
+        this.logger.warn({ attempt }, 'SMS improve dropped a locked part')
+        continue
+      }
+      // The markers are shorter than the text they hold, so a reply within
+      // the limit can come back over it once restored; the response schema
+      // would then fail the request with no message to show.
+      if (restored.length > SMS_COMPOSED_MAX_LENGTH) {
+        this.logger.warn({ attempt }, 'SMS improve came back over the limit')
+        continue
+      }
+      const newlyFailing = standards(restored).filter(
+        (rule) => !failingBefore.has(rule),
+      )
+      if (newlyFailing.length > 0) {
+        this.logger.warn(
+          { attempt, newlyFailing },
+          'SMS improve broke a compliance rule',
+        )
+        continue
+      }
+      return restored
+    }
+    throw new BadGatewayException('SMS draft generation failed')
   }
 }

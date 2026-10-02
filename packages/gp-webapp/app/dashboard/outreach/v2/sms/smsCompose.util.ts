@@ -21,26 +21,35 @@ export const smsPurposeLabel = (purpose: string): string =>
 
 export const OPT_OUT_FOOTER = 'Reply STOP to opt out.'
 
-// Compliance: the "Paid for by <committee>" disclaimer is system-owned, like
-// the opt-out line — appended deterministically to every message (product
-// decision 2026-09-02), never left to the candidate or the LLM.
+// Compliance: the "Paid for by <committee>" disclaimer, like the opt-out
+// line, is composed into every fresh message and then locked inside it: the
+// candidate writes around it, and Improve sends it masked so the model never
+// sees it (docs/features/message-composer.md).
 export const paidForByLine = (committeeName: string): string =>
   `Paid for by ${committeeName}.`
 
 export const composeFooter = (committeeName?: string | null): string =>
   committeeName
-    ? `${paidForByLine(committeeName)}\n${OPT_OUT_FOOTER}`
+    ? // One line: an SMS footer reads as a sign-off, not a block of lines.
+      `${paidForByLine(committeeName)} ${OPT_OUT_FOOTER}`
     : OPT_OUT_FOOTER
 
-// A draft saved before verification was composed with no committee, so its
-// system footer is the opt-out line alone. Resume carries the saved script
-// verbatim (re-composing would double the footer), so only the footer is
-// upgraded once the committee name exists -- the same line scheduling's
-// server-side compliance check demands.
+// Brings a message's footer up to the committee it should name now. The
+// footer is system-written and locked in the field, so any trailing footer
+// of that shape is the system's own: the bare opt-out line of a draft saved
+// before the disclaimer was always shown, or a "Paid for by" line naming a
+// provisional or earlier committee. It is rewritten to the current one,
+// which is the line scheduling's server-side compliance check demands.
 // Structural, not a phrase search: matching "paid for by" anywhere would
-// also fire on body text and skip the injection, and a trailing footer that
-// names some OTHER committee is left alone so the standards check fails
-// closed instead of a second line being stacked under the first.
+// also fire on body text, and the blank line before the footer is what the
+// composer always writes. A message whose footer is not the last thing in
+// it is left alone, so the standards check fails closed.
+const SYSTEM_FOOTER = new RegExp(
+  // A space or a line break before the opt-out: drafts saved before the
+  // footer was one line put them on two.
+  `\\n\\n(?:Paid for by [^\\n]*?\\.[ \\n])?${OPT_OUT_FOOTER.replace(/[.]/g, '\\.')}$`,
+)
+
 export const upgradeScriptFooter = (
   script: string,
   committeeName: string | null,
@@ -48,10 +57,49 @@ export const upgradeScriptFooter = (
   if (!committeeName) return script
   const upgraded = `\n\n${composeFooter(committeeName)}`
   if (script.endsWith(upgraded)) return script
-  const bare = `\n\n${OPT_OUT_FOOTER}`
-  if (!script.endsWith(bare)) return script
-  return script.slice(0, script.length - bare.length) + upgraded
+  const stale = SYSTEM_FOOTER.exec(script)
+  if (!stale) return script
+  return script.slice(0, stale.index) + upgraded
 }
+
+// Puts back what an Improve reply dropped of the parts the system writes:
+// the footer as the message's closing paragraph, and the greeting when the
+// merge token is gone. gp-api masks both, so a reply normally keeps them and
+// comes back unchanged; one that does not is from a gp-api that predates
+// masking (a deploy where the webapp lands first), and must never reach a
+// send without them. Judged by structure, not phrases: only a separate
+// closing paragraph that opens like a footer is replaced, so a body sentence
+// or paragraph that says "reply STOP" stays, and a reworded greeting that
+// kept the token is the candidate's to keep.
+export const restoreSmsSystemRegions = (
+  reply: string,
+  regions: { greeting: string; footer: string; token: string },
+): string => {
+  let text = reply.trim()
+  if (regions.footer) {
+    // A reply that closes on the exact footer kept it, whatever gap the
+    // model left before it; the gap goes back to the blank line it had.
+    const closes = text.endsWith(regions.footer)
+    const body = closes
+      ? text.slice(0, text.length - regions.footer.length)
+      : // Only a closing paragraph that opens the way a footer does: one that
+        // merely mentions "paid for by" or "reply STOP" is the candidate's.
+        text.replace(/\n\n(?:Paid for by |Reply STOP\b)[^\n]*$/, '')
+    text = `${body.trimEnd()}\n\n${regions.footer}`
+  }
+  if (!text.includes(regions.token)) text = `${regions.greeting} ${text}`
+  return text
+}
+
+// The committee a campaign names before verification has recorded the real
+// one, so the message always shows its "Paid for by" line. Never sent: a
+// campaign cannot schedule a text until it is verified, and verification
+// records the committee, which upgradeScriptFooter then swaps in. The name
+// alone, with no office: an office reads badly in a disclaimer ("Palm Bay
+// City Council - Seat 5"). The same fallback the robocall disclosure uses.
+export const provisionalCommitteeName = (
+  candidateName: string,
+): string | null => candidateName.trim() || null
 
 // Peerly merges {first_name} from the uploaded list CSV — the same token our
 // own 10DLC identity registration samples use ("Hello {first_name}, this is

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -10,11 +11,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 import { gateRef } from '../gate/testing/mockReactiveGate'
-import {
-  SMS_GREETING_PREVIEW,
-  SERVE_SMS_SAMPLE_FIRST_NAME,
-  SMS_GREETING,
-} from './smsCompose.util'
+import { SMS_GREETING_PREVIEW, SMS_GREETING } from './smsCompose.util'
 import type { TcrCompliance } from 'helpers/types'
 
 // The gate's own flag/membership plumbing has its own tests; here the flow's
@@ -333,12 +330,14 @@ describe('SmsFlow', () => {
       await screen.findByText(/AI body \(warm\) for introduce_myself/),
     ).toBeInTheDocument()
     expect(draftCalls).toHaveLength(1)
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+    )
     expect(
-      screen.getByText(/this is Jane, candidate for City Council\./),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(/Paid for by Friends of Jane\./),
-    ).toBeInTheDocument()
+      screen.getByRole('textbox', { name: 'Message body' }),
+    ).toHaveTextContent(/Paid for by Friends of Jane\./)
 
     // Continue blocked until the required image is attached.
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
@@ -507,12 +506,12 @@ describe('SmsFlow', () => {
     })
   })
 
-  // The compose chip reads as the words that open the text ("Hello Sam,"),
-  // so a candidate writing their own body does not open it with a second
-  // greeting — CAS saw "Hello {first_name}, Hello! My name is…" reach the
-  // P2P queue while the chip named a variable. The review bubble stays
+  // The greeting is part of the message, its first name a locked pill, so
+  // a candidate writing their own body sees it already opens with "Hello" —
+  // CAS saw "Hello {first_name}, Hello! My name is…" reach the P2P queue
+  // while the greeting sat outside the box. The review bubble stays
   // verbatim: Win's greeting is Peerly's single-brace merge token.
-  it('shows the greeting as words above the body, verbatim in the bubble', async () => {
+  it('shows the greeting in the message, verbatim in the bubble', async () => {
     mockDraft()
     api.mock('GET /v1/outreach/:id/receipt', {
       status: 404,
@@ -532,10 +531,12 @@ describe('SmsFlow', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`),
-    ).toBeInTheDocument()
-    expect(screen.getByText(SMS_GREETING_PREVIEW.caption)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/^Hello First name, this is Jane/),
+    )
+    expect(screen.queryByText(SMS_GREETING_PREVIEW.caption)).toBeNull()
     expect(screen.queryByText('Greeting First Name')).toBeNull()
 
     await attachImage()
@@ -577,10 +578,14 @@ describe('SmsFlow', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/this is Jared, candidate for City Council\./),
+    )
     expect(
-      await screen.findByText(/this is Jared, candidate for City Council\./),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/this is Jane/)).not.toBeInTheDocument()
+      screen.getByRole('textbox', { name: 'Message body' }),
+    ).not.toHaveTextContent(/this is Jane/)
   })
 
   it('resolves the intro office from positionName when normalizedOffice is empty', async () => {
@@ -608,10 +613,232 @@ describe('SmsFlow', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByText(/this is Jane, candidate for Mayor\./),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/this is Jane, candidate for Mayor\./),
+    )
     expect(screen.queryByText(/local office/)).not.toBeInTheDocument()
+  })
+
+  describe('the message field', () => {
+    // Improve gets the whole message back from gp-api, locked parts
+    // restored there, so the mock answers with the message it was sent.
+    const mockDraftAndImprove = () => {
+      const calls: SmsDraftRequest[] = []
+      api.mock('POST /v1/outreach/sms/draft', ({ body }) => {
+        calls.push(body)
+        return {
+          status: 200,
+          data: {
+            draft: body.currentDraft
+              ? body.currentDraft.replace('Vote soon.', 'Please vote soon!')
+              : `AI body (${body.tone}) for ${body.purpose}`,
+          },
+        }
+      })
+      return calls
+    }
+
+    const reachCompose = async () => {
+      openFlow()
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(screen.getByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByText('When do you want to send it?')
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      const box = await screen.findByRole('textbox', { name: 'Message body' })
+      await waitFor(() => expect(box).toHaveTextContent(/AI body \(warm\)/))
+      const editor = (box as HTMLElement & { editor: Editor }).editor
+      return { box, editor }
+    }
+
+    const endOf = (editor: Editor, needle: string): number => {
+      let found = -1
+      editor.state.doc.descendants((node, pos) => {
+        if (found !== -1 || !node.isText) return
+        const index = node.text?.indexOf(needle) ?? -1
+        if (index !== -1) found = pos + index + needle.length
+      })
+      return found
+    }
+
+    const COMPOSED_DRAFT =
+      'Hello {first_name}, this is Jane, candidate for City Council. ' +
+      'AI body (warm) for introduce_myself\n\n' +
+      'Paid for by Friends of Jane. Reply STOP to opt out.'
+
+    it('holds the whole message, greeting to opt-out', async () => {
+      mockDraftAndImprove()
+      const { editor } = await reachCompose()
+      await waitFor(() =>
+        expect(editor.getText({ blockSeparator: '\n' })).toBe(COMPOSED_DRAFT),
+      )
+    })
+
+    it('offers Regenerate on an untouched draft and Improve once edited', async () => {
+      const calls = mockDraftAndImprove()
+      const { box, editor } = await reachCompose()
+      expect(screen.getByRole('button', { name: 'Regenerate' })).toBeEnabled()
+      expect(
+        screen.queryByRole('button', { name: 'Improve with AI' }),
+      ).toBeNull()
+
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+
+      await waitFor(() => expect(calls).toHaveLength(2))
+      expect(calls[1]).toMatchObject({
+        purpose: 'introduce_myself',
+        tone: 'warm',
+        currentDraft: COMPOSED_DRAFT.replace(
+          'introduce_myself',
+          'introduce_myself Vote soon.',
+        ),
+      })
+      await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
+      // A polish is still the candidate's words: the action stays Improve.
+      expect(
+        screen.getByRole('button', { name: 'Improve with AI' }),
+      ).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+      await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
+    })
+
+    // The polish endpoint takes a message within the 1000-character limit,
+    // so over it neither the AI button nor a tone pill sends one; the note
+    // says to shorten it instead.
+    it('sends no polish for a message over the length limit', async () => {
+      const calls = mockDraftAndImprove()
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ` ${'Vote early. '.repeat(80)}`,
+        )
+      })
+
+      expect(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      ).toBeDisabled()
+      expect(
+        screen.getByText(/Keep the whole message .* under 1000 characters/),
+      ).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
+      expect(screen.getByRole('radio', { name: /Direct/ })).toBeChecked()
+      expect(calls).toHaveLength(1)
+    })
+
+    it('polishes edited words in a new tone rather than replacing them', async () => {
+      const calls = mockDraftAndImprove()
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+
+      await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
+
+      await waitFor(() => expect(calls).toHaveLength(2))
+      expect(calls[1]?.tone).toBe('direct')
+      expect(calls[1]?.currentDraft).toContain('Vote soon.')
+    })
+
+    it('gives a failed first draft the locked parts to write between', async () => {
+      api.mock('POST /v1/outreach/sms/draft', {
+        status: 502,
+        data: { message: 'SMS draft generation failed' },
+      })
+      openFlow()
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(screen.getByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByText('When do you want to send it?')
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText(/We couldn.t draft your message just now/),
+      ).toBeInTheDocument()
+      const box = await screen.findByRole('textbox', { name: 'Message body' })
+      const editor = (box as HTMLElement & { editor: Editor }).editor
+      await waitFor(() =>
+        expect(editor.getText({ blockSeparator: '\n' })).toBe(
+          'Hello {first_name},\n\nPaid for by Friends of Jane. ' +
+            'Reply STOP to opt out.',
+        ),
+      )
+    })
+
+    // A gp-api from before masking answers Improve with a body alone. The
+    // flow composes the greeting and footer back around it, so a polish
+    // never sends without the disclaimer or opt-out.
+    it('composes the greeting and footer back around a body-only Improve reply', async () => {
+      api.mock('POST /v1/outreach/sms/draft', ({ body }) => ({
+        status: 200,
+        data: {
+          draft: body.currentDraft
+            ? 'this is Jane, candidate for City Council. Please vote soon!'
+            : `AI body (${body.tone}) for ${body.purpose}`,
+        },
+      }))
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+
+      await waitFor(() =>
+        expect(editor.getText({ blockSeparator: '\n' })).toBe(
+          'Hello {first_name}, this is Jane, candidate for City Council. ' +
+            'Please vote soon!\n\n' +
+            'Paid for by Friends of Jane. Reply STOP to opt out.',
+        ),
+      )
+    })
+
+    it('refuses an edit inside a locked part and says why', async () => {
+      mockDraftAndImprove()
+      const { editor } = await reachCompose()
+      const at = endOf(editor, 'Reply ST')
+      act(() => {
+        editor.view.dispatch(editor.state.tr.delete(at - 1, at))
+      })
+
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        'The opt-out line has to stay in the message.',
+      )
+      expect(editor.getText()).toContain('Reply STOP to opt out.')
+    })
   })
 
   it('falls back to normalizedOffice when positionName is empty', async () => {
@@ -638,9 +865,11 @@ describe('SmsFlow', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByText(/this is Jane, candidate for City Council\./),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+    )
   })
 
   // The hub's `?compose=text` deep link seeds these. A preset message is one
@@ -702,6 +931,28 @@ describe('SmsFlow', () => {
     describe('identification', () => {
       const INTRO = 'this is Jane, candidate for City Council.'
 
+      // The field holds the whole message; these cases are about the body
+      // between its greeting and its footer, which is what the repair edits.
+      const editorOf = (box: HTMLElement) =>
+        (box as HTMLElement & { editor: Editor }).editor
+      const bodyOf = (box: HTMLElement) =>
+        editorOf(box)
+          .getText({ blockSeparator: '\n' })
+          .replace(/^Hello \{first_name\}, ?/, '')
+          .replace(
+            /\n\n(?:Paid for by [^\n]*?\.[ \n])?Reply STOP to opt out\.$/,
+            '',
+          )
+      const endOf = (box: HTMLElement, needle: string): number => {
+        let found = -1
+        editorOf(box).state.doc.descendants((node, pos) => {
+          if (found !== -1 || !node.isText) return
+          const index = node.text?.indexOf(needle) ?? -1
+          if (index !== -1) found = pos + index + needle.length
+        })
+        return found
+      }
+
       const reachCompose = async (initialScript: string) => {
         openSeeded({ initialScript, preselectedListId: 41 })
         await userEvent.click(
@@ -712,15 +963,13 @@ describe('SmsFlow', () => {
           await screen.findByRole('button', { name: dayName(4) }),
         )
         await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-        return (await screen.findByLabelText(
-          'Message body',
-        )) as HTMLTextAreaElement
+        return screen.findByRole('textbox', { name: 'Message body' })
       }
 
       it('opens a seed with no name on the intro', async () => {
         const box = await reachCompose('Hello {first_name}, vote Tuesday.')
 
-        expect(box.value).toBe(`${INTRO} Vote Tuesday.`)
+        await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
         expect(
           screen.queryByText(/messages must include your name/),
         ).not.toBeInTheDocument()
@@ -731,47 +980,34 @@ describe('SmsFlow', () => {
           'Hi, this is [Your Name] from the City of Austin. Vote Tuesday. Questions? Ask for [your name].',
         )
 
-        expect(box.value).toBe(
-          `${INTRO} Vote Tuesday. Questions? Ask for Jane.`,
+        await waitFor(() =>
+          expect(bodyOf(box)).toBe(
+            `${INTRO} Vote Tuesday. Questions? Ask for Jane.`,
+          ),
         )
       })
 
       it('leaves a seed that already names the candidate alone', async () => {
         const box = await reachCompose(`${INTRO} Vote Tuesday.`)
 
-        expect(box.value).toBe(`${INTRO} Vote Tuesday.`)
+        await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
       })
 
       it('never rewrites what the candidate typed', async () => {
         const box = await reachCompose('Vote Tuesday.')
-        await userEvent.clear(box)
-        await userEvent.type(box, 'Vote early, friends.')
+        await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
+        act(() => {
+          editorOf(box).commands.insertContentAt(
+            endOf(box, 'Vote Tuesday.'),
+            ' Vote early, friends.',
+          )
+        })
 
-        expect(box.value).toBe('Vote early, friends.')
-      })
-
-      it('puts the name back when Improve drops it, without doubling it', async () => {
-        const replies = ['Please vote early, friends!', `${INTRO} Vote early!`]
-        api.mock('POST /v1/outreach/sms/draft', () => ({
-          status: 200,
-          data: { draft: replies.shift() ?? '' },
-        }))
-        const box = await reachCompose('Vote Tuesday.')
-        await userEvent.clear(box)
-        await userEvent.type(box, 'Vote early, friends.')
-
-        await userEvent.click(
-          screen.getByRole('button', { name: /Improve with AI/ }),
-        )
         await waitFor(() =>
-          expect(box.value).toBe(`${INTRO} Please vote early, friends!`),
+          expect(bodyOf(box)).toBe(
+            `${INTRO} Vote Tuesday. Vote early, friends.`,
+          ),
         )
-
-        await userEvent.type(box, ' ')
-        await userEvent.click(
-          screen.getByRole('button', { name: /Improve with AI/ }),
-        )
-        await waitFor(() => expect(box.value).toBe(`${INTRO} Vote early!`))
       })
 
       it('keeps one intro per tone across fresh drafts and tone switches', async () => {
@@ -796,18 +1032,18 @@ describe('SmsFlow', () => {
           await screen.findByRole('button', { name: dayName(4) }),
         )
         await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-        const box = (await screen.findByLabelText(
-          'Message body',
-        )) as HTMLTextAreaElement
+        const box = await screen.findByRole('textbox', {
+          name: 'Message body',
+        })
         const direct = 'Jane here, candidate for City Council. Vote early.'
 
-        await waitFor(() => expect(box.value).toBe(`${INTRO} Vote Tuesday.`))
+        await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
         await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
-        await waitFor(() => expect(box.value).toBe(direct))
+        await waitFor(() => expect(bodyOf(box)).toBe(direct))
         await userEvent.click(screen.getByRole('radio', { name: /Warm/ }))
-        expect(box.value).toBe(`${INTRO} Vote Tuesday.`)
+        await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
         await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
-        expect(box.value).toBe(direct)
+        await waitFor(() => expect(bodyOf(box)).toBe(direct))
       })
 
       it('flags brackets left to fill and holds Continue', async () => {
@@ -1024,7 +1260,7 @@ describe('SmsFlow', () => {
 
     const DRAFT_SCRIPT =
       'Hello, this is Jane, candidate for City Council. Vote Tuesday.\n\n' +
-      'Paid for by Friends of Jane.\nReply STOP to opt out.'
+      'Paid for by Friends of Jane. Reply STOP to opt out.'
 
     const draftDetail = (
       overrides: Partial<OutreachDetail> = {},
@@ -1361,10 +1597,10 @@ describe('SmsFlow', () => {
       ).not.toBeInTheDocument()
     })
 
-    // QA 2026-09-30: an unverified campaign has no committee yet, so the
-    // system footer cannot carry a paid-for-by line and no edit the
-    // candidate makes can satisfy the rule. It must not block the build.
-    it('does not block build-mode compose on the missing paid-for-by line', async () => {
+    // QA 2026-09-30: an unverified campaign has no committee yet. The line
+    // still shows, naming a provisional committee, and the rule the server
+    // would apply to it must not block the build.
+    it('shows a provisional paid-for-by line and does not block build mode', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
       mockFreeAudience()
@@ -1388,10 +1624,8 @@ describe('SmsFlow', () => {
       await attachImage()
 
       expect(
-        screen.getByText(
-          'Your "Paid for by" line is added once your campaign is verified.',
-        ),
-      ).toBeInTheDocument()
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/Paid for by Jane Doe\. Reply STOP/)
       expect(
         screen.queryByText(/keep the "Paid for by" line/),
       ).not.toBeInTheDocument()
@@ -1434,7 +1668,7 @@ describe('SmsFlow', () => {
             draftOutreachId: 88,
             script:
               'Hello {first_name}, this is Jane, candidate for City Council. ' +
-              'Vote Tuesday.\n\nPaid for by Friends of Jane.\n' +
+              'Vote Tuesday.\n\nPaid for by Friends of Jane. ' +
               'Reply STOP to opt out.',
           }),
           null,
