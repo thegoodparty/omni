@@ -112,10 +112,7 @@ interface WhatWeHeardPageProps {
   isServe: boolean
 }
 
-export default function WhatWeHeardPage({
-  outreachId,
-  isServe,
-}: WhatWeHeardPageProps) {
+const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
   const copy = whatWeHeardCopy(isServe)
   const reportQuery = useQuery(reportQueryOptions(outreachId))
   const report = reportQuery.data
@@ -158,6 +155,7 @@ export default function WhatWeHeardPage({
                 <SummarizeButton
                   outreachId={outreachId}
                   report={report}
+                  reportUpdatedAt={reportQuery.dataUpdatedAt}
                   isServe={isServe}
                   underFloor={report.denominators.confirmed < report.floor}
                 />
@@ -181,3 +179,5 @@ export default function WhatWeHeardPage({
     </DashboardLayout>
   )
 }
+
+export default WhatWeHeardPage

@@ -44,7 +44,7 @@ const TURF: DoorKnockingTurf = {
   archivedAt: null,
   createdAt: new Date('2026-08-10T00:00:00Z'),
   updatedAt: new Date('2026-08-10T00:00:00Z'),
-} as DoorKnockingTurf
+}
 
 const REPORT: FeedbackReportResponse = {
   question: null,

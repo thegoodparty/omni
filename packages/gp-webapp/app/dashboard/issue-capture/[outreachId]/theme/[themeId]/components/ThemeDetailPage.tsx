@@ -5,7 +5,6 @@ import { Spinner } from '@styleguide'
 import Paper from '@shared/utils/Paper'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { whatWeHeardCopy } from '../../../../copy'
-import StanceSplit from '../../../components/StanceSplit'
 import { themeQueryOptions } from '../../../queries'
 import ThemeDetails from './ThemeDetails'
 import ThemeMemos from './ThemeMemos'
@@ -17,11 +16,11 @@ interface ThemeDetailPageProps {
   isServe: boolean
 }
 
-export default function ThemeDetailPage({
+const ThemeDetailPage = ({
   outreachId,
   themeId,
   isServe,
-}: ThemeDetailPageProps) {
+}: ThemeDetailPageProps) => {
   const copy = whatWeHeardCopy(isServe)
   const themeQuery = useQuery(themeQueryOptions(themeId))
   const theme = themeQuery.data
@@ -41,7 +40,6 @@ export default function ThemeDetailPage({
               outreachId={outreachId}
               isServe={isServe}
             />
-            <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
             <ThemeDetails theme={theme} isServe={isServe} />
             <ThemeMemos theme={theme} isServe={isServe} />
           </div>
@@ -57,3 +55,5 @@ export default function ThemeDetailPage({
     </DashboardLayout>
   )
 }
+
+export default ThemeDetailPage

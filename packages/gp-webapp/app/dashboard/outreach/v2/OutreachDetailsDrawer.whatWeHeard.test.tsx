@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
+import type {
+  DoorKnockingTurf,
+  OutreachDetail,
+  PhoneBankingOutreachDetail,
+} from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -24,7 +29,7 @@ vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
 
 const OUTREACH_ID = 30
 
-const baseDetail = {
+const detail = (fields: Partial<OutreachDetail>): OutreachDetail => ({
   id: OUTREACH_ID,
   createdAt: new Date('2026-08-10T00:00:00Z'),
   updatedAt: new Date('2026-08-10T00:00:00Z'),
@@ -49,9 +54,12 @@ const baseDetail = {
   campaignPlanDueDate: null,
   organizationSlug: null,
   archivedAt: null,
-}
+  outreachType: 'nativePhoneBanking',
+  status: 'completed',
+  ...fields,
+})
 
-const PHONE_BANKING = {
+const PHONE_BANKING: PhoneBankingOutreachDetail = {
   listId: 5,
   entriesTotal: 10,
   entriesCalled: 10,
@@ -81,7 +89,7 @@ const row = (fields: Partial<HistoryRow>): HistoryRow => ({
   ...fields,
 })
 
-const turf = (id: number, outreachId: number) => ({
+const turf = (id: number, outreachId: number): DoorKnockingTurf => ({
   id,
   outreachId,
   voterFileFilterId: 4,
@@ -111,16 +119,14 @@ const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
   })
 }
 
-const mockPhoneDetail = () =>
+const mockPhoneDetail = (status: OutreachDetail['status'] = 'completed') =>
   api.mock('GET /v1/outreach/:id', {
     status: 200,
-    data: {
-      ...baseDetail,
-      outreachType: 'nativePhoneBanking' as const,
-      status: 'completed' as const,
+    data: detail({
+      status,
       phoneBankingListId: 5,
       phoneBanking: PHONE_BANKING,
-    } as never,
+    }),
   })
 
 const link = () => screen.queryByRole('link', { name: /What we heard/ })
@@ -172,6 +178,20 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     expect(action).toHaveTextContent('Notes from conversations with voters.')
   })
 
+  it('links a list still being called too', async () => {
+    mockPhoneDetail('in_progress')
+    render(
+      <OutreachDetailsDrawer
+        row={row({ status: 'in_progress' })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('link', { name: /What we heard/ }),
+    ).toHaveAttribute('href', `/dashboard/issue-capture/${OUTREACH_ID}`)
+  })
+
   it('speaks to an official about constituents on the Serve flag', async () => {
     setFlags({ serve: true, win: false })
     mockPhoneDetail()
@@ -189,11 +209,7 @@ describe('OutreachDetailsDrawer: what we heard', () => {
   it('offers nothing on a text', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
-      data: {
-        ...baseDetail,
-        outreachType: 'text' as const,
-        status: 'completed' as const,
-      } as never,
+      data: detail({ outreachType: 'text' }),
     })
     render(
       <OutreachDetailsDrawer
@@ -218,16 +234,14 @@ describe('OutreachDetailsDrawer: what we heard', () => {
   it('links a one-turf door knocking campaign to its turf’s report', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
-      data: {
-        ...baseDetail,
-        outreachType: 'nativeDoorKnocking' as const,
-        status: 'completed' as const,
+      data: detail({
+        outreachType: 'nativeDoorKnocking',
         doorKnockingRouteId: 7,
-      } as never,
+      }),
     })
     api.mock('GET /v1/door-knocking/campaigns/:anchorId', {
       status: 200,
-      data: [turf(12, OUTREACH_ID)] as never,
+      data: [turf(12, OUTREACH_ID)],
     })
     render(
       <OutreachDetailsDrawer
@@ -247,16 +261,14 @@ describe('OutreachDetailsDrawer: what we heard', () => {
   it('leaves a several-turf campaign’s reports to its turf cards', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
-      data: {
-        ...baseDetail,
-        outreachType: 'nativeDoorKnocking' as const,
-        status: 'completed' as const,
+      data: detail({
+        outreachType: 'nativeDoorKnocking',
         doorKnockingRouteId: 7,
-      } as never,
+      }),
     })
     api.mock('GET /v1/door-knocking/campaigns/:anchorId', {
       status: 200,
-      data: [turf(12, OUTREACH_ID), turf(13, 31)] as never,
+      data: [turf(12, OUTREACH_ID), turf(13, 31)],
     })
     render(
       <OutreachDetailsDrawer

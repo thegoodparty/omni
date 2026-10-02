@@ -13,12 +13,12 @@ interface ThemeCardProps {
   isServe: boolean
 }
 
-export default function ThemeCard({
+const ThemeCard = ({
   theme,
   position,
   outreachId,
   isServe,
-}: ThemeCardProps) {
+}: ThemeCardProps) => {
   const copy = whatWeHeardCopy(isServe)
 
   return (
@@ -26,14 +26,19 @@ export default function ThemeCard({
       <div className="flex h-full flex-col justify-between gap-6">
         <div className="flex flex-col gap-4">
           <div className="flex items-center">
+            {/* The badge is a picture of the rank; the heading says it, so a
+                screen reader hears "Rank 1: Street flooding" once. */}
             <div
+              aria-hidden="true"
               className="mr-4 flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary-light text-sm font-semibold text-secondary-dark"
-              aria-label={copy.rank(position)}
             >
               #{position}
             </div>
             <div className="min-w-0">
-              <h3 className="font-medium text-foreground">{theme.title}</h3>
+              <h3 className="font-medium text-foreground">
+                <span className="sr-only">{copy.rank(position)}:</span>{' '}
+                {theme.title}
+              </h3>
               {/* A note can touch two themes, so this is conversations that
                   touched this one, never a share of the effort. */}
               <p className="text-sm text-muted-foreground">
@@ -47,6 +52,7 @@ export default function ThemeCard({
         <Button asChild variant="outline" className="w-full">
           <Link
             href={`/dashboard/issue-capture/${outreachId}/theme/${theme.id}`}
+            aria-label={copy.seeDetailsFor(theme.title)}
           >
             {copy.seeDetails}
             <ChevronRightIcon />
@@ -56,3 +62,5 @@ export default function ThemeCard({
     </Card>
   )
 }
+
+export default ThemeCard

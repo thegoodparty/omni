@@ -8,6 +8,7 @@ import type {
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { reportQueryKey } from '../queries'
 import WhatWeHeardPage from './WhatWeHeardPage'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -215,12 +216,16 @@ describe('WhatWeHeardPage', () => {
 
     it('polls until the run lands, then shows the themes in place', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
-      api.mockOrdered(
+      let reads = 0
+      api.mock(
         'GET /v1/constituent-feedback/efforts/:outreachId/report',
-        [
-          { status: 200, data: report({ run: run('running') }) },
-          { status: 200, data: COMPLETED },
-        ],
+        () => {
+          reads += 1
+          return {
+            status: 200,
+            data: reads === 1 ? report({ run: run('running') }) : COMPLETED,
+          }
+        },
       )
       renderPage()
 
@@ -240,6 +245,13 @@ describe('WhatWeHeardPage', () => {
           'Summarizing what you heard. This usually takes a few minutes.',
         ),
       ).toBeNull()
+
+      // A completed run stops the polling: another interval passes and the
+      // report is not asked for a third time.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(reads).toBe(2)
     })
   })
 
@@ -328,7 +340,10 @@ describe('WhatWeHeardPage', () => {
         `/dashboard/issue-capture/${OUTREACH_ID}/theme/theme-c`,
         `/dashboard/issue-capture/${OUTREACH_ID}/theme/theme-a`,
       ])
-      expect(screen.getByLabelText('Rank 1')).toHaveTextContent('#1')
+      expect(
+        screen.getByRole('heading', { name: 'Rank 1: Bike lanes' }),
+      ).toBeInTheDocument()
+      expect(links[0]).toHaveAccessibleName('See details for Bike lanes')
       expect(screen.getByText('9 conversations')).toBeInTheDocument()
       expect(
         screen.getByRole('heading', { name: 'Every note' }),
@@ -459,6 +474,102 @@ describe('WhatWeHeardPage', () => {
       expect(
         screen.getByRole('button', { name: 'Summarize what we heard' }),
       ).toBeDisabled()
+    })
+
+    // The cooldown lifts by itself and the report cannot say when, so the
+    // next read of the report is when the button offers itself again.
+    it('offers itself again on the next read after a 429', async () => {
+      let reads = 0
+      api.mock(
+        'GET /v1/constituent-feedback/efforts/:outreachId/report',
+        () => {
+          reads += 1
+          return { status: 200, data: report() }
+        },
+      )
+      api.mock('POST /v1/constituent-feedback/efforts/:outreachId/synthesize', {
+        status: 429,
+        data: { message: 'This effort was summarized moments ago' },
+      })
+      renderPage()
+
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+      )
+      await screen.findByText(
+        'This was summarized a few minutes ago. Try again later.',
+      )
+      // A refusal changes nothing on the report, so it is not re-read.
+      expect(reads).toBe(1)
+
+      await act(async () => {
+        await testQueryClient.invalidateQueries({
+          queryKey: reportQueryKey(OUTREACH_ID),
+        })
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Summarize what we heard' }),
+        ).toBeEnabled(),
+      )
+      expect(reads).toBe(2)
+      expect(
+        screen.queryByText(
+          'This was summarized a few minutes ago. Try again later.',
+        ),
+      ).toBeNull()
+    })
+
+    it('offers itself again once confirmed notes reach the floor after a 422', async () => {
+      const at = (confirmed: number) =>
+        report({
+          denominators: { conversations: 9, memos: 7, confirmed, pending: 0 },
+        })
+      let reads = 0
+      api.mock(
+        'GET /v1/constituent-feedback/efforts/:outreachId/report',
+        () => {
+          reads += 1
+          // The page read 5 and the API counted fewer: one lost its
+          // confirmation in between. The re-read after the 422 still says
+          // 5; a later one says 6.
+          return { status: 200, data: at(reads <= 2 ? 5 : 6) }
+        },
+      )
+      api.mock('POST /v1/constituent-feedback/efforts/:outreachId/synthesize', {
+        status: 422,
+        data: {
+          message: 'Not enough confirmed notes to summarize',
+          confirmed: 4,
+          required: 5,
+        },
+      })
+      renderPage()
+
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+      )
+      await screen.findByText('Themes appear after 5 confirmed notes.')
+      await waitFor(() => expect(reads).toBe(2))
+      expect(
+        screen.getByRole('button', { name: 'Summarize what we heard' }),
+      ).toBeDisabled()
+
+      await act(async () => {
+        await testQueryClient.invalidateQueries({
+          queryKey: reportQueryKey(OUTREACH_ID),
+        })
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Summarize what we heard' }),
+        ).toBeEnabled(),
+      )
+      expect(
+        screen.queryByText('Themes appear after 5 confirmed notes.'),
+      ).toBeNull()
     })
   })
 

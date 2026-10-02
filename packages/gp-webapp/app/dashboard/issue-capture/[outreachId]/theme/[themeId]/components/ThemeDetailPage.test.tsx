@@ -84,6 +84,22 @@ describe('ThemeDetailPage', () => {
     expect(screen.getByText('4 conversations')).toBeInTheDocument()
 
     const split = screen.getByLabelText('Where people stand')
+    // Title and summary, then details, then where people stand, then what
+    // they want, then the notes.
+    const order = [
+      screen.getByRole('heading', { name: 'Details' }),
+      split,
+      screen.getByRole('heading', { name: 'What people want' }),
+      screen.getByRole('heading', { name: 'The notes' }),
+    ]
+    order
+      .slice(1)
+      .forEach((later, index) =>
+        expect(
+          order[index]!.compareDocumentPosition(later) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy(),
+      )
     expect(split).toHaveTextContent('1For it')
     expect(split).toHaveTextContent('2Against it')
     expect(split).toHaveTextContent('1Mixed')

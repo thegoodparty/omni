@@ -3,7 +3,7 @@ import type { FeedbackThemeDetail } from '@goodparty_org/contracts'
 import { ArrowLeftIcon } from '@styleguide'
 import { whatWeHeardCopy } from '../../../../copy'
 
-export default function ThemeTitle({
+const ThemeTitle = ({
   theme,
   outreachId,
   isServe,
@@ -11,7 +11,7 @@ export default function ThemeTitle({
   theme: FeedbackThemeDetail
   outreachId: number
   isServe: boolean
-}) {
+}) => {
   const copy = whatWeHeardCopy(isServe)
 
   return (
@@ -35,3 +35,5 @@ export default function ThemeTitle({
     </div>
   )
 }
+
+export default ThemeTitle
