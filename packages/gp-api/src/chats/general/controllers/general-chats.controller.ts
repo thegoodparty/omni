@@ -48,8 +48,8 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { waitForDrain } from '@/chats/services/streamDrain.util'
 import {
+  ATTACHMENT_FLAG_BY_SCOPE,
   ChatAttachmentsService,
-  SERVE_CHAT_ATTACHMENTS_FLAG,
 } from '@/chats/services/chatAttachments.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { GeneralChatsService } from '../services/general-chats.service'
@@ -115,6 +115,24 @@ export class GeneralChatsController {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(GeneralChatsController.name)
+  }
+
+  // Resolves the owned conversation's scope (404s on an unmapped scope, e.g.
+  // briefing) and gates on that scope's own flag, never the other scope's.
+  private async assertAttachmentsEnabled(
+    user: User,
+    conversationId: string,
+    organizationSlug: string,
+  ): Promise<void> {
+    const scope = await this.attachments.getConversationScope(
+      conversationId,
+      user.id,
+      organizationSlug,
+    )
+    const feature = ATTACHMENT_FLAG_BY_SCOPE[scope]
+    if (!feature) throw new NotFoundException()
+    const enabled = await this.features.isFeatureEnabled({ user, feature })
+    if (!enabled) throw new NotFoundException()
   }
 
   @Post()
@@ -329,11 +347,7 @@ export class GeneralChatsController {
     @Param('conversationId') conversationId: string,
     @Body(new ZodValidationPipe(PresignRequestSchema)) body: PresignRequest,
   ): Promise<PresignResponse> {
-    const enabled = await this.features.isFeatureEnabled({
-      user,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    if (!enabled) throw new NotFoundException()
+    await this.assertAttachmentsEnabled(user, conversationId, organizationSlug)
     return this.attachments.presign(
       conversationId,
       user.id,
@@ -350,11 +364,7 @@ export class GeneralChatsController {
     @Param('conversationId') conversationId: string,
     @Body(new ZodValidationPipe(FinalizeRequestSchema)) body: FinalizeRequest,
   ): Promise<ChatAttachmentDTO> {
-    const enabled = await this.features.isFeatureEnabled({
-      user,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    if (!enabled) throw new NotFoundException()
+    await this.assertAttachmentsEnabled(user, conversationId, organizationSlug)
     return this.attachments.finalize(
       conversationId,
       user.id,
@@ -371,11 +381,7 @@ export class GeneralChatsController {
     @Param('conversationId') conversationId: string,
     @Body() rawBody: Record<string, unknown>,
   ): Promise<LinkAttachResponse> {
-    const enabled = await this.features.isFeatureEnabled({
-      user,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    if (!enabled) throw new NotFoundException()
+    await this.assertAttachmentsEnabled(user, conversationId, organizationSlug)
     const parsed = LinkAttachRequestSchema.safeParse(rawBody)
     if (!parsed.success) throw new BadRequestException(parsed.error.issues)
     return this.attachments.attachLink(

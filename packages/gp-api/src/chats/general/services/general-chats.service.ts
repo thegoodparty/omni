@@ -15,6 +15,7 @@ import {
   ChatStreamChunk,
   ChatStreamService,
 } from '@/chats/services/chatStream.service'
+import { ATTACHMENT_FLAG_BY_SCOPE } from '@/chats/services/chatAttachments.service'
 import { ChatScopeRegistry } from './chatScopeRegistry.service'
 import { GeneralChatStoreService } from './generalChatStore.prisma'
 import {
@@ -322,6 +323,9 @@ export class GeneralChatsService {
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
         ...(args.attachmentIds && { attachmentIds: args.attachmentIds }),
+        ...(ATTACHMENT_FLAG_BY_SCOPE[handler.scope] && {
+          attachmentsFlag: ATTACHMENT_FLAG_BY_SCOPE[handler.scope],
+        }),
         ...(handler.onTurnUsage && {
           onUsage: (usage, model) => handler.onTurnUsage!(ctx, usage, model),
         }),
