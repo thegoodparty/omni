@@ -475,6 +475,58 @@ describe('PriorityWorkspace', () => {
     expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
   })
 
+  it('reloads a multi-select answer with the chosen set checked', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-clarify',
+            payload: {
+              questionId: 'q1',
+              question: 'Which of these hold up for you?',
+              multiSelect: true,
+              options: [
+                { label: 'Curbside pilot in select neighborhoods' },
+                { label: 'Do nothing' },
+                { label: 'Expand drop-off sites' },
+              ],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+      {
+        id: 'u1',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content:
+          'Curbside pilot in select neighborhoods and Expand drop-off sites',
+        createdAt: '2026-09-01T00:01:00.000Z',
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Which of these hold up for you?'),
+    ).toBeInTheDocument()
+    const box = (name: string): HTMLElement =>
+      screen.getByRole('checkbox', { name })
+    expect(box('Curbside pilot in select neighborhoods')).toBeChecked()
+    expect(box('Do nothing')).not.toBeChecked()
+    expect(box('Expand drop-off sites')).toBeChecked()
+    expect(box('Do nothing')).toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: 'Use these' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('reloads a written-in answer as what the official said', async () => {
     mocks.listMessages.mockResolvedValue([
       {

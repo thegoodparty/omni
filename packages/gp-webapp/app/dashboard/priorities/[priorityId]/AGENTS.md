@@ -210,6 +210,12 @@ written-in answer shown as written. The widget always adds its own "Or write you
 own..." option, which is the bail-out back to free chat, so the agent never
 writes one.
 
+A question where more than one answer can be true sets `multiSelect`. The
+options step always does: each option is a checkbox with its tradeoff as the
+rationale, never a list in prose. The answer is one line of the chosen labels
+("A and B"), and a reload checks that set again. The format lives in
+`shared/agent-chat/AGENTS.md`.
+
 ## The chat dock is off here
 
 `DashboardLayout` mounts the Chief of Staff bar at the bottom of every
