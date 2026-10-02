@@ -188,7 +188,8 @@ const requireSegment = (label: string, value: string): string => {
 const EXPERIMENT_ID = /^[a-z][a-z0-9_]{0,63}$/
 
 // dispatch_handler's _IDENTIFIER_RE.
-const ORG_SLUG = /^[a-zA-Z0-9_-]{1,64}$/
+// Exported so judgeIdentifiers.ts makes slugs by this rule, not a copy of it.
+export const ORG_SLUG = /^[a-zA-Z0-9_-]{1,64}$/
 
 const sha256 = (...parts: string[]): string => {
   const hash = createHash('sha256')
@@ -1059,7 +1060,7 @@ const readTraceBody = async (
 }
 
 // The affirmative spend switch. Nothing on this branch constructs a real store
-// or queue yet, so nothing can spend today — but this module is where the ~$13
+// or queue yet, so nothing can spend today — but this module is where the ~$8
 // per run is committed, so the gate belongs here rather than in whatever wires
 // it up later.
 //
@@ -1292,7 +1293,7 @@ export const runBackgroundCase = async (
 // contract in the feature to need a marker, and the reason is specific: this
 // envelope is written by one checkout and read by another weeks later, and
 // leaning on the record's `schemaVersion: z.literal(1)` alone means that the
-// day that literal moves, every sweep pays ~$13 per case forever while
+// day that literal moves, every sweep pays ~$8 per case forever while
 // reporting `cache: 'miss'`, which reads as a first capture rather than as a
 // cache nothing can use. Versioning the envelope makes the skew nameable.
 export const CACHED_BASE_ARM_SCHEMA_VERSION = 1
@@ -1330,7 +1331,7 @@ export type CacheMissReason =
 // A fifth outcome, and deliberately NOT a fifth CacheMissReason: a miss is a
 // statement about the cache's CONTENTS, and this is a statement about our own
 // read. Folding the two together would report a transient bucket error as
-// 'absent', which reads as "no entry, go spend ~$13" when the honest answer is
+// 'absent', which reads as "no entry, go spend ~$8" when the honest answer is
 // "we do not know whether an entry exists".
 export type CacheRead =
   | { kind: 'entry'; entry: CachedBaseArm }

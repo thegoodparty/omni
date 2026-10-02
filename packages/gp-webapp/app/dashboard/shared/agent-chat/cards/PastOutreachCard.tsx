@@ -1,10 +1,10 @@
 import { useQueries } from '@tanstack/react-query'
 import type { ChatCard, OutreachDetail } from '@goodparty_org/contracts'
-import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
+import { getChannelLabel } from 'app/dashboard/outreach/v2/channelMeta'
 import { shortOutreachDate } from 'app/dashboard/outreach/v2/outreachDate.util'
 import { useSmsResults } from 'app/dashboard/outreach/v2/useOutreachResults'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
-import { CardLoading, CardNote, CardShell } from './cardShell'
+import { CardNote, CompactCardLink, CompactCardLoading } from './cardShell'
 import { pastOutreachQueryOptions } from './cardQueries'
 import { outreachDetailHref, peopleCount } from './proposalPresentation'
 
@@ -13,47 +13,32 @@ export const SERVE_PAST_OUTREACH_COPY = {
   responses: (n: number) => `${n.toLocaleString()} responses`,
 }
 
-const ResponseSignal = ({ row }: { row: OutreachDetail }) => {
+// One chip per send, opening that send in the outreach history's own
+// drawer: history already owns what a send looks like after the fact.
+const PastOutreachChip = ({ row }: { row: OutreachDetail }) => {
   const isText =
     row.outreachType === OUTREACH_TYPES.text ||
     row.outreachType === OUTREACH_TYPES.p2p
-  const { data } = useSmsResults(
+  const { data: results } = useSmsResults(
     row.id,
     isText && row.status === 'completed',
     'serve',
   )
-  if (!data) return null
-  return (
-    <span className="text-muted-foreground text-xs">
-      {SERVE_PAST_OUTREACH_COPY.responses(data.responded)}
-    </span>
-  )
-}
-
-const PastOutreachRow = ({ row }: { row: OutreachDetail }) => {
   const when = row.date ?? row.createdAt
   const count = row.textCount ?? row.billableTextCount
   return (
-    <a
+    <CompactCardLink
+      title={row.name || row.title || SERVE_PAST_OUTREACH_COPY.untitled}
+      subtitle={[
+        getChannelLabel(row.outreachType),
+        typeof count === 'number' ? peopleCount(count) : '',
+        results ? SERVE_PAST_OUTREACH_COPY.responses(results.responded) : '',
+        when ? shortOutreachDate(when) : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')}
       href={outreachDetailHref(row.id)}
-      className="hover:bg-muted/50 -mx-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-2 py-2 no-underline"
-    >
-      <ChannelBadge type={row.outreachType} />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-        {row.name || row.title || SERVE_PAST_OUTREACH_COPY.untitled}
-      </span>
-      {typeof count === 'number' ? (
-        <span className="text-muted-foreground text-xs">
-          {peopleCount(count)}
-        </span>
-      ) : null}
-      <ResponseSignal row={row} />
-      {when ? (
-        <span className="text-muted-foreground text-xs">
-          {shortOutreachDate(when)}
-        </span>
-      ) : null}
-    </a>
+    />
   )
 }
 
@@ -67,7 +52,7 @@ export const PastOutreachCard = ({
   })
 
   if (results.some((result) => result.isPending)) {
-    return <CardLoading rows={card.outreachIds.length} />
+    return <CompactCardLoading />
   }
 
   const rows = results
@@ -78,15 +63,11 @@ export const PastOutreachCard = ({
   if (rows.length === 0) return null
 
   return (
-    <CardShell>
-      <div className="flex flex-col">
-        {rows.map((row) => (
-          <PastOutreachRow key={row.id} row={row} />
-        ))}
-      </div>
-      <div className="mt-3">
-        <CardNote>{card.note}</CardNote>
-      </div>
-    </CardShell>
+    <div className="flex w-full max-w-md flex-col gap-2">
+      {rows.map((row) => (
+        <PastOutreachChip key={row.id} row={row} />
+      ))}
+      <CardNote>{card.note}</CardNote>
+    </div>
   )
 }

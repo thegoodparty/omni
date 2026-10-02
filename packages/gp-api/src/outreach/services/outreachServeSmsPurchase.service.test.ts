@@ -9,6 +9,7 @@ import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 import { OutreachStatus, OutreachType } from 'src/generated/prisma'
 import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { QueueType } from 'src/queue/queue.types'
+import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
 import { OutreachServeSmsPurchaseHandlerService } from './outreachServeSmsPurchase.service'
 
 const OUTREACH_ID = 4242
@@ -35,16 +36,19 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
     }
   }
   let queueProducer: { sendMessage: ReturnType<typeof vi.fn> }
+  let priorityStatus: { recordOutreachSent: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     prisma = { outreach: { findFirst: vi.fn(), updateMany: vi.fn() } }
     queueProducer = { sendMessage: vi.fn() }
+    priorityStatus = { recordOutreachSent: vi.fn() }
 
     const module = await Test.createTestingModule({
       providers: [
         OutreachServeSmsPurchaseHandlerService,
         { provide: PrismaService, useValue: prisma },
         { provide: QueueProducerService, useValue: queueProducer },
+        { provide: PriorityStatusService, useValue: priorityStatus },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -173,6 +177,10 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
           deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${OUTREACH_ID}-1`,
         },
       )
+      // Paid and scheduled is when a text from a priority's check is out.
+      expect(priorityStatus.recordOutreachSent).toHaveBeenCalledWith(
+        OUTREACH_ID,
+      )
     })
 
     it('serializes deliveries per outreach and dedupes a racing duplicate', async () => {
@@ -220,6 +228,10 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
       await service.executePostPurchase(SESSION_ID, stripeMetadata)
 
       expect(queueProducer.sendMessage).not.toHaveBeenCalled()
+      // Recorded again, so a status write that failed the first time heals.
+      expect(priorityStatus.recordOutreachSent).toHaveBeenCalledWith(
+        OUTREACH_ID,
+      )
     })
 
     it('re-enqueues a claimed-but-unproven send rather than assuming it happened', async () => {
@@ -278,6 +290,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
         service.executePostPurchase(SESSION_ID, stripeMetadata),
       ).rejects.toThrow('sqs down')
 
+      expect(priorityStatus.recordOutreachSent).not.toHaveBeenCalled()
       expect(prisma.outreach.updateMany).toHaveBeenCalledTimes(2)
       expect(prisma.outreach.updateMany).toHaveBeenLastCalledWith({
         where: {

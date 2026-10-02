@@ -8,6 +8,7 @@ import {
   type SocialAssetPlatform,
 } from '../generated/enums'
 import { zCoerceDate } from '../shared/Date.schema'
+import { ProposalLinkSchema } from '../chats/ChatCard.schema'
 import { PhoneBankingOutreachDetailSchema } from '../phoneBanking/PhoneBankingList.schema'
 import { DoorKnockingOutreachDetailSchema } from '../doorKnocking/DoorKnockingTurf.schema'
 import { OutreachRobocallDetailSchema } from './RobocallPurchase.schema'
@@ -200,12 +201,14 @@ export type ServeSocialGenerateRequest = z.infer<
   typeof ServeSocialGenerateRequestSchema
 >
 
-export const ServeSocialSaveRequestSchema = z.object({
-  name: z.string().min(1).max(60),
-  purpose: ServeSocialPurposeSchema,
-  draftMessage: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
-  assets: z.array(SocialAssetSchema).min(1).max(6),
-})
+export const ServeSocialSaveRequestSchema = z
+  .object({
+    name: z.string().min(1).max(60),
+    purpose: ServeSocialPurposeSchema,
+    draftMessage: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
+    assets: z.array(SocialAssetSchema).min(1).max(6),
+  })
+  .extend(ProposalLinkSchema.shape)
 export type ServeSocialSaveRequest = z.infer<
   typeof ServeSocialSaveRequestSchema
 >

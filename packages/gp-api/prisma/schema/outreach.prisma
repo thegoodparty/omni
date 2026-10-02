@@ -42,6 +42,12 @@ model Outreach {
   // The priority this outreach belongs to, when it came out of one.
   priorityId                        String?                            @map("priority_id")
   priority                          Priority?                          @relation(fields: [priorityId], references: [id], onDelete: SetNull)
+  // The check on that priority this outreach puts out: a gate step id and
+  // 'main' | 'contrast' (contracts PriorityCheckSide), validated on write.
+  // Kept on the row because a text only goes out once it is paid for, long
+  // after the create that carried them.
+  priorityStepId                    String?                            @map("priority_step_id")
+  priorityCheckSide                 String?                            @map("priority_check_side")
   createdAt                         DateTime                           @default(now())
   updatedAt                         DateTime                           @updatedAt
   // Nullable so a Serve elected-office org (no campaign row) can persist an

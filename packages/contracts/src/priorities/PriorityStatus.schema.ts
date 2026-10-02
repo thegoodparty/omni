@@ -90,6 +90,14 @@ export const PRIORITY_CHECK_STATES = [
 export const PriorityCheckStateSchema = z.enum(PRIORITY_CHECK_STATES)
 export type PriorityCheckState = z.infer<typeof PriorityCheckStateSchema>
 
+/**
+ * The two sides of a check: main is the most-affected group, contrast the
+ * least-affected one (`PriorityStepCheck.contrast`).
+ */
+export const PRIORITY_CHECK_SIDES = ['main', 'contrast'] as const
+export const PriorityCheckSideSchema = z.enum(PRIORITY_CHECK_SIDES)
+export type PriorityCheckSide = z.infer<typeof PriorityCheckSideSchema>
+
 /** The steps that end with a check: a stage gate each. */
 export const PRIORITY_GATE_STEPS: readonly PriorityStepId[] = [
   'define',
@@ -118,6 +126,10 @@ export const PriorityStepContrastSchema = z.object({
   offeredAt: z.string().optional(),
   /** What constituents on this side said, and who said it. */
   heard: z.string().optional(),
+  /** Stamped by the server when outreach to this side actually went out. */
+  sentAt: z.string().optional(),
+  /** The proposal that send came from, so a repeat records nothing new. */
+  sentProposalKey: z.string().optional(),
 })
 export type PriorityStepContrast = z.infer<typeof PriorityStepContrastSchema>
 
@@ -140,6 +152,13 @@ export const PriorityStepCheckSchema = z.object({
   offeredAt: z.string().optional(),
   /** What constituents said, and who said it. Required to confirm or revise. */
   heard: z.string().optional(),
+  /**
+   * Stamped by the server, never written by the agent, when outreach to this
+   * side actually went out (a list built, a post saved, a text paid for).
+   */
+  sentAt: z.string().optional(),
+  /** The proposal that send came from, so a repeat records nothing new. */
+  sentProposalKey: z.string().optional(),
   /** The least-affected group. Dropped on its own if it fails to parse. */
   contrast: PriorityStepContrastSchema.optional().catch(undefined),
 })
@@ -182,6 +201,16 @@ const offeredAtFor = (
   now: string,
 ): string | undefined => (recordsAsked && offered ? now : stored)
 
+// Only the server's send path writes these; every merge keeps them.
+const sentStamp = (
+  stored: { sentAt?: string; sentProposalKey?: string } | undefined,
+): { sentAt?: string; sentProposalKey?: string } => ({
+  ...(stored?.sentAt === undefined ? {} : { sentAt: stored.sentAt }),
+  ...(stored?.sentProposalKey === undefined
+    ? {}
+    : { sentProposalKey: stored.sentProposalKey }),
+})
+
 const mergeContrast = (
   stored: PriorityStepContrast | undefined,
   patch: PriorityStepContrastInput | undefined,
@@ -204,6 +233,7 @@ const mergeContrast = (
     ...(when === undefined ? {} : { when }),
     ...(offeredAt === undefined ? {} : { offeredAt }),
     ...(heard === undefined ? {} : { heard }),
+    ...sentStamp(stored),
   }
 }
 
@@ -248,6 +278,7 @@ export const mergeStepCheck = (
     updatedAt: now,
     ...(offeredAt === undefined ? {} : { offeredAt }),
     ...(heard === undefined ? {} : { heard }),
+    ...sentStamp(stored),
     ...(contrast === undefined ? {} : { contrast }),
   }
 }
@@ -325,7 +356,8 @@ export const PriorityStepSchema = z.object({
 export type PriorityStep = z.infer<typeof PriorityStepSchema>
 
 // 2: steps carry an optional `check`.
-export const PRIORITY_STATUS_VERSION = 2
+// 3: each side of a check carries the send that put it out.
+export const PRIORITY_STATUS_VERSION = 3
 
 export const PriorityStatusSchema = z.object({
   version: z.number().int().default(PRIORITY_STATUS_VERSION),

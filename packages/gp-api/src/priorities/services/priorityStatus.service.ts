@@ -9,10 +9,13 @@ import {
   PRIORITY_STATUS_VERSION,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
+  PriorityCheckSideSchema,
   PriorityStatusSchema,
+  PriorityStepIdSchema,
   PriorityStepStateSchema,
   mergeStepCheck,
   parsePriorityStatus,
+  type PriorityCheckSide,
   type PriorityStatus,
   type PriorityStep,
   type PriorityStepCheck,
@@ -20,6 +23,7 @@ import {
   type PriorityStepState,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { OutreachStatus } from 'src/generated/prisma'
 import type { LlmStreamTool, LlmTool } from '@/llm/services/llm.service'
 import {
   RecordCheckReminderInputSchema,
@@ -252,6 +256,57 @@ const checkDueFor = (
         CHECK_HOW
 }
 
+// Sides holding what constituents said, which a late send must not erase.
+// Narrower than contracts' isCheckAnswered on purpose: `declined` is left
+// out, because a send that actually happened is what is true. An official
+// who declined or deferred and then sent anyway changed their mind, and
+// leaving `declined` would claim nobody was asked when people were.
+const HAS_REPLIES: readonly PriorityStepCheck['state'][] = [
+  'confirmed',
+  'revised',
+]
+
+// The check with one side moved to out by a real send, or the same object
+// when there is nothing to record.
+const withSend = (
+  stored: PriorityStepCheck | undefined,
+  side: PriorityCheckSide,
+  send: { proposalKey: string; who: string; now: string },
+): PriorityStepCheck | undefined => {
+  const sideStored = side === 'main' ? stored : stored?.contrast
+  // A side already out on a recorded send keeps that send, so a second send
+  // to it (or a heal replaying an older one) cannot keep re-stamping it.
+  if (
+    sideStored?.sentProposalKey === send.proposalKey ||
+    (sideStored?.state === 'out' && sideStored.sentAt !== undefined) ||
+    (sideStored !== undefined && HAS_REPLIES.includes(sideStored.state))
+  ) {
+    return stored
+  }
+  const who = sideStored?.who || send.who
+  // A contrast sent before the main side was recorded: the cards were in
+  // front of the official, so main reads as shown rather than as no check,
+  // which a read would otherwise drop along with the contrast.
+  const merged = mergeStepCheck(
+    stored,
+    side === 'main'
+      ? { state: 'out', who }
+      : {
+          ...(stored === undefined && { state: 'asked' as const }),
+          contrast: { state: 'out', who },
+        },
+    send.now,
+    stored === undefined,
+  )
+  if (merged === undefined) return stored
+  const stamp = { sentAt: send.now, sentProposalKey: send.proposalKey }
+  return side === 'main'
+    ? { ...merged, ...stamp }
+    : merged.contrast === undefined
+      ? merged
+      : { ...merged, contrast: { ...merged.contrast, ...stamp } }
+}
+
 export interface PriorityStatusResult {
   status: PriorityStatus
   currentStep: PriorityStepId | null
@@ -418,6 +473,105 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
       data: { status },
     })
     return check === undefined ? { error: 'Nothing recorded.' } : { check }
+  }
+
+  /**
+   * An outreach that came out of a priority's check actually went out: the
+   * side it was proposed for moves to out, through the same merge the agent's
+   * writes take, stamped with when and from which proposal. Called once the
+   * send is real (a list built, a post saved, a text paid for) and again on
+   * every replay of that send, so a failure here heals on the next one;
+   * nothing changes when the stamp already names this proposal.
+   *
+   * A side constituents already answered keeps its answer: a later send is
+   * not news about what they said.
+   */
+  async recordOutreachSent(outreachId: number): Promise<void> {
+    const outreach = await this.client.outreach.findUnique({
+      where: { id: outreachId },
+      select: {
+        name: true,
+        proposalKey: true,
+        priorityId: true,
+        priorityStepId: true,
+        priorityCheckSide: true,
+      },
+    })
+    const stepId = PriorityStepIdSchema.safeParse(outreach?.priorityStepId)
+    const side = PriorityCheckSideSchema.safeParse(outreach?.priorityCheckSide)
+    if (
+      !outreach?.proposalKey ||
+      !outreach.priorityId ||
+      !stepId.success ||
+      !side.success ||
+      !isGate(stepId.data)
+    ) {
+      return
+    }
+    const current = await this.read(outreach.priorityId)
+    const step = current.steps.find((s) => s.id === stepId.data)
+    const check = withSend(step?.check, side.data, {
+      proposalKey: outreach.proposalKey,
+      who: outreach.name ?? '',
+      now: formatISO(new Date()),
+    })
+    if (!step || check === step.check) return
+    const status = PriorityStatusSchema.parse({
+      ...current,
+      version: Math.max(current.version, PRIORITY_STATUS_VERSION),
+      steps: current.steps.map((s) =>
+        s.id === step.id ? { ...s, check, updatedAt: check?.updatedAt } : s,
+      ),
+    })
+    await this.model.update({
+      where: { id: outreach.priorityId },
+      data: { status },
+    })
+  }
+
+  // For callers whose send has already committed: the send stands whatever
+  // happens here, so a failed status write is logged, not thrown. The next
+  // replay of the same proposal, or the priority's next turn (healSends),
+  // records it.
+  async recordOutreachSentOrLog(
+    outreachId: number,
+    proposalKey: string | null,
+  ): Promise<void> {
+    try {
+      await this.recordOutreachSent(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, proposalKey },
+        'Could not put the priority check out for a committed send',
+      )
+    }
+  }
+
+  // Re-records every real send linked to a check on this priority, so a
+  // check whose status write failed after its send committed heals on the
+  // priority's next turn. A send already recorded changes nothing.
+  async healSends(priorityId: string): Promise<void> {
+    const sends = await this.client.outreach.findMany({
+      where: {
+        priorityId,
+        proposalKey: { not: null },
+        priorityStepId: { not: null },
+        status: {
+          notIn: [
+            OutreachStatus.pending_payment,
+            OutreachStatus.draft,
+            OutreachStatus.canceled,
+            OutreachStatus.denied,
+            OutreachStatus.failed,
+          ],
+        },
+      },
+      select: { id: true, proposalKey: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    for (const send of sends) {
+      await this.recordOutreachSentOrLog(send.id, send.proposalKey)
+    }
   }
 
   buildStatusTool(

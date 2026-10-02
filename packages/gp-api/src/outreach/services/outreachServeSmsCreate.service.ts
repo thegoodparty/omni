@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common'
 import {
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
@@ -19,8 +23,13 @@ import {
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ISO_DATE_ONLY_RE } from '@/shared/util/date.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import {
+  resolveProposalLink,
+  type ProposalOutreachLink,
+} from '@/priorities/util/proposalLink.util'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { OutreachStatus, OutreachType } from '../../generated/prisma'
+import type { ProposalLink } from '@goodparty_org/contracts'
+import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 
 /**
  * The Serve SMS draft-first create: `POST /v1/outreach/serve/sms`.
@@ -180,9 +189,14 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
    * than repricing an existing one behind a checkout session that may already
    * be open against it.
    */
+  resolveProposalLink(link: ProposalLink, electedOfficeId: string) {
+    return resolveProposalLink(this.client, link, electedOfficeId)
+  }
+
   async createDraft(
     organizationSlug: string,
     input: ServeSmsCreateRequest,
+    link: ProposalOutreachLink = {},
   ): Promise<ServeSmsCreateResponse> {
     // Cheapest rejection first: no point resolving an audience for a date
     // fulfilment cannot work.
@@ -262,31 +276,33 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       )
     }
 
-    const outreach = await this.model.create({
-      data: {
-        // Serve scope: org only, never a campaign. The Outreach CHECK
-        // enforces exactly one scoping path.
-        campaignId: null,
-        organizationSlug,
-        outreachType: OutreachType.text,
-        // The payment handler's CAS moves this to `pending`. Nothing else
-        // may: the create schema refuses a client-sent status.
-        status: OutreachStatus.pending_payment,
-        name: input.name,
-        message: input.message,
-        imageUrl: input.imageUrl ?? null,
-        // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
-        // null: Serve sends at a fixed 11am local, so there is no chosen
-        // time to store, and completion is derived as
-        // addBusinessDays(scheduledLocalDate, 3) the way polls does it.
-        scheduledLocalDate: input.scheduledLocalDate,
-        voterFileFilterId: input.voterFileFilterId,
-        // Server-derived, and the only number the purchase handler prices
-        // from.
-        textCount: recipientCount,
-      },
-      select: { id: true },
-    })
+    const data = {
+      // Serve scope: org only, never a campaign. The Outreach CHECK
+      // enforces exactly one scoping path.
+      campaignId: null,
+      organizationSlug,
+      outreachType: OutreachType.text,
+      // The payment handler's CAS moves this to `pending`. Nothing else
+      // may: the create schema refuses a client-sent status.
+      status: OutreachStatus.pending_payment,
+      name: input.name,
+      message: input.message,
+      imageUrl: input.imageUrl ?? null,
+      // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
+      // null: Serve sends at a fixed 11am local, so there is no chosen
+      // time to store, and completion is derived as
+      // addBusinessDays(scheduledLocalDate, 3) the way polls does it.
+      scheduledLocalDate: input.scheduledLocalDate,
+      voterFileFilterId: input.voterFileFilterId,
+      // Server-derived, and the only number the purchase handler prices
+      // from.
+      textCount: recipientCount,
+      ...link,
+    } satisfies Prisma.OutreachUncheckedCreateInput
+    const outreach =
+      link.proposalKey === undefined
+        ? await this.model.create({ data, select: { id: true } })
+        : await this.createForProposal(link.proposalKey, organizationSlug, data)
 
     this.logger.info(
       {
@@ -310,6 +326,69 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       excludedOptedOutCount,
       excludedDuplicateCount: excludedDuplicatePhoneCount,
     }
+  }
+
+  /**
+   * A draft from a chat card carries the card's key. Going back from review
+   * or abandoning checkout leaves an unpaid draft holding it, and re-entering
+   * makes a fresh draft, so the key moves to the new one. Once a draft under
+   * the key is paid for, the proposal has been sent.
+   */
+  private async createForProposal(
+    proposalKey: string,
+    organizationSlug: string,
+    data: Prisma.OutreachUncheckedCreateInput,
+  ): Promise<{ id: number }> {
+    const holderOf = (client: Pick<Prisma.TransactionClient, 'outreach'>) =>
+      client.outreach.findUnique({
+        where: { proposalKey },
+        select: {
+          id: true,
+          organizationSlug: true,
+          outreachType: true,
+          status: true,
+        },
+      })
+    type Holder = NonNullable<Awaited<ReturnType<typeof holderOf>>>
+    // Another org's key, or another channel's, is not this proposal's text.
+    // This org's text past checkout is the proposal already sent.
+    const refusalFor = (holder: Holder): ConflictException | null =>
+      holder.organizationSlug !== organizationSlug ||
+      holder.outreachType !== OutreachType.text
+        ? new ConflictException('Proposal key is already in use')
+        : holder.status !== OutreachStatus.pending_payment
+          ? new ConflictException('This proposal has already been sent')
+          : null
+
+    return this.client
+      .$transaction(async (tx) => {
+        const holder = await holderOf(tx)
+        if (holder) {
+          const refusal = refusalFor(holder)
+          if (refusal) throw refusal
+          await tx.outreach.update({
+            where: { id: holder.id },
+            data: { proposalKey: null },
+          })
+        }
+        return tx.outreach.create({ data, select: { id: true } })
+      })
+      .catch(async (err: Error) => {
+        // Two taps raced past the read above and the unique index let one
+        // through. Its unpaid draft is the one this tap wanted, so hand it
+        // back the way a first create would.
+        if (
+          !(err instanceof Prisma.PrismaClientKnownRequestError) ||
+          err.code !== 'P2002'
+        ) {
+          throw err
+        }
+        const winner = await holderOf(this.client)
+        if (!winner) throw err
+        const refusal = refusalFor(winner)
+        if (refusal) throw refusal
+        return { id: winner.id }
+      })
   }
 
   /**

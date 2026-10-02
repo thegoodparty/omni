@@ -87,6 +87,7 @@ import type { SavedListOption } from './savedListOptions'
 import type {
   DoorKnockingAddressPreviewResponse,
   DoorKnockingTurf,
+  ProposalLink,
   RecommendedList,
   RecommendedListFilter,
   RecommendedListIntent,
@@ -313,6 +314,10 @@ interface CreateListFlowProps {
   // from `?campaignOutreachId=` on the URL — the drawer's "Add another
   // turf" affordance is what sets it.
   campaignOutreachId?: number
+  // A priority chat card's link (`?proposalKey=` and friends). Rides on the
+  // Serve create of a new campaign's anchor turf only, so the walk puts that
+  // card's check out.
+  proposalLink?: ProposalLink
   // The turfs cut in this sitting, in the order they were cut. One campaign
   // holds all of them, and the route step's press buys a route for each.
   //
@@ -428,6 +433,7 @@ export default function CreateListFlow({
   onSelectedListChange,
   siblingTurfs,
   campaignOutreachId,
+  proposalLink,
   turfDrafts,
   draftStats,
   onSelectDraft,
@@ -1296,7 +1302,10 @@ export default function CreateListFlow({
       const createTurf = (draft: TurfDraft, anchorId: number | undefined) => {
         const body = bodyFor(draft, anchorId)
         return serveMode
-          ? clientRequest('POST /v1/door-knocking/serve/turfs', body)
+          ? clientRequest('POST /v1/door-knocking/serve/turfs', {
+              ...body,
+              ...(anchorId === undefined && proposalLink),
+            })
           : clientRequest('POST /v1/door-knocking/turfs', body)
       }
 
