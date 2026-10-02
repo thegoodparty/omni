@@ -258,22 +258,30 @@ export const baseChatAttempts = (baseDir: string): number | undefined => {
 //
 // Against a base that would not obey, nothing is refused, which leaves the
 // sweep exactly as unbounded as that base already was.
+type ChatCosts = {
+  candidate: (agent: AgentEntry) => number
+  base: (
+    baseDir: string,
+    agent: AgentEntry,
+    warn: (line: string) => void,
+  ) => number | undefined
+  baseAttempts: (baseDir: string) => number | undefined
+  boundsChat: (baseDir: string) => boolean
+}
+
+export const CHAT_COSTS: ChatCosts = {
+  candidate: candidateChatTurns,
+  base: baseChatTurns,
+  baseAttempts: baseChatAttempts,
+  boundsChat: baseBoundsChat,
+}
+
 export const resolveChatRefusals = (
   agentIds: readonly string[],
   baseDir: string,
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
   registry: readonly AgentEntry[] = AGENTS,
-  costs: {
-    candidate: (agent: AgentEntry) => number
-    base: (baseDir: string, agent: AgentEntry) => number | undefined
-    baseAttempts: (baseDir: string) => number | undefined
-    boundsChat: (baseDir: string) => boolean
-  } = {
-    candidate: candidateChatTurns,
-    base: baseChatTurns,
-    baseAttempts: baseChatAttempts,
-    boundsChat: baseBoundsChat,
-  },
+  costs: ChatCosts = CHAT_COSTS,
   warn: (line: string) => void = warnLine,
 ): { agentId: string; reason: string }[] => {
   if (!costs.boundsChat(baseDir)) return []
@@ -303,7 +311,8 @@ export const resolveChatRefusals = (
   return refuseChat(
     selected,
     (agent) =>
-      Math.max(onCandidate(agent), costs.base(baseDir, agent) ?? 0) * attempts,
+      Math.max(onCandidate(agent), costs.base(baseDir, agent, warn) ?? 0) *
+      attempts,
     ARM_BUDGET_MS,
   )
 }

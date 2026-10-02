@@ -18,6 +18,7 @@ import {
   baseWalksConcurrently,
   budgetOutputLines,
   resolveAdmission,
+  CHAT_COSTS,
   candidateChatTurns,
   resolveChatRefusals,
 } from './armBudget'
@@ -1238,6 +1239,33 @@ describe('the chat agents refused for time', () => {
       })),
     ).toBe(4)
   })
+
+  // The real lists are all one turn a case, so only identity tells the
+  // resolver's default from a count of cases.
+  it("costs this branch's turns by default", () => {
+    expect(CHAT_COSTS.candidate).toBe(candidateChatTurns)
+  })
+
+  it("hands the base's case-list warning to the resolver's warn", () => {
+    const lines: string[] = []
+    resolveChatRefusals(
+      ['chief_of_staff'],
+      '/no/base',
+      DEFAULT_JUDGE_CONFIG,
+      AGENTS,
+      {
+        candidate: () => 8,
+        base: (_dir, _agent, warn) => {
+          warn('from the base')
+          return undefined
+        },
+        baseAttempts: () => 3,
+        boundsChat: () => true,
+      },
+      (line) => lines.push(line),
+    )
+    expect(lines).toEqual(['from the base'])
+  })
 })
 
 describe('the probe for whether the base arm refuses chat agents', () => {
@@ -1286,5 +1314,11 @@ describe("the probe for the base arm's chat attempts", () => {
     ['a trailing comment', '  attemptsPerCase: 4, // v0, chosen\n', '4'],
   ])('reads past %s', (_label, text, attempts) => {
     expect(BASE_CHAT_ATTEMPTS.exec(text)?.[1]).toBe(attempts)
+  })
+
+  it('reads nothing from a line that goes on past the comma', () => {
+    expect(
+      BASE_CHAT_ATTEMPTS.exec('  attemptsPerCase: 3, foo: 1,\n'),
+    ).toBeNull()
   })
 })
