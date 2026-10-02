@@ -226,3 +226,13 @@ body:not(.L-volume) .vol{display:none}
 .node[data-miss="1"]:hover{opacity:1}
 .mapempty{padding:14px 16px;border:1px dashed var(--rule-2);border-radius:10px;color:var(--ink-2);font-size:13px}
 .mapfoot{margin:18px 0 0;font-size:12px;color:var(--ink-3);max-width:70ch}
+.glossary{margin:-12px 0 24px;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}
+.glossary>summary{padding:10px 14px;font:600 13px/1.3 var(--sans);color:var(--ink)}
+.glossary[open]>summary{border-bottom:1px solid var(--rule)}
+.glossary .gintro{margin:12px 14px 0;font-size:13px;line-height:1.55;color:var(--ink-2);max-width:78ch}
+.ggrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:4px 22px;padding:4px 14px 14px}
+.ggrid h4{margin:12px 0 6px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
+.ggrid .gnote{margin:0 0 6px;font-size:12.5px;line-height:1.5;color:var(--ink-2)}
+.ggrid dl{margin:0}
+.ggrid dt{font-weight:600;font-size:12.5px;margin-top:7px}
+.ggrid dd{margin:1px 0 0;font-size:12.5px;line-height:1.5;color:var(--ink-2)}

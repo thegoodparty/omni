@@ -117,6 +117,9 @@ Viewed/Completed` for every step with `step` as a property. Matching by event na
   events, which expanding and creating a poll both fire.
 - **Some flows are honest blanks.** Create a website and Follow-on onboarding fire nothing
   between entry and outcome; their steps are drawn with `state: 'none'` so the hole shows.
+- **Every label has a plain-language entry.** `GLOSSARY` in `map.js` explains each
+  badge, tag and count for a reader outside analytics. Adding or renaming a label means
+  updating its entry there.
 - **Relabel, never rename.** The card shows both names always; the row shows the type
   only where it differs from the label (4 of 593 events). The relabel panel on Poll
   onboarding proposes display-name changes only.

@@ -1842,6 +1842,67 @@ var ProductMap = (function () {
   function pill(attr, val, label, on) {
     return `<button class="pillbtn" ${attr}="${val}" aria-pressed="${on}">${label}</button>`
   }
+  // Plain-language glossary for readers outside analytics: every badge, tag and count
+  // the map renders. Keep it in step when a label is added or renamed.
+  const GLOSSARY = `<details class="glossary">
+  <summary>What the labels mean</summary>
+  <p class="gintro">This page shows the screens people go through in our product, and for each one, whether we record what they do there. A recorded action is an <b>event</b>, for example "Pledge Viewed" when someone opens the pledge screen.</p>
+  <div class="ggrid">
+    <section>
+      <h4>The building blocks</h4>
+      <dl>
+        <dt>Flow</dt><dd>Screens people go through in order, like onboarding. Each screen is a numbered <b>step</b>.</dd>
+        <dt>Page</dt><dd>One screen with several parts that can appear in any order, like the dashboard. Each part is a <b>zone</b>.</dd>
+        <dt>Event</dt><dd>One action we record, with how many times it happened in the last 30 days.</dd>
+        <dt>Still being built</dt><dd>We know this flow exists but have not drawn its steps on this map yet.</dd>
+      </dl>
+    </section>
+    <section>
+      <h4>Is the event working?</h4>
+      <dl>
+        <dt>Active</dt><dd>It is recording normally. These rows carry no label.</dd>
+        <dt>Never observed</dt><dd>The code to record it exists, but it has never recorded anything. Often the feature is switched off, or nobody has reached it yet.</dd>
+        <dt>Dormant</dt><dd>It used to record and has gone quiet.</dd>
+        <dt>Retired, deprecating</dt><dd>We stopped using it on purpose, or are about to.</dd>
+        <dt>Orphaned firing</dt><dd>Still recording after we removed the code that sends it. Worth looking into.</dd>
+        <dt>Code unknown</dt><dd>It records, but we could not find where in our code it comes from.</dd>
+        <dt>System</dt><dd>Recorded automatically by our analytics tool, not by our own code.</dd>
+        <dt>Not in snapshot</dt><dd>It was added or renamed after this page's data was last refreshed. It appears on the next refresh.</dd>
+        <dt>Legacy</dt><dd>An older version of an event that still records next to its replacement.</dd>
+        <dt>OKR</dt><dd>One of the company goal numbers is built on this event.</dd>
+      </dl>
+    </section>
+    <section>
+      <h4>Do we know where it happens?</h4>
+      <p class="gnote">Separately from recording the action, we keep a note of which web page it happens on. That note is called an <b>anchor</b>.</p>
+      <dl>
+        <dt>No anchor</dt><dd>The event records fine, but we have no note of which page it happens on. A gap in our records, not a broken feature.</dd>
+        <dt>Call site unknown</dt><dd>We have a note, but could not find the line of code that sends it.</dd>
+        <dt>No route</dt><dd>It does not belong to any one page, for example something recorded by our servers.</dd>
+        <dt>Anchor disagrees</dt><dd>Our note says one page, but the event's own description says another.</dd>
+      </dl>
+    </section>
+    <section>
+      <h4>The counts on each flow</h4>
+      <dl>
+        <dt>N events</dt><dd>How many different actions we record anywhere in this flow.</dd>
+        <dt>Steps with none</dt><dd>Screens where we record nothing, so we cannot tell how many people saw them or left there.</dd>
+        <dt>Unplaceable</dt><dd>Events in this flow we cannot tie to a page, because of the anchor gaps above.</dd>
+        <dt>Overlapping</dt><dd>Steps where an old and a new version of the same events both record, which can double count.</dd>
+        <dt>Misanchored</dt><dd>Events whose page note points somewhere other than where they really happen.</dd>
+        <dt>Relabel</dt><dd>Suggested name changes for how an event is displayed. The underlying name stays, so reports keep working.</dd>
+      </dl>
+    </section>
+    <section>
+      <h4>Other labels</h4>
+      <dl>
+        <dt>step = audience</dt><dd>One event covers several steps, and a detail sent with it says which step. Its count is for all steps together.</dd>
+        <dt>Declared in productMap</dt><dd>This area is on the list our in-product assistants use to tell people where things are, and a check keeps that list up to date.</dd>
+        <dt>Not in productMap</dt><dd>The assistants cannot point people here, and nothing checks this area when it changes. Onboarding is the main example.</dd>
+      </dl>
+    </section>
+  </div>
+</details>`
   function controlsHTML() {
     return (
       `<div class="controls"><span class="lbl">Layers</span>` +
@@ -1860,7 +1921,8 @@ var ProductMap = (function () {
       <span><i class="sw warn"></i> Fires, but no anchor — route unknown</span>
       <span><i class="sw drift"></i> Two event generations live at once</span>
       <span><i class="sw alert"></i> Step with no event at all</span>
-    </div>`
+    </div>` +
+      GLOSSARY
     )
   }
   function setAllOpen(on) {
