@@ -119,6 +119,11 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('says the plan is not generated yet when it is missing', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx({ plan: null }))
     expect(prompt).toContain('has not been generated yet')
+    // ...without implying the story is a prerequisite. The product map lands
+    // in this same prompt saying there is no gate, and the two contradicting
+    // each other is what sent candidates away from a tab that works.
+    expect(prompt).toContain('does not wait on the Campaign Story')
+    expect(prompt).not.toContain('it is built from the Campaign Story')
   })
 
   it('advertises the constituent-data tool only when it is enabled', () => {
@@ -238,8 +243,12 @@ describe('buildCampaignManagerSystemPrompt', () => {
     // Offers the existing "Help me rewrite" elaboration + triggers generation.
     expect(prompt).toContain('Help me rewrite')
     expect(prompt).toContain('campaign_story generate')
-    // Candidate-in-control: only generate on confirmation.
-    expect(prompt.toLowerCase()).toContain('when they confirm')
+    // Finishing the story IS the request, so generation fires without a
+    // confirmation turn: candidates read "would you like me to?" as another
+    // step to clear rather than as being handed control.
+    expect(prompt).toContain('call campaign_story generate straight away')
+    expect(prompt.toLowerCase()).toContain('do not ask whether to generate')
+    expect(prompt.toLowerCase()).not.toContain('when they confirm')
   })
 
   it('saves each story answer as it is given, so dropping off mid-intake keeps what was answered', () => {
@@ -320,12 +329,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(prompt).toContain('finished their Campaign Story')
     expect(prompt).not.toContain('one at a time')
-    // Editing an answer regenerates the plan off the save itself, so the
-    // manager must neither ask nor call generate — generate is a no-op on an
-    // already-generated plan, which is how the old "offer to regenerate"
-    // instruction produced an acceptance that did nothing.
-    expect(prompt.toLowerCase()).toContain('do not ask whether to regenerate')
-    expect(prompt).not.toContain('offer to regenerate')
   })
 
   it('says nothing about ballot status when the candidate never answered', () => {
