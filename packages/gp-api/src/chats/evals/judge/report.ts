@@ -1,6 +1,7 @@
 import { AGENTS, coverage, type AgentEntry } from './agents'
 import { formatGap, type ArmGap } from './armGap'
 import type { IdenticalOutputs } from './identicalOutputs'
+import type { InvariantViolation } from './invariants'
 import type { IdenticalConfigNotice } from './normalize'
 import type { Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
@@ -74,6 +75,11 @@ export interface SweepReport {
   // Runs that queried the voter mart with no Delta version pinned. Empty or
   // absent on a sweep that either pinned the mart or never read it.
   unpinnedMart?: readonly UnpinnedMartReads[]
+  // Rules an arm's output broke, checked deterministically and attributed by
+  // arm. The one signal in this report that a pairwise verdict structurally
+  // cannot carry: a conformance regression usually reads BETTER as prose, so
+  // the judge prefers it and the delta points the wrong way.
+  invariantViolations?: readonly InvariantViolation[]
 }
 
 const signed = (value: number, digits: number): string =>
@@ -127,7 +133,9 @@ const changeLine = (ci: CiContext | null): string =>
     ? '_No CI context on these records, so this verdict cannot be traced ' +
       'back to a pull request. That means it came from a local run._'
     : `Change under test: ${ci.repo}` +
-      (ci.prNumber === undefined ? '' : ` #${ci.prNumber}`) +
+      (ci.prNumber === undefined
+        ? ''
+        : ` [#${ci.prNumber}](https://github.com/${ci.repo}/pull/${ci.prNumber})`) +
       ` — [workflow run ${ci.workflowRunId}](${ci.workflowRunUrl})` +
       (ci.workflowRunAttempt > 1 ? ` (attempt ${ci.workflowRunAttempt})` : '')
 
@@ -168,6 +176,33 @@ const evidenceLines = (score: AgentScore): string[] => {
     )
   }
   return lines
+}
+
+// THE RATE AND ITS DENOMINATOR, always together. "60%" was 3 of 5 on the
+// first live sweep, and a reader cannot tell that from 60 of 100 — while the
+// 0.7 floor would have failed the whole sweep on it. Below
+// gates.minSwappedPairs the rate is evidence to read, not a gate, and the
+// line says so rather than leaving a number that looks actionable.
+const consistencyLine = (score: AgentScore, config: JudgeConfig): string => {
+  const unstable =
+    score.orderUnstablePairs.length > 0
+      ? `, order-unstable pair(s): ${score.orderUnstablePairs.join(', ')}`
+      : ''
+  if (score.positionConsistency === null || score.swappedPairs === 0) {
+    return 'Position consistency across order-swapped pairs: n/a, none judged'
+  }
+  const agreed = Math.round(score.positionConsistency * score.swappedPairs)
+  const base =
+    'Position consistency across order-swapped pairs: ' +
+    `${agreed} of ${score.swappedPairs} agreed ` +
+    `(${percentOf(score.positionConsistency)})${unstable}`
+  if (score.swappedPairs >= config.gates.minSwappedPairs) return base
+  return (
+    `${base}. Too few swapped pairs to gate on — ` +
+    `${config.gates.minSwappedPairs} are needed, so this is reported and not ` +
+    'applied. Raise the case count or orderSwap.fraction to make it mean ' +
+    'something.'
+  )
 }
 
 const exclusionLine = (score: AgentScore): string => {
@@ -245,13 +280,7 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
   lines.push('')
   lines.push(exclusionLine(score))
   lines.push('')
-  lines.push(
-    'Position consistency across order-swapped pairs: ' +
-      `${percentOf(score.positionConsistency)}` +
-      (score.orderUnstablePairs.length > 0
-        ? `, order-unstable pair(s): ${score.orderUnstablePairs.join(', ')}`
-        : ''),
-  )
+  lines.push(consistencyLine(score, config))
   if (score.panelDisagreementRate !== null) {
     lines.push(
       'Panel disagreement on direction, per judgment: ' +
@@ -401,6 +430,65 @@ export const unpinnedMartReads = (
     caseIds: [...entry.caseIds].sort(),
     runs: entry.runs,
   }))
+}
+
+// A RULE BROKEN ON ONE SIDE ONLY IS THE HEADLINE, so it is said first and in
+// bold. A rule both arms break is a standing bug rather than something this
+// branch did, and a rule only the BASE broke is the branch fixing it — three
+// different facts that one count would blur.
+export const invariantLines = (
+  violations: readonly InvariantViolation[],
+): string[] => {
+  const lines: string[] = []
+  const newlyBroken = violations.filter(
+    (v) => v.candidateRuns > 0 && v.baseRuns === 0,
+  )
+  if (newlyBroken.length > 0) {
+    lines.push(
+      '> **The candidate broke a rule the base kept.** This is not a ' +
+        'quality judgement and the delta above will not show it: dropping a ' +
+        'constraint usually makes an answer read better, so a comparison ' +
+        'prefers it. Checked directly on each arm, so it is a fact rather ' +
+        'than an opinion.',
+    )
+    for (const v of newlyBroken) {
+      // "THE BASE KEPT IT" IS A CLAIM, and a base arm that produced no answer
+      // does not support it: nobody checked those runs. Said inline rather
+      // than demoting the finding, because the candidate did break the rule
+      // either way — it is the comparison that is weaker, not the fact.
+      const unchecked =
+        v.baseUnknownRuns > 0
+          ? ` The base produced no answer on ${v.baseUnknownRuns} run(s), so ` +
+            'it may have broken this too — "the base kept it" is unverified ' +
+            'to that extent.'
+          : ''
+      lines.push(
+        `> - ${v.agentId} / \`${v.invariant}\`: ${v.candidateRuns} ` +
+          `candidate run(s), case(s) ${v.candidateCaseIds.join(', ')}. ` +
+          v.describe +
+          unchecked,
+      )
+    }
+  }
+  const both = violations.filter((v) => v.candidateRuns > 0 && v.baseRuns > 0)
+  for (const v of both) {
+    lines.push(
+      `- ${v.agentId} / \`${v.invariant}\`: broken by BOTH arms ` +
+        `(${v.baseRuns} base, ${v.candidateRuns} candidate), so it is a ` +
+        'standing problem and not something this branch did.',
+    )
+  }
+  const fixed = violations.filter(
+    (v) => v.baseRuns > 0 && v.candidateRuns === 0,
+  )
+  for (const v of fixed) {
+    lines.push(
+      `- ${v.agentId} / \`${v.invariant}\`: broken by the base on ` +
+        `${v.baseRuns} run(s) and by the candidate on none, which is this ` +
+        'branch fixing it.',
+    )
+  }
+  return lines
 }
 
 // Said once, plainly, and then per agent. The first sentence is the one a
@@ -568,6 +656,16 @@ export const renderReport = (
   const unpinned = report.unpinnedMart ?? []
   if (unpinned.length > 0) {
     lines.push(...unpinnedMartLines(unpinned))
+    lines.push('')
+  }
+
+  // FIRST OF THE QUALIFIERS THE VERDICT CANNOT CONTAIN, and stated before the
+  // softer ones: a candidate that broke a rule the base kept is the case
+  // where the delta above is actively misleading rather than merely
+  // uncertain.
+  const broken = report.invariantViolations ?? []
+  if (broken.length > 0) {
+    lines.push(...invariantLines(broken))
     lines.push('')
   }
 

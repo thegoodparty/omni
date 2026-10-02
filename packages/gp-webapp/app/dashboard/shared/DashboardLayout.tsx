@@ -211,7 +211,7 @@ const getMobilePageTitle = (pathname: string | null): string | null => {
   // prefix-match (and mistitle) every dashboard subroute that isn't listed.
   if (pathname === '/dashboard') return NAV_LABELS.campaignManager
   if (pathname === '/dashboard/campaign-plan') {
-    return NAV_LABELS.campaignTracker
+    return NAV_LABELS.campaignPlan
   }
   for (const [prefix, title] of MOBILE_PAGE_TITLES) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return title

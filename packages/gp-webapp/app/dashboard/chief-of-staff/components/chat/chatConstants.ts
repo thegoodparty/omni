@@ -1,3 +1,4 @@
+import { humanizeToolName } from '../../../shared/agent-chat/toolLabels'
 /**
  * Hard-coded intro the Chief of Staff plays on first open (before any
  * conversation exists). These are display-only — they are not persisted and
@@ -27,6 +28,7 @@ export const SAVED_FILTERS_TOOL = 'crud_saved_filters'
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   web_search: 'Searching the web',
   crud_priorities: 'Working on your priorities',
+  record_check_reminder: 'Noting that on your priority',
   list_briefings: 'Reading your briefings',
   get_briefing: 'Reading your briefings',
   read_community_issues: 'Reading your community issues',
@@ -41,7 +43,9 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
 }
 
 export function toolDisplayName(toolName: string): string {
-  return TOOL_DISPLAY_NAMES[toolName] ?? toolName
+  // Humanized rather than raw: a tool that is not in the map above still has
+  // to read as words on the pill, not as its machine name.
+  return TOOL_DISPLAY_NAMES[toolName] ?? humanizeToolName(toolName)
 }
 
 /**

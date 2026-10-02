@@ -14,8 +14,8 @@ anomaly-flagged -> dormant, with the first appearance of a divergence visible. S
 | deprecating | set | last fire on/before `retired_date`, within 30d window | being retired; in the holding window (includes fresh retirees whose pre-retirement traffic still sits in the 30d count) |
 | orphaned_firing | set | last fire *after* `retired_date` (+ grace) | code removed but events still arrive; escalate |
 | retired | set | quiet 30d+ | cleanly retired |
-| code_unknown | no provenance row | any | auto-tracked or brand-new; anomaly-watched only |
-| instrumented_never_observed | present, not retired | never seen | possible broken instrumentation |
+| code_unknown | no provenance row, or a blank one | any | auto-tracked, fired from outside this repo, or never built; anomaly-watched only |
+| instrumented_never_observed | found in code, not retired | never seen | possible broken instrumentation |
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); never a status flag |
 
 Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firing · 2 anomaly

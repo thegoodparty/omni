@@ -39,6 +39,15 @@ model CampaignStrategy {
   // first. Appended on each race-change reset; length = office-change count.
   previousRaceIds String[] @default([]) @map("previous_race_ids")
 
+  // Whether this row's content was generated with a complete campaign story.
+  // The story is optional, so a plan can be generated without one; when the
+  // candidate later finishes their story the plan is stale in a way no raceId
+  // comparison would catch. Compared against current story completeness on
+  // every read, and a false->true transition resets the content in place and
+  // regenerates (see alignPlanWithStory). One-shot: it is the claim, so
+  // concurrent polls can't both regenerate.
+  generatedWithStory Boolean @default(false) @map("generated_with_story")
+
   // One-shot claim that guards the initial campaign-tracker bootstrap. Both
   // plan sections complete on independent SQS messages (possibly different
   // pods); the first to flip this false->true in a single conditional update

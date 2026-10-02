@@ -458,3 +458,27 @@ export const convertVoterFileFilterToFilters = (
   }
   return filters
 }
+
+// The recommended-list dimensions a Serve org may not filter on. Kept in step
+// with the `modes: 'win'` marks in filterDimensions.catalog.ts, and shared so
+// the route asserts and the saved-list exclusion below reject the same set.
+export const WIN_ONLY_RECOMMENDED_FILTER_KEYS = [
+  'independentAffinity',
+  'ideology',
+] as const
+
+// A saved filter an elected-office org cannot resolve: the list/detail/count
+// paths 400 on these Win-only dimensions (party, ethnicity, recommended
+// affinity/ideology, contacts-made — see ContactsService.resolveBaseFilters),
+// so a Serve surface must not offer such a saved list back to the holder.
+export const savedFilterBlockedForElectedOffice = (
+  filterInput: Partial<VoterFileFilter>,
+): boolean => {
+  const filters = convertVoterFileFilterToFilters(filterInput)
+  return (
+    'politicalParty' in filters ||
+    'ethnicity' in filters ||
+    WIN_ONLY_RECOMMENDED_FILTER_KEYS.some((key) => key in filters) ||
+    CONTACTS_MADE_BUCKET_FIELDS.some(({ field }) => filterInput[field])
+  )
+}

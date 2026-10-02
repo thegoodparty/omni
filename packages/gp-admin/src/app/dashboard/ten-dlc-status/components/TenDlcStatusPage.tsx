@@ -28,12 +28,25 @@ const matchesSearch = (entry: TenDlcStatusEntry, needle: string): boolean =>
   entry.campaignSlug.toLowerCase().includes(needle) ||
   (entry.committeeName?.toLowerCase().includes(needle) ?? false)
 
+// Radix Select values are strings, so the no-owner choice needs a sentinel a
+// HubSpot owner name can never be.
+const UNASSIGNED = '__unassigned__'
+
+const matchesAssignee = (
+  entry: TenDlcStatusEntry,
+  assignee: string
+): boolean =>
+  assignee === UNASSIGNED
+    ? entry.assignedPa === null
+    : entry.assignedPa === assignee
+
 export function TenDlcStatusPage() {
   const [snapshot, setSnapshot] = useState<TenDlcStatusSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [bucketFilter, setBucketFilter] =
     useState<TenDlcStatusBucketKey | null>(null)
+  const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
   const load = useCallback(async () => {
@@ -52,25 +65,30 @@ export function TenDlcStatusPage() {
   }, [load])
 
   const needle = search.trim().toLowerCase()
-  const filtersActive = bucketFilter !== null || needle !== ''
+  const filtersActive =
+    bucketFilter !== null || assigneeFilter !== null || needle !== ''
   const populated =
     snapshot?.buckets.filter((bucket) => bucket.entries.length > 0) ?? []
   const totalCount = populated.reduce(
     (sum, bucket) => sum + bucket.entries.length,
     0
   )
+  const assignedPas = populated.flatMap((bucket) =>
+    bucket.entries.map((entry) => entry.assignedPa)
+  )
+  const assigneeNames = [
+    ...new Set(assignedPas.filter((name): name is string => name !== null)),
+  ].sort((a, b) => a.localeCompare(b))
+  const hasUnassigned = assignedPas.some((name) => name === null)
+  const entryVisible = (entry: TenDlcStatusEntry) =>
+    (needle === '' || matchesSearch(entry, needle)) &&
+    (assigneeFilter === null || matchesAssignee(entry, assigneeFilter))
   const visible = populated
     .filter((bucket) => bucketFilter === null || bucket.key === bucketFilter)
-    .map((bucket) =>
-      needle === ''
-        ? bucket
-        : {
-            ...bucket,
-            entries: bucket.entries.filter((entry) =>
-              matchesSearch(entry, needle)
-            ),
-          }
-    )
+    .map((bucket) => ({
+      ...bucket,
+      entries: bucket.entries.filter(entryVisible),
+    }))
     .filter((bucket) => bucket.entries.length > 0)
   const shownCount = visible.reduce(
     (sum, bucket) => sum + bucket.entries.length,
@@ -79,6 +97,7 @@ export function TenDlcStatusPage() {
 
   const clearFilters = () => {
     setBucketFilter(null)
+    setAssigneeFilter(null)
     setSearch('')
   }
 
@@ -155,6 +174,25 @@ export function TenDlcStatusPage() {
                         )
                       </Select.Item>
                     ))}
+                  </Select.Content>
+                </Select.Root>
+                <Select.Root
+                  value={assigneeFilter ?? 'all'}
+                  onValueChange={(value) =>
+                    setAssigneeFilter(value === 'all' ? null : value)
+                  }
+                >
+                  <Select.Trigger aria-label="Assignee filter" />
+                  <Select.Content>
+                    <Select.Item value="all">All assignees</Select.Item>
+                    {assigneeNames.map((name) => (
+                      <Select.Item key={name} value={name}>
+                        {name}
+                      </Select.Item>
+                    ))}
+                    {hasUnassigned && (
+                      <Select.Item value={UNASSIGNED}>Unassigned</Select.Item>
+                    )}
                   </Select.Content>
                 </Select.Root>
                 {filtersActive && (

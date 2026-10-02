@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 import anchor_alignment as aa
+import sem_anchors as sa
 from sem_anchors import Leg
 
 TODAY = date(2026, 9, 23)
@@ -447,3 +448,54 @@ def test_a_latched_excluding_leg_is_dead_even_with_recent_rows():
     )
     assert f["case"] == 2 and f["evidence"]["latched"] is True
     assert f["evidence"]["latched_since"] == "2026-09-08"
+
+
+def test_an_intent_row_becomes_a_case_2_finding(tmp_path):
+    wl = tmp_path / "w.yaml"
+    wl.write_text('intents:\n  - {metric: win_activated_users, event: "Door Knocking - Door Logged", '
+                  'intent: retire_activity, reason: "stopping door knocking", date: "2026-10-01"}\n')
+    anchors = {"win_activated_users": [sa.Leg("Door Knocking - Door Logged")]}
+    [f] = aa.intent_findings(wl, anchors)
+    assert (f["case"], f["kind"], f["metric"]) == (2, "declared_leg_changed_by_pr", "win_activated_users")
+    assert "stopping door knocking" in f["headline"]
+
+
+def test_an_intent_row_whose_change_landed_upstream_asks_to_be_deleted(tmp_path):
+    wl = tmp_path / "w.yaml"
+    wl.write_text('intents:\n  - {metric: win_activated_users, event: "Door Knocking - Door Logged", '
+                  'intent: retire_activity, reason: "r", date: "2026-10-01"}\n')
+    [f] = aa.intent_findings(wl, {"win_activated_users": [sa.Leg("Outreach - Campaign Completed")]})
+    assert (f["case"], f["kind"]) == (1, "intent_row_resolved")
+
+
+def test_an_intent_row_on_a_leg_now_only_historical_is_resolved(tmp_path):
+    """Queue C and the guard agree: the guard only watches non-historical legs, so a row
+    whose event the metric now marks historical has done its job."""
+    wl = tmp_path / "w.yaml"
+    wl.write_text('intents:\n  - {metric: win_activated_users, event: "Door Knocking - Door Logged", '
+                  'intent: retire_activity, reason: "r", date: "2026-10-01"}\n')
+    anchors = {"win_activated_users": [sa.Leg("Door Knocking - Door Logged", era="historical"),
+                                       sa.Leg("Outreach - Campaign Completed")]}
+    [f] = aa.intent_findings(wl, anchors)
+    assert (f["case"], f["kind"]) == (1, "intent_row_resolved")
+
+
+def test_a_metric_less_not_a_change_row_is_not_a_queue_c_finding(tmp_path):
+    """A dead-listing false positive report: a guard bug, not a metric change."""
+    wl = tmp_path / "w.yaml"
+    wl.write_text('intents:\n  - {event: "Settings - Saved", intent: not_a_change, '
+                  'reason: "dynamic lookup", date: "2026-10-01"}\n')
+    assert aa.intent_findings(wl, {"win_activated_users": [sa.Leg("Outreach - Campaign Completed")]}) == []
+
+
+def test_a_bare_intents_key_loads_as_no_rows(tmp_path):
+    wl = tmp_path / "w.yaml"
+    wl.write_text("intents:\n")
+    assert aa.intent_findings(wl, {"win_activated_users": [sa.Leg("X")]}) == []
+
+
+def test_intent_rows_are_not_reported_when_the_anchors_could_not_be_read(tmp_path):
+    wl = tmp_path / "w.yaml"
+    wl.write_text('intents:\n  - {metric: win_activated_users, event: "Door Knocking - Door Logged", '
+                  'intent: retire_activity, reason: "r", date: "2026-10-01"}\n')
+    assert aa.intent_findings(wl, {}) == []

@@ -251,6 +251,38 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     },
   )
 
+  it('writes an event invite from the details the flow sent', async () => {
+    mockDraft('A script.')
+
+    const res = await postDraft({
+      purpose: 'event_invite',
+      tone: 'warm',
+      event: { date: '2026-10-17', time: '09:00', location: 'Town Hall' },
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('Date: Saturday, October 17')
+    expect(userPrompt).toContain('Time: 9:00 AM')
+    expect(userPrompt).toContain('Location: Town Hall')
+    expect(userPrompt).not.toMatch(/\[(date|time|location)\]/i)
+  })
+
+  it('tells an event invite with no details to leave the logistics out', async () => {
+    mockDraft('A script.')
+
+    await postDraft({ purpose: 'event_invite', tone: 'warm' })
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('No event date, time or place was given.')
+  })
+
   it('includes the election date for the election_day_turnout purpose', async () => {
     await service.prisma.campaign.update({
       where: { id: campaign.id },

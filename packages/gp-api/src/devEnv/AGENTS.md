@@ -26,10 +26,13 @@ not an `@McpTool`: this is a human bootstrap surface.
   non-member / pending invite / unscoped token, 502 when GitHub is unreachable.
 - There is no rate limit, by decision (ENG-11186 TDD review): org membership
   plus the per-fetch audit line is the whole abuse posture.
-- The global `SessionGuard` still sees the `Authorization` header first and
-  tries it as a session token. That stays in-process — Clerk's `verifyToken`
-  is networkless and a `gho_*` string fails JWT decoding locally — and
-  `@PublicAccess()` is what lets the request fall through to this guard.
+- The GitHub token travels in a dedicated `X-GitHub-Token` header, never
+  `Authorization`: the global `SessionGuard` tries every `Authorization`
+  bearer as a Clerk session first, and `ClerkAuthService` wraps a failed
+  verification in an `UnauthorizedException` that `SessionGuard` rethrows
+  even on `@PublicAccess()` routes — a `gho_*` bearer 401s before this
+  guard ever runs (found live on dev; the first design assumed the failure
+  fell through to public).
 
 ## The secret
 

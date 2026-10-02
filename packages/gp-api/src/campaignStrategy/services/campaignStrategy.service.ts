@@ -30,6 +30,7 @@ import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
+import { CampaignStoryStateService } from '@/campaignStory/services/campaignStoryState.service'
 import { isTestCampaign } from '@/users/util/users.util'
 import { isDateTodayOrFuture } from 'src/shared/util/date.util'
 
@@ -68,6 +69,14 @@ type SectionState = 'persisted' | 'inflight' | 'redispatch' | 'dead' | 'stalled'
 // Both CAP experiments share one input contract.
 type StrategicLandscapeParams =
   AgentJobContracts['opposition_research']['Input']
+
+// What alignPlanWithStory tells the caller. `lostClaim` means another request
+// won the one-shot story claim and is dispatching for this plan, so this
+// caller must stand down rather than dispatch a second time.
+type StoryAlignment = {
+  plan: CampaignStrategy
+  lostClaim: boolean
+}
 
 type DispatchBase = {
   organizationSlug: string
@@ -145,6 +154,7 @@ export class CampaignStrategyService extends createPrismaBase(
     private readonly s3: S3Service,
     private readonly analytics: AnalyticsService,
     private readonly campaignTrackerTasks: CampaignTrackerTasksService,
+    private readonly storyState: CampaignStoryStateService,
   ) {
     super()
   }
@@ -191,10 +201,20 @@ export class CampaignStrategyService extends createPrismaBase(
     // Resolve raceId synchronously so a 400 surfaces to this call rather than
     // a dispatch with no race.
     const brHashId = resolveRaceId(campaign.details)
-    const plan = await this.alignPlanWithRace(
-      await this.upsertForCampaign(campaign.id, brHashId),
-      brHashId,
+    const { plan, lostClaim } = await this.alignPlanWithStory(
+      await this.alignPlanWithRace(
+        await this.upsertForCampaign(campaign.id, brHashId),
+        brHashId,
+      ),
     )
+
+    // Another request won the story claim and is dispatching for this plan
+    // right now. Joining in would double the Fargate spend and burn two of the
+    // ten lifetime attempt slots per section — a reset row, and an
+    // never-generated one, both look exactly like a row that needs
+    // dispatching, so nothing downstream can tell the difference. Report what
+    // is true: it is generating.
+    if (lostClaim) return { status: 'generating' }
 
     const [opposition, opportunities] = await Promise.all([
       this.runFor(plan.oppositionRunId),
@@ -446,20 +466,13 @@ export class CampaignStrategyService extends createPrismaBase(
 
   // Materialize the tracker's static rows at plan-generation start so they
   // render immediately, rather than waiting for the plan-completion bootstrap
-  // (which is CAP/SQS-driven and never fires locally). Story-gated to the
-  // tracker cohort so legacy campaigns never get tracker rows, and best-effort
-  // so a tracker hiccup can't fail plan generation. materializeStaticTasks is
+  // (which is CAP/SQS-driven and never fires locally). Best-effort so a
+  // tracker hiccup can't fail plan generation. materializeStaticTasks is
   // idempotent and race-safe, so calling it on every poll is cheap and the
   // initial dynamic dispatch still happens once, from the bootstrap below.
   private async ensureTrackerStaticTasks(
     campaign: CampaignWith<'user'>,
   ): Promise<void> {
-    const story = await this.client.campaignStory.findUnique({
-      where: { campaignId: campaign.id },
-      select: { id: true },
-    })
-    if (!story) return
-
     await this.campaignTrackerTasks
       .materializeStaticTasks(campaign)
       .catch((err: unknown) =>
@@ -480,16 +493,6 @@ export class CampaignStrategyService extends createPrismaBase(
   ): Promise<void> {
     const plan = await this.findFirst({ where: { id: planId } })
     if (!plan?.oppositionPersistedAt || !plan.opportunitiesPersistedAt) return
-
-    // The tracker uses the campaign story as input, so it only exists once the
-    // campaign has gone through campaign story. Legacy (campaign-story off)
-    // campaigns never write a story, so they stay on the legacy task path and
-    // never bootstrap the tracker even though their plan still generates. This
-    // gate is on story data (not the flag) so it holds regardless of the flag.
-    const story = await this.client.campaignStory.findUnique({
-      where: { campaignId },
-    })
-    if (!story) return
 
     const campaign = await this.client.campaign.findUnique({
       where: { id: campaignId },
@@ -829,6 +832,13 @@ export class CampaignStrategyService extends createPrismaBase(
           oppositionPersistedAt: null,
           opportunitiesPersistedAt: null,
           generationStartedAt: null,
+          // The tracker's tasks are built from the plan, which is built from
+          // the race, so a race change makes them stale too. Releasing the
+          // one-shot bootstrap claim lets the completion handler dispatch a
+          // fresh task generation once the regenerated sections persist;
+          // without it the campaign carries the old race's tasks until the
+          // weekly cron happens to come round.
+          trackerBootstrapped: false,
         },
       })
       if (count === 0) return false
@@ -863,6 +873,165 @@ export class CampaignStrategyService extends createPrismaBase(
     }
 
     return updated
+  }
+
+  // Bring the plan in line with the CURRENT campaign story. The story is
+  // optional, so a plan can be generated without one; when the candidate later
+  // finishes their story that plan is stale in a way the raceId comparison
+  // can't see. Same shape as alignPlanWithRace: wipe the content in place and
+  // let the caller's dispatchPending regenerate it, so the row survives and the
+  // user sees skeletons rather than a vanished plan.
+  //
+  // `generatedWithStory` doubles as the claim. The plan endpoint is polled, so
+  // without a conditional update two concurrent polls would each reset and
+  // double-dispatch. Attempt counters deliberately survive — they bound
+  // lifetime Fargate spend per campaign.
+  private async alignPlanWithStory(
+    plan: CampaignStrategy,
+  ): Promise<StoryAlignment> {
+    if (plan.generatedWithStory) return { plan, lostClaim: false }
+
+    const { complete } = await this.storyState.read(plan.campaignId)
+    if (!complete) return { plan, lostClaim: false }
+
+    // The two sections carry their own runId and persistedAt, so the state
+    // that matters here is per-section, not per-plan: a section holding a
+    // runId with no stamp has a generation on the wire whose output is still
+    // coming. Reading it per-plan produced two bugs in a row — first ignoring
+    // in-flight runs altogether, then catching only the case where BOTH
+    // sections were unpersisted and missing the partial one (opposition
+    // persisted, opportunities still running).
+    const anyInFlightUnpersisted =
+      (!!plan.oppositionRunId && !plan.oppositionPersistedAt) ||
+      (!!plan.opportunitiesRunId && !plan.opportunitiesPersistedAt)
+
+    // Any section still on the wire means stand aside without taking the
+    // claim, because neither other branch is safe. The wipe nulls both runIds
+    // and onExperimentRunCompleted looks the plan up by them, so a live
+    // Fargate run finishes into a plan that no longer references it and its
+    // output is silently dropped. Stamping the claim instead would mark a plan
+    // story-aware whose in-flight params predate the story, and since the flag
+    // IS the one-shot claim, nothing would ever regenerate it.
+    //
+    // Standing aside loses nothing: the run persists, and the next read sees
+    // every section stamped with the claim still open and takes the reset path
+    // below. Attempt slots are spent at dispatch either way; this only decides
+    // whether the output is kept.
+    //
+    // Known cost: an outstanding run that is dead or stuck rather than live is
+    // indistinguishable from here, so the caller re-dispatches it below with
+    // story-bearing params and the regeneration on the next read is then
+    // redundant (two of the ten slots per section). Telling the two apart
+    // needs the run rows, which this method does not have — the caller loads
+    // them after it returns. A terminally dead section holds the claim open
+    // for good, which is moot: such a plan reports failed and never completes.
+    if (anyInFlightUnpersisted) {
+      return { plan, lostClaim: false }
+    }
+
+    // Past that guard no section holds an unstamped run, so "nothing
+    // persisted" here also means nothing dispatched.
+    const nothingPersisted =
+      !plan.oppositionPersistedAt && !plan.opportunitiesPersistedAt
+
+    // First visit, nothing dispatched: just take the claim. The dispatch that
+    // follows picks the story up as params, which is the whole point.
+    if (nothingPersisted) {
+      const { count } = await this.model.updateMany({
+        where: { id: plan.id, generatedWithStory: false },
+        data: { generatedWithStory: true },
+      })
+      // The loser yields here too. No content was wiped, but that is not what
+      // is contended: the winner is about to dispatch, and a loser that falls
+      // through dispatches a second pair of runs for the same first
+      // generation, spending two of the ten lifetime slots per section
+      // instead of one.
+      return {
+        plan:
+          count === 0
+            ? await this.model.findUniqueOrThrow({ where: { id: plan.id } })
+            : { ...plan, generatedWithStory: true },
+        lostClaim: count === 0,
+      }
+    }
+
+    let claimed = false
+    await this.client.$transaction(async (tx) => {
+      const { count } = await tx.campaignStrategy.updateMany({
+        where: { id: plan.id, generatedWithStory: false },
+        data: {
+          generatedWithStory: true,
+          oppositionRunId: null,
+          opportunitiesRunId: null,
+          oppositionPersistedAt: null,
+          opportunitiesPersistedAt: null,
+          generationStartedAt: null,
+          // Release the tracker's one-shot bootstrap claim so the completion
+          // handler dispatches a fresh task generation once the regenerated
+          // sections persist. Dispatching one here instead would build the
+          // agent's params from the plan we are in the middle of wiping.
+          trackerBootstrapped: false,
+        },
+      })
+      if (count === 0) return
+      claimed = true
+      await tx.campaignStrategyOpportunity.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      })
+      await tx.campaignStrategyChallenge.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      })
+      await tx.campaignStrategyOpponent.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      })
+    })
+
+    return {
+      plan: await this.model.findUniqueOrThrow({ where: { id: plan.id } }),
+      lostClaim: !claimed,
+    }
+  }
+
+  // Eager regeneration for the campaign-story write paths, so a candidate who
+  // finishes their story in the chat does not have to open the plan tab for it
+  // to take effect. Only acts on a plan that already exists: generation is
+  // otherwise user-triggered, and dispatching here would bill a candidate who
+  // never asked for a plan.
+  //
+  // Non-throwing by contract — a story save must not fail because a
+  // regeneration could not be dispatched. If the dispatch does fail after the
+  // reset lands, the next plan read sees unpersisted sections and dispatches,
+  // so the plan self-heals rather than staying wiped.
+  async regenerateOnStoryComplete(campaignId: number): Promise<void> {
+    try {
+      const plan = await this.findFirst({ where: { campaignId } })
+      if (!plan || plan.generatedWithStory) return
+
+      const { complete } = await this.storyState.read(campaignId)
+      if (!complete) return
+
+      const campaign = await this.client.campaign.findUnique({
+        where: { id: campaignId },
+        include: { user: true },
+      })
+      if (!campaign) return
+
+      // Re-enters the normal generation path, which aligns (claiming the
+      // one-shot flag) and then dispatches both sections.
+      //
+      // The tracker is NOT dispatched here. Its params are built from the plan
+      // in the database, which align has just wiped, so a run started now
+      // would cost a full generation against a null plan. Releasing the
+      // bootstrap claim (in alignPlanWithStory) is what refreshes it: the
+      // sections re-persist, the completion handler sees an unclaimed tracker
+      // and dispatches a run against the finished plan.
+      await this.getOrGenerateStrategicLandscape(campaign)
+    } catch (err) {
+      this.logger.error(
+        { err, campaignId },
+        'story-complete plan regeneration failed',
+      )
+    }
   }
 
   // Pure read for consumers that must NEVER trigger (paid) generation or the

@@ -1,3 +1,4 @@
+import { ProposalEventSchema } from '../outreach/OutreachEvent.schema'
 import { z } from 'zod'
 
 /**
@@ -22,8 +23,17 @@ export const CHAT_CARD_KINDS = [
 export const ChatCardKindSchema = z.enum(CHAT_CARD_KINDS)
 export type ChatCardKind = z.infer<typeof ChatCardKindSchema>
 
-/** Channels a proposal can be sent straight from the chat. */
-export const PROPOSAL_CHANNELS = ['social', 'phoneBanking', 'text'] as const
+/**
+ * Channels a proposal can be made on. Only phone banking is sent from the
+ * card; the rest deep-link into their own flow. Append only: the channel is
+ * persisted in the tool args of segments that already exist.
+ */
+export const PROPOSAL_CHANNELS = [
+  'social',
+  'phoneBanking',
+  'text',
+  'doorKnocking',
+] as const
 export const ProposalChannelSchema = z.enum(PROPOSAL_CHANNELS)
 export type ProposalChannel = z.infer<typeof ProposalChannelSchema>
 
@@ -37,6 +47,12 @@ export type ProposalChannel = z.infer<typeof ProposalChannelSchema>
  */
 export const OutreachProposalSchema = z.object({
   proposalKey: z.string().uuid(),
+  event: ProposalEventSchema.optional().describe(
+    'For an event invite: the date (YYYY-MM-DD), start time (24-hour HH:MM) ' +
+      'and location you know. Write the same details into the message. ' +
+      'Leave out any part you do not know; never guess one or leave a ' +
+      'placeholder for it.',
+  ),
   audience: z.string().min(1),
   count: z.number().int().nonnegative(),
   channel: ProposalChannelSchema,

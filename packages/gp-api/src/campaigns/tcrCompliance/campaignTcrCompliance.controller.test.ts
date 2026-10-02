@@ -56,6 +56,7 @@ describe('CampaignTcrComplianceController', () => {
     grantInternalTestingApproval: ReturnType<typeof vi.fn>
     revokeInternalTestingApproval: ReturnType<typeof vi.fn>
     overrideCvValidation: ReturnType<typeof vi.fn>
+    updateFilingUrl: ReturnType<typeof vi.fn>
     model: { update: ReturnType<typeof vi.fn> }
   }
   let mockUserService: { findByCampaign: ReturnType<typeof vi.fn> }
@@ -96,6 +97,7 @@ describe('CampaignTcrComplianceController', () => {
         .mockResolvedValue(mockTcrCompliance),
       revokeInternalTestingApproval: vi.fn().mockResolvedValue(undefined),
       overrideCvValidation: vi.fn().mockResolvedValue(undefined),
+      updateFilingUrl: vi.fn().mockResolvedValue(mockTcrCompliance),
       model: { update: vi.fn().mockResolvedValue(mockTcrCompliance) },
     }
 
@@ -808,6 +810,46 @@ describe('CampaignTcrComplianceController', () => {
         controller.overrideCvValidationForCampaign(12345),
       ).rejects.toThrow(NotFoundException)
       expect(mockTcrService.overrideCvValidation).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('updateFilingUrlForCampaign (admin)', () => {
+    const correctedUrl = 'https://sos.example.gov/filings/jane-doe'
+
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('updateFilingUrlForCampaign').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('delegates to the service and returns the persisted URL', async () => {
+      mockTcrService.updateFilingUrl.mockResolvedValue({
+        ...mockTcrCompliance,
+        filingUrl: correctedUrl,
+      })
+
+      const result = await controller.updateFilingUrlForCampaign(
+        mockCampaign.id,
+        { filingUrl: correctedUrl },
+      )
+
+      expect(mockTcrService.updateFilingUrl).toHaveBeenCalledWith(
+        mockCampaign.id,
+        correctedUrl,
+      )
+      expect(result).toEqual({ filingUrl: correctedUrl })
+    })
+
+    it('propagates a service rejection without masking it', async () => {
+      mockTcrService.updateFilingUrl.mockRejectedValue(new NotFoundException())
+
+      await expect(
+        controller.updateFilingUrlForCampaign(12345, {
+          filingUrl: correctedUrl,
+        }),
+      ).rejects.toThrow(NotFoundException)
     })
   })
 })

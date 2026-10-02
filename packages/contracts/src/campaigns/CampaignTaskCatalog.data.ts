@@ -17,6 +17,11 @@ import { voterContactSendOffsetDays } from './VoterContactSchedule.data'
 // already filed, so the entries below must carry exactly this string.
 export const BALLOT_ACCESS_CATEGORY = 'Ballot access'
 
+// The category whose one task only applies while the candidate's Campaign
+// Story is incomplete. gp-api adds and removes those rows to match the current
+// story state, so the entry below must carry exactly this string.
+export const CAMPAIGN_STORY_CATEGORY = 'Campaign story'
+
 export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
   // ----- Pre-launch -----
   {
@@ -261,6 +266,27 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     personalization: 'static',
     pills: [],
     priorityTier: 'P4',
+  },
+
+  // Campaign setup work, so it belongs in pre-launch — and at the end of it:
+  // `preLaunch` timing dates it a week past the block's anchor, alongside the
+  // other two rows that close the phase out.
+  {
+    id: 'tell-us-your-story',
+    phase: 'preLaunch',
+    type: 'static',
+    category: CAMPAIGN_STORY_CATEGORY,
+    title: 'Tell us your campaign story',
+    description:
+      'Share your why, your background, and the issues you care about to sharpen your plan.',
+    channel: 'general',
+    timing: { kind: 'preLaunch' },
+    electionType: 'both',
+    proRequired: false,
+    status: 'live',
+    personalization: 'static',
+    pills: [],
+    priorityTier: 'P1',
   },
 
   // ----- Launch -----

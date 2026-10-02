@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { humanizeToolName } from '../../../shared/agent-chat/toolLabels'
 import { Button, Textarea } from '@styleguide'
 import { ChevronDownIcon, SparklesIcon } from '@styleguide/components/ui/icons'
 import {
@@ -89,7 +90,9 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
 }
 
 function toolDisplayName(toolName: string): string {
-  return TOOL_DISPLAY_NAMES[toolName] ?? toolName
+  // Humanized rather than raw: a tool that is not in the map above still has
+  // to read as words on the pill, not as its machine name.
+  return TOOL_DISPLAY_NAMES[toolName] ?? humanizeToolName(toolName)
 }
 
 /**

@@ -12,13 +12,14 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 
 describe('OutreachController', () => {
   let controller: OutreachController
-  let mockTcrComplianceService: { findFirst: ReturnType<typeof vi.fn> }
-  let mockOutreachService: { create: ReturnType<typeof vi.fn> }
+  let mockOutreachService: {
+    create: ReturnType<typeof vi.fn>
+    findByCampaignId: ReturnType<typeof vi.fn>
+  }
   let mockS3Service: {
     buildKey: ReturnType<typeof vi.fn>
     uploadFile: ReturnType<typeof vi.fn>
   }
-  let mockPeerlyP2pJobService: Record<string, ReturnType<typeof vi.fn>>
   let mockContactsService: { assertProAccess: ReturnType<typeof vi.fn> }
 
   const mockUser = {
@@ -63,9 +64,9 @@ describe('OutreachController', () => {
   }
 
   beforeEach(() => {
-    mockTcrComplianceService = { findFirst: vi.fn() }
     mockOutreachService = {
       create: vi.fn().mockResolvedValue({ id: 1 }),
+      findByCampaignId: vi.fn().mockResolvedValue([]),
     }
     mockS3Service = {
       buildKey: vi.fn(
@@ -76,14 +77,11 @@ describe('OutreachController', () => {
         .fn()
         .mockResolvedValue('https://cdn.example.com/image.png'),
     }
-    mockPeerlyP2pJobService = {}
     mockContactsService = { assertProAccess: vi.fn() }
 
     controller = new OutreachController(
-      mockTcrComplianceService as never,
       mockOutreachService as never,
       mockS3Service as never,
-      mockPeerlyP2pJobService as never,
       mockContactsService as never,
       createMockLogger(),
     )
@@ -284,6 +282,41 @@ describe('OutreachController', () => {
         baseCampaign,
         emailDto,
         undefined,
+      )
+    })
+  })
+
+  describe('findAll', () => {
+    // One texting row the vendor has a job for, and one door-knocking row it
+    // has nothing to do with.
+    const p2pRow = {
+      id: 10,
+      projectId: 'job-1',
+      outreachType: OutreachType.p2p,
+      status: OutreachStatus.pending,
+    }
+    const doorKnockingRow = {
+      id: 11,
+      projectId: null,
+      outreachType: OutreachType.doorKnocking,
+      status: OutreachStatus.pending,
+    }
+
+    // The incident this replaced: the list used to fetch every texting job from
+    // Peerly on each page load, and a vendor wobble took the whole dashboard
+    // down with it. Nothing but our own database answers this request now, so
+    // there is no vendor call left to fail — the rows come back as stored.
+    it('returns the stored rows with no vendor call in the request', async () => {
+      mockOutreachService.findByCampaignId.mockResolvedValue([
+        p2pRow,
+        doorKnockingRow,
+      ])
+
+      const result = await controller.findAll(baseCampaign)
+
+      expect(result).toEqual([p2pRow, doorKnockingRow])
+      expect(mockOutreachService.findByCampaignId).toHaveBeenCalledWith(
+        baseCampaign.id,
       )
     })
   })

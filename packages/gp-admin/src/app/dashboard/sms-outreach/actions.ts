@@ -8,6 +8,7 @@ import type {
   SmsAdminDetailResponse,
   SmsApprovalQueueItem,
   SmsApprovalQueueResponse,
+  SmsVendorAccount,
 } from '@goodparty_org/contracts'
 
 const ADMIN_ROLE = 'org:admin'
@@ -36,6 +37,24 @@ export const getSmsQueue = async (): Promise<SmsApprovalQueueResponse> => {
   }
   return gpAction(async (client) => client.smsOutreachAdmin.getQueue())
 }
+
+// A vendor hiccup must not take the queue down with it: the balance is
+// header context, so any failure renders as "unavailable".
+export const getSmsVendorBalance =
+  async (): Promise<SmsVendorAccount | null> => {
+    const { has } = await auth()
+    if (!has?.({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
+      throw new Error('Missing read_campaigns permission')
+    }
+    try {
+      const { account } = await gpAction(async (client) =>
+        client.smsOutreachAdmin.getBalance()
+      )
+      return account
+    } catch {
+      return null
+    }
+  }
 
 export const getSmsDetail = async (
   id: number

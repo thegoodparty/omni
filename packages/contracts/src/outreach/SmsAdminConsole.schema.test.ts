@@ -84,3 +84,25 @@ describe('checkSmsStandards link_shortener', () => {
     }
   })
 })
+
+describe('checkSmsStandards opt_out_line', () => {
+  const failures = (script: string) =>
+    checkSmsStandards(`Hi {first_name}. ${script}`).failures
+
+  it('passes the opt-out instruction however it is punctuated', () => {
+    for (const line of [
+      'Reply STOP to opt out.',
+      'reply stop',
+      'Reply STOP.',
+      'Reply STOP, and we will stop.',
+    ]) {
+      expect(failures(line)).not.toContain('opt_out_line')
+    }
+  })
+
+  it('fails "stop" that is only the start of a longer word', () => {
+    expect(failures('Reply stoppage is not an opt-out.')).toContain(
+      'opt_out_line',
+    )
+  })
+})

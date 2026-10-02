@@ -35,6 +35,75 @@ describe('applyStatusUpdate', () => {
     })
   })
 
+  it('keeps a stored check on a patch that does not carry one', () => {
+    const current = {
+      ...emptyPriorityStatus(),
+      steps: emptyPriorityStatus().steps.map((s) =>
+        s.id === 'define'
+          ? {
+              ...s,
+              state: 'settled' as const,
+              check: {
+                state: 'out' as const,
+                who: 'Renters on Maple',
+                question: 'Is this it?',
+                raised: 0,
+              },
+            }
+          : s,
+      ),
+    }
+    const { status } = applyStatusUpdate(current, {
+      steps: [{ id: 'define', state: 'settled', summary: 'Potholes' }],
+    })
+    expect(status.steps.find((s) => s.id === 'define')?.check?.state).toBe(
+      'out',
+    )
+  })
+
+  it('counts a deferral recorded over a deferral, as the server does', () => {
+    const deferred = parseStatusUpdate({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          check: { state: 'deferred', when: 'after the hearing' },
+        },
+      ],
+    })
+    if (deferred === null) throw new Error('expected a parsed update')
+    const once = applyStatusUpdate(emptyPriorityStatus(), deferred).status
+    const twice = applyStatusUpdate(once, deferred).status
+    expect(twice.steps.find((s) => s.id === 'define')?.check).toMatchObject({
+      state: 'deferred',
+      when: 'after the hearing',
+      raised: 1,
+    })
+  })
+
+  it('never shows a check on a step that is not a gate', () => {
+    const { status } = applyStatusUpdate(emptyPriorityStatus(), {
+      steps: [
+        {
+          id: 'listen_problem',
+          state: 'settled',
+          check: { state: 'confirmed' },
+        },
+      ],
+    })
+    const listen = status.steps.find((s) => s.id === 'listen_problem')
+    expect(listen?.state).toBe('settled')
+    expect(listen?.check).toBeUndefined()
+  })
+
+  it('still moves the step when the check is malformed', () => {
+    expect(
+      parseStatusUpdate({
+        steps: [{ id: 'define', state: 'settled', check: { state: 'maybe' } }],
+      }),
+    ).toEqual({ steps: [{ id: 'define', state: 'settled' }] })
+  })
+
   it('keeps a stored summary when the patch omits one', () => {
     const current = {
       ...emptyPriorityStatus(),

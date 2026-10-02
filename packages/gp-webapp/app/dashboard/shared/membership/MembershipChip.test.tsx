@@ -126,8 +126,8 @@ describe('MembershipChip', () => {
 
     expect(screen.getByText('pitch:true')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Membership.ChipClicked,
-      { action: 'pitch' },
+      EVENTS.ProUpgrade.Membership.BannerClicked,
+      { path: '/' },
     )
   })
 
@@ -157,8 +157,8 @@ describe('MembershipChip', () => {
 
     expect(screen.getByText('pin:true')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Membership.ChipClicked,
-      { action: 'pin' },
+      EVENTS.ProUpgrade.Membership.PinBannerClicked,
+      { path: '/' },
     )
   })
 

@@ -2477,3 +2477,78 @@ def test_usage_counts_omits_a_count_past_javascript_integer_precision():
     # A real count just under the ceiling is untouched — the bound must not be
     # rejecting ordinary values.
     assert counts["output_tokens"] == _MAX_LOGGED_TOKEN_COUNT - 1
+
+
+# A turn whose ResultMessage carried no cost leaves the evaluator's TOTAL
+# unknown, not unchanged. The old accumulation did
+# `state["cost_usd"] + (message.total_cost_usd or 0.0)`, which reports a run
+# whose cost nobody measured as a run that cost less — and starting the sum at
+# 0.0 reported a stream that produced no ResultMessage at all as free.
+@pytest.mark.asyncio
+async def test_evaluator_cost_is_none_when_a_turn_reports_none():
+    from pmf_engine.runner.harness.claude_sdk import run_evaluator_agent
+
+    async def fake_query(*_args, **_kwargs):
+        yield _make_result_message(result="Done", total_cost_usd=None, num_turns=2, session_id="sess-nocost")
+
+    with tempfile.TemporaryDirectory() as workspace_dir, tempfile.TemporaryDirectory() as gate_cwd:
+        result_file_path = os.path.join(gate_cwd, "fragments.json")
+        params = _make_evaluator_params(
+            gate_cwd=gate_cwd,
+            workspace_dir=workspace_dir,
+            result_file_path=result_file_path,
+        )
+        with _isolated_runner_env(None):
+            with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query):
+                result = await run_evaluator_agent(params)
+
+    assert result.cost_usd is None
+    # The turns were still observed; only the cost is unknown.
+    assert result.num_turns == 2
+
+
+@pytest.mark.asyncio
+async def test_evaluator_cost_is_none_when_no_result_message_arrives():
+    """A stream that ends without a ResultMessage measured nothing. A 0.0 start
+    reported that as a free run."""
+    from pmf_engine.runner.harness.claude_sdk import run_evaluator_agent
+
+    async def fake_query(*_args, **_kwargs):
+        return
+        yield  # pragma: no cover - makes this an async generator
+
+    with tempfile.TemporaryDirectory() as workspace_dir, tempfile.TemporaryDirectory() as gate_cwd:
+        result_file_path = os.path.join(gate_cwd, "fragments.json")
+        params = _make_evaluator_params(
+            gate_cwd=gate_cwd,
+            workspace_dir=workspace_dir,
+            result_file_path=result_file_path,
+        )
+        with _isolated_runner_env(None):
+            with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query):
+                result = await run_evaluator_agent(params)
+
+    assert result.cost_usd is None
+
+
+@pytest.mark.asyncio
+async def test_evaluator_cost_is_reported_when_every_turn_reports_one():
+    """The other half: a measured cost still arrives as a number, so the None
+    above is a signal rather than the only thing this path can produce."""
+    from pmf_engine.runner.harness.claude_sdk import run_evaluator_agent
+
+    async def fake_query(*_args, **_kwargs):
+        yield _make_result_message(result="Done", total_cost_usd=0.0731, num_turns=4, session_id="sess-cost")
+
+    with tempfile.TemporaryDirectory() as workspace_dir, tempfile.TemporaryDirectory() as gate_cwd:
+        result_file_path = os.path.join(gate_cwd, "fragments.json")
+        params = _make_evaluator_params(
+            gate_cwd=gate_cwd,
+            workspace_dir=workspace_dir,
+            result_file_path=result_file_path,
+        )
+        with _isolated_runner_env(None):
+            with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query):
+                result = await run_evaluator_agent(params)
+
+    assert result.cost_usd == pytest.approx(0.0731)

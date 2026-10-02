@@ -385,6 +385,7 @@ export {
 
 export {
   BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_STORY_CATEGORY,
   CAMPAIGN_TASK_CATALOG,
 } from './campaigns/CampaignTaskCatalog.data'
 
@@ -501,6 +502,13 @@ export {
   UpdateCommitteeNameOutputSchema,
   type UpdateCommitteeNameOutput,
 } from './campaigns/UpdateCommitteeName.schema'
+
+export {
+  UpdateFilingUrlSchema,
+  type UpdateFilingUrlInput,
+  UpdateFilingUrlOutputSchema,
+  type UpdateFilingUrlOutput,
+} from './campaigns/UpdateFilingUrl.schema'
 
 export {
   RaceListItemSchema,
@@ -655,6 +663,18 @@ export {
   PRIORITY_STEP_LABELS,
   PRIORITY_STEP_PURPOSE,
   PRIORITY_STATUS_VERSION,
+  PRIORITY_CHECK_STATES,
+  MAX_CHECK_RAISES,
+  PRIORITY_GATE_STEPS,
+  PRIORITY_LISTEN_GATES,
+  isCheckAnswered,
+  openListenBefore,
+  PriorityCheckStateSchema,
+  PriorityStepCheckSchema,
+  PriorityStepCheckInputSchema,
+  PriorityStepContrastSchema,
+  PriorityStepContrastInputSchema,
+  mergeStepCheck,
   PriorityStepIdSchema,
   PriorityStepStateSchema,
   PriorityStepSchema,
@@ -665,6 +685,11 @@ export {
   type PriorityStepState,
   type PriorityStep,
   type PriorityStatus,
+  type PriorityCheckState,
+  type PriorityStepCheck,
+  type PriorityStepCheckInput,
+  type PriorityStepContrast,
+  type PriorityStepContrastInput,
 } from './priorities/PriorityStatus.schema'
 
 export { mintProposalKey } from './chats/proposalKey'
@@ -852,6 +877,12 @@ export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
 export {
+  MERGE_TAGS,
+  mergeTagToken,
+  type MergeTagChannel,
+  type MergeTagId,
+} from './outreach/MergeTag.const'
+export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
   type OutreachPurpose,
@@ -859,6 +890,13 @@ export {
   ServeOutreachPurposeSchema,
   type ServeOutreachPurpose,
 } from './outreach/OutreachPurpose.schema'
+export {
+  OUTREACH_EVENT_LOCATION_MAX_LENGTH,
+  OutreachEventDetailsSchema,
+  type OutreachEventDetails,
+  ProposalEventSchema,
+  type ProposalEvent,
+} from './outreach/OutreachEvent.schema'
 export {
   SOCIAL_PURPOSE_VALUES,
   SocialPurposeSchema,
@@ -1069,6 +1107,8 @@ export {
   SmsStandardsVerdictSchema,
   type SmsStandardsVerdict,
   checkSmsStandards,
+  deriveSmsProtectedParts,
+  type SmsProtectedPart,
   SmsApprovalQueueItemSchema,
   type SmsApprovalQueueItem,
   SmsApprovalQueueResponseSchema,
@@ -1091,6 +1131,10 @@ export {
   type SmsTestMessageRequest,
   SmsTestMessageResponseSchema,
   type SmsTestMessageResponse,
+  SmsVendorAccountSchema,
+  type SmsVendorAccount,
+  SmsVendorBalanceResponseSchema,
+  type SmsVendorBalanceResponse,
 } from './outreach/SmsAdminConsole.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'

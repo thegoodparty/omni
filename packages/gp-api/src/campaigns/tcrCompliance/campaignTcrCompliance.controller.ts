@@ -43,8 +43,10 @@ import {
   SubmitToPeerlyOutputSchema,
   TenDlcStatusSnapshotSchema,
   UpdateCommitteeNameOutputSchema,
+  UpdateFilingUrlOutputSchema,
 } from '@goodparty_org/contracts'
 import { UpdateCommitteeNameDto } from './schemas/updateCommitteeNameDto.schema'
+import { UpdateFilingUrlDto } from './schemas/updateFilingUrlDto.schema'
 import { Nightly10DlcReportService } from './services/nightly10DlcReport.service'
 
 // Same pattern as HUBSPOT_PIN_SENT_EMAIL_ID in campaignTcrCompliance.service.ts
@@ -254,6 +256,25 @@ export class CampaignTcrComplianceController {
       committeeName,
     )
     return { committeeName: record.committeeName }
+  }
+
+  // Staff filing-link correction from gp-admin's hold widget. A changed URL
+  // also clears the CV validation hold/override columns (see the service
+  // method); 409 once a Peerly identity exists, since the URL was already
+  // consumed by CampaignVerify.
+  @Patch('admin/:campaignId/filing-url')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(UpdateFilingUrlOutputSchema)
+  async updateFilingUrlForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+    @Body() { filingUrl }: UpdateFilingUrlDto,
+  ) {
+    const record = await this.tcrComplianceService.updateFilingUrl(
+      campaignId,
+      filingUrl,
+    )
+    return { filingUrl: record.filingUrl }
   }
 
   @Post('submit-to-peerly')

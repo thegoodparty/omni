@@ -265,6 +265,35 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
+### Human approval for agent-authored PRs
+
+The `main` ruleset requires one approval, and delegate-reviewer's approval
+counts. So `human-approval.yml` runs a required **"Human approval"** check: on a
+PR opened by an author in its `GATED_AUTHORS` list (today `bugboss-gp[bot]`) it
+fails until an org member approves the current head commit. A push after the
+approval turns it red again. Every other PR passes it immediately. To gate
+another agent, add its `login[bot]` to `GATED_AUTHORS`. The agents' GitHub Apps
+hold no `workflows` permission, which is what stops them editing the file to
+make it pass; never grant one that permission.
+
+### Analytics guard
+
+`.github/workflows/analytics-guard.yml` runs `governance_guard.py` (DATA-2432) on every
+PR, with no path filter, and posts or updates one PR comment naming the exact fix. The
+workflow's top-level `env:` sets `GOVERNANCE_GUARD_MODE` (`block` | `warn` | `off`),
+whether a blocking finding fails the check or only warns, and `GOVERNANCE_GUARD_ALERT`,
+who gets cc'd in the comment when the guard itself errors. Changing either is a one-line
+PR; that PR runs against its own edited workflow, so the guard never blocks the change
+that turns it down. The job never fails a
+PR for a mechanical reason: a failed uv setup or `uv sync` makes the guard report that it
+could not run and skips the runbooks suite with a warning, a comment-posting failure only
+warns, and `off` prints a warning and checks nothing. The full report (or the error)
+always goes to the job summary too, because the comment is capped at 60,000 characters.
+OKR legs come from the vendored sem copy at the PR's merge base, not the PR's own copy. The
+runbooks suite (only when `packages/runbooks` changed) runs in the same job; its guard
+replay tests fail, rather than skip, when the Actions checkout is missing the history
+they replay against, since a skipped acceptance test would otherwise read as a pass.
+
 ### Dependency caching
 
 `setup-node-workspace` caches the root workspace install under a single

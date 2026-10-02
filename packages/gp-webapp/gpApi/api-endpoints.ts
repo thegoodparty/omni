@@ -7,6 +7,7 @@ import type {
   DoorKnockingRoutePayload,
   DoorKnockingTalkingPointsDraftResponse,
   DoorKnockingTalkingPointsPurpose,
+  OutreachEventDetails,
   DoorKnockingTurf,
   GeoJsonPolygon,
   GeoJsonShape,
@@ -545,6 +546,7 @@ export type APIEndpoints = {
       currentDraft?: string
       previousDraft?: string
       instructions?: string
+      event?: OutreachEventDetails
     }
     Response: DoorKnockingTalkingPointsDraftResponse
   }
@@ -556,6 +558,7 @@ export type APIEndpoints = {
       currentDraft?: string
       previousDraft?: string
       instructions?: string
+      event?: OutreachEventDetails
     }
     Response: DoorKnockingTalkingPointsDraftResponse
   }
@@ -2713,5 +2716,4 @@ export type ElectedOfficeInput = {
   onboardingStep?: string | null
   ballotReadyPositionId?: string | null
   customPositionName?: string | null
-  overrideDistrictId?: string | null
 }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -1293,5 +1293,171 @@ describe('PhoneBankingFlow with the serve surface', () => {
     expect(screen.getByLabelText('Campaign name')).toHaveValue('')
     await user.type(screen.getByLabelText('Call script'), 'My own script')
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+})
+
+describe('PhoneBankingFlow event invite details', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSavedLists([{ id: 3, name: 'Likely Dems' }])
+    mockListDetail(10)
+    mockCount()
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'No elected office' },
+    })
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [],
+    })
+    api.mock('GET /v1/contacts/precincts', {
+      status: 200,
+      data: { options: [], truncated: false },
+    })
+  })
+
+  const detailsHeading = () =>
+    screen.findByRole('heading', {
+      level: 3,
+      name: 'When and where is the event?',
+    })
+
+  it('asks for the details before drafting and sends them with the draft', async () => {
+    const draftCalls = mockDraft()
+    openFlow()
+
+    await user.click(screen.getByText('Invite voters to a local event'))
+    expect(await detailsHeading()).toBeInTheDocument()
+    expect(draftCalls).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Date'), {
+      target: { value: '2099-05-02' },
+    })
+    fireEvent.change(screen.getByLabelText('Start time'), {
+      target: { value: '10:00' },
+    })
+    fireEvent.change(screen.getByLabelText('Location'), {
+      target: { value: 'Riverside Park pavilion' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(draftCalls).toHaveLength(1))
+    expect(draftCalls[0]).toMatchObject({
+      purpose: 'event_invite',
+      event: {
+        date: '2099-05-02',
+        time: '10:00',
+        location: 'Riverside Park pavilion',
+      },
+    })
+
+    // Back through the details with nothing changed keeps the script.
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await detailsHeading()).toBeInTheDocument()
+    expect(screen.getByLabelText('Location')).toHaveValue(
+      'Riverside Park pavilion',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await pickSavedListAndContinue('Likely Dems')
+    await screen.findAllByText('Write your call script')
+    expect(draftCalls).toHaveLength(1)
+  })
+
+  it('fills the details from the next meeting on Serve', async () => {
+    api.mock('GET /v1/meetings', {
+      status: 200,
+      data: {
+        scheduleKnown: true,
+        meetings: [
+          {
+            meetingDate: '2099-06-03',
+            meetingTime: '18:00',
+            meetingTimezone: 'America/Chicago',
+            durationMinutes: 120,
+            meetingName: 'City Council meeting',
+            location: 'City Hall, 100 Main St',
+            hasBriefing: false,
+          },
+          {
+            meetingDate: '2099-05-20',
+            meetingTime: '17:30',
+            meetingTimezone: 'America/Chicago',
+            durationMinutes: 120,
+            meetingName: 'Budget workshop',
+            location: 'Library annex',
+            hasBriefing: true,
+          },
+          {
+            meetingDate: '2001-01-01',
+            meetingTime: '09:00',
+            meetingTimezone: 'America/Chicago',
+            durationMinutes: 60,
+            meetingName: 'Old meeting',
+            location: 'Nowhere',
+            hasBriefing: true,
+          },
+        ],
+      },
+    })
+    const draftCalls: ServePhoneBankingScriptDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/phone-banking/draft', ({ body }) => {
+      draftCalls.push(body)
+      return { status: 200, data: { draft: draftFor(body) } }
+    })
+    render(
+      <PhoneBankingFlow
+        source="outreach_page"
+        open
+        onClose={vi.fn()}
+        surface={SERVE_PHONE_BANKING_SURFACE}
+      />,
+    )
+
+    await user.click(screen.getByText('Invite constituents to a local event'))
+    expect(await detailsHeading()).toBeInTheDocument()
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Date')).toHaveValue('2099-05-20'),
+    )
+    expect(screen.getByLabelText('Start time')).toHaveValue('17:30')
+    expect(screen.getByLabelText('Location')).toHaveValue('Library annex')
+    expect(
+      screen.getByText(/We filled in your next Budget workshop/),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(draftCalls).toHaveLength(1))
+    expect(draftCalls[0]?.event).toEqual({
+      date: '2099-05-20',
+      time: '17:30',
+      location: 'Library annex',
+    })
+  })
+
+  it('opens on the details an agent handed in', async () => {
+    const draftCalls = mockDraft()
+    render(
+      <PhoneBankingFlow
+        source="outreach_page"
+        open
+        onClose={vi.fn()}
+        initialEvent={{ date: '2099-07-04', location: 'Town square' }}
+      />,
+    )
+
+    await user.click(screen.getByText('Invite voters to a local event'))
+    expect(await detailsHeading()).toBeInTheDocument()
+    expect(screen.getByLabelText('Date')).toHaveValue('2099-07-04')
+    expect(screen.getByLabelText('Start time')).toHaveValue('')
+    // A missing time holds Continue: an invite needs all three.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Start time'), {
+      target: { value: '12:00' },
+    })
+    expect(screen.getByLabelText('Location')).toHaveValue('Town square')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(draftCalls).toHaveLength(1))
+    expect(draftCalls[0]?.event?.time).toBe('12:00')
   })
 })
