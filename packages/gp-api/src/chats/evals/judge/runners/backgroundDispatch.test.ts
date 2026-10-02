@@ -1,21 +1,30 @@
 import { describe, expect, it } from 'vitest'
 import {
   ARM_BUDGET_MS,
+  CHAT_TURN_MS,
   POLL_HEADROOM_MS,
+  UNMEASURED_CHAT_TURN_MS,
+  WAVE_MARGIN_MS,
   admitBackground,
   armDeps,
   backgroundRunInputFor,
   caseLoaderFor,
   capturableAgents,
+  chatBudgetMs,
+  chatTurnMsFor,
+  chatTurnsIn,
   refusedBeforeSpend,
+  refuseChat,
   walkedBackgroundCases,
+  withChatRefusals,
 } from './backgroundDispatch'
 import { DEFAULT_JUDGE_CONFIG } from '../config'
-import { findAgent, type AgentEntry } from '../agents'
-import { SWEEP_VALUES } from '../fixtures/sweep'
+import { AGENTS, findAgent, type AgentEntry } from '../agents'
+import { SWEEP_VALUES, armEnvFor } from '../fixtures/sweep'
 import type { AgentConfig } from './background'
 import type { ArmCaseRequest } from '../sweepArm'
-import type { ArmEnv } from '../sweepEnv'
+import { parseArmEnv, type ArmEnv } from '../sweepEnv'
+import { loadCaseList } from '../cases'
 import type { BackgroundCase, CaseList, JudgeCase } from '../cases'
 
 // WHAT THIS FILE IS FOR. Every argument of the dispatch used to be built
@@ -1187,6 +1196,7 @@ describe('capturableAgents', () => {
         ['chief_of_staff', 'meeting_briefing', 'self_research'],
         env({ backgroundAdmitted: new Set(['meeting_briefing']) }),
         find,
+        DEFAULT_JUDGE_CONFIG,
         () => [],
       ),
     ).toEqual(['chief_of_staff', 'meeting_briefing'])
@@ -1210,6 +1220,7 @@ describe('capturableAgents', () => {
           ]),
         }),
         findAgent,
+        DEFAULT_JUDGE_CONFIG,
       ),
     ).toEqual(['find_existing_ordinances'])
   })
@@ -1220,6 +1231,7 @@ describe('capturableAgents', () => {
         ['no_list', 'blocked_one', 'not_an_agent', 'chief_of_staff'],
         env(),
         find,
+        DEFAULT_JUDGE_CONFIG,
         () => [],
       ),
     ).toEqual(['chief_of_staff'])
@@ -1233,8 +1245,242 @@ describe('capturableAgents', () => {
         ['meeting_briefing', 'chief_of_staff'],
         env({ fixtureValues: {} }),
         find,
+        DEFAULT_JUDGE_CONFIG,
         () => [],
       ),
     ).toEqual(['chief_of_staff'])
+  })
+})
+
+// THE CHAT HALF OF THE ARM. Nothing times a chat turn out, so before this a
+// selection with more turns than an arm holds was killed by the vitest
+// timeout with no manifest written.
+describe('the chat budget', () => {
+  const chatAgent = (agentId: string): AgentEntry => ({
+    agentId,
+    shape: 'chat',
+    cases: `${agentId}.json`,
+    status: 'pending',
+  })
+  const registered = (agentId: string): AgentEntry => {
+    const found = findAgent(agentId)
+    if (found === undefined) throw new Error(`${agentId} is not registered`)
+    return found
+  }
+
+  // 65 minutes for chat. chief_of_staff 8 minutes, priority_flow 48, and
+  // ordinance_flow's 48 more does not fit; campaign_assistant's 6 still
+  // does, which only holds if the refused agent left its share behind.
+  it('refuses by name what does not fit, and leaves its share to the next', () => {
+    const count: Record<string, number> = {
+      chief_of_staff: 24,
+      priority_flow: 24,
+      ordinance_flow: 24,
+      campaign_assistant: 3,
+    }
+    const refused = refuseChat(
+      Object.keys(count).map(chatAgent),
+      (agent) => count[agent.agentId] ?? 0,
+      ARM_BUDGET_MS,
+    )
+    expect(refused.map((one) => one.agentId)).toEqual(['ordinance_flow'])
+    expect(refused[0]?.reason).toMatch(
+      /^would take about 48 minutes for 24 chat turns at 120s each, and 9 of the arm's 70/,
+    )
+  })
+
+  // Exactly the chat budget is a fit; one turn more is not.
+  it('admits turns that fill the chat budget exactly, and no more', () => {
+    const turnMs = chatTurnMsFor('chief_of_staff')
+    const exact = chatBudgetMs(ARM_BUDGET_MS) / turnMs
+    expect(Number.isInteger(exact)).toBe(true)
+    const cos = [chatAgent('chief_of_staff')]
+    expect(refuseChat(cos, () => exact, ARM_BUDGET_MS)).toEqual([])
+    expect(refuseChat(cos, () => exact + 1, ARM_BUDGET_MS)).toHaveLength(1)
+  })
+
+  // Rounded up: 80 seconds is "about 2 minutes", never "about 1".
+  it('rounds a partial minute up', () => {
+    expect(
+      refuseChat([chatAgent('chief_of_staff')], () => 4, WAVE_MARGIN_MS)[0]
+        ?.reason,
+    ).toMatch(/^would take about 2 minutes for 4 chat turns at 20s each/)
+  })
+
+  it('plans an agent nobody has timed at the slowest measured turn', () => {
+    expect(chatTurnMsFor('a_new_chat_agent')).toBe(UNMEASURED_CHAT_TURN_MS)
+    expect(UNMEASURED_CHAT_TURN_MS).toBe(
+      Math.max(...Object.values(CHAT_TURN_MS).map((ms) => ms ?? 0)),
+    )
+  })
+
+  it('leaves background agents and chat agents with no list to others', () => {
+    const background: AgentEntry = {
+      ...chatAgent('meeting_briefing'),
+      shape: 'background',
+    }
+    const noList: AgentEntry = { ...chatAgent('no_list'), cases: null }
+    expect(
+      refuseChat([background, noList], () => 10_000, ARM_BUDGET_MS),
+    ).toEqual([])
+  })
+
+  // A case of several turns drives every one of them.
+  it('counts the turns a list drives, not its cases', () => {
+    expect(
+      chatTurnsIn(
+        caseList('chat', 'chief_of_staff', [
+          { caseId: 'one', question: 'hello' },
+          { caseId: 'three', turns: ['a', 'b', 'c'] },
+        ]),
+      ),
+    ).toBe(4)
+  })
+
+  // THE PIN ON THE REAL REGISTRY. Any one chat agent has to fit an arm on its
+  // own, or naming it alone is a sweep that can never judge it. Fails when a
+  // case list or config.attemptsPerCase grows past what an arm holds.
+  it.each(
+    AGENTS.filter(
+      (agent) =>
+        agent.shape === 'chat' &&
+        agent.status !== 'blocked' &&
+        agent.cases !== null,
+    ).map((agent) => [agent.agentId, agent] as const),
+  )('fits %s in an arm on its own', (_id, agent) => {
+    expect(
+      refuseChat(
+        [agent],
+        (one) =>
+          chatTurnsIn(loadCaseList(one)) * DEFAULT_JUDGE_CONFIG.attemptsPerCase,
+        ARM_BUDGET_MS,
+      ),
+    ).toEqual([])
+  })
+
+  // A sweep obeys the resolver's names and nothing else, so both arms
+  // refuse the same agents whatever their own lists hold.
+  it('refuses a chat agent the resolver named, with its reason', () => {
+    const many: JudgeCase[] = Array.from({ length: 1_000 }, (_, i) => ({
+      caseId: `c${i}`,
+      question: 'hello',
+    }))
+    const load = caseLoaderFor(
+      {},
+      {
+        budgetMs: ARM_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: undefined,
+        maxInFlight: 12,
+        admitted: new Set(),
+        refusedReasons: new Map([['ordinance_flow', 'would take 99 minutes']]),
+      },
+      { load: (agent) => caseList('chat', agent.agentId, many) },
+    )
+    expect(() => load(chatAgent('ordinance_flow'))).toThrow(
+      /^ordinance_flow was not admitted to this sweep: would take 99 minutes$/,
+    )
+    expect(load(chatAgent('chief_of_staff')).cases).toHaveLength(1_000)
+  })
+
+  // A LOCAL RUN, through the arm's own entry points and the real lists: no
+  // resolver, so the arm works the refusal out itself, and the suite's final
+  // check reads the same refusal as one by design rather than a failure.
+  it('refuses on a local run by the same rule, and expects only the rest', () => {
+    const ids = ['chief_of_staff', 'campaign_assistant', 'priority_flow']
+    const arm = parseArmEnv(armEnvFor({ JUDGE_AGENTS: ids.join(',') }))
+    expect(arm.backgroundRefused).toBeUndefined()
+    const { loadCases } = armDeps(arm, DEFAULT_JUDGE_CONFIG)
+    expect(loadCases(registered('chief_of_staff')).cases).toHaveLength(8)
+    expect(loadCases(registered('campaign_assistant')).cases).toHaveLength(8)
+    expect(() => loadCases(registered('priority_flow'))).toThrow(
+      /^priority_flow was not admitted to this sweep: would take about 48 minutes for 24 chat turns at 120s each/,
+    )
+    expect(capturableAgents(ids, arm, findAgent, DEFAULT_JUDGE_CONFIG)).toEqual(
+      ['chief_of_staff', 'campaign_assistant'],
+    )
+  })
+
+  // The arm suite's final check: a chat agent the resolver refused is a
+  // designed skip, not a failed capture that turns the arm red.
+  it('counts a chat agent the resolver named as refused before spend', () => {
+    const named = env({
+      backgroundRefused: new Map([['ordinance_flow', 'too slow']]),
+    })
+    expect(refusedBeforeSpend(chatAgent('ordinance_flow'), named)).toBe(true)
+    expect(refusedBeforeSpend(chatAgent('chief_of_staff'), named)).toBe(false)
+    expect(
+      capturableAgents(
+        ['chief_of_staff', 'ordinance_flow'],
+        named,
+        (id) => chatAgent(id),
+        DEFAULT_JUDGE_CONFIG,
+      ),
+    ).toEqual(['chief_of_staff'])
+  })
+
+  // Required, so the suite cannot drop it and read a local refusal as a
+  // failure. Never called: tsc is what checks it.
+  it('requires the config', () => {
+    const omitted = () =>
+      // @ts-expect-error config is required
+      capturableAgents(['chief_of_staff'], env(), findAgent)
+    expect(typeof omitted).toBe('function')
+  })
+
+  it('counts a list it cannot read as no turns, and does not throw', () => {
+    const decided = withChatRefusals(
+      env({ agentIds: ['chief_of_staff'] }),
+      DEFAULT_JUDGE_CONFIG,
+      findAgent,
+      () => {
+        throw new Error('unreadable')
+      },
+    )
+    expect(decided.backgroundRefused).toEqual(new Map())
+  })
+
+  // Named twice, walked once: charged twice it would refuse itself.
+  it('decides an agent named twice once on a local run', () => {
+    expect(
+      withChatRefusals(
+        env({ agentIds: ['priority_flow', 'priority_flow'] }),
+        DEFAULT_JUDGE_CONFIG,
+      ).backgroundRefused,
+    ).toEqual(new Map())
+  })
+
+  // Through the registry the caller hands in, not the global one: big1 and
+  // big2 resolve only there, to two real 48-minute lists. loadCaseList ties
+  // a list to its own agent id, so each maps to the agent that owns it.
+  it('works the local refusals out from the registry it is given', () => {
+    const owners: Record<string, string> = {
+      big1: 'ordinance_flow',
+      big2: 'priority_flow',
+    }
+    const find = (id: string): AgentEntry | undefined => {
+      const owner = owners[id]
+      return owner === undefined ? undefined : registered(owner)
+    }
+    const ids = Object.keys(owners)
+    const each = (id: string): number => {
+      const agent = registered(owners[id] ?? '')
+      return (
+        chatTurnsIn(loadCaseList(agent)) *
+        DEFAULT_JUDGE_CONFIG.attemptsPerCase *
+        chatTurnMsFor(agent.agentId)
+      )
+    }
+    let msLeft = chatBudgetMs(ARM_BUDGET_MS)
+    const expected = ids.filter((id) => {
+      if (each(id) > msLeft) return false
+      msLeft -= each(id)
+      return true
+    })
+    expect(expected.length).toBeGreaterThan(0)
+    expect(expected.length).toBeLessThan(ids.length)
+    expect(
+      capturableAgents(ids, env({ agentIds: ids }), find, DEFAULT_JUDGE_CONFIG),
+    ).toEqual(expected)
   })
 })

@@ -235,7 +235,7 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
       // A skip here means paid work that did not happen, and the reason is in
       // the manifest — this assertion is what turns that into a red job
       // rather than a quiet coverage gap.
-      const capturable = capturableAgents(requested, env, findAgent)
+      const capturable = capturableAgents(requested, env, findAgent, config)
       expect(
         manifest.agents.map((a) => a.agentId).sort(),
         `skipped: ${JSON.stringify(manifest.skipped)}`,
