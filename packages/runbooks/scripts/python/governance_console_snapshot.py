@@ -5,6 +5,10 @@ Joins, all in one pass:
     status counts, the flagged set, watchlist proposals, alignment findings
   - instrumentation_gaps.json (committed): the gap queue and its dispositions
   - the explorer snapshot (committed): the area rollup, so the two pages cannot disagree
+  - amplitude_event_provenance.csv (committed): call-site counts and retirement dates,
+    joined onto flagged evidence and event cards
+  - surface_drift.json (committed, optional until the first detector run): open and
+    high-confidence relabel proposals, as the fifth queue
 
 Runs in the analytics-governance workflow after the health step, which is what lets it
 read a report that is never committed, and by hand:

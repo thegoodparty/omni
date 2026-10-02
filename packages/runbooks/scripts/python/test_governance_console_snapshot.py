@@ -914,7 +914,8 @@ def test_main_wires_the_code_axis_into_the_written_snapshot(tmp_path):
     out = tmp_path / "out" / "governance-console.json"
 
     rc = gcs.main(["--report", str(report), "--gaps", str(gaps), "--explorer", str(explorer),
-                   "--code", str(code), "-o", str(out)])
+                   "--code", str(code), "--drift", str(tmp_path / "no-drift.json"),
+                   "-o", str(out)])
 
     assert rc == 0
     snapshot = json.loads(out.read_text())
