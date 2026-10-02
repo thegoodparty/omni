@@ -9,6 +9,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { getCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
+import { reportErrorToSentry } from '@shared/sentry'
 import { PENDING_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { DictationStatus } from './useDictation'
 import type { UseDictationAppendResult } from './useDictationAppend'
@@ -43,11 +44,13 @@ const MAX_RECORDING_MS = 2 * 60_000
 // container, not the type.
 const FALLBACK_AUDIO_TYPE = 'audio/webm'
 
-// The refusals the server will repeat, with the reason in a JSON body. A 401
-// or 403 is not one: right after the phone reconnects, the webapp proxy can
-// forward a request before the session token has refreshed, and dropping
-// the queue on that would lose every door it holds.
-const REFUSAL_STATUSES = new Set([400, 404, 409, 422])
+// The refusals the server will repeat, with the reason in a JSON body. A 403
+// is one: knocks and calls are Pro-gated, so a lapsed Pro is refused every
+// time and would otherwise block every memo behind it. A 401 is not: right
+// after the phone reconnects, the webapp proxy can forward a request before
+// the session token has refreshed, and dropping the queue on that would lose
+// every door it holds.
+const REFUSAL_STATUSES = new Set([400, 403, 404, 409, 422])
 
 type LocalStatus = Extract<
   DictationStatus,
@@ -85,8 +88,13 @@ export const isNetworkError = (err: unknown): boolean =>
 
 const sendMemo = async (
   entry: Extract<QueueEntry, { kind: 'memo' }>,
-): Promise<void> => {
+): Promise<SendOutcome> => {
   const { reference, text, analytics } = entry.payload
+  // The upload policy refuses an empty file every time; one queued before
+  // empty recordings stopped being kept goes rather than blocking the queue.
+  if (text === undefined && entry.blob !== undefined && entry.blob.size === 0) {
+    return 'rejected'
+  }
   // The contract takes one source of words. Text the canvasser typed or
   // dictated is what they meant to keep, and it needs no transcription, so
   // it wins; the recording is dropped with the entry once the text lands.
@@ -110,8 +118,24 @@ const sendMemo = async (
     )
     form.append('file', entry.blob)
     const upload = await fetch(data.uploadUrl, { method: 'POST', body: form })
-    // An expired policy is renewed on the next drain, so this is a retry.
-    if (!upload.ok) throw new Error(`Memo upload failed: ${upload.status}`)
+    if (!upload.ok) {
+      // S3 refuses the same file the same way every time (too large, the
+      // wrong type), so the memo goes, with S3's reason on record. A 403 is
+      // an expired policy and a 5xx is S3's own trouble: both are renewed on
+      // the next drain.
+      if (
+        upload.status >= 400 &&
+        upload.status < 500 &&
+        upload.status !== 403
+      ) {
+        reportErrorToSentry(new Error('Memo upload refused'), {
+          status: upload.status,
+          body: await upload.text(),
+        })
+        return 'rejected'
+      }
+      throw new Error(`Memo upload failed: ${upload.status}`)
+    }
     await clientRequest('POST /v1/constituent-feedback', {
       ...reference,
       audioKey: data.audioKey,
@@ -122,6 +146,7 @@ const sendMemo = async (
     ...analytics,
     queuedForMs: Date.now() - entry.createdAt,
   })
+  return 'sent'
 }
 
 const send = async (entry: QueueEntry): Promise<SendOutcome> => {
@@ -136,7 +161,7 @@ const send = async (entry: QueueEntry): Promise<SendOutcome> => {
         ...entry.payload.request,
       })
     } else {
-      await sendMemo(entry)
+      return await sendMemo(entry)
     }
     return 'sent'
   } catch (err) {
@@ -145,16 +170,21 @@ const send = async (entry: QueueEntry): Promise<SendOutcome> => {
   }
 }
 
+// The pages mounted now that want to re-read what a drain changed. Held
+// here rather than passed to each drain, because a drain a form starts (a
+// call held while the page is open) has to reach the page too.
+const sentListeners = new Set<() => void>()
+
 // A drain that stops early leaves the rest for the next one. One that sent
 // something re-reads the review lists, so "Notes to review" counts what just
-// arrived, and tells the page.
-const drain = (queryClient: QueryClient, onSent?: () => void): void => {
+// arrived, and tells the pages.
+const drain = (queryClient: QueryClient): void => {
   if (!navigator.onLine) return
   drainQueue(send)
     .then((sent) => {
       if (sent === 0) return
       void queryClient.invalidateQueries({ queryKey: PENDING_QUERY_KEY_PREFIX })
-      onSent?.()
+      sentListeners.forEach((listener) => listener())
     })
     .catch(() => undefined)
 }
@@ -165,7 +195,7 @@ const drain = (queryClient: QueryClient, onSent?: () => void): void => {
 // phone caller), so a canvasser who closed the door's form and walked on
 // still sends everything, and by every capture form. `drainQueue` runs one
 // drain at a time, so the two never send an entry twice. `onSent` lets a
-// page re-read what the drain changed.
+// page re-read what a drain changed, whichever drain it was.
 export const useOfflineQueueDrain = ({
   onSent,
 }: { onSent?: () => void } = {}): void => {
@@ -173,7 +203,9 @@ export const useOfflineQueueDrain = ({
   const onSentRef = useRef(onSent)
   onSentRef.current = onSent
   useEffect(() => {
-    const run = () => drain(queryClient, () => onSentRef.current?.())
+    const listener = () => onSentRef.current?.()
+    sentListeners.add(listener)
+    const run = () => drain(queryClient)
     const onVisible = () => {
       if (document.visibilityState === 'visible') run()
     }
@@ -181,6 +213,7 @@ export const useOfflineQueueDrain = ({
     window.addEventListener('online', run)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
+      sentListeners.delete(listener)
       window.removeEventListener('online', run)
       document.removeEventListener('visibilitychange', onVisible)
     }
@@ -282,9 +315,12 @@ export const useOfflineMemo = ({
       for (const track of stream.getTracks()) track.stop()
       recorderRef.current = null
       streamRef.current = null
-      setAudio(
-        new Blob(chunks, { type: recorder.mimeType || FALLBACK_AUDIO_TYPE }),
-      )
+      const recording = new Blob(chunks, {
+        type: recorder.mimeType || FALLBACK_AUDIO_TYPE,
+      })
+      // A stop before any audio arrived (a quick double tap on iOS Safari)
+      // is no memo: S3 would refuse the empty file on every drain.
+      if (recording.size > 0) setAudio(recording)
       setLocalStatus('idle')
     }
     recorderRef.current = recorder
@@ -382,6 +418,10 @@ export const useOfflineMemo = ({
         })
       }
       await enqueue(entries)
+      // Saved again with no memo: the one held from an earlier save would
+      // otherwise go out against a knock or call that may now say nobody
+      // answered.
+      if (memo === null) await removeFromQueue([`memo:${key}`])
       if (memo !== null) {
         trackEvent(EVENTS.IssueCapture.MemoQueuedOffline, memo.analytics)
       }

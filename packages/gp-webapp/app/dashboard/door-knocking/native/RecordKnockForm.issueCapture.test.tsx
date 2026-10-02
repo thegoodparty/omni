@@ -8,6 +8,7 @@ import { installIndexedDbShim } from 'helpers/test-utils/indexedDbShim'
 import {
   enqueue,
   listQueue,
+  removeFromQueue,
 } from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
@@ -53,6 +54,23 @@ const mocks = vi.hoisted(() => ({
     },
   },
 }))
+
+// Passed through, and watched: with the flag off a save must not touch the
+// phone's queue at all.
+vi.mock(
+  'app/dashboard/shared/dictation/offlineMemoQueue',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('app/dashboard/shared/dictation/offlineMemoQueue')
+      >()
+    return {
+      ...actual,
+      enqueue: vi.fn(actual.enqueue),
+      removeFromQueue: vi.fn(actual.removeFromQueue),
+    }
+  },
+)
 
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({
@@ -504,6 +522,20 @@ describe('RecordKnockForm offline edges', () => {
 
     await waitFor(() => expect(knocks).toHaveBeenCalled())
     expect(await listQueue()).toEqual([])
+  })
+
+  // With the flag off the form is exactly what it was: an online save
+  // walks on without waiting on the phone's storage.
+  it('leaves the queue alone on an online save with capture off', async () => {
+    setFlags({ serve: false, win: false })
+    vi.mocked(enqueue).mockClear()
+    vi.mocked(removeFromQueue).mockClear()
+    const onRecorded = renderForm()
+    await walkAndSave()
+
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    expect(removeFromQueue).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
   })
 
   // The browser said online, but the request never got an answer.

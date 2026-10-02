@@ -19,10 +19,13 @@ import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { installIndexedDbShim } from 'helpers/test-utils/indexedDbShim'
 import { testQueryClient } from 'helpers/test-utils/render'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { reportErrorToSentry } from '@shared/sentry'
 import type { UseDictationAppendResult } from './useDictationAppend'
 import type { DictationStatus } from './useDictation'
-import { enqueue, listQueue } from './offlineMemoQueue'
+import { enqueue, listQueue, type QueueEntry } from './offlineMemoQueue'
 import { useOfflineMemo, useOfflineQueueDrain } from './useOfflineMemo'
+
+vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -41,6 +44,8 @@ const renderHook: typeof renderHookBare = (render, options) =>
 // way a short recording does.
 class FakeMediaRecorder {
   static instances: FakeMediaRecorder[] = []
+  // A tap-tap on iOS Safari stops before any audio arrives.
+  static silent = false
   state: 'inactive' | 'recording' = 'inactive'
   mimeType = 'audio/webm;codecs=opus'
   ondataavailable: ((event: { data: Blob }) => void) | null = null
@@ -57,7 +62,9 @@ class FakeMediaRecorder {
   stop() {
     this.state = 'inactive'
     this.ondataavailable?.({
-      data: new Blob(['what they said'], { type: this.mimeType }),
+      data: new Blob(FakeMediaRecorder.silent ? [] : ['what they said'], {
+        type: this.mimeType,
+      }),
     })
     this.onstop?.()
   }
@@ -96,6 +103,7 @@ beforeEach(() => {
     value: { getUserMedia },
   })
   FakeMediaRecorder.instances = []
+  FakeMediaRecorder.silent = false
   vi.stubGlobal('MediaRecorder', FakeMediaRecorder)
   document.cookie = 'organization-slug=campaign-1'
   vi.mocked(trackEvent).mockClear()
@@ -589,5 +597,237 @@ describe('the drain’s sender', () => {
     })
     expect(uploads).toBe(0)
     await waitFor(async () => expect(await listQueue()).toEqual([]))
+  })
+})
+
+// Entries that would fail the same way on every drain leave the queue, so
+// they never hold up the memos behind them.
+describe('entries that can never be sent', () => {
+  const memoWithRecording = (blob: Blob): QueueEntry => ({
+    id: 'memo:21',
+    kind: 'memo',
+    organizationSlug: 'campaign-1',
+    payload: {
+      reference: {
+        channel: 'door_knock',
+        knockClientKey: KNOCK_KEY,
+        stopTargetId: 21,
+        clientKey: KNOCK_KEY,
+      },
+      analytics: { channel: 'doorKnocking', product: 'win' },
+    },
+    blob,
+    createdAt: Date.now(),
+  })
+
+  const drainNow = async () => {
+    renderHook(() => useOfflineQueueDrain())
+    await act(async () => {
+      window.dispatchEvent(new Event('online'))
+    })
+  }
+
+  const mockUploadUrl = () => {
+    let asked = 0
+    api.mock('POST /v1/constituent-feedback/audio-upload-url', () => {
+      asked += 1
+      return {
+        status: 200,
+        data: {
+          audioKey: AUDIO_KEY,
+          uploadUrl: UPLOAD_URL,
+          fields: {},
+          expiresAt: new Date(),
+        },
+      }
+    })
+    return () => asked
+  }
+
+  // S3's policy refuses an empty file every time.
+  it('never holds a recording with nothing in it', async () => {
+    online = false
+    FakeMediaRecorder.silent = true
+    const { result } = renderHook(() =>
+      useOfflineMemo({ dictation: fakeDictation(), enabled: true }),
+    )
+
+    await act(() => result.current.mic.toggle())
+    await act(() => result.current.mic.toggle())
+
+    expect(result.current.audio).toBeNull()
+    expect(result.current.mic.status).toBe('idle')
+  })
+
+  it('drops an empty recording already queued, without uploading it', async () => {
+    const asked = mockUploadUrl()
+    await enqueue([memoWithRecording(new Blob([], { type: 'audio/webm' }))])
+
+    await drainNow()
+
+    await waitFor(async () => expect(await listQueue()).toEqual([]))
+    expect(asked()).toBe(0)
+  })
+
+  // Knocks and calls are Pro-gated: a lapsed Pro is refused every time.
+  it('drops an entry refused with a 403', async () => {
+    await enqueue([
+      {
+        id: 'knock:21',
+        kind: 'knock',
+        organizationSlug: 'campaign-1',
+        payload: {
+          stopTargetId: 21,
+          clientKey: KNOCK_KEY,
+          outcome: 'not_home',
+        },
+        createdAt: Date.now(),
+      },
+    ])
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 403,
+      data: { message: 'Forbidden' },
+    })
+
+    await drainNow()
+
+    await waitFor(async () => expect(await listQueue()).toEqual([]))
+  })
+
+  it('drops a memo whose upload S3 refused, and reports why once', async () => {
+    mockUploadUrl()
+    mswServer.use(
+      http.post(
+        UPLOAD_URL,
+        () =>
+          new HttpResponse('<Error><Code>EntityTooLarge</Code></Error>', {
+            status: 400,
+          }),
+      ),
+    )
+    await enqueue([
+      memoWithRecording(new Blob(['sound'], { type: 'audio/webm' })),
+    ])
+
+    await drainNow()
+
+    await waitFor(async () => expect(await listQueue()).toEqual([]))
+    expect(reportErrorToSentry).toHaveBeenCalledTimes(1)
+    expect(reportErrorToSentry).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        status: 400,
+        body: '<Error><Code>EntityTooLarge</Code></Error>',
+      }),
+    )
+  })
+
+  it('keeps a memo whose upload got a 503', async () => {
+    mockUploadUrl()
+    let attempts = 0
+    mswServer.use(
+      http.post(UPLOAD_URL, () => {
+        attempts += 1
+        return new HttpResponse('Slow down', { status: 503 })
+      }),
+    )
+    await enqueue([
+      memoWithRecording(new Blob(['sound'], { type: 'audio/webm' })),
+    ])
+
+    await drainNow()
+
+    await waitFor(() => expect(attempts).toBe(1))
+    await waitFor(async () =>
+      expect((await listQueue()).map((entry) => entry.id)).toEqual(['memo:21']),
+    )
+  })
+})
+
+describe('holding the same door again', () => {
+  // A door saved with a memo, then saved again with none: the earlier memo
+  // must not be sent against a knock that may now say nobody was home.
+  it('drops the memo it held for a door re-saved without one', async () => {
+    online = false
+    const { result } = renderHook(() =>
+      useOfflineMemo({ dictation: fakeDictation(), enabled: true }),
+    )
+    const knock = {
+      kind: 'knock' as const,
+      payload: {
+        stopTargetId: 21,
+        clientKey: KNOCK_KEY,
+        outcome: 'answered' as const,
+        followUp: 'no' as const,
+      },
+    }
+    await act(() =>
+      result.current.hold({
+        key: '21',
+        interaction: knock,
+        memo: {
+          reference: {
+            channel: 'door_knock',
+            knockClientKey: KNOCK_KEY,
+            stopTargetId: 21,
+            clientKey: KNOCK_KEY,
+          },
+          text: {
+            transcript: 'Wants the drain cleared.',
+            captureMethod: 'typed',
+          },
+          analytics: { channel: 'doorKnocking', product: 'win' },
+        },
+      }),
+    )
+
+    await act(() =>
+      result.current.hold({
+        key: '21',
+        interaction: {
+          kind: 'knock',
+          payload: {
+            stopTargetId: 21,
+            clientKey: KNOCK_KEY,
+            outcome: 'not_home',
+          },
+        },
+        memo: null,
+      }),
+    )
+
+    expect((await listQueue()).map((entry) => entry.id)).toEqual(['knock:21'])
+  })
+})
+
+// A call held while the page is open goes at once from the form, and the
+// caller page still has to hear about it to re-read its list.
+describe('a drain the form starts', () => {
+  it('reaches the page’s onSent', async () => {
+    api.mock('POST /v1/phone-banking/lists/:id/calls', {
+      status: 200,
+      data: { entryId: 4021, results: [], envelopeCompleted: false },
+    })
+    const onSent = vi.fn()
+    renderHook(() => useOfflineQueueDrain({ onSent }))
+    const { result } = renderHook(() =>
+      useOfflineMemo({ dictation: fakeDictation(), enabled: true }),
+    )
+
+    await act(() =>
+      result.current.hold({
+        key: '4021:person-1',
+        interaction: {
+          kind: 'call',
+          payload: {
+            listId: 9,
+            request: { entryId: 4021, outcome: 'voicemail' },
+          },
+        },
+        memo: null,
+      }),
+    )
+
+    await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1))
   })
 })

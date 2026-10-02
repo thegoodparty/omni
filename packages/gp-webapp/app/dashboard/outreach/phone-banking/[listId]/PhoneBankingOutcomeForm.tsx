@@ -348,7 +348,9 @@ export default function PhoneBankingOutcomeForm({
     onSuccess: async (data, input) => {
       // This save supersedes whatever the phone still held for the call, so
       // a later drain cannot send an older one over it.
-      await offline.forget(callKey).catch(() => undefined)
+      // Only where capture is on: with the flag off the form is exactly what
+      // it was, and has queued nothing to supersede.
+      if (captureEnabled) await offline.forget(callKey).catch(() => undefined)
       // The call is logged before the memo is even posted, and the panel is
       // told so immediately — unlike the door, where the walk is HELD at the
       // stop until the triple is answered. A caller picks their next entry

@@ -362,7 +362,9 @@ export default function RecordKnockForm({
       trackDoorLogged(input, data.knockStatus)
       // This save supersedes whatever the phone still held for the door, so
       // a later drain cannot send an older knock over it.
-      await offline.forget(doorKey).catch(() => undefined)
+      // Only where capture is on: with the flag off the form is exactly what
+      // it was, and has queued nothing to supersede.
+      if (captureEnabled) await offline.forget(doorKey).catch(() => undefined)
       // `engaged` and not merely `complete`: the note field is deliberately
       // offered on every branch, including a not-home door, so "dog in the
       // yard, come back Saturday" is a note the knock should keep but never a

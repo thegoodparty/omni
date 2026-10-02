@@ -3,7 +3,11 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { installIndexedDbShim } from 'helpers/test-utils/indexedDbShim'
-import { listQueue } from 'app/dashboard/shared/dictation/offlineMemoQueue'
+import {
+  enqueue,
+  listQueue,
+  removeFromQueue,
+} from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
 import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
@@ -15,6 +19,23 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
+
+// Passed through, and watched: with the flag off a save must not touch the
+// phone's queue at all.
+vi.mock(
+  'app/dashboard/shared/dictation/offlineMemoQueue',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('app/dashboard/shared/dictation/offlineMemoQueue')
+      >()
+    return {
+      ...actual,
+      enqueue: vi.fn(actual.enqueue),
+      removeFromQueue: vi.fn(actual.removeFromQueue),
+    }
+  },
+)
 
 vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
   useServeIssueCaptureFlag: vi.fn(),
@@ -639,5 +660,21 @@ describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
       text: { transcript: MEMO, captureMethod: 'dictation' },
       analytics: { channel: 'phoneBanking', product: 'serve' },
     })
+  })
+})
+
+describe('PhoneBankingOutcomeForm with capture off', () => {
+  // The form is exactly what it was: an online save does not wait on the
+  // phone's storage.
+  it('leaves the queue alone on an online save', async () => {
+    setFlags({ serve: false, win: false })
+    vi.mocked(enqueue).mockClear()
+    vi.mocked(removeFromQueue).mockClear()
+    const { onSaved } = renderForm()
+    callAndSave(false)
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(removeFromQueue).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
   })
 })
