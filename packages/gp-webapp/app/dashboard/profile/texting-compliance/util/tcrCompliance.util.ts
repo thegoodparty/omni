@@ -87,14 +87,14 @@ export const describePinDelivery = (
   const { method, displayString } = pinDelivery
   switch (method) {
     case 'email':
-      return `We sent your PIN by email to ${displayString}.`
+      return `Campaign Verify\u2122 sent your PIN by email to ${displayString}.`
     case 'text':
-      return `We sent your PIN by text to ${displayString}.`
+      return `Campaign Verify\u2122 sent your PIN by text to ${displayString}.`
     case 'phone':
     case 'call':
-      return `We sent your PIN by phone to ${displayString}.`
+      return `Campaign Verify\u2122 sent your PIN by phone to ${displayString}.`
     case 'mail':
-      return `We mailed your PIN to ${displayString}.`
+      return `Campaign Verify\u2122 mailed your PIN to ${displayString}.`
   }
 }
 

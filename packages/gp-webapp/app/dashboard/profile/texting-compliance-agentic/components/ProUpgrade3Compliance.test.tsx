@@ -154,7 +154,9 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
 
     await waitFor(() => expect(getPinInput()).not.toBeNull())
     expect(
-      screen.getByText('We sent your PIN by text to (312) •••-1162.'),
+      screen.getByText(
+        'Campaign Verify\u2122 sent your PIN by text to (312) •••-1162.',
+      ),
     ).toBeInTheDocument()
   })
 

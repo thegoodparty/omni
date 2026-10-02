@@ -217,7 +217,9 @@ describe('PinDialog', () => {
     render(<PinDialog open onOpenChange={vi.fn()} tcrCompliance={null} />)
 
     expect(
-      screen.getByText('We sent your PIN by text to (312) •••-1162.'),
+      screen.getByText(
+        'Campaign Verify\u2122 sent your PIN by text to (312) •••-1162.',
+      ),
     ).toBeInTheDocument()
   })
 
