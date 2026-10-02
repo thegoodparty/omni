@@ -10,6 +10,7 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
+import { BriefingItemLinksService } from './briefingItemLinks.service'
 // Imported after useTestService: analytics.service sits on a circular import
 // chain (analytics -> users -> campaigns -> analytics) and must not be the
 // first app-graph module evaluated, or Nest sees an undefined DI token.
@@ -2408,5 +2409,168 @@ describe('MeetingBriefingsService location hints', () => {
       },
     })
     expect(row).toBeNull()
+  })
+})
+
+describe('publication gate: ready briefings must show an available agenda', () => {
+  const MEETING_DATE = '2026-06-08'
+
+  const agendaSource = (overrides: Record<string, unknown> = {}) => ({
+    id: 'src_001',
+    name: 'Council Agenda',
+    url: 'https://example.gov/agenda.pdf',
+    source_type: 'agenda_packet',
+    retrieved_text_or_snapshot: 'Agenda for the June 8, 2026 regular meeting.',
+    ...overrides,
+  })
+
+  const setupRun = async (artifact: Record<string, unknown>) => {
+    const orgSlug = `eo-gate-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: service.user.id },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'briefing.json',
+        params: { elected_office_id: eo.id, meetingDate: MEETING_DATE },
+      },
+    })
+    mockS3({
+      'briefing.json': JSON.stringify({
+        meeting_date: MEETING_DATE,
+        meeting_time: '19:00',
+        meeting_timezone: 'America/Chicago',
+        meeting_name: 'City Council',
+        location: 'Council Chambers',
+        sources: [agendaSource()],
+        ...artifact,
+      }),
+    })
+    return { eo, briefingRun }
+  }
+
+  const complete = (run: ExperimentRun) =>
+    service.app.get(MeetingBriefingsService).onExperimentRunCompleted(run)
+
+  const rowFor = (electedOfficeId: string) =>
+    service.prisma.meetingBriefing.findUnique({
+      where: {
+        electedOfficeId_meetingDate: {
+          electedOfficeId,
+          meetingDate: new Date(MEETING_DATE),
+        },
+      },
+    })
+
+  const readyWith = (runMetadata: Record<string, unknown>) => ({
+    briefing_status: 'briefing_ready',
+    run_metadata: {
+      agenda_packet_url: 'https://example.gov/agenda.pdf',
+      discovered_agenda_location: 'https://example.gov/agendas',
+      ...runMetadata,
+    },
+  })
+
+  it.each(['partial', 'not_published', 'inferred_from_prior'])(
+    'writes no row when a ready artifact reports agenda_availability=%s',
+    async (availability) => {
+      const { eo, briefingRun } = await setupRun(
+        readyWith({ agenda_availability: availability }),
+      )
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+    },
+  )
+
+  it.each(['full_packet', 'html_agenda'])(
+    'writes the row when a ready artifact reports agenda_availability=%s',
+    async (availability) => {
+      const { eo, briefingRun } = await setupRun(
+        readyWith({ agenda_availability: availability }),
+      )
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).not.toBeNull()
+    },
+  )
+
+  it('writes the row when agenda_availability is absent (artifact predates the field)', async () => {
+    const { eo, briefingRun } = await setupRun(readyWith({}))
+    await complete(briefingRun)
+    expect(await rowFor(eo.id)).not.toBeNull()
+  })
+
+  it('leaves an existing briefing and its item links alone when the replacement is refused', async () => {
+    // First run: a good briefing lands.
+    const { eo, briefingRun } = await setupRun(
+      readyWith({ agenda_availability: 'full_packet' }),
+    )
+    await complete(briefingRun)
+    const before = await rowFor(eo.id)
+    expect(before).not.toBeNull()
+
+    // Second run for the same meeting: refused. Its artifact must not become
+    // the row, and the projections must not be rebuilt from it.
+    const linksSpy = vi.spyOn(
+      service.app.get(BriefingItemLinksService),
+      'syncLinksFromArtifact',
+    )
+    const replacement = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: (
+          await service.prisma.electedOffice.findUniqueOrThrow({
+            where: { id: eo.id },
+          })
+        ).organizationSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'replacement.json',
+        params: { elected_office_id: eo.id, meetingDate: MEETING_DATE },
+      },
+    })
+    mockS3({
+      'replacement.json': JSON.stringify({
+        meeting_date: MEETING_DATE,
+        meeting_time: '19:00',
+        meeting_timezone: 'America/Chicago',
+        meeting_name: 'City Council',
+        location: 'Council Chambers',
+        sources: [agendaSource()],
+        ...readyWith({ agenda_availability: 'inferred_from_prior' }),
+      }),
+    })
+    await complete(replacement)
+
+    const after = await rowFor(eo.id)
+    expect(after?.experimentRunId).toBe(briefingRun.runId)
+    expect(after?.experimentRunId).not.toBe(replacement.runId)
+    expect(linksSpy).not.toHaveBeenCalled()
+  })
+
+  it('still persists the discovered agenda hint when the row is refused', async () => {
+    const { eo, briefingRun } = await setupRun(
+      readyWith({
+        agenda_availability: 'not_published',
+        discovered_agenda_location: 'https://example.gov/agendas',
+      }),
+    )
+    await complete(briefingRun)
+    expect(await rowFor(eo.id)).toBeNull()
+    const hint = await service.prisma.meetingResourceLocation.findUnique({
+      where: {
+        electedOfficeId_type: {
+          electedOfficeId: eo.id,
+          type: MeetingResourceLocationType.AGENDA,
+        },
+      },
+    })
+    expect(hint?.description).toBe('https://example.gov/agendas')
   })
 })

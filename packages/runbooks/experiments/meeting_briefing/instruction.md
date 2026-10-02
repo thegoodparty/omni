@@ -50,9 +50,9 @@ The packet is **not** the published agenda summary page. The summary lists item 
 - PrimeGov portal meeting page is the item list only. Follow each item's "Attachments" link.
 - A meeting's HTML page when none of the links resolve to PDFs (`Content-Type: application/pdf`) means the packet has not been published yet.
 
-**If the packet is not yet published** — e.g. the meeting exists on the calendar but only a summary is available, or the platform shows a "Not available" placeholder for attachments — route to `briefing_status: "awaiting_agenda"` per Step 3. Do not synthesize a briefing from summary + news.
+**If the packet is not yet published** — e.g. the meeting exists on the calendar but only a summary is available, or the platform shows a "Not available" placeholder for attachments — route to `briefing_status: "awaiting_agenda"` per Step 3. Do not synthesize a briefing from summary + news. Record how the agenda was obtained in `run_metadata.agenda_availability` (Step 15); `not_published`, `partial`, and `inferred_from_prior` are never compatible with a ready briefing.
 
-**Verification rule for `run_metadata.agenda_packet_url`:** the URL you record must either (a) return `Content-Type: application/pdf` when fetched, OR (b) point to a discoverable index page where every substantive item resolves to one or more PDF attachments you actually downloaded and chunked into `raw_context[]`. If neither is true, the briefing is not grounded — set `briefing_status: "awaiting_agenda"`.
+**Verification rule for `run_metadata.agenda_packet_url`:** the URL you record must either (a) return `Content-Type: application/pdf` when fetched, OR (b) point to a discoverable index page where every substantive item resolves to one or more PDF attachments you actually downloaded and chunked into `raw_context[]`, OR (c) be the platform page from which you read **this meeting's** agenda item by item because the PDF packet sits behind a sign-in wall or does not exist. Case (c) is `agenda_availability: "html_agenda"` only when every substantive item of **this** meeting is present in what you read; anything missing is `partial`. If none of (a), (b), (c) is true, the briefing is not grounded — set `briefing_status: "awaiting_agenda"`.
 
 **Exception for the upload path.** When the packet was pre-staged at `/workspace/input/agenda.pdf` (`briefing_status: "agenda_provided_by_user"`), `run_metadata.agenda_packet_url` is `null` because there is no permanent URL. That is the correct value and does NOT trigger the verification rule above — the pre-staged file itself is the grounded source, and you have chunked its contents into `raw_context[]`. Do not flip to `awaiting_agenda` just because the URL is null in this case.
 
@@ -984,6 +984,20 @@ Top-level enum that tells downstream consumers what kind of artifact this is. Se
 
 Default expectation: `briefing_ready`. The other values are exit codes for graceful degradation, not failures the run should panic on.
 
+#### `agenda_availability`
+
+Fill it on every run. It states how the target meeting's agenda was obtained.
+
+| Value                 | Meaning                                                                                                                                                      | Allowed `briefing_status`                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| `full_packet`         | The packet PDF(s) for **this** meeting were downloaded and chunked.                                                                                          | `briefing_ready`, `agenda_provided_by_user`    |
+| `html_agenda`         | Every substantive item of this meeting's agenda was read from the platform's page; no PDF was reachable (sign-in wall, or none exists). | `briefing_ready`, `agenda_provided_by_user`    |
+| `partial`             | Some of this meeting's documents were reachable and others were not.                                                                                        | `awaiting_agenda` only                         |
+| `not_published`       | The meeting is listed on the platform but no agenda or packet is posted yet.                                                                                 | `awaiting_agenda` (or `no_meeting_found` when the meeting itself is not listed) |
+| `inferred_from_prior` | Items were taken from other meetings' documents, minutes, or news because this meeting's agenda was not reachable.                                         | `awaiting_agenda` only                         |
+
+A ready briefing never carries `partial`, `not_published`, or `inferred_from_prior`. When in doubt between `html_agenda` and `partial`, ask whether every substantive item of **this** meeting is present in what you read: all present is `html_agenda`, anything missing is `partial`.
+
 When the substantive-items check (Step 3) found zero substantive items, the run terminates early with `briefing_status: "awaiting_agenda"`, a single placeholder item, and `claims: []`. See Step 3 for the placeholder shape.
 
 #### `required_data_points`
@@ -1131,6 +1145,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
   {
     "agenda_packet_url": "the permanent agendaPacketUrl value from PARAMS when set, or null when the packet was pre-staged at /workspace/input/agenda.pdf or when briefing_status is awaiting_agenda or no_meeting_found",
     "discovered_agenda_location": "best current prose describing where future agenda packets will likely be found for this body (see guidance below)",
+    "agenda_availability": "full_packet | html_agenda | partial | not_published | inferred_from_prior (Step 15)",
     "source_bundle_retrieved_at": "ISO 8601 UTC timestamp set when the last source was fetched",
     "briefing_version": "v2",
     "run_decisions": [

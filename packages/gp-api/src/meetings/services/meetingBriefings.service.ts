@@ -121,6 +121,15 @@ const extractDiscoveredAgendaLocation = (artifact: unknown): string | null => {
   )
 }
 
+// agenda_availability values under which a ready artifact may become a row.
+// partial, not_published, and inferred_from_prior mean this meeting's agenda
+// was not read; the instruction maps them to awaiting_agenda and this file
+// refuses them if the agent did not.
+const PUBLISHABLE_AGENDA_AVAILABILITY: ReadonlySet<string> = new Set([
+  'full_packet',
+  'html_agenda',
+])
+
 // Identifies the daily-briefing cron in the cron_run lease table.
 const DAILY_BRIEFINGS_CRON_JOB = 'dispatchDailyBriefings'
 
@@ -628,23 +637,27 @@ export class MeetingBriefingsService extends createPrismaBase(
     // persists regardless of briefing_status (writeBriefingRowFromArtifact
     // early-returns on placeholder statuses), so placeholder runs still
     // capture the hint.
-    await this.writeBriefingRowFromArtifact(
+    const written = await this.writeBriefingRowFromArtifact(
       run,
       loaded.electedOffice,
       loaded.artifact,
     )
-    // Dashboard cards are a best-effort projection of the briefing — a sync
-    // failure must not block the briefing row write, mirroring the location
-    // hint-upsert ordering above.
-    await this.syncDashboardCardsForBriefing(
-      loaded.electedOffice.id,
-      loaded.artifact,
-    )
-    await this.syncBriefingItemLinks(
-      loaded.electedOffice.id,
-      run.organizationSlug,
-      loaded.artifact,
-    )
+    // Dashboard cards and item links are projections of the briefing row.
+    // They sync only when this run's artifact became the row: a refused or
+    // placeholder artifact must not rewrite the links of a briefing that is
+    // still on screen. A sync failure must not block the row write either,
+    // mirroring the location hint-upsert ordering above.
+    if (written) {
+      await this.syncDashboardCardsForBriefing(
+        loaded.electedOffice.id,
+        loaded.artifact,
+      )
+      await this.syncBriefingItemLinks(
+        loaded.electedOffice.id,
+        run.organizationSlug,
+        loaded.artifact,
+      )
+    }
     await this.persistAgendaLocationFromArtifact(
       run,
       loaded.electedOffice.id,
@@ -1167,12 +1180,13 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
   }
 
+  /** Returns true when this run's artifact became the briefing row. */
   private async writeBriefingRowFromArtifact(
     run: ExperimentRun,
     electedOffice: { id: string; userId: number },
     artifact: PrismaJson.MeetingBriefingArtifact,
-  ): Promise<void> {
-    if (!run.artifactBucket || !run.artifactKey) return
+  ): Promise<boolean> {
+    if (!run.artifactBucket || !run.artifactKey) return false
 
     const briefingStatus = artifact.briefing_status
     if (briefingStatus === undefined) {
@@ -1180,14 +1194,14 @@ export class MeetingBriefingsService extends createPrismaBase(
         { runId: run.runId },
         'meeting_briefing artifact missing briefing_status field',
       )
-      return
+      return false
     }
     if (briefingStatus === 'error') {
       this.logger.error(
         { runId: run.runId, briefingStatus },
         'meeting_briefing artifact reports an unrecoverable error; skipping row write',
       )
-      return
+      return false
     }
     if (
       briefingStatus !== 'briefing_ready' &&
@@ -1203,7 +1217,7 @@ export class MeetingBriefingsService extends createPrismaBase(
         briefingStatus,
         artifact,
       )
-      return
+      return false
     }
 
     const dateString =
@@ -1213,7 +1227,23 @@ export class MeetingBriefingsService extends createPrismaBase(
         { runId: run.runId, dateString },
         'meeting_briefing artifact has invalid meeting_date',
       )
-      return
+      return false
+    }
+
+    const refusal = this.assessPublishability(run, briefingStatus, artifact)
+    if (refusal) {
+      this.logger.warn(
+        { runId: run.runId, briefingStatus, refusal },
+        'meeting_briefing refused as ready; slot stays open for a retry',
+      )
+      await this.trackAgendaNotCreated(
+        run,
+        electedOffice,
+        'awaiting_agenda',
+        artifact,
+        refusal,
+      )
+      return false
     }
 
     const resolved = this.resolveMeetingTimeFields(
@@ -1221,7 +1251,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       briefingStatus === 'agenda_provided_by_user',
       run.runId,
     )
-    if (!resolved) return
+    if (!resolved) return false
     const { meetingTime, meetingTimezone } = resolved
 
     const electedOfficeId = electedOffice.id
@@ -1259,6 +1289,39 @@ export class MeetingBriefingsService extends createPrismaBase(
       meetingTime,
       meetingTimezone,
     })
+    return true
+  }
+
+  /**
+   * Decide whether a ready or user-provided artifact may become a briefing
+   * row. Returns null when it may, otherwise a short machine-readable reason.
+   *
+   * The agent's own agenda_availability value is the signal: the instruction
+   * forbids a ready briefing when this meeting's agenda was unavailable, and
+   * this is where that rule is enforced rather than trusted. An artifact
+   * without the field (produced before it existed) is published with a
+   * warning log; that allowance becomes a refusal in the dated follow-up once
+   * every live run records the field.
+   */
+  private assessPublishability(
+    run: ExperimentRun,
+    briefingStatus: 'briefing_ready' | 'agenda_provided_by_user',
+    artifact: PrismaJson.MeetingBriefingArtifact,
+  ): string | null {
+    const availability = readStringField(
+      artifact.run_metadata,
+      'agenda_availability',
+    )
+    if (availability === null) {
+      this.logger.warn(
+        { runId: run.runId, briefingStatus },
+        'meeting_briefing has no agenda_availability; publishing unchecked',
+      )
+      return null
+    }
+    return PUBLISHABLE_AGENDA_AVAILABILITY.has(availability)
+      ? null
+      : `agenda_unavailable:${availability}`
   }
 
   // The lookup's target date comes from the dispatch params (the
@@ -1271,6 +1334,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     electedOffice: { id: string; userId: number },
     briefingStatus: 'awaiting_agenda' | 'no_meeting_found',
     artifact: PrismaJson.MeetingBriefingArtifact,
+    refusalReason?: string,
   ): Promise<void> {
     const targetDate =
       readStringField(run.params, 'meetingDate') ??
@@ -1286,6 +1350,9 @@ export class MeetingBriefingsService extends createPrismaBase(
           electedOfficeId: electedOffice.id,
           experimentRunId: run.runId,
           briefingStatus,
+          // Set when gp-api refused a ready artifact, so dashboards can tell
+          // a refusal from an agent placeholder.
+          ...(refusalReason ? { refusalReason } : {}),
           ...(validDate
             ? {
                 meetingDate: parseIsoDateAsUTC(validDate).getTime(),
