@@ -21,6 +21,7 @@ model Organization {
   outreachTextRecipients      OutreachTextRecipient[]
   contactInteractionRobocalls       ContactInteractionRobocall[]
   contactInteractionPhoneBankings   ContactInteractionPhoneBanking[]
+  constituentFeedback               ConstituentFeedback[]
   phoneBankingLists                 PhoneBankingList[]
   phoneBankingSuppressedPhones      PhoneBankingSuppressedPhone[]
   peerlyPhoneLists                  PeerlyPhoneList[]

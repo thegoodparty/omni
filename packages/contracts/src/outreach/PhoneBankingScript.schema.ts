@@ -2,6 +2,10 @@ import { z } from 'zod'
 import { SocialToneSchema } from './OutreachSocial.schema'
 import { OutreachEventDetailsSchema } from './OutreachEvent.schema'
 import {
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
+} from './OutreachPurpose.schema'
+import {
   PhoneBankingPurposeSchema,
   type PhoneBankingPurpose,
   ServePhoneBankingPurposeSchema,
@@ -80,6 +84,18 @@ export const ServePhoneBankingScriptDraftRequestSchema = z
       .max(PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH)
       .transform((v) => (v.length === 0 ? undefined : v))
       .optional(),
+    // What this effort is trying to learn, for the one purpose that asks a
+    // question. Sent rather than read server-side because the list does not
+    // exist yet at draft time — it is created at the end of the flow. Serve
+    // only, since `community_input` is a Serve purpose; optional, so every
+    // other purpose's request is unchanged. Same whitespace-as-absent
+    // transform as `instructions` above, for the same reason.
+    communityInputQuestion: z
+      .string()
+      .trim()
+      .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
+      .transform((v) => (v.length === 0 ? undefined : v))
+      .optional(),
     event: OutreachEventDetailsSchema.optional(),
   })
   .refine(
@@ -87,6 +103,19 @@ export const ServePhoneBankingScriptDraftRequestSchema = z
     {
       message: 'currentDraft and previousDraft are mutually exclusive',
       path: ['previousDraft'],
+    },
+  )
+  // One-way, for the reason the door's sibling states: the question belongs
+  // to the purpose that asks one, and folding it into any other purpose's
+  // script writes a call about something the effort is not about.
+  .refine(
+    (v) =>
+      v.communityInputQuestion === undefined ||
+      v.purpose === COMMUNITY_INPUT_PURPOSE,
+    {
+      message:
+        'communityInputQuestion is only valid with the community_input purpose',
+      path: ['communityInputQuestion'],
     },
   )
 export type ServePhoneBankingScriptDraftRequest = z.infer<

@@ -30,6 +30,12 @@ model PhoneBankingList {
   script                          String                           @db.Text
   sheetCount                      Int                              @map("sheet_count") @db.SmallInt
   purpose                         PhoneBankingPurpose
+  // The specific thing this effort is asking constituents, set on the wizard
+  // step that follows a `community_input` purpose and required there. Gives
+  // issue capture's extraction the context it needs to read an answer, the
+  // same column door knocking's turf carries for the same reason. Null on
+  // every other purpose, and on every list frozen before this shipped.
+  communityInputQuestion          String?                          @map("community_input_question") @db.Text
   entries                         PhoneBankingListEntry[]
   outreach                        Outreach?
   contactInteractionPhoneBankings ContactInteractionPhoneBanking[]

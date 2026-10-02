@@ -12,6 +12,11 @@ import type {
   GeoJsonPolygon,
   GeoJsonShape,
   ServeDoorKnockingTalkingPointsPurpose,
+  ConfirmConstituentFeedback,
+  ConstituentFeedbackListResponse,
+  ConstituentFeedbackRecord,
+  RecordConstituentFeedback,
+  RecordConstituentFeedbackResponse,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
@@ -551,6 +556,11 @@ export type APIEndpoints = {
     Response: DoorKnockingTalkingPointsDraftResponse
   }
 
+  // `communityInputQuestion` is Serve-only and absent from the Win sibling
+  // above: `community_input` is a Serve purpose, and the question is what the
+  // effort exists to ask, so the card's "ask" is written to put it to the
+  // resident rather than a generic what-matters-to-you question. Sent rather
+  // than read server-side because the turf does not exist at draft time.
   'POST /v1/outreach/serve/door-knocking/draft': {
     Request: {
       purpose: ServeDoorKnockingTalkingPointsPurpose
@@ -558,6 +568,7 @@ export type APIEndpoints = {
       currentDraft?: string
       previousDraft?: string
       instructions?: string
+      communityInputQuestion?: string
       event?: OutreachEventDetails
     }
     Response: DoorKnockingTalkingPointsDraftResponse
@@ -1610,6 +1621,22 @@ export type APIEndpoints = {
   'POST /v1/door-knocking/not-a-voter': {
     Request: SetNotAVoter
     Response: SetNotAVoterResponse
+  }
+  // Serve issue capture. Separate from the interaction write because the
+  // knock has to save first — the memo resolves its knock by the clientKey
+  // that write persisted — and because a dead-zone failure here must never
+  // cost the canvasser the knock they already logged.
+  'POST /v1/constituent-feedback': {
+    Request: RecordConstituentFeedback
+    Response: RecordConstituentFeedbackResponse
+  }
+  'PATCH /v1/constituent-feedback/:id/confirm': {
+    Request: ConfirmConstituentFeedback
+    Response: ConstituentFeedbackRecord
+  }
+  'GET /v1/constituent-feedback': {
+    Request: { personId: string }
+    Response: ConstituentFeedbackListResponse
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole

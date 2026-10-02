@@ -54,6 +54,7 @@ const CONTROLLER_OWNERS: Partial<
   polls: [SERVE],
   contacts: [SERVE],
   'contact-engagement': [SERVE],
+  'constituent-feedback': [SERVE],
   organizations: [SERVE],
   'dashboard/cards': [SERVE],
   'dashboard/onboarding-cards': [SERVE],
