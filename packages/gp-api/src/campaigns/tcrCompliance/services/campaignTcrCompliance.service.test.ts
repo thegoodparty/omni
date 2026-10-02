@@ -3552,6 +3552,37 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     expect(mockPeerly.retrieveCampaignVerifyDetails).toHaveBeenCalledTimes(1)
   })
 
+  // The stored-VERIFIED branch skips verify_pin entirely and mints the token,
+  // so it is the one fallback path that must not be taken on a guess. It is
+  // sound for the same reason the live VERIFIED path is: an already-consumed
+  // PIN cannot be re-verified, because verify_pin rejects it as invalid.
+  it('retrieveCampaignVerifyToken mints a token without re-verifying when the refused read falls back to a stored VERIFIED', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      peerlyCvStatus: 'VERIFIED',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockRejectedValueOnce(
+      new BadGatewayException('Peerly API error: Campaign Verify Retrieve'),
+    )
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+
+    await withEnv('prod', async () => {
+      const token = await service.retrieveCampaignVerifyToken(
+        'any-pin',
+        tcrWithIdentity,
+      )
+
+      expect(token).toBe('cv-token')
+      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
+      expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledWith(
+        'peerly-1',
+        { id: 1, user: null },
+      )
+    })
+  })
+
   // From REQUESTED, IN_REVIEW or nothing at all we do not know whether a PIN
   // exists, and "that PIN was never issued" is the wrong thing to tell a
   // candidate about a vendor we simply could not reach. The 502 says retry.
