@@ -1,6 +1,5 @@
 import { ReqFile } from '@/files/decorators/ReqFiles.decorator'
 import { FileUpload } from '@/files/files.types'
-import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import {
   BadRequestException,
   Body,
@@ -23,7 +22,6 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { FilesInterceptor } from 'src/files/interceptors/files.interceptor'
-import { CampaignTcrComplianceService } from '../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CreateOutreachSchema } from './schemas/createOutreachSchema'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
 import { OutreachService } from './services/outreach.service'
@@ -34,10 +32,8 @@ import { PinoLogger } from 'nestjs-pino'
 @UseInterceptors(OutreachNotificationInterceptor)
 export class OutreachController {
   constructor(
-    private readonly tcrComplianceService: CampaignTcrComplianceService,
     private readonly outreachService: OutreachService,
     private readonly s3: S3Service,
-    private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly contacts: ContactsService,
     private readonly logger: PinoLogger,
   ) {
@@ -132,29 +128,24 @@ export class OutreachController {
     )
   }
 
+  // Reads nothing but our own database, deliberately.
+  //
+  // This list used to decorate each texting row with the vendor's live view of
+  // the job, fetched from Peerly on every page load, and it would not render at
+  // all if that fetch failed: on 2026-10-01 a five-minute Peerly wobble left
+  // three candidates with no outreach page — no texts, no door knocking, no
+  // phone banking, no robocalls — most of them waiting ~13 seconds for a
+  // response that never came.
+  //
+  // Nothing on the page needed the vendor to be up. The hourly completion sweep
+  // already reads each open job from Peerly and ratchets `status` forward, so
+  // the status column is a projection of columns we hold: `status`, the send
+  // instant in `date`, and `projectId` for whether a vendor job exists at all.
+  // The vendor stays on the sweep's path, where a failed read delays a label by
+  // an hour instead of blanking a dashboard.
   @Get()
   @UseCampaign()
   async findAll(@ReqCampaign() campaign: Campaign) {
-    const outreaches = await this.outreachService.findByCampaignId(campaign.id)
-    const tcrCompliance = await this.tcrComplianceService.findFirst({
-      where: {
-        campaignId: campaign.id,
-      },
-    })
-    const peerlyIdentityId = tcrCompliance?.peerlyIdentityId
-    const p2pJobs = peerlyIdentityId
-      ? await this.peerlyP2pJobService.getJobsByIdentityId(peerlyIdentityId)
-      : []
-    return outreaches.map((outreach) => {
-      const p2pJob = p2pJobs.find((p2pJob) => p2pJob.id === outreach.projectId)
-      return {
-        ...outreach,
-        ...(p2pJob
-          ? {
-              p2pJob,
-            }
-          : {}),
-      }
-    })
+    return this.outreachService.findByCampaignId(campaign.id)
   }
 }
