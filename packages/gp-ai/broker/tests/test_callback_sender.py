@@ -348,10 +348,11 @@ class TestCallbackSenderNoQaVerdictOnCallback:
             status="success",
             artifact_key="voter_targeting/run-qa-1/artifact.json",
             artifact_bucket="gp-agent-artifacts-dev",
-            # `costUsd` is now on the envelope only when a cost was actually
-            # observed, so a fully-populated callback has to pass one for this
-            # to still be the FULL key set.
+            # `costUsd` and `durationSeconds` are on the envelope only when
+            # actually observed, so a fully-populated callback has to pass both
+            # for this to still be the FULL key set.
             cost_usd=0.21,
+            duration_seconds=12.5,
         )
 
         body = json.loads(sqs.send_message.call_args[1]["MessageBody"])
@@ -387,3 +388,30 @@ class TestCallbackSenderNoQaVerdictOnCallback:
                 status="success",
                 qa_verdict={"pass": False},
             )
+
+
+class TestAnUnmeasuredDurationIsOmittedNotZero:
+    """Duration had the defect cost had, one line apart in run_status.py: an
+    absent duration became a measured-looking 0 seconds. And it has to be
+    OMITTED rather than sent as null, because gp-api's field is
+    `durationSeconds: z.number().optional()` — which accepts a missing key and
+    rejects a null, and a rejected callback dead-letters the run forever."""
+
+    def _data(self, **kwargs) -> dict:
+        sqs = MagicMock()
+        sender = CallbackSender(sqs_client=sqs, queue_url="https://sqs.example.com/queue.fifo")
+        sender.send_result(
+            run_id="run-1", organization_slug="org-1", experiment_id="voter_targeting", status="failed", **kwargs
+        )
+        return json.loads(sqs.send_message.call_args[1]["MessageBody"])["data"]
+
+    def test_an_unmeasured_duration_leaves_the_key_out(self):
+        assert "durationSeconds" not in self._data()
+        assert "durationSeconds" not in self._data(duration_seconds=None)
+
+    def test_a_measured_duration_is_sent(self):
+        assert self._data(duration_seconds=42.5)["durationSeconds"] == 42.5
+
+    def test_a_measured_zero_survives_as_zero(self):
+        """0 is a real measurement and must not be confused with an absence."""
+        assert self._data(duration_seconds=0.0)["durationSeconds"] == 0.0
