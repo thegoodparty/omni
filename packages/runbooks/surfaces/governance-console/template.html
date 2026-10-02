@@ -1008,6 +1008,11 @@
       note: 'a behavior and its governed metric disagree',
       empty: 'No findings. The registry and the semantic layer agree.',
     },
+    surface: {
+      title: 'Labels that no longer match',
+      note: 'events firing somewhere other than where their label says',
+      empty: 'No relabels waiting. Every event fires where its label says.',
+    },
   }
 
   const daysAgo = (iso) => {
@@ -2126,7 +2131,7 @@
       'judgments: ' + rows.length,
       '',
     ]
-    const queues = ['flags', 'gaps', 'proposals', 'alignment']
+    const queues = ['flags', 'gaps', 'proposals', 'alignment', 'surface']
     queues.forEach((queue) => {
       const inQueue = rows.filter((row) => row.queue === queue)
       if (!inQueue.length) return
