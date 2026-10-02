@@ -101,6 +101,9 @@ Constituent Data - List Boundary Saved,constituent_data_list_boundary_saved,8058
 Constituent Data - List Created,constituent_data_list_created,a0eb41932492f5c96a88f169f5552cfe1591ed17,https://github.com/thegoodparty/omni/pull/852,2026-07-17,tomer@goodparty.org,,,,,2026-07-17,1,,,,2026-07-20T11:56:25
 Constituent Data - List Exported,constituent_data_list_exported,a0eb41932492f5c96a88f169f5552cfe1591ed17,https://github.com/thegoodparty/omni/pull/852,2026-07-17,tomer@goodparty.org,,,,,2026-07-17,2,,,,2026-07-20T11:56:25
 Constituent Data - Note Added,constituent_data_note_added,54343bfe5bc2c22bd5db8f7faaa98208d7c8017f,,2026-07-16,tomer@goodparty.org,,,,,2026-07-16,1,,,,2026-07-20T11:56:25
+Constituent Feedback - Issue Captured,constituent_feedback_issue_captured,,https://github.com/thegoodparty/omni/pull/2145,2026-10-02,,,,,,2026-10-02,,,,,2026-10-02T14:31:58
+Constituent Feedback - Issue Confirmed,constituent_feedback_issue_confirmed,,https://github.com/thegoodparty/omni/pull/2145,2026-10-02,,,,,,2026-10-02,,,,,2026-10-02T14:32:27
+Constituent Feedback - Issue Skipped,constituent_feedback_issue_skipped,,https://github.com/thegoodparty/omni/pull/2145,2026-10-02,,,,,,2026-10-02,,,,,2026-10-02T14:32:41
 Constituent Outreach - Campaign Completed,constituent_outreach_campaign_completed,,,,,,,,,,,,,,2026-09-28T11:07:52
 Constituent Outreach - Campaign Created,constituent_outreach_campaign_created,,,,,,,,,,,,,,2026-09-28T11:07:52
 Constituent Outreach - Door Knocking Do Not Knock Cleared,constituent_outreach_door_knocking_do_not_knock_cleared,,,,,,,,,,,,,,2026-09-28T11:07:52
