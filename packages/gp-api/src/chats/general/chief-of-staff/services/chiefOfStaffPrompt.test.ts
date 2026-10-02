@@ -309,6 +309,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).not.toContain('CONSTITUENT DATA RULES')
   })
 
+  it('keeps the clarify question out of chat text', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [...TOOLS, 'ask_clarify_question'],
+    })
+    expect(prompt).toContain('never write it, or any rewording of it')
+    expect(prompt).toContain('context that never ends in a question')
+    expect(prompt).toContain(
+      'Never end a message with an either/or or a pick-one question in prose',
+    )
+  })
+
+  it('drops the clarify rules when the tool is not registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).not.toContain('any rewording of it')
+  })
+
   it('includes constituent-data rules when the constituent tool is available', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),

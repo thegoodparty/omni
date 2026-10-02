@@ -210,8 +210,10 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   // empty string, so "admitted nothing" and "never resolved" would otherwise
   // read the same.
   JUDGE_BACKGROUND_ADMITTED: BLANK_IS_UNSET,
-  // Why each refused agent was refused, as one JSON object — display only,
-  // so the report can say what the resolver decided. JSON rather than a
+  // Why each refused agent was refused, as one JSON object, so the report
+  // can say what the resolver decided. Display only for a background agent,
+  // which ADMITTED decides; for a chat agent, being named here is the
+  // refusal, since chat agents are walked by default. JSON rather than a
   // delimited list because a reason can carry anything, including a
   // multi-line zod message; JSON.stringify keeps it to the single line
   // $GITHUB_OUTPUT needs.

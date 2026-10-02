@@ -2,14 +2,16 @@ import { appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { AGENTS, type AgentEntry } from './agents'
-import { loadBackgroundCases } from './cases'
+import { loadBackgroundCases, loadCaseList, type CaseList } from './cases'
 import { selectAgents } from './cli'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { agentConfigFor } from './runners/agentConfig'
 import {
   ARM_BUDGET_MS,
   admitBackground,
+  chatTurnsIn,
   pollTimeoutMsFor,
+  refuseChat,
 } from './runners/backgroundDispatch'
 import { parseAgentIds } from './sweepEnv'
 
@@ -151,6 +153,168 @@ export const baseWalksConcurrently = (baseDir: string): boolean => {
   } catch {
     return false
   }
+}
+
+// WHETHER THE BASE ARM REFUSES THE CHAT AGENTS IT IS TOLD TO. Probed for the
+// reason the two above are, and anchored for the same reason.
+export const BASE_BOUNDS_CHAT = /^export const CHAT_TIME_BOUNDED = true$/m
+
+export const baseBoundsChat = (baseDir: string): boolean => {
+  try {
+    return BASE_BOUNDS_CHAT.test(
+      readFileSync(
+        join(
+          baseDir,
+          'packages/gp-api/src/chats/evals/judge/runners/backgroundDispatch.ts',
+        ),
+        'utf8',
+      ),
+    )
+  } catch {
+    return false
+  }
+}
+
+// A chat list's turns, read raw for the reason baseCost is: a case of
+// several `turns` drives each one, and a `question` case — every list before
+// `turns` existed — drives one.
+const CHAT_TURNS_ONLY = z.object({
+  cases: z.array(z.object({ turns: z.array(z.string()).optional() })),
+})
+
+const warnLine = (line: string): void => {
+  process.stderr.write(`${line}\n`)
+}
+
+// How many turns a chat agent's list drives per attempt on the base ref.
+// Undefined when there is none, and the candidate's count stands.
+//
+// A list that is there but will not parse here is warned about rather than
+// refused: the base arm reads it with its own parser, which may accept it
+// and walk every case, so the candidate's count can then be low.
+const baseChatTurns = (
+  baseDir: string,
+  agent: AgentEntry,
+  warn: (line: string) => void = warnLine,
+): number | undefined => {
+  let text: string
+  try {
+    text = readFileSync(
+      join(
+        baseDir,
+        'packages/gp-api/src/chats/evals/judge/cases',
+        agent.cases ?? '',
+      ),
+      'utf8',
+    )
+  } catch {
+    return undefined
+  }
+  try {
+    return CHAT_TURNS_ONLY.parse(JSON.parse(text)).cases.reduce(
+      (sum, one) => sum + (one.turns?.length ?? 1),
+      0,
+    )
+  } catch {
+    warn(
+      `the base ref's case list for ${agent.agentId} could not be read, so ` +
+        "its chat time is planned at this branch's count alone",
+    )
+    return undefined
+  }
+}
+
+// What this branch's own list drives. A seam so the default is tested.
+export const candidateChatTurns = (
+  agent: AgentEntry,
+  load: (agent: AgentEntry) => CaseList = loadCaseList,
+): number => chatTurnsIn(load(agent))
+
+// The base arm's chat attempts per case, which it reads from ITS config.ts.
+// The top-level key is the only one at two spaces of indent; background's
+// sits inside its own object. Undefined when it cannot be found, and the
+// candidate's then stands.
+export const BASE_CHAT_ATTEMPTS = /^ {2}attemptsPerCase: (\d+),(?:\s*\/\/.*)?$/m
+
+export const baseChatAttempts = (baseDir: string): number | undefined => {
+  try {
+    const found = BASE_CHAT_ATTEMPTS.exec(
+      readFileSync(
+        join(baseDir, 'packages/gp-api/src/chats/evals/judge/config.ts'),
+        'utf8',
+      ),
+    )?.[1]
+    return found === undefined ? undefined : Number(found)
+  } catch {
+    return undefined
+  }
+}
+
+// THE CHAT AGENTS NEITHER ARM MAY WALK, decided once for the reason
+// background admission is: each arm reads its own case lists and its own
+// attempts, and two arms refusing different agents pay for turns that pair
+// with nothing. Each agent is costed at the larger turn count and the larger
+// attempts of the two arms, which bounds whichever arm is slower.
+//
+// Against a base that would not obey, nothing is refused, which leaves the
+// sweep exactly as unbounded as that base already was.
+type ChatCosts = {
+  candidate: (agent: AgentEntry) => number
+  base: (
+    baseDir: string,
+    agent: AgentEntry,
+    warn: (line: string) => void,
+  ) => number | undefined
+  baseAttempts: (baseDir: string) => number | undefined
+  boundsChat: (baseDir: string) => boolean
+}
+
+export const CHAT_COSTS: ChatCosts = {
+  candidate: candidateChatTurns,
+  base: baseChatTurns,
+  baseAttempts: baseChatAttempts,
+  boundsChat: baseBoundsChat,
+}
+
+export const resolveChatRefusals = (
+  agentIds: readonly string[],
+  baseDir: string,
+  config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+  registry: readonly AgentEntry[] = AGENTS,
+  costs: ChatCosts = CHAT_COSTS,
+  warn: (line: string) => void = warnLine,
+): { agentId: string; reason: string }[] => {
+  if (!costs.boundsChat(baseDir)) return []
+  const selected = selectAgents(
+    { kind: 'list', ids: [...new Set(agentIds)] },
+    registry,
+  ).selected
+  const baseAttempts = costs.baseAttempts(baseDir)
+  // Warned rather than refused: a base that walks more attempts than this
+  // branch is then planned low.
+  if (baseAttempts === undefined) {
+    warn(
+      "the base ref's chat attempts per case could not be read from its " +
+        "config.ts, so this branch's are used for both arms",
+    )
+  }
+  const attempts = Math.max(config.attemptsPerCase, baseAttempts ?? 0)
+  // Zero when this branch cannot read the list: the arm reports the real
+  // error by name, and this is only a time estimate.
+  const onCandidate = (agent: AgentEntry): number => {
+    try {
+      return costs.candidate(agent)
+    } catch {
+      return 0
+    }
+  }
+  return refuseChat(
+    selected,
+    (agent) =>
+      Math.max(onCandidate(agent), costs.base(baseDir, agent, warn) ?? 0) *
+      attempts,
+    ARM_BUDGET_MS,
+  )
 }
 
 const candidateCost = (agent: AgentEntry, config: JudgeConfig): ArmWalk => {
@@ -324,10 +488,22 @@ if (require.main === module) {
     )
     process.exit(2)
   }
-  const { admitted, refused } = resolveAdmission(
-    parseAgentIds(process.env.JUDGE_AGENTS ?? ''),
-    baseDir,
-  )
+  const agentIds = parseAgentIds(process.env.JUDGE_AGENTS ?? '')
+  const background = resolveAdmission(agentIds, baseDir)
+  const admitted = background.admitted
+  // One map for both shapes, which the arms already carry: a background
+  // agent is refused by its absence from `admitted`, a chat one by its name
+  // here.
+  const refused = [
+    ...background.refused,
+    ...resolveChatRefusals(agentIds, baseDir),
+  ]
+  if (!baseBoundsChat(baseDir)) {
+    process.stderr.write(
+      "the base ref's arm does not refuse chat agents, so none are refused " +
+        'and the chat half of each arm is unbounded\n',
+    )
+  }
   appendFileSync(
     outPath,
     budgetOutputLines(DEFAULT_JUDGE_CONFIG, admitted, refused, ARM_BUDGET_MS),

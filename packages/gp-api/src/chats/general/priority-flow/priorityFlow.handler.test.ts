@@ -796,6 +796,18 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('One question at a time')
   })
 
+  it('never lets the agent write the clarify question as chat text', async () => {
+    const handler = build()
+    const ctx = await handler.loadContext('c1', USER_ID)
+    const prompt = handler.buildSystemPrompt(ctx)
+    expect(prompt).not.toContain('lead-in line')
+    expect(prompt).toContain('never write it, or any rewording of it')
+    expect(prompt).toContain('it never ends in a question')
+    expect(prompt).toContain(
+      'Never end a message with an either/or or a pick-one question in prose',
+    )
+  })
+
   it('raises maxSteps above the default so a research turn can finish', () => {
     expect(build().maxSteps).toBe(30)
   })
