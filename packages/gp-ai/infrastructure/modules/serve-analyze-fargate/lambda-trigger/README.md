@@ -2,6 +2,18 @@
 
 This Lambda function triggers the Step Functions state machine when new CSV files are uploaded to the S3 bucket.
 
+## HTTP request body
+
+An ALB request's JSON body needs `csvS3Path`. Three optional fields name the source; each becomes an ECS environment override only when the body carries it:
+
+| Field        | Override        | Pipeline default when absent   |
+| ------------ | --------------- | ------------------------------ |
+| `sourceType` | `SOURCE_TYPE`   | `poll`                         |
+| `sourceId`   | `SOURCE_ID`     | empty                          |
+| `topN`       | `PUBLISH_TOP_N` | `sqs_events.publish_top_n` (3) |
+
+gp-api sends all three for issue-capture memos. S3 uploads never carry them, so poll runs get the same overrides as before. See `serve/v1_pipeline/README.md`, "Feedback source".
+
 ## Build Process
 
 ### Prerequisites

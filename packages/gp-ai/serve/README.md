@@ -348,6 +348,16 @@ serve/v1_pipeline/output/
 ]
 ```
 
+### Feedback source
+
+`v1_pipeline` also groups issue-capture memos for gp-api. gp-api uploads a CSV with the columns `respondent_id,message_text,sent_at` (every field quoted, `respondent_id` a memo id) under `feedback-input/`, outside the `input/` prefix that starts poll runs, then POSTs:
+
+```json
+{ "sourceType": "constituent_feedback", "sourceId": "<runId>", "csvS3Path": "s3://<bucket>/feedback-input/<runId>.csv", "topN": 10 }
+```
+
+The memo id stands in for the phone number all the way through. Themes need at least 2 distinct respondents, and the run publishes one `feedbackSynthesisComplete` event (`sourceType`, `sourceId`, `totalResponses`, `responsesLocation: null`, and `issues` whose quotes carry `respondent_id` and whose `memberIds` list every respondent) with `MessageGroupId` `feedback-<sourceId>`. Polls are unchanged. Detail in [v1_pipeline/README.md](./v1_pipeline/README.md#feedback-source).
+
 ### Hierarchical Discovery (Research)
 
 **Location**: `hierarchical_discovery/`

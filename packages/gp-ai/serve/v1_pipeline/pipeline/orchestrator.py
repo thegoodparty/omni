@@ -30,6 +30,11 @@ from shared.logger import get_logger
 
 logger = get_logger(__name__)
 
+POLL_SOURCE_TYPE = "poll"
+
+# A theme is something more than one person raised. Polls keep the configured floor.
+FEEDBACK_MIN_UNIQUE_RESPONDENTS = 2
+
 
 class V1PipelineOrchestrator:
     """
@@ -46,6 +51,9 @@ class V1PipelineOrchestrator:
 
         # Load configuration
         self.config = self._load_config()
+
+        self.source_type = os.getenv("SOURCE_TYPE") or POLL_SOURCE_TYPE
+        self.source_id = os.getenv("SOURCE_ID", "")
 
         # Initialize components
         self.input_dir: str | None = None
@@ -173,6 +181,10 @@ class V1PipelineOrchestrator:
 
                 sqs_config = self.config.get("sqs_events", {}).copy()
                 sqs_config["output_dir"] = self.output_dir
+                if os.getenv("PUBLISH_TOP_N"):
+                    sqs_config["publish_top_n"] = int(os.environ["PUBLISH_TOP_N"])
+                if self.source_type != POLL_SOURCE_TYPE:
+                    sqs_config["min_unique_respondents"] = FEEDBACK_MIN_UNIQUE_RESPONDENTS
                 self.sqs_publisher = SQSEventPublisher(sqs_config)
 
             logger.info("All pipeline components initialized successfully")
@@ -278,7 +290,12 @@ class V1PipelineOrchestrator:
                 sqs_result: dict[str, Any] = {}
                 if self.sqs_publisher and self.config.get("sqs_events", {}).get("enabled", False):
                     poll_ids = [f["poll_id"] for f in consolidation_analysis.get("files", [])]
-                    if poll_ids:
+                    if self.source_type != POLL_SOURCE_TYPE:
+                        sqs_result = await self.sqs_publisher.publish_feedback_completion(
+                            source_type=self.source_type, source_id=self.source_id, unified_records=[]
+                        )
+                        sqs_result["success"] = True
+                    elif poll_ids:
                         sqs_result = await self.sqs_publisher.publish_poll_completion(
                             poll_ids=poll_ids, unified_records=[], campaign_name=campaign_name
                         )
@@ -422,10 +439,15 @@ class V1PipelineOrchestrator:
                 logger.info("💾 Stage 4: Event Publishing")
                 sqs_start = time.time()
 
-                poll_ids = [f["poll_id"] for f in consolidation_analysis.get("files", [])]
-                sqs_stats = await self.sqs_publisher.publish_poll_completion(
-                    poll_ids=poll_ids, unified_records=unified_records, campaign_name=campaign_name
-                )
+                if self.source_type != POLL_SOURCE_TYPE:
+                    sqs_stats = await self.sqs_publisher.publish_feedback_completion(
+                        source_type=self.source_type, source_id=self.source_id, unified_records=unified_records
+                    )
+                else:
+                    poll_ids = [f["poll_id"] for f in consolidation_analysis.get("files", [])]
+                    sqs_stats = await self.sqs_publisher.publish_poll_completion(
+                        poll_ids=poll_ids, unified_records=unified_records, campaign_name=campaign_name
+                    )
 
                 sqs_time = time.time() - sqs_start
 
@@ -525,7 +547,9 @@ class V1PipelineOrchestrator:
 
                 logger.info(f"Loading: {csv_file.name} (poll_id: {poll_id})")
                 try:
-                    df = pd.read_csv(csv_file)
+                    # A respondent id is an opaque key the caller matches back
+                    # exactly, so pandas must not read one as a number.
+                    df = pd.read_csv(csv_file, dtype=str if self.source_type != POLL_SOURCE_TYPE else None)
                 except pd.errors.EmptyDataError:
                     logger.warning(f"EmptyDataError reading {csv_file.name} (poll_id: {poll_id}), treating as empty")
                     skipped_files.append({"filename": csv_file.name, "poll_id": poll_id})
@@ -603,6 +627,8 @@ class V1PipelineOrchestrator:
             "campaign_name": ["campaign_name", "Campaign Name"],
             "carrier": ["carrier", "Carrier"],
         }
+        if self.source_type != POLL_SOURCE_TYPE:
+            column_mappings["phone_number"] = ["respondent_id"]
 
         for standard_name, possible_names in column_mappings.items():
             for col in df.columns:
