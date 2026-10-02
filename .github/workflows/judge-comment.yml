@@ -510,6 +510,22 @@ jobs:
     if: >-
       needs.parse.result == 'success'
       && needs.parse.outputs.requested == 'true'
+    # GRANTED HERE BECAUSE judge.yml CANNOT GRANT IT TO ITSELF. A called
+    # workflow is capped by what its caller holds, so the sweep job's
+    # `id-token: write` — what it exchanges for the AWS credentials that
+    # stage a background config and send a dispatch — has to be granted on
+    # this job too. Without it the whole run fails at STARTUP, before any job
+    # exists to report it: no log, no annotation, just `startup_failure` and
+    # 'This run likely failed because of a workflow file issue.' That takes
+    # the chat half down with it, since neither job ever starts.
+    #
+    # Repeated rather than moved to the workflow level on purpose: the parse
+    # job in judge-comment.yml reads an untrusted comment body and has no
+    # business holding a token that can assume an AWS role.
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     uses: ./.github/workflows/judge.yml
     with:
       # On an `issue_comment` the PR is the issue. `format` because the event
