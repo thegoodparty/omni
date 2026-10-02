@@ -939,6 +939,10 @@ describe('judge.yml mints one test organization for both arms', () => {
     expect(text).not.toMatch(/uses: \S*(setup-node-workspace|actions\/cache)/)
     expect(text).toMatch(/^ {10}package-manager-cache: false$/m)
     expect(text.match(/uses: /g)).toHaveLength(2)
+    expect(text.match(/^ {6}- uses: actions\/setup-node@v6$/gm)).toHaveLength(1)
+    expect(text).not.toMatch(/^ {10}cache:/m)
+    // Every `run:` in the job, one-line ones included: two, and no more.
+    expect(text.match(/^ {8}run:/gm)).toHaveLength(2)
     const entry = stepsOf(text).at(-1)?.body ?? ''
     expect(envValue(entry, 'JUDGE_FIXTURE_API_URL')).toBe(
       'https://gp-api-dev.goodparty.org',
