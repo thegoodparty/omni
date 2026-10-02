@@ -163,7 +163,12 @@ completion / CTA / update-history machinery is reused against it.
 | `completed` | per-task completion; `updateHistoryId` links voter-contact logging |
 
 `CampaignStrategy.trackerBootstrapped` (boolean) is the one-shot bootstrap
-claim (see Bootstrap below).
+claim (see Bootstrap below). Both in-place plan resets release it —
+`alignPlanWithStory` when the story lands and `alignPlanWithRace` when the
+office changes — because the tasks are built from the plan, so whatever
+stales the plan stales them. A reset that kept the claim would leave the
+campaign on the old race's or the pre-story tasks until the weekly cron came
+round.
 
 ### The append (generation) model
 

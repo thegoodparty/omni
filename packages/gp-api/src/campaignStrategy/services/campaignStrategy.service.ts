@@ -849,6 +849,13 @@ export class CampaignStrategyService extends createPrismaBase(
           oppositionPersistedAt: null,
           opportunitiesPersistedAt: null,
           generationStartedAt: null,
+          // The tracker's tasks are built from the plan, which is built from
+          // the race, so a race change makes them stale too. Releasing the
+          // one-shot bootstrap claim lets the completion handler dispatch a
+          // fresh task generation once the regenerated sections persist;
+          // without it the campaign carries the old race's tasks until the
+          // weekly cron happens to come round.
+          trackerBootstrapped: false,
         },
       })
       if (count === 0) return false

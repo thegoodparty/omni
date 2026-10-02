@@ -1297,6 +1297,10 @@ describe('CampaignStrategyService', () => {
           oppositionPersistedAt: null,
           opportunitiesPersistedAt: null,
           generationStartedAt: null,
+          // The tracker's tasks derive from the plan, so the race change
+          // staled them too: release the bootstrap claim or the campaign
+          // keeps the old race's tasks until the weekly cron.
+          trackerBootstrapped: false,
         }),
       })
       // Attempt counters survive the reset — they bound lifetime spend.
