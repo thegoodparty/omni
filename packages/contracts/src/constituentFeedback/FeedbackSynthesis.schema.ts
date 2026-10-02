@@ -108,6 +108,26 @@ export const FeedbackThemeSummarySchema = z.object({
 })
 export type FeedbackThemeSummary = z.infer<typeof FeedbackThemeSummarySchema>
 
+// The report lists an effort's memos itself, for the states with no themes
+// to show: under the floor, and while a run is in flight. Capped so a large
+// effort cannot balloon the payload; the newest are the ones worth reading.
+export const FEEDBACK_REPORT_MEMO_LIMIT = 200
+
+export const FeedbackReportMemoSchema = z.object({
+  id: z.string(),
+  personId: z.string(),
+  occurredAt: zCoerceDate(),
+  channel: ConstituentFeedbackChannelSchema,
+  // The canvasser's own summary, never the other person's words.
+  transcript: z.string().nullable(),
+  stance: ConstituentFeedbackStanceSchema.nullable(),
+  desiredOutcome: z.string().nullable(),
+  actorName: z.string().nullable(),
+  // Null means waiting for review: listed, never counted.
+  confirmedAt: zCoerceDate().nullable(),
+})
+export type FeedbackReportMemo = z.infer<typeof FeedbackReportMemoSchema>
+
 export const FeedbackReportResponseSchema = z.object({
   // The effort's question, from its turf or list. Null when it asked none.
   question: z.string().nullable(),
@@ -125,6 +145,8 @@ export const FeedbackReportResponseSchema = z.object({
   // From the latest completed run, so a run in flight or a failed one
   // leaves the previous themes visible.
   themes: z.array(FeedbackThemeSummarySchema),
+  // Confirmed and pending, newest first, at most FEEDBACK_REPORT_MEMO_LIMIT.
+  memos: z.array(FeedbackReportMemoSchema).max(FEEDBACK_REPORT_MEMO_LIMIT),
 })
 export type FeedbackReportResponse = z.infer<
   typeof FeedbackReportResponseSchema

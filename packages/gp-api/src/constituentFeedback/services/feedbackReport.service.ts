@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import type {
-  FeedbackReportResponse,
-  FeedbackThemeDetail,
-  FeedbackThemeSummary,
-  SynthesisRun,
+import {
+  FEEDBACK_REPORT_MEMO_LIMIT,
+  type FeedbackReportMemo,
+  type FeedbackReportResponse,
+  type FeedbackThemeDetail,
+  type FeedbackThemeSummary,
+  type SynthesisRun,
 } from '@goodparty_org/contracts'
 import {
   ConstituentFeedbackStance,
@@ -51,6 +53,28 @@ const THEME_DETAIL_INCLUDE = {
     },
   },
 } as const satisfies Prisma.FeedbackThemeInclude
+
+const MEMO_SELECT = {
+  id: true,
+  personId: true,
+  occurredAt: true,
+  channel: true,
+  transcript: true,
+  stance: true,
+  desiredOutcome: true,
+  confirmedAt: true,
+  actor: { select: { firstName: true, lastName: true } },
+} as const satisfies Prisma.ConstituentFeedbackSelect
+
+const actorName = (actor: {
+  firstName: string | null
+  lastName: string | null
+}): string | null => {
+  const name = [actor.firstName, actor.lastName]
+    .filter((part) => part !== null && part !== '')
+    .join(' ')
+  return name === '' ? null : name
+}
 
 type ThemeRow = Prisma.FeedbackThemeGetPayload<{
   include: typeof THEME_INCLUDE
@@ -190,7 +214,7 @@ export class FeedbackReportService extends createPrismaBase(
   }): Promise<FeedbackReportResponse> {
     const { organizationSlug, outreachId } = input
     const effort = await this.findEffort(organizationSlug, outreachId)
-    const [denominators, latest, completed] = await Promise.all([
+    const [denominators, latest, completed, memos] = await Promise.all([
       this.denominators(organizationSlug, effort),
       this.findFirst({
         where: {
@@ -208,6 +232,12 @@ export class FeedbackReportService extends createPrismaBase(
         },
         orderBy: { completedAt: Prisma.SortOrder.desc },
         select: { id: true },
+      }),
+      this.client.constituentFeedback.findMany({
+        where: { organizationSlug, outreachId },
+        orderBy: { occurredAt: Prisma.SortOrder.desc },
+        take: FEEDBACK_REPORT_MEMO_LIMIT,
+        select: MEMO_SELECT,
       }),
     ])
     const themes =
@@ -227,6 +257,12 @@ export class FeedbackReportService extends createPrismaBase(
       denominators,
       run: latest === null ? null : toRun(latest),
       themes: themes.map((theme) => summarize(theme, REPORT_OUTCOME_LIMIT)),
+      memos: memos.map(
+        ({ actor, ...memo }): FeedbackReportMemo => ({
+          ...memo,
+          actorName: actorName(actor),
+        }),
+      ),
     }
   }
 
@@ -246,21 +282,16 @@ export class FeedbackReportService extends createPrismaBase(
     return {
       ...summarize(theme, Number.POSITIVE_INFINITY),
       details: theme.details,
-      members: theme.members.map(({ feedback }) => {
-        const name = [feedback.actor.firstName, feedback.actor.lastName]
-          .filter((part) => part !== null && part !== '')
-          .join(' ')
-        return {
-          feedbackId: feedback.id,
-          personId: feedback.personId,
-          occurredAt: feedback.occurredAt,
-          channel: feedback.channel,
-          transcript: feedback.transcript,
-          stance: feedback.stance,
-          desiredOutcome: feedback.desiredOutcome,
-          actorName: name === '' ? null : name,
-        }
-      }),
+      members: theme.members.map(({ feedback }) => ({
+        feedbackId: feedback.id,
+        personId: feedback.personId,
+        occurredAt: feedback.occurredAt,
+        channel: feedback.channel,
+        transcript: feedback.transcript,
+        stance: feedback.stance,
+        desiredOutcome: feedback.desiredOutcome,
+        actorName: actorName(feedback.actor),
+      })),
     }
   }
 }

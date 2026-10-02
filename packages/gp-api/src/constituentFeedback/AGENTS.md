@@ -156,6 +156,10 @@ One transaction, claimed first with a conditional update on
   tag rows are written, or a pair both runs applied would be lost.
 - `ConstituentFeedbackTag` rows are written with `skipDuplicates`, which is
   what keeps a human's row on a pair the run also applies.
+- After commit it fires `Issue Capture - Synthesis Completed` through
+  `AnalyticsService`, attributed to the requester or, for a triggered run,
+  the org's owner: `scope`, `outreachId`, `themeCount`, `confirmedCount`,
+  `product`. Never a transcript, label or outcome.
 
 ## The report
 
@@ -166,7 +170,10 @@ denominators: conversations are distinct people who answered (knocks on the
 effort's `outreachId`, calls on its list), plus memos, confirmed, and
 pending from `ConstituentFeedback.outreachId`. `run` is the latest
 non-superseded run; themes come from the latest completed one, so a run in
-flight or a failed one leaves the previous themes up.
+flight or a failed one leaves the previous themes up. `memos` lists the
+effort's memos, confirmed and pending, newest first, capped at
+`FEEDBACK_REPORT_MEMO_LIMIT` (200): the page shows them when there are no
+themes to show, under the floor and while a run is in flight.
 
 ## Tags
 
