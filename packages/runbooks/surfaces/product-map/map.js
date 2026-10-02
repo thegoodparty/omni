@@ -35,7 +35,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Win onboarding',
     route: '/onboarding/office-selection',
-    src: 'packages/gp-webapp/app/onboarding/components/onboardingConfig.ts',
+    src: 'packages/gp-webapp/app/onboarding/components/OnboardingFlow.tsx + onboardingConfig.ts',
     note: 'declared as ONBOARDING_STEPS; two of them are a fork on how the office was chosen',
     head: [
       {
@@ -182,7 +182,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'SMS outreach wizard',
     route: '/dashboard/outreach',
-    src: 'packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx + OutreachFlowShell.tsx',
+    src: 'packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx + v2/OutreachFlowShell.tsx',
     note: 'five steps behind one route, instrumented by a property rather than by name',
     intro: [
       'warn',
@@ -343,7 +343,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Serve onboarding',
     route: '/serve/onboarding',
-    src: 'packages/gp-webapp/app/serve/onboarding/serveOnboardingConfig.ts',
+    src: 'packages/gp-webapp/app/serve/onboarding/ServeOnboardingFlow.tsx + serveOnboardingConfig.ts',
     note: 'two branches on whether the office record is already prefilled; they share the first three steps and the last two',
     head: [
       {
@@ -583,8 +583,8 @@ var ProductMap = (function () {
     note: 'six build steps and a finish screen; resumes at the saved step',
     intro: [
       'warn',
-      'Six steps, no events',
-      'The flow opens from the website hub and ends in a publish, and nothing fires in between. <b>Candidate Website - Published</b> is a backend event on first publish only, so drop-off between the link and the publish button cannot be seen.',
+      'Six steps, no events, no link in',
+      'The flow opens from the website hub and ends in a publish, and nothing fires in between. <b>Candidate Website - Published</b> is a backend event on first publish only, so drop-off between the link and the publish button cannot be seen. Since the website nav item was removed in June, no link in the app reaches the website hub, yet <b>Candidate Website - Continued</b> still fires there, so people arrive another way (a saved link, an email, or typing the URL).',
     ],
     steps: [
       {
@@ -654,7 +654,7 @@ var ProductMap = (function () {
     intro: [
       'warn',
       'One event for every section',
-      'Each section saves through the same handler, which fires <b>Candidate Website - Edited</b> with no property naming the section, and only when the site is already published. Which section people change cannot be told apart.',
+      'Each section saves through the same handler, which fires <b>Candidate Website - Edited</b> with no property naming the section, and only when the site is already published. Which section people change cannot be told apart. Since the website nav item was removed in June, no link in the app reaches the website hub, yet <b>Candidate Website - Continued</b> still fires there, so people arrive another way (a saved link, an email, or typing the URL).',
     ],
     zones: [
       {
@@ -782,6 +782,11 @@ var ProductMap = (function () {
           'Ordinances - Draft Details Viewed',
           'Ordinances - Draft Chat Opened',
           'Ordinances - Draft Chat Message Sent',
+        ],
+        note: [
+          'warn',
+          'A different page',
+          'Review runs on the draft page, <b>/dashboard/ordinances/draft/[slug]</b>, which the ready draft links to. It is not a sixth step on the solve route.',
         ],
       },
     ],
@@ -1046,7 +1051,7 @@ var ProductMap = (function () {
   const FOLLOW_ON = {
     kind: 'flow',
     name: 'Follow-on onboarding',
-    route: '/onboarding/office-selection',
+    route: '/onboarding/office-selection?intent=same-office|new-office',
     src: 'packages/gp-webapp/app/onboarding/components/followOnConfig.ts + FollowOnFlow.tsx',
     note: 'Win onboarding minus the story steps, for a candidate starting a second campaign',
     intro: [
@@ -1107,8 +1112,8 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Pro upgrade flow',
     route: '/dashboard/pro-upgrade',
-    src: 'packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx + proUpgradeStep.ts',
-    note: 'the purchase-only order the outreach gate opens; the route wizard fires the same step events',
+    src: 'packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeWizard.tsx + ProUpgradeFlow.tsx + proUpgradeStep.ts',
+    note: 'drawn in the purchase-only order; with outreach-pro-gating-v2 off, the route wizard adds steps not drawn here',
     intro: [
       'warn',
       'Two shells, one set of events',
@@ -1318,7 +1323,7 @@ var ProductMap = (function () {
           surfaces: [
             building(
               'Create a list',
-              '/dashboard/contacts/crm',
+              '/dashboard/contacts',
               'packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx',
               'has its own per-stage List Wizard events',
             ),
