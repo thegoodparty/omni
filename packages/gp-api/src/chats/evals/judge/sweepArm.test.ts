@@ -307,11 +307,40 @@ describe('captureArm', () => {
     ).toEqual(['_judge/swp_1/records/candidate/chief_of_staff/case-0-1.json'])
   })
 
-  // Named rather than silent: an agent that quietly produced no records reads
-  // downstream as a sweep that found nothing to say.
-  it('skips a background agent with a reason instead of failing', async () => {
+  // CAPTURED, NOT SKIPPED. `captureArm` used to drop every background agent
+  // with a hardcoded reason, which meant 15 of the 19 judgeable agents could
+  // never be swept whatever their case list said. The walk is shape-agnostic —
+  // `walkCases` validates whatever the runner returns against the same record
+  // schema either way — so the shape decides which runner drives a case and
+  // nothing else.
+  it('captures a background agent rather than skipping it', async () => {
     const manifest = await captureArm(
       await deps({ config: oneAttempt }),
+      env({ agentIds: ['chief_of_staff', 'meeting_briefing'] }),
+      [COS, BACKGROUND],
+    )
+    expect(manifest.agents.map((a) => a.agentId).sort()).toEqual([
+      'chief_of_staff',
+      'meeting_briefing',
+    ])
+    expect(manifest.skipped).toEqual([])
+  })
+
+  // The reason the skip existed is still a real failure mode, it just is not
+  // a shape any more: a runner that cannot drive THIS agent fails that agent
+  // by name and leaves the rest of the sweep usable.
+  it('names the agent when its runner refuses', async () => {
+    const refusing = await deps({ config: oneAttempt })
+    const manifest = await captureArm(
+      {
+        ...refusing,
+        runCase: async (request) => {
+          if (request.agent.shape === 'background') {
+            throw new Error('no dispatch destination configured')
+          }
+          return refusing.runCase(request)
+        },
+      },
       env({ agentIds: ['chief_of_staff', 'meeting_briefing'] }),
       [COS, BACKGROUND],
     )
@@ -319,7 +348,7 @@ describe('captureArm', () => {
     expect(manifest.skipped).toEqual([
       {
         agentId: 'meeting_briefing',
-        reason: expect.stringContaining('background runner has not landed'),
+        reason: expect.stringContaining('no dispatch destination configured'),
       },
     ])
   })

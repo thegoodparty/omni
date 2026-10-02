@@ -43,6 +43,31 @@ const RATES: Record<string, ModelRates> = {
     cacheReadPerMillion: null,
     cacheWritePerMillion: null,
   },
+
+  // THE ALIAS, not a second name for the entry above. Every background
+  // experiment's manifest carries `"model": "sonnet"` and that string is what
+  // reaches the record, because a judge run may change what an agent is told
+  // to do and never what model it runs on — so the manifest's value is read
+  // rather than replaced. The Claude SDK resolves it on the Fargate side.
+  //
+  // Listed rather than mapped onto 'claude-sonnet-4-6' because the two are not
+  // the same claim. That entry is one model id someone verified against one
+  // logged turn; this one is "whatever the agent harness resolves `sonnet` to",
+  // which is a moving target by design. Collapsing them would quietly assert
+  // the alias is pinned.
+  //
+  // Same rates the harness itself prices with — gp-ai/pmf_engine/runner/
+  // harness/claude_sdk.py `_PRICE_PER_MTOK`. The cache figures are Anthropic's
+  // published multipliers off the input rate, 0.1x for a read and 1.25x for a
+  // 5-minute write, and they are filled in here rather than left null because
+  // background runs are long agentic loops that really do cache: background.ts
+  // accumulates both counts, so a null would throw on every real run.
+  sonnet: {
+    inputPerMillion: 3,
+    outputPerMillion: 15,
+    cacheReadPerMillion: 0.3,
+    cacheWritePerMillion: 3.75,
+  },
 }
 
 export class UnpriceableRunError extends Error {}

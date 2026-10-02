@@ -515,3 +515,135 @@ describe('judge.yml refuses a ref that cannot reach the model', () => {
     expect(firstSpend).toBeGreaterThan(guard)
   })
 })
+
+// A BACKGROUND DISPATCH NEEDS A DESTINATION, and getting there takes two
+// steps that have to happen in order and before either arm runs. Both of them
+// fail quietly by design — the credential exchange is continue-on-error and
+// the queue lookup warns — so a dropped line here does not go red in CI. It
+// shows up as every background agent refused by name, one step after the
+// workspace build and possibly after the other arm has been billed.
+describe('judge.yml tells both arms where a background run goes', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const arms = steps.filter((step) =>
+    step.body.includes('npx vitest run "$SWEEP_SUITE"'),
+  )
+  const resolver = steps.find((step) =>
+    step.name.startsWith('Resolve where a background dispatch goes'),
+  )
+
+  const DESTINATION = [
+    'JUDGE_METADATA_BUCKET',
+    'JUDGE_ARTIFACT_BUCKET',
+    'JUDGE_DISPATCH_QUEUE_URL',
+  ]
+
+  // A $GITHUB_ENV write, which `setsEnv` cannot see: that matcher looks for a
+  // `NAME:` entry under a step's own `env:` block, and these are exported by
+  // an earlier step instead. Anchored on the redirect as well as the name so
+  // that merely MENTIONING a variable — in the warning text below, which names
+  // two of them — does not satisfy it.
+  const exportsVar = (body: string, name: string): boolean =>
+    new RegExp(`^\\s*echo "${name}=.*>> "\\$GITHUB_ENV"`, 'm').test(body)
+
+  it('finds both arm steps and the resolver', () => {
+    expect(arms).toHaveLength(2)
+    expect(resolver).toBeDefined()
+  })
+
+  it.each(DESTINATION)('exports %s to the job environment', (name) => {
+    expect(exportsVar(resolver?.body ?? '', name)).toBe(true)
+  })
+
+  // ONE resolver for both arms, which is how they are guaranteed the same
+  // destination. The data version is kept in step by the same argument — two
+  // arms that each resolved their own would compare two different worlds —
+  // but here it is structural rather than asserted value-by-value: there is
+  // one step, so there is one value.
+  it('resolves the destination once, not per arm', () => {
+    const resolvers = steps.filter((step) =>
+      DESTINATION.every((name) => exportsVar(step.body, name)),
+    )
+    expect(resolvers).toHaveLength(1)
+    for (const arm of arms) {
+      for (const name of DESTINATION) {
+        expect(setsEnv(arm.body, name)).toBe(false)
+      }
+    }
+  })
+
+  // Derived, not hardcoded. A literal bucket name here would be a second
+  // place the environment is written down, and the one that silently stopped
+  // matching. What is asserted is that both come off the same variable the
+  // step sets once.
+  it('names one environment and derives every destination from it', () => {
+    expect(resolver?.body).toMatch(/^ {10}JUDGE_ENVIRONMENT: dev$/m)
+    for (const name of DESTINATION) {
+      const line = new RegExp(`echo "${name}=([^"]*)"`).exec(
+        resolver?.body ?? '',
+      )?.[1]
+      expect(line, `${name} is not exported`).toBeDefined()
+    }
+    expect(resolver?.body).toContain(
+      'agent-experiment-metadata-$JUDGE_ENVIRONMENT',
+    )
+    expect(resolver?.body).toContain('gp-agent-artifacts-$JUDGE_ENVIRONMENT')
+    expect(resolver?.body).toContain('agent-dispatch-$JUDGE_ENVIRONMENT.fifo')
+  })
+
+  // BOTH ORDERINGS MATTER AND NEITHER IS ENFORCED BY ANYTHING ELSE. The
+  // credential exchange has to precede the queue lookup, which uses it, and
+  // the lookup has to precede both arms, which read what it exported. A step
+  // reordering is the kind of edit that looks harmless in a diff.
+  it('gets credentials, then resolves, then runs the arms', () => {
+    const names = steps.map((step) => step.name)
+    const credentials = names.findIndex((name) =>
+      name.startsWith('Get credentials for staging'),
+    )
+    const resolved = names.findIndex((name) =>
+      name.startsWith('Resolve where a background dispatch goes'),
+    )
+    const firstArm = names.findIndex((name) => name.startsWith('Capture the'))
+    expect(credentials).toBeGreaterThan(-1)
+    expect(resolved).toBeGreaterThan(credentials)
+    expect(firstArm).toBeGreaterThan(resolved)
+  })
+})
+
+// THE ROLE IS THE WHOLE BLAST RADIUS. This job stages an agent config and
+// sends a dispatch that starts a Fargate run, so what it may do is decided
+// entirely by which role it assumes — and the convenient wrong answer, the
+// admin deploy role every other workflow in this repo uses, is one word away.
+describe('judge.yml assumes a role scoped to the judge', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const credentials = stepsOf(yaml).find((step) =>
+    step.name.startsWith('Get credentials for staging'),
+  )
+
+  it('exchanges the OIDC token for credentials at all', () => {
+    expect(credentials?.body).toContain(
+      'uses: aws-actions/configure-aws-credentials@v5',
+    )
+  })
+
+  it('assumes the judge role and not the admin deploy role', () => {
+    expect(credentials?.body).toContain(
+      'role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep',
+    )
+    expect(credentials?.body).not.toContain('AWS_ROLE_ARN')
+    expect(credentials?.body).not.toContain('pulumi-deploy')
+  })
+
+  // A chat-only sweep touches no AWS. Failing the job on a role that is not
+  // deployed yet would mean one missing IAM grant stops every sweep of every
+  // shape, rather than the background ones that actually need it.
+  it('does not fail a chat-only sweep when the role is unavailable', () => {
+    expect(credentials?.body).toContain('continue-on-error: true')
+  })
+
+  // The permission without the exchange is the state this replaced: a token
+  // minted and nothing that accepts it.
+  it('holds the permission that makes the exchange possible', () => {
+    expect(yaml).toContain('id-token: write')
+  })
+})
