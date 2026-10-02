@@ -514,7 +514,49 @@ describe('the budget guards and the sweep-wide admission', () => {
       },
       deps,
     )
-    expect(() => load(cheap)).toThrow(/not admitted by this sweep/)
+    expect(() => load(cheap)).toThrow(/not admitted to this sweep/)
+  })
+
+  // THE RESOLVER'S REASON, not a pointer at the step log. The refusal is what
+  // the report shows, and "see the step" is a reason nobody reading a PR
+  // comment can act on.
+  it('refuses with the reason the resolver gave', () => {
+    const load = caseLoaderFor(
+      {},
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: 3,
+        admitted: new Set(),
+        refusedReasons: new Map([
+          ['opposition_research', 'would take 75 minutes on the slower arm'],
+        ]),
+      },
+      deps,
+    )
+    expect(() => load(cheap)).toThrow(
+      'opposition_research was not admitted to this sweep: would take 75 minutes on the slower arm',
+    )
+  })
+
+  // BEFORE ANYTHING ELSE IS READ. Checked after substitution, an agent that
+  // was never going to run surfaced as an unsubstituted-placeholder error,
+  // and the report named the wrong cause.
+  it('refuses as not admitted before it tries to substitute anything', () => {
+    const withToken: BackgroundCase[] = [
+      { caseId: 'c1', params: { race_id: '{judgeRaceId}' } },
+    ]
+    const load = caseLoaderFor(
+      {},
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: 3,
+        admitted: new Set(),
+      },
+      { ...deps, loadBackground: () => withToken },
+    )
+    expect(() => load(cheap)).toThrow(/not admitted/)
   })
 
   // EMPTY IS NOT ABSENT. Nothing admitted means nothing walks — not "decide
@@ -604,12 +646,21 @@ describe('armDeps', () => {
     return found
   }
 
+  // A NON-DEFAULT budget, on both halves. At the default the loader could be
+  // built from DEFAULT_JUDGE_CONFIG instead of `config` and behave the same,
+  // so the cap of 1 is what proves the loader read the config it was handed.
   it('hands captureArm the same config the loader was built from', () => {
     const config = {
       ...DEFAULT_JUDGE_CONFIG,
-      background: { attemptsPerCase: 1, maxCases: 3 },
+      background: { attemptsPerCase: 1, maxCases: 1 },
     }
-    expect(armDeps(env(), config).config).toBe(config)
+    const deps = armDeps(
+      env({ fixtureValues: SWEEP_VALUES }),
+      config,
+      ARM_BUDGET_MS,
+    )
+    expect(deps.config).toBe(config)
+    expect(deps.loadCases(real('opposition_research')).cases).toHaveLength(1)
   })
 
   // ONE loader for the arm, so the budget is spent across agents. Each of

@@ -43,9 +43,10 @@ export const pollTimeoutMsFor = (timeoutSeconds: number): number =>
 // The whole budget one arm may spend. The sweep job's `timeout-minutes: 180`
 // holds BOTH arms one after the other plus the judging step, so an arm gets
 // well under half of it; judgeWorkflow.test.ts asserts two of these fit in
-// the job. A background agent that would overrun it is refused by name in
-// caseLoaderFor rather than cut off partway — which would write no manifest
-// and leave the judging step failing on a missing arm.
+// the job. A background agent that would overrun it is refused by name —
+// by armBudget.ts on a sweep, by caseLoaderFor's own spend-down on a local
+// run — rather than cut off partway, which would write no manifest and leave
+// the judging step failing on a missing arm.
 //
 // ONE KNOWN GAP, not measured yet: only background wall clock is spent
 // against this. Chat agents run inside the same arm and the same vitest
@@ -168,6 +169,10 @@ export interface BackgroundBudgetInput {
   // bill for runs that pair with nothing. Empty means nothing was admitted,
   // which is not the same as absent.
   admitted?: ReadonlySet<string>
+  // WHY each refused agent was refused, as the resolver decided it. Carried
+  // so the refusal an arm records — and the report shows — says "would take
+  // 75 minutes on the slower arm" rather than "see the step log".
+  refusedReasons?: ReadonlyMap<string, string>
 }
 
 export interface CaseLoaderDeps {
@@ -185,7 +190,8 @@ export const caseLoaderFor = (
     loadConfig = agentConfigFor,
   }: CaseLoaderDeps = {},
 ): ((agent: AgentEntry) => CaseList) => {
-  const { budgetMs, attemptsPerCase, maxCases, admitted } = budget
+  const { budgetMs, attemptsPerCase, maxCases, admitted, refusedReasons } =
+    budget
   if (maxCases !== undefined && maxCases < 1) {
     throw new Error(
       `the background case cap is ${maxCases}, which is not a number of ` +
@@ -204,6 +210,20 @@ export const caseLoaderFor = (
   return (agent) => {
     const list = load(agent)
     if (list.shape !== 'background') return list
+    // ADMISSION FIRST, before anything else is read. A refused agent must be
+    // refused as refused: checked after substitution, an agent that was never
+    // going to run surfaced as an unsubstituted-placeholder error instead,
+    // and the report named the wrong cause.
+    if (admitted !== undefined && !admitted.has(agent.agentId)) {
+      const why = refusedReasons?.get(agent.agentId)
+      throw new Error(
+        `${agent.agentId} was not admitted to this sweep: ` +
+          (why ??
+            'the budget decided once for both arms before either ran left ' +
+              "no room for it — see the 'Resolve the background case and " +
+              "attempt budget' step"),
+      )
+    }
     // CAPPED BEFORE SUBSTITUTION AND BEFORE THE BUDGET CHECK, so the budget
     // is measured against what will actually be walked rather than the file.
     // The FIRST n rather than a sample, so both arms take the same cases.
@@ -215,16 +235,7 @@ export const caseLoaderFor = (
       values,
     )
     const config = loadConfig(agent.agentId)
-    if (admitted !== undefined) {
-      if (!admitted.has(agent.agentId)) {
-        throw new Error(
-          `${agent.agentId} was not admitted by this sweep's background ` +
-            'budget, which was decided once for both arms before either ' +
-            "ran — see the 'Resolve the background case and attempt budget' " +
-            'step for why',
-        )
-      }
-    } else {
+    if (admitted === undefined) {
       // Refused BEFORE deducting, so a refused agent leaves its share for
       // the ones after it.
       refuseIfOverBudget(
@@ -260,12 +271,14 @@ export const armCaseLoader = (
   budgetMs: number,
   config: JudgeConfig,
   admitted?: ReadonlySet<string>,
+  refusedReasons?: ReadonlyMap<string, string>,
 ): ((agent: AgentEntry) => CaseList) =>
   caseLoaderFor(values, {
     budgetMs,
     attemptsPerCase: config.background.attemptsPerCase,
     maxCases: config.background.maxCases,
     ...(admitted !== undefined && { admitted }),
+    ...(refusedReasons !== undefined && { refusedReasons }),
   })
 
 // THE TWO THINGS AN ARM HANDS captureArm FROM ITS RESOLVED ENVIRONMENT, built
@@ -288,6 +301,7 @@ export const armDeps = (
     budgetMs,
     config,
     env.backgroundAdmitted,
+    env.backgroundRefused,
   ),
 })
 
@@ -356,9 +370,8 @@ export const admitBackground = (
 // is still unspent.
 // Exported so the real registry can be measured against a real budget in a
 // unit test, rather than the arithmetic only ever being exercised against
-// injected case counts and injected manifests. See backgroundBudget.test.ts:
-// at today's case lists and attempts, the answer for every published agent is
-// "does not fit", and that belongs in CI rather than in a sweep's logs.
+// injected case counts and injected manifests. See budgetConsequences.test.ts,
+// which pins which published agents fit an arm at today's budget.
 export const armWallClockMs = (
   caseCount: number,
   attemptsPerCase: number,

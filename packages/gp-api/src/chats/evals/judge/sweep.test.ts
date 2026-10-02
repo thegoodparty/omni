@@ -528,8 +528,8 @@ describe('judgeSweep', () => {
         ],
       }),
       // Both arms, because the store holds two cases and the two arms of a
-      // real sweep always walk the same ones — judgeSweep refuses a pair of
-      // manifests that disagree, which is the whole point of that check.
+      // real sweep walk the same ones. The fixture says so rather than
+      // leaving the candidate at the one-case default.
       manifest('candidate', {
         agents: [
           {
@@ -568,8 +568,7 @@ describe('judgeSweep', () => {
         ],
       }),
       // The candidate arm says nothing, which is what an older ref writes.
-      // Both arms: the store holds two cases, and judgeSweep refuses two
-      // manifests that disagree about how many each arm walked.
+      // Both arms: the store holds two cases, so both manifests say two.
       manifest('candidate', {
         agents: [
           {

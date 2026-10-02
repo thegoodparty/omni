@@ -705,6 +705,8 @@ describe('judge.yml hands both arms one background budget', () => {
     attempts: 'JUDGE_BACKGROUND_ATTEMPTS',
     max_cases: 'JUDGE_BACKGROUND_MAX_CASES',
     admitted: 'JUDGE_BACKGROUND_ADMITTED',
+    refused: 'JUDGE_BACKGROUND_REFUSED',
+    arm_budget_ms: 'JUDGE_ARM_BUDGET_MS',
   }
 
   it('covers every output the resolver writes', () => {
@@ -738,6 +740,10 @@ describe('judge.yml hands both arms one background budget', () => {
       'set -euo pipefail\nnpx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"',
     )
     expect(resolver?.body).not.toContain('continue-on-error')
+    // Nor skipped. An `if:` that skipped it leaves every output blank, and a
+    // blank attempts count reads as "nothing resolved" — so both arms would
+    // quietly go back to deciding for themselves.
+    expect(resolver?.body).not.toMatch(/^ {8}if:/m)
     expect(yaml).toContain('BUDGET_ENTRY: src/chats/evals/judge/armBudget.ts')
   })
 
@@ -751,9 +757,14 @@ describe('judge.yml hands both arms one background budget', () => {
     expect(envValue(resolver?.body ?? '', 'BASE_DIR')).toBe(
       '${{ steps.base.outputs.dir }}',
     )
-    expect(envValue(resolver?.body ?? '', 'JUDGE_AGENTS')).toBe(
-      envValue(arms[0]?.body ?? '', 'JUDGE_AGENTS'),
-    )
+    // The resolver AND both arms, each pinned to the one source. Compared to
+    // each other, two wrong values agreed; and the candidate arm's was never
+    // checked at all, so it could select something the resolver never saw.
+    for (const step of [resolver, ...arms]) {
+      expect(envValue(step?.body ?? '', 'JUDGE_AGENTS')).toBe(
+        '${{ needs.plan.outputs.agents }}',
+      )
+    }
   })
 
   // After the base worktree exists, because it reads it; before either arm,

@@ -60,6 +60,13 @@ const AgentIdsSchema = NON_EMPTY.transform((value) => [
   message: 'no agent ids in JUDGE_AGENTS',
 })
 
+// The arm's own reading of JUDGE_AGENTS, exported so armBudget.ts selects
+// with the SAME parser rather than a second one that agrees today. A resolver
+// that kept a duplicate the arm drops counted that agent twice and refused a
+// real one for budget it never used.
+export const parseAgentIds = (raw: string): string[] =>
+  AgentIdsSchema.parse(raw)
+
 // Affirmative, the same way the workflow's `live` switch is: only the exact
 // string 'true' spends. Anything empty, absent or garbled reads as "do not
 // spend", so a mangled value costs a sweep that did not happen rather than one
@@ -185,9 +192,9 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   // THE BACKGROUND BUDGET, RESOLVED ONCE AND HANDED TO BOTH ARMS.
   //
   // It lives in config.ts, and the base arm runs the BASE REF'S config.ts in
-  // a second worktree. So a branch that changes it walks one budget on
-  // candidate and another on base — and judgeSweep refuses the pair, but only
-  // after both arms have been billed. The workflow reads the candidate's
+  // a second worktree. So a branch that changed it would walk one budget on
+  // candidate and another on base, and every case only one arm walked would
+  // be paid for and pair with nothing. The workflow reads the candidate's
   // value once and passes it to both, the way it does the mart's Delta
   // version, so the two arms agree by construction rather than by luck.
   //
@@ -204,6 +211,17 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   // empty string, so "admitted nothing" and "never resolved" would otherwise
   // read the same.
   JUDGE_BACKGROUND_ADMITTED: BLANK_IS_UNSET,
+  // Why each refused agent was refused, as one JSON object — display only,
+  // so the report can say what the resolver decided. JSON rather than a
+  // delimited list because a reason can carry anything, including a
+  // multi-line zod message; JSON.stringify keeps it to the single line
+  // $GITHUB_OUTPUT needs.
+  JUDGE_BACKGROUND_REFUSED: BLANK_IS_UNSET,
+  // The arm's whole wall-clock budget, resolved once like the rest. It is the
+  // last per-checkout value both arms have to agree on: the base arm's vitest
+  // timeout is otherwise its own ref's constant, so a branch that raised it
+  // would admit an agent the base arm is then killed partway through.
+  JUDGE_ARM_BUDGET_MS: BLANK_IS_UNSET,
 })
 
 export class SweepEnvError extends Error {}
@@ -286,6 +304,8 @@ export interface ArmEnv extends SweepEnv {
   // Present exactly when backgroundBudget is. Absent on a local run, where
   // the arm decides admission itself by spending its own budget down.
   backgroundAdmitted?: ReadonlySet<string>
+  backgroundRefused?: ReadonlyMap<string, string>
+  armBudgetMs?: number
 }
 
 export interface BackgroundDestination {
@@ -408,10 +428,18 @@ export const parseArmEnv = (
             .map((id) => id.trim())
             .filter((id) => id !== ''),
         )
+  const backgroundRefused =
+    backgroundBudget === undefined ? undefined : refusedFrom(data)
+  const armBudgetMs =
+    backgroundBudget === undefined || data.JUDGE_ARM_BUDGET_MS === undefined
+      ? undefined
+      : positiveInt('JUDGE_ARM_BUDGET_MS', data.JUDGE_ARM_BUDGET_MS)
   const env: ArmEnv = {
     ...toSweepEnv(data),
     ...(backgroundBudget !== undefined && { backgroundBudget }),
     ...(backgroundAdmitted !== undefined && { backgroundAdmitted }),
+    ...(backgroundRefused !== undefined && { backgroundRefused }),
+    ...(armBudgetMs !== undefined && { armBudgetMs }),
     arm: data.JUDGE_ARM,
     baseRef: data.JUDGE_BASE_REF,
     candidateSha: data.JUDGE_CANDIDATE_SHA,
@@ -460,11 +488,13 @@ const backgroundBudgetFrom = (data: ParsedArm): ShapeBudget | undefined => {
     for (const name of [
       'JUDGE_BACKGROUND_MAX_CASES',
       'JUDGE_BACKGROUND_ADMITTED',
+      'JUDGE_BACKGROUND_REFUSED',
+      'JUDGE_ARM_BUDGET_MS',
     ] as const) {
       if (data[name] !== undefined) {
         throw new SweepEnvError(
           `${name} is set but JUDGE_BACKGROUND_ATTEMPTS is not, so this is ` +
-            'half a budget; the workflow sets all three or none',
+            'half a budget; the workflow sets all of them or none',
         )
       }
     }
@@ -483,6 +513,33 @@ const backgroundBudgetFrom = (data: ParsedArm): ShapeBudget | undefined => {
           data.JUDGE_BACKGROUND_MAX_CASES,
         ),
       }
+}
+
+const RefusedSchema = z.record(z.string(), z.string())
+
+const refusedFrom = (data: ParsedArm): ReadonlyMap<string, string> => {
+  const raw = data.JUDGE_BACKGROUND_REFUSED
+  if (raw === undefined) return new Map()
+  const parseJson = (): ReturnType<typeof RefusedSchema.safeParse> | null => {
+    try {
+      return RefusedSchema.safeParse(JSON.parse(raw))
+    } catch {
+      return null
+    }
+  }
+  const result = parseJson()
+  if (result === null) {
+    throw new SweepEnvError(
+      'JUDGE_BACKGROUND_REFUSED is not JSON; the workflow resolves it from ' +
+        'the candidate, so this means that step printed something unexpected',
+    )
+  }
+  if (!result.success) {
+    throw new SweepEnvError(
+      'JUDGE_BACKGROUND_REFUSED is not an object of agent ids to reasons',
+    )
+  }
+  return new Map(Object.entries(result.data))
 }
 
 // The config this arm actually walks with: its own, with the background

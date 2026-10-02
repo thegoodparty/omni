@@ -62,9 +62,15 @@ const service = useTestService()
 const sweepRequested = process.env.JUDGE_ARM !== undefined
 
 // The arm's whole budget: the vitest timeout and the number the background
-// refusal is measured against. Lives in backgroundDispatch.ts so a test CI
-// actually runs can measure the real registry against it.
-const ARM_TIMEOUT_MS = ARM_BUDGET_MS
+// refusal is measured against. The SWEEP'S value when the workflow resolved
+// one, so both arms run to the same budget — otherwise this arm's own
+// constant, which is a local run. Read here at module scope, not inside the
+// test, because vitest takes the timeout when `it` is registered.
+const resolvedArmBudget = Number(process.env.JUDGE_ARM_BUDGET_MS)
+const ARM_TIMEOUT_MS =
+  Number.isInteger(resolvedArmBudget) && resolvedArmBudget > 0
+    ? resolvedArmBudget
+    : ARM_BUDGET_MS
 
 // What the model says when the sweep is not spending. Deterministic on
 // purpose: it makes the pipeline exercisable end to end for nothing, which is
@@ -119,7 +125,10 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
         {
           store,
           now: () => new Date(),
-          ...armDeps(env, config, ARM_TIMEOUT_MS),
+          // The parsed value, so a malformed one is refused by name in
+          // parseArmEnv rather than falling back here; ARM_TIMEOUT_MS above
+          // only has to be close enough to register the test.
+          ...armDeps(env, config, env.armBudgetMs ?? ARM_BUDGET_MS),
           runCase: async (request) => {
             // THE ONE PLACE THE TWO RUNNERS DIVERGE. `captureArm` walks cases
             // the same way for both shapes and `walkCases` validates whatever

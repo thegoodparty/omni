@@ -1661,11 +1661,6 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "base arm: origin/$BASE_REF at $commit"
 
-      # Mirrors setup-node-workspace, which cannot be pointed at another
-      # directory. Every step the action runs that the base arm needs, run
-      # there instead: its own install, its own contracts and nest-common
-      # dist, its own Prisma client and route types. Sharing any of those with
-      # the candidate is what would make the two arms the same arm.
       # ONE BUDGET, AND ONE LIST OF ADMITTED BACKGROUND AGENTS, FOR BOTH ARMS.
       #
       # Both live behind a per-worktree read. The case and attempt budget is a
@@ -1706,6 +1701,11 @@ jobs:
           set -euo pipefail
           npx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"
 
+      # Mirrors setup-node-workspace, which cannot be pointed at another
+      # directory. Every step the action runs that the base arm needs, run
+      # there instead: its own install, its own contracts and nest-common
+      # dist, its own Prisma client and route types. Sharing any of those with
+      # the candidate is what would make the two arms the same arm.
       - name: Install the base arm's workspace
         working-directory: ${{ steps.base.outputs.dir }}
         run: |
@@ -1768,6 +1768,8 @@ jobs:
           JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
           JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
+          JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
+          JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
           # existing eval suites self-skip on, and the sweep suite is not one
           # of them: it skips on JUDGE_ARM being absent, which is the value
@@ -1811,6 +1813,8 @@ jobs:
           JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
           JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
+          JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
+          JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"

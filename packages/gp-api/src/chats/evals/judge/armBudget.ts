@@ -11,6 +11,7 @@ import {
   admitBackground,
   pollTimeoutMsFor,
 } from './runners/backgroundDispatch'
+import { parseAgentIds } from './sweepEnv'
 
 // THE BACKGROUND BUDGET, AND WHICH AGENTS IT ADMITS, DECIDED ONCE FOR BOTH
 // ARMS.
@@ -28,7 +29,13 @@ import {
 // agent has to fit on whichever arm is slower.
 
 const TIMEOUT_ONLY = z.object({ timeout_seconds: z.number() })
-const CASES_ONLY = z.object({ cases: z.array(z.unknown()) })
+// Only the one field every case-list format has carried, because it is the key
+// the two arms' cases pair on. Anything beyond it is the base ref's format to
+// decide, and reading more of it here is how an older but valid list would get
+// refused for its shape.
+const CASES_ONLY = z.object({
+  cases: z.array(z.object({ caseId: z.string() })),
+})
 
 // The base ref's two facts, read raw. See pollTimeoutMsFor for why raw.
 const baseCost = (
@@ -76,6 +83,33 @@ const baseCost = (
   }
 }
 
+// WHETHER THE BASE ARM WILL OBEY THIS AT ALL.
+//
+// A base ref older than shared admission ignores every value this step
+// writes and walks background agents at its own budget — which, before the
+// background budget existed, refuses every one of them. The candidate would
+// still walk what this step admits, and once a fixture is minted that is a
+// paid Fargate run on one arm pairing with nothing on the other, for every
+// admitted agent, on every PR opened against such a base.
+//
+// So the base tree is asked first: if its arm does not read the admitted
+// list, nothing is admitted and every agent is refused by name. A source probe
+// rather than a version number because the arm's env schema is the contract;
+// if a refactor moves it, this refuses everything, which costs a sweep and
+// bills nothing.
+export const BASE_HONOURS_ADMISSION = 'JUDGE_BACKGROUND_ADMITTED'
+
+const baseHonoursAdmission = (baseDir: string): boolean => {
+  try {
+    return readFileSync(
+      join(baseDir, 'packages/gp-api/src/chats/evals/judge/sweepEnv.ts'),
+      'utf8',
+    ).includes(BASE_HONOURS_ADMISSION)
+  } catch {
+    return false
+  }
+}
+
 const candidateCost = (agent: AgentEntry, config: JudgeConfig): number => {
   const { timeout_seconds } = TIMEOUT_ONLY.parse(
     JSON.parse(agentConfigFor(agent.agentId).manifest),
@@ -101,10 +135,37 @@ export const resolveAdmission = (
       agent: AgentEntry,
       config: JudgeConfig,
     ) => number | undefined
-  } = { candidate: candidateCost, base: baseCost },
-) =>
-  admitBackground(
-    selectAgents({ kind: 'list', ids: [...agentIds] }, registry).selected,
+    honoursAdmission: (baseDir: string) => boolean
+  } = {
+    candidate: candidateCost,
+    base: baseCost,
+    honoursAdmission: baseHonoursAdmission,
+  },
+): ReturnType<typeof admitBackground> => {
+  // Deduplicated here as well as by the parser, keeping the first occurrence
+  // as the arm's Set does, so a caller handing over a raw list still selects
+  // exactly what the arm will walk.
+  const selected = selectAgents(
+    { kind: 'list', ids: [...new Set(agentIds)] },
+    registry,
+  ).selected
+  if (!costs.honoursAdmission(baseDir)) {
+    return {
+      admitted: [],
+      refused: selected
+        .filter((agent) => agent.shape === 'background')
+        .map((agent) => ({
+          agentId: agent.agentId,
+          reason:
+            'the base ref predates shared background admission, so its arm ' +
+            'would walk this agent at its own budget and refuse it, and ' +
+            'nothing the candidate ran would pair; this clears once shared ' +
+            'admission is on the base ref',
+        })),
+    }
+  }
+  return admitBackground(
+    selected,
     (agent) => {
       // PER AGENT, the way captureArm isolates them. One agent with no case
       // list, or a manifest this branch cannot parse, must be refused by name
@@ -135,6 +196,7 @@ export const resolveAdmission = (
     },
     ARM_BUDGET_MS,
   )
+}
 
 // Lines for $GITHUB_OUTPUT. An absent cap prints `max_cases=` — blank, which
 // sweepEnv reads as "no cap" because attempts is present. An empty admitted
@@ -143,10 +205,16 @@ export const resolveAdmission = (
 export const budgetOutputLines = (
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
   admitted: readonly string[] = [],
+  refused: readonly { agentId: string; reason: string }[] = [],
+  armBudgetMs: number = ARM_BUDGET_MS,
 ): string =>
   `attempts=${config.background.attemptsPerCase}\n` +
   `max_cases=${config.background.maxCases ?? ''}\n` +
-  `admitted=${admitted.join(',')}\n`
+  `admitted=${admitted.join(',')}\n` +
+  // One line however much a reason says: JSON.stringify escapes any newline
+  // inside one, and $GITHUB_OUTPUT reads a value to the end of its line.
+  `refused=${JSON.stringify(Object.fromEntries(refused.map((one) => [one.agentId, one.reason])))}\n` +
+  `arm_budget_ms=${armBudgetMs}\n`
 
 // gp-api is CommonJS, so `require.main` is the house pattern — see
 // dataVersion.ts and sweep.ts.
@@ -159,10 +227,6 @@ export const budgetOutputLines = (
 if (require.main === module) {
   const outPath = process.argv[2]
   const baseDir = process.env.BASE_DIR
-  const agentIds = (process.env.JUDGE_AGENTS ?? '')
-    .split(',')
-    .map((id) => id.trim())
-    .filter((id) => id !== '')
   if (outPath === undefined || outPath === '' || !baseDir) {
     process.stderr.write(
       'usage: BASE_DIR=<base worktree> JUDGE_AGENTS=<ids> armBudget.ts ' +
@@ -170,8 +234,14 @@ if (require.main === module) {
     )
     process.exit(2)
   }
-  const { admitted, refused } = resolveAdmission(agentIds, baseDir)
-  appendFileSync(outPath, budgetOutputLines(DEFAULT_JUDGE_CONFIG, admitted))
+  const { admitted, refused } = resolveAdmission(
+    parseAgentIds(process.env.JUDGE_AGENTS ?? ''),
+    baseDir,
+  )
+  appendFileSync(
+    outPath,
+    budgetOutputLines(DEFAULT_JUDGE_CONFIG, admitted, refused, ARM_BUDGET_MS),
+  )
   const budget = DEFAULT_JUDGE_CONFIG.background
   process.stderr.write(
     `both arms will walk background agents at ${budget.attemptsPerCase} ` +
