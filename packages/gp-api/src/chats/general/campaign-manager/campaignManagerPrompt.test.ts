@@ -238,8 +238,12 @@ describe('buildCampaignManagerSystemPrompt', () => {
     // Offers the existing "Help me rewrite" elaboration + triggers generation.
     expect(prompt).toContain('Help me rewrite')
     expect(prompt).toContain('campaign_story generate')
-    // Candidate-in-control: only generate on confirmation.
-    expect(prompt.toLowerCase()).toContain('when they confirm')
+    // Finishing the story IS the request, so generation fires without a
+    // confirmation turn: candidates read "would you like me to?" as another
+    // step to clear rather than as being handed control.
+    expect(prompt).toContain('call campaign_story generate straight away')
+    expect(prompt.toLowerCase()).toContain('do not ask whether to generate')
+    expect(prompt.toLowerCase()).not.toContain('when they confirm')
   })
 
   it('saves each story answer as it is given, so dropping off mid-intake keeps what was answered', () => {
