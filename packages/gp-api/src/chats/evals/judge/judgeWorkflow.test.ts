@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
@@ -675,5 +676,76 @@ describe('judge.yml assumes a role scoped to the judge', () => {
   // minted and nothing that accepts it.
   it('holds the permission that makes the exchange possible', () => {
     expect(yaml).toContain('id-token: write')
+  })
+})
+
+// ONE BACKGROUND BUDGET FOR BOTH ARMS. The base arm runs the base ref's
+// config.ts, so a budget read by each arm from its own checkout differs
+// whenever a branch changes it — refused at judging, after both arms are
+// billed. The workflow resolves it once from the candidate instead.
+describe('judge.yml hands both arms one background budget', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const names = steps.map((step) => step.name)
+  const resolver = steps.find((step) =>
+    step.name.startsWith('Resolve the background case and attempt budget'),
+  )
+  const arms = steps.filter((step) => step.name.startsWith('Capture the '))
+  const BUDGET = ['JUDGE_BACKGROUND_ATTEMPTS', 'JUDGE_BACKGROUND_MAX_CASES']
+
+  it('resolves it from the candidate into the step outputs', () => {
+    expect(resolver?.body).toContain('id: budget')
+    expect(resolver?.body).toContain('npx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"')
+    expect(yaml).toContain('BUDGET_ENTRY: src/chats/evals/judge/armBudget.ts')
+  })
+
+  // Before the base worktree EXISTS, not merely before the base capture: the
+  // resolver must read the primary checkout, and nothing after this point
+  // should be able to change which one that is.
+  it('runs before the base arm is checked out', () => {
+    const resolved = names.findIndex((name) =>
+      name.startsWith('Resolve the background case and attempt budget'),
+    )
+    const baseCheckout = names.findIndex((name) =>
+      name.startsWith('Check out the base arm'),
+    )
+    expect(resolved).toBeGreaterThan(-1)
+    expect(baseCheckout).toBeGreaterThan(resolved)
+  })
+
+  // Unlike the mart resolver, which may come back empty. A budget that cannot
+  // be read means the candidate's judge code is broken; continuing would let
+  // each arm fall back to its own config — the mismatch this step ends.
+  it('fails the job rather than continuing without a budget', () => {
+    expect(resolver?.body).not.toContain('continue-on-error')
+    expect(resolver?.body).toContain('set -euo pipefail')
+  })
+
+  // The SAME step output on both arms. Two literals would agree today and
+  // drift the first time config.ts changed, which is the whole bug.
+  it.each(BUDGET)('gives both arms %s from the one step output', (name) => {
+    expect(arms).toHaveLength(2)
+    const values = arms.map((arm) => envValue(arm.body, name))
+    expect(values[0]).toMatch(/^\$\{\{ steps\.budget\.outputs\.[a-z_]+ \}\}$/)
+    expect(values[1]).toBe(values[0])
+  })
+})
+
+// THE ARM BUDGET HAS TO FIT TWICE IN THE JOB. Both arms run one after the
+// other inside the one sweep job, then the judging step. If two arm budgets
+// exceed the job's timeout, an arm that is inside its own budget is still
+// killed by GitHub — with no manifest written, so judging fails on a missing
+// arm. The budget is a constant in TypeScript and the timeout is a number in
+// YAML, and nothing else connects them.
+describe('the arm budget fits the sweep job', () => {
+  it('leaves room for both arms and the judging step', () => {
+    const yaml = readFileSync(WORKFLOW, 'utf8')
+    const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:'))
+    const jobMinutes = Number(
+      /timeout-minutes: (\d+)/.exec(sweepJob)?.[1] ?? '0',
+    )
+    expect(jobMinutes).toBeGreaterThan(0)
+    // Twenty minutes for the workspace build and the judging step.
+    expect(2 * (ARM_BUDGET_MS / 60_000) + 20).toBeLessThanOrEqual(jobMinutes)
   })
 })

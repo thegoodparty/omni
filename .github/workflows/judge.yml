@@ -106,6 +106,7 @@ env:
   # reason the judging entry is: it needs no `useTestService()`, so a workflow
   # step can invoke it as a command and capture its stdout.
   DATA_VERSION_ENTRY: src/chats/evals/judge/dataVersion.ts
+  BUDGET_ENTRY: src/chats/evals/judge/armBudget.ts
 
 jobs:
   # GUARD 2 of 3, second layer. Both callers declare a workflow-level group on
@@ -1595,6 +1596,33 @@ jobs:
       # resolution walks upward: the base arm would silently resolve the
       # CANDIDATE's built `contracts` and `nest-common`, which is the one
       # thing the two arms must not share.
+      # ONE BUDGET FOR BOTH ARMS, read from the candidate before either runs.
+      #
+      # The background case and attempt budget lives in config.ts, and the
+      # base arm runs the BASE REF'S config.ts from its own worktree. Without
+      # this, a branch that changes the budget walks one budget on candidate
+      # and another on base; judgeSweep refuses the pair, but only after both
+      # arms are billed. Same arrangement as the mart's Delta version above.
+      #
+      # The candidate's value, because the sweep is a question about the
+      # candidate. Runs here, in the primary checkout (candidate_sha), before
+      # the base worktree even exists.
+      #
+      # Fails the job rather than warning, unlike the mart. That resolver can
+      # fail on the network and the sweep is still worth running unpinned;
+      # this reads a constant from a file in this checkout, so a failure means
+      # the candidate's judge code is broken and the arms would fail anyway.
+      # Nothing has been spent yet.
+      #
+      # A base ref that predates this input ignores it, which is the one gap
+      # left — and the reason the judging step cross-checks the manifests too.
+      - name: Resolve the background case and attempt budget
+        id: budget
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          set -euo pipefail
+          npx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"
+
       - name: Check out the base arm into its own worktree
         id: base
         env:
@@ -1724,6 +1752,8 @@ jobs:
           # the sweep then runs against the live mart and the report says so,
           # rather than a whole paid sweep dying over an unpinnable table.
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
+          JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
           # existing eval suites self-skip on, and the sweep suite is not one
           # of them: it skips on JUDGE_ARM being absent, which is the value
@@ -1764,6 +1794,8 @@ jobs:
           # expression: two arms on different versions is worse than two arms
           # on none, because each would report a pin nothing held.
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
+          JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"

@@ -32,6 +32,14 @@ import type { AgentConfig, BackgroundRunInput } from './background'
 // the agent's own timer.
 export const POLL_HEADROOM_MS = 5 * 60 * 1000
 
+// The whole budget one arm may spend. The sweep job's `timeout-minutes: 180`
+// holds BOTH arms one after the other plus the judging step, so an arm gets
+// well under half of it; judgeWorkflow.test.ts asserts two of these fit in
+// the job. A background agent that would overrun it is refused by name in
+// caseLoaderFor rather than cut off partway — which would write no manifest
+// and leave the judging step failing on a missing arm.
+export const ARM_BUDGET_MS = 70 * 60 * 1000
+
 // Deliberately NOT a fallback for a manifest with no timeout. `timeout_seconds`
 // is in agentConfigFor's REQUIRED_FIELDS, so an agent that reaches here has
 // one; a default would only serve to make a future loosening of that silent.

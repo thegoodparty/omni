@@ -16,12 +16,13 @@ import {
 import type { BackgroundRunnerDeps } from './runners/background'
 import { runBackgroundCase } from './runners/background'
 import {
+  ARM_BUDGET_MS,
   armCaseLoader,
   backgroundRunInputFor,
 } from './runners/backgroundDispatch'
 import { findAgent } from './agents'
-import { DEFAULT_JUDGE_CONFIG } from './config'
 import {
+  armConfigFor,
   backgroundDestinationFrom,
   parseArmEnv,
   storeFromEnv,
@@ -60,12 +61,10 @@ const service = useTestService()
 // whole config parsing cleanly.
 const sweepRequested = process.env.JUDGE_ARM !== undefined
 
-// The whole budget this arm may spend, and the number the refusal below is
-// measured against. It is the sweep job's `timeout-minutes: 180` less what the
-// workspace build, the other arm's share and the judging step need — so a
-// background sweep that would overrun it is refused by name rather than cut
-// off partway, and a chat sweep that finishes in minutes is unaffected.
-const ARM_TIMEOUT_MS = 70 * 60 * 1000
+// The arm's whole budget: the vitest timeout and the number the background
+// refusal is measured against. Lives in backgroundDispatch.ts so a test CI
+// actually runs can measure the real registry against it.
+const ARM_TIMEOUT_MS = ARM_BUDGET_MS
 
 // What the model says when the sweep is not spending. Deterministic on
 // purpose: it makes the pipeline exercisable end to end for nothing, which is
@@ -91,6 +90,10 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
     'captures this arm of every selected agent and writes its manifest',
     async () => {
       const env = parseArmEnv()
+      // The budget this arm walks with — the sweep's, when the workflow
+      // resolved one, so both arms agree. Handed to captureArm (attempts)
+      // AND the case loader (the cap) from this one value.
+      const config = armConfigFor(env)
       const store = storeFromEnv(env)
       const ci = ciContextFromEnv()
 
@@ -116,11 +119,8 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
         {
           store,
           now: () => new Date(),
-          loadCases: armCaseLoader(
-            env.fixtureValues,
-            ARM_TIMEOUT_MS,
-            DEFAULT_JUDGE_CONFIG,
-          ),
+          config,
+          loadCases: armCaseLoader(env.fixtureValues, ARM_TIMEOUT_MS, config),
           runCase: async (request) => {
             // THE ONE PLACE THE TWO RUNNERS DIVERGE. `captureArm` walks cases
             // the same way for both shapes and `walkCases` validates whatever

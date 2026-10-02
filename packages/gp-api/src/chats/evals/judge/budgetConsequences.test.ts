@@ -1,82 +1,174 @@
 import { describe, expect, it } from 'vitest'
-import { AGENTS, findAgent } from './agents'
-import { loadCaseList } from './cases'
+import { AGENTS, findAgent, type AgentEntry } from './agents'
+import { loadBackgroundCases } from './cases'
 import { DEFAULT_JUDGE_CONFIG } from './config'
-import { agentConfigFor } from './runners/agentConfig'
-import { armWallClockMs } from './runners/backgroundDispatch'
+import { SWEEP_VALUES } from './fixtures/sweep'
+import { ARM_BUDGET_MS, armCaseLoader } from './runners/backgroundDispatch'
 import { attemptsFor } from './sweepArm'
 
-// WHAT THE BACKGROUND BUDGET BUYS AND WHAT IT COSTS, both as numbers.
+// WHAT THE BACKGROUND BUDGET BUYS AND WHAT IT COSTS, measured against the real
+// registry and the real published manifests THROUGH THE REAL LOADER.
 //
-// The budget was chosen deliberately: 1 attempt over 3 cases, because the
-// chat budget (3 attempts over 8 cases) is twenty-six hours of wall clock and
-// roughly $300 to judge one background agent. This file pins both halves of
-// that trade so neither can drift unnoticed — the half that makes background
-// runnable, and the half that makes its verdicts weak.
+// Through the loader rather than by recomputing cases x attempts x poll here.
+// The file this replaces did its own arithmetic, so when the budget changed it
+// kept measuring a combination nothing used — the full list at the chat
+// attempt count — and stayed green while claiming all fifteen agents were
+// refused when four were not.
+//
+// When the budget, a case list or an agent's timeout changes, these lists go
+// red naming exactly the agents that moved. That is the review such a change
+// deserves; re-pin them deliberately.
 
-const ARM_BUDGET_MS = 70 * 60 * 1000
 const { background } = DEFAULT_JUDGE_CONFIG
 
 const sweepable = AGENTS.filter(
   (agent) => agent.shape === 'background' && agent.status !== 'blocked',
-).map((agent) => agent.agentId)
+)
 
-const casesFor = (agentId: string): number => {
-  const agent = findAgent(agentId)
-  if (agent === undefined) throw new Error(`${agentId} is not in the registry`)
-  const all = loadCaseList(agent).cases.length
-  return background.maxCases === undefined
-    ? all
-    : Math.min(all, background.maxCases)
+const agent = (agentId: string): AgentEntry => {
+  const found = findAgent(agentId)
+  if (found === undefined) throw new Error(`${agentId} is not in the registry`)
+  return found
 }
 
-describe('the background budget makes a sweep possible', () => {
-  it('is the budget that was chosen, not the chat one', () => {
+// The production refusal, asked one agent at a time with a fresh budget.
+const fitsAlone = (entry: AgentEntry): boolean => {
+  try {
+    armCaseLoader(SWEEP_VALUES, ARM_BUDGET_MS, DEFAULT_JUDGE_CONFIG)(entry)
+    return true
+  } catch (err) {
+    if (err instanceof Error && /would take/.test(err.message)) return false
+    throw err
+  }
+}
+
+const walked = (entry: AgentEntry): string[] =>
+  armCaseLoader(
+    SWEEP_VALUES,
+    Number.MAX_SAFE_INTEGER,
+    DEFAULT_JUDGE_CONFIG,
+  )(entry).cases.map((one) => one.caseId)
+
+describe('the background budget', () => {
+  // A literal on purpose: this is the one place the chosen numbers are
+  // written down as a decision rather than read back from the config.
+  it('is 1 attempt over the first 3 cases', () => {
     expect(background).toEqual({ attemptsPerCase: 1, maxCases: 3 })
-    expect(DEFAULT_JUDGE_CONFIG.attemptsPerCase).toBe(3)
   })
 
-  it.each(sweepable)('%s takes its own attempt count', (agentId) => {
-    const agent = findAgent(agentId)
-    expect(agent).toBeDefined()
-    if (agent === undefined) return
-    expect(attemptsFor(agent, DEFAULT_JUDGE_CONFIG)).toBe(1)
+  // Both halves. Every background agent returning 1 says nothing about chat,
+  // and returning the background number for every shape passed the file
+  // this replaces.
+  it('gives background 1 attempt and leaves chat at 3', () => {
+    expect(attemptsFor(agent('meeting_briefing'), DEFAULT_JUDGE_CONFIG)).toBe(1)
+    expect(attemptsFor(agent('chief_of_staff'), DEFAULT_JUDGE_CONFIG)).toBe(3)
   })
 
-  // ONE case of the slowest agent is 65 minutes, so three of them run
-  // sequentially do not fit and ten of the fifteen agents still overrun.
-  // Named here rather than discovered: the cap alone is not enough, the cases
-  // have to run concurrently. Until they do, the refusal in caseLoaderFor is
-  // what keeps a doomed arm from starting.
-  it('still does not fit every agent while cases run one at a time', () => {
-    const overrunning = sweepable.filter(
-      (agentId) =>
-        armWallClockMs(
-          casesFor(agentId),
-          background.attemptsPerCase,
-          agentConfigFor(agentId),
-        ) > ARM_BUDGET_MS,
+  // The loader the arm actually calls, on every real list: the first three
+  // cases of each file, in file order, which is what makes the two arms'
+  // selections pair.
+  it.each(sweepable.map((one) => one.agentId))(
+    '%s walks the first three cases of its list',
+    (agentId) => {
+      const entry = agent(agentId)
+      const file = loadBackgroundCases(entry).map((one) => one.caseId)
+      expect(walked(entry)).toEqual(file.slice(0, 3))
+    },
+  )
+})
+
+describe('what it makes possible, with cases still run one at a time', () => {
+  // Four agents fit an arm on their own. The other eleven do not, because a
+  // case runs to its agent's declared timeout and three of them in sequence
+  // still overrun: meeting_briefing alone is three 65-minute polls. Running
+  // cases concurrently is what changes this list, not the budget.
+  it('admits exactly these agents on their own', () => {
+    expect(sweepable.filter(fitsAlone).map((one) => one.agentId)).toEqual([
+      'opportunities_and_challenges',
+      'opposition_research',
+      'race_opponent_actions',
+      'race_opponent_summary',
+    ])
+  })
+
+  it('refuses the rest by name', () => {
+    expect(
+      sweepable.filter((one) => !fitsAlone(one)).map((one) => one.agentId),
+    ).toEqual([
+      'campaign_tracker_tasks',
+      'district_issue_pulse',
+      'district_issue_snapshot',
+      'find_existing_ordinances',
+      'meeting_briefing',
+      'meeting_schedule',
+      'opponent_research',
+      'race_opponent_collection',
+      'self_research',
+      'top_community_issues',
+      'trending_issues',
+    ])
+  })
+
+  // TOGETHER IS NOT THE SUM OF ALONE. One arm walks agents in registry order
+  // against one budget, so the first agent to fit takes 60 of the 70 minutes
+  // and the other three are refused. Selecting all four runs one.
+  it('runs only the first of them when all four share an arm', () => {
+    const shared = armCaseLoader(
+      SWEEP_VALUES,
+      ARM_BUDGET_MS,
+      DEFAULT_JUDGE_CONFIG,
     )
-    expect(overrunning.length).toBeGreaterThan(0)
-    expect(overrunning).toContain('meeting_briefing')
+    const admitted = sweepable.filter(fitsAlone).filter((one) => {
+      try {
+        shared(one)
+        return true
+      } catch {
+        return false
+      }
+    })
+    expect(admitted.map((one) => one.agentId)).toEqual([
+      'opportunities_and_challenges',
+    ])
   })
 })
 
-describe('and what the background budget costs', () => {
-  // THE GATE WILL FLAG EVERY BACKGROUND VERDICT, and that is the gate
-  // working. 3 cases x 1 attempt is 3 pairs against a floor of 20, so the
-  // comparison is directional rather than conclusive.
+describe('and what it costs', () => {
+  // THE GATE FLAGS EVERY BACKGROUND VERDICT. Pairs are derived from what the
+  // real loader walks and the real attempt count, not restated: three cases
+  // at one attempt is three pairs against a floor of twenty, so a background
+  // verdict comes back directional rather than conclusive.
   //
-  // The floor is deliberately NOT lowered to match. A gate moved to fit the
+  // The floor is deliberately not lowered to match. A gate moved to fit the
   // evidence stops being a gate, and the note it emits says exactly why the
-  // verdict is weak — which is more useful than a clean-looking verdict
-  // resting on three runs.
+  // verdict is weak.
   it('leaves a background comparison under the evidence floor', () => {
-    const pairs = 3 * background.attemptsPerCase
+    const entry = agent('opposition_research')
+    const pairs =
+      walked(entry).length * attemptsFor(entry, DEFAULT_JUDGE_CONFIG)
+    expect(pairs).toBe(3)
     expect(pairs).toBeLessThan(DEFAULT_JUDGE_CONFIG.gates.minCases)
+    expect(DEFAULT_JUDGE_CONFIG.gates.minCases).toBe(20)
   })
 
-  it('leaves the floor where it is', () => {
-    expect(DEFAULT_JUDGE_CONFIG.gates.minCases).toBe(20)
+  // THE CAP DROPS THE HARDEST CASES, not a random third of them. Case lists
+  // open with a baseline and save their probes for later, so first-three
+  // keeps the easy cases and loses injection, staleness, zero-evidence and
+  // the control. First-n is still right — two arms that walked different
+  // cases have nothing to pair — but this is the real cost, and it is written
+  // down here so that raising the cap is weighed against it.
+  it('stops judging race_opponent_summary against its probes', () => {
+    const entry = agent('race_opponent_summary')
+    const dropped = loadBackgroundCases(entry)
+      .map((one) => one.caseId)
+      .filter((id) => !walked(entry).includes(id))
+    expect(walked(entry)).toEqual(['t1-baseline', 't2-conflict', 't3-noise'])
+    expect(dropped).toEqual([
+      't4-injection',
+      't5-thin',
+      't6-namesake',
+      't7-stale',
+      't9-zero_evidence_field',
+      'control',
+    ])
   })
 })

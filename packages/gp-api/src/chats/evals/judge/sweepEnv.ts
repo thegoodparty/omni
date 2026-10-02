@@ -4,7 +4,13 @@ import {
   PLACEHOLDER_NAMES,
   type PlaceholderValues,
 } from './caseParams'
-import { SPEND_ENV, spendsRealMoney } from './config'
+import {
+  DEFAULT_JUDGE_CONFIG,
+  SPEND_ENV,
+  spendsRealMoney,
+  type JudgeConfig,
+  type ShapeBudget,
+} from './config'
 import { ArmSchema, type Arm } from './record'
 import {
   createLocalRecordStore,
@@ -176,6 +182,21 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   JUDGE_METADATA_BUCKET: BLANK_IS_UNSET,
   JUDGE_ARTIFACT_BUCKET: BLANK_IS_UNSET,
   JUDGE_DISPATCH_QUEUE_URL: BLANK_IS_UNSET,
+  // THE BACKGROUND BUDGET, RESOLVED ONCE AND HANDED TO BOTH ARMS.
+  //
+  // It lives in config.ts, and the base arm runs the BASE REF'S config.ts in
+  // a second worktree. So a branch that changes it walks one budget on
+  // candidate and another on base — and judgeSweep refuses the pair, but only
+  // after both arms have been billed. The workflow reads the candidate's
+  // value once and passes it to both, the way it does the mart's Delta
+  // version, so the two arms agree by construction rather than by luck.
+  //
+  // ATTEMPTS SWITCHES THE MODE. Present, it is a sweep-level input and
+  // MAX_CASES blank means "no cap". Absent, nothing was resolved — a local
+  // run — and the arm uses its own config wholesale. Keyed on one variable
+  // so that "blank cap" and "not supplied" cannot be confused.
+  JUDGE_BACKGROUND_ATTEMPTS: BLANK_IS_UNSET,
+  JUDGE_BACKGROUND_MAX_CASES: BLANK_IS_UNSET,
 })
 
 export class SweepEnvError extends Error {}
@@ -253,6 +274,8 @@ export interface ArmEnv extends SweepEnv {
   metadataBucket?: string
   artifactBucket?: string
   dispatchQueueUrl?: string
+  // Absent on a local run, where the arm's own config decides.
+  backgroundBudget?: ShapeBudget
 }
 
 export interface BackgroundDestination {
@@ -365,8 +388,10 @@ export const parseArmEnv = (
     )
   }
 
+  const backgroundBudget = backgroundBudgetFrom(data)
   const env: ArmEnv = {
     ...toSweepEnv(data),
+    ...(backgroundBudget !== undefined && { backgroundBudget }),
     arm: data.JUDGE_ARM,
     baseRef: data.JUDGE_BASE_REF,
     candidateSha: data.JUDGE_CANDIDATE_SHA,
@@ -391,6 +416,61 @@ export const parseArmEnv = (
   requireStore(env, `the ${env.arm} arm`)
   return env
 }
+
+// A positive integer or a sentence. Not `z.coerce.number()`: that reads
+// "1.5" and "1e1" as numbers and "" as 0, and every one of those reaches
+// slice or a loop bound as something nobody wrote.
+const positiveInt = (name: string, raw: string): number => {
+  if (!/^[1-9][0-9]*$/.test(raw)) {
+    throw new SweepEnvError(
+      `${name} is "${raw}", which is not a positive whole number of ` +
+        (name.endsWith('ATTEMPTS') ? 'attempts' : 'cases') +
+        '; the workflow resolves it from the candidate config, so a value ' +
+        'like this means that step printed something unexpected',
+    )
+  }
+  return Number(raw)
+}
+
+const backgroundBudgetFrom = (data: ParsedArm): ShapeBudget | undefined => {
+  if (data.JUDGE_BACKGROUND_ATTEMPTS === undefined) {
+    // A cap with no attempts is a half-resolved budget. Refused rather than
+    // dropped, because dropping it silently falls back to the arm's own
+    // config — which is the per-checkout mismatch this input exists to end.
+    if (data.JUDGE_BACKGROUND_MAX_CASES !== undefined) {
+      throw new SweepEnvError(
+        'JUDGE_BACKGROUND_MAX_CASES is set but JUDGE_BACKGROUND_ATTEMPTS is ' +
+          'not, so this is half a budget; the workflow sets both or neither',
+      )
+    }
+    return undefined
+  }
+  const attemptsPerCase = positiveInt(
+    'JUDGE_BACKGROUND_ATTEMPTS',
+    data.JUDGE_BACKGROUND_ATTEMPTS,
+  )
+  return data.JUDGE_BACKGROUND_MAX_CASES === undefined
+    ? { attemptsPerCase }
+    : {
+        attemptsPerCase,
+        maxCases: positiveInt(
+          'JUDGE_BACKGROUND_MAX_CASES',
+          data.JUDGE_BACKGROUND_MAX_CASES,
+        ),
+      }
+}
+
+// The config this arm actually walks with: its own, with the background
+// budget replaced when the sweep supplied one. ONE function, read by both
+// captureArm (attempts) and the case loader (the cap), so the two halves of
+// the budget cannot come from two different places.
+export const armConfigFor = (
+  env: ArmEnv,
+  base: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+): JudgeConfig =>
+  env.backgroundBudget === undefined
+    ? base
+    : { ...base, background: env.backgroundBudget }
 
 // What a record's `variant.ref` says for this arm. The base arm is a branch
 // name; the candidate arm's head ref is not in the plan's outputs, so it falls
