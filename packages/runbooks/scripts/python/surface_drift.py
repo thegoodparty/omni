@@ -58,7 +58,7 @@ def classify(label: tuple[str, str] | None, reach: er.Reach | None, *, known: Se
     if reach.gap_files or not reach.areas:
         return "unclear"
     aliased = kind == "prefix" and raw in prefix_areas
-    target = prefix_areas[raw] if aliased else (raw if kind == "tag" else er.slug(raw))
+    target = er.slug(prefix_areas[raw]) if aliased else (raw if kind == "tag" else er.slug(raw))
 
     own = er.slug(raw) if kind == "prefix" else raw
 
@@ -217,6 +217,9 @@ def _stems(reach: er.Reach) -> list[str]:
 def confidence(verdict: str, reach: er.Reach, removal: str | None, signal: Signal | None, okr: bool) -> str:
     if verdict != "moved" or okr or reach.gap_files or len(reach.areas) != 1 or not removal:
         return "proposed"
+    # An area with several names (Win and Serve vocabulary) leaves the slug a human choice.
+    if len(reach.areas[0].names) > 1:
+        return "proposed"
     if (signal is None or signal.attributed < MIN_ATTRIBUTED or signal.coverage < MIN_COVERAGE
             or signal.users < MIN_USERS):
         return "proposed"
@@ -229,7 +232,7 @@ def build_row(name: str, verdict: str, label: tuple[str, str], reach: er.Reach, 
     single = reach.areas[0] if len(reach.areas) == 1 else None
     display = event.get("display_name") or name
     routes = sorted(reach.live_routes)
-    return {
+    row = {
         "verdict": verdict,
         "confidence": confidence(verdict, reach, removal, signal, okr),
         "claimed": label[1],
@@ -244,7 +247,7 @@ def build_row(name: str, verdict: str, label: tuple[str, str], reach: er.Reach, 
                    if signal else None),
         "okr": okr,
         "display_name": display,
-        "proposed_surface": sorted(single.names)[0] if single else "",
+        "proposed_surface": er.slug(single.label) if single else "",
         "proposed_display_name": proposed_display_name(display, single),
         "proposed_fires_on": f"{single.label} ({', '.join(routes)})" if single else "",
         "proposed_url": routes[0] if single and len(routes) == 1 else "",
@@ -256,6 +259,9 @@ def build_row(name: str, verdict: str, label: tuple[str, str], reach: er.Reach, 
         "last_seen": today,
         "applied_date": "",
     }
+    if single and len(single.names) > 1:
+        row["surface_options"] = sorted(single.names)
+    return row
 
 
 def merge(prev: Mapping, fresh: Mapping, today: str) -> dict:
@@ -278,8 +284,6 @@ def merge(prev: Mapping, fresh: Mapping, today: str) -> dict:
                           proposed_fires_on=old.get("proposed_fires_on", ""), proposed_url=old.get("proposed_url", ""))
             elif kept == "open":
                 row.update(disposition="open", reason=old.get("reason", ""))
-            elif kept in OPEN:
-                row["disposition"] = kept
         out[name] = row
     for name, old in prev.items():
         if name not in out and old.get("disposition") not in OPEN:
@@ -388,6 +392,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"traced {m['traced']}/{m['web_events']} webapp events; {m['backend_not_examined']} backend not examined")
         print(f"verdicts: {m['verdicts']}")
         print(f"open proposals: {len(open_rows)} ({len(high)} high); signals: {m['signals']}")
+        if not m["signals"].startswith(("ok", "skipped")):
+            print(f"::warning::surface drift ran without the page-path signal, so nothing can be high: {m['signals']}")
         if m["unmapped_prefixes"]:
             print(f"unmapped prefixes: {m['unmapped_prefixes']}")
         return 0

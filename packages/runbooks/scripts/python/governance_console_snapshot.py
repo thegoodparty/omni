@@ -943,7 +943,7 @@ def build_surface_queue(drift: Mapping) -> list[dict]:
                 f"in {r.get('removal_commit')}, and the page people were on matches."
                 if high else ""
             ),
-            "label": f"{event}: labelled {r.get('claimed')}, fires from {', '.join(r.get('areas') or [])}",
+            "label": f"{event}: labeled {r.get('claimed')}, fires from {', '.join(r.get('areas') or [])}",
             "rank": SURFACE_RANK,
             "count": 1,
             "dismissable": True,
@@ -958,6 +958,7 @@ def build_surface_queue(drift: Mapping) -> list[dict]:
                 "page_path_users": (r.get("signal") or {}).get("users"),
                 "okr": r.get("okr"),
                 "proposed_surface": r.get("proposed_surface"),
+                "surface_options": ", ".join(r.get("surface_options") or []),
                 "proposed_display_name": r.get("proposed_display_name"),
                 "proposed_fires_on": r.get("proposed_fires_on"),
             }],

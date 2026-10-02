@@ -983,3 +983,12 @@ def test_build_snapshot_without_drift_still_has_an_empty_surface_queue():
     report = {"run_date": "2026-10-02", "flagged": [], "status_counts": {}}
     snap = gcs.build_snapshot(report, {}, {"events": [], "areas": []}, None, {})
     assert {"queue": "surface", "items": []} in snap["queues"]
+
+
+def test_surface_queue_shows_the_slug_options_and_uses_us_spelling():
+    drift = {"rows": {"Settings - Personal Info: Click Upload": {
+        "verdict": "moved", "confidence": "proposed", "claimed": "Settings", "areas": ["Profile"],
+        "proposed_surface": "profile", "surface_options": ["my-profile", "profile"], "disposition": "new"}}}
+    [item] = gcs.build_surface_queue(drift)
+    assert item["evidence"][0]["surface_options"] == "my-profile, profile"
+    assert item["label"] == "Settings - Personal Info: Click Upload: labeled Settings, fires from Profile"

@@ -236,3 +236,45 @@ def test_merge_carries_reason_forward_for_every_human_disposition():
 
 def test_confidence_never_promotes_moved_then_quiet_even_with_full_evidence():
     assert sd.confidence("moved_then_quiet", reach(QUESTIONS), "93cb4a414 2026-06-19", _sig(), okr=False) == "proposed"
+
+
+def test_an_area_with_two_names_proposes_the_label_slug_lists_the_options_and_is_never_high():
+    row = sd.build_row("Settings - Personal Info: Click Upload", "moved", ("prefix", "Settings"), reach(PROFILE),
+                       {"display_name": "Settings - Personal Info: Click Upload", "okr_metrics": []},
+                       "93cb4a414 2026-06-19", _sig(), "2026-10-02")
+    assert row["proposed_surface"] == "profile"
+    assert row["surface_options"] == ["my-profile", "profile"]
+    assert row["confidence"] == "proposed"
+
+
+def test_an_area_with_one_name_has_no_surface_options():
+    row = sd.build_row("Profile - Running Against: Click Save", "moved", ("prefix", "Profile"), reach(QUESTIONS),
+                       {"display_name": "Profile - Running Against: Click Save", "okr_metrics": []},
+                       "93cb4a414 2026-06-19", _sig(), "2026-10-02")
+    assert "surface_options" not in row
+
+
+def test_an_alias_written_as_a_label_is_slugged_before_matching():
+    aliases = {"Onboarding V2": "Candidate Onboarding"}
+    assert verdict("Onboarding V2 - Office Completed", reach(ONBOARDING), aliases=aliases) == "consistent"
+
+
+def test_main_warns_in_ci_when_the_signal_query_did_not_run(monkeypatch, tmp_path, capsys):
+    state = {"meta": {"traced": 1, "web_events": 1, "backend_not_examined": 0, "verdicts": {},
+                      "unmapped_prefixes": {}, "signals": "failed: RuntimeError: warehouse asleep"},
+             "rows": {}}
+    monkeypatch.setattr(sd, "run", lambda no_signals, today: state)
+    monkeypatch.setattr(sd, "STATE", tmp_path / "surface_drift.json")
+    assert sd.main(["run"]) == 0
+    assert any(line.startswith("::warning::") and "warehouse asleep" in line
+               for line in capsys.readouterr().out.splitlines())
+
+
+@pytest.mark.parametrize("status", ["ok", "ok (no candidates)", "skipped (--no-signals)"])
+def test_main_does_not_warn_when_signals_ran_or_were_skipped(monkeypatch, tmp_path, capsys, status):
+    state = {"meta": {"traced": 1, "web_events": 1, "backend_not_examined": 0, "verdicts": {},
+                      "unmapped_prefixes": {}, "signals": status}, "rows": {}}
+    monkeypatch.setattr(sd, "run", lambda no_signals, today: state)
+    monkeypatch.setattr(sd, "STATE", tmp_path / "surface_drift.json")
+    sd.main(["run"])
+    assert "::warning::" not in capsys.readouterr().out

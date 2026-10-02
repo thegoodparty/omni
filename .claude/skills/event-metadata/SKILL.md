@@ -211,7 +211,9 @@ proposed `surface:` slug, display name, `fires_on` and `url`.
 1. Fetch the event via `get_events` in both projects; parse the `gp-meta` block.
 2. Show the human the proposed display name, `fires_on` and `url`. The display name and
    the trigger half of `fires_on` are drafts: confirm or edit both. The `surface:` slug
-   is mechanical; change it only if the human says so.
+   is mechanical unless the row lists `surface_options`: then the area has more than one
+   name (Win and Serve vocabulary for the same page), and the human picks which one the
+   event belongs under. Otherwise change it only if the human says so.
 3. Write, per project:
    - replace any existing `surface:` tag with the new one; keep every other tag;
    - set `fires_on:` and `url:` inside the `gp-meta` block (they are mutable);
