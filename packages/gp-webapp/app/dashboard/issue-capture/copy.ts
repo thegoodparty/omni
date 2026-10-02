@@ -1,4 +1,5 @@
 import type {
+  ConstituentFeedbackChannel,
   ConstituentFeedbackStance,
   FeedbackReportResponse,
 } from '@goodparty_org/contracts'
@@ -47,6 +48,9 @@ export const WHAT_WE_HEARD_COPY = {
     conversations: (value: number): string =>
       count(value, 'conversation', 'conversations'),
     seeDetails: 'See details',
+    // The link's name, which has to say which theme: a page of cards each
+    // named "See details" reads as one link said six times.
+    seeDetailsFor: (title: string): string => `See details for ${title}`,
     stanceSplit: 'Where people stand',
     rank: (value: number): string => `Rank ${value}`,
     notYetReviewed: 'Not yet reviewed',
@@ -96,6 +100,7 @@ export const WHAT_WE_HEARD_COPY = {
     conversations: (value: number): string =>
       count(value, 'conversation', 'conversations'),
     seeDetails: 'See details',
+    seeDetailsFor: (title: string): string => `See details for ${title}`,
     stanceSplit: 'Where people stand',
     rank: (value: number): string => `Rank ${value}`,
     notYetReviewed: 'Not yet reviewed',
@@ -149,7 +154,7 @@ export const STANCE_ORDER: ConstituentFeedbackStance[] = [
 ]
 
 // The person record's words for where a conversation happened.
-export const CHANNEL_LABELS: Record<string, string> = {
+export const CHANNEL_LABELS: Record<ConstituentFeedbackChannel, string> = {
   door_knock: 'At the door',
   phone_bank: 'On the phone',
 }

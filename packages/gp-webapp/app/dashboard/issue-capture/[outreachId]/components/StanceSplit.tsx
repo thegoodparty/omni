@@ -3,13 +3,13 @@ import { STANCE_LABELS, STANCE_ORDER, whatWeHeardCopy } from '../../copy'
 
 // Four counts rather than a chart: on a theme a handful of people fed, a bar
 // or a percentage claims a precision the numbers do not have.
-export default function StanceSplit({
+const StanceSplit = ({
   counts,
   isServe,
 }: {
   counts: StanceCounts
   isServe: boolean
-}) {
+}) => {
   const copy = whatWeHeardCopy(isServe)
   const labels = STANCE_LABELS[isServe ? 'serve' : 'win']
 
@@ -31,3 +31,5 @@ export default function StanceSplit({
     </ul>
   )
 }
+
+export default StanceSplit

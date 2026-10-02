@@ -5,7 +5,7 @@ import ThemeCard from './ThemeCard'
 
 // Ranked by how many conversations touched each theme, so the issue several
 // people on one turf raised rises to the top. The run's own rank breaks a tie.
-export default function ThemeGrid({
+const ThemeGrid = ({
   themes,
   outreachId,
   isServe,
@@ -13,7 +13,7 @@ export default function ThemeGrid({
   themes: FeedbackThemeSummary[]
   outreachId: number
   isServe: boolean
-}) {
+}) => {
   const copy = whatWeHeardCopy(isServe)
   const headingId = useId()
   const ranked = [...themes].sort(
@@ -39,3 +39,5 @@ export default function ThemeGrid({
     </section>
   )
 }
+
+export default ThemeGrid

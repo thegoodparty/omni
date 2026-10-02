@@ -5,7 +5,7 @@ import MemoList, { type MemoListItem } from './MemoList'
 // Under the floor there are no themes, only the notes. Grouping a handful of
 // conversations would produce exactly the misleading share the report exists
 // to avoid, so the page says when themes will appear instead.
-export default function UnderFloorList({
+const UnderFloorList = ({
   floor,
   memos,
   isServe,
@@ -13,7 +13,7 @@ export default function UnderFloorList({
   floor: number
   memos: MemoListItem[]
   isServe: boolean
-}) {
+}) => {
   const copy = whatWeHeardCopy(isServe)
   const headingId = useId()
 
@@ -29,3 +29,5 @@ export default function UnderFloorList({
     </section>
   )
 }
+
+export default UnderFloorList

@@ -52,7 +52,11 @@ entry: the page is reached from the effort.
 With no run and enough notes, it shows the button and every note. The button
 shows whenever no run is in flight. It is off under the floor (the list
 already says why), and off with the reason as helper text after a 422 or 429.
-A 409 just refetches, since the report will show the run.
+Neither refusal outlives the report it was made against: a new run or a new
+confirmed count resets the button, and a 429, which changes nothing on the
+report and so does not re-read it, lifts on the report's next read. A 409
+just refetches, since the report will show the run. `SynthesisRequested`
+fires on the press, refused or not.
 
 ## Rules
 

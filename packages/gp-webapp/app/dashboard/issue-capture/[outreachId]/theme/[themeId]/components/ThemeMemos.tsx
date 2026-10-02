@@ -5,13 +5,13 @@ import MemoList from '../../../components/MemoList'
 
 // The conversations behind the theme. Confirmed only, so none of them is
 // waiting for review.
-export default function ThemeMemos({
+const ThemeMemos = ({
   theme,
   isServe,
 }: {
   theme: FeedbackThemeDetail
   isServe: boolean
-}) {
+}) => {
   const headingId = useId()
 
   return (
@@ -35,3 +35,5 @@ export default function ThemeMemos({
     </section>
   )
 }
+
+export default ThemeMemos

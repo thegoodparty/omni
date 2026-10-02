@@ -4,6 +4,7 @@ import type { IssueTag, UpdateIssueTag } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { PROPOSED_TAGS_QUERY_KEY } from '../queries'
 import NewTagsStrip from './NewTagsStrip'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -117,7 +118,13 @@ describe('NewTagsStrip', () => {
     })
     const { container } = renderStrip()
 
-    await waitFor(() => expect(statusQueries).toEqual(['refused']))
+    // Settled, not merely sent: an unanswered query renders nothing too.
+    await waitFor(() =>
+      expect(
+        testQueryClient.getQueryState(PROPOSED_TAGS_QUERY_KEY)?.status,
+      ).toBe('error'),
+    )
+    expect(statusQueries).toEqual(['refused'])
     expect(container).toBeEmptyDOMElement()
   })
 
@@ -125,7 +132,12 @@ describe('NewTagsStrip', () => {
     mockTags([])
     const { container } = renderStrip()
 
-    await waitFor(() => expect(statusQueries).toEqual(['proposed']))
+    await waitFor(() =>
+      expect(
+        testQueryClient.getQueryState(PROPOSED_TAGS_QUERY_KEY)?.status,
+      ).toBe('success'),
+    )
+    expect(statusQueries).toEqual(['proposed'])
     expect(container).toBeEmptyDOMElement()
   })
 })

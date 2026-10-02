@@ -1,4 +1,7 @@
-import type { ConstituentFeedbackStance } from '@goodparty_org/contracts'
+import type {
+  ConstituentFeedbackChannel,
+  ConstituentFeedbackStance,
+} from '@goodparty_org/contracts'
 import { EmptyState } from '@styleguide'
 import { CHANNEL_LABELS, STANCE_LABELS, whatWeHeardCopy } from '../../copy'
 
@@ -8,7 +11,7 @@ export interface MemoListItem {
   stance: ConstituentFeedbackStance | null
   desiredOutcome: string | null
   actorName: string | null
-  channel: string
+  channel: ConstituentFeedbackChannel
   occurredAt: Date
   // Listed, never counted: a note nobody who was there has confirmed.
   pending: boolean
@@ -23,13 +26,13 @@ const formatDate = (value: Date): string =>
 
 // The notes themselves, on the report while there are no themes to show and
 // under them once there are, and as a theme's members on its own page.
-export default function MemoList({
+const MemoList = ({
   memos,
   isServe,
 }: {
   memos: MemoListItem[]
   isServe: boolean
-}) {
+}) => {
   const copy = whatWeHeardCopy(isServe)
   const stanceLabels = STANCE_LABELS[isServe ? 'serve' : 'win']
 
@@ -52,7 +55,7 @@ export default function MemoList({
           )}
           <p className="text-xs text-muted-foreground">
             {memo.stance !== null && `${stanceLabels[memo.stance]} · `}
-            {CHANNEL_LABELS[memo.channel] ?? memo.channel}
+            {CHANNEL_LABELS[memo.channel]}
             {' · '}
             {formatDate(memo.occurredAt)}
             {memo.pending && ` · ${copy.notYetReviewed}`}
@@ -62,3 +65,5 @@ export default function MemoList({
     </ul>
   )
 }
+
+export default MemoList

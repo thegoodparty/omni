@@ -12,7 +12,7 @@ import { PROPOSED_TAGS_QUERY_KEY, proposedTagsQueryOptions } from '../queries'
 // on people's records, dismissing retires it. The tag list is the owner's
 // and the manager's, so anyone the API refuses sees no strip at all rather
 // than an error about something they were never meant to curate.
-export default function NewTagsStrip({ isServe }: { isServe: boolean }) {
+const NewTagsStrip = ({ isServe }: { isServe: boolean }) => {
   const copy = whatWeHeardCopy(isServe)
   const headingId = useId()
   const queryClient = useQueryClient()
@@ -92,3 +92,5 @@ export default function NewTagsStrip({ isServe }: { isServe: boolean }) {
     </section>
   )
 }
+
+export default NewTagsStrip
