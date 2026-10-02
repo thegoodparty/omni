@@ -31,13 +31,25 @@ interface Span {
 
 const overlaps = (a: Span, b: Span) => a.start < b.end && a.end > b.start
 
-// Where each locked part sits in the script. A phrase takes its first whole
-// occurrence, longest phrase first so a name inside the disclaimer cannot
-// claim the disclaimer's characters; a merge tag takes every occurrence.
+// Where each locked part sits in the script. A phrase sits where
+// deriveSmsProtectedParts found it: the same words can appear twice (a body
+// quoting the opt-out line), and only the copy it chose is the locked one.
+// Longest first, so a name inside the disclaimer cannot claim the
+// disclaimer's characters; a merge tag takes every occurrence.
 const locate = (script: string, parts: SmsProtectedPart[]): Span[] => {
   const spans: Span[] = []
   const byLength = [...parts].sort((a, b) => b.text.length - a.text.length)
   for (const part of byLength) {
+    if (part.kind === 'phrase') {
+      const span = { start: part.start, end: part.start + part.text.length }
+      const placed =
+        script.slice(span.start, span.end) === part.text &&
+        !spans.some((other) => overlaps(span, other))
+      if (placed) {
+        spans.push(span)
+        continue
+      }
+    }
     let from = 0
     for (;;) {
       const start = script.indexOf(part.text, from)

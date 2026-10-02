@@ -5,6 +5,7 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { LlmService } from '@/llm/services/llm.service'
 import { SERVE_SMS_VOICE } from '../util/serveSmsVoice.util'
 import {
+  IMPROVE_DRAFT_TARGET_LENGTH,
   OutreachSmsGenerationService,
   type SmsImproveProtection,
   SMS_IMPROVE_IDENTIFICATION_RULE,
@@ -263,6 +264,28 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
       "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧",
     )
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
+  })
+
+  // The markers are shorter than what they hold, so the length the model is
+  // told about is the message's, not the masked text's.
+  it('asks for a cut when the whole message is over target, not the masked one', async () => {
+    const body = 'Come vote. '.repeat(70)
+    const long = `${MESSAGE.replace('Come vote Nov 3!', body.trim())}`
+    expect(long.length).toBeGreaterThan(IMPROVE_DRAFT_TARGET_LENGTH)
+    const { service, jsonCompletion } = replyWith('Hi ⟦1⟧ ⟦2⟧ ⟦3⟧ ⟦4⟧')
+    await service
+      .generateDraft(
+        { purpose: 'custom', tone: 'warm', currentDraft: long },
+        'Sarah Chen',
+        'City Council',
+        '7',
+        [],
+        WIN_PROTECTION,
+      )
+      .catch(() => undefined)
+    expect(promptsOf(jsonCompletion).userPrompt).toContain(
+      `The original runs ${long.length} characters`,
+    )
   })
 
   it('refuses to polish without the message protection', async () => {

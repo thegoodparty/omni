@@ -387,9 +387,11 @@ export class OutreachSmsGenerationService {
           '"""',
           masked,
           '"""',
-          ...(masked.length > IMPROVE_DRAFT_TARGET_LENGTH
+          // The message as sent, not as masked: the markers are shorter than
+          // the text they hold, which is restored before anyone sees it.
+          ...(currentDraft.length > IMPROVE_DRAFT_TARGET_LENGTH
             ? [
-                `The original runs ${masked.length} ` +
+                `The original runs ${currentDraft.length} ` +
                   'characters; bring it under ' +
                   `${IMPROVE_DRAFT_TARGET_LENGTH} without dropping a ` +
                   'detail.',

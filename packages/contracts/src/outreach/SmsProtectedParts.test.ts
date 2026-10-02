@@ -24,7 +24,7 @@ const textsFor = (
 
 describe('deriveSmsProtectedParts', () => {
   it('locks exactly what each rule tests for, the disclaimer as one unit', () => {
-    expect(deriveSmsProtectedParts(SCRIPT, CONTEXT)).toEqual([
+    expect(deriveSmsProtectedParts(SCRIPT, CONTEXT)).toMatchObject([
       {
         rule: 'first_name_token',
         kind: 'token',
@@ -39,6 +39,39 @@ describe('deriveSmsProtectedParts', () => {
       },
       { rule: 'opt_out_line', kind: 'phrase', text: 'Reply STOP to opt out.' },
     ])
+  })
+
+  it('places each phrase where it sits in the script', () => {
+    for (const part of deriveSmsProtectedParts(SCRIPT, CONTEXT)) {
+      if (part.kind === 'phrase') {
+        expect(SCRIPT.slice(part.start, part.start + part.text.length)).toBe(
+          part.text,
+        )
+      }
+    }
+  })
+
+  // A body that quotes the footer word for word must not take its lock.
+  it('points at the footer, not an identical copy in the body', () => {
+    const footer = 'Paid for by Friends of Sarah Chen. Reply STOP to opt out.'
+    const script = `Hi {first_name}, Sarah Chen here. It ends "${footer}"\n\n${footer}`
+    const parts = deriveSmsProtectedParts(script, CONTEXT)
+    for (const rule of ['paid_for_by', 'opt_out_line'] as const) {
+      const part = parts.find((candidate) => candidate.rule === rule)
+      expect(part?.kind === 'phrase' && part.start).toBeGreaterThan(
+        script.lastIndexOf('\n'),
+      )
+    }
+  })
+
+  // Before a committee is recorded the line names a provisional one whose
+  // name or office can carry periods of its own.
+  it('locks the whole line of an unrecorded committee, periods included', () => {
+    const script =
+      'Hi {first_name}.\n\nPaid for by Jane Q. Doe for St. Louis Council. Reply STOP to opt out.'
+    expect(textsFor(script, { committeeName: null }).paid_for_by).toBe(
+      'Paid for by Jane Q. Doe for St. Louis Council.',
+    )
   })
 
   it('locks only parts of a script that passes the verdict', () => {

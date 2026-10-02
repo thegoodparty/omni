@@ -67,6 +67,19 @@ describe('maskProtectedParts, footer words in the body', () => {
     expect(masked).not.toContain('Reply STOP to opt out.')
   })
 
+  // A body that quotes the footer word for word: the footer is hidden, the
+  // quote is left for the model to polish.
+  it('masks the footer even when the body repeats it exactly', () => {
+    const footer = 'Paid for by Friends of Sarah Chen. Reply STOP to opt out.'
+    const script = `Hi {first_name}, Sarah Chen here. It ends "${footer}"\n\n${footer}`
+    const { masked } = maskProtectedParts(
+      script,
+      deriveSmsProtectedParts(script, PROTECTION),
+    )
+    expect(masked).toContain(`"${footer}"`)
+    expect(masked.endsWith(footer)).toBe(false)
+  })
+
   // Before verification the line names a provisional committee gp-api has
   // no record of; the whole sentence is still hidden from the model.
   it('masks a disclaimer naming a committee it does not know', () => {
