@@ -143,14 +143,10 @@ there is the agent's to say, once, in its message; no card repeats it.
   prototype mounted them (`feat/serve-priorities-flow`). The route never
   changes, so closing or finishing it leaves the official in the thread where
   they were. The flow is filled in with what the card carries: the message
-  (`initialScript`; for SMS first run through `useServeSmsSignedBody`, the
-  compose step's own `checkSmsStandards` check: a draft that misses the
-  official's name goes through `signServeSmsDraft` in `smsCompose.util.ts`,
-  which replaces the draft's own self-introduction and any greeting with the
-  official's intro and fills sender placeholders, because persisted cards
-  from before the server guard still carry "Hi, this is [Your Name]...";
-  a draft that names them is left alone), phone banking's name, and the
-  audience. A card from before `audienceFilters` points at a saved list; a
+  (`initialScript`, as written: `SmsFlow` signs any seed itself with
+  `ensureSmsIdentification`, which persisted cards from before the server
+  guard need, since they still carry "Hi, this is [Your Name]..."), phone
+  banking's name, and the audience. A card from before `audienceFilters` points at a saved list; a
   current one carries the filter the agent counted with, and the flow opens
   its builder already filled in (`proposedAudience`, with the proposal's
   sample when it asks one: "Text 4,000 of 58,520, picked at random" on the

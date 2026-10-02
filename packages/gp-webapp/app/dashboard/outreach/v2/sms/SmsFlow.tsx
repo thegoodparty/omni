@@ -89,7 +89,6 @@ import {
   composeServeScript,
   ensureSmsIdentification,
   identificationIntro,
-  signServeSmsDraft,
   openWithSmsIdentification,
   SMS_PURPOSES,
   type SmsFlowPurpose,
@@ -271,34 +270,6 @@ export const SERVE_SMS_SURFACE: SmsFlowSurface = {
     },
     create: createServeSms,
   },
-}
-
-// A Serve message written outside this flow (a chat card's proposal), made
-// ready for the compose step before it opens: the same standards check that
-// step runs over the same composed script, and, when it misses the
-// official's name, signed by signServeSmsDraft with the intro this flow's own
-// drafts open with. Anything else is left for the compose step to flag, the
-// way it flags a typed edit. The name resolves the way the flow resolves it
-// below.
-export const useServeSmsSignedBody = (): ((body: string) => string) => {
-  const [campaign] = useCampaign()
-  const [user] = useUser()
-  const fullName =
-    campaign?.ownerName ??
-    (campaign == null
-      ? `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
-      : '')
-  const firstName = fullName.split(' ')[0] ?? ''
-  const introFor = useServeSmsIdentification(firstName)
-  return (body: string) => {
-    const { failures } = checkSmsStandards(
-      SERVE_SMS_SURFACE.composeMessage(body, null),
-      { candidateNames: fullName ? [fullName] : [], committeeName: null },
-    )
-    return failures.includes('candidate_name')
-      ? signServeSmsDraft(body, { intro: introFor('warm'), firstName })
-      : body
-  }
 }
 
 interface SmsFlowProps {

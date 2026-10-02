@@ -26,7 +26,6 @@ import {
 import {
   SERVE_SMS_SURFACE,
   SmsFlow,
-  useServeSmsSignedBody,
 } from 'app/dashboard/outreach/v2/sms/SmsFlow'
 import {
   SERVE_SOCIAL_SURFACE,
@@ -97,7 +96,6 @@ export const ProposalFlowsProvider = ({
   const queryClient = useQueryClient()
   // Not the treatment surface: the outreach page's SMS card is.
   const sms = useServeSmsFlag(false)
-  const signSms = useServeSmsSignedBody()
   const [opened, setOpened] = useState<Opened | null>(null)
   const { errorSnackbar } = useSnackbar()
 
@@ -228,7 +226,7 @@ export const ProposalFlowsProvider = ({
           onClose={close}
           onScheduled={async () => settled()}
           surface={SERVE_SMS_SURFACE}
-          initialScript={signSms(proposal.message)}
+          initialScript={proposal.message}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
           proposalLink={linkOf(opened)}
