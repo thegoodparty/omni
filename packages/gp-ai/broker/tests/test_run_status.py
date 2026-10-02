@@ -2,6 +2,7 @@ import json
 import time
 from unittest.mock import MagicMock
 
+import pytest
 from botocore.exceptions import ClientError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -116,6 +117,21 @@ class TestRunStatusFailed:
 
 
 class TestRunStatusContractViolation:
+    @pytest.mark.parametrize("omitted", ["duration_seconds", "cost_usd"])
+    def test_forwards_an_unmeasured_figure_as_unknown_not_zero(self, omitted):
+        """At the endpoint, not only the sender: the sender can omit a None,
+        but only if this layer hands it one. `or 0` here is exactly how
+        duration used to become a measured-looking 0 seconds, and a test of
+        the sender alone passes with it put back."""
+        app, _, mock_sender, _ = _create_app()
+        body = {"status": "failed", "reason_code": "agent_error", "duration_seconds": 42.5, "cost_usd": 0.37}
+        del body[omitted]
+
+        resp = TestClient(app).post("/internal/run-status", json=body, headers={"X-Broker-Token": BROKER_TOKEN})
+
+        assert resp.status_code == 200
+        assert mock_sender.send_result.call_args[1][omitted] is None
+
     def test_accepts_and_forwards_duration_and_cost(self):
         """Runner reports real elapsed seconds and accrued cost on failure.
         Broker must accept snake_case and forward to callback_sender, which

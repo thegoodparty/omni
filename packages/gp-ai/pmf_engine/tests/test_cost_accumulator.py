@@ -92,9 +92,24 @@ class TestPriceTurn:
         measured."""
         assert claude_sdk._price_turn("claude-sonnet-5", {"output_tokens": 0}) == 0.0
 
-    def test_missing_usage_fields_default_to_zero(self):
+    def test_a_class_the_usage_does_not_carry_contributes_nothing(self):
+        """An ABSENT key is not an unobserved one: the CLI leaves out classes
+        that were not billed, so a run with no caching carries no cache keys.
+        Treating absence as unobserved would withhold every uncached run's
+        cost — so a usage object reporting nothing prices at a real zero."""
         assert claude_sdk._price_turn("claude-sonnet-5", {}) == 0.0
-        assert claude_sdk._price_turn("claude-sonnet-5", None) == 0.0
+        assert claude_sdk._price_turn("claude-sonnet-5", {"output_tokens": 1_000_000}) == 15.0
+
+    @pytest.mark.parametrize("usage", [None, "not a dict", 42, ["output_tokens"]])
+    def test_a_turn_with_no_usage_object_is_unobserved_not_free(self, usage):
+        """No usage object means nothing was reported, so nothing was
+        measured. This used to price at 0.0 — the one number the unknown-model
+        test above exists to refuse, for the same reason: it is what a
+        timed-out run is billed at, and $0.00 for an unobserved turn looks
+        like a free one."""
+        assert claude_sdk._price_turn("claude-sonnet-5", usage) is None
+        _, why = claude_sdk._priced_turn("claude-sonnet-5", usage)
+        assert why is not None and "no usage" in why
 
     def test_reads_the_key_names_through_the_shared_mapping(self, monkeypatch):
         """`_price_turn` bills a timed-out run and `_usage_counts` logs what the
@@ -107,15 +122,37 @@ class TestPriceTurn:
         assert claude_sdk._price_turn("claude-sonnet-5", {"prompt_tokens": 1_000_000}) == 3.0
         assert claude_sdk._price_turn("claude-sonnet-5", {"input_tokens": 1_000_000}) == 0.0
 
-    def test_a_garbled_count_is_not_billed_as_zero_tokens_worth_of_others(self):
-        """Pricing inherits `_usage_counts`' coercion, so a field the CLI
-        garbles drops out of the arithmetic instead of contributing a fabricated
-        count. The other classes still bill."""
-        priced = claude_sdk._price_turn(
-            "claude-sonnet-5",
-            {"input_tokens": "not a number", "output_tokens": 1_000_000},
-        )
-        assert priced == 15.0
+    @pytest.mark.parametrize(
+        "bad",
+        ["not a number", -1, float("inf"), 2**53],
+    )
+    def test_a_reported_count_it_cannot_read_leaves_the_turn_unobserved(self, bad):
+        """A count the CLI DID report but that cannot be read is still never
+        fabricated — that half of the old rule stands. What changed is the
+        rest: this used to price the classes that survived and bill the turn
+        at that, which is a sum missing a term. Understated while looking
+        whole is exactly what `get_accumulated_cost` refuses to report for a
+        run, so the turn it feeds is withheld for the same reason."""
+        usage = {"input_tokens": bad, "output_tokens": 1_000_000}
+        assert claude_sdk._price_turn("claude-sonnet-5", usage) is None
+        _, why = claude_sdk._priced_turn("claude-sonnet-5", usage)
+        assert why is not None and "input_tokens" in why
+
+    def test_names_every_unreadable_class(self):
+        usage = {"input_tokens": "x", "cache_read_input_tokens": -5, "output_tokens": 1}
+        _, why = claude_sdk._priced_turn("claude-sonnet-5", usage)
+        assert why is not None
+        assert "input_tokens" in why and "cache_read_input_tokens" in why
+        assert "output_tokens" not in why
+
+    def test_says_which_kind_of_unobserved_it_was(self):
+        """Only a missing rate is fixed by editing _PRICE_PER_MTOK. A reason
+        that blamed the rate table for a missing usage object would send
+        someone to fix the wrong thing."""
+        _, rate = claude_sdk._priced_turn("gemini-3-flash", {"output_tokens": 1})
+        _, usage = claude_sdk._priced_turn("claude-sonnet-5", None)
+        assert rate is not None and "no rate on record" in rate
+        assert usage is not None and "no rate on record" not in usage
 
     def test_cache_read_is_cheap_relative_to_fresh_input(self):
         # The core reason we sum per-turn dollars instead of summing input
@@ -173,6 +210,30 @@ class TestUnpricedTurnThroughTheHarness:
         right number's clothes, and nothing downstream could tell."""
         billed = await _accumulate_over([_turn("claude-sonnet-5", 1_000_000), _turn("gemini-3-flash", 1_000_000)])
         assert billed is None
+
+    @pytest.mark.asyncio
+    async def test_a_turn_with_no_usage_withholds_the_bill(self):
+        """The loop has to act on an unobserved turn, not only the pricer
+        report one. Before this a known-model turn with no usage priced at 0.0
+        and was ADDED to the estimate, so the run billed as if it were free."""
+        turn = AssistantMessage(model="claude-sonnet-5", content=[TextBlock(text="working")], usage=None)
+        billed = await _accumulate_over([_turn("claude-sonnet-5", 1_000_000), turn])
+        assert billed is None
+
+    @pytest.mark.asyncio
+    async def test_records_why_a_turn_went_unpriced(self):
+        """The reason is what someone reads to fix it. A missing usage object
+        is not fixed by adding a rate, so blaming the rate table here would
+        send them to the wrong file."""
+        turn = AssistantMessage(
+            model="claude-sonnet-5",
+            content=[TextBlock(text="working")],
+            usage={"input_tokens": "garbled", "output_tokens": 1},
+        )
+        await _accumulate_over([turn])
+        reasons = list(claude_sdk._unobserved_cost_reasons)
+        assert any("input_tokens" in reason for reason in reasons)
+        assert not any("no rate on record" in reason for reason in reasons)
 
     @pytest.mark.asyncio
     async def test_a_fully_priced_run_still_bills_its_estimate(self):
