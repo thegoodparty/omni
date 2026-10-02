@@ -6,6 +6,7 @@ import { PRO_UPGRADE_STEP } from 'app/dashboard/pro-upgrade/proUpgradeStep'
 import ProUpgradeFlow from 'app/dashboard/pro-upgrade/components/ProUpgradeFlow'
 import CampaignVerificationSteps from 'app/dashboard/campaign-verification/components/CampaignVerificationSteps'
 import { PinDialog } from 'app/dashboard/shared/membership/PinDialog'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { BANNER_COPY, GATE_NOTICE_COPY, GATE_NOUN } from './gateCopy'
 import type { OutreachGateState } from './useOutreachGate'
 import { OutreachGate } from './OutreachGate'
@@ -21,6 +22,10 @@ vi.mock(
 )
 vi.mock('app/dashboard/shared/membership/PinDialog', () => ({
   PinDialog: vi.fn(() => null),
+}))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 
 const mockProUpgradeFlow = vi.mocked(ProUpgradeFlow)
@@ -432,6 +437,37 @@ describe('OutreachGate', () => {
       )
 
       expect(onExit).toHaveBeenCalledTimes(1)
+    })
+
+    it('fires In Review Viewed once with the channel', () => {
+      render(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          state={stateWith({ requirement: 'in_review' })}
+        />,
+      )
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.Gate.InReviewViewed,
+        { channel: 'sms' },
+      )
+      expect(trackEvent).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not fire In Review Viewed on the PIN screen', () => {
+      render(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          state={stateWith({ requirement: 'pin' })}
+        />,
+      )
+
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.Outreach.Gate.InReviewViewed,
+        expect.anything(),
+      )
     })
   })
 })

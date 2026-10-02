@@ -312,6 +312,12 @@ export const SmsComposeStep = ({
             <p className="mt-3 text-xs text-muted-foreground whitespace-pre-line">
               {composeFooter(committeeName)}
             </p>
+            {!isServe && committeeName === null && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Your &quot;Paid for by&quot; line is added once your campaign is
+                verified.
+              </p>
+            )}
 
             <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
               {canUndo && (

@@ -5,7 +5,11 @@ import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.serv
 import { OutreachService } from '../services/outreach.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
-import { OutreachStatus, OutreachType } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  OutreachType,
+  RobocallSettleState,
+} from '../../generated/prisma'
 
 const service = useTestService()
 
@@ -13,6 +17,7 @@ const deleteJob = vi.fn()
 const slackMessage = vi.fn()
 const retrieveCheckoutSession = vi.fn()
 const refundPaymentIntent = vi.fn()
+const voidHold = vi.fn()
 
 let orgSlug: string
 let campaignId: number
@@ -24,6 +29,7 @@ beforeEach(async () => {
   slackMessage.mockReset().mockResolvedValue(undefined)
   retrieveCheckoutSession.mockReset()
   refundPaymentIntent.mockReset()
+  voidHold.mockReset().mockResolvedValue(undefined)
 
   const peerly = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerly, 'deleteJob').mockImplementation(deleteJob)
@@ -37,6 +43,7 @@ beforeEach(async () => {
   vi.spyOn(stripe, 'refundPaymentIntent').mockImplementation(
     refundPaymentIntent,
   )
+  vi.spyOn(stripe, 'voidHold').mockImplementation(voidHold)
 
   campaignId = 997
   orgSlug = `campaign-${campaignId}`
@@ -253,24 +260,48 @@ describe('POST /v1/outreach/:id/cancel', () => {
     expect(persisted.canceledAt).not.toBeNull()
   })
 
-  it('rejects canceling a robocall (lifecycle runs off the satellite)', async () => {
-    // A robocall reads `pending` once its hold commits, but its dial/capture is
-    // driven by the satellite settleState, so canceling here would desync the
-    // spine without voiding the hold or stopping the dial.
+  it('cancels a robocall by unwinding its hold and flipping the spine', async () => {
+    // A robocall's lifecycle runs off the satellite settleState: cancel voids
+    // the authorization hold and flips both the satellite and the spine. The
+    // full matrix is in outreachRobocallCancel.service.test.ts; this asserts the
+    // route delegates to it.
     const row = await seedOutreach({
       outreachType: OutreachType.robocall,
       projectId: null,
       stripeCheckoutSessionId: null,
     })
+    await service.prisma.outreachRobocall.create({
+      data: {
+        outreachId: row.id,
+        audioKey: `robocall/${campaignId}/cancel.mp3`,
+        callbackNumber: '+15125550123',
+        billableCount: 100,
+        amountInCents: 5000,
+        settleState: RobocallSettleState.authorized,
+        authorizationIntentId: 'pi_robocall_cancel',
+      },
+    })
 
     const res = await postCancel(row.id)
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.refunded).toBe(false)
+    expect(voidHold).toHaveBeenCalledWith('pi_robocall_cancel')
     expect(deleteJob).not.toHaveBeenCalled()
     const persisted = await service.prisma.outreach.findUniqueOrThrow({
       where: { id: row.id },
     })
-    expect(persisted.status).toBe(OutreachStatus.pending)
+    expect(persisted.status).toBe(OutreachStatus.canceled)
+    // The route passes attribution down the delegation chain, so the spine
+    // records who canceled it — a regression re-dropping it at the delegation
+    // site would otherwise pass every test.
+    expect(persisted.canceledBy).toBe(service.user.email)
+    expect(persisted.canceledByAdmin).toBe(false)
+    expect(persisted.canceledAt).not.toBeNull()
+    const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
+      where: { outreachId: row.id },
+    })
+    expect(satellite.settleState).toBe(RobocallSettleState.cancelled)
   })
 
   it('is idempotent: canceling a canceled row is a no-op', async () => {

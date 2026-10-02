@@ -616,5 +616,15 @@ describe('OutreachNotificationService', () => {
         service.notifyRobocallDialing('x', 1, 1),
       ).resolves.toBeUndefined()
     })
+
+    it('notifyRobocallLowCredit posts an actionable out-of-credit alert', async () => {
+      await service.notifyRobocallLowCredit('jared-alper1', 83708)
+
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
+      const text = JSON.stringify(message)
+      expect(text).toContain('out of credit')
+      expect(text).toContain('jared-alper1')
+      expect(text).toContain('#83708')
+    })
   })
 })

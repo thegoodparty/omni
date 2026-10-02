@@ -1,6 +1,9 @@
-import { BadRequestException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import type { Person } from '@goodparty_org/contracts'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Organization } from '../../generated/prisma'
 import { ContactsService } from '../services/contacts.service'
 import {
@@ -80,6 +83,48 @@ const countDrain = async (
 
 const peopleWithPhones = (ids: string[], phones = ids) =>
   ids.map((id, i) => person({ id, cellPhone: phones[i] }))
+
+// Pages of 1000 fresh people, served off a clock the pages advance by hand.
+// The deadline measures Date.now(), and a real clock would make these either
+// slow (90s of waiting) or flaky (page latency measured on a busy CI box).
+// page1Ms is separate because page 1 carries the parallel COUNT and really is
+// the slow one in prod — whether the projection leans on it is the thing under
+// test.
+const timedPages = ({
+  fullPages,
+  tailSize = 0,
+  totalResults,
+  page1Ms,
+  pageMs,
+}: {
+  fullPages: number
+  tailSize?: number
+  totalResults: number
+  page1Ms: number
+  pageMs: number
+}) => {
+  let now = 0
+  let pageNumber = 0
+  vi.spyOn(Date, 'now').mockImplementation(() => now)
+  const findContactsForFilter = asFinder(
+    vi.fn(async () => {
+      pageNumber += 1
+      now += pageNumber === 1 ? page1Ms : pageMs
+      const size = pageNumber <= fullPages ? 1000 : tailSize
+      return {
+        people: peopleWithPhones(
+          Array.from({ length: size }, (_, i) => `${pageNumber}-${i}`),
+        ),
+        pagination: { totalResults },
+      }
+    }),
+  )
+  return { findContactsForFilter, elapsedMs: () => now }
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('resolveFilterAudience', () => {
   it('forces hasCellPhone, counts once on page 1, then pages with skipCount until a short page', async () => {
@@ -478,6 +523,162 @@ describe('resolveFilterAudience', () => {
         ),
       ),
     ).rejects.toThrow(new BadRequestException('too many'))
+  })
+
+  it('refuses a filter that cannot be resolved inside the time budget', async () => {
+    // INC-101, to scale. 82,000 matched rows is UNDER the 100,000 cap, so
+    // every guard here used to wave it through; 82 pages at the ~1.5s/page
+    // measured in prod is ~123s, and the gateway hangs up at ~120s. In prod
+    // that request died with no status at 120,038ms and the handler carried on
+    // to upload a phone list to Peerly 45.9s later — work the browser had
+    // already reported as failed.
+    //
+    // Two pages are enough to know: refuse in ~4.5s, naming the matched count
+    // and what the measured page cost says would fit.
+    const { findContactsForFilter, elapsedMs } = timedPages({
+      fullPages: 82,
+      totalResults: 82_000,
+      page1Ms: 3000,
+      pageMs: 1500,
+    })
+
+    await expect(
+      countDrain(
+        resolveFilterAudience(
+          { findContactsForFilter },
+          {
+            filterInput: {},
+            organization: ORGANIZATION,
+            excludePersonIds: new Set(),
+            timeBudgetMs: 90_000,
+            budgetExceededMessage: ({ matchedCount, affordableCount }) =>
+              `${matchedCount} is too many, try ${affordableCount}`,
+          },
+        ),
+      ),
+    ).rejects.toThrow(new BadRequestException('82000 is too many, try 57000'))
+
+    expect(findContactsForFilter).toHaveBeenCalledTimes(2)
+    expect(elapsedMs()).toBe(4500)
+  })
+
+  it('names a size on refusal that then resolves on the retry', async () => {
+    // The refusal above suggested 57,000. A suggestion that gets refused a
+    // second time is worse than no suggestion, so resolve exactly that many at
+    // exactly the page cost it was measured from: 3s for the COUNT-carrying
+    // first page and 1.5s after, which lands at 88.5s inside the 90s budget.
+    const { findContactsForFilter, elapsedMs } = timedPages({
+      fullPages: 57,
+      totalResults: 57_000,
+      page1Ms: 3000,
+      pageMs: 1500,
+    })
+
+    const { resolved } = await countDrain(
+      resolveFilterAudience(
+        { findContactsForFilter },
+        {
+          filterInput: {},
+          organization: ORGANIZATION,
+          excludePersonIds: new Set(),
+          timeBudgetMs: 90_000,
+        },
+      ),
+    )
+
+    expect(resolved).toBe(57_000)
+    expect(elapsedMs()).toBeLessThan(90_000)
+  })
+
+  it('resolves a list that projects just inside the budget', async () => {
+    // The other half of the trade, and the reason the projection does not lean
+    // on page 1: 60 pages at 1.4s is 84.6s including a 2s first page — slow,
+    // but it lands, so it must not be refused. Projecting 59 more pages from
+    // the COUNT-carrying first page would have put this at 120s and 400ed it.
+    const { findContactsForFilter } = timedPages({
+      fullPages: 60,
+      totalResults: 60_000,
+      page1Ms: 2000,
+      pageMs: 1400,
+    })
+
+    const { resolved } = await countDrain(
+      resolveFilterAudience(
+        { findContactsForFilter },
+        {
+          filterInput: {},
+          organization: ORGANIZATION,
+          excludePersonIds: new Set(),
+          timeBudgetMs: 90_000,
+        },
+      ),
+    )
+
+    expect(resolved).toBe(60_000)
+    // 60 full pages plus the short one that ends the loop.
+    expect(findContactsForFilter).toHaveBeenCalledTimes(61)
+  })
+
+  it('stops with a 503 when paging slows down past the budget mid-resolution', async () => {
+    // The hard stop, which is all that is left when nothing can be projected
+    // (no matched count because the pre-flight is off). The projection should
+    // normally refuse first, so reaching this means upstream paging got slower
+    // after the resolution started — a 503 rather than a 400 because that is
+    // ours to fix, not the user's, and the route alerts page on it.
+    //
+    // What matters either way: it stops while the client is still connected,
+    // so the handler cannot go on to create something nobody is waiting for.
+    const { findContactsForFilter } = timedPages({
+      fullPages: 40,
+      totalResults: 40_000,
+      page1Ms: 50_000,
+      pageMs: 50_000,
+    })
+
+    await expect(
+      countDrain(
+        resolveFilterAudience(
+          { findContactsForFilter },
+          {
+            filterInput: {},
+            organization: ORGANIZATION,
+            excludePersonIds: new Set(),
+            skipPreflightCap: true,
+            timeBudgetMs: 90_000,
+          },
+        ),
+      ),
+    ).rejects.toThrow(ServiceUnavailableException)
+
+    // Page 1 ends at 50s and page 2 at 100s; page 3 is never asked for.
+    expect(findContactsForFilter).toHaveBeenCalledTimes(2)
+  })
+
+  it('has no deadline at all when the caller passes no budget', async () => {
+    // The SQS delivery path again. Four minutes of paging with nobody waiting
+    // is a send that works, and neither deadline guard may touch it.
+    const { findContactsForFilter, elapsedMs } = timedPages({
+      fullPages: 4,
+      tailSize: 500,
+      totalResults: 4500,
+      page1Ms: 60_000,
+      pageMs: 60_000,
+    })
+
+    const { resolved } = await countDrain(
+      resolveFilterAudience(
+        { findContactsForFilter },
+        {
+          filterInput: {},
+          organization: ORGANIZATION,
+          excludePersonIds: new Set(),
+          skipPreflightCap: true,
+        },
+      ),
+    )
+
+    expect(resolved).toBe(4500)
+    expect(elapsedMs()).toBe(300_000)
   })
 
   it('keeps going when a whole page fails isEligible', async () => {

@@ -23,6 +23,7 @@ import { PeerlyP2pJobService } from './services/peerlyP2pJob.service'
 import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
 import { PeerlyScheduleService } from './services/peerlySchedule.service'
+import { PeerlyTestListService } from './services/peerlyTestList.service'
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
     PeerlyPhoneListCaptureService,
     PeerlyMediaService,
     PeerlyScheduleService,
+    PeerlyTestListService,
     P2pPhoneListUploadService,
     PeerlyP2pJobService,
     PeerlyJobResultsService,
@@ -60,6 +62,7 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
     PeerlyMediaService,
     PeerlyP2pJobService,
     PeerlyJobResultsService,
+    PeerlyTestListService,
   ],
 })
 export class PeerlyModule {}

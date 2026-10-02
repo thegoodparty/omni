@@ -115,9 +115,10 @@ arguing. It stopped the person who designed the system twice.
 The two underlying columns can never both be set, which is what makes one field the
 honest shape: the count works by finding the name in the registry and counting its
 references, so deleting the name leaves nothing to count and the column goes empty.
-Worked example, live on 2026-09-28: `Onboarding V2 - Strategic Landscape Displayed`,
-declared at `analyticsHelper.ts:799`, caller deleted in `e5e863545` (2026-09-01). Stages
-and counts: `books/refresh-event-provenance.md`.
+Worked example: `Onboarding V2 - Strategic Landscape Displayed` lost its caller in
+`e5e863545` (2026-09-01) and its name in DATA-2594 (2026-09-30). Between those dates it
+read `declared, but nothing has called it since 2026-09-01`; after the second it reads
+`removed on` that date. Stages and counts: `books/refresh-event-provenance.md`.
 
 `call_site_count` is a number on the card, never the string the CSV hands back. Blank
 becomes null, because "the walk resolved no key path" and "it resolved one and found no
@@ -232,10 +233,8 @@ quick-select chips built from that cause's own data: `all`, `none`, one per dist
 provenance state, and `older than 30d` where it applies. Pick a set, then apply a verb
 to just those events.
 
-Today's `never observed` is why this exists. One click on `not found in code` selects
-34 of its 69 events, which are the Serve and Win outreach names declared in Govern and
-never built. They need a different verb from the thirty instrumented in the last
-fortnight that simply have not fired yet.
+Use it when the evidence columns split a cause into more than one decision, for example
+when the provenance chips show some events were never found in code and others were.
 
 A per-event ruling coexists with the cause-level one, so "retire the cluster, except
 these four" is expressible. In the handoff, events ruled together under the same verb

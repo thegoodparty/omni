@@ -70,16 +70,16 @@ describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
 
     expect(storyIdx).toBeGreaterThanOrEqual(0)
     expect(items[storyIdx]?.label).toBe('Your Story')
-    // It sits directly above the Campaign Tracker tab.
+    // It sits directly above the Campaign Plan tab.
     expect(planIdx).toBe(storyIdx + 1)
   })
 })
 
-describe('getDashboardMenuItems — Campaign Tracker tab label', () => {
-  it('always labels the item "Campaign Tracker"', () => {
+describe('getDashboardMenuItems — Campaign Plan tab label', () => {
+  it('always labels the item "Campaign Plan"', () => {
     const items = links()
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
-    expect(planItem?.label).toBe('Campaign Tracker')
+    expect(planItem?.label).toBe('Campaign Plan')
   })
 })
 
@@ -144,7 +144,7 @@ describe('getDashboardMenuItems — Community Issues nav gating', () => {
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
   })
 
-  it('still renders Campaign Tracker alongside Community Issues for an elected office', () => {
+  it('still renders Campaign Plan alongside Community Issues for an elected office', () => {
     const items = links({
       isElectedOffice: true,
     })
@@ -195,7 +195,7 @@ describe('getDashboardMenuItems — Priorities tab gating', () => {
     expect(serveRail[1]?.id).toBe('priorities-dashboard')
   })
 
-  it('keeps Campaign Tracker under Campaign Manager when Priorities shows', () => {
+  it('keeps Campaign Plan under Campaign Manager when Priorities shows', () => {
     const items = links({ isElectedOffice: true, prioritiesEnabled: true })
     const campaignManager = items.findIndex(
       (i) => i.id === 'campaign-tracker-dashboard',

@@ -25,6 +25,7 @@ import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyTestListService } from 'src/vendors/peerly/services/peerlyTestList.service'
 import { OutreachService } from './outreach.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
@@ -175,6 +176,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
+    private readonly peerlyTestListService: PeerlyTestListService,
     private readonly analytics: AnalyticsService,
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
@@ -838,10 +840,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
    * CAS's pre-approval check: send the campaign's live template to the
    * reviewer's own handset, the way Peerly's platform "send test" button
    * does. Find-or-create the job's test job (reused across clicks —
-   * every test job is a real vendor object), then fire the test text to
-   * ONLY the explicitly typed phone — never a number derived from
-   * campaign or contact data. Nothing we cache changes, so no
-   * invalidateVendorReads.
+   * every test job is a real vendor object) AND the identity's Peerly test
+   * list holding the typed number (Peerly only texts a number that sits on
+   * one, and names the list in the send), then fire the test text to ONLY
+   * the explicitly typed phone — never a number derived from campaign or
+   * contact data. Nothing we cache changes, so no invalidateVendorReads.
    */
   async sendTestMessage(
     outreachId: number,
@@ -866,6 +869,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (row.status === OutreachStatus.completed) {
       throw new BadRequestException('This campaign has already sent')
     }
+    // The test list Peerly sends to lives inside the campaign's identity,
+    // so a row whose job predates identity capture cannot be tested.
+    if (!row.identityId) {
+      throw new BadRequestException(
+        'This campaign has no Peerly identity recorded, so a test cannot ' +
+          'be sent',
+      )
+    }
 
     // Claim BEFORE the vendor calls so a double-click's second request is
     // refused rather than racing the first to two texts; released on a
@@ -886,13 +897,21 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     this.testSendClaims.set(outreachId, now)
 
     try {
+      const testListId = await this.peerlyTestListService.resolveTestListId({
+        identityId: row.identityId,
+        phone,
+      })
       const existingTestJobIds = await this.peerlyP2pJobService.listTestJobIds(
         row.projectId,
       )
       const testJobId =
         existingTestJobIds[0] ??
         (await this.peerlyP2pJobService.createTestJob(row.projectId))
-      await this.peerlyP2pJobService.sendTestMessage(testJobId, phone)
+      await this.peerlyP2pJobService.sendTestMessage(
+        testJobId,
+        phone,
+        testListId,
+      )
     } catch (error) {
       this.testSendClaims.delete(outreachId)
       throw error

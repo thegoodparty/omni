@@ -119,7 +119,7 @@ test.describe('campaign story flow', () => {
     })
   })
 
-  test('"Your Story" nav item is visible and the plan tab reads "Campaign Tracker"', async ({
+  test('"Your Story" nav item is visible and the plan tab reads "Campaign Plan"', async ({
     page,
   }) => {
     await authenticateTestUser(page, { isolated: true })
@@ -129,7 +129,7 @@ test.describe('campaign story flow', () => {
 
     await expect(page.locator('#campaign-story-dashboard')).toBeVisible()
     await expect(page.locator('#campaign-plan-dashboard')).toHaveText(
-      /campaign tracker/i,
+      /campaign plan/i,
     )
   })
 

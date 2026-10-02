@@ -503,6 +503,27 @@ export class PaymentEventsService {
         user,
         formatDate(new Date((cancelAt as number) * 1000), DateFormats.usDate),
       ))
+
+    // Stripe lists status in previous_attributes only when it changed, so
+    // this fires once per failed renewal, not on every retry while past due.
+    const becamePastDue =
+      subscription.status === 'past_due' &&
+      previousAttributes?.status !== undefined &&
+      previousAttributes.status !== 'past_due'
+    if (becamePastDue) {
+      try {
+        await this.analytics.track(
+          user.id,
+          EVENTS.Account.ProSubscriptionPastDue,
+          { subscriptionId },
+        )
+      } catch (error) {
+        this.logger.error(
+          { error },
+          `[WEBHOOK] Failed to track Pro past due - User: ${user.id}`,
+        )
+      }
+    }
   }
 
   async checkoutSessionCompletedHandler(
@@ -852,6 +873,19 @@ export class PaymentEventsService {
     await this.campaignsService.patchCampaignDetails(campaign.id, {
       subscriptionCanceledAt: Date.now(),
     })
+
+    try {
+      await this.analytics.track(user.id, EVENTS.Account.ProSubscriptionEnded, {
+        subscriptionId,
+        cancellationReason: subscription.cancellation_details?.reason ?? null,
+      })
+    } catch (error) {
+      this.logger.error(
+        { error },
+        `[WEBHOOK] Failed to track Pro cancellation - User: ${user.id}`,
+      )
+    }
+
     await this.sendProCancellationSlackMessage(user, campaign)
   }
 

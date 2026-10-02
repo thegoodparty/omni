@@ -41,6 +41,18 @@ const AUTHORED = [
 // deliberate and recorded in every list's `note`.
 const CASES_PER_LIST = 8
 
+// THE ONE LIST THAT IS NOT A PLACEHOLDER. Melecia's background bench, taken
+// verbatim: eight scored probes (T1-T7, T9) over a captured payload plus her
+// clean control, authored to test the agent rather than to exercise the
+// pipeline. So it carries `placeholder: false`, which is what stops the report
+// qualifying its verdict as "evidence the judge ran" — and it has nine cases,
+// not eight.
+//
+// Named here rather than branched on inline, so adding a second real list is
+// one edit and so the placeholder assertions below stay unambiguous about what
+// they cover.
+const REAL_LISTS: readonly string[] = ['race_opponent_summary']
+
 // A background case's `params` is what the dispatch Lambda is called with, and
 // the experiment manifest is the only statement of what that call accepts. The
 // manifests live in another package, so this reaches across the repo on
@@ -149,16 +161,30 @@ describe('the authored background case lists', () => {
 
     const list = loadCaseList(agent)
     expect(list.shape).toBe('background')
-    // A verdict from a list nobody has dispatched is a claim about the
-    // pipeline, not about the agent, and this flag is what carries that.
-    expect(list.placeholder).toBe(true)
-    expect(list.note).toContain('PLACEHOLDER')
-    expect(list.cases).toHaveLength(CASES_PER_LIST)
+
+    if (REAL_LISTS.includes(agentId)) {
+      // Authored to test the agent, so it must NOT claim to be a placeholder
+      // — that flag is what suppresses the report's "evidence the judge ran"
+      // qualifier, and leaving it on would understate a real verdict exactly
+      // as turning it off would overstate a synthetic one.
+      expect(list.placeholder).toBe(false)
+      expect(list.note).not.toContain('PLACEHOLDER')
+      // The note is the only place a reader learns whose bench this is and
+      // where it came from, since the params themselves are 400KB of capture.
+      expect(list.note).toContain('chat-bench')
+      expect(list.cases.length).toBeGreaterThan(0)
+    } else {
+      // A verdict from a list nobody has dispatched is a claim about the
+      // pipeline, not about the agent, and this flag is what carries that.
+      expect(list.placeholder).toBe(true)
+      expect(list.note).toContain('PLACEHOLDER')
+      expect(list.cases).toHaveLength(CASES_PER_LIST)
+    }
 
     // Ids name stored records, so a duplicate would overwrite rather than
     // add and the sweep would judge fewer cases than it was billed for.
     const ids = list.cases.map((c) => c.caseId)
-    expect(new Set(ids).size).toBe(CASES_PER_LIST)
+    expect(new Set(ids).size).toBe(list.cases.length)
 
     const schema = inputSchemaFor(agentId)
 
