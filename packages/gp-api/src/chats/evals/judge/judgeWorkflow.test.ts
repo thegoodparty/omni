@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
 import { budgetOutputLines } from './armBudget'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
+import { DEFAULT_JUDGE_CONFIG } from './config'
 import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
@@ -335,7 +336,7 @@ describe('judge.yml tells every judge process who asked', () => {
   })
 
   // The price and the guard state belong in the same comment: a reader
-  // approving ~$264 of sweep should be able to see whether two arms that hash
+  // approving ~$305 of sweep should be able to see whether two arms that hash
   // alike will be judged or refused.
   it('says in the plan comment which mode the request is in', () => {
     const estimate = steps.find(
@@ -1254,5 +1255,38 @@ describe('judge.yml links the commits, the base and the case lists', () => {
     ])('leaves %j as a code span', (value) => {
       expect(cell(value)).toBe(`\`${value}\``)
     })
+  })
+})
+
+// THE BACKGROUND PRICE IS A FUNCTION OF THE BACKGROUND BUDGET. It was a bare
+// $13 that outlived the budget it priced, so it is recomputed here from
+// config.background: a change to the budget that does not reach the workflow
+// fails this rather than quietly mispricing every plan comment.
+describe('judge.yml prices a background agent from config.background', () => {
+  const estimate = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
+    (step) => step.name === 'Estimate the cost and case count',
+  )
+  const script = runBlockOf(estimate?.body ?? '')
+
+  // The design doc's basis: 5 runs for roughly $12 to $15, i.e. $13.
+  const RUN_CENTS = 260
+  // The base-arm cache is not read by the sweep yet, so both arms run.
+  const ARMS = 2
+
+  it('matches arms x cases x attempts x the per-run cost', () => {
+    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
+    expect(maxCases).toBeDefined()
+    const assigned = [...script.matchAll(/^background_cents=(\d+)$/gm)]
+    expect(assigned).toHaveLength(1)
+    expect(Number(assigned[0]?.[1])).toBe(
+      ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS,
+    )
+  })
+
+  // A correct constant nobody reads would pass the test above.
+  it('is the figure a background row is priced at', () => {
+    expect(script).toContain(
+      '[ "$shape" = "chat" ] && cents=700 || cents=$background_cents ;;',
+    )
   })
 })

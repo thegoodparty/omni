@@ -497,7 +497,7 @@ jobs:
                 # directory name reaches `--agents=` unchanged. Both are valid
                 # snake_case, so the allowlist below passes them through: a
                 # directory named `all` turns this one-agent request into the
-                # 20-agent ~$264 sweep that every other guard in this file
+                # 20-agent ~$305 sweep that every other guard in this file
                 # exists to prevent, and one named `auto` makes the CLI throw.
                 # Rejected here rather than filtered out, because silently
                 # judging nothing would hide a directory nobody can ever judge.
@@ -694,7 +694,7 @@ jobs:
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
       #
-      # An accidental `all` is the failure this exists for. It is roughly $260
+      # An accidental `all` is the failure this exists for. It is roughly $305
       # against roughly $7 for the normal one-agent case, and the difference
       # between those two is one word in a PR comment. So the number goes in
       # front of a person, in the job summary and on the PR, and the live sweep
@@ -707,12 +707,14 @@ jobs:
       # visibility guarantee, deliberately, and not an approval gate; the PR
       # says what it would take to make it one.
       #
-      # The dollar figures are the design doc's measured sweep costs, not a
+      # The chat figures are the design doc's measured sweep costs, not a
       # model of them: ~$7 for a chat agent, ~5x that for ordinance_flow (whose
-      # per-step cost is five times every other chat agent), ~$13 for a
-      # background agent. Per-agent case lists come from the CLI's own plan,
-      # which is reproduced verbatim below the table, so the two facts a reader
-      # needs are never assembled by this YAML.
+      # per-step cost is five times every other chat agent). The background
+      # figure is derived below from config.background and pinned to it by a
+      # test, because the budget it prices moved after the design doc did.
+      # Per-agent case lists come from the CLI's own plan, which is reproduced
+      # verbatim below the table, so the two facts a reader needs are never
+      # assembled by this YAML.
       - name: Estimate the cost and case count
         id: estimate
         if: >-
@@ -962,6 +964,16 @@ jobs:
             refuse "The judge CLI planned $planned agents and this workflow could read only $parsed of them out of the plan, so the pricing regex and the plan format have drifted apart. Under-reporting a bill is worse than refusing to report one, so it stops here rather than pricing part of a sweep. That is a fault in the judge, not in this PR."
           fi
 
+          # 2 arms x 3 cases x 1 attempt x $2.60 a run = $15.60, from
+          # DEFAULT_JUDGE_CONFIG.background (maxCases 3, attemptsPerCase 1).
+          # $2.60 is the design doc's own basis: 5 runs for roughly $12 to $15,
+          # which is where the old $13 came from. That figure assumed a cached
+          # base arm; the sweep does not read the cache yet, so both arms run.
+          # Judging is a few cents on one seat and is not added.
+          # judgeWorkflow.test.ts recomputes this from the config, so a budget
+          # change that does not reach this line fails there.
+          background_cents=1560
+
           total=0
           sweep_agents=""
           keep() {
@@ -993,7 +1005,7 @@ jobs:
               esac
               case "$id" in
                 ordinance_flow) cents=3500 ;;  # ~5x per step, per the design doc
-                *) [ "$shape" = "chat" ] && cents=700 || cents=1300 ;;
+                *) [ "$shape" = "chat" ] && cents=700 || cents=$background_cents ;;
               esac
               total=$((total + cents))
               keep "$id"
