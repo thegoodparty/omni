@@ -744,6 +744,65 @@ describe('PeerlyIdentityService', () => {
       expect(errorHandling.handleApiError).not.toHaveBeenCalled()
     })
 
+    // Prod, 2026-10-02 from 16:00Z: Peerly answered every CV submission with a
+    // bare 400 `Error: "Insufficient balance to submit CV..."`. With nothing
+    // nested to match on, it fell through to the generic handler as a 502 the
+    // compliance agent retries — four candidates, 135 failures in one hour,
+    // paging on-call each time and holding nothing back.
+    it('treats the insufficient-balance 400 as a billing failure and quotes it in the alert', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi.fn().mockRejectedValue({
+        isAxiosError: true,
+        status: 400,
+        response: {
+          status: 400,
+          data: {
+            Error:
+              'Insufficient balance to submit CV. Please add funds to your account.',
+          },
+        },
+      })
+
+      await expect(
+        service.submitCampaignVerifyRequest(
+          {
+            email: 'candidate@example.com',
+            ein: '12-3456789',
+            phone: '15551234567',
+            peerlyIdentityId: 'peerly-billing-2',
+            filingUrl: 'https://example.gov/elections',
+            officeLevel: OfficeLevel.state,
+            fecCommitteeId: null,
+            committeeType: CommitteeType.CANDIDATE,
+          },
+          baseUser,
+          createMockCampaign(),
+          baseDomainName,
+        ),
+      ).rejects.toBeInstanceOf(PeerlyBillingException)
+
+      // Staff need to read what to do (add funds) off the alert itself.
+      expect(slackService.message).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blocks: expect.arrayContaining([
+            expect.objectContaining({
+              text: expect.objectContaining({
+                text: expect.stringContaining(
+                  'Insufficient balance to submit CV',
+                ),
+              }),
+            }),
+          ]),
+        }),
+        SlackChannel.bot10DlcCompliance,
+      )
+      expect(errorHandling.handleApiError).not.toHaveBeenCalled()
+    })
+
     it('classifies a Campaign Verify data rejection (nested 400) as a 400 carrying the CV reason', async () => {
       const httpService = module.get(PeerlyHttpService)
       const usersService = module.get(UsersService)

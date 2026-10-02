@@ -498,12 +498,19 @@ section removed their contribution to `stuckCount` along with it.
 - Federal office requires a valid `fecCommitteeId`, re-enforced here against the
   persisted value (the agent can't resolve it reliably; staff may backfill it).
 - **Peerly billing-outage hold (ENG-10653).** When Peerly's CampaignVerify `submit_cv`
-  returns its unrecoverable billing error (`400` with `details.message` =
-  `"No payment method available"`), `submitCampaignVerifyRequest`
+  returns an unrecoverable billing error — `400` with `details.message` =
+  `"No payment method available"`, or `400` with a bare top-level
+  `Error: "Insufficient balance to submit CV. Please add funds to your account."`
+  (prod, 2026-10-02, incident 103: the prepaid Peerly account ran dry and this
+  envelope matched nothing, so four candidates' submissions were retried as
+  transient 502s — 135 failures in one hour, paging on-call, no hold stamped)
+  — `submitCampaignVerifyRequest`
   (`peerlyIdentity.service.ts`) detects it via `isPeerlyBillingError`
   (`utils/peerlyBillingError.util.ts`), fires a **distinct** Slack alert to
   `bot-10dlc-compliance` (separate from the generic per-identity error alert so a
-  billing outage is recognizable), and throws `PeerlyBillingException` (a
+  billing outage is recognizable, quoting the sentence Peerly actually sent via
+  `getPeerlyBillingMessage` so "add funds" is not reported as "no payment
+  method"), and throws `PeerlyBillingException` (a
   `BadGatewayException` subclass). `submitToPeerlyForAgent` catches it, stamps
   `TcrCompliance.peerlyBillingBlockedAt`, and on any subsequent call within
   `PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES` (6h) refuses with a `503` **before touching

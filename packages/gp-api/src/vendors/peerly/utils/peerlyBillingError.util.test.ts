@@ -6,9 +6,16 @@ import {
 } from 'axios'
 import { describe, expect, it } from 'vitest'
 import {
+  getPeerlyBillingMessage,
   isPeerlyBillingError,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from './peerlyBillingError.util'
+
+// Verbatim from prod on 2026-10-02 (identity 11540990, campaign of Kathryn
+// Larson): Peerly's whole 400 body, with no nested details and no CV status.
+const INSUFFICIENT_BALANCE_BODY = {
+  Error: 'Insufficient balance to submit CV. Please add funds to your account.',
+}
 
 const createAxiosError = (
   responseData: Record<string, unknown> | undefined,
@@ -87,5 +94,57 @@ describe('isPeerlyBillingError', () => {
 
   it('does not match a non-axios error', () => {
     expect(isPeerlyBillingError(new Error('boom'))).toBe(false)
+  })
+
+  // The prod body that was being retried as a transient 502: a bare top-level
+  // `Error`, which neither the nested-details billing check nor the CV-status
+  // checks could see, so every submission re-stormed Peerly and paged on-call.
+  it('matches the insufficient-balance 400 Peerly returns as a bare top-level Error', () => {
+    expect(
+      isPeerlyBillingError(createAxiosError(INSUFFICIENT_BALANCE_BODY)),
+    ).toBe(true)
+  })
+
+  it('does not match an insufficient-balance message on a non-400', () => {
+    expect(
+      isPeerlyBillingError(createAxiosError(INSUFFICIENT_BALANCE_BODY, 502)),
+    ).toBe(false)
+  })
+
+  it('does not match an unrelated top-level Error', () => {
+    const error = createAxiosError({
+      Error: 'Campaign Verify API request failed.',
+      status_code: 403,
+    })
+
+    expect(isPeerlyBillingError(error)).toBe(false)
+  })
+})
+
+describe('getPeerlyBillingMessage', () => {
+  it('returns the sentence Peerly sent, so the alert names the real condition', () => {
+    expect(
+      getPeerlyBillingMessage(createAxiosError(INSUFFICIENT_BALANCE_BODY)),
+    ).toBe(
+      'Insufficient balance to submit CV. Please add funds to your account.',
+    )
+  })
+
+  it('returns the nested payment-method message when that is what failed', () => {
+    const error = createAxiosError({
+      details: { message: PEERLY_NO_PAYMENT_METHOD_MESSAGE },
+    })
+
+    expect(getPeerlyBillingMessage(error)).toBe(
+      PEERLY_NO_PAYMENT_METHOD_MESSAGE,
+    )
+  })
+
+  it('returns null when nothing billing-related failed', () => {
+    expect(
+      getPeerlyBillingMessage(
+        createAxiosError({ message: 'Invalid filing_url' }),
+      ),
+    ).toBeNull()
   })
 })

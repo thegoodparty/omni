@@ -73,10 +73,7 @@ import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
 import { ExperimentRunStatus } from '../../../generated/prisma'
-import {
-  PeerlyBillingException,
-  PEERLY_NO_PAYMENT_METHOD_MESSAGE,
-} from '../../../vendors/peerly/utils/peerlyBillingError.util'
+import { PeerlyBillingException } from '../../../vendors/peerly/utils/peerlyBillingError.util'
 import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 import { CampaignVerifyPinNotIssuedException } from '../utils/campaignVerifyPinNotIssued.util'
 import { CvPreSubmissionValidationException } from '../utils/cvPreSubmissionValidation.util'
@@ -121,8 +118,9 @@ const CV_VALIDATION_TRANSIENT_HOLD_THRESHOLD = 3
 const AGENTIC_DISPATCH_CLAIM_TTL_MINUTES = 5
 
 // How long to hold off re-submitting to Peerly after a billing/account failure
-// ("No payment method available"). The failure is unrecoverable until Peerly
-// fixes billing, so agent-resume / kickoff re-dispatches within this window
+// ("No payment method available", "Insufficient balance"). The failure is
+// unrecoverable until the account is topped up or its payment method is fixed,
+// so agent-resume / kickoff re-dispatches within this window
 // short-circuit instead of re-hitting Peerly — one alert, no retry storm. After
 // it elapses the next attempt probes again (and re-alerts if still failing), so
 // registrations resume automatically once billing clears.
@@ -1473,8 +1471,8 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return this.buildSubmitToPeerlyResponse(existing)
     }
 
-    // Billing-outage hold: a prior submission hit Peerly's unrecoverable
-    // "No payment method available" billing error. Retrying re-fails and spams
+    // Billing-outage hold: a prior submission hit an unrecoverable billing
+    // condition on the Peerly account. Retrying re-fails and spams
     // Peerly, so an agent resume / kickoff re-dispatch that lands here during
     // the cooldown is refused before touching Peerly — this is what breaks the
     // retry storm. The cooldown lets it probe again automatically once billing
@@ -1488,8 +1486,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     ) {
       throw new ServiceUnavailableException(
         'Peerly Campaign Verify submission is on hold: Peerly reported a ' +
-          `billing/account issue ("${PEERLY_NO_PAYMENT_METHOD_MESSAGE}"). ` +
-          'Retrying is paused until the billing issue clears.',
+          'billing/account issue on the last attempt (the Slack alert on ' +
+          '#bot-10dlc-compliance names what Peerly said). Retrying is paused ' +
+          'until the billing issue clears.',
       )
     }
 
