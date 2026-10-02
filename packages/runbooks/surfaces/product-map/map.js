@@ -192,7 +192,7 @@ var ProductMap = (function () {
     steps: [
       {
         id: 'purpose',
-        t: 'What is this message for?',
+        t: 'What do you want to do?',
         state: 'shared',
         evs: [],
         shared: [
@@ -202,7 +202,7 @@ var ProductMap = (function () {
       },
       {
         id: 'audience',
-        t: 'Who should receive it?',
+        t: 'Who do you want to reach?',
         state: 'shared',
         evs: [],
         shared: [
@@ -212,7 +212,7 @@ var ProductMap = (function () {
       },
       {
         id: 'schedule',
-        t: 'When should it send?',
+        t: 'When do you want to send it?',
         state: 'shared',
         evs: [],
         shared: [
@@ -222,7 +222,7 @@ var ProductMap = (function () {
       },
       {
         id: 'compose',
-        t: 'Write the message',
+        t: 'What do you want to say?',
         state: 'shared',
         evs: [],
         shared: [
@@ -575,6 +575,693 @@ var ProductMap = (function () {
     ],
   }
 
+  const WEBSITE_CREATE = {
+    kind: 'flow',
+    name: 'Create a website',
+    route: '/dashboard/website/create',
+    src: 'packages/gp-webapp/app/dashboard/website/create/components/WebsiteCreateFlow.tsx',
+    note: 'six build steps and a finish screen; resumes at the saved step',
+    intro: [
+      'warn',
+      'Six steps, no events',
+      'The flow opens from the website hub and ends in a publish, and nothing fires in between. <b>Candidate Website - Published</b> is a backend event on first publish only, so drop-off between the link and the publish button cannot be seen.',
+    ],
+    steps: [
+      {
+        id: 'vanity-path',
+        t: 'What do you want your custom link to be?',
+        state: 'none',
+        evs: [],
+      },
+      {
+        id: 'logo',
+        t: 'Upload your campaign logo if you have one',
+        state: 'none',
+        evs: [],
+      },
+      { id: 'theme', t: 'Choose a color theme', state: 'none', evs: [] },
+      {
+        id: 'hero',
+        t: 'Customize the content visitors will see first',
+        state: 'none',
+        evs: [],
+      },
+      {
+        id: 'about',
+        t: 'What is your campaign about?',
+        state: 'none',
+        evs: [],
+      },
+      {
+        id: 'contact',
+        t: 'How can voters contact you?',
+        state: 'none',
+        evs: [],
+        note: [
+          'warn',
+          'Publish is backend only',
+          'The button here is <b>Publish website</b>. Its only event is <b>Candidate Website - Published</b>, fired by gp-api on the first publish, so a republish or a failed publish leaves no trace.',
+        ],
+      },
+      {
+        id: 'complete',
+        t: 'Congratulations, your website is live!',
+        state: 'ok',
+        evs: ['Candidate Website - Started domain selection'],
+        note: [
+          'warn',
+          'Not unique to this step',
+          'The same event fires from the website card on the hub, so its count is not this step’s.',
+        ],
+      },
+    ],
+    offstep: {
+      title: 'The hub this flow opens from, and the publish',
+      evs: [
+        'Candidate Website - Started',
+        'Candidate Website - Continued',
+        'Candidate Website - Published',
+      ],
+    },
+  }
+
+  const WEBSITE_EDITOR = {
+    kind: 'page',
+    name: 'Website editor',
+    route: '/dashboard/website/editor',
+    src: 'packages/gp-webapp/app/dashboard/website/editor/components/WebsiteEditFlow.tsx',
+    note: 'six sections behind one Save, and one event for all of them',
+    intro: [
+      'warn',
+      'One event for every section',
+      'Each section saves through the same handler, which fires <b>Candidate Website - Edited</b> with no property naming the section, and only when the site is already published. Which section people change cannot be told apart.',
+    ],
+    zones: [
+      {
+        id: 'sections',
+        t: 'Custom link, logo, color theme, title, campaign and contact details',
+        state: 'ok',
+        evs: ['Candidate Website - Edited'],
+      },
+      {
+        id: 'preview',
+        t: 'Preview',
+        state: 'none',
+        evs: [],
+      },
+      {
+        id: 'unpublish',
+        t: 'Unpublish, from the settings menu',
+        state: 'ok',
+        evs: ['Candidate Website - Unpublished'],
+      },
+    ],
+  }
+
+  const CAMPAIGN_VERIFICATION = {
+    kind: 'flow',
+    name: 'Campaign verification',
+    route: '/dashboard/campaign-verification',
+    src: 'packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationSteps.tsx',
+    note: 'three steps; the same steps also open inside the outreach gate',
+    steps: [
+      {
+        id: 'intro',
+        t: 'Verify your campaign to text voters',
+        state: 'ok',
+        evs: [
+          'Pro Upgrade - Verification Intro Viewed',
+          'Pro Upgrade - Verification Intro: Click continue',
+        ],
+      },
+      {
+        id: 'form',
+        t: 'What are your campaign filing details?',
+        state: 'ok',
+        evs: [
+          'Pro Upgrade - Filing Details Viewed',
+          'Pro Upgrade - Filing Details Submitted',
+          'Pro Upgrade - Filing Details Submit Error',
+          'Profile - Candidate Profile: Click Submit',
+          'Pro Upgrade - Candidate Profile Submitted',
+        ],
+        note: [
+          'warn',
+          'Shared form',
+          'This form also runs on the election filing page and in the Pro upgrade flow, so these counts are not verification volume. The profile section only shows when the profile is incomplete.',
+        ],
+      },
+      {
+        id: 'submitted',
+        t: 'Submitted for verification',
+        state: 'ok',
+        evs: ['Pro Upgrade - Verification Submitted Viewed'],
+      },
+    ],
+  }
+
+  const ORDINANCE = {
+    kind: 'flow',
+    name: 'Draft an ordinance',
+    route: '/dashboard/ordinances/solve/[slug]/[step]',
+    src: 'packages/gp-webapp/app/dashboard/ordinances/data/steps.ts + components/OrdinanceFlowChat.tsx',
+    note: 'five numbered steps, one page each, a Viewed and Completed pair named after every step',
+    steps: [
+      {
+        id: 'clarify',
+        t: 'Clarify',
+        state: 'ok',
+        evs: ['Ordinances - Clarify Viewed', 'Ordinances - Clarify Completed'],
+      },
+      {
+        id: 'authority',
+        t: 'Authority',
+        state: 'ok',
+        evs: [
+          'Ordinances - Authority Viewed',
+          'Ordinances - Authority Completed',
+        ],
+      },
+      {
+        id: 'current_law',
+        t: 'Current law',
+        state: 'ok',
+        evs: [
+          'Ordinances - Current Law Viewed',
+          'Ordinances - Current Law Completed',
+        ],
+      },
+      {
+        id: 'comparables',
+        t: 'How others solved it',
+        state: 'ok',
+        evs: [
+          'Ordinances - How Others Solved It Viewed',
+          'Ordinances - How Others Solved It Completed',
+        ],
+      },
+      {
+        id: 'draft',
+        t: 'Draft',
+        state: 'ok',
+        evs: [
+          'Ordinances - Draft Creation Viewed',
+          'Ordinances - Draft Creation Completed',
+        ],
+        note: [
+          'warn',
+          'Completed is not a click',
+          'Every other step completes on its advance button. This one completes when the drafted ordinance lands in the chat.',
+        ],
+      },
+      {
+        id: 'review',
+        t: 'Review the draft',
+        state: 'ok',
+        evs: [
+          'Ordinances - Draft Details Viewed',
+          'Ordinances - Draft Chat Opened',
+          'Ordinances - Draft Chat Message Sent',
+        ],
+      },
+    ],
+    offstep: {
+      title: 'Starting an ordinance, and the draft page',
+      evs: [
+        'Ordinances - New Ordinance Created',
+        'Ordinances - New Ordinance Errored',
+        'Ordinances - Draft Details Downloaded',
+        'Ordinances - Draft Details Status Updated',
+        'Ordinances - Draft Details Deleted',
+        'Ordinances - Bug Report Submitted',
+        'Ordinances - Bug Report Errored',
+      ],
+    },
+  }
+
+  const POLL_EXPAND = {
+    kind: 'flow',
+    name: 'Expand a poll',
+    route: '/dashboard/polls/[id]/expand',
+    src: 'packages/gp-webapp/app/dashboard/polls/[id]/expand (+ expand-review, expand-payment, expand-payment-success)',
+    note: 'four sibling routes; the footer says three steps, the flow has four and a success page',
+    steps: [
+      {
+        id: 'audience-selection',
+        t: 'How many more messages would you like to send?',
+        state: 'ok',
+        evs: [
+          'Polls - Expand Poll Recommendations Viewed',
+          'Polls - Expand Poll Recommendations Completed',
+        ],
+        note: [
+          'warn',
+          'Fires on mount',
+          'Viewed fires when the page mounts. Going back from review remounts the page on the next step, so this also counts people who are on step two.',
+        ],
+      },
+      {
+        id: 'date-selection',
+        t: 'When would you like to send your text messages?',
+        state: 'none',
+        evs: [],
+      },
+      {
+        id: 'review',
+        t: 'Review your SMS poll.',
+        state: 'ok',
+        evs: ['Polls - Expand Poll Review Viewed'],
+      },
+      {
+        id: 'payment',
+        t: 'SMS Poll Payment',
+        state: 'shared',
+        evs: [],
+        shared: [
+          [
+            'Payment - Review and Pay Screen Viewed',
+            'Serve Poll Expansion',
+            'type',
+          ],
+          ['Payment - Completed', 'Serve Poll Expansion', 'type'],
+        ],
+        note: [
+          'warn',
+          'Shared with creating a poll',
+          'Both payment events also fire when a poll is created. Only the <code>type</code> property separates an expansion, so the totals here are not this flow’s.',
+        ],
+      },
+      {
+        id: 'success',
+        t: 'Payment successful!',
+        state: 'none',
+        evs: [],
+      },
+    ],
+    offstep: {
+      title: 'The dead end when there is no constituent data',
+      evs: ['Polls - Constituent Data Unavailable Viewed'],
+    },
+  }
+
+  const DOOR_KNOCKING = {
+    kind: 'flow',
+    name: 'Create a door-knocking route',
+    route: '/dashboard/door-knocking',
+    src: 'packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx + createFlowSteps.ts',
+    note: 'five steps on the outreach shell, and a sixth for an event invite',
+    intro: [
+      'warn',
+      'One event pair covers every step',
+      'Like the SMS wizard, this flow runs on <b>OutreachFlowShell</b>, which fires <b>Voter Outreach - Flow Step Viewed</b> and <b>Flow Step Completed</b> with <code>channel</code> = door and <code>step</code> as properties. Per-step volume needs a property breakdown in Amplitude.',
+    ],
+    steps: [
+      {
+        id: 'purpose',
+        t: 'What do you want to do?',
+        state: 'shared',
+        evs: [],
+        shared: [
+          ['Voter Outreach - Flow Step Viewed', 'purpose'],
+          ['Voter Outreach - Flow Step Completed', 'purpose'],
+        ],
+      },
+      {
+        id: 'details',
+        t: 'When and where is the event?',
+        state: 'shared',
+        evs: [],
+        shared: [
+          ['Voter Outreach - Flow Step Viewed', 'details'],
+          ['Voter Outreach - Flow Step Completed', 'details'],
+        ],
+        note: [
+          'warn',
+          'Event invites only',
+          'This step shows only when the purpose is inviting people to an event. Every other purpose goes straight to who.',
+        ],
+      },
+      {
+        id: 'who',
+        t: 'Who do you want to reach?',
+        state: 'shared',
+        evs: ['Voter Outreach - Recommended List Accepted'],
+        shared: [
+          ['Voter Outreach - Flow Step Viewed', 'who'],
+          ['Voter Outreach - Flow Step Completed', 'who'],
+        ],
+        note: [
+          'warn',
+          'One event, two moments',
+          '<b>Recommended List Accepted</b> fires here only when the recommendation reuses a saved list. When it builds a new list, the same event fires at the last step, on Create campaign.',
+        ],
+      },
+      {
+        id: 'points',
+        t: 'What will you say?',
+        state: 'shared',
+        evs: [],
+        shared: [
+          ['Voter Outreach - Flow Step Viewed', 'points'],
+          ['Voter Outreach - Flow Step Completed', 'points'],
+        ],
+      },
+      {
+        id: 'name',
+        t: 'What do you want to name your campaign?',
+        state: 'shared',
+        evs: [],
+        shared: [
+          ['Voter Outreach - Flow Step Viewed', 'name'],
+          ['Voter Outreach - Flow Step Completed', 'name'],
+        ],
+      },
+      {
+        id: 'draw',
+        t: 'Where do you want to knock?',
+        state: 'shared',
+        evs: [
+          'Outreach - Door Knocking List Created',
+          'Outreach - Campaign Created',
+        ],
+        shared: [
+          ['Voter Outreach - Flow Step Viewed', 'draw'],
+          ['Voter Outreach - Flow Step Completed', 'draw'],
+        ],
+      },
+    ],
+    offstep: {
+      title: 'The gate that can stop the wizard',
+      evs: [
+        'Outreach - Gate Banner Viewed',
+        'Outreach - Gate Explainer Viewed',
+        'Outreach - Gate Explainer: Click CTA',
+      ],
+    },
+  }
+
+  // Outreach wizards on OutreachFlowShell: one Viewed/Completed pair, `step` as property.
+  const shellStep = (id, t, extra) => ({
+    id,
+    t,
+    state: 'shared',
+    evs: [],
+    shared: [
+      ['Voter Outreach - Flow Step Viewed', id],
+      ['Voter Outreach - Flow Step Completed', id],
+    ],
+    ...extra,
+  })
+
+  const SOCIAL_WIZARD = {
+    kind: 'flow',
+    name: 'Social wizard',
+    route: '/dashboard/outreach',
+    src: 'packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx',
+    note: 'four steps on the same shell as SMS; the same steps run on Serve',
+    steps: [
+      shellStep('purpose', 'What do you want to do?'),
+      shellStep('compose', 'What do you want to say?', {
+        evs: ['Dictation - Started', 'Dictation - Failed'],
+        note: [
+          'warn',
+          'Shared with every dictation box',
+          'The dictation events fire wherever dictation is offered. Only their <code>label</code> property, outreach-social-compose, places them here.',
+        ],
+      }),
+      shellStep('platforms', 'Where do you want to share it?'),
+      shellStep('share', 'Your assets are ready', {
+        evs: ['Outreach - Campaign Created', 'Outreach - Campaign Completed'],
+        note: [
+          'warn',
+          'Created and completed together',
+          'Both fire on the same save, so social converts at 100% by construction.',
+        ],
+      }),
+    ],
+    offstep: {
+      title: 'The hub this wizard opens from',
+      evs: ['Outreach - Click Create'],
+    },
+  }
+
+  const ROBOCALL_WIZARD = {
+    kind: 'flow',
+    name: 'Robocall wizard',
+    route: '/dashboard/outreach',
+    src: 'packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx',
+    note: 'six steps on the same shell as SMS; a gated account builds three and resumes after the gate',
+    intro: [
+      'warn',
+      'The gated path stops counting at compose',
+      'When the outreach gate applies, the wizard runs purpose, audience, compose and then opens the gate. Compose never gets a <b>Flow Step Completed</b>, and the flow resumes on schedule, so a gated funnel looks like it ends at audience.',
+    ],
+    steps: [
+      shellStep('purpose', 'What do you want to do?'),
+      shellStep('audience', 'Who do you want to reach?', {
+        evs: [
+          'Voter Outreach - Recommended List Accepted',
+          'Voter Outreach - Recommended List Failed',
+        ],
+      }),
+      shellStep('schedule', 'When do you want to send it?'),
+      shellStep('compose', 'What do you want to say?', {
+        evs: ['Outreach - Draft Saved'],
+      }),
+      shellStep('review', 'Review your campaign'),
+      shellStep('pay', 'Payment', {
+        evs: ['Outreach - Campaign Created', 'Outreach - Campaign Completed'],
+      }),
+    ],
+    offstep: {
+      title: 'The gate that can stop the wizard',
+      evs: [
+        'Outreach - Gate Banner Viewed',
+        'Outreach - Gate Explainer Viewed',
+        'Outreach - Gate Explainer: Click CTA',
+      ],
+    },
+  }
+
+  const FOLLOW_ON = {
+    kind: 'flow',
+    name: 'Follow-on onboarding',
+    route: '/onboarding/office-selection',
+    src: 'packages/gp-webapp/app/onboarding/components/followOnConfig.ts + FollowOnFlow.tsx',
+    note: 'Win onboarding minus the story steps, for a candidate starting a second campaign',
+    intro: [
+      'warn',
+      'Nothing fires yet, on purpose',
+      'This flow reuses the Win onboarding steps but not their component, so none of the <b>Onboarding V2</b> events fire here. The code says so and points at DATA-2528 for instrumenting it. Only the backend records the outcome.',
+    ],
+    steps: [
+      {
+        id: 'welcome',
+        t: "Let's set up your new campaign",
+        state: 'none',
+        evs: [],
+      },
+      {
+        id: 'ballot-status',
+        t: 'Are you already on the ballot?',
+        state: 'none',
+        evs: [],
+      },
+      {
+        id: 'party-affiliation',
+        t: 'Are you running with an official party designation?',
+        state: 'none',
+        evs: [],
+      },
+      {
+        id: 'office-selection',
+        t: 'What office are you running for?',
+        state: 'none',
+        evs: [],
+        note: [
+          'warn',
+          'New office only',
+          'Skipped when the candidate runs for the same office again. Choosing to enter the office by hand swaps the next step for <b>Tell us about your office</b>.',
+        ],
+      },
+      {
+        id: 'path-to-victory',
+        t: 'Projected votes needed to win',
+        state: 'none',
+        evs: [],
+      },
+      {
+        id: 'pledge',
+        t: 'Take our pledge to get your campaign plan',
+        state: 'none',
+        evs: [],
+      },
+    ],
+    offstep: {
+      title: 'Recorded by the backend when the campaign is created',
+      evs: ['Campaign - Follow-On Created', 'Campaign - Follow-On Blocked'],
+    },
+  }
+
+  const PRO_UPGRADE = {
+    kind: 'flow',
+    name: 'Pro upgrade flow',
+    route: '/dashboard/pro-upgrade',
+    src: 'packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx + proUpgradeStep.ts',
+    note: 'the purchase-only order the outreach gate opens; the route wizard fires the same step events',
+    intro: [
+      'warn',
+      'Two shells, one set of events',
+      'The route wizard at <b>/dashboard/pro-upgrade</b> and this flow inside the outreach gate fire the same step events, so every count here is both. Only <b>Pro Upgrade - Flow Started</b> and its <code>source</code> tell them apart.',
+    ],
+    steps: [
+      {
+        id: 'interstitial',
+        t: 'Join Pro to send this campaign',
+        state: 'ok',
+        evs: [
+          'Pro Upgrade - Upgrade Interstitial Viewed',
+          'Pro Upgrade - Upgrade Interstitial Completed',
+          'Pro Upgrade - Upgrade Interstitial Dismissed',
+        ],
+        note: [
+          'drift',
+          'Renamed on 10-01',
+          'These replaced <b>Pro Upgrade - Interstitial Viewed</b>, <b>Interstitial: Click join</b> and <b>Interstitial: Click maybe later</b>. The snapshot predates the rename. Shown only when the gate opens from a save.',
+        ],
+      },
+      {
+        id: 'guidance',
+        t: "Let's gather a few things to unlock Pro",
+        state: 'ok',
+        evs: [
+          'Pro Upgrade - Guidance Viewed',
+          "Pro Upgrade - Guidance: Click let's go",
+        ],
+        note: [
+          'drift',
+          'Name gap',
+          'The event says <b>let’s go</b>; the button says <b>Continue</b>.',
+        ],
+      },
+      {
+        id: 'status',
+        t: 'Are you officially filed?',
+        state: 'ok',
+        evs: [
+          'Pro Upgrade - Filing Status Viewed',
+          'Pro Upgrade - Filing Status: Click already filed',
+          'Pro Upgrade - Filing Status: Click not yet filed',
+        ],
+      },
+      {
+        id: 'filing-instructions',
+        t: 'You are not eligible for Pro yet, but here is how to file for this election',
+        state: 'ok',
+        evs: [
+          'Pro Upgrade - Filing Instructions Viewed',
+          'Pro Upgrade - Filing Instructions: Click email this to me',
+          'Pro Upgrade - Filing Instructions: Click continue to dashboard',
+        ],
+        note: [
+          'warn',
+          'A dead end, for No',
+          'Answering No lands here and the flow does not rejoin: Back returns to the question, <b>Finish later</b> leaves (and fires the event named continue to dashboard).',
+        ],
+      },
+      {
+        id: 'ein',
+        t: 'What is your campaign EIN?',
+        state: 'ok',
+        evs: [
+          'Pro Upgrade - EIN Viewed',
+          'Pro Upgrade - EIN: Click continue',
+          'Pro Upgrade - EIN: Click email me these steps',
+        ],
+      },
+      {
+        id: 'payment',
+        t: 'Complete your upgrade',
+        state: 'ok',
+        evs: ['Pro Upgrade - Payment Viewed'],
+        note: [
+          'warn',
+          'Open without close',
+          'Nothing fires on confirm. <b>Success Viewed</b> is the only proxy for a completed payment.',
+        ],
+      },
+      {
+        id: 'success',
+        t: 'Welcome to Pro',
+        state: 'ok',
+        evs: [
+          'Pro Upgrade - Success Viewed',
+          'Pro Upgrade - Success: Click continue',
+        ],
+      },
+    ],
+    offstep: {
+      title: 'Opening the flow, and the subscription',
+      evs: [
+        'Pro Upgrade - Flow Started',
+        'Account - Pro Subscription Confirmed',
+      ],
+    },
+  }
+
+  const OUTREACH_GATE = {
+    kind: 'page',
+    name: 'Outreach gate',
+    route: '/dashboard/outreach',
+    src: 'packages/gp-webapp/app/dashboard/outreach/v2/gate/OutreachGate.tsx + useOutreachGate.ts',
+    note: 'not a sequence: one screen chosen by what the account still needs before it can send',
+    intro: [
+      'warn',
+      'Behind a flag, and silent so far',
+      'The gate shows only under <b>outreach-pro-gating-v2</b>. Every event only the gate fires is never observed or newer than the snapshot. The Pro and verification screens are their own flows on this map, and their counts are mostly from elsewhere.',
+    ],
+    zones: [
+      {
+        id: 'entry',
+        t: 'The banner and explainer inside a wizard',
+        state: 'ok',
+        evs: [
+          'Outreach - Gate Banner Viewed',
+          'Outreach - Gate Explainer Viewed',
+          'Outreach - Gate Explainer: Click CTA',
+          'Outreach - Draft Saved',
+        ],
+      },
+      {
+        id: 'pro',
+        t: 'Pro: the Pro upgrade flow, purchase only',
+        state: 'ok',
+        evs: ['Pro Upgrade - Flow Started'],
+      },
+      {
+        id: 'verify',
+        t: 'Verify (text only): the campaign verification steps',
+        state: 'ok',
+        evs: ['Pro Upgrade - Verification Intro Viewed'],
+      },
+      {
+        id: 'pin',
+        t: 'Enter your PIN (text only)',
+        state: 'ok',
+        evs: [
+          'Pro Upgrade - PIN Entry Viewed',
+          '10 DLC Compliance - PIN Verification Completed',
+        ],
+      },
+      {
+        id: 'in_review',
+        t: 'Verification in review (text only)',
+        state: 'ok',
+        evs: ['Outreach - Gate In Review Viewed'],
+      },
+    ],
+  }
+
   // ------------------------------------------------------------------- tree
   // Product -> area -> surface. `inMap` says whether the area is declared in
   // productMap.ts, the file CI already keeps in step with the nav. The areas
@@ -599,15 +1286,7 @@ var ProductMap = (function () {
           name: 'Onboarding',
           route: '/onboarding/[slug]/[step]',
           inMap: false,
-          surfaces: [
-            WIN_ONBOARDING,
-            building(
-              'Follow-on onboarding',
-              '/onboarding/[slug]/[step]',
-              'packages/gp-webapp/app/onboarding/components/FollowOnFlow.tsx',
-              'steps are computed at runtime from another list, so reading them means running the code, not grepping it',
-            ),
-          ],
+          surfaces: [WIN_ONBOARDING, FOLLOW_ON],
         },
         {
           name: 'Campaign Manager',
@@ -621,23 +1300,27 @@ var ProductMap = (function () {
           inMap: true,
           surfaces: [
             SMS_WIZARD,
+            ROBOCALL_WIZARD,
+            SOCIAL_WIZARD,
+            OUTREACH_GATE,
             building(
-              'Robocall wizard',
+              'Phone banking wizard',
               '/dashboard/outreach',
-              'packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx',
-              'six steps on the same shell as SMS, instrumented by the same property-discriminated pair',
+              'packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx',
+              'on the same shell as SMS, with a separate step order for an event invite',
             ),
+          ],
+        },
+        {
+          name: 'Voter Data',
+          route: '/dashboard/contacts',
+          inMap: true,
+          surfaces: [
             building(
-              'Social wizard',
-              '/dashboard/outreach',
-              'packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx',
-              'four steps on the same shell as SMS',
-            ),
-            building(
-              'Outreach gate',
-              '/dashboard/outreach',
-              'packages/gp-webapp/app/dashboard/outreach/v2/OutreachGate.tsx',
-              'the gate sub-flow that borrows the wizard chrome mid-flow',
+              'Create a list',
+              '/dashboard/contacts/crm',
+              'packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx',
+              'has its own per-stage List Wizard events',
             ),
           ],
         },
@@ -651,56 +1334,25 @@ var ProductMap = (function () {
           name: 'Candidate website',
           route: '/dashboard/website',
           inMap: true,
-          surfaces: [
-            building(
-              'Create a website',
-              '/dashboard/website/create',
-              'packages/gp-webapp/app/dashboard/website/create/components/WebsiteCreateFlow.tsx',
-            ),
-            building(
-              'Website editor',
-              '/dashboard/website/editor',
-              'packages/gp-webapp/app/dashboard/website/editor/components/WebsiteEditorPageStepper.tsx',
-            ),
-          ],
+          surfaces: [WEBSITE_CREATE, WEBSITE_EDITOR],
         },
         {
           name: 'Pro upgrade',
           route: '/dashboard/pro-upgrade',
           inMap: true,
-          surfaces: [
-            building(
-              'Pro upgrade flow',
-              '/dashboard/pro-upgrade',
-              'packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx',
-              'the Pro Upgrade events on the Campaign Manager page are the entry; the flow itself is not drawn',
-            ),
-          ],
+          surfaces: [PRO_UPGRADE],
         },
         {
           name: 'Campaign verification',
           route: '/dashboard/campaign-verification',
           inMap: true,
-          surfaces: [
-            building(
-              'Campaign verification',
-              '/dashboard/campaign-verification',
-              'packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationFlow.tsx',
-            ),
-          ],
+          surfaces: [CAMPAIGN_VERIFICATION],
         },
         {
           name: 'Door knocking',
           route: '/dashboard/door-knocking',
           inMap: true,
-          surfaces: [
-            building(
-              'Create a door-knocking route',
-              '/dashboard/door-knocking',
-              'packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts',
-              'declared as PRE_DRAW_STAGES; Win and Serve share this area',
-            ),
-          ],
+          surfaces: [DOOR_KNOCKING],
         },
       ],
     },
@@ -724,14 +1376,7 @@ var ProductMap = (function () {
           name: 'Ordinances',
           route: '/dashboard/ordinances',
           inMap: true,
-          surfaces: [
-            building(
-              'Draft an ordinance',
-              '/dashboard/ordinances',
-              'packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceStepper.tsx',
-              'declared as a record keyed by step',
-            ),
-          ],
+          surfaces: [ORDINANCE],
         },
         {
           name: 'Polls',
@@ -739,10 +1384,12 @@ var ProductMap = (function () {
           inMap: true,
           surfaces: [
             building(
-              'Expand a poll',
-              '/dashboard/polls/[id]/expand',
-              'packages/gp-webapp/app/dashboard/polls/[id]/expand/shared/ExpandStepFooter.tsx',
+              'Create a poll',
+              '/dashboard/polls/create',
+              'packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx',
+              'declared as an order array; shares Payment - Completed with expanding a poll',
             ),
+            POLL_EXPAND,
           ],
         },
       ],
@@ -907,14 +1554,14 @@ var ProductMap = (function () {
   const OPEN = {}
   const isOpen = (key, byDefault) => (key in OPEN ? OPEN[key] : byDefault)
 
-  function evRow(name, opts, ctx, propVal) {
+  function evRow(name, opts, ctx, propVal, propKey) {
     const forceUnclean = opts && opts.unclean
     const e = EV[name]
     if (!e)
       return `<details class="evd" data-clean="0"><summary class="ev"><i class="evdot dormant"></i><span class="mevname">${esc(name)}</span><span class="tag warn">not in snapshot</span></summary></details>`
     const st = e[0],
       tags = []
-    if (propVal) tags.push(['ok', 'step = ' + propVal])
+    if (propVal) tags.push(['ok', (propKey || 'step') + ' = ' + propVal])
     if (forceUnclean) tags.push(['warn', 'anchor disagrees'])
     if (opts && opts.legacy && name.startsWith(opts.legacy))
       tags.push(['drift', 'legacy'])
@@ -1004,7 +1651,7 @@ var ProductMap = (function () {
       ? `<div class="vol"><span class="track"><span class="fill" style="width:${pct}%"></span></span><span class="volnum">${num(vol)}</span><span class="volcap">/30d</span></div>`
       : ''
     const sharedRows = shared.length
-      ? `<div class="evs">${shared.map(([n, v]) => evRow(n, s, ctx, v)).join('')}</div>
+      ? `<div class="evs">${shared.map(([n, v, k]) => evRow(n, s, ctx, v, k)).join('')}</div>
     <div class="sharednote">counted per event, not per step — splitting it needs a property breakdown in Amplitude</div>`
       : ''
     return `<article class="node" data-state="${s.state}" data-clean="${clean ? 1 : 0}" data-anyclean="${anyclean ? 1 : 0}"${miss ? ' data-miss="1"' : ''}>
@@ -1228,11 +1875,16 @@ var ProductMap = (function () {
     return TREE.flatMap((p) => p.areas).flatMap((a) => a.surfaces)
   }
 
+  const BUILDING_COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'][
+    TREE.flatMap((p) => p.areas)
+      .flatMap((a) => a.surfaces)
+      .filter((f) => f.building).length
+  ]
   const BUILDING_NOTE = `<div class="building">
   <h3>Still being built</h3>
   <p>This is a first version, shared to find out what you can do with it. What is not finished:</p>
   <ul>
-    <li><b>Eleven flows are placed but not yet drawn.</b> Each sits under its area above with a "Still being built" tag and opens to the file its steps live in; each needs its step list read out of the code once.</li>
+    <li><b>${BUILDING_COUNT} flows are placed but not yet drawn.</b> Each sits under its area above with a "Still being built" tag and opens to the file its steps live in; each needs its step list read out of the code once.</li>
     <li><b>Page zones are inferred.</b> A flow's steps are declared in code; a page's zones are not, so on Campaign Manager and Campaign Tracker the grouping is a reading of each event's own description, not a fact.</li>
     <li><b>Per-step volume on the outreach wizards</b> needs a property breakdown in Amplitude that the snapshot does not hold, so those steps show the event's total, not the step's.</li>
     <li><b>Steps are drawn by hand.</b> Event numbers refresh with the explorer twice a week; the steps themselves are read from each flow's code once and do not yet notice when a flow changes.</li>

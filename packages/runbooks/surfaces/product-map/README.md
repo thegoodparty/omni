@@ -37,13 +37,13 @@ This is the prototype shipped as a first version, on purpose. It was shared to f
 what people can do with it, and the page says so in its "Still being built" panel. What
 is real and what is not:
 
-| Real | Not yet |
-| --- | --- |
-| Six surfaces across Win and Serve, steps read from each flow's own config | Eight more flows, located by file, not drawn |
-| Every event opens the shared card: verdict, both names, volume, Amplitude | Per-step volume where one event covers many steps |
-| Anchor state on every event: anchored, no anchor, call site unknown, no route | Zones on a page are inferred from `fires_on`, not declared anywhere |
-| Feedback composer and usage tracking, the explorer's, from the shared partials | Step extraction; the node model is hand-authored in `map.js` |
-| Eleven undrawn flows placed under their areas as "Still being built" placeholders | Their steps, read out of the files each placeholder names |
+| Real                                                                                              | Not yet                                                             |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Seventeen surfaces across Win and Serve, steps read from each flow's own config                   | Three more flows, located by file, not drawn                        |
+| Every event opens the shared card: verdict, both names, volume, Amplitude                         | Per-step volume where one event covers many steps                   |
+| Anchor state on every event: anchored, no anchor, call site unknown, no route                     | Zones on a page are inferred from `fires_on`, not declared anywhere |
+| Feedback composer and usage tracking, the explorer's, from the shared partials                    | Step extraction; the node model is hand-authored in `map.js`        |
+| Undrawn flows placed under their areas as "Still being built" placeholders; the panel counts them | Their steps, read out of the files each placeholder names           |
 
 A placeholder is `building(name, route, src, note?)` in the `TREE`. It renders as a
 collapsed surface with the tag and opens to the file its steps live in, so the map never
@@ -107,11 +107,16 @@ that has a newer snapshot, or when it is republished by hand.
   both active with no anchor record. The map uses the registry for existence and anchors
   only for the route, which is why those steps show as "no anchor" rather than empty.
 - **One event can cover many steps.** The SMS wizard fires `Voter Outreach - Flow Step
-  Viewed/Completed` for every step with `step` as a property. Matching by event name
+Viewed/Completed` for every step with `step` as a property. Matching by event name
   would call all five steps uninstrumented; the map attaches `(event, property value)`
   and says the volume is per event, not per step.
 - **Route comparison is by first path segment.** Whole-string comparison flagged
   `/onboarding` against `/onboarding/[slug]/[step]` on 6 of 10 onboarding nodes.
+- **A shared event names its property.** A `shared` entry is `[event, value, property?]`;
+  the property defaults to `step` (the outreach shell) and is `type` for the poll payment
+  events, which expanding and creating a poll both fire.
+- **Some flows are honest blanks.** Create a website and Follow-on onboarding fire nothing
+  between entry and outcome; their steps are drawn with `state: 'none'` so the hole shows.
 - **Relabel, never rename.** The card shows both names always; the row shows the type
   only where it differs from the label (4 of 593 events). The relabel panel on Poll
   onboarding proposes display-name changes only.

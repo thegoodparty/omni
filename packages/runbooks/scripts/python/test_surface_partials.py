@@ -109,6 +109,10 @@ def test_inline_refuses_an_unknown_page_part():
 # while the page has nothing to show for it.
 MAP_EVENTS_NEWER_THAN_SNAPSHOT = {
     "Onboarding V2 - Manual Office Viewed",
+    "Outreach - Gate In Review Viewed",
+    "Pro Upgrade - Upgrade Interstitial Completed",
+    "Pro Upgrade - Upgrade Interstitial Dismissed",
+    "Pro Upgrade - Upgrade Interstitial Viewed",
     "Voter Outreach - Flow Step Completed",
     "Voter Outreach - Flow Step Viewed",
 }
