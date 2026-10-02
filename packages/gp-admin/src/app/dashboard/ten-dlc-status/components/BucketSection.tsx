@@ -17,6 +17,7 @@ import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { ResendCvPinButton } from '@/app/dashboard/campaigns/components/ResendCvPinButton'
 import { useCvHoldOverride } from '@/app/dashboard/campaigns/components/useCvHoldOverride'
+import { EditFilingUrlAction } from '@/app/dashboard/campaigns/components/EditFilingUrlAction'
 import { BUCKET_META, RADIX_UNSUSPENSION_URL, TONE_FILL } from '../bucketMeta'
 
 const linkClass = 'text-[var(--accent-11)] hover:underline'
@@ -159,6 +160,20 @@ function EntryActions({
             <HiOutlineExternalLink />
           </a>
         </Button>
+      )}
+      {/* Edit only before a Peerly identity exists — once CampaignVerify has
+          consumed the URL the endpoint 409s and the fix is a Peerly
+          escalation, not a local swap. */}
+      {entry.filingUrl && !entry.peerlyIdentityId && (
+        <ProtectedContent
+          requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
+          hideWhenUnauthorized
+        >
+          <EditFilingUrlAction
+            campaignId={entry.campaignId}
+            filingUrl={entry.filingUrl}
+          />
+        </ProtectedContent>
       )}
       <Button asChild size="1" variant="soft">
         <Link href={`/dashboard/users/${entry.userId}`}>View user</Link>
