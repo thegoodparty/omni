@@ -27,7 +27,7 @@ import event_reach as er  # noqa: E402
 import governance_guard as gg  # noqa: E402
 
 SURFACE_TAG = "surface:"
-ACTIONABLE = frozenset({"moved", "stale_area_name"})
+ACTIONABLE = frozenset({"moved", "moved_then_quiet", "stale_area_name"})
 
 
 def claimed_label(display_name: str, tags: Sequence[str]) -> tuple[str, str] | None:
@@ -173,13 +173,27 @@ def _git(*args: str) -> str:
                           text=True, check=True).stdout
 
 
+def _diff_files(diff: str) -> list[str]:
+    # A real `git show` groups every file's hunk under its own `diff --git` header; a
+    # test double that hands back one file's hunk with no header is still one file.
+    parts = diff.split("diff --git")
+    return parts if len(parts) == 1 else parts[1:]
+
+
+def _net_removed(diff: str, stem: str) -> bool:
+    removed = re.compile(rf"^-\s*import\b.*\b{re.escape(stem)}\b", re.M)
+    added = re.compile(rf"^\+\s*import\b.*\b{re.escape(stem)}\b", re.M)
+    # A reformat can delete and re-add the same import line in one file (e.g. wrapping
+    # a named import onto its own line); only a net removal is proof the stem is gone.
+    return any(len(removed.findall(f)) > len(added.findall(f)) for f in _diff_files(diff))
+
+
 def removal_commit(stems: Iterable[str], git: Callable[..., str] = _git) -> str | None:
     best: tuple[str, str] | None = None
     for stem in sorted(set(stems)):
-        removed = re.compile(rf"^-\s*import\b.*\b{re.escape(stem)}\b", re.M)
         for line in git("log", "--format=%H %cs", f"-S{stem}", "--", er.APP.rstrip("/")).splitlines():
             sha, day = line.split()
-            if removed.search(git("show", "--format=", "-U0", sha, "--", er.APP.rstrip("/"))):
+            if _net_removed(git("show", "--format=", "-U0", sha, "--", er.APP.rstrip("/")), stem):
                 if best is None or day > best[1]:
                     best = (sha[:9], day)
                 break
@@ -245,7 +259,15 @@ def merge(prev: Mapping, fresh: Mapping, today: str) -> dict:
             if kept == "dismissed" and sorted(old.get("dismissed_areas") or []) == sorted(row.get("area_keys") or []):
                 row.update(disposition="dismissed", dismissed_areas=old["dismissed_areas"], reason=old.get("reason", ""))
             elif kept in ("accepted", "applied"):
-                row.update(disposition=kept, applied_date=old.get("applied_date", ""), source=old.get("source", "detector"))
+                # The proposed_* fields are the human's decision once accepted or applied,
+                # never the detector's fresh guess: otherwise ingest_relabels' idempotency
+                # check (which compares against the human proposed_surface) stops matching.
+                row.update(disposition=kept, applied_date=old.get("applied_date", ""), source=old.get("source", "detector"),
+                          reason=old.get("reason", ""), proposed_surface=old.get("proposed_surface", ""),
+                          proposed_display_name=old.get("proposed_display_name", ""),
+                          proposed_fires_on=old.get("proposed_fires_on", ""), proposed_url=old.get("proposed_url", ""))
+            elif kept == "open":
+                row.update(disposition="open", reason=old.get("reason", ""))
             elif kept in OPEN:
                 row["disposition"] = kept
         out[name] = row

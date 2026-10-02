@@ -176,3 +176,48 @@ def test_signals_failure_leaves_everything_proposed(monkeypatch, tmp_path):
     monkeypatch.setattr(sd, "fetch_signal_rows", boom)
     signals, status = sd.load_signals(["E"], {}, None)
     assert signals == {} and status.startswith("failed: RuntimeError")
+
+
+def test_removal_commit_rejects_a_same_file_reformat_that_readds_the_import():
+    logs = {"CreateListSurface": "586ae16dfaaa 2026-08-01\n"}
+    diffs = {"586ae16dfaaa": (
+        "diff --git a/packages/gp-webapp/app/x/Y.tsx b/packages/gp-webapp/app/x/Y.tsx\n"
+        "--- a/packages/gp-webapp/app/x/Y.tsx\n"
+        "+++ b/packages/gp-webapp/app/x/Y.tsx\n"
+        "@@ -1,2 +1,2 @@\n"
+        "-import CreateListSurface, {\n"
+        "+import CreateListSurface, { useCreateListDraw } from './CreateListSurface'\n"
+    )}
+
+    def git(*args):
+        if args[0] == "log":
+            return logs[next(a for a in args if a.startswith("-S"))[2:]]
+        return diffs[args[3]]
+
+    assert sd.removal_commit(["CreateListSurface"], git) is None
+
+
+def test_merge_keeps_human_proposed_surface_so_relabels_ingestion_does_not_revert_applied():
+    prev = {"E": {"disposition": "applied", "first_seen": "2026-09-01", "applied_date": "2026-09-02",
+                  "source": "relabels", "proposed_surface": "profile", "reason": "label was wrong"}}
+    fresh = {"E": {"area_keys": ["/dashboard/questions"], "disposition": "new",
+                   "proposed_surface": "additional-questions", "reason": ""}}
+    merged = sd.merge(prev, fresh, "2026-10-09")
+    assert merged["E"]["disposition"] == "applied"
+    assert merged["E"]["proposed_surface"] == "profile"
+    again = sd.ingest_relabels(merged, [{"event": "E", "surface": "profile", "display_name": "Profile - E",
+                                         "reason": "label was wrong", "date": "2026-10-09"}], "2026-10-09")
+    assert again["E"]["disposition"] == "applied"
+
+
+def test_merge_carries_reason_forward_for_every_human_disposition():
+    for disposition in ("dismissed", "accepted", "applied", "open"):
+        prev = {"E": {"disposition": disposition, "first_seen": "2026-09-01", "reason": f"r-{disposition}",
+                      "dismissed_areas": ["/q"], "area_keys": ["/q"], "proposed_surface": "x"}}
+        fresh = {"E": {"area_keys": ["/q"], "disposition": "new", "reason": ""}}
+        merged = sd.merge(prev, fresh, "2026-10-09")
+        assert merged["E"]["reason"] == f"r-{disposition}"
+
+
+def test_confidence_never_promotes_moved_then_quiet_even_with_full_evidence():
+    assert sd.confidence("moved_then_quiet", reach(QUESTIONS), "93cb4a414 2026-06-19", _sig(), okr=False) == "proposed"
