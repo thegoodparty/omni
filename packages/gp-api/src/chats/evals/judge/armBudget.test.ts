@@ -505,6 +505,25 @@ describe('resolveAdmission', () => {
     expect(result.refused[0]?.reason).toContain(first[2])
   })
 
+  it('refuses an agent whose base list repeats a case id', () => {
+    const result = resolveAdmission(
+      ['opposition_research'],
+      baseTree({
+        timeouts: { opposition_research: 600 },
+        caseIds: {
+          opposition_research: [
+            'baseline-three-way-nonpartisan',
+            'head-to-head',
+            'head-to-head',
+          ],
+        },
+      }),
+    )
+    expect(result.refused[0]?.reason).toMatch(
+      /repeated case id on the base arm/,
+    )
+  })
+
   // Same ids in another order still pair, so they are not refused.
   it('admits an agent whose two arms walk the same cases in a different order', () => {
     const real = JSON.parse(
@@ -622,21 +641,33 @@ describe('resolveAdmission', () => {
 // body runs. It used a looser parse than parseArmEnv once, so "1e7" passed it
 // and failed there — two reads of one value disagreeing.
 describe('armTimeoutMs', () => {
+  const swept = (budget: string | undefined): NodeJS.ProcessEnv => ({
+    JUDGE_BACKGROUND_ATTEMPTS: '1',
+    ...(budget !== undefined && { JUDGE_ARM_BUDGET_MS: budget }),
+  })
+
   it('reads the resolved budget', () => {
-    expect(armTimeoutMs('4860000', 70)).toBe(4_860_000)
+    expect(armTimeoutMs(swept('4860000'), 70)).toBe(4_860_000)
   })
 
   it.each([undefined, '', '  '])(
     'falls back to the arm constant for %j',
     (raw) => {
-      expect(armTimeoutMs(raw, 70)).toBe(70)
+      expect(armTimeoutMs(swept(raw), 70)).toBe(70)
     },
   )
+
+  // The same mode switch parseArmEnv applies. Honouring the budget without
+  // ATTEMPTS gave a local run this timeout while its loader spent the arm
+  // constant, and it was killed partway through.
+  it('ignores a budget that arrives without the rest of the sweep inputs', () => {
+    expect(armTimeoutMs({ JUDGE_ARM_BUDGET_MS: '600000' }, 70)).toBe(70)
+  })
 
   it.each(['1e7', '1.5', '0', '-1', 'x'])(
     'refuses %j as parseArmEnv does',
     (raw) => {
-      expect(() => armTimeoutMs(raw, 70)).toThrow(SweepEnvError)
+      expect(() => armTimeoutMs(swept(raw), 70)).toThrow(SweepEnvError)
     },
   )
 })

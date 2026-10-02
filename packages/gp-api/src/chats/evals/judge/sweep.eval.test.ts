@@ -67,10 +67,7 @@ const sweepRequested = process.env.JUDGE_ARM !== undefined
 // one, so both arms run to the same budget — otherwise this arm's own
 // constant, which is a local run. Read here at module scope, not inside the
 // test, because vitest takes the timeout when `it` is registered.
-const ARM_TIMEOUT_MS = armTimeoutMs(
-  process.env.JUDGE_ARM_BUDGET_MS,
-  ARM_BUDGET_MS,
-)
+const ARM_TIMEOUT_MS = armTimeoutMs(process.env, ARM_BUDGET_MS)
 
 // What the model says when the sweep is not spending. Deterministic on
 // purpose: it makes the pipeline exercisable end to end for nothing, which is

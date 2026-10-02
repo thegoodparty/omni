@@ -553,13 +553,21 @@ const refusedFrom = (data: ParsedArm): ReadonlyMap<string, string> => {
 // SAME strict parse parseArmEnv applies, so the two reads cannot disagree:
 // a looser module-scope read once accepted "1e7", which parseArmEnv refuses.
 // Blank or absent is a local run, which uses the arm's own constant.
+//
+// UNDER THE SAME MODE SWITCH as everything else here: the budget counts only
+// when ATTEMPTS is present. Without that gate a local run with only
+// JUDGE_ARM_BUDGET_MS set got this timeout from it while the loader spent the
+// arm constant — two readings of one value — and was killed partway through.
 export const armTimeoutMs = (
-  raw: string | undefined,
+  env: NodeJS.ProcessEnv,
   fallback: number,
-): number =>
-  raw === undefined || raw.trim() === ''
+): number => {
+  const raw = env.JUDGE_ARM_BUDGET_MS?.trim()
+  const attempts = env.JUDGE_BACKGROUND_ATTEMPTS?.trim()
+  return raw === undefined || raw === '' || !attempts
     ? fallback
-    : positiveInt('JUDGE_ARM_BUDGET_MS', raw.trim())
+    : positiveInt('JUDGE_ARM_BUDGET_MS', raw)
+}
 
 // The config this arm actually walks with: its own, with the background
 // budget replaced when the sweep supplied one. ONE function, read by both

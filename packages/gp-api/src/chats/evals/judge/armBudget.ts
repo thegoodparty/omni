@@ -222,6 +222,19 @@ export const resolveAdmission = (
       // pair by id, so a case only one arm walks is a paid run with no
       // partner. Compared as sets: the same ids in a different order still
       // pair.
+      // A repeated id on either side is refused by name: the arm's own loader
+      // rejects one, so that arm would fail on this agent after the other had
+      // paid — and a set comparison alone cannot see a duplicate.
+      for (const [arm, ids] of [
+        ['base', onBase.caseIds],
+        ['candidate', onCandidate.caseIds],
+      ] as const) {
+        if (new Set(ids).size !== ids.length) {
+          return {
+            refused: `has a repeated case id on the ${arm} arm, which its own loader refuses`,
+          }
+        }
+      }
       const onlyBase = onBase.caseIds.filter(
         (id) => !onCandidate.caseIds.includes(id),
       )
