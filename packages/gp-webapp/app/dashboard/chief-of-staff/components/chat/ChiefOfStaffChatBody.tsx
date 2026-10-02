@@ -210,6 +210,28 @@ const CHAT_SUGGESTIONS = [
   'What are constituents saying?',
 ]
 
+// The first-attach safety notice, keyed by scope: Chief of Staff and Campaign
+// Manager handle different kinds of sensitive material, so each gets its own
+// toast copy and its own once-per-browser storage key.
+const UPLOAD_GUARD_COPY: Record<
+  'chief_of_staff' | 'campaign_assistant',
+  { key: string; message: string }
+> = {
+  chief_of_staff: {
+    key: 'serve-chat-attachments-guard',
+    message:
+      "Don't upload closed-session, privileged, or active-litigation material.",
+  },
+  campaign_assistant: {
+    key: 'win-chat-attachments-guard',
+    // chief-of-staff/ is Serve-only by convention, but Campaign Manager
+    // mounts this same body under campaign_assistant, so this branch is
+    // read only by a Win candidate.
+    message:
+      "Don't upload voter files, donor records, or anything you're not allowed to share.", // serve-vocabulary-allow: Win copy in a Serve-only-by-convention file
+  },
+}
+
 /**
  * The reusable Chief of Staff chat surface body — separate from the briefing
  * `AskAiChatBody`. Streaming, smooth reveal, inline tool pills, and the
@@ -358,20 +380,23 @@ function ChiefOfStaffChatThread({
 
   // The safety notice fires as a toast after the first successful attach,
   // once per user (per browser). localStorage failure means the toast repeats
-  // on later attaches, which errs toward showing the notice.
-  const GUARD_KEY = 'serve-chat-attachments-guard'
+  // on later attaches, which errs toward showing the notice. Falls back to the
+  // Chief of Staff copy for a scope with no attachment support at all (where
+  // attachmentsEnabled.enabled is already false, so this never fires).
+  const guardCopy =
+    scope === 'campaign_assistant'
+      ? UPLOAD_GUARD_COPY.campaign_assistant
+      : UPLOAD_GUARD_COPY.chief_of_staff
   const maybeShowUploadGuard = useCallback((): void => {
     try {
-      if (window.localStorage.getItem(GUARD_KEY) === '1') return
-      window.localStorage.setItem(GUARD_KEY, '1')
+      if (window.localStorage.getItem(guardCopy.key) === '1') return
+      window.localStorage.setItem(guardCopy.key, '1')
     } catch {
       // private mode / storage disabled
     }
-    toast(
-      "Don't upload closed-session, privileged, or active-litigation material.",
-    )
+    toast(guardCopy.message)
     void trackEvent(EVENTS.ChiefOfStaff.UploadGuardShown, {})
-  }, [])
+  }, [guardCopy])
 
   const reportedFailedIdsRef = useRef(new Set<string>())
   useEffect(() => {
