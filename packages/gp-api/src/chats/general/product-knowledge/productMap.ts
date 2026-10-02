@@ -144,8 +144,8 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Campaign Plan',
     path: '/dashboard/campaign-plan',
     modes: ['win'],
-    does: 'The generated campaign plan and the week-by-week task list built from the Campaign Story.',
-    gate: 'Generated from a finished Campaign Story, so it is empty until the story is complete.',
+    does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
+    gate: 'No gate. A candidate with no Campaign Story still gets a plan and tracker, just a generic one, and completing the story regenerates it from their own answers.',
   },
   {
     navId: 'outreach-dashboard',
