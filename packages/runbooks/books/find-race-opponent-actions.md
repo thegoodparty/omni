@@ -243,7 +243,7 @@ Cards still generate; only the numbers disappear.
       "issue": "Infrastructure funding",
       "title": "Stand out against Jeff Groh on infrastructure funding",
       "body": "Jeff Groh is running on fiscal responsibility and limiting the growth of city government. In this district, 61.8% of active voters score high (50 or above) on supporting more infrastructure funding, and 44.7% score very high (70 or above). Voters here care about infrastructure investment, and your platform commits to funding the road, water, and sewer maintenance backlog first.",
-      "sms_message": "Hi, I'm running for Hendersonville City Council. Our roads and water lines need to keep pace with growth, and most voters here agree. My opponent Jeff Groh pledges to limit city spending; I will fund the maintenance backlog before new capital projects. I'd be grateful for your vote on November 3.",
+      "sms_message": "Our roads and water lines need to keep pace with growth, and most voters here agree. My opponent Jeff Groh pledges to limit city spending; I will fund the maintenance backlog before new capital projects. I'd be grateful for your vote on November 3.",
       "haystaq": {
         "hs_column": "hs_infrastructure_funding_fund_more",
         "total_active": 9449,
@@ -259,7 +259,7 @@ Cards still generate; only the numbers disappear.
       "issue": "Housing affordability",
       "title": "Stand out against Jeff Groh on housing affordability",
       "body": "Jeff Groh's platform covers taxes, safety, small business, and small-town character, but it does not address housing. In this district, 48.2% of active voters score high on government having a role in affordable housing, and 26.4% score very high. Voters here care about housing affordability, and your platform answers with a concrete starter-home and workforce-housing plan while his does not.",
-      "sms_message": "Hi, I'm running for Hendersonville City Council. Housing costs are pushing out the families who work here. My plan supports starter homes and workforce housing near existing infrastructure; my opponent Jeff Groh's platform does not address housing. I'd be grateful for your vote on November 3.",
+      "sms_message": "Housing costs are pushing out the families who work here. My plan supports starter homes and workforce housing near existing infrastructure; my opponent Jeff Groh's platform does not address housing. I'd be grateful for your vote on November 3.",
       "haystaq": {
         "hs_column": "hs_affordable_housing_gov_has_role",
         "total_active": 9449,
@@ -275,7 +275,7 @@ Cards still generate; only the numbers disappear.
       "issue": "Public safety staffing",
       "title": "Stand out against Gina Baxter on public safety staffing",
       "body": "Gina Baxter's platform centers on affordable housing, accessibility, natural resources, hurricane recovery, and managing growth; it does not include public safety. Your platform commits to fully funding police and fire staffing with transparent annual reports as the city grows. That specific commitment is the contrast voters can hold you to.",
-      "sms_message": "Hi, I'm running for Hendersonville City Council. As our city grows, response times depend on fully staffed police and fire departments. My platform commits to that funding; the incumbent Gina Baxter's platform does not address public safety. I'd be grateful for your vote on November 3.",
+      "sms_message": "As our city grows, response times depend on fully staffed police and fire departments. My platform commits to that funding; the incumbent Gina Baxter's platform does not address public safety. I'd be grateful for your vote on November 3.",
       "haystaq": null
     },
     {
@@ -284,7 +284,7 @@ Cards still generate; only the numbers disappear.
       "issue": "Growth and development",
       "title": "Stand out against Gina Baxter on growth and development",
       "body": "Gina Baxter, the incumbent, frames Hendersonville as being at a pivotal growth moment and runs on managing growth with smart, long-lasting policies. In this district, 39.7% of active voters score high on opposing gentrification-style redevelopment, so roughly 4 in 10 lean toward protecting existing neighborhoods. Your infrastructure-first development standard is a specific commitment those voters can hold you to.",
-      "sms_message": "Hi, I'm running for Hendersonville City Council. Growth is the biggest question facing our city. The incumbent runs on managing it; I commit to an infrastructure-first standard where roads, water, and sewer capacity are reviewed before large developments are approved. I'd be grateful for your vote on November 3.",
+      "sms_message": "Growth is the biggest question facing our city. The incumbent runs on managing it; I commit to an infrastructure-first standard where roads, water, and sewer capacity are reviewed before large developments are approved. I'd be grateful for your vote on November 3.",
       "haystaq": {
         "hs_column": "hs_gentrification_oppose",
         "total_active": 9449,
@@ -300,7 +300,7 @@ Cards still generate; only the numbers disappear.
       "issue": "Taxes and city services",
       "title": "Stand out against Jeff Groh on taxes and city services",
       "body": "Jeff Groh campaigns on the property tax burden, noting city residents pay roughly twice the property taxes of county residents. In this district, 39.7% of active voters score high on supporting tax cuts and only 18.4% score very high, so a strong tax-cut stance speaks to a minority of the electorate. Your platform pairs a steady tax rate with a plain-language report of where every capital dollar goes.",
-      "sms_message": "Hi, I'm running for Hendersonville City Council. I will keep the tax rate steady and publish a plain-language report of where every capital dollar goes. My opponent Jeff Groh campaigns on tax cuts; I'm campaigning on accountability for the taxes you already pay. I'd be grateful for your vote on November 3.",
+      "sms_message": "I will keep the tax rate steady and publish a plain-language report of where every capital dollar goes. My opponent Jeff Groh campaigns on tax cuts; I'm campaigning on accountability for the taxes you already pay. I'd be grateful for your vote on November 3.",
       "haystaq": {
         "hs_column": "hs_tax_cuts_support",
         "total_active": 9449,
