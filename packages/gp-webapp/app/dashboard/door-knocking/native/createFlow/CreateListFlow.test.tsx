@@ -1809,6 +1809,28 @@ describe('CreateListFlow purpose step', () => {
     )
   })
 
+  // Win's question-asking goal is the same slug as Serve's, under the Win
+  // label, and it takes the same extra step.
+  it('asks a candidate what they want to learn after Hear from voters', async () => {
+    renderPurpose(false)
+
+    fireEvent.click(screen.getByText('Hear from voters'))
+
+    const field = await screen.findByLabelText('The question')
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: 'What do you want to learn?',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(field, { target: { value: 'How about the road bond?' } })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
   // Continue only guards emptiness, so a question left over from an earlier
   // pick would ship as this campaign's rather than tripping the guard.
   it('does not carry a question over to a later purpose pick', async () => {

@@ -183,6 +183,40 @@ describe('phone banking routes', () => {
       })
     })
 
+    // "Hear from voters" asks one question, kept on the list so issue capture
+    // can read every memo from these calls against it.
+    it('keeps the hear-from-voters question on the list', async () => {
+      mockPeoplePage([fakePerson({ id: randomUUID() })])
+
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({
+          purpose: 'community_input',
+          communityInputQuestion: 'How do you feel about the road bond?',
+        }),
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      const list = await service.prisma.phoneBankingList.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(list.purpose).toBe('community_input')
+      expect(list.communityInputQuestion).toBe(
+        'How do you feel about the road bond?',
+      )
+    })
+
+    it('refuses hear-from-voters with no question to ask', async () => {
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ purpose: 'community_input' }),
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(400)
+    })
+
     it('falls back to the landline when the cell number is org-suppressed, and drops a person with no usable number left', async () => {
       const suppressedCell = '3075552222'
       await service.prisma.phoneBankingSuppressedPhone.create({

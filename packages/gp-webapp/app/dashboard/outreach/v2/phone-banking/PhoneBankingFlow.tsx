@@ -89,9 +89,10 @@ type StepId =
 // Two purposes each insert one step after `purpose`, and no purpose inserts
 // both — so the order is DERIVED rather than one constant per shape. That is
 // also what keeps the progress bar honest: a hardcoded length would draw five
-// segments for a six-step flow.
+// segments for a six-step flow. The question purpose is the same slug on both
+// surfaces: Win's "Hear from voters" and Serve's community input.
 //
-// The question step is NOT gated on `serve-issue-capture`. The create
+// The question step is NOT gated on either issue-capture flag. The create
 // contract requires a question whenever the purpose is community_input, so a
 // flow that skipped this step would 400 on save with nothing on screen
 // explaining why.
@@ -188,6 +189,7 @@ interface PhoneBankingFlowDraftInput {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
+  communityInputQuestion?: string
   event?: OutreachEventDetails
 }
 
@@ -197,9 +199,7 @@ interface PhoneBankingFlowCreateInput extends ProposalLink {
   sheetCount: number
   purpose: PhoneBankingFlowPurpose
   voterFileFilterId: number
-  // Serve's community_input only, where the contract requires it. Always
-  // undefined on the Win surface, whose purpose vocabulary has no such
-  // member, so its endpoint never sees the field.
+  // community_input only, where the contract requires it on both surfaces.
   communityInputQuestion?: string
 }
 
@@ -1050,6 +1050,7 @@ export const PhoneBankingFlow = ({
           <CommunityInputQuestionStep
             question={question}
             onChange={setQuestion}
+            isServe={surface.isServe}
           />
         </div>
       ) : stepId === 'who' ? (

@@ -1250,6 +1250,26 @@ describe('door-knocking routes', () => {
       expect((await envelopeFor(turf.id)).script).toBe(talkingPoints)
     })
 
+    // "Hear from voters" asks one question, kept on the turf so issue capture
+    // can read every memo on this walk against it.
+    it('freezes the hear-from-voters question with the turf', async () => {
+      stubVendors()
+
+      const res = await postTurf({
+        purpose: 'community_input',
+        communityInputQuestion: 'How do you feel about the road bond?',
+      })
+
+      expect(res.status).toBe(201)
+      const turf = await service.prisma.doorKnockingTurf.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(turf.purpose).toBe('community_input')
+      expect(turf.communityInputQuestion).toBe(
+        'How do you feel about the road bond?',
+      )
+    })
+
     // Both fields are optional, and every list created before the step existed
     // has neither. A walk must still be buyable without a card.
     it('creates a turf with no purpose and no points', async () => {

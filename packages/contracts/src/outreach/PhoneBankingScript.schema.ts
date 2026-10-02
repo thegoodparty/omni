@@ -21,6 +21,33 @@ export type PhoneBankingScriptPurpose = PhoneBankingPurpose
 export const PHONE_BANKING_SCRIPT_MAX_LENGTH = 2000
 export const PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH = 500
 
+// What this effort is trying to learn, for the one purpose that asks a
+// question (Win's "Hear from voters", Serve's community input). Sent rather
+// than read server-side because the list does not exist yet at draft time —
+// it is created at the end of the flow. Optional, so every other purpose's
+// request is unchanged. Same whitespace-as-absent transform as `instructions`
+// below, for the same reason.
+const communityInputQuestionSchema = z
+  .string()
+  .trim()
+  .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
+  .transform((v) => (v.length === 0 ? undefined : v))
+  .optional()
+
+// One-way, for the reason the door's sibling states: the question belongs to
+// the purpose that asks one, and folding it into any other purpose's script
+// writes a call about something the effort is not about.
+const questionOnlyWhereAsked = {
+  check: (v: { purpose: string; communityInputQuestion?: string }) =>
+    v.communityInputQuestion === undefined ||
+    v.purpose === COMMUNITY_INPUT_PURPOSE,
+  params: {
+    message:
+      'communityInputQuestion is only valid with the community_input purpose',
+    path: ['communityInputQuestion'],
+  },
+}
+
 // currentDraft switches the endpoint from writing a fresh script to
 // polishing the given text (keep meaning/structure/claims, apply tone) —
 // mirrors the social draft's "Improve with AI" behavior. previousDraft is
@@ -49,6 +76,7 @@ export const PhoneBankingScriptDraftRequestSchema = z
       .max(PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH)
       .transform((v) => (v.length === 0 ? undefined : v))
       .optional(),
+    communityInputQuestion: communityInputQuestionSchema,
     event: OutreachEventDetailsSchema.optional(),
   })
   // The two paths are mutually exclusive by construction (the service picks
@@ -62,6 +90,7 @@ export const PhoneBankingScriptDraftRequestSchema = z
       path: ['previousDraft'],
     },
   )
+  .refine(questionOnlyWhereAsked.check, questionOnlyWhereAsked.params)
 export type PhoneBankingScriptDraftRequest = z.infer<
   typeof PhoneBankingScriptDraftRequestSchema
 >
@@ -84,18 +113,7 @@ export const ServePhoneBankingScriptDraftRequestSchema = z
       .max(PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH)
       .transform((v) => (v.length === 0 ? undefined : v))
       .optional(),
-    // What this effort is trying to learn, for the one purpose that asks a
-    // question. Sent rather than read server-side because the list does not
-    // exist yet at draft time — it is created at the end of the flow. Serve
-    // only, since `community_input` is a Serve purpose; optional, so every
-    // other purpose's request is unchanged. Same whitespace-as-absent
-    // transform as `instructions` above, for the same reason.
-    communityInputQuestion: z
-      .string()
-      .trim()
-      .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
-      .transform((v) => (v.length === 0 ? undefined : v))
-      .optional(),
+    communityInputQuestion: communityInputQuestionSchema,
     event: OutreachEventDetailsSchema.optional(),
   })
   .refine(
@@ -105,19 +123,7 @@ export const ServePhoneBankingScriptDraftRequestSchema = z
       path: ['previousDraft'],
     },
   )
-  // One-way, for the reason the door's sibling states: the question belongs
-  // to the purpose that asks one, and folding it into any other purpose's
-  // script writes a call about something the effort is not about.
-  .refine(
-    (v) =>
-      v.communityInputQuestion === undefined ||
-      v.purpose === COMMUNITY_INPUT_PURPOSE,
-    {
-      message:
-        'communityInputQuestion is only valid with the community_input purpose',
-      path: ['communityInputQuestion'],
-    },
-  )
+  .refine(questionOnlyWhereAsked.check, questionOnlyWhereAsked.params)
 export type ServePhoneBankingScriptDraftRequest = z.infer<
   typeof ServePhoneBankingScriptDraftRequestSchema
 >
