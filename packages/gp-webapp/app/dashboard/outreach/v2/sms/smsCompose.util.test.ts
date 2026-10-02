@@ -98,7 +98,16 @@ describe('upgradeScriptFooter', () => {
   it('never doubles an existing paid-for-by line', () => {
     const verified = composeScript('body', 'Jane for Mayor')
     expect(upgradeScriptFooter(verified, 'Jane for Mayor')).toBe(verified)
-    expect(upgradeScriptFooter(verified, 'Another Committee')).toBe(verified)
+  })
+
+  // The footer is locked and system-written, so a footer naming another
+  // committee is one the system wrote earlier (a provisional name, or one
+  // computed before the campaign finished loading): it is brought current.
+  it('rewrites a footer naming an earlier committee', () => {
+    const earlier = composeScript('body', 'Jane Doe')
+    expect(upgradeScriptFooter(earlier, 'Friends of Jane')).toBe(
+      composeScript('body', 'Friends of Jane'),
+    )
   })
 
   // The delegate-caught case: the guard must be structural, because a body
@@ -123,18 +132,9 @@ describe('upgradeScriptFooter', () => {
       'this is Jane, candidate for Mayor.',
       'Jane Doe for Mayor',
     )
-    expect(
-      upgradeScriptFooter(provisional, 'Friends of Jane', 'Jane Doe for Mayor'),
-    ).toBe(
+    expect(upgradeScriptFooter(provisional, 'Friends of Jane')).toBe(
       composeScript('this is Jane, candidate for Mayor.', 'Friends of Jane'),
     )
-  })
-
-  it('leaves a committee line it did not write as provisional alone', () => {
-    const named = composeScript('body', 'Some Other Committee')
-    expect(
-      upgradeScriptFooter(named, 'Friends of Jane', 'Jane Doe for Mayor'),
-    ).toBe(named)
   })
 
   it('leaves a script that does not end with the system footer alone', () => {

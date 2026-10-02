@@ -619,6 +619,38 @@ describe('SmsFlow', () => {
       expect(calls[1]?.currentDraft).toContain('Vote soon.')
     })
 
+    it('gives a failed first draft the locked parts to write between', async () => {
+      api.mock('POST /v1/outreach/sms/draft', {
+        status: 502,
+        data: { message: 'SMS draft generation failed' },
+      })
+      openFlow()
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(screen.getByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByText('When do you want to send it?')
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText(/We couldn.t draft your message just now/),
+      ).toBeInTheDocument()
+      const box = await screen.findByRole('textbox', { name: 'Message body' })
+      const editor = (box as HTMLElement & { editor: Editor }).editor
+      await waitFor(() =>
+        expect(editor.getText({ blockSeparator: '\n' })).toBe(
+          'Hello {first_name},\n\nPaid for by Friends of Jane.\n' +
+            'Reply STOP to opt out.',
+        ),
+      )
+    })
+
     it('refuses an edit inside a locked part and says why', async () => {
       mockDraftAndImprove()
       const { editor } = await reachCompose()

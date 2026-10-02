@@ -33,33 +33,30 @@ export const composeFooter = (committeeName?: string | null): string =>
     ? `${paidForByLine(committeeName)}\n${OPT_OUT_FOOTER}`
     : OPT_OUT_FOOTER
 
-// A draft saved before verification was composed with no committee, so its
-// system footer is the opt-out line alone. Resume carries the saved script
-// verbatim (re-composing would double the footer), so only the footer is
-// upgraded once the committee name exists -- the same line scheduling's
-// server-side compliance check demands.
+// Brings a message's footer up to the committee it should name now. The
+// footer is system-written and locked in the field, so any trailing footer
+// of that shape is the system's own: the bare opt-out line of a draft saved
+// before the disclaimer was always shown, or a "Paid for by" line naming a
+// provisional or earlier committee. It is rewritten to the current one,
+// which is the line scheduling's server-side compliance check demands.
 // Structural, not a phrase search: matching "paid for by" anywhere would
-// also fire on body text and skip the injection, and a trailing footer that
-// names some OTHER committee is left alone so the standards check fails
-// closed instead of a second line being stacked under the first.
-// A provisional footer (see provisionalCommitteeName) is replaced the same
-// way, and only when it is exactly the line the system wrote.
+// also fire on body text, and the blank line before the footer is what the
+// composer always writes. A message whose footer is not the last thing in
+// it is left alone, so the standards check fails closed.
+const SYSTEM_FOOTER = new RegExp(
+  `\\n\\n(?:Paid for by [^\\n]*\\.\\n)?${OPT_OUT_FOOTER.replace(/[.]/g, '\\.')}$`,
+)
+
 export const upgradeScriptFooter = (
   script: string,
   committeeName: string | null,
-  provisionalCommittee: string | null = null,
 ): string => {
   if (!committeeName) return script
   const upgraded = `\n\n${composeFooter(committeeName)}`
   if (script.endsWith(upgraded)) return script
-  const stale = [
-    `\n\n${OPT_OUT_FOOTER}`,
-    ...(provisionalCommittee
-      ? [`\n\n${composeFooter(provisionalCommittee)}`]
-      : []),
-  ].find((footer) => script.endsWith(footer))
+  const stale = SYSTEM_FOOTER.exec(script)
   if (!stale) return script
-  return script.slice(0, script.length - stale.length) + upgraded
+  return script.slice(0, stale.index) + upgraded
 }
 
 // The committee a campaign names before verification has recorded the real

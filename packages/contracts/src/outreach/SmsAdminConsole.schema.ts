@@ -248,21 +248,35 @@ export const deriveSmsProtectedParts = (
   // is gated on the rule.
   let disclaimer: { start: number; text: string } | null = null
   {
-    const phrase = /paid\s+for\s+by/i.exec(script)
-    if (phrase) {
-      const committee = context.committeeName?.trim()
-      const after = script.slice(phrase.index + phrase[0].length)
-      const named = committee
-        ? // Any run of non-letters between them: "Paid for by Friends", "Paid
-          // for by: Friends", "Paid for by - Friends" all name the committee.
-          new RegExp(`^[^\\p{L}\\p{N}]+${escapeRegExp(committee)}`, 'iu').exec(
-            after,
-          )
-        : null
-      disclaimer = {
-        start: phrase.index,
-        text: phrase[0] + (named ? named[0] : ''),
+    // The composer writes the disclaimer as the message's closing line, so
+    // a body that also says "paid for by" must not claim the lock: the
+    // occurrence that names the committee wins, otherwise the last one.
+    const phrases = [...script.matchAll(/paid\s+for\s+by/gi)]
+    const committee = context.committeeName?.trim()
+    const unitAt = (phrase: RegExpExecArray | RegExpMatchArray) => {
+      const index = phrase.index ?? 0
+      const after = script.slice(index + phrase[0].length)
+      if (committee) {
+        // Any run of non-letters between them: "Paid for by Friends", "Paid
+        // for by: Friends", "Paid for by - Friends" all name the committee.
+        const named = new RegExp(
+          `^[^\\p{L}\\p{N}]+${escapeRegExp(committee)}`,
+          'iu',
+        ).exec(after)
+        return named ? { start: index, text: phrase[0] + named[0] } : null
       }
+      // No committee to name (not recorded yet): the unit runs to the end
+      // of its sentence, so whatever the line names stays as written.
+      const rest = /^[^\n]*?(?:\.(?=\s|$)|(?=\n)|$)/.exec(after)
+      return { start: index, text: phrase[0] + (rest ? rest[0] : '') }
+    }
+    const last = phrases[phrases.length - 1]
+    if (committee) {
+      disclaimer =
+        phrases.map(unitAt).find(Boolean) ??
+        (last ? { start: last.index ?? 0, text: last[0] } : null)
+    } else if (last) {
+      disclaimer = unitAt(last)
     }
   }
 
@@ -307,7 +321,11 @@ export const deriveSmsProtectedParts = (
   }
 
   if (!ignored.has('opt_out_line')) {
-    const optOut = /reply\s+stop\b(?:\s+to\s+opt[\s-]?out)?\.?/i.exec(script)
+    // The last one: the composed opt-out line closes the message, and a body
+    // that mentions replying STOP earlier must not take the lock from it.
+    const optOut = [
+      ...script.matchAll(/reply\s+stop\b(?:\s+to\s+opt[\s-]?out)?\.?/gi),
+    ].pop()
     if (optOut)
       parts.push({ rule: 'opt_out_line', kind: 'phrase', text: optOut[0] })
   }

@@ -158,13 +158,38 @@ describe('deriveSmsProtectedParts', () => {
     }
   })
 
-  it('locks the phrase alone when the committee is unknown or not right after it', () => {
+  it('locks the phrase alone when the committee is not right after it', () => {
     const script =
       'Hi {first_name}. Paid for by the committee to elect Sarah. Reply STOP'
-    expect(textsFor(script, { committeeName: null }).paid_for_by).toBe(
-      'Paid for by',
-    )
     expect(textsFor(script, CONTEXT).paid_for_by).toBe('Paid for by')
+  })
+
+  // Before a committee is recorded the composer names a provisional one,
+  // and Improve must not be able to rewrite what that line says.
+  it('locks the whole sentence when no committee is known', () => {
+    const script =
+      'Hi {first_name}. Paid for by Sarah Chen for City Council.\nReply STOP'
+    expect(textsFor(script, { committeeName: null }).paid_for_by).toBe(
+      'Paid for by Sarah Chen for City Council.',
+    )
+  })
+
+  // The composed footer closes the message; the body saying the same words
+  // earlier must not take the lock from it.
+  it('locks the footer, not an earlier mention in the body', () => {
+    const script =
+      'Hi {first_name}, this run is paid for by neighbors. Reply STOP if ' +
+      'you want.\n\nPaid for by Friends of Sarah Chen.\nReply STOP to opt out.'
+    const parts = deriveSmsProtectedParts(script, CONTEXT)
+    const disclaimer = parts.find((part) => part.rule === 'paid_for_by')
+    const optOut = parts.find((part) => part.rule === 'opt_out_line')
+    expect(disclaimer?.text).toBe('Paid for by Friends of Sarah Chen')
+    expect(optOut?.text).toBe('Reply STOP to opt out.')
+    expect(
+      deriveSmsProtectedParts(script, { ...CONTEXT, committeeName: null }).find(
+        (part) => part.rule === 'paid_for_by',
+      )?.text,
+    ).toBe('Paid for by Friends of Sarah Chen.')
   })
 
   it('leaves out any rule the script already fails', () => {

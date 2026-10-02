@@ -51,6 +51,39 @@ describe('maskProtectedParts', () => {
   })
 })
 
+describe('maskProtectedParts, footer words in the body', () => {
+  // The body may say the footer's words too; the footer is what is hidden.
+  it('masks the footer, not an earlier mention', () => {
+    const script =
+      'Hi {first_name}, Sarah Chen here. This run is paid for by neighbors. ' +
+      'Reply STOP if you must.\n\nPaid for by Friends of Sarah Chen.\n' +
+      'Reply STOP to opt out.'
+    const { masked } = maskProtectedParts(
+      script,
+      deriveSmsProtectedParts(script, PROTECTION),
+    )
+    expect(masked).toContain('paid for by neighbors')
+    expect(masked).not.toContain('Friends of Sarah Chen')
+    expect(masked).not.toContain('Reply STOP to opt out.')
+  })
+
+  // Before verification the line names a provisional committee gp-api has
+  // no record of; the whole sentence is still hidden from the model.
+  it('masks a disclaimer naming a committee it does not know', () => {
+    const script =
+      "Hi {first_name}, it's Sarah. Vote Nov 3!\n\n" +
+      'Paid for by Sarah Chen for City Council.\nReply STOP to opt out.'
+    const { masked } = maskProtectedParts(
+      script,
+      deriveSmsProtectedParts(script, {
+        candidateNames: ['Sarah Chen'],
+        committeeName: null,
+      }),
+    )
+    expect(masked).not.toContain('City Council')
+  })
+})
+
 describe('restoreProtectedParts', () => {
   it('puts the original text back when every marker returns in order', () => {
     const { locked } = maskedScript()

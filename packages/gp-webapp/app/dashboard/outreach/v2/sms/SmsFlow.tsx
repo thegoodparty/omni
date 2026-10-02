@@ -731,14 +731,8 @@ export const SmsFlow = ({
         campaign?.positionName || campaign?.details?.normalizedOffice || '',
       )
   const footerCommittee = committeeName ?? provisionalCommittee
-  // Upgrades a footer to the committee the message should name now: the
-  // provisional line onto a bare opt-out, or the real committee over either.
   const upgradeFooter = (script: string) =>
-    upgradeScriptFooter(
-      script,
-      footerCommittee,
-      committeeName ? provisionalCommittee : null,
-    )
+    upgradeScriptFooter(script, footerCommittee)
   // A resumed row carries the script exactly as it was saved (intro, body and
   // system footer already joined), so it must not be composed a second time.
   // Only the system footer is upgraded: a draft saved before verification has
@@ -758,9 +752,9 @@ export const SmsFlow = ({
     if (upgraded === message) return
     setMessage(upgraded)
     setLockSource(upgraded)
-    // upgradeFooter is rebuilt each render from the two committees below.
+    // upgradeFooter is rebuilt each render from footerCommittee.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message, footerCommittee, provisionalCommittee])
+  }, [message, footerCommittee])
   // The message with nothing written between its locked parts.
   const emptyMessage = surface.composeMessage('', footerCommittee)
   const hasWrittenBody =
@@ -932,6 +926,14 @@ export const SmsFlow = ({
           if (currentDraft === undefined) {
             setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
           }
+        },
+        // A first draft that fails leaves nothing to write into, so the
+        // field gets the message's locked parts and the candidate writes
+        // between them, as on the custom purpose.
+        onError: () => {
+          if (requestId !== draftRequestRef.current) return
+          if (priorMessage.trim().length > 0) return
+          loadMessage(surface.composeMessage('', footerCommittee))
         },
       },
     )
