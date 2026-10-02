@@ -221,6 +221,7 @@ jobs:
           EXPECTED_SHA: ${{ github.sha }}
           JOB_NAME: ${{ github.event_name == 'pull_request' && 'Deploy PR preview' || 'Deploy' }}
           IS_PUSH: ${{ github.event_name == 'push' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           # On main, gp-api's deploy concurrency group (gp-api-deploy-main)
           # serializes deploys and drops the older *pending* one when a newer
@@ -253,24 +254,44 @@ jobs:
             # then saw no run for a deploy that had already succeeded and
             # timed out.
             runs_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-api.yml/runs?head_sha=$RUN_SHA&per_page=100")
-            # Newest first, ties broken by id: twin runs on one commit can
-            # start in the same second, and their order is otherwise arbitrary.
-            run_ids=$(jq -r '.workflow_runs | sort_by(.run_started_at, .id) | reverse | .[].id' <<<"$runs_json")
-            run_id=$(head -n 1 <<<"$run_ids")
-            run_conclusion=$(jq -r '.workflow_runs | sort_by(.run_started_at, .id) | last | .conclusion // ""' <<<"$runs_json")
+            # This PR's runs, oldest to newest, ties broken by id: twin runs on
+            # one commit can start in the same second, and their order is
+            # otherwise arbitrary. Other PRs on the same head commit are left
+            # out; a run GitHub did not link to any PR (a fork) falls back to
+            # every run on the commit rather than to none.
+            runs=$(jq --arg pr "${PR_NUMBER:-}" '
+              [.workflow_runs[]] as $all
+              | [$all[] | select($pr != "" and any(.pull_requests[]?; (.number | tostring) == $pr))] as $mine
+              | (if ($mine | length) > 0 then $mine else $all end)
+              | sort_by(.run_started_at, .id)' <<<"$runs_json")
+            run_id=$(jq -r 'last | .id // empty' <<<"$runs")
+            run_conclusion=$(jq -r 'last | .conclusion // ""' <<<"$runs")
             job_conclusion=""
-            deployed=""
-            for id in $run_ids; do
-              conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
+            if [ -n "$run_id" ]; then
+              job_conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" \
                 --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\"")
-              [ "$id" = "$run_id" ] && job_conclusion=$conclusion
-              [ "$conclusion" = "success" ] && deployed=$id
-            done
-            echo "  attempt $i/150: gp-api run=${run_id:-<none>} run_conclusion=${run_conclusion:-<running>} '$JOB_NAME' conclusion=${job_conclusion:-<running>}${deployed:+ (deployed by run $deployed)}"
+            fi
+            # A TWIN THAT DEPLOYED. Two PR events at once start every workflow
+            # twice, and the newer twin's deploy can be cancelled after the
+            # older one's succeeded. Only then is an older run's success
+            # accepted: while the newest is still running it is the one to
+            # wait for, since an older success may be a preview this PR has
+            # since torn down. The edge check below still confirms the SHA.
+            deployed=""
+            if [ "$run_conclusion" = "cancelled" ] || [ "$job_conclusion" = "cancelled" ]; then
+              for id in $(jq -r '.[:-1] | reverse | .[].id' <<<"$runs"); do
+                conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
+                  --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\"")
+                if [ "$conclusion" = "success" ]; then
+                  deployed=$id
+                  break
+                fi
+              done
+            fi
+            echo "  attempt $i/150: gp-api run=${run_id:-<none>} run_conclusion=${run_conclusion:-<running>} '$JOB_NAME' conclusion=${job_conclusion:-<running>}${deployed:+ (twin run $deployed deployed it)}"
 
-            # ANY run on this commit that deployed it is a deploy: a twin
-            # cancelled by the other is not a failure when the other succeeded.
-            # The edge check below still confirms this SHA is what is served.
+            # Deploy job for our commit finished successfully.
+            [ "$job_conclusion" = "success" ] && break
             [ -n "$deployed" ] && break
 
             # A real, non-superseded deploy failure must still fail E2E.
