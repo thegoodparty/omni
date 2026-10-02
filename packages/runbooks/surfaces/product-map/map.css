@@ -79,13 +79,13 @@ details[open] > .fsum .caret{transform:rotate(90deg)}
 .evs{margin:9px 0 0;display:flex;flex-direction:column}
 .evd{border-top:1px solid var(--rule)}
 .evd:first-child{border-top:0}
-.ev{display:flex;align-items:center;gap:9px;padding:5px 0;min-width:0}
+.ev{display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px;padding:5px 0;min-width:0}
 .ev:hover .mevname{color:var(--link)}
 .evdot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--ok)}
 .evdot.dormant,.evdot.instrumented_never_observed{background:var(--warn)}
 .evdot.retired,.evdot.deprecating{background:var(--mute)}
 .evdot.orphaned_firing{background:var(--alert)}
-.mevname{font:400 12.5px/1.45 var(--mono);color:var(--ink);flex:1;min-width:0;overflow-wrap:anywhere}
+.mevname{font:400 12.5px/1.45 var(--mono);color:var(--ink);flex:1 1 170px;min-width:0;overflow-wrap:anywhere}
 .evnum{font:500 12px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--ink-2);flex:none}
 .tag{font:500 10px/1 var(--sans);letter-spacing:.04em;text-transform:uppercase;padding:3px 6px;border-radius:3px;flex:none;white-space:nowrap}
 .tag.warn{background:var(--warn-bg);color:var(--warn)}

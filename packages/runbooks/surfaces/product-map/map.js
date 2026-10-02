@@ -34,7 +34,7 @@ var ProductMap = (function () {
   const WIN_ONBOARDING = {
     kind: 'flow',
     name: 'Win onboarding',
-    route: '/onboarding/[slug]/[step]',
+    route: '/onboarding/office-selection',
     src: 'packages/gp-webapp/app/onboarding/components/onboardingConfig.ts',
     note: 'declared as ONBOARDING_STEPS; two of them are a fork on how the office was chosen',
     head: [
@@ -1284,7 +1284,7 @@ var ProductMap = (function () {
       areas: [
         {
           name: 'Onboarding',
-          route: '/onboarding/[slug]/[step]',
+          route: '/onboarding/office-selection',
           inMap: false,
           surfaces: [WIN_ONBOARDING, FOLLOW_ON],
         },
