@@ -22,6 +22,7 @@ model UserAgendaUpload {
   uploadedByUser   User @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
 
   experimentRunId String?        @map("experiment_run_id")
+  experimentRun   ExperimentRun? @relation(fields: [experimentRunId], references: [runId], onDelete: SetNull)
 
   /// Why gp-api declined to turn this run's artifact into a briefing row, as a
   /// short machine string (agenda_unavailable:<value>, packet_date_mismatch:
@@ -29,7 +30,6 @@ model UserAgendaUpload {
   /// Null while the run is in flight or when the row was written. Shown to the
   /// official on the Briefings page so a refused link is not a silent failure.
   refusalReason String? @map("refusal_reason") @db.VarChar(200)
-  experimentRun   ExperimentRun? @relation(fields: [experimentRunId], references: [runId], onDelete: SetNull)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

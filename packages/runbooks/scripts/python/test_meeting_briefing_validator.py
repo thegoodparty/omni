@@ -505,7 +505,12 @@ class TestTalkingPointsShapeScan:
 # ---------------------------------------------------------------------------
 
 
-def _agenda_source(name: str = "Council Agenda — June 1, 2026", text: str = "Agenda for the June 1, 2026 regular meeting. Item 1 ...", url: str | None = "https://example.gov/agenda.pdf", source_type: str = "agenda_packet") -> dict:
+def _agenda_source(
+    name: str = "Council Agenda — June 1, 2026",
+    text: str = "Agenda for the June 1, 2026 regular meeting. Item 1 ...",
+    url: str | None = "https://example.gov/agenda.pdf",
+    source_type: str = "agenda_packet",
+) -> dict:
     return {
         "id": "src_001",
         "name": name,
@@ -516,7 +521,14 @@ def _agenda_source(name: str = "Council Agenda — June 1, 2026", text: str = "A
     }
 
 
-def _ready_artifact(availability: str = "full_packet", *, sources: list[dict] | None = None, packet_url: str | None = "https://example.gov/agenda.pdf", decisions: list[dict] | None = None, status: str = "briefing_ready") -> dict:
+def _ready_artifact(
+    availability: str | None = "full_packet",
+    *,
+    sources: list[dict] | None = None,
+    packet_url: str | None = "https://example.gov/agenda.pdf",
+    decisions: list[dict] | None = None,
+    status: str = "briefing_ready",
+) -> dict:
     return {
         "briefing_status": status,
         "meeting_date": "2026-06-01",
@@ -574,6 +586,14 @@ class TestAgendaAvailabilityConsistency:
             _ready_artifact("html_agenda", sources=gov_page, packet_url="https://portal.example.gov/event/1"), findings
         )
         assert findings == []
+
+    def test_missing_availability_on_ready_is_a_warning_not_an_error(self):
+        v = _load_validator()
+        findings: list = []
+        artifact = _ready_artifact(None)
+        del artifact["run_metadata"]["agenda_availability"]
+        v.check_agenda_availability_consistency(artifact, findings)
+        assert [(f.check, f.severity) for f in findings] == [("agenda_availability.missing", "warning")]
 
     def test_empty_packet_url_on_ready_is_a_warning_not_an_error(self):
         v = _load_validator()

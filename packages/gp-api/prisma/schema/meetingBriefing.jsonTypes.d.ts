@@ -18,9 +18,14 @@ declare global {
       location?: string
       run_metadata?: {
         agenda_packet_url?: string | null
-        agenda_availability?: string
+        agenda_availability?:
+          | 'full_packet'
+          | 'html_agenda'
+          | 'partial'
+          | 'not_published'
+          | 'inferred_from_prior'
         packet_stated_meeting_date?: string | null
-        packet_date_verification?: string
+        packet_date_verification?: 'matched' | 'mismatched' | 'unavailable'
         [key: string]: Prisma.JsonValue | undefined
       }
       sources?: Array<{

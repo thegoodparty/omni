@@ -8,7 +8,7 @@ import {
 } from '@/generated/agent-job-contracts'
 import { LlmService } from '@/llm/services/llm.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
-import { parseIsoDateAsUTC } from '@/shared/util/date.util'
+import { ISO_DATE_ONLY_RE, parseIsoDateAsUTC } from '@/shared/util/date.util'
 import { isInactiveUser } from '@/shared/util/userActivity.util'
 import { getUserFullName } from '@/users/util/users.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -138,6 +138,23 @@ const AGENDA_EVIDENCE_SOURCE_TYPES: ReadonlySet<string> = new Set([
 // A user-pasted packet whose stated date is this far from the target meeting
 // is treated as a different meeting. Holiday shifts of a day or two pass.
 const PACKET_DATE_TOLERANCE_DAYS = 3
+// Matches the user_agenda_upload.refusal_reason column width.
+const REFUSAL_REASON_MAX = 200
+
+// The unique key of an official's upload row for one meeting date.
+const uploadRowKey = (electedOfficeId: string, dateString: string) => ({
+  electedOfficeId,
+  meetingDate: parseIsoDateAsUTC(dateString),
+})
+
+// The meeting date the run was dispatched for, falling back to the
+// artifact's own date for runs dispatched without one.
+const targetDateFor = (run: ExperimentRun, artifactDate: string): string => {
+  const fromParams = readStringField(run.params, 'meetingDate')
+  return fromParams !== null && ISO_DATE_ONLY_RE.test(fromParams)
+    ? fromParams
+    : artifactDate
+}
 
 // Identifies the daily-briefing cron in the cron_run lease table.
 const DAILY_BRIEFINGS_CRON_JOB = 'dispatchDailyBriefings'
@@ -646,23 +663,27 @@ export class MeetingBriefingsService extends createPrismaBase(
     // persists regardless of briefing_status (writeBriefingRowFromArtifact
     // early-returns on placeholder statuses), so placeholder runs still
     // capture the hint.
-    await this.writeBriefingRowFromArtifact(
+    const written = await this.writeBriefingRowFromArtifact(
       run,
       loaded.electedOffice,
       loaded.artifact,
     )
-    // Dashboard cards are a best-effort projection of the briefing — a sync
-    // failure must not block the briefing row write, mirroring the location
-    // hint-upsert ordering above.
-    await this.syncDashboardCardsForBriefing(
-      loaded.electedOffice.id,
-      loaded.artifact,
-    )
-    await this.syncBriefingItemLinks(
-      loaded.electedOffice.id,
-      run.organizationSlug,
-      loaded.artifact,
-    )
+    // Dashboard cards and item links are projections of the briefing row.
+    // They sync only when this run's artifact became the row: a refused or
+    // placeholder artifact must not rewrite the links of a briefing that is
+    // still on screen. A sync failure must not block the row write either,
+    // mirroring the location hint-upsert ordering above.
+    if (written) {
+      await this.syncDashboardCardsForBriefing(
+        loaded.electedOffice.id,
+        loaded.artifact,
+      )
+      await this.syncBriefingItemLinks(
+        loaded.electedOffice.id,
+        run.organizationSlug,
+        loaded.artifact,
+      )
+    }
     await this.persistAgendaLocationFromArtifact(
       run,
       loaded.electedOffice.id,
@@ -1185,12 +1206,13 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
   }
 
+  /** Returns true when this run's artifact became the briefing row. */
   private async writeBriefingRowFromArtifact(
     run: ExperimentRun,
     electedOffice: { id: string; userId: number },
     artifact: PrismaJson.MeetingBriefingArtifact,
-  ): Promise<void> {
-    if (!run.artifactBucket || !run.artifactKey) return
+  ): Promise<boolean> {
+    if (!run.artifactBucket || !run.artifactKey) return false
 
     const briefingStatus = artifact.briefing_status
     if (briefingStatus === undefined) {
@@ -1198,14 +1220,14 @@ export class MeetingBriefingsService extends createPrismaBase(
         { runId: run.runId },
         'meeting_briefing artifact missing briefing_status field',
       )
-      return
+      return false
     }
     if (briefingStatus === 'error') {
       this.logger.error(
         { runId: run.runId, briefingStatus },
         'meeting_briefing artifact reports an unrecoverable error; skipping row write',
       )
-      return
+      return false
     }
     if (
       briefingStatus !== 'briefing_ready' &&
@@ -1221,7 +1243,7 @@ export class MeetingBriefingsService extends createPrismaBase(
         briefingStatus,
         artifact,
       )
-      return
+      return false
     }
 
     const dateString =
@@ -1231,7 +1253,7 @@ export class MeetingBriefingsService extends createPrismaBase(
         { runId: run.runId, dateString },
         'meeting_briefing artifact has invalid meeting_date',
       )
-      return
+      return false
     }
 
     const refusal = await this.assessPublishability(
@@ -1243,12 +1265,16 @@ export class MeetingBriefingsService extends createPrismaBase(
     )
     if (refusal) {
       this.logger.warn(
-        { runId: run.runId, briefingStatus, refusal },
-        'meeting_briefing artifact cannot be published as ready; skipping row write so the slot stays open',
+        {
+          runId: run.runId,
+          briefingStatus,
+          refusal: refusal.slice(0, REFUSAL_REASON_MAX),
+        },
+        'meeting_briefing refused as ready; slot stays open for a retry',
       )
       await this.recordUploadRefusal(
         electedOffice.id,
-        dateString,
+        targetDateFor(run, dateString),
         run.runId,
         refusal,
       )
@@ -1257,8 +1283,9 @@ export class MeetingBriefingsService extends createPrismaBase(
         electedOffice,
         'awaiting_agenda',
         artifact,
+        refusal.slice(0, REFUSAL_REASON_MAX),
       )
-      return
+      return false
     }
 
     const resolved = this.resolveMeetingTimeFields(
@@ -1266,7 +1293,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       briefingStatus === 'agenda_provided_by_user',
       run.runId,
     )
-    if (!resolved) return
+    if (!resolved) return false
     const { meetingTime, meetingTimezone } = resolved
 
     const electedOfficeId = electedOffice.id
@@ -1304,6 +1331,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       meetingTime,
       meetingTimezone,
     })
+    return true
   }
 
   /**
@@ -1319,11 +1347,10 @@ export class MeetingBriefingsService extends createPrismaBase(
   ): Promise<void> {
     await this.client.userAgendaUpload.updateMany({
       where: {
-        electedOfficeId,
-        meetingDate: parseIsoDateAsUTC(dateString),
+        ...uploadRowKey(electedOfficeId, dateString),
         experimentRunId: runId,
       },
-      data: { refusalReason: reason.slice(0, 200) },
+      data: { refusalReason: reason.slice(0, REFUSAL_REASON_MAX) },
     })
   }
 
@@ -1353,9 +1380,12 @@ export class MeetingBriefingsService extends createPrismaBase(
     const runMetadata = artifact.run_metadata
     const availability = readStringField(runMetadata, 'agenda_availability')
     if (availability === null) {
-      this.logger.info(
-        { runId: run.runId },
-        'meeting_briefing artifact predates agenda_availability; publishing without the availability check',
+      // Allowed for now so runs from before the field existed still publish.
+      // Logged at warn so a stream of these is visible; becomes a refusal
+      // once every live run records the field.
+      this.logger.warn(
+        { runId: run.runId, briefingStatus },
+        'meeting_briefing has no agenda_availability; publishing unchecked',
       )
     } else if (!PUBLISHABLE_AGENDA_AVAILABILITY.has(availability)) {
       return `agenda_unavailable:${availability}`
@@ -1381,12 +1411,15 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
 
     if (briefingStatus === 'agenda_provided_by_user') {
+      // The upload row lives under the slot the official submitted into (the
+      // dispatch target), which the artifact's meeting_date is supposed to
+      // echo but has not always.
       const upload = await this.client.userAgendaUpload.findUnique({
         where: {
-          electedOfficeId_meetingDate: {
+          electedOfficeId_meetingDate: uploadRowKey(
             electedOfficeId,
-            meetingDate: parseIsoDateAsUTC(dateString),
-          },
+            targetDateFor(run, dateString),
+          ),
         },
         select: { experimentRunId: true, sourceUrl: true, uploadKey: true },
       })
@@ -1397,17 +1430,22 @@ export class MeetingBriefingsService extends createPrismaBase(
       ) {
         return 'no_user_agenda_upload_for_run'
       }
-      const statedDate = readStringField(
+      // Only a well-formed ISO date from the artifact is used or echoed back;
+      // anything else counts as "no date read", the same as null.
+      const statedDateRaw = readStringField(
         runMetadata,
         'packet_stated_meeting_date',
       )
+      const statedDate =
+        statedDateRaw !== null && ISO_DATE_ONLY_RE.test(statedDateRaw)
+          ? statedDateRaw
+          : null
       const verification = readStringField(
         runMetadata,
         'packet_date_verification',
       )
       const statedDateIsFarOff =
         statedDate !== null &&
-        /^\d{4}-\d{2}-\d{2}$/.test(statedDate) &&
         Math.abs(
           differenceInCalendarDays(
             parseIsoDateAsUTC(statedDate),
@@ -1431,6 +1469,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     electedOffice: { id: string; userId: number },
     briefingStatus: 'awaiting_agenda' | 'no_meeting_found',
     artifact: PrismaJson.MeetingBriefingArtifact,
+    refusalReason?: string,
   ): Promise<void> {
     const targetDate =
       readStringField(run.params, 'meetingDate') ??
@@ -1446,6 +1485,9 @@ export class MeetingBriefingsService extends createPrismaBase(
           electedOfficeId: electedOffice.id,
           experimentRunId: run.runId,
           briefingStatus,
+          // Set when gp-api refused a ready artifact, so dashboards can tell
+          // a refusal from an agent placeholder.
+          ...(refusalReason ? { refusalReason } : {}),
           ...(validDate
             ? {
                 meetingDate: parseIsoDateAsUTC(validDate).getTime(),

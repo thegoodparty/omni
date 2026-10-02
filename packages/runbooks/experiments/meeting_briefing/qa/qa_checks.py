@@ -623,6 +623,11 @@ _UNAVAILABLE_AGENDA_PHRASES = (
     "packet_access_partial",
     "no_agenda_yet",
 )
+# Date extraction is kept local on purpose: this module ships to the runner as
+# a single file and may not import from scripts/python, where similar helpers
+# live. Numeric dates are read month-first (US agendas); a day-first date
+# either fails to parse or reads as the wrong day, which only ever costs a
+# warning here, never a gate.
 _MONTHS = {
     m: i
     for i, m in enumerate(
@@ -666,15 +671,23 @@ def check_agenda_availability_consistency(artifact: dict, findings: list[Finding
     Mirrors the gp-api publication gate: ready or user-provided status with an
     availability value that says the agenda was unavailable is an error, and so
     is a ready artifact that cites no agenda or government-website source with
-    text at all. An empty agenda_packet_url on a ready artifact is a warning for
-    now; it becomes an error once every live run records one.
+    text at all. A missing availability value and an empty agenda_packet_url are
+    warnings for now; both become errors once every live run records them.
     """
     status = artifact.get("briefing_status")
     if status not in _READY_STATUSES:
         return
     rm = artifact.get("run_metadata") or {}
     availability = rm.get("agenda_availability")
-    if availability in _REFUSED_AVAILABILITY:
+    if availability is None:
+        findings.append(Finding(
+            "agenda_availability.missing",
+            "warning",
+            f"briefing_status='{status}' but run_metadata.agenda_availability is not set. "
+            "Fill it on every run; gp-api publishes such artifacts for now and will refuse them "
+            "once the field is present on every live run.",
+        ))
+    elif availability in _REFUSED_AVAILABILITY:
         findings.append(Finding(
             "agenda_availability.ready_without_agenda",
             "error",
