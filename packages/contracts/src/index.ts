@@ -969,6 +969,12 @@ export {
   type RobocallScriptDraftResponse,
 } from './outreach/RobocallScript.schema'
 export {
+  deriveRobocallProtectedParts,
+  formatRobocallCallbackNumber,
+  robocallDisclosureLine,
+  type RobocallProtectedPart,
+} from './outreach/RobocallProtectedParts'
+export {
   RobocallNumberResponseSchema,
   type RobocallNumberResponse,
 } from './outreach/RobocallNumber.schema'

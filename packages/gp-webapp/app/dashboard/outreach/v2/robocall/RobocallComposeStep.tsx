@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ROBOCALL_SCRIPT_MAX_LENGTH,
   type RobocallComplianceVerdict,
+  type RobocallProtectedPart,
   SOCIAL_TONE_VALUES,
   type SocialTone,
 } from '@goodparty_org/contracts'
@@ -14,7 +15,8 @@ import {
   FilterPill,
   FilterPillGroup,
   IconButton,
-  Textarea,
+  type ProtectedSpec,
+  TokenField,
 } from '@styleguide'
 import {
   ClockIcon,
@@ -24,6 +26,7 @@ import {
   PlayIcon,
   RefreshIcon,
   SmileIcon,
+  SparklesIcon,
   SquareIcon,
   SunIcon,
   TargetIcon,
@@ -32,6 +35,12 @@ import {
 } from '@styleguide/components/ui/icons'
 import { Intro } from '../social/Intro'
 import { type RobocallRecorder } from './useRobocallRecorder'
+
+// Why each locked part cannot change, shown when an edit runs into it.
+const LOCK_REASONS: Record<RobocallProtectedPart['rule'], string> = {
+  candidate_name: 'Your name has to stay in the script.',
+  disclosure: 'The line saying who paid for the call has to stay as written.',
+}
 
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
@@ -53,15 +62,19 @@ const fmtDur = (secs: number): string =>
 interface RobocallComposeStepProps {
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
-  isCustomPurpose: boolean
-  // The drafted (or custom-authored) script the candidate reads aloud. For
-  // non-custom purposes it's AI-generated and read-only; custom is a textarea.
-  draft: string
-  onDraftChange: (draft: string) => void
-  onRegenerate: () => void
+  // The whole script the candidate reads aloud, the disclosure line included.
+  script: string
+  onScriptChange: (script: string) => void
+  // The parts of `script` nobody may change, from deriveRobocallProtectedParts.
+  protectedParts: RobocallProtectedPart[]
+  // Whether there is anything to read besides the disclosure.
+  hasWrittenBody: boolean
+  // The one AI action: a fresh draft while the words are still the AI's,
+  // a polish once they are the candidate's own.
+  aiAction: 'regenerate' | 'improve'
+  onAiAction: () => void
   isDrafting: boolean
   isDraftError: boolean
-  audienceName: string
   // The rented caller-ID number the candidate must read aloud (the drafted
   // script includes it). Null while renting or if renting failed.
   callbackNumber: string | null
@@ -87,13 +100,14 @@ interface RobocallComposeStepProps {
 export const RobocallComposeStep = ({
   tone,
   onToneChange,
-  isCustomPurpose,
-  draft,
-  onDraftChange,
-  onRegenerate,
+  script,
+  onScriptChange,
+  protectedParts,
+  hasWrittenBody,
+  aiAction,
+  onAiAction,
   isDrafting,
   isDraftError,
-  audienceName,
   callbackNumber,
   isRentingNumber,
   rentError,
@@ -111,6 +125,15 @@ export const RobocallComposeStep = ({
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [lockReason, setLockReason] = useState<string | null>(null)
+  useEffect(() => setLockReason(null), [script])
+  const protectedRanges: ProtectedSpec[] = protectedParts.map((part) => ({
+    id: part.rule,
+    text: part.text,
+    reason: LOCK_REASONS[part.rule],
+  }))
+  const isImprove = aiAction === 'improve'
+  const awaitingFirstDraft = isDrafting && !script.trim()
 
   // A new/re-recorded clip resets playback (the old audio element is gone).
   useEffect(() => setPlaying(false), [recorder.recording?.url])
@@ -156,45 +179,20 @@ export const RobocallComposeStep = ({
           until it's rented. */}
       {callbackNumber && (
         <>
-          {!isCustomPurpose && (
-            <FilterPillGroup
-              type="single"
-              value={tone}
-              onValueChange={(value) =>
-                value && onToneChange(value as SocialTone)
-              }
-            >
-              {SOCIAL_TONE_VALUES.map((t) => (
-                <FilterPill key={t} value={t} className="gap-1.5">
-                  {TONE_ICONS[t]}
-                  {TONE_LABELS[t]}
-                </FilterPill>
-              ))}
-            </FilterPillGroup>
-          )}
-
-          {!isCustomPurpose && (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">
-                Suggested for {audienceName}
-              </p>
-              <Button
-                type="button"
-                variant="link"
-                size="small"
-                className="h-auto gap-1.5 px-0 no-underline"
-                disabled={isDrafting}
-                onClick={onRegenerate}
-              >
-                {isDrafting ? (
-                  <Loader2Icon className="size-4 animate-spin" />
-                ) : (
-                  <RefreshIcon className="size-4" />
-                )}
-                Regenerate
-              </Button>
-            </div>
-          )}
+          <FilterPillGroup
+            type="single"
+            value={tone}
+            onValueChange={(value) =>
+              value && onToneChange(value as SocialTone)
+            }
+          >
+            {SOCIAL_TONE_VALUES.map((t) => (
+              <FilterPill key={t} value={t} className="gap-1.5">
+                {TONE_ICONS[t]}
+                {TONE_LABELS[t]}
+              </FilterPill>
+            ))}
+          </FilterPillGroup>
 
           {isDraftError && (
             <Card className="items-start gap-3 border-destructive p-4">
@@ -202,7 +200,7 @@ export const RobocallComposeStep = ({
                 We couldn&apos;t draft your script just now. Try again, or write
                 your own.
               </p>
-              <Button type="button" size="small" onClick={onRegenerate}>
+              <Button type="button" size="small" onClick={onAiAction}>
                 Try again
               </Button>
             </Card>
@@ -212,36 +210,57 @@ export const RobocallComposeStep = ({
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Read this on your recording
             </p>
-            {isCustomPurpose ? (
-              <Textarea
-                value={draft}
-                onChange={(e) => onDraftChange(e.target.value)}
-                placeholder="Write your script…"
-                aria-label="Robocall script"
-                maxLength={ROBOCALL_SCRIPT_MAX_LENGTH}
-                variant="seamless"
-                className="min-h-[120px] resize-none [field-sizing:content]"
-              />
-            ) : isDrafting && !draft.trim() ? (
-              <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-                <Loader2Icon className="size-4 animate-spin" />
-                Drafting your script…
-              </p>
-            ) : (
-              <p
-                data-vaul-no-drag
-                className="select-text whitespace-pre-wrap text-base leading-relaxed text-foreground"
-              >
-                {draft}
-              </p>
-            )}
+            <TokenField
+              value={script}
+              onChange={onScriptChange}
+              protectedRanges={protectedRanges}
+              onBlockedEdit={(target) =>
+                setLockReason('reason' in target ? target.reason : null)
+              }
+              // Read-only until the first draft lands, so nothing typed is
+              // overwritten by it.
+              readOnly={awaitingFirstDraft}
+              placeholder={
+                awaitingFirstDraft
+                  ? 'Drafting your script…'
+                  : 'Write your script…'
+              }
+              aria-label="Robocall script"
+              maxLength={ROBOCALL_SCRIPT_MAX_LENGTH}
+              variant="seamless"
+              className="min-h-[120px]"
+            />
             <p
               data-vaul-no-drag
               className="select-text text-xs text-muted-foreground"
             >
-              Your recording must say who paid for the call and include this
-              callback number: {callbackNumber}.
+              Read the last line as written: it says who paid for the call and
+              how to call back.
             </p>
+            <p role="status" className="min-h-4 text-xs text-foreground">
+              {lockReason}
+            </p>
+            <div className="-mx-4 -mb-4 mt-2 flex items-center justify-end gap-1 border-t border-border p-2">
+              {(!isImprove || hasWrittenBody) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="small"
+                  className="text-muted-foreground"
+                  disabled={isDrafting}
+                  onClick={onAiAction}
+                >
+                  {isDrafting ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : isImprove ? (
+                    <SparklesIcon className="size-4" />
+                  ) : (
+                    <RefreshIcon className="size-4" />
+                  )}
+                  {isImprove ? 'Improve with AI' : 'Regenerate'}
+                </Button>
+              )}
+            </div>
           </Card>
 
           <p className="text-xs text-muted-foreground">

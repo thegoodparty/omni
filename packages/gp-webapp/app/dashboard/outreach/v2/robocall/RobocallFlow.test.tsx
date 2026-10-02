@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import type {
   OutreachDetail,
@@ -15,10 +16,29 @@ import { RobocallFlow } from './RobocallFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 import { gateRef } from '../gate/testing/mockReactiveGate'
 
+// The script field is a TokenField: its text lives in the editor TipTap
+// hangs on the textbox, not in a `value`.
+const scriptEditor = () =>
+  (
+    screen.getByRole('textbox', { name: 'Robocall script' }) as HTMLElement & {
+      editor: Editor
+    }
+  ).editor
+const scriptText = () => scriptEditor().getText({ blockSeparator: '\n' })
+
 // The gate's own flag/membership plumbing has its own tests; here the flow's
 // wiring is what's under test, so the hook is driven directly through the
 // shared reactive stand-in (see mockReactiveGate for why it is a module
 // singleton rather than a hoisted ref).
+// The disclosure names the candidate and office until a committee is
+// recorded, so the campaign carries both. No state: the schedule cases read
+// the time zone off its absence.
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [
+    { ownerName: 'Sarah Chen', positionName: 'City Council', details: {} },
+  ],
+}))
+
 vi.mock('../gate/useOutreachGate', async () => {
   const { useMockOutreachGate } =
     await import('../gate/testing/mockReactiveGate')
@@ -1101,26 +1121,34 @@ describe('RobocallFlow', () => {
     // mock); custom must never fire a draft, so this must never render.
     mockDraft('SHOULD-NOT-APPEAR auto draft')
 
-    // No tone pills, no "Suggested for" line, and an editable textarea.
-    expect(screen.queryByText('Direct')).not.toBeInTheDocument()
+    // The script opens on its locked disclosure, with room above to write.
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/^\n\nPaid for by .+, 202-555-0147\.$/),
+    )
     expect(screen.queryByText(/Suggested for/)).not.toBeInTheDocument()
     expect(
       screen.queryByText('SHOULD-NOT-APPEAR auto draft'),
     ).not.toBeInTheDocument()
 
-    const textarea = screen.getByRole('textbox', { name: 'Robocall script' })
-    await userEvent.type(textarea, 'Hi, this is my own script.')
-    expect(textarea).toHaveValue('Hi, this is my own script.')
+    act(() => {
+      scriptEditor().commands.insertContentAt(1, 'Hi, this is my own script.')
+    })
+    expect(scriptText()).toMatch(
+      /^Hi, this is my own script\.\n\nPaid for by .+, 202-555-0147\.$/,
+    )
   })
 
-  it('shows the callback number reminder in compose', async () => {
-    await gotoCompose('Write my own script')
-    // There is no banner now; a quiet reminder always surfaces the number so
-    // the candidate can read it aloud, whichever purpose they picked.
+  // The app writes the disclosure and closes the script on it, the number
+  // grouped the way it is read aloud.
+  it('closes the drafted script on the disclosure the app wrote', async () => {
+    mockDraft()
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+    )
     expect(
-      await screen.findByText(/must say who paid for the call/),
+      screen.getByText(/Read the last line as written/),
     ).toBeInTheDocument()
-    expect(screen.getByText(/\+12025550147/)).toBeInTheDocument()
   })
 
   it('shows a retry when renting the callback number fails', async () => {
@@ -1145,7 +1173,47 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('threads the rented callback number into the draft request', async () => {
+  // One AI action, as on SMS: Regenerate on an untouched draft, Improve with
+  // AI once the candidate has edited, and Improve sends the whole script so
+  // gp-api can keep its disclosure intact.
+  it('turns Regenerate into Improve after an edit and polishes the whole script', async () => {
+    const bodies: RobocallScriptDraftRequest[] = []
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
+      bodies.push(body)
+      return {
+        status: 200,
+        data: {
+          draft: body.currentDraft
+            ? body.currentDraft.replace('Vote early.', 'Please vote early!')
+            : 'A grounded script.',
+        },
+      }
+    })
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+    )
+    expect(screen.getByRole('button', { name: 'Regenerate' })).toBeEnabled()
+
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script.'.length + 1,
+        ' Vote early.',
+      )
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+
+    await waitFor(() => expect(bodies).toHaveLength(2))
+    expect(bodies[1]?.currentDraft).toMatch(
+      /^A grounded script\. Vote early\.\n\nPaid for by .+, 202-555-0147\.$/,
+    )
+    await waitFor(() => expect(scriptText()).toMatch(/Please vote early!/))
+  })
+
+  // The model never writes the disclosure, so it is never handed the number.
+  it('drafts the body without the callback number', async () => {
     let draftBody: RobocallScriptDraftRequest | null = null
     api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
       draftBody = body
@@ -1153,11 +1221,8 @@ describe('RobocallFlow', () => {
     })
 
     await gotoComposeRaw()
-    await screen.findByText(/A grounded script/)
-
-    // The on-entry draft carries the rented number so the server can require
-    // the spoken disclosure.
-    expect(draftBody).toMatchObject({ callbackNumber: '+12025550147' })
+    await waitFor(() => expect(scriptText()).toMatch(/^A grounded script\./))
+    expect(draftBody).not.toHaveProperty('callbackNumber')
   })
 
   it('does not draft the old purpose if it changes while renting', async () => {
@@ -1372,7 +1437,9 @@ describe('RobocallFlow', () => {
     // The saved recording is playable and the read script is shown back.
     expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument()
     expect(
-      screen.getByText('Hi, this is Alex, and I am running for City Council.'),
+      screen.getByText(
+        /^Hi, this is Alex, and I am running for City Council\./,
+      ),
     ).toBeInTheDocument()
   })
 

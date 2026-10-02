@@ -173,8 +173,10 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(systemPrompt).toContain('"Reply STOP"')
   })
 
-  it('requires the spoken disclosure when a callbackNumber is given', async () => {
-    mockDraft('A script that ends with the disclosure.')
+  // The app writes "Paid for by" and the callback number and locks them in
+  // the script, so the model is told never to, whatever the request says.
+  it('never asks the model for the disclosure, even with a callbackNumber', async () => {
+    mockDraft('A script.')
 
     const res = await postDraft({
       purpose: 'introduce_myself',
@@ -183,38 +185,50 @@ describe('POST /v1/outreach/robocall/draft', () => {
     })
     expect(res.status).toBe(HttpStatus.CREATED)
 
-    const systemPrompt = systemContent()
-    expect(systemPrompt).toContain('callback number given below')
-    // The ban rule must NOT apply once a number is provided.
-    expect(systemPrompt).not.toContain('Do NOT include a "Paid for by" line')
-
-    const userPrompt = userContent()
-    // The number is formatted to a plain grouped form for the script, so the
-    // model echoes "202-555-0147" instead of spelling out every digit.
-    expect(userPrompt).toContain('Callback number to read aloud: 202-555-0147')
-    expect(userPrompt).toContain('"Paid for by" name:')
+    expect(systemContent()).toContain('Do NOT include a "Paid for by" line')
+    expect(userContent()).not.toContain('202-555-0147')
+    expect(userContent()).not.toContain('Callback number')
   })
 
-  it('requires the disclosure on the improve path too', async () => {
-    mockDraft('A polished script that still ends with the disclosure.')
+  // Improve rewrites the whole script, so the disclosure line goes to the
+  // model as a marker and comes back exactly as the app wrote it.
+  it('hides the disclosure from Improve and puts it back', async () => {
+    const disclosure = 'Paid for by Jane Doe for City Council, 202-555-0147.'
+    const script = `Hi, this is Jane, running for council.\n\n${disclosure}`
+    // A polish that keeps every marker: echo the masked script back.
+    jsonCompletion.mockImplementation(
+      ({ messages }: { messages: { role: string; content: string }[] }) => {
+        const user = messages.find((m) => m.role === 'user')?.content ?? ''
+        const masked = user.split('"""')[1]?.trim() ?? ''
+        return Promise.resolve({ object: { draft: masked } })
+      },
+    )
 
     const res = await postDraft({
       purpose: 'introduce_myself',
       tone: 'warm',
-      currentDraft: 'Hi, this is Jane, running for council.',
-      callbackNumber: '+12025550147',
+      currentDraft: script,
     })
     expect(res.status).toBe(HttpStatus.CREATED)
 
-    expect(systemContent()).toContain('END with the spoken disclosure')
-    // The improve path must also normalize a digit-by-digit number, not just
-    // preserve whatever the original draft had.
-    expect(systemContent()).toContain(
-      'rewrite a digit-by-digit number into that grouped form',
-    )
-    expect(userContent()).toContain(
-      'Callback number to read aloud: 202-555-0147',
-    )
+    expect(userContent()).not.toContain('Paid for by')
+    expect(userContent()).not.toContain('202-555-0147')
+    expect(systemContent()).toContain('Keep every marker exactly once')
+    expect(res.data).toEqual({ draft: script })
+  })
+
+  it('refuses an Improve reply that drops the disclosure', async () => {
+    mockDraft('Hi, this is Jane. Vote Tuesday.')
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft:
+        'Hi, vote Tuesday.\n\nPaid for by Jane Doe for City Council, 202-555-0147.',
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    expect(jsonCompletion).toHaveBeenCalledTimes(2)
   })
 
   it.each(['early_voting', 'election_day_turnout'])(

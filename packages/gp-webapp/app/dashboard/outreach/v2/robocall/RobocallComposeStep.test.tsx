@@ -22,13 +22,16 @@ const savedRecorder: RobocallRecorder = {
 const baseProps = {
   tone: 'warm' as const,
   onToneChange: vi.fn(),
-  isCustomPurpose: false,
-  draft: 'This is Alex, running for City Council.',
-  onDraftChange: vi.fn(),
-  onRegenerate: vi.fn(),
+  script:
+    'This is Sarah, running for City Council.\n\n' +
+    'Paid for by Sarah Chen for City Council, 512-555-0123.',
+  onScriptChange: vi.fn(),
+  protectedParts: [],
+  hasWrittenBody: true,
+  aiAction: 'regenerate' as const,
+  onAiAction: vi.fn(),
   isDrafting: false,
   isDraftError: false,
-  audienceName: 'Renters in 98103',
   // Set so the compose body (and the record bar) renders.
   callbackNumber: '+15125550123',
   isRentingNumber: false,

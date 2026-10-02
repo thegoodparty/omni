@@ -1,4 +1,11 @@
-import type { SmsProtectedPart } from '@goodparty_org/contracts'
+// What the mask needs of a locked part, so an SMS part and a robocall part
+// (contracts' deriveSmsProtectedParts and deriveRobocallProtectedParts) both
+// fit. A token is masked everywhere it appears; a phrase where it starts.
+interface MaskablePart {
+  kind: 'token' | 'phrase'
+  text: string
+  start?: number
+}
 
 // Improve rewrites a message that, since the composer locks its required
 // parts (docs/features/message-composer.md), contains text the model must
@@ -36,11 +43,11 @@ const overlaps = (a: Span, b: Span) => a.start < b.end && a.end > b.start
 // quoting the opt-out line), and only the copy it chose is the locked one.
 // Longest first, so a name inside the disclaimer cannot claim the
 // disclaimer's characters; a merge tag takes every occurrence.
-const locate = (script: string, parts: SmsProtectedPart[]): Span[] => {
+const locate = (script: string, parts: MaskablePart[]): Span[] => {
   const spans: Span[] = []
   const byLength = [...parts].sort((a, b) => b.text.length - a.text.length)
   for (const part of byLength) {
-    if (part.kind === 'phrase') {
+    if (part.kind === 'phrase' && part.start !== undefined) {
       const span = { start: part.start, end: part.start + part.text.length }
       const placed =
         script.slice(span.start, span.end) === part.text &&
@@ -76,7 +83,7 @@ export interface MaskedScript {
 
 export const maskProtectedParts = (
   script: string,
-  parts: SmsProtectedPart[],
+  parts: MaskablePart[],
 ): MaskedScript => {
   const spans = locate(script, parts)
   let masked = ''

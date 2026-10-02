@@ -4,8 +4,8 @@ Owner: Justin. Status: waves 0 and 1 built (`Textarea` seamless variant;
 `TokenField`, `TokenPill` and `MERGE_TAGS`), the SMS span derivation
 (`deriveSmsProtectedParts`), and in #2353 every compose field moved onto
 `TokenField`: SMS with its locked greeting, disclaimer and opt-out, and
-phone banking (a contact-name pill), social and door knocking with no locks.
-Robocall's locked disclosure is the one compose field still to move.
+phone banking (a contact-name pill), social and door knocking with no locks,
+and robocall with its app-written, locked disclosure line (wave 3, below).
 
 A plan for two things that turn out to be one thing: editable-but-protected
 disclaimers in the SMS and robocall flows, and a reusable composer to hold them.
@@ -203,6 +203,12 @@ between them, but each piece stays whole.
 | `hasSelfIdentification` | the candidate's name; and `candidate for <office>` | yes, the rest of the opener |
 | `hasOrganization`       | `Paid for by <sponsor>`, one span                  | yes, before and after       |
 | `hasCallbackNumber`     | the formatted number                               | yes                         |
+
+As built (#2353), the disclosure locks as one unit, "Paid for by" to the end
+of its line, the same rule SMS uses with no committee recorded: it needs no
+sponsor known to gp-api, so the field and Improve's masking find the same
+text. Splitting it into the pieces above is the follow-up for states that
+require wording between them.
 
 Standing caveat: robocall spans are advisory. The gate is the recording verdict,
 not the script. Spans reduce failed recordings; they cannot guarantee a passing
@@ -490,7 +496,7 @@ Same shape as SMS, with the model out of the loop.
 | 1    | `TokenField`, `TokenPill`, merge-tag registry, stories, tests                     | None, no call sites yet                                         |
 | 2a   | SMS compose onto `TokenField`, server-side masked Improve, one AI action          | SMS footer becomes editable-with-locked-atoms                   |
 | 2b   | `MessageComposer` shell extracted across the four composers                       | None beyond 2a                                                  |
-| 3    | Robocall: deterministic disclosure, prompt change, locked atom, custom path fixed | Custom scripts stop failing after the recording                 |
+| 3    | Robocall: deterministic disclosure, prompt change, locked atom, custom path fixed | Built in #2353; the disclosure locks as one sentence for now    |
 | 4    | Social, phone banking, door-knocking talking points onto `TokenField`             | One field everywhere; phone banking's contact name is a pill    |
 | 5    | Optional: chat composers, polls                                                   |                                                                 |
 
