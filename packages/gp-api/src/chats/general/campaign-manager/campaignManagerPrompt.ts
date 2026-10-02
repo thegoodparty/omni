@@ -279,7 +279,7 @@ const opponentLine = (o: StrategicLandscapeResult['opponents'][number]) =>
 // sequencing are grounded in the plan rather than generic local-race advice.
 const planBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.plan) {
-    return 'The campaign plan has not been generated yet (it is built from the Campaign Story). Coach from the story, the tracker tasks, and local-race fundamentals until it exists.'
+    return 'The campaign plan has not been generated yet. It does not wait on the Campaign Story: a candidate without one still gets a plan, and finishing the story personalizes it. Coach from whatever story answers exist, the tracker tasks, and local-race fundamentals until it exists.'
   }
   const parts = ['The campaign plan\u2019s strategic landscape:']
   if (ctx.plan.opportunities.length > 0) {
@@ -522,7 +522,7 @@ const storyBlock = (ctx: CampaignManagerContext): string | null => {
     `Still missing: ${ctx.story.missing.join(', ')}. Say up front it is three short questions, then ask ONLY for what is missing, one at a time, in a warm guiding voice, not a form and not a wall of text.`,
     'Let the candidate answer in their own words, and save each answer (campaign_story save with that field and their exact words) as soon as they give it. Never hold an answer back waiting for the other questions or for a rewrite: a candidate who answers one question and stops must still have that answer saved.',
     'After saving, offer to "Help me rewrite" it (call campaign_story elaborate with the field and their text) and show them the suggestion. A rewrite replaces the saved answer only once they approve it: on approval, call campaign_story save again for that field with the rewritten text verbatim. Never save a rewrite they have not approved. They can revise any answer without starting over; check current answers with campaign_story read.',
-    'Once why, background, and positions are all saved, tell the candidate their Campaign Story is ready and ask if they want to generate their plan now. Only when they confirm, call campaign_story generate.',
+    'Once why, background, and positions are all saved, call campaign_story generate straight away. Do not ask whether to generate it and do not offer it as a choice: finishing the story IS the request. Tell the candidate their Campaign Story is ready and that you are personalizing their Campaign Plan and Tracker from what they just told you.',
     GENERATE_STATUS_GUIDANCE,
   ].join('\n\n')
 }
