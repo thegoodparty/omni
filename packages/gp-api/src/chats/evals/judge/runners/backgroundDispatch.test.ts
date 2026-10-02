@@ -274,6 +274,7 @@ describe('caseLoaderFor', () => {
       { orgSlug: 'judge-fixture-1' },
       HUGE_BUDGET_MS,
       3,
+      undefined,
       () => caseList('background', agent.agentId, decoy),
       () => withToken,
       () => config(),
@@ -295,6 +296,7 @@ describe('caseLoaderFor', () => {
         { orgSlug: 'judge-fixture-1' },
         HUGE_BUDGET_MS,
         3,
+        undefined,
         () => caseList('background', agent.agentId, mixed),
         () => mixed,
         () => config(),
@@ -308,6 +310,7 @@ describe('caseLoaderFor', () => {
       { orgSlug: 'judge-fixture-1' },
       HUGE_BUDGET_MS,
       3,
+      undefined,
       () => caseList('chat', chat.agentId, cases),
     )(chat)
     expect(list.cases).toEqual(cases)
@@ -338,11 +341,12 @@ describe('the wall-clock refusal', () => {
     caseId: `c${i}`,
     params: {},
   }))
-  const loader = (budgetMs: number) =>
+  const loader = (budgetMs: number, maxCases?: number) =>
     caseLoaderFor(
       {},
       budgetMs,
       3,
+      maxCases,
       (agent) =>
         agent.shape === 'background'
           ? caseList('background', agent.agentId, eight)
@@ -367,5 +371,25 @@ describe('the wall-clock refusal', () => {
 
   it('allows an agent that fits', () => {
     expect(() => loader(HUGE_BUDGET_MS)(background)).not.toThrow()
+  })
+
+  // THE CAP IS WHAT MAKES THE AGENT FIT, so it has to be applied before the
+  // budget is measured. Measured against the file instead, the refusal fires
+  // on a list the sweep was never going to walk.
+  it('measures the budget against the capped list, not the file', () => {
+    // 8 cases x 3 attempts x 65m is far over; 1 x 3 x 65m is not.
+    expect(() => loader(200 * 60 * 1000)(background)).toThrow()
+    expect(() => loader(200 * 60 * 1000, 1)(background)).not.toThrow()
+  })
+
+  // The first n, not a sample. Two arms that walked different cases have
+  // nothing to pair, and both arms read this from one config.
+  it('takes the first n cases so both arms walk the same ones', () => {
+    const list = loader(HUGE_BUDGET_MS, 3)(background)
+    expect(list.cases.map((one) => one.caseId)).toEqual(['c0', 'c1', 'c2'])
+  })
+
+  it('walks the whole list when no cap is set', () => {
+    expect(loader(HUGE_BUDGET_MS, undefined)(background).cases).toHaveLength(8)
   })
 })

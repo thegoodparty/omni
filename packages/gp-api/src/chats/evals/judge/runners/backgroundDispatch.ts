@@ -134,6 +134,7 @@ export const caseLoaderFor =
     values: PlaceholderValues,
     budgetMs: number,
     attemptsPerCase: number,
+    maxCases: number | undefined,
     load: typeof loadCaseList = loadCaseList,
     loadBackground: typeof loadBackgroundCases = loadBackgroundCases,
     loadConfig: (agentId: string) => AgentConfig = agentConfigFor,
@@ -143,7 +144,16 @@ export const caseLoaderFor =
     if (list.shape !== 'background') return list
     // Re-read, once per agent rather than once per case, to get the loader's
     // own narrowing instead of a fourth structural one.
-    const cases = substituteBackgroundCases(loadBackground(agent), values)
+    // CAPPED BEFORE SUBSTITUTION AND BEFORE THE BUDGET CHECK, so the budget
+    // is measured against what will actually be walked rather than against
+    // the file. Taking the FIRST n rather than a sample: the two arms must
+    // walk the same cases or there is nothing to pair, and `maxCases` is read
+    // from one config by both.
+    const all = loadBackground(agent)
+    const cases = substituteBackgroundCases(
+      maxCases === undefined ? all : all.slice(0, maxCases),
+      values,
+    )
     const config = loadConfig(agent.agentId)
     refuseIfOverBudget(
       agent.agentId,

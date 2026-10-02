@@ -119,7 +119,8 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
           loadCases: caseLoaderFor(
             env.fixtureValues,
             ARM_TIMEOUT_MS,
-            DEFAULT_JUDGE_CONFIG.attemptsPerCase,
+            DEFAULT_JUDGE_CONFIG.background.attemptsPerCase,
+            DEFAULT_JUDGE_CONFIG.background.maxCases,
           ),
           runCase: async (request) => {
             // THE ONE PLACE THE TWO RUNNERS DIVERGE. `captureArm` walks cases
