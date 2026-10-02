@@ -44,6 +44,7 @@ import { WebsiteViewsService } from '../services/websiteViews.service'
 import { TrackWebsiteViewSchema } from '../schemas/TrackWebsiteView.schema'
 import { GetWebsiteViewsSchema } from '../schemas/GetWebsiteViews.schema'
 import { AnalyticsService } from 'src/analytics/analytics.service'
+import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -162,6 +163,7 @@ export class WebsitesController {
     private readonly s3: S3Service,
     private readonly siteViews: WebsiteViewsService,
     private readonly analytics: AnalyticsService,
+    private readonly storyCompleted: CampaignStoryCompletedProducer,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(WebsitesController.name)
@@ -445,6 +447,17 @@ export class WebsitesController {
           `Failed to track candidate profile submitted event for user ${user.id}`,
         )
       }
+    }
+
+    // The bio and issues are two of the three Campaign Story answers (the
+    // story page writes them here), so a write that touches either may have
+    // just completed the story and made the campaign plan stale.
+    //
+    // Narrower than `body.about`, which also carries `committee`: that is not
+    // a story answer, and announcing on it would wipe and regenerate a
+    // complete-story campaign's whole plan for an unrelated edit.
+    if (body.about?.bio !== undefined || body.about?.issues !== undefined) {
+      await this.storyCompleted.announce(campaignId)
     }
 
     return serializeWebsiteWithDomain(result)

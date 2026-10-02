@@ -682,6 +682,169 @@ describe('judge.yml assumes a role scoped to the judge', () => {
   })
 })
 
+// THE ROLE'S TRUST, held from the workflow side. It lives in gp-ai's
+// Terraform beside the policy it attaches, so a merged omni PR can change who
+// gets AWS credentials; these are the review that change does not otherwise
+// get. Text scans, like the rest of this file: gp-api declares no HCL parser,
+// and what matters is a handful of exact values in one block we own.
+describe('the judge role trusts exactly judge.yml on main', () => {
+  const MODULE = path.resolve(
+    __dirname,
+    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
+  )
+  const tf = readFileSync(MODULE, 'utf8')
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const role = tf.slice(tf.indexOf('resource "aws_iam_role" "judge_sweep"'))
+  const roleBlock = role.slice(0, role.indexOf('\n}\n') + 2)
+  const trust = roleBlock.slice(roleBlock.indexOf('assume_role_policy'))
+  // The `{ ... }` that follows `key =`, braces balanced, quotes optional on
+  // the key: HCL accepts `Effect` and `"Effect"` alike, and a check that saw
+  // only one spelling let a second statement through in the other.
+  const KEY = (name: string) => `(?:"${name}"|\\b${name})\\s*=`
+  const blockAfter = (text: string, name: string): string[] => {
+    const out: string[] = []
+    const re = new RegExp(`${KEY(name)}\\s*\\{`, 'g')
+    for (const match of text.matchAll(re)) {
+      let depth = 0
+      const start = (match.index ?? 0) + match[0].length - 1
+      for (let at = start; at < text.length; at += 1) {
+        if (text[at] === '{') depth += 1
+        if (text[at] === '}') depth -= 1
+        if (depth === 0) {
+          out.push(text.slice(start + 1, at))
+          break
+        }
+      }
+    }
+    return out
+  }
+  // The keys written at the top level of an object body, quoted or not.
+  const topKeys = (body: string): string[] => {
+    const keys: string[] = []
+    let depth = 0
+    for (const line of body.split('\n')) {
+      if (depth === 0) {
+        const key = /^\s*"?([A-Za-z0-9_:.-]+)"?\s*=/.exec(line)?.[1]
+        if (key) keys.push(key)
+      }
+      depth += (line.match(/[{[]/g) ?? []).length
+      depth -= (line.match(/[}\]]/g) ?? []).length
+    }
+    return keys
+  }
+  const condition = (key: string): string[] =>
+    [
+      ...trust.matchAll(
+        new RegExp(
+          `"token\\.actions\\.githubusercontent\\.com:${key}"\\s*=\\s*"([^"]*)"`,
+          'g',
+        ),
+      ),
+    ].map((match) => match[1] ?? '')
+
+  it('finds the role and its trust', () => {
+    expect(roleBlock).toContain('assume_role_policy')
+    expect(trust).toContain('jsonencode(')
+  })
+
+  // The name judge.yml assumes, read off judge.yml rather than restated: a
+  // rename on one side leaves the sweep with credentials for nothing.
+  it('is the role judge.yml assumes', () => {
+    const arn = /role-to-assume: (arn:aws:iam::\d+:role\/(\S+))/.exec(yaml)
+    expect(arn?.[2]).toBeDefined()
+    expect(tf).toMatch(
+      new RegExp(`judge_role_name\\s*=\\s*"${arn?.[2] ?? 'missing'}"`),
+    )
+    expect(roleBlock).toMatch(/^ {2}name\s*=\s*local\.judge_role_name$/m)
+  })
+
+  it('trusts exactly one statement, by web identity, from GitHub', () => {
+    for (const name of ['Effect', 'Principal', 'Action', 'Condition']) {
+      expect(trust.match(new RegExp(KEY(name), 'g'))).toHaveLength(1)
+    }
+    const principal = blockAfter(trust, 'Principal')
+    expect(principal).toHaveLength(1)
+    expect(topKeys(principal[0] ?? '')).toEqual(['Federated'])
+    expect(trust).toMatch(/Action\s*=\s*"sts:AssumeRoleWithWebIdentity"/)
+    expect(trust).toMatch(
+      /Federated\s*=\s*"arn:aws:iam::\$\{data\.aws_caller_identity\.current\.account_id\}:oidc-provider\/\$\{local\.github_oidc\}"/,
+    )
+    expect(tf).toMatch(
+      /github_oidc\s*=\s*"token\.actions\.githubusercontent\.com"/,
+    )
+  })
+
+  // StringEquals only: a StringLike or ForAnyValue operator is how a pattern
+  // or a list would sneak a second subject in.
+  it('compares every claim exactly', () => {
+    const conditions = blockAfter(trust, 'Condition')
+    expect(conditions).toHaveLength(1)
+    expect(topKeys(conditions[0] ?? '')).toEqual(['StringEquals'])
+    const equals = blockAfter(conditions[0] ?? '', 'StringEquals')
+    expect(topKeys(equals[0] ?? '').sort()).toEqual(
+      [
+        'token.actions.githubusercontent.com:aud',
+        'token.actions.githubusercontent.com:job_workflow_ref',
+        'token.actions.githubusercontent.com:sub',
+      ].sort(),
+    )
+    expect(trust).not.toMatch(/StringLike|ForAnyValue|ForAllValues/)
+    expect(trust).not.toContain('*')
+    expect(trust).not.toContain('pull_request')
+  })
+
+  it('pins the audience, the ref and the one workflow file', () => {
+    expect(condition('aud')).toEqual(['sts.amazonaws.com'])
+    expect(condition('sub')).toEqual([
+      'repo:thegoodparty/omni:ref:refs/heads/main',
+    ])
+    expect(condition('job_workflow_ref')).toEqual([
+      `thegoodparty/omni/.github/workflows/${path.basename(WORKFLOW)}@refs/heads/main`,
+    ])
+  })
+
+  // The two claims have to name the same ref, or neither pin means anything:
+  // judge.yml is reached by relative path, so GitHub resolves it from the
+  // caller's ref, and a job on a branch presents that branch in both claims.
+  it('names the same ref in both claims', () => {
+    const subjectRef = condition('sub')[0]?.split(':ref:')[1]
+    const workflowRef = condition('job_workflow_ref')[0]?.split('@')[1]
+    expect(subjectRef).toBe('refs/heads/main')
+    expect(workflowRef).toBe(subjectRef)
+  })
+
+  // Exactly what judge.yml asks for, which is longer than the sweep job and
+  // no longer than four hours. A shorter cap makes the assume FAIL, not
+  // shorten: the request names a duration the role refuses.
+  it('allows exactly the session judge.yml asks for', () => {
+    const asked = Number(/role-duration-seconds: (\d+)/.exec(yaml)?.[1])
+    const allowed = Number(
+      /max_session_duration\s*=\s*(\d+)/.exec(roleBlock)?.[1],
+    )
+    expect(asked).toBeGreaterThan(0)
+    expect(allowed).toBe(asked)
+    expect(allowed).toBeLessThanOrEqual(4 * 3600)
+  })
+
+  // The judge's own policy, and no other: attaching the deploy role's would
+  // undo the point of a role of its own.
+  it('attaches the judge policy and nothing else', () => {
+    const attachments = [
+      ...tf.matchAll(
+        /resource "aws_iam_role_policy_attachment" "\w+" \{([^}]*)\}/g,
+      ),
+    ].map((match) => match[1] ?? '')
+    expect(attachments).toHaveLength(1)
+    expect(attachments[0]).toMatch(/role\s*=\s*aws_iam_role\.judge_sweep\.name/)
+    expect(attachments[0]).toMatch(
+      /policy_arn\s*=\s*aws_iam_policy\.judge_sweep\.arn/,
+    )
+    expect(tf).not.toMatch(
+      /aws_iam_role_policy"|managed_policy_arns|inline_policy/,
+    )
+  })
+})
+
 // ONE BACKGROUND BUDGET, AND ONE ADMITTED LIST, FOR BOTH ARMS. The base arm
 // reads the base ref's config.ts and manifests, so a budget or an admission
 // each arm decided for itself would differ whenever a branch changed either.
@@ -1103,6 +1266,157 @@ describe('judge.yml mints one test organization for both arms', () => {
       )
       expect(outputs).toBe('')
       expect(stdout).toContain('::warning::')
+    })
+  })
+})
+
+// THE PLAN COMMENT AND THE SUMMARIES LINK WHAT THEY NAME: the candidate commit,
+// the base branch, and each case list at the commit being judged. Run through
+// bash rather than matched as text, so what is checked is the markdown a
+// reader gets, quoting and all.
+describe('judge.yml links the commits, the base and the case lists', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const SHA = 'a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0'
+  const ENV = {
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'thegoodparty/omni',
+    CANDIDATE_SHA: SHA,
+    // Not `main`, so a link hardcoded to the default branch cannot pass.
+    BASE_REF: 'feat/x-1',
+    BASE_SHA: 'f'.repeat(40),
+    WORKSPACE: 'packages/gp-api',
+  }
+  const bash = (script: string, env: Record<string, string> = {}) =>
+    execFileSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, ...ENV, ...env },
+    })
+  const lines = (prefix: string) =>
+    yaml
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith(prefix))
+
+  it('links the candidate commit on every row that names it', () => {
+    const rows = lines('echo "| candidate |')
+    expect(rows.length).toBeGreaterThanOrEqual(7)
+    for (const row of rows) {
+      expect(bash(row)).toBe(
+        `| candidate | [\`${SHA.slice(0, 12)}\`](https://github.com/thegoodparty/omni/commit/${SHA}) |\n`,
+      )
+    }
+  })
+
+  it('links the base branch on every row that names it', () => {
+    const rows = lines('echo "| base |')
+    expect(rows.length).toBeGreaterThanOrEqual(7)
+    for (const row of rows) {
+      // Exactly, on the rows that carry no base commit; the one that does is
+      // checked exactly below.
+      if (row.includes('$base_commit')) continue
+      expect(bash(row)).toBe(
+        '| base | [`feat/x-1`](https://github.com/thegoodparty/omni/tree/feat/x-1) |\n',
+      )
+    }
+  })
+
+  // The summary's base row also links the resolved base commit, and says
+  // `unresolved` when the worktree step never ran.
+  it('links the resolved base commit, or says it is unresolved', () => {
+    const at = yaml.indexOf('base_commit=unresolved')
+    const prelude = yaml.slice(at, yaml.indexOf('fi\n', at) + 2)
+    const [row] = lines('echo "| base |').filter((one) =>
+      one.includes('$base_commit'),
+    )
+    expect(at).toBeGreaterThan(-1)
+    expect(row).toBeDefined()
+    const render = (env: Record<string, string>) =>
+      bash(`${prelude}\n${row ?? ''}`, env)
+    expect(render({})).toBe(
+      `| base | [\`feat/x-1\`](https://github.com/thegoodparty/omni/tree/feat/x-1) ([\`ffffffffffff\`](https://github.com/thegoodparty/omni/commit/${'f'.repeat(40)})) |\n`,
+    )
+    expect(render({ BASE_SHA: '' })).toBe(
+      '| base | [`feat/x-1`](https://github.com/thegoodparty/omni/tree/feat/x-1) (unresolved) |\n',
+    )
+  })
+
+  // THE RUN PAGE IS NOT ON THE PR, so both summaries say which PR they judged.
+  // Only a numeric PR number becomes a link; anything else links nowhere.
+  describe('the pull request on the run page', () => {
+    // Supplied by the tests below, so they cannot see a step that lacks it:
+    // without it the link is silently never rendered.
+    it('gives both summary steps the PR number', () => {
+      const holders = stepsOf(yaml).filter(
+        (step) =>
+          step.body.includes('pull_request=none') ||
+          step.body.includes('echo "Pull request:'),
+      )
+      expect(holders).toHaveLength(2)
+      for (const step of holders) {
+        expect(envValue(step.body, 'PR_NUMBER')).toBe('${{ inputs.pr_number }}')
+      }
+    })
+
+    it.each<[string, string, string]>([
+      [
+        '2371',
+        '[#2371](https://github.com/thegoodparty/omni/pull/2371)',
+        'links',
+      ],
+      ['', 'none', 'says none for'],
+      ['12)](https://evil.example', 'none', 'refuses'],
+    ])('the sweep summary %s', (pr, expected) => {
+      const at = yaml.indexOf('pull_request=none')
+      const prelude = yaml.slice(at, yaml.indexOf('fi\n', at) + 2)
+      const [row] = lines('echo "| pull request |')
+      expect(at).toBeGreaterThan(-1)
+      expect(bash(`${prelude}\n${row ?? ''}`, { PR_NUMBER: pr })).toBe(
+        `| pull request | ${expected} |\n`,
+      )
+    })
+
+    it.each<[string, string]>([
+      [
+        '2371',
+        'Pull request: [#2371](https://github.com/thegoodparty/omni/pull/2371)\n\nPLAN\n',
+      ],
+      ['', 'PLAN\n'],
+      ['1; echo pwned', 'PLAN\n'],
+    ])('puts the plan summary under PR %j as expected', (pr, expected) => {
+      const at = yaml.indexOf(
+        'if [[ "${PR_NUMBER:-}" =~ ^[0-9]+$ ]]; then\n              echo "Pull request:',
+      )
+      expect(at).toBeGreaterThan(-1)
+      const block = yaml.slice(at, yaml.indexOf('fi\n', at) + 2)
+      const dir = mkdtempSync(path.join(tmpdir(), 'judge-plan-summary-'))
+      writeFileSync(path.join(dir, 'plan.md'), 'PLAN\n')
+      expect(
+        bash(`{\n${block}\ncat "${dir}/plan.md"\n}`, { PR_NUMBER: pr }),
+      ).toBe(expected)
+    })
+  })
+
+  // The case list is arbitrary CLI output, so it is a link only when it is a
+  // plain file name; anything else stays a code span and points nowhere.
+  describe('the case-list cell', () => {
+    const start = yaml.indexOf('if [[ "$safe_cases" =~')
+    const block = yaml.slice(start, yaml.indexOf('fi\n', start) + 2)
+    const cell = (safeCases: string) =>
+      bash(`${block}\nprintf '%s' "$cell"`, { safe_cases: safeCases })
+
+    it('links a plain case-list file at the commit being judged', () => {
+      expect(cell('chief_of_staff.json')).toBe(
+        `[\`chief_of_staff.json\`](https://github.com/thegoodparty/omni/blob/${SHA}/packages/gp-api/src/chats/evals/judge/cases/chief_of_staff.json)`,
+      )
+    })
+
+    it.each([
+      'x.json](https://evil.example)',
+      '../../secrets.json',
+      'NO CASE LIST YET',
+      'Chief.json',
+    ])('leaves %j as a code span', (value) => {
+      expect(cell(value)).toBe(`\`${value}\``)
     })
   })
 })

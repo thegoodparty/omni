@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
 import { CampaignStoryService } from './campaignStory.service'
 
 const uniqueConstraintError = Object.assign(new Error('unique'), {
@@ -15,15 +16,18 @@ describe('CampaignStoryService.upsertForCampaign', () => {
   let mockPrisma: {
     campaignStory: Record<'upsert' | 'update', ReturnType<typeof vi.fn>>
   }
+  let storyCompleted: { announce: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     mockPrisma = {
       campaignStory: { upsert: vi.fn(), update: vi.fn() },
     }
+    storyCompleted = { announce: vi.fn().mockResolvedValue(undefined) }
     const module = await Test.createTestingModule({
       providers: [
         CampaignStoryService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: CampaignStoryCompletedProducer, useValue: storyCompleted },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -52,5 +56,24 @@ describe('CampaignStoryService.upsertForCampaign', () => {
       service.upsertForCampaign(99, { background: 'x' }),
     ).rejects.toThrow('boom')
     expect(mockPrisma.campaignStory.update).not.toHaveBeenCalled()
+  })
+
+  // The background is one of the three story answers, so a write may have just
+  // completed the story and made an existing campaign plan stale.
+  it('announces the write so the plan can regenerate', async () => {
+    mockPrisma.campaignStory.upsert.mockResolvedValue({ background: 'b' })
+
+    await service.upsertForCampaign(99, { background: 'b' })
+
+    expect(storyCompleted.announce).toHaveBeenCalledWith(99)
+  })
+
+  it('does not announce a write that failed', async () => {
+    mockPrisma.campaignStory.upsert.mockRejectedValue(new Error('boom'))
+
+    await expect(
+      service.upsertForCampaign(99, { background: 'x' }),
+    ).rejects.toThrow('boom')
+    expect(storyCompleted.announce).not.toHaveBeenCalled()
   })
 })

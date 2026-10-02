@@ -27,11 +27,9 @@ provider "aws" {
   }
 }
 
-# Its own root rather than a block inside pmf-engine-control-plane, for the
-# same reason the autopilot schedule lives in a workflow: a policy whose
-# attachment is a manual step should not be able to fail an apply that owns
-# the dispatch queue and the artifacts bucket. Nothing else depends on this
-# root's state.
+# Its own root rather than a block inside pmf-engine-control-plane: the judge's
+# role and policy should not be able to fail an apply that owns the dispatch
+# queue and the artifacts bucket. Nothing else depends on this root's state.
 module "universal_judge_sweep_policy" {
   source = "../../../modules/universal-judge-sweep-policy"
 
@@ -44,4 +42,8 @@ output "policy_arn" {
 
 output "policy_name" {
   value = module.universal_judge_sweep_policy.policy_name
+}
+
+output "role_arn" {
+  value = module.universal_judge_sweep_policy.role_arn
 }

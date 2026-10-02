@@ -11,6 +11,52 @@ of it, which is the only reason one judge can cover every agent.
 Design: the [TDD](https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-139733)
 and the shorter [review doc](https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-140793).
 
+## Asking for a judgment
+
+You ask about a pull request, and the judge compares the PR's branch with what
+it branches from (normally `main`).
+
+**On the PR, comment `/judge`.** The bot replies with a plan: which agents it
+would compare and what that would cost. No sweep runs and nothing is spent.
+Then confirm it:
+
+| Comment | What it does |
+| --- | --- |
+| `/judge` | Plan only, for the agents your diff touched |
+| `/judge --live` | Runs it for those agents |
+| `/judge chief_of_staff --live` | Runs it for the agent you name |
+| `/judge chief_of_staff,opposition_research --live` | Several, comma-separated, no spaces |
+| `/judge all --live` | Every agent with a case list. Expensive; for changes to shared code |
+
+The comment has to start with `/judge`. Only people with write access to the
+repository can run one, because it spends on the organization's model
+account. Fork PRs are skipped.
+
+**Or from Actions.** Open **Actions → Universal Judge request → Run
+workflow**, fill in the PR number and the agents (`auto` by default), and tick
+**Actually run the sweep and spend on model calls** to spend. Leave it
+unticked for the plan.
+
+**Reading the result.** The verdict is in the run's summary: open **Actions →
+Universal Judge comment** (or **request**, for a dispatch) and pick the run.
+Every comment on any PR starts a comment run, most of them skipped, so look
+for the one at the time you posted. The PR thread says the sweep started but
+not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
+**CAN'T SAY**. Most are CAN'T SAY today, and that's expected for two reasons.
+Almost all the case lists are still placeholders (see below), and every list
+has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
+measured difference still shown beside it. The summary also lists what was
+excluded and why, and an agent that couldn't be compared is listed as
+refused, with the reason.
+
+A sweep of one chat agent takes about half an hour. The plan comment shows the
+estimate before anything runs: about $7 for a chat agent, $13 for a background
+agent, $35 for `ordinance_flow`.
+
+**A second request on the same PR cancels the first**, from a comment or from
+Actions. That includes a plan-only `/judge`: posting one while a live sweep is
+running throws away what that sweep already spent, and no verdict comes out.
+
 ## Running a sweep: THREE PROCESSES, NOT ONE
 
 This is the shape of the whole thing, and it is forced rather than chosen. An
@@ -117,7 +163,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                     |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                             |
 
-## Case lists: nineteen of twenty agents, and all nineteen are placeholders
+## Case lists: nineteen of twenty agents, and all but one are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-first agent is a
@@ -141,7 +187,8 @@ what its inputs should be, not an unwritten file. `briefing_annotation` is not
 that gap: it is `blocked`, has no handler, and is out of the denominator on
 purpose, so inputs for it would be inputs for a runner that cannot drive it.
 
-**Every one of them is `placeholder: true`.** Each background list is
+**All but one are `placeholder: true`.** The exception is
+`race_opponent_summary.json`, a real bench of nine cases. Each other background list is
 schema-valid against its experiment manifest's `input_schema` and each value
 is plausible; each chat list asks a question the seeded fixture org can
 actually be asked. But nobody has dispatched or driven one, so a verdict drawn
