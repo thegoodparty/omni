@@ -1,0 +1,72 @@
+name: human-approval
+
+# The ruleset's one required approval is satisfied by delegate-reviewer, so a
+# PR an agent authored could be approved and merged with no human involved.
+# This check fails on agent-authored PRs until a human approves the current
+# head commit. Every other PR passes immediately. It is a required check in
+# the main ruleset; the agents' GitHub Apps hold no `workflows` permission, so
+# they cannot edit this file to make it pass.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  pull-requests: read
+
+concurrency:
+  group: human-approval-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Human approval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a human approval on agent-authored PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          GATED_AUTHORS: bugboss-gp[bot]
+        run: |
+          set -euo pipefail
+          pr=$(gh api "repos/$REPO/pulls/$PR")
+          author=$(jq -r '.user.login' <<<"$pr")
+          head=$(jq -r '.head.sha' <<<"$pr")
+
+          if ! grep -qxF "$author" <<<"${GATED_AUTHORS// /$'\n'}"; then
+            echo "$author is not a gated author; no human approval required."
+            exit 0
+          fi
+
+          candidates=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
+            | jq -s -r --arg head "$head" '
+                add
+                | map(select(.user.type == "User"
+                    and (.state | IN("APPROVED", "CHANGES_REQUESTED", "DISMISSED"))))
+                | group_by(.user.login)
+                | map(max_by(.submitted_at))
+                | map(select(.state == "APPROVED" and .commit_id == $head))
+                | .[].user.login')
+
+          # author_association reads CONTRIBUTOR for private org members under
+          # this token, and the repo is public, so anyone can approve. Count
+          # only reviewers who can write to the repo.
+          approvers=""
+          for login in $candidates; do
+            perm=$(gh api "repos/$REPO/collaborators/$login/permission" --jq .permission)
+            if [[ "$perm" == "admin" || "$perm" == "write" ]]; then
+              approvers="${approvers:+$approvers, }$login"
+            fi
+          done
+
+          if [ -n "$approvers" ]; then
+            echo "Approved at $head by: $approvers"
+            exit 0
+          fi
+
+          echo "::error::$author opened this PR. A human must approve commit $head before it can merge."
+          exit 1
