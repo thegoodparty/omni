@@ -85,6 +85,14 @@ When an alert fires, Grafana sends a notification to the `#dev-alerts` Slack cha
 
 You can also view all alert states in the [Grafana Alerting UI](https://goodparty.grafana.net/alerting/list).
 
+### That link has to keep pointing at the rule that fired
+
+A notification's _View in Grafana_ and _Silence_ links are built from the rule's uid and carry nothing else that identifies it, so the uid is the only thread from a page back to what sent it. Grafana mints one per rule in a group and reassigns them when the group's membership changes, so until `alertRuleUid` (`alerting/alert-rule-uid.ts`) pinned them to `gp-api-<env>-<slug>`, adding or removing an alert silently repointed other alerts' links.
+
+That is not theoretical. Of the four pages from the 2026-09-28 17:01-18:25Z query-path outage that reached an incident, two links no longer resolve to the rule that sent them: `ffyfzdfereakga` was "[People] Public campaign lookup failing" and now opens "Alert notifications are failing to deliver", and `dfynonhv8ucqoa` was "[People] Person id repoint blocked" and now 404s. Both moved in the 2026-09-29 06:35Z deploy, half a day after the pages were sent and while they were still being read.
+
+The same churn splits a rule's state history, which is keyed on the uid -- so "has this rule ever fired on real data" is unanswerable across a deploy unless you know the uid changed hands. Recording rules pinned theirs from the start; this is the alert half of the same decision.
+
 ## Ownership
 
 _Route_ alerts follow a **Serve/Win ownership model**. Each controller is assigned to `serve-bugs`, `win-bugs` or both in `CONTROLLER_OWNERS` in `deploy/components/alerts.ts`, which decides who is notified and therefore which of the five rules its routes land in. `ALERT_OWNERSHIP` is derived from that map and keeps its old shape, so nothing downstream changed.

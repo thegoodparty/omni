@@ -4,6 +4,7 @@ import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 import * as grafana from '@pulumiverse/grafana'
 import { Alert } from './alerting/alerts.types'
+import { alertRuleUid } from './alerting/alert-rule-uid'
 import { GLOBAL_ALERTS } from './alerts'
 import {
   buildAlertDescription,
@@ -478,6 +479,12 @@ export const createGrafanaResources = async ({
 
     return {
       name: alert.name,
+      // Pinned, not left to Grafana. A notification's *View in Grafana* and
+      // *Silence* links are built from this uid, and an unpinned one is
+      // reassigned to a different alert whenever the rule group's membership
+      // changes — so the link on a page that is still being investigated can
+      // open somebody else's rule, or 404. See alerting/alert-rule-uid.ts.
+      uid: alertRuleUid({ slug: alert.slug, environment }),
       condition: 'C',
       for: alert.for,
       isPaused: alert.disabled ?? false,
