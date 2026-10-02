@@ -978,6 +978,43 @@ describe('CampaignStrategyService', () => {
       expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     })
 
+    // The partial state, which the per-plan guard missed: opposition has
+    // landed, opportunities is still running. There IS content here, so
+    // "nothing persisted" reads false and the old condition fell through to
+    // the wipe — nulling opportunitiesRunId and orphaning the live run.
+    it('leaves a half-generated plan alone while one section is still running', async () => {
+      completeStory()
+      sectionsReadable()
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          oppositionRunId: 'opp-run',
+          oppositionPersistedAt: new Date(),
+          opportunitiesRunId: 'oc-run',
+          opportunitiesPersistedAt: null,
+        }),
+      )
+      const runsById: Record<string, unknown> = {
+        'opp-run': run({
+          runId: 'opp-run',
+          status: ExperimentRunStatus.COMPLETED,
+        }),
+        'oc-run': run({ runId: 'oc-run', status: ExperimentRunStatus.RUNNING }),
+      }
+      experimentRuns.findUnique.mockImplementation(
+        (args: { where: { runId: string } }) =>
+          Promise.resolve(runsById[args.where.runId] ?? null),
+      )
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res).toEqual({ status: 'generating' })
+      expect(prisma.campaignStrategy.updateMany).not.toHaveBeenCalled()
+      expect(
+        prisma.campaignStrategyOpportunity.deleteMany,
+      ).not.toHaveBeenCalled()
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    })
+
     it('stamps the flag without a reset when the plan has never generated', async () => {
       completeStory()
       prisma.campaignStrategy.upsert.mockResolvedValue(planRow())

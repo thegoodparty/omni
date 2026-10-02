@@ -904,36 +904,45 @@ export class CampaignStrategyService extends createPrismaBase(
     const { complete } = await this.storyState.read(plan.campaignId)
     if (!complete) return { plan, lostClaim: false }
 
-    // Nothing persisted means there is no stale content to wipe. Two
-    // sub-cases hide under that, and they look alike but must not be treated
-    // alike: the `persistedAt` stamps say whether content exists, the runIds
-    // say whether a generation is already on the wire.
-    const nothingPersisted =
-      !plan.oppositionPersistedAt && !plan.opportunitiesPersistedAt
-    const dispatchOutstanding =
-      !!plan.oppositionRunId || !!plan.opportunitiesRunId
+    // The two sections carry their own runId and persistedAt, so the state
+    // that matters here is per-section, not per-plan: a section holding a
+    // runId with no stamp has a generation on the wire whose output is still
+    // coming. Reading it per-plan produced two bugs in a row — first ignoring
+    // in-flight runs altogether, then catching only the case where BOTH
+    // sections were unpersisted and missing the partial one (opposition
+    // persisted, opportunities still running).
+    const anyInFlightUnpersisted =
+      (!!plan.oppositionRunId && !plan.oppositionPersistedAt) ||
+      (!!plan.opportunitiesRunId && !plan.opportunitiesPersistedAt)
 
-    // A first generation is already in flight, dispatched before the story
-    // landed, so its params do not carry the story. Neither of the other two
-    // branches is safe here. Wiping nulls the runIds that
-    // onExperimentRunCompleted looks the plan up by, so the live Fargate runs
-    // finish and their output is silently dropped. Stamping the claim would
-    // mark a story-less plan story-aware for good, and nothing would ever
-    // regenerate it — the opposite of the point.
+    // Any section still on the wire means stand aside without taking the
+    // claim, because neither other branch is safe. The wipe nulls both runIds
+    // and onExperimentRunCompleted looks the plan up by them, so a live
+    // Fargate run finishes into a plan that no longer references it and its
+    // output is silently dropped. Stamping the claim instead would mark a plan
+    // story-aware whose in-flight params predate the story, and since the flag
+    // IS the one-shot claim, nothing would ever regenerate it.
     //
-    // So stand aside without taking the claim: the run finishes and persists,
-    // and the next read sees `persistedAt` set with the claim still open and
-    // regenerates properly. The run already in flight keeps its attempt slots
-    // either way; this only decides whether its output is kept.
+    // Standing aside loses nothing: the run persists, and the next read sees
+    // every section stamped with the claim still open and takes the reset path
+    // below. Attempt slots are spent at dispatch either way; this only decides
+    // whether the output is kept.
     //
-    // Known cost: if that outstanding run is actually dead or stuck rather
-    // than live, the caller re-dispatches it below with story-bearing params,
-    // and the regeneration on the next read is then redundant (two slots of
-    // ten per section). Distinguishing the two needs the run rows, which this
-    // method does not have — the caller loads them after it returns.
-    if (nothingPersisted && dispatchOutstanding) {
+    // Known cost: an outstanding run that is dead or stuck rather than live is
+    // indistinguishable from here, so the caller re-dispatches it below with
+    // story-bearing params and the regeneration on the next read is then
+    // redundant (two of the ten slots per section). Telling the two apart
+    // needs the run rows, which this method does not have — the caller loads
+    // them after it returns. A terminally dead section holds the claim open
+    // for good, which is moot: such a plan reports failed and never completes.
+    if (anyInFlightUnpersisted) {
       return { plan, lostClaim: false }
     }
+
+    // Past that guard no section holds an unstamped run, so "nothing
+    // persisted" here also means nothing dispatched.
+    const nothingPersisted =
+      !plan.oppositionPersistedAt && !plan.opportunitiesPersistedAt
 
     // First visit, nothing dispatched: just take the claim. The dispatch that
     // follows picks the story up as params, which is the whole point.

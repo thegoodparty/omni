@@ -94,16 +94,19 @@ complete. The flag **is** the claim: the plan endpoint is polled, so the
 conditional `updateMany` is what stops two concurrent polls from each
 resetting and double-dispatching. Attempt counters deliberately survive.
 
-Three row states, not two, and conflating them cost a bug. The `persistedAt`
-stamps decide whether there is content to wipe; the runIds decide whether a
-generation is already on the wire. Content persisted takes the reset above.
-Nothing persisted and nothing dispatched stamps the claim and lets the
-dispatch that follows carry the story. Nothing persisted but a run still in
-flight stands aside without claiming: wiping would null the runIds
-`onExperimentRunCompleted` looks the plan up by, orphaning live Fargate runs
-so their output is dropped, while claiming would flag a plan story-aware
-whose params predate the story and so could never be regenerated. The read
-after those runs persist is the one that regenerates it.
+The decision is per-section, not per-plan, and reading it per-plan cost two
+bugs in a row. Each section owns a runId and a `persistedAt`, so a section
+holding a runId with no stamp has a generation on the wire whose output is
+still coming. If **any** section is in that state the align stands aside
+without claiming, including the partial case where opposition has landed and
+opportunities is still running: wiping nulls both runIds, which is how
+`onExperimentRunCompleted` finds the plan, so the live run finishes into a
+plan that no longer references it and its output is dropped. Claiming would
+be wrong the other way, flagging a plan story-aware whose in-flight params
+predate the story, which the one-shot claim then makes permanent. Otherwise
+persisted content takes the reset above, and a plan with no content and
+nothing dispatched stamps the claim and lets the dispatch that follows carry
+the story.
 
 That read-path alignment is the backstop; the trigger is the write path, so a
 candidate who finishes their story in the manager chat doesn't have to open the
