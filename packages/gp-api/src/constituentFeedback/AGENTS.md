@@ -181,7 +181,12 @@ non-superseded run; themes come from the latest completed one, so a run in
 flight or a failed one leaves the previous themes up. `memos` lists the
 effort's memos, confirmed and pending, newest first, capped at
 `FEEDBACK_REPORT_MEMO_LIMIT` (200): the page shows them when there are no
-themes to show, under the floor and while a run is in flight.
+themes to show, under the floor and while a run is in flight. `channel` is
+the effort's own (a turf's envelope is `door_knock`, a list's `phone_bank`,
+memo or no memo), and `floor` is `MIN_CONFIRMED_FOR_SYNTHESIS`, sent so the
+page's "Themes appear after N" line cannot drift from the 422. The constant
+lives in `feedbackReport.service.ts` because the synthesis service imports
+that file, not the other way round.
 
 ## Tags
 

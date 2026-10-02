@@ -778,6 +778,8 @@ describe('feedback synthesis routes', () => {
       expect(res.status).toBe(HttpStatus.OK)
       expect(res.data).toEqual({
         question: 'What should the city fix first?',
+        channel: ConstituentFeedbackChannel.door_knock,
+        floor: 5,
         denominators: { conversations: 2, memos: 2, confirmed: 1, pending: 1 },
         run: null,
         themes: [],
@@ -818,6 +820,7 @@ describe('feedback synthesis routes', () => {
 
       expect(res.status).toBe(HttpStatus.OK)
       expect(res.data.question).toBe('Would you join a compost pilot?')
+      expect(res.data.channel).toBe(ConstituentFeedbackChannel.phone_bank)
       expect(res.data.denominators).toEqual({
         conversations: 2,
         memos: 1,

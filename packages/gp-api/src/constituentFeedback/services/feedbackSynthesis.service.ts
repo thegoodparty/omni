@@ -12,16 +12,13 @@ import { Prisma, SynthesisRunStatus, SynthesisScope } from '@/generated/prisma'
 import { FeaturesService } from '@/features/services/features.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isPrismaError } from '@/prisma/util/prismaErrors.util'
-import { FeedbackReportService } from './feedbackReport.service'
+import {
+  FeedbackReportService,
+  MIN_CONFIRMED_FOR_SYNTHESIS,
+} from './feedbackReport.service'
 import { IssueTagSeedService } from './issueTagSeed.service'
 import { SYNTHESIS_ENGINE, type SynthesisEngine } from './synthesisEngine'
 import { issueCaptureFlagFor } from '../util/issueCaptureFlag.util'
-
-// Provisional, until dev runs at 20, 40 and 80 memos show where grouping
-// stops splintering. Under it the report lists the memos instead of themes:
-// a percentage over two conversations is the misleading number the report
-// exists to avoid.
-export const MIN_CONFIRMED_FOR_SYNTHESIS = 5
 
 // Per scope, on demand. With the floor, this is the cost control on
 // pipeline runs.

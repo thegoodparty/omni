@@ -8,6 +8,7 @@ import {
   type SynthesisRun,
 } from '@goodparty_org/contracts'
 import {
+  ConstituentFeedbackChannel,
   ConstituentFeedbackStance,
   DoorKnockOutcome,
   type FeedbackSynthesisRun,
@@ -16,6 +17,13 @@ import {
   SynthesisRunStatus,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+
+// Provisional, until dev runs at 20, 40 and 80 memos show where grouping
+// stops splintering. Under it the report lists the memos instead of themes:
+// a percentage over two conversations is the misleading number the report
+// exists to avoid. Declared here, not beside the synthesis that enforces it,
+// because that service already imports this one.
+export const MIN_CONFIRMED_FOR_SYNTHESIS = 5
 
 // The report card shows a few asks; the theme page shows them all.
 const REPORT_OUTCOME_LIMIT = 5
@@ -254,6 +262,11 @@ export class FeedbackReportService extends createPrismaBase(
         effort.doorKnockingTurf?.communityInputQuestion ??
         effort.phoneBankingList?.communityInputQuestion ??
         null,
+      channel:
+        effort.phoneBankingListId === null
+          ? ConstituentFeedbackChannel.door_knock
+          : ConstituentFeedbackChannel.phone_bank,
+      floor: MIN_CONFIRMED_FOR_SYNTHESIS,
       denominators,
       run: latest === null ? null : toRun(latest),
       themes: themes.map((theme) => summarize(theme, REPORT_OUTCOME_LIMIT)),
