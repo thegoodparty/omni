@@ -1207,6 +1207,58 @@ var ProductMap = (function () {
     },
   }
 
+  const PHONE_BANKING = {
+    kind: 'flow',
+    name: 'Phone banking wizard',
+    route: '/dashboard/outreach',
+    src: 'packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx',
+    note: 'five steps on the same shell as SMS, and a sixth for an event invite',
+    steps: [
+      shellStep('purpose', 'What do you want to do?'),
+      shellStep('details', 'When and where is the event?', {
+        note: [
+          'warn',
+          'Event invites only',
+          'This step shows only when the purpose is inviting people to an event. Every other purpose goes straight to who.',
+        ],
+      }),
+      shellStep('who', 'Who do you want to reach?', {
+        evs: [
+          'Voter Outreach - Recommended List Accepted',
+          'Voter Outreach - Recommended List Failed',
+        ],
+      }),
+      shellStep('script', 'Write your call script'),
+      shellStep('sheets', 'How many call sheets would you like me to create?', {
+        evs: [
+          'Outreach - Phone Banking Call List Created',
+          'Outreach - Campaign Created',
+        ],
+        note: [
+          'warn',
+          'The list is made here',
+          'Continuing from this step creates the call list, so both creation events fire on leaving it, not on the download step.',
+        ],
+      }),
+      shellStep('download', 'Download your call sheets', {
+        evs: ['Outreach - Phone Banking Call Sheet Downloaded'],
+        note: [
+          'warn',
+          'Not unique to this step',
+          'The same download event also fires from the call session’s header button, which is why it outnumbers the lists created here.',
+        ],
+      }),
+    ],
+    offstep: {
+      title: 'The gate that can stop the wizard',
+      evs: [
+        'Outreach - Gate Banner Viewed',
+        'Outreach - Gate Explainer Viewed',
+        'Outreach - Gate Explainer: Click CTA',
+      ],
+    },
+  }
+
   const OUTREACH_GATE = {
     kind: 'page',
     name: 'Outreach gate',
@@ -1301,12 +1353,7 @@ var ProductMap = (function () {
             ROBOCALL_WIZARD,
             SOCIAL_WIZARD,
             OUTREACH_GATE,
-            building(
-              'Phone banking wizard',
-              '/dashboard/outreach',
-              'packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx',
-              'on the same shell as SMS, with a separate step order for an event invite',
-            ),
+            PHONE_BANKING,
           ],
         },
         {
