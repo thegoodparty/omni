@@ -18,7 +18,8 @@ import {
   ChatScope,
   Prisma,
 } from '../../generated/prisma'
-import { addSeconds } from 'date-fns'
+import { addMilliseconds, addSeconds, isAfter } from 'date-fns'
+import type { FeaturesService } from '@/features/services/features.service'
 import {
   CHAT_ATTACHMENT_MAX_BYTES,
   CHAT_ATTACHMENT_MAX_PAGES,
@@ -57,6 +58,43 @@ export const LINK_FETCH_HTTP = 'LINK_FETCH_HTTP'
 export const ATTACHMENT_FLAG_BY_SCOPE: Partial<Record<ChatScope, string>> = {
   [ChatScope.chief_of_staff]: SERVE_CHAT_ATTACHMENTS_FLAG,
   [ChatScope.campaign_assistant]: WIN_CHAT_ATTACHMENTS_FLAG,
+}
+
+// Amplitude fetchV2 retries cost several seconds per call when the SDK
+// cannot reach the edge — enough to push CI E2E tests into timeout. Shared
+// by every per-scope context loader (chief-of-staff, campaign-manager) that
+// resolves the same (user, flag) pair every chat turn, so only the first
+// turn in the window incurs the round-trip. Absent FeaturesService (not
+// injected) resolves to false, same as every other optional-dependency gate
+// in these handlers.
+export const ATTACHMENTS_FLAG_CACHE_TTL_MS = 60_000
+
+export class AttachmentsFlagCache {
+  private readonly cache = new Map<
+    number,
+    { enabled: boolean; expiresAt: Date }
+  >()
+
+  constructor(
+    private readonly features: FeaturesService | undefined,
+    private readonly flag: string,
+  ) {}
+
+  async resolve(userId: number): Promise<boolean> {
+    if (!this.features) return false
+    const now = new Date()
+    const hit = this.cache.get(userId)
+    if (hit !== undefined && isAfter(hit.expiresAt, now)) return hit.enabled
+    const enabled = await this.features.isFeatureEnabled({
+      user: userId,
+      feature: this.flag,
+    })
+    this.cache.set(userId, {
+      enabled,
+      expiresAt: addMilliseconds(now, ATTACHMENTS_FLAG_CACHE_TTL_MS),
+    })
+    return enabled
+  }
 }
 
 const PDF_MAGIC = '%PDF'

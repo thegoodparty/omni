@@ -829,6 +829,8 @@ export {
 export {
   ComposeHandoffPayloadSchema,
   type ComposeHandoffPayload,
+  type ComposeHandoffChannel,
+  COMPOSE_HANDOFF_CHANNEL_SCHEMAS,
 } from './chats/ComposeHandoff.schema'
 
 export {
