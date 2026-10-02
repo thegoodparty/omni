@@ -3,11 +3,11 @@
 import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
-  ConstituentFeedbackCaptureMethod,
   ConstituentFeedbackTriple,
   DoorKnockOutcome,
   DoorKnockStatus,
   FollowUpAnswer,
+  RecordDoorKnockInteraction,
   RoutePayloadTarget,
   SupportAnswer,
   WillVoteAnswer,
@@ -15,11 +15,17 @@ import {
 import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useSnackbar } from 'helpers/useSnackbar'
 import {
   outreachEventProps,
   outreachProduct,
 } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
+import {
+  OFFLINE_MEMO_COPY,
+  useOfflineMemo,
+} from 'app/dashboard/shared/dictation/useOfflineMemo'
+import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
@@ -80,6 +86,35 @@ const PILL_ITEM_CLASSNAME =
 // without a rule or a heading level.
 const QUESTION_LABEL_CLASSNAME =
   'text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground'
+
+// What gp-api's `deriveKnockStatus` makes of a knock, for one saved with no
+// signal: the walk moves on as it would online, and the server's own answer
+// replaces this when the knock lands and the route is read again.
+const offlineKnockStatus = (
+  knock: RecordDoorKnockInteraction,
+): DoorKnockStatus => {
+  if (knock.followUp === 'yes') return 'needs_follow_up'
+  if (knock.followUp === 'no') return 'engaged'
+  if (knock.supportAnswer === 'supporter') return 'supporter'
+  if (knock.supportAnswer === 'non_supporter') return 'non_supporter'
+  if (knock.outcome === 'refused_to_engage') return 'refused'
+  if (knock.outcome === 'inaccessible') return 'inaccessible'
+  if (knock.outcome === 'not_a_voter') return 'not_a_voter'
+  if (knock.outcome === 'not_home') return 'not_home'
+  return 'unknown'
+}
+
+interface KnockInput {
+  outcome: DoorKnockOutcome
+  supportAnswer?: SupportAnswer
+  willVote?: WillVoteAnswer
+  followUp?: FollowUpAnswer
+  note?: string
+  engaged: boolean
+  captureMethod: 'dictation' | 'typed'
+  // A memo the phone recorded with no signal to dictate over.
+  recording: Blob | null
+}
 
 interface RecordKnockFormProps {
   target: RoutePayloadTarget
@@ -180,6 +215,11 @@ export default function RecordKnockForm({
       setSpoken(true)
     },
   })
+  // Doors are where signal drops. With none, the mic records on the phone,
+  // and Save holds the knock and its memo there until there is.
+  const offline = useOfflineMemo({ dictation })
+  const { successSnackbar } = useSnackbar()
+  const [holdFailed, setHoldFailed] = useState(false)
 
   // Held between the knock save and the confirm step. A ref rather than state
   // because `advance` is called from mutation callbacks in the same tick the
@@ -201,6 +241,93 @@ export default function RecordKnockForm({
     onRecorded(done.personId, done.knockStatus)
   }
 
+  const trackDoorLogged = (input: KnockInput, knockStatus: DoorKnockStatus) =>
+    trackEvent(EVENTS.DoorKnocking.DoorLogged, {
+      // The channel/fanout pair every outreach event carries, so one door
+      // rolls into "voters reached" without a chart naming door knocking.
+      ...outreachEventProps({
+        channel: 'doorKnocking',
+        isServe: serveMode,
+        listId: turfId,
+      }),
+      outcome: input.outcome,
+      knockStatus,
+      // Whether a note was written, never what it said — notes are about
+      // named voters and don't belong in an analytics payload.
+      hasNote: Boolean(input.note),
+      ...(input.supportAnswer ? { supportAnswer: input.supportAnswer } : {}),
+      ...(input.willVote ? { willVote: input.willVote } : {}),
+      ...(input.followUp ? { followUp: input.followUp } : {}),
+    })
+
+  const knockRequest = (input: KnockInput): RecordDoorKnockInteraction => ({
+    stopTargetId: target.stopTargetId,
+    clientKey,
+    outcome: input.outcome,
+    ...(input.supportAnswer ? { supportAnswer: input.supportAnswer } : {}),
+    ...(input.willVote ? { willVote: input.willVote } : {}),
+    ...(input.followUp ? { followUp: input.followUp } : {}),
+    ...(input.note ? { note: input.note } : {}),
+  })
+
+  // Only a conversation gets extracted, and only one with something said.
+  const memoFor = (input: KnockInput): QueuedMemo | null =>
+    captureEnabled && input.engaged && (input.note || input.recording)
+      ? {
+          reference: {
+            channel: 'door_knock',
+            knockClientKey: clientKey,
+            stopTargetId: target.stopTargetId,
+            clientKey,
+          },
+          ...(input.note
+            ? {
+                text: {
+                  transcript: input.note,
+                  captureMethod: input.captureMethod,
+                },
+              }
+            : {}),
+          analytics: { channel: 'doorKnocking', product },
+        }
+      : null
+
+  // The phone keeps what it cannot send yet, and the walk moves on. There is
+  // no confirm card: nothing is extracted until the memo reaches the server,
+  // so the triple waits in "Notes to review".
+  const hold = async (
+    input: KnockInput,
+    interaction: RecordDoorKnockInteraction | null,
+    done: { personId: string; knockStatus: DoorKnockStatus },
+  ): Promise<boolean> => {
+    try {
+      await offline.hold({
+        interaction:
+          interaction === null ? null : { kind: 'knock', payload: interaction },
+        memo: memoFor(input),
+      })
+    } catch {
+      // A knock that already saved walks on; one that did not stays put
+      // with its answers, like any failed save.
+      if (interaction === null) onRecorded(done.personId, done.knockStatus)
+      else setHoldFailed(true)
+      return false
+    }
+    successSnackbar(OFFLINE_MEMO_COPY.saved)
+    onRecorded(done.personId, done.knockStatus)
+    return true
+  }
+
+  // The door is logged on the phone, so it counts as logged now; the knock
+  // itself reaches the server when the queue drains.
+  const saveOffline = async (input: KnockInput) => {
+    const knock = knockRequest(input)
+    const knockStatus = offlineKnockStatus(knock)
+    if (await hold(input, knock, { personId: target.personId, knockStatus })) {
+      trackDoorLogged(input, knockStatus)
+    }
+  }
+
   // `engaged` and `captureMethod` ride the variables for the reason every
   // other field here already does: react-query refreshes a mutation's
   // callbacks each render, so `onSuccess` runs against the latest closure
@@ -208,58 +335,33 @@ export default function RecordKnockForm({
   // while the request is out. A canvasser who re-taps one mid-save would
   // otherwise have the memo dropped on a door that saved as engaged.
   const record = useMutation({
-    mutationFn: (input: {
-      outcome: DoorKnockOutcome
-      supportAnswer?: SupportAnswer
-      willVote?: WillVoteAnswer
-      followUp?: FollowUpAnswer
-      note?: string
-      engaged: boolean
-      captureMethod: ConstituentFeedbackCaptureMethod
-    }) =>
-      clientRequest('POST /v1/door-knocking/interactions', {
-        stopTargetId: target.stopTargetId,
-        clientKey,
-        outcome: input.outcome,
-        ...(input.supportAnswer ? { supportAnswer: input.supportAnswer } : {}),
-        ...(input.willVote ? { willVote: input.willVote } : {}),
-        ...(input.followUp ? { followUp: input.followUp } : {}),
-        ...(input.note ? { note: input.note } : {}),
-      }).then((res) => res.data),
+    mutationFn: (input: KnockInput) =>
+      clientRequest(
+        'POST /v1/door-knocking/interactions',
+        knockRequest(input),
+      ).then((res) => res.data),
     onSuccess: (data, input) => {
-      trackEvent(EVENTS.DoorKnocking.DoorLogged, {
-        // The channel/fanout pair every outreach event carries, so one door
-        // rolls into "voters reached" without a chart naming door knocking.
-        ...outreachEventProps({
-          channel: 'doorKnocking',
-          isServe: serveMode,
-          listId: turfId,
-        }),
-        outcome: input.outcome,
-        knockStatus: data.knockStatus,
-        // Whether a note was written, never what it said — notes are about
-        // named voters and don't belong in an analytics payload.
-        hasNote: Boolean(input.note),
-        ...(input.supportAnswer ? { supportAnswer: input.supportAnswer } : {}),
-        ...(input.willVote ? { willVote: input.willVote } : {}),
-        ...(input.followUp ? { followUp: input.followUp } : {}),
-      })
+      trackDoorLogged(input, data.knockStatus)
       // `engaged` and not merely `complete`: the note field is deliberately
       // offered on every branch, including a not-home door, so "dog in the
       // yard, come back Saturday" is a note the knock should keep but never a
       // person's position on an issue. Only a conversation gets extracted.
-      if (!input.note || !captureEnabled || !input.engaged) {
+      const memo = memoFor(input)
+      if (memo === null) {
         onRecorded(data.personId, data.knockStatus)
+        return
+      }
+      // Signal for the knock but not for the socket: the recording goes the
+      // offline way, after the knock it belongs to.
+      if (input.recording !== null || memo.text === undefined) {
+        void hold(input, null, data)
         return
       }
       recordedRef.current = {
         personId: data.personId,
         knockStatus: data.knockStatus,
       }
-      capture.mutate({
-        transcript: input.note,
-        captureMethod: input.captureMethod,
-      })
+      capture.mutate(memo.text)
     },
   })
 
@@ -272,7 +374,7 @@ export default function RecordKnockForm({
   const capture = useMutation({
     mutationFn: (input: {
       transcript: string
-      captureMethod: ConstituentFeedbackCaptureMethod
+      captureMethod: 'dictation' | 'typed'
     }) =>
       clientRequest('POST /v1/constituent-feedback', {
         channel: 'door_knock',
@@ -351,15 +453,18 @@ export default function RecordKnockForm({
     // after a failed save leaves it sitting over an empty form promising that
     // "your answers are still here" — which Cancel has just made untrue.
     record.reset()
+    setHoldFailed(false)
+    offline.discard()
   }
 
   const save = () => {
     if (!finalOutcome) return
     const trimmed = note.trim()
-    record.mutate({
+    const input: KnockInput = {
       outcome: finalOutcome,
       engaged,
       captureMethod: spoken ? 'dictation' : 'typed',
+      recording: offline.audio,
       // The contract rejects answers on anything but `answered`, so a
       // canvasser who backed out of the engaged branch can't ship the answers
       // they had picked inside it. The surface guards are the same rule one
@@ -377,7 +482,13 @@ export default function RecordKnockForm({
       // here would delete what they wrote to enforce a tidiness the schema
       // never asked for.
       ...(trimmed ? { note: trimmed } : {}),
-    })
+    }
+    setHoldFailed(false)
+    if (!navigator.onLine) {
+      void saveOffline(input)
+      return
+    }
+    record.mutate(input)
   }
 
   // The knock is already saved by the time this renders, so the ladder is
@@ -517,7 +628,7 @@ export default function RecordKnockForm({
               onChange={(e) => setNote(e.target.value)}
             />
             <DictationMicButton
-              dictation={dictation}
+              dictation={offline.mic}
               idleLabel="Dictate note"
               recordingLabel="Stop dictation"
               disabled={record.isPending}
@@ -528,11 +639,16 @@ export default function RecordKnockForm({
               {MEMO_CONSENT_LINE[product]}
             </p>
           )}
-          <DictationFeedback dictation={dictation} />
+          {offline.audio !== null && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {OFFLINE_MEMO_COPY.recorded}
+            </p>
+          )}
+          <DictationFeedback dictation={offline.mic} />
         </div>
       )}
 
-      {record.isError && (
+      {(record.isError || holdFailed) && (
         <p className="text-sm text-destructive">
           Saving failed — your answers are still here, try again.
         </p>

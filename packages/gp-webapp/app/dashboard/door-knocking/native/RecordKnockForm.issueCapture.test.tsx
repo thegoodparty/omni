@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { RoutePayloadTarget } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { installIndexedDbShim } from 'helpers/test-utils/indexedDbShim'
+import { listQueue } from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
 import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
@@ -37,6 +39,7 @@ const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
 }
 
 const mocks = vi.hoisted(() => ({
+  successSnackbar: vi.fn(),
   input: {
     current: null as null | {
       analyticsLabel: string
@@ -44,6 +47,13 @@ const mocks = vi.hoisted(() => ({
       onChange: (next: string) => void
     },
   },
+}))
+
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: mocks.successSnackbar,
+    errorSnackbar: vi.fn(),
+  }),
 }))
 
 vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
@@ -337,6 +347,94 @@ describe('RecordKnockForm issue capture', () => {
 
 // A candidate's door, where the memo is what a voter told the canvasser. Same
 // form, same sequencing, gated on Win's own flag.
+// A dead zone: the knock and its memo wait on the phone, knock first, and
+// the walk moves on as it would online. Nobody can confirm a triple that
+// has not been extracted yet, so there is no card to hold the door for.
+describe('RecordKnockForm issue capture with no signal', () => {
+  let online = false
+
+  beforeEach(() => {
+    installIndexedDbShim()
+    online = false
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      get: () => online,
+    })
+    mocks.successSnackbar.mockClear()
+  })
+
+  afterEach(() => {
+    online = true
+  })
+
+  it('holds the knock and the memo on the phone and walks on', async () => {
+    const knocks = vi.fn()
+    api.mock('POST /v1/door-knocking/interactions', () => {
+      knocks()
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'needs_follow_up' },
+      }
+    })
+    const onRecorded = renderForm()
+    await walkAndSave()
+
+    await waitFor(() =>
+      expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
+    )
+    expect(mocks.successSnackbar).toHaveBeenCalledWith(
+      'Saved on your phone. It will be sent when you have signal.',
+    )
+    expect(knocks).not.toHaveBeenCalled()
+    expect(screen.queryByText('Is this right?')).toBeNull()
+
+    const queued = await listQueue()
+    const knock = queued.find((entry) => entry.kind === 'knock')
+    const memo = queued.find((entry) => entry.kind === 'memo')
+    expect(knock?.payload).toEqual({
+      stopTargetId: 21,
+      clientKey: '6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90',
+      outcome: 'answered',
+      followUp: 'yes',
+      note: MEMO,
+    })
+    expect(memo?.payload).toEqual({
+      reference: {
+        channel: 'door_knock',
+        knockClientKey: '6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90',
+        stopTargetId: 21,
+        clientKey: '6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90',
+      },
+      text: { transcript: MEMO, captureMethod: 'dictation' },
+      analytics: { channel: 'doorKnocking', product: 'serve' },
+    })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.IssueCapture.MemoQueuedOffline,
+      { channel: 'doorKnocking', product: 'serve' },
+    )
+    // Logged on the phone is logged: the door counts now, not on upload.
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.DoorKnocking.DoorLogged,
+      expect.objectContaining({
+        outcome: 'answered',
+        knockStatus: 'needs_follow_up',
+      }),
+    )
+  })
+
+  // A not-home door has no conversation to capture, so only the knock waits.
+  it('holds a knock with no conversation on its own', async () => {
+    const onRecorded = renderForm()
+    answer('Did they answer?', 'Not home')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(onRecorded).toHaveBeenCalledWith('person-1', 'not_home'),
+    )
+    expect((await listQueue()).map((entry) => entry.kind)).toEqual(['knock'])
+  })
+})
+
 describe('RecordKnockForm issue capture on a Win door', () => {
   const walkWinAndSave = () => {
     answer('Did they answer?', 'Answered')
