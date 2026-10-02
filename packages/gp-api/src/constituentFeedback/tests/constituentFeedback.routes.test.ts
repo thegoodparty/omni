@@ -102,6 +102,39 @@ const onlyFlagOn = (flag: string) => {
 const flagsAskedFor = (spy: ReturnType<typeof onlyFlagOn>) =>
   spy.mock.calls.map(([params]) => params.feature)
 
+// A volunteer member of `slug`, signed in as themselves.
+const createVolunteer = async (slug: string) => {
+  const label = `cf-volunteer-${randomUUID()}`
+  const user = await service.prisma.user.create({
+    data: { email: `${label}@example.com`, clerkId: `user_${label}` },
+  })
+  await service.prisma.organizationMembership.create({
+    data: {
+      organizationSlug: slug,
+      userId: user.id,
+      role: OrganizationRole.volunteer,
+    },
+  })
+  const token = jwt.sign({ sub: `user_${label}` }, process.env.AUTH_SECRET!, {
+    expiresIn: '1h',
+  })
+  return {
+    user,
+    config: {
+      headers: {
+        'x-organization-slug': slug,
+        Authorization: `Bearer ${token}`,
+      },
+      validateStatus: () => true,
+    },
+  }
+}
+
+const assign = (slug: string, outreachId: number, assigneeUserId: number) =>
+  service.prisma.outreachAssignment.create({
+    data: { organizationSlug: slug, outreachId, assigneeUserId },
+  })
+
 describe('constituent feedback routes', () => {
   let eoSlug: string
   let listId: number
@@ -457,6 +490,34 @@ describe('constituent feedback routes', () => {
     expect(rows).toHaveLength(0)
   })
 
+  // A volunteer reaches a call only through an assignment on its effort, and a
+  // list with no envelope has no effort to be assigned to.
+  it('refuses a volunteer a call that belongs to no effort', async () => {
+    await service.prisma.outreach.delete({
+      where: { phoneBankingListId: listId },
+    })
+    const volunteer = await createVolunteer(eoSlug)
+
+    const res = await service.client.post(
+      '/v1/constituent-feedback',
+      {
+        channel: 'phone_bank',
+        entryId,
+        personId,
+        clientKey: randomUUID(),
+        transcript: 'Rosa wants weekly compost pickup.',
+        captureMethod: 'dictation',
+      },
+      volunteer.config,
+    )
+
+    expect(res.status).toBe(404)
+    const rows = await service.prisma.constituentFeedback.findMany({
+      where: { organizationSlug: eoSlug },
+    })
+    expect(rows).toHaveLength(0)
+  })
+
   // Each product rolls out on its own flag. A Serve org is gated on
   // serve-issue-capture alone, so turning Win's on cannot open it.
   describe('the Serve rollout flag', () => {
@@ -755,37 +816,6 @@ describe('constituent feedback routes', () => {
         validateStatus: () => true,
       })
 
-      const createVolunteer = async () => {
-        const label = `cf-volunteer-${randomUUID()}`
-        const user = await service.prisma.user.create({
-          data: { email: `${label}@example.com`, clerkId: `user_${label}` },
-        })
-        await service.prisma.organizationMembership.create({
-          data: {
-            organizationSlug: winSlug,
-            userId: user.id,
-            role: OrganizationRole.volunteer,
-          },
-        })
-        const token = jwt.sign(
-          { sub: `user_${label}` },
-          process.env.AUTH_SECRET!,
-          {
-            expiresIn: '1h',
-          },
-        )
-        return {
-          user,
-          config: {
-            headers: {
-              'x-organization-slug': winSlug,
-              Authorization: `Bearer ${token}`,
-            },
-            validateStatus: () => true,
-          },
-        }
-      }
-
       const knockMemoBody = (knock: {
         knockClientKey: string
         stopTargetId: number
@@ -828,10 +858,12 @@ describe('constituent feedback routes', () => {
       })
 
       // A volunteer is who walks most Win turfs, so the two writes carry
-      // @AllowVolunteer(), like the knock route they follow.
-      it('lets a volunteer record and confirm a memo', async () => {
-        const volunteer = await createVolunteer()
+      // @AllowVolunteer(), like the knock route they follow, and the same
+      // assignment rule: only on an effort they were handed.
+      it('lets an assigned volunteer record and confirm a memo', async () => {
+        const volunteer = await createVolunteer(winSlug)
         const seeded = await seedKnock(winSlug, null)
+        await assign(winSlug, seeded.outreachId, volunteer.user.id)
 
         const res = await service.client.post(
           '/v1/constituent-feedback',
@@ -852,9 +884,41 @@ describe('constituent feedback routes', () => {
         expect(confirmed.status).toBe(200)
       })
 
+      // 404 rather than 403, as on the knock route: a volunteer probing a
+      // teammate's turf learns nothing about whether it exists.
+      it('refuses a volunteer not assigned to the effort on both writes', async () => {
+        const volunteer = await createVolunteer(winSlug)
+        const seeded = await seedKnock(winSlug, null)
+        const recorded = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          ownerHeaders(),
+        )
+        expect(recorded.status).toBe(201)
+
+        const captured = await service.client.post(
+          '/v1/constituent-feedback',
+          { ...knockMemoBody(seeded), transcript: 'Not my turf.' },
+          volunteer.config,
+        )
+        const confirmed = await service.client.patch(
+          `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+          CONFIRMED,
+          volunteer.config,
+        )
+
+        expect(captured.status).toBe(404)
+        expect(confirmed.status).toBe(404)
+        const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+          where: { id: recorded.data.id },
+        })
+        expect(row.transcript).toBe('She wants the bond spent on the roads.')
+        expect(row.confirmedAt).toBeNull()
+      })
+
       // Reading a person's memos is reading the CRM, which stays manager+.
       it('refuses a volunteer the person read', async () => {
-        const volunteer = await createVolunteer()
+        const volunteer = await createVolunteer(winSlug)
         const seeded = await seedKnock(winSlug, null)
 
         const res = await service.client.get('/v1/constituent-feedback', {
@@ -867,8 +931,9 @@ describe('constituent feedback routes', () => {
 
       it('gates a Win org on win-issue-capture alone', async () => {
         const flags = onlyFlagOn('win-issue-capture')
-        const volunteer = await createVolunteer()
+        const volunteer = await createVolunteer(winSlug)
         const seeded = await seedKnock(winSlug, null)
+        await assign(winSlug, seeded.outreachId, volunteer.user.id)
 
         const res = await service.client.post(
           '/v1/constituent-feedback',

@@ -122,4 +122,38 @@ describe('ConstituentFeedbackExtractionService', () => {
 
     expect(promptFrom(llm).user).toBe(`The canvasser's note:\n${TRANSCRIPT}`)
   })
+
+  // The three fields are shown on both products, and the copy around them is
+  // mode-keyed by the UI. A product noun in the prompt steers the model into
+  // writing one product's word into the other's record.
+  it.each([null, 'Would you take part in a compost pilot?'])(
+    'names no product’s people in the prompt (question: %s)',
+    async (effortQuestion) => {
+      const llm = llmReturning({
+        issueLabel: null,
+        stance: null,
+        desiredOutcome: null,
+        confidence: 0.2,
+      })
+      const service = new ConstituentFeedbackExtractionService(llm, logger())
+
+      await service.extract({
+        transcript: TRANSCRIPT,
+        effortQuestion,
+        userId: 1,
+      })
+
+      const messages = vi.mocked(llm.jsonCompletion).mock.calls[0]?.[0].messages
+      const assembled = (messages ?? [])
+        .map((message) =>
+          typeof message.content === 'string' ? message.content : '',
+        )
+        .join('\n')
+      expect(assembled).not.toBe('')
+      expect(assembled).not.toMatch(/constituent/i)
+      expect(assembled).not.toMatch(/voter/i)
+      // The rule that keeps the canvasser's words off the other person.
+      expect(assembled).toContain('The voice in the note is the CANVASSER')
+    },
+  )
 })

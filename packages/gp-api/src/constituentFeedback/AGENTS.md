@@ -69,7 +69,13 @@ All under `@Controller('constituent-feedback')`, all `@UseOrganization()`.
 
 The writes admit volunteers because the person who had the conversation is
 who records and confirms it, the posture the knock and call routes already
-carry.
+carry, and under the same rule: a volunteer acts only on an effort they hold
+an `OutreachAssignment` on (`assertVolunteerAssignedToOutreach`, the knock
+routes' predicate). Capture checks the resolved `outreachId` before it spends
+an extraction; confirm checks the row's. A volunteer gets the same 404 the
+knock or call route would give ("Stop target not found" / "Phone banking list
+not found"), including for a memo with no effort, which nothing can be
+assigned to. Owners and campaign managers are unaffected.
 
 Every route is flag-gated and 404s when the flag is off, so a surface a user
 has not been rolled out to does not advertise itself. The flag is the org's
@@ -78,6 +84,14 @@ product's: an `eo-` slug reads `serve-issue-capture`, anything else
 `outreachServeSms.controller.ts`, which gates only its writes, there is no
 inert read here — the reads are the feature. `@UseOrganization()` and its role
 guard are the access check; the flag gates rollout, not access.
+
+## The extraction prompt names no product
+
+The same three fields land on a voter's record and a constituent's, and the
+copy around them is mode-keyed by the UI. So the prompt says "the person they
+spoke with", never voter or constituent: a product noun there steers the
+model into writing one product's word into the other's record.
+`constituentFeedbackExtraction.test.ts` asserts neither word appears.
 
 ## Why extraction is synchronous
 
