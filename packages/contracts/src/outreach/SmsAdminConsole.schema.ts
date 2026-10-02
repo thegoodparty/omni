@@ -392,6 +392,26 @@ export type SmsAdminDetailResponse = z.infer<
   typeof SmsAdminDetailResponseSchema
 >
 
+// The texting vendor's prepaid account, read live for the console header
+// so ops sees the balance where they already work (nobody opens the
+// vendor's UI since the console shipped, so credits ran down unseen,
+// 2026-10-01). `balance` goes negative as the vendor extends credit, up
+// to `creditLimit`. Null when the vendor read failed — the page renders
+// "unavailable", never a 502.
+export const SmsVendorAccountSchema = z.object({
+  balance: z.number(),
+  creditLimit: z.number(),
+  readAt: zCoerceDate(),
+})
+export type SmsVendorAccount = z.infer<typeof SmsVendorAccountSchema>
+
+export const SmsVendorBalanceResponseSchema = z.object({
+  account: SmsVendorAccountSchema.nullable(),
+})
+export type SmsVendorBalanceResponse = z.infer<
+  typeof SmsVendorBalanceResponseSchema
+>
+
 // The M2M token identifies gp-admin, not the human — the acting admin's
 // identity rides in the body. Peerly's request_canvassers initials are
 // derived server-side from the Peerly API login (the vendor validates
