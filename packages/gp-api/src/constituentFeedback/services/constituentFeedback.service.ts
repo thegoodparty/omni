@@ -12,6 +12,8 @@ import {
   CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
   ConfirmConstituentFeedback,
   ConstituentFeedbackRecord,
+  PendingFeedback,
+  PendingFeedbackReference,
   RecordConstituentFeedback,
   RecordConstituentFeedbackResponse,
 } from '@goodparty_org/contracts'
@@ -426,7 +428,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     outreachId: number
     actorUserId: number
     role: OrganizationRole | undefined
-  }): Promise<ConstituentFeedbackRecord[]> {
+  }): Promise<PendingFeedback[]> {
     const rows = await this.findMany({
       where: {
         organizationSlug: input.organizationSlug,
@@ -437,9 +439,100 @@ export class ConstituentFeedbackService extends createPrismaBase(
           : {}),
       },
       orderBy: { occurredAt: Prisma.SortOrder.desc },
-      include: RECORD_INCLUDE,
+      include: {
+        ...RECORD_INCLUDE,
+        doorKnockInteraction: { select: { sourceId: true } },
+        phoneBankingInteraction: { select: { phoneBankingListId: true } },
+      },
     })
-    return rows.map((row) => this.toRecord(row))
+    const references = await this.referencesFor(input.outreachId, rows)
+    return rows.map((row) => ({
+      ...this.toRecord(row),
+      clientKey: row.clientKey,
+      reference: references.get(row.id) ?? null,
+    }))
+  }
+
+  // What a capture would post for each memo. Neither row keeps the stop
+  // target or the list entry it was recorded against, so they are found
+  // again: the person's stop target on this effort's turf, and their entry
+  // on the call's list. Two queries for the whole list, not one per memo.
+  private async referencesFor(
+    outreachId: number,
+    rows: Array<{
+      id: string
+      personId: string
+      doorKnockInteraction: { sourceId: string | null } | null
+      phoneBankingInteraction: { phoneBankingListId: number | null } | null
+    }>,
+  ): Promise<Map<string, PendingFeedbackReference>> {
+    const knockPersonIds = rows
+      .filter((row) => row.doorKnockInteraction !== null)
+      .map((row) => row.personId)
+    const listIds = [
+      ...new Set(
+        rows.flatMap((row) => {
+          const listId = row.phoneBankingInteraction?.phoneBankingListId
+          return listId === null || listId === undefined ? [] : [listId]
+        }),
+      ),
+    ]
+    const [stopTargets, entryPeople] = await Promise.all([
+      knockPersonIds.length === 0
+        ? []
+        : this.client.doorKnockingStopTarget.findMany({
+            where: {
+              personId: { in: knockPersonIds },
+              stop: { turf: { outreach: { id: outreachId } } },
+            },
+            select: { id: true, personId: true },
+          }),
+      listIds.length === 0
+        ? []
+        : this.client.phoneBankingListEntryPerson.findMany({
+            where: {
+              personId: { in: rows.map((row) => row.personId) },
+              entry: { phoneBankingListId: { in: listIds } },
+            },
+            select: {
+              personId: true,
+              phoneBankingListEntryId: true,
+              entry: { select: { phoneBankingListId: true } },
+            },
+          }),
+    ])
+    const stopTargetByPerson = new Map(
+      stopTargets.map((target) => [target.personId, target.id]),
+    )
+    const entryByListAndPerson = new Map(
+      entryPeople.map((person) => [
+        `${person.entry.phoneBankingListId}:${person.personId}`,
+        person.phoneBankingListEntryId,
+      ]),
+    )
+
+    const references = new Map<string, PendingFeedbackReference>()
+    for (const row of rows) {
+      const knockClientKey = row.doorKnockInteraction?.sourceId
+      const stopTargetId = stopTargetByPerson.get(row.personId)
+      if (knockClientKey && stopTargetId !== undefined) {
+        references.set(row.id, {
+          channel: ConstituentFeedbackChannel.door_knock,
+          knockClientKey,
+          stopTargetId,
+        })
+      }
+      const listId = row.phoneBankingInteraction?.phoneBankingListId
+      const entryId = entryByListAndPerson.get(`${listId}:${row.personId}`)
+      if (listId !== undefined && listId !== null && entryId !== undefined) {
+        references.set(row.id, {
+          channel: ConstituentFeedbackChannel.phone_bank,
+          entryId,
+          personId: row.personId,
+        })
+      }
+    }
+    return references
   }
 
   // The review list's "Try again", which is also the recovery for a memo

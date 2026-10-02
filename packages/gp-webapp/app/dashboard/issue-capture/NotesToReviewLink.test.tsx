@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
-import type { ConstituentFeedbackRecord } from '@goodparty_org/contracts'
+import type { PendingFeedback } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
@@ -17,7 +17,7 @@ vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
 
 const OUTREACH_ID = 30
 
-const memo = (id: string): ConstituentFeedbackRecord => ({
+const memo = (id: string): PendingFeedback => ({
   id,
   personId: 'person-1',
   occurredAt: new Date('2026-10-01T00:00:00Z'),
@@ -31,11 +31,13 @@ const memo = (id: string): ConstituentFeedbackRecord => ({
   outreachId: OUTREACH_ID,
   actorName: null,
   tags: [],
+  clientKey: id,
+  reference: null,
 })
 
 let reads = 0
 
-const mockPending = (feedback: ConstituentFeedbackRecord[]) =>
+const mockPending = (feedback: PendingFeedback[]) =>
   api.mock('GET /v1/constituent-feedback/pending', () => {
     reads += 1
     return { status: 200, data: { feedback } }

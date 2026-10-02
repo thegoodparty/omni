@@ -11,6 +11,9 @@ interface NotesToReviewLinkProps {
   // The effort's Outreach envelope; null renders nothing.
   outreachId: number | null
   isServe: boolean
+  // The review page to open. The manager's by default; a volunteer has one
+  // of their own under `/volunteer`.
+  href?: string
   className?: string
 }
 
@@ -19,6 +22,7 @@ interface NotesToReviewLinkProps {
 export const NotesToReviewLink = ({
   outreachId,
   isServe,
+  href,
   className,
 }: NotesToReviewLinkProps) => {
   const copy = whatWeHeardCopy(isServe)
@@ -37,7 +41,7 @@ export const NotesToReviewLink = ({
 
   return (
     <Link
-      href={`/dashboard/issue-capture/${outreachId}/review`}
+      href={href ?? `/dashboard/issue-capture/${outreachId}/review`}
       className={cn(
         'flex items-center justify-between gap-3 text-sm font-medium text-foreground no-underline',
         className,

@@ -20,10 +20,13 @@ import { useTestService } from '@/test-service'
 import { SEED_MEMOS } from '../services/feedbackSeedMemos'
 import { PendingTranscriptionService } from '../services/pendingTranscription.service'
 import {
+  call,
   createWinOrg,
   knock,
   ownerHeaders,
+  seedCallMemo,
   seedKnockMemo,
+  seedPhoneEffort,
   seedTurfEffort,
   type StopTarget,
 } from './issueCaptureFixtures'
@@ -335,6 +338,99 @@ describe('offline memo capture', () => {
       expect(
         asOwner.data.feedback.map((memo: { id: string }) => memo.id).sort(),
       ).toEqual([theirs.data.id, ownersPending.id].sort())
+    })
+  })
+
+  // "Type it instead" re-records the memo as typed text, so it needs what a
+  // capture posts: the memo's own clientKey and its knock or call.
+  describe('re-recording a pending memo as typed text', () => {
+    const pending = () =>
+      service.client.get('/v1/constituent-feedback/pending', {
+        ...ownerHeaders(slug),
+        params: { outreachId },
+      })
+
+    it('hands back a door memo’s reference, and the typed re-record replaces it', async () => {
+      const { res: recorded } = await recordOffline()
+      await service.prisma.constituentFeedback.update({
+        where: { id: recorded.data.id },
+        data: { extractionStatus: ConstituentFeedbackExtractionStatus.failed },
+      })
+      const knocked =
+        await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+          where: { organizationSlug: slug },
+        })
+
+      const listed = await pending()
+      const memo = listed.data.feedback[0]
+      expect(memo.clientKey).toBe(knocked.sourceId)
+      expect(memo.reference).toEqual({
+        channel: 'door_knock',
+        knockClientKey: knocked.sourceId,
+        stopTargetId: targets[0]!.id,
+      })
+
+      const typed = await service.client.post(
+        '/v1/constituent-feedback',
+        {
+          ...memo.reference,
+          clientKey: memo.clientKey,
+          transcript: 'The storm drain on her corner floods every spring.',
+          captureMethod: 'typed',
+        },
+        ownerHeaders(slug),
+      )
+
+      expect(typed.status).toBe(201)
+      expect(typed.data.id).toBe(recorded.data.id)
+      expect(typed.data.extraction).toEqual({
+        issueLabel: 'Street flooding',
+        stance: 'opposes',
+        desiredOutcome: 'Clear the storm drain',
+      })
+      const saved = await row(recorded.data.id)
+      expect(saved.transcript).toBe(
+        'The storm drain on her corner floods every spring.',
+      )
+      expect(saved.captureMethod).toBe(ConstituentFeedbackCaptureMethod.typed)
+      expect(saved.audioKey).toBeNull()
+      expect(saved.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.extracted,
+      )
+      expect(saved.confirmedAt).toBeNull()
+    })
+
+    it('hands back a call memo’s reference', async () => {
+      const phone = await seedPhoneEffort(service, slug, { people: 2 })
+      const entry = phone.entries[1]!
+      const called = await call(service, {
+        slug,
+        listId: phone.listId,
+        personId: entry.personId,
+      })
+      const memo = await seedCallMemo(service, {
+        slug,
+        outreachId: phone.outreachId,
+        phoneBankingInteractionId: called.id,
+        personId: entry.personId,
+      })
+      await service.prisma.constituentFeedback.update({
+        where: { id: memo.id },
+        data: { confirmedAt: null },
+      })
+
+      const listed = await service.client.get(
+        '/v1/constituent-feedback/pending',
+        { ...ownerHeaders(slug), params: { outreachId: phone.outreachId } },
+      )
+
+      expect(listed.data.feedback).toHaveLength(1)
+      expect(listed.data.feedback[0].clientKey).toBe(memo.clientKey)
+      expect(listed.data.feedback[0].reference).toEqual({
+        channel: 'phone_bank',
+        entryId: entry.id,
+        personId: entry.personId,
+      })
     })
   })
 

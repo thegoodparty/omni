@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import type {
   RecordDoorKnockInteraction,
@@ -8,6 +9,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { getCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
+import { PENDING_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { DictationStatus } from './useDictation'
 import type { UseDictationAppendResult } from './useDictationAppend'
 import {
@@ -120,18 +122,50 @@ const send = async (entry: QueueEntry): Promise<SendOutcome> => {
   }
 }
 
-const drain = (): void => {
+// A drain that stops early leaves the rest for the next one. One that sent
+// something re-reads the review lists, so "Notes to review" counts what just
+// arrived.
+const drain = (queryClient: QueryClient): void => {
   if (!navigator.onLine) return
-  // A drain that stops early leaves the rest for the next one.
-  drainQueue(send).catch(() => undefined)
+  drainQueue(send)
+    .then((sent) => {
+      if (sent > 0) {
+        void queryClient.invalidateQueries({
+          queryKey: PENDING_QUERY_KEY_PREFIX,
+        })
+      }
+    })
+    .catch(() => undefined)
+}
+
+// Sends what the phone is holding whenever it can: on mount, when the
+// browser comes back online, and when the app comes back into view. Mounted
+// once on each page that captures memos (the walk, the volunteer walk, the
+// phone caller), so a canvasser who closed the door's form and walked on
+// still sends everything, and by every capture form. `drainQueue` runs one
+// drain at a time, so the two never send an entry twice.
+export const useOfflineQueueDrain = (): void => {
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    const onOnline = () => drain(queryClient)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') drain(queryClient)
+    }
+    drain(queryClient)
+    window.addEventListener('online', onOnline)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [queryClient])
 }
 
 // The memo field's mic, with a way through a dead zone. With signal it is
 // the live dictation it wraps. Without (offline, or a socket that does not
 // open in three seconds) the phone records the memo itself, and Save holds
 // it with its knock or call in IndexedDB until there is signal to send them,
-// knock first. The queue drains when this mounts, when the browser comes
-// back online, and when the app comes back into view.
+// knock first. It drains the queue too (`useOfflineQueueDrain`).
 export const useOfflineMemo = ({
   dictation,
 }: {
@@ -155,6 +189,7 @@ export const useOfflineMemo = ({
   const dictationRef = useRef(dictation)
   dictationRef.current = dictation
   const mountedRef = useRef(true)
+  const queryClient = useQueryClient()
 
   const stopLocal = useCallback(async (): Promise<void> => {
     if (limitRef.current !== null) clearTimeout(limitRef.current)
@@ -220,18 +255,7 @@ export const useOfflineMemo = ({
     return undefined
   }, [dictation.status, startLocal])
 
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') drain()
-    }
-    drain()
-    window.addEventListener('online', drain)
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      window.removeEventListener('online', drain)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [])
+  useOfflineQueueDrain()
 
   useEffect(() => {
     mountedRef.current = true
@@ -294,9 +318,9 @@ export const useOfflineMemo = ({
         trackEvent(EVENTS.IssueCapture.MemoQueuedOffline, memo.analytics)
       }
       setAudio(null)
-      drain()
+      drain(queryClient)
     },
-    [audio],
+    [audio, queryClient],
   )
 
   const mic: UseDictationAppendResult =

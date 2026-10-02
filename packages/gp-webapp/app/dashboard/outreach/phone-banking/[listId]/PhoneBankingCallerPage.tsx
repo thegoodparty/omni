@@ -63,6 +63,7 @@ import {
   outcomeCounts,
   totalPeopleCount,
 } from './phoneBankingOutcome.util'
+import { useOfflineQueueDrain } from 'app/dashboard/shared/dictation/useOfflineMemo'
 
 // The role-divergent bits of this shared caller, parametrized behind an
 // optional prop the same way PhoneBankingFlow's `surface` prop splits Win
@@ -95,6 +96,9 @@ export default function PhoneBankingCallerPage({
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
+  // Calls logged with no signal wait on the phone; this sends them when it
+  // returns, whether or not a call's form is open.
+  useOfflineQueueDrain()
 
   const [expandedEntryIds, setExpandedEntryIds] = useState<Set<number>>(
     new Set(),

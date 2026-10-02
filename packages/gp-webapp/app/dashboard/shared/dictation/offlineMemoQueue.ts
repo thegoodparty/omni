@@ -129,11 +129,12 @@ const drainOrder = (entries: QueueEntry[]): QueueEntry[] =>
       a.createdAt - b.createdAt,
   )
 
-let draining: Promise<void> | null = null
+let draining: Promise<number> | null = null
 
 const drainOnce = async (
   send: (entry: QueueEntry) => Promise<SendOutcome>,
-): Promise<void> => {
+): Promise<number> => {
+  let sent = 0
   for (const entry of drainOrder(await listQueue())) {
     let outcome: SendOutcome
     try {
@@ -141,18 +142,21 @@ const drainOnce = async (
     } catch {
       // No signal after all, or the server is down. Whatever is left goes
       // on the next drain, in the same order.
-      return
+      return sent
     }
     if (outcome !== 'deferred') await remove(entry.id)
+    if (outcome === 'sent') sent += 1
   }
+  return sent
 }
 
-// Sends everything queued, in order. One drain at a time: the `online` event
-// and a return to the app often fire together, and two drains would send the
-// same entry twice.
+// Sends everything queued, in order, and resolves to how many entries went.
+// One drain at a time: the `online` event and a return to the app often fire
+// together, and the page and the form both listen, and two drains would send
+// the same entry twice.
 export const drainQueue = (
   send: (entry: QueueEntry) => Promise<SendOutcome>,
-): Promise<void> => {
+): Promise<number> => {
   if (draining === null) {
     draining = drainOnce(send).finally(() => {
       draining = null

@@ -1,19 +1,33 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
+import {
+  act,
+  renderHook as renderHookBare,
+  waitFor,
+} from '@testing-library/react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { createElement, type ReactNode } from 'react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { installIndexedDbShim } from 'helpers/test-utils/indexedDbShim'
+import { testQueryClient } from 'helpers/test-utils/render'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { UseDictationAppendResult } from './useDictationAppend'
 import type { DictationStatus } from './useDictation'
-import { listQueue } from './offlineMemoQueue'
-import { useOfflineMemo } from './useOfflineMemo'
+import { enqueue, listQueue } from './offlineMemoQueue'
+import { useOfflineMemo, useOfflineQueueDrain } from './useOfflineMemo'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
+
+// The hook re-reads the review lists after a drain, so it needs a client.
+const wrapper = ({ children }: { children: ReactNode }) =>
+  createElement(QueryClientProvider, { client: testQueryClient }, children)
+
+const renderHook: typeof renderHookBare = (render, options) =>
+  renderHookBare(render, { wrapper, ...options })
 
 // MediaRecorder is not in jsdom. This one hands back one chunk on stop, the
 // way a short recording does.
@@ -261,5 +275,57 @@ describe('useOfflineMemo', () => {
         queuedForMs: expect.any(Number),
       }),
     )
+  })
+})
+
+// The page-level drain: a canvasser who closed the door's form and walked on
+// still sends everything the moment signal returns.
+describe('useOfflineQueueDrain', () => {
+  it('sends a queued memo when signal returns with no form open', async () => {
+    online = false
+    const posted: unknown[] = []
+    api.mock('POST /v1/constituent-feedback', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: {
+          id: 'feedback-1',
+          personId: 'person-1',
+          extractionStatus: 'extracted',
+          extraction: null,
+        },
+      }
+    })
+    await enqueue([
+      {
+        id: `memo:${KNOCK_KEY}`,
+        kind: 'memo',
+        organizationSlug: 'campaign-1',
+        payload: {
+          reference: {
+            channel: 'door_knock',
+            knockClientKey: KNOCK_KEY,
+            stopTargetId: 21,
+            clientKey: KNOCK_KEY,
+          },
+          text: {
+            transcript: 'She wants the drain cleared.',
+            captureMethod: 'typed',
+          },
+          analytics: { channel: 'doorKnocking', product: 'win' },
+        },
+        createdAt: Date.now(),
+      },
+    ])
+    renderHook(() => useOfflineQueueDrain())
+    expect(posted).toEqual([])
+
+    online = true
+    await act(async () => {
+      window.dispatchEvent(new Event('online'))
+    })
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    await waitFor(async () => expect(await listQueue()).toEqual([]))
   })
 })

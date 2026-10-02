@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import type { ConstituentFeedbackRecord } from '@goodparty_org/contracts'
+import type { PendingFeedback } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -14,9 +14,9 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 
 const OUTREACH_ID = 41
 
-const row = (
-  fields: Partial<ConstituentFeedbackRecord> = {},
-): ConstituentFeedbackRecord => ({
+const KNOCK_KEY = '6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90'
+
+const row = (fields: Partial<PendingFeedback> = {}): PendingFeedback => ({
   id: 'memo-1',
   personId: 'person-1',
   occurredAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
@@ -30,6 +30,12 @@ const row = (
   outreachId: OUTREACH_ID,
   actorName: 'Kamal Al Sawafi',
   tags: [],
+  clientKey: KNOCK_KEY,
+  reference: {
+    channel: 'door_knock',
+    knockClientKey: KNOCK_KEY,
+    stopTargetId: 21,
+  },
   ...fields,
 })
 
@@ -51,7 +57,7 @@ const NOT_HEARD = row({
   extractionStatus: 'failed',
 })
 
-const mockPending = (feedback: ConstituentFeedbackRecord[]) =>
+const mockPending = (feedback: PendingFeedback[]) =>
   api.mock('GET /v1/constituent-feedback/pending', ({ query }) => {
     expect(query.outreachId).toBe(String(OUTREACH_ID))
     return { status: 200, data: { feedback } }
@@ -153,38 +159,80 @@ describe('PendingMemoList', () => {
     await waitFor(() => expect(retried).toEqual({ id: 'memo-3', body: {} }))
   })
 
-  // Typing it saves only what was typed, through the same confirm.
-  it('takes a note typed by hand', async () => {
-    mockPending([NOT_HEARD])
-    let patched: unknown = null
-    api.mock(
-      'PATCH /v1/constituent-feedback/:id/confirm',
-      ({ params, body }) => {
-        patched = { id: params.id, body }
-        return { status: 200, data: row({ confirmedAt: new Date() }) }
+  // A typed note has to become a transcript, which is what synthesis
+  // groups, so it is recorded again as typed text and extracted like any
+  // other, and the card then offers what was pulled from it.
+  it('records a typed note in place of one that could not be heard', async () => {
+    const typed = 'He wants the potholes on Oak filled before winter.'
+    api.mockOrdered('GET /v1/constituent-feedback/pending', [
+      { status: 200, data: { feedback: [NOT_HEARD] } },
+      {
+        status: 200,
+        data: {
+          feedback: [
+            row({
+              id: 'memo-3',
+              transcript: typed,
+              issueLabel: 'Potholes',
+              stance: 'opposes',
+              desiredOutcome: 'Fill the potholes on Oak',
+            }),
+          ],
+        },
       },
-    )
+    ])
+    let posted: unknown = null
+    api.mock('POST /v1/constituent-feedback', ({ body }) => {
+      posted = body
+      return {
+        status: 200,
+        data: {
+          id: 'memo-3',
+          personId: 'person-1',
+          extractionStatus: 'extracted',
+          extraction: {
+            issueLabel: 'Potholes',
+            stance: 'opposes',
+            desiredOutcome: 'Fill the potholes on Oak',
+          },
+        },
+      }
+    })
     renderList()
 
     fireEvent.click(
       await screen.findByRole('button', { name: 'Type it instead' }),
     )
-    fireEvent.change(screen.getByPlaceholderText('What they talked about'), {
-      target: { value: 'Potholes' },
+    fireEvent.change(screen.getByRole('textbox', { name: 'Their note' }), {
+      target: { value: typed },
     })
-    fireEvent.click(screen.getByRole('radio', { name: 'Against it' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Looks right' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
 
     await waitFor(() =>
-      expect(patched).toEqual({
-        id: 'memo-3',
-        body: {
-          issueLabel: 'Potholes',
-          stance: 'opposes',
-          desiredOutcome: null,
-        },
+      expect(posted).toEqual({
+        channel: 'door_knock',
+        knockClientKey: KNOCK_KEY,
+        stopTargetId: 21,
+        clientKey: KNOCK_KEY,
+        transcript: typed,
+        captureMethod: 'typed',
       }),
     )
+    expect(await screen.findByText(typed)).toBeVisible()
+    expect(screen.getByDisplayValue('Potholes')).toBeVisible()
+    expect(screen.getByDisplayValue('Fill the potholes on Oak')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Type it instead' })).toBeNull()
+  })
+
+  // Its knock or call is gone, so there is nothing to record it against.
+  it('offers no typing for a note that cannot be recorded again', async () => {
+    mockPending([{ ...NOT_HEARD, reference: null }])
+    renderList()
+
+    expect(
+      await screen.findByRole('button', { name: 'Try again' }),
+    ).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Type it instead' })).toBeNull()
   })
 
   it('says when there is nothing to review', async () => {
