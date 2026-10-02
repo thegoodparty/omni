@@ -1,3 +1,4 @@
+import type { FeedbackSynthesisCompleteEvent } from '@goodparty_org/contracts'
 import { TcrCompliance } from '../generated/prisma'
 import z from 'zod'
 import { ISO_DATE_ONLY_RE } from '../shared/util/date.util'
@@ -7,6 +8,10 @@ export enum QueueType {
   TCR_COMPLIANCE_STATUS_CHECK = 'tcrComplianceStatusCheck',
   DOMAIN_EMAIL_FORWARDING = 'domainEmailForwarding',
   POLL_ANALYSIS_COMPLETE = 'pollAnalysisComplete',
+  // Published by the polls synthesis pipeline when it has grouped an issue
+  // capture run's memos. Shape: FeedbackSynthesisCompleteEventSchema in
+  // @goodparty_org/contracts.
+  FEEDBACK_SYNTHESIS_COMPLETE = 'feedbackSynthesisComplete',
   POLL_CREATION = 'pollCreation',
   POLL_EXPANSION = 'pollExpansion',
   CAMPAIGN_PLAN_COMPLETE = 'campaignPlanComplete',
@@ -38,6 +43,10 @@ export type QueueMessage =
   | {
       type: QueueType.POLL_ANALYSIS_COMPLETE
       data: PollAnalysisCompleteEvent['data']
+    }
+  | {
+      type: QueueType.FEEDBACK_SYNTHESIS_COMPLETE
+      data: FeedbackSynthesisCompleteEvent['data']
     }
   | { type: QueueType.POLL_CREATION; data: PollCreationEvent['data'] }
   | { type: QueueType.POLL_EXPANSION; data: PollExpansionEvent['data'] }
@@ -205,6 +214,7 @@ export enum MessageGroup {
   default = 'default',
   domainEmailRedirect = 'domainEmailRedirect',
   polls = 'polls',
+  feedbackSynthesis = 'feedbackSynthesis',
   outreachTextSend = 'outreachTextSend',
   weeklyTasksDigest = 'weeklyTasksDigest',
   agenticComplianceKickoff = 'agenticComplianceKickoff',

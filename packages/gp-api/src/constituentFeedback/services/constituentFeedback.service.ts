@@ -12,6 +12,7 @@ import {
   ConstituentFeedbackChannel,
   ConstituentFeedbackExtractionStatus,
   ConstituentFeedbackStance,
+  IssueTagStatus,
   OrganizationRole,
   Prisma,
 } from '@/generated/prisma'
@@ -54,6 +55,16 @@ const STANCE_BY_VALUE: Record<string, ConstituentFeedbackStance | undefined> =
 // what it actually said.
 const toStance = (raw: string | null): ConstituentFeedbackStance | null =>
   raw === null ? null : (STANCE_BY_VALUE[raw] ?? null)
+
+// What a person's record reads with each memo. Accepted tags only: a
+// proposal is a suggestion nobody has agreed to yet.
+const RECORD_INCLUDE = {
+  actor: { select: { firstName: true, lastName: true } },
+  tags: {
+    where: { tag: { status: IssueTagStatus.accepted } },
+    select: { tag: { select: { id: true, name: true, status: true } } },
+  },
+} as const satisfies Prisma.ConstituentFeedbackInclude
 
 // What each channel's own write route tells a volunteer outside their
 // assignment, so the memo routes never say more than the knock or call did.
@@ -212,7 +223,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
         desiredOutcome: input.body.desiredOutcome,
         confirmedAt: new Date(),
       },
-      include: { actor: { select: { firstName: true, lastName: true } } },
+      include: RECORD_INCLUDE,
     })
 
     return this.toRecord(row)
@@ -228,7 +239,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
         personId: input.personId,
       },
       orderBy: { occurredAt: Prisma.SortOrder.desc },
-      include: { actor: { select: { firstName: true, lastName: true } } },
+      include: RECORD_INCLUDE,
     })
 
     return rows.map((row) => this.toRecord(row))
@@ -304,6 +315,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     confirmedAt: Date | null
     outreachId: number | null
     actor: { firstName: string | null; lastName: string | null } | null
+    tags: Array<{ tag: ConstituentFeedbackRecord['tags'][number] }>
   }): ConstituentFeedbackRecord {
     const name = [row.actor?.firstName, row.actor?.lastName]
       .filter((part) => part !== null && part !== undefined && part !== '')
@@ -322,6 +334,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
       confirmedAt: row.confirmedAt,
       outreachId: row.outreachId,
       actorName: name === '' ? null : name,
+      tags: row.tags.map(({ tag }) => tag),
     }
   }
 
