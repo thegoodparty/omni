@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  AudioUploadUrlRequestSchema,
   CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
   ConfirmConstituentFeedbackSchema,
   RecordConstituentFeedbackSchema,
@@ -79,6 +80,88 @@ describe('RecordConstituentFeedbackSchema', () => {
         transcript: 'x'.repeat(CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH + 1),
       }).success,
     ).toBe(false)
+  })
+})
+
+// The offline path: the phone recorded the memo with no signal and uploaded
+// the audio later, so the server transcribes it and there is no text yet.
+describe('RecordConstituentFeedbackSchema with a recording', () => {
+  const AUDIO_KEY = `constituent-feedback/eo-town/${MEMO_KEY}.webm`
+  const { transcript: _knockText, ...knockWithoutText } = knockMemo
+  const { transcript: _callText, ...callWithoutText } = callMemo
+
+  it('accepts a door-knock memo carrying its recording', () => {
+    const memo = {
+      ...knockWithoutText,
+      audioKey: AUDIO_KEY,
+      captureMethod: 'dictation_offline' as const,
+    }
+    expect(RecordConstituentFeedbackSchema.parse(memo)).toEqual(memo)
+  })
+
+  it('accepts a phone-bank memo carrying its recording', () => {
+    const memo = {
+      ...callWithoutText,
+      audioKey: AUDIO_KEY,
+      captureMethod: 'dictation_offline' as const,
+    }
+    expect(RecordConstituentFeedbackSchema.parse(memo)).toEqual(memo)
+  })
+
+  // Exactly one source of words: text the phone already has, or a recording
+  // the server will turn into text. Both would leave the row two answers.
+  it('refuses a memo with both a transcript and a recording', () => {
+    expect(
+      RecordConstituentFeedbackSchema.safeParse({
+        ...knockMemo,
+        audioKey: AUDIO_KEY,
+        captureMethod: 'dictation_offline',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses a memo with neither', () => {
+    expect(
+      RecordConstituentFeedbackSchema.safeParse(knockWithoutText).success,
+    ).toBe(false)
+  })
+
+  // The capture method is what tells a server-transcribed memo apart from
+  // one dictated live, so the two must agree with what was sent.
+  it('refuses a recording that does not say it was recorded offline', () => {
+    expect(
+      RecordConstituentFeedbackSchema.safeParse({
+        ...callWithoutText,
+        audioKey: AUDIO_KEY,
+        captureMethod: 'dictation',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses an offline capture method on a memo that has its text', () => {
+    expect(
+      RecordConstituentFeedbackSchema.safeParse({
+        ...callMemo,
+        captureMethod: 'dictation_offline',
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('AudioUploadUrlRequestSchema', () => {
+  // The key is built from this value, so anything but a uuid could reach
+  // outside the org's prefix.
+  it('refuses a client key that is not a uuid', () => {
+    expect(
+      AudioUploadUrlRequestSchema.safeParse({ clientKey: '../other-org/x' })
+        .success,
+    ).toBe(false)
+  })
+
+  it('accepts a uuid client key', () => {
+    expect(AudioUploadUrlRequestSchema.parse({ clientKey: MEMO_KEY })).toEqual({
+      clientKey: MEMO_KEY,
+    })
   })
 })
 

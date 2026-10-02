@@ -179,6 +179,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | SQS producer/consumer / async                            | `src/queue/AGENTS.md`                                |
 | Auth, JWT, Clerk M2M, roles                              | `src/authentication/AGENTS.md`                       |
 | Agent experiments                                        | `src/agentExperiments/AGENTS.md`                     |
+| Speech: dictation, text to speech, recordings            | `src/speech/AGENTS.md`                               |
 | Schema / migrations                                      | `prisma/AGENTS.md`                                   |
 | `@goodparty_org/contracts`                               | `contracts/AGENTS.md` + `docs/contracts.md`          |
 | Pulumi / Docker / Grafana                                | `deploy/AGENTS.md`                                   |
