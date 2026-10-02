@@ -8,16 +8,16 @@ they see the whole path rather than only the step they are on.
 
 ## Files
 
-| File                                | Role                                                                                      |
-| ----------------------------------- | ----------------------------------------------------------------------------------------- |
-| `page.tsx`                          | Server component. Loads the priority and its status, passes `hideChatDock`                |
-| `components/PriorityWorkspace.tsx`  | The client orchestrator: conversation, rail, live status, cards                           |
-| `components/PriorityStatusRail.tsx` | The seven steps, their states, and a step's detail view                                   |
-| `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                            |
-| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy        |
-| `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers         |
-| `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                             |
-| `data/toolLabels.ts`                | Which tools show a pill, and what it says                                                 |
+| File                                | Role                                                                               |
+| ----------------------------------- | ---------------------------------------------------------------------------------- |
+| `page.tsx`                          | Server component. Loads the priority and its status, passes `hideChatDock`         |
+| `components/PriorityWorkspace.tsx`  | The client orchestrator: conversation, rail, live status, cards                    |
+| `components/PriorityStatusRail.tsx` | The seven steps, their states, and a step's detail view                            |
+| `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                     |
+| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy |
+| `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers  |
+| `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                      |
+| `data/toolLabels.ts`                | Which tools show a pill, and what it says                                          |
 
 ## It is the shared chat kit, not a new one
 
@@ -245,6 +245,12 @@ answered in an earlier session reloads with that choice checked, or with a
 written-in answer shown as written. The widget always adds its own "Or write your
 own..." option, which is the bail-out back to free chat, so the agent never
 writes one.
+
+The widget shows its own question, so the agent never writes it as chat text
+and never ends a message with an either/or in prose (a "Yes" back to "this, or
+that?" answers nothing). The prompt says so, and the shared `turnBlocks`
+backstops it: a question closing the text right above the widget is dropped
+(see `shared/agent-chat/AGENTS.md`).
 
 A question where more than one answer can be true sets `multiSelect`. The
 options step always does: each option is a checkbox with its tradeoff as the
