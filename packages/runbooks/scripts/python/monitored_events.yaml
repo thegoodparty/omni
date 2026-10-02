@@ -896,5 +896,6 @@ flow_prefixes:
   - Org Switcher
   - Win
 prefix_areas:
+  Serve Onboarding: onboarding
 relabels:
 intents:

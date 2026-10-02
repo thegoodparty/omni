@@ -65,6 +65,15 @@ def test_a_matching_label_is_consistent():
     assert verdict("Onboarding V2 - Office Completed", reach(ONBOARDING), aliases={"Onboarding V2": "candidate-onboarding"}) == "consistent"
 
 
+def test_an_alias_adds_an_area_without_losing_the_prefix_own_match():
+    serve = er.Area("/serve/onboarding", "onboarding", frozenset({"onboarding"}))
+    polls = er.Area("/polls/onboarding", "Welcome to GoodParty.org Serve Onboarding",
+                    frozenset({"welcome-to-goodparty-org-serve-onboarding"}))
+    aliases = {"Serve Onboarding": "onboarding"}
+    assert verdict("Serve Onboarding - Pledge Viewed", reach(serve, routes=["/serve/onboarding"]), aliases=aliases) == "consistent"
+    assert verdict("Serve Onboarding - Poll Preview Viewed", reach(polls, routes=["/polls/onboarding"]), aliases=aliases) == "consistent"
+
+
 def test_flow_prefixes_dashboard_wide_gaps_and_unknowns():
     assert verdict("Pro Upgrade - Banner Viewed", reach(PROFILE), flows=["Pro Upgrade"]) == "flow"
     assert verdict("Navigation - Click", reach(PROFILE, wide=True)) == "dashboard_wide"
@@ -86,9 +95,9 @@ import pytest
 def test_signal_agreement_counts_only_attributed_fires_on_reached_areas():
     idx = er.AreaIndex("", {"/dashboard/questions": "title: 'Additional Questions'", "/dashboard/content": "title: 'Content'"})
     r = {"E": reach(idx.area("/dashboard/questions"), routes=["/dashboard/questions"])}
-    rows = [("E", "/dashboard/questions", 8, 0), ("E", "/dashboard/content", 2, 1), ("E", None, 5, 0)]
+    rows = [("E", "/dashboard/questions", 8, 0, 6), ("E", "/dashboard/content", 2, 1, 6), ("E", None, 5, 0, 6)]
     s = sd.signals_from_rows(rows, r, idx)["E"]
-    assert (s.fires, s.attributed, s.on_reached, s.impersonated) == (15, 10, 8, 1)
+    assert (s.fires, s.attributed, s.on_reached, s.impersonated, s.users) == (15, 10, 8, 1, 6)
     assert s.coverage == pytest.approx(10 / 15)
     assert s.agreement == pytest.approx(0.8)
 
@@ -107,8 +116,8 @@ def test_removal_commit_finds_the_newest_commit_dropping_an_import():
     assert sd.removal_commit(["QuestionsPage"], git) is None
 
 
-def _sig(fires=20, attributed=15, on=14):
-    return sd.Signal(fires, attributed, on, 0)
+def _sig(fires=20, attributed=15, on=14, users=12):
+    return sd.Signal(fires, attributed, on, 0, users)
 
 
 def test_high_confidence_needs_every_kind_of_evidence():
@@ -122,6 +131,12 @@ def test_high_confidence_needs_every_kind_of_evidence():
     assert sd.confidence("moved", one, "x", _sig(), okr=True) == "proposed"
     assert sd.confidence("moved", reach(QUESTIONS, PROFILE), "x", _sig(), okr=False) == "proposed"
     assert sd.confidence("stale_area_name", one, "x", _sig(), okr=False) == "proposed"
+
+
+def test_a_signal_from_four_users_cannot_be_high():
+    one = reach(QUESTIONS)
+    assert sd.confidence("moved", one, "x", _sig(users=4), okr=False) == "proposed"
+    assert sd.confidence("moved", one, "x", _sig(users=5), okr=False) == "high"
 
 
 def test_build_row_proposes_surface_display_name_and_fires_on():

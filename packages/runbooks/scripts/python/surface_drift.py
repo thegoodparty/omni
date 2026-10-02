@@ -60,8 +60,12 @@ def classify(label: tuple[str, str] | None, reach: er.Reach | None, *, known: Se
     aliased = kind == "prefix" and raw in prefix_areas
     target = prefix_areas[raw] if aliased else (raw if kind == "tag" else er.slug(raw))
 
+    own = er.slug(raw) if kind == "prefix" else raw
+
     def hits(area: er.Area) -> bool:
-        return target in area.names if aliased else any(names_match(target, n) for n in area.names)
+        # An alias adds the area it names; the prefix still matches areas it names itself,
+        # so one alias can cover a prefix that spans two differently named pages.
+        return (aliased and target in area.names) or any(names_match(own, n) for n in area.names)
 
     if any(hits(a) for a in reach.areas):
         return "consistent"
@@ -85,6 +89,7 @@ EXPLORER = PY.parent.parent.parent / "prototypes/app/p/analytics-event-explorer/
 AGREEMENT = 0.8
 MIN_ATTRIBUTED = 10
 MIN_COVERAGE = 0.5
+MIN_USERS = 5
 OPEN = frozenset({"new", "open"})
 DISPOSITIONS = frozenset({"accepted", "dismissed", "open", "applied"})
 
@@ -95,6 +100,7 @@ class Signal:
     attributed: int
     on_reached: int
     impersonated: int
+    users: int
 
     @property
     def coverage(self) -> float:
@@ -115,6 +121,7 @@ with ev as (
   from {table}
   where event_time >= current_date() - interval 60 days and user_id is not null
     and event_type in ({events})),
+users as (select event_type, count(distinct user_id) users from ev group by 1),
 pv as (
   select user_id, event_time, get_json_object(cast(event_properties as string), '$.path') path
   from {table}
@@ -126,27 +133,29 @@ j as (
                        order by pv.event_time desc nulls last) rn
   from ev left join pv on pv.user_id = ev.user_id and pv.event_time <= ev.event_time
     and pv.event_time >= ev.event_time - interval 30 minutes)
-select event_type, path, count(*) n, sum(imp) imp from j where rn = 1 group by 1, 2
+select j.event_type, j.path, count(*) n, sum(j.imp) imp, max(users.users) users
+from j join users on users.event_type = j.event_type where j.rn = 1 group by 1, 2
 """
 
 
-def fetch_signal_rows(names: Sequence[str]) -> list[tuple[str, str | None, int, int]]:
+def fetch_signal_rows(names: Sequence[str]) -> list[tuple[str, str | None, int, int, int]]:
     import analytics_event_health as aeh
     import databricks_oauth as dbo
 
     quoted = ",".join("'" + n.replace("'", "''") + "'" for n in names)
     cur = dbo.get_connection().cursor()
     cur.execute(SIGNAL_SQL.format(table=aeh.STREAM_TABLE, events=quoted))
-    return [(r[0], r[1], int(r[2]), int(r[3] or 0)) for r in cur.fetchall()]
+    return [(r[0], r[1], int(r[2]), int(r[3] or 0), int(r[4] or 0)) for r in cur.fetchall()]
 
 
-def signals_from_rows(rows: Iterable[tuple[str, str | None, int, int]], reaches: Mapping[str, er.Reach],
+def signals_from_rows(rows: Iterable[tuple[str, str | None, int, int, int]], reaches: Mapping[str, er.Reach],
                       areas: er.AreaIndex) -> dict[str, Signal]:
     acc: dict[str, list[int]] = {}
-    for event, path, n, imp in rows:
-        totals = acc.setdefault(event, [0, 0, 0, 0])
+    for event, path, n, imp, users in rows:
+        totals = acc.setdefault(event, [0, 0, 0, 0, 0])
         totals[0] += n
         totals[3] += imp
+        totals[4] = users
         if path:
             totals[1] += n
             area = areas.area_for_path(path)
@@ -208,7 +217,8 @@ def _stems(reach: er.Reach) -> list[str]:
 def confidence(verdict: str, reach: er.Reach, removal: str | None, signal: Signal | None, okr: bool) -> str:
     if verdict != "moved" or okr or reach.gap_files or len(reach.areas) != 1 or not removal:
         return "proposed"
-    if signal is None or signal.attributed < MIN_ATTRIBUTED or signal.coverage < MIN_COVERAGE:
+    if (signal is None or signal.attributed < MIN_ATTRIBUTED or signal.coverage < MIN_COVERAGE
+            or signal.users < MIN_USERS):
         return "proposed"
     return "high" if signal.agreement >= AGREEMENT else "proposed"
 
@@ -351,6 +361,7 @@ def run(no_signals: bool, today: str) -> dict:
             "unmapped_prefixes": dict(sorted(unmapped.items())),
             "signals": status,
             "thresholds": {"agreement": AGREEMENT, "min_attributed": MIN_ATTRIBUTED, "min_coverage": MIN_COVERAGE,
+                           "min_users": MIN_USERS,
                            "dashboard_wide_areas": er.DASHBOARD_WIDE_AREAS},
         },
         "rows": dict(sorted(rows.items())),
