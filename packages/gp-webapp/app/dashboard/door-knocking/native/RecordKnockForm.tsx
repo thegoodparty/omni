@@ -15,11 +15,14 @@ import {
 import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
+import {
+  outreachEventProps,
+  outreachProduct,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import IssueCaptureConfirmCard from './IssueCaptureConfirmCard'
 import {
@@ -40,17 +43,26 @@ import {
 // over-long note is trimmed in the field rather than 400'd on save.
 const NOTE_MAX_LENGTH = 2_000
 
-// Mode-keyed rather than renamed, per `docs/product-vocabulary.md`: this
-// field renders on the Win surface too, where the note is just a note. Only a
-// Serve door with capture on has an extraction to promise, so only it names
-// the issue and the position the extraction reads for — promising that on a
-// Win door, or on a Serve door where capture cannot fire, would be a claim
-// the product does not keep.
+// Mode-keyed rather than renamed, per `docs/product-vocabulary.md`. A door
+// where capture cannot fire gets the plain note prompt on either product,
+// since promising an extraction there would be a claim the product does not
+// keep. A door where it can asks for the memo in that product's own words.
 const NOTE_PLACEHOLDER = {
-  win: "What did they say? We'll clean it up.",
-  serveCapture:
-    'Record the issues and positions this person cares most about. ' +
-    "Say it out loud, we'll clean it up",
+  note: "What did they say? We'll clean it up.",
+  capture: {
+    win: 'What did they tell you?',
+    serve:
+      'Record the issues and positions this person cares most about. ' +
+      "Say it out loud, we'll clean it up",
+  },
+}
+
+// The memo is the canvasser's own voice, after the conversation. The other
+// person is never recorded, which keeps call-recording and two-party-consent
+// law out of the feature, and the field says so where the mic is.
+const MEMO_CONSENT_LINE = {
+  win: "Say what they told you. Don't record the other person.",
+  serve: "Say what they told you. Don't record the other person.",
 }
 
 // The canvas's own `pill` helper in `renderPanel`: 34px tall, 12px of side
@@ -134,9 +146,10 @@ export default function RecordKnockForm({
   // door derives to exactly that: the walk would not advance, the list would
   // never complete, and paper would reprint the door with empty boxes.
   const serveMode = useDoorKnockingServeMode()
-  // Issue capture rides on the Serve branch only, and only once the flag is
-  // on. `trackExposure` stays default: this form is the treatment surface.
-  const { enabled: captureEnabled } = useServeIssueCaptureFlag()
+  // Issue capture runs on both products, each behind its own flag.
+  // `trackExposure` stays default: this form is the treatment surface.
+  const { enabled: captureEnabled } = useIssueCaptureFlag(serveMode)
+  const product = outreachProduct(serveMode)
   // Two steps, two pieces of state, because the contract's five-way outcome is
   // a flattening of the tree the canvasser walks: `answered` in step one only
   // means "keep asking", and step two is what the door actually ends as.
@@ -234,8 +247,8 @@ export default function RecordKnockForm({
       // `engaged` and not merely `complete`: the note field is deliberately
       // offered on every branch, including a not-home door, so "dog in the
       // yard, come back Saturday" is a note the knock should keep but never a
-      // constituent's position on an issue. Only a conversation gets extracted.
-      if (!input.note || !captureEnabled || !serveMode || !input.engaged) {
+      // person's position on an issue. Only a conversation gets extracted.
+      if (!input.note || !captureEnabled || !input.engaged) {
         onRecorded(data.personId, data.knockStatus)
         return
       }
@@ -270,10 +283,11 @@ export default function RecordKnockForm({
         captureMethod: input.captureMethod,
       }).then((res) => res.data),
     onSuccess: (data, input) => {
-      trackEvent(EVENTS.ConstituentFeedback.IssueCaptured, {
+      trackEvent(EVENTS.IssueCapture.MemoRecorded, {
         channel: 'doorKnocking',
         captureMethod: input.captureMethod,
         extractionStatus: data.extractionStatus,
+        product,
       })
       setCaptured({ id: data.id, proposed: data.extraction })
     },
@@ -289,15 +303,16 @@ export default function RecordKnockForm({
         ...triple,
       }).then((res) => res.data),
     onSuccess: (_data, triple) => {
-      trackEvent(EVENTS.ConstituentFeedback.IssueConfirmed, {
+      trackEvent(EVENTS.IssueCapture.MemoConfirmed, {
         channel: 'doorKnocking',
         // Whether the canvasser changed what the model proposed, never what
-        // either of them said — a constituent's words are not analytics.
+        // either of them said — a person's words are not analytics.
         corrected:
           triple.issueLabel !== (captured?.proposed?.issueLabel ?? null) ||
           triple.stance !== (captured?.proposed?.stance ?? null) ||
           triple.desiredOutcome !==
             (captured?.proposed?.desiredOutcome ?? null),
+        product,
       })
       advance()
     },
@@ -310,8 +325,8 @@ export default function RecordKnockForm({
   const engaged = opened && engagement === 'answered'
   // The render-time twin of the condition `record`'s onSuccess snapshots: it
   // decides what the field ASKS for, where the snapshot decides what was
-  // asked for. Same three facts, so the promise and the behavior agree.
-  const capturesIssues = captureEnabled && serveMode && engaged
+  // asked for. Same facts, so the promise and the behavior agree.
+  const capturesIssues = captureEnabled && engaged
   // The outcome the contract gets: step two replaces step one's `answered`,
   // which was only ever the branch into it.
   const finalOutcome = opened ? engagement : outcome
@@ -374,10 +389,12 @@ export default function RecordKnockForm({
       <IssueCaptureConfirmCard
         proposed={captured.proposed}
         saving={confirm.isPending}
+        isServe={serveMode}
         onConfirm={(triple) => confirm.mutate(triple)}
         onSkip={() => {
-          trackEvent(EVENTS.ConstituentFeedback.IssueSkipped, {
+          trackEvent(EVENTS.IssueCapture.MemoSkipped, {
             channel: 'doorKnocking',
+            product,
           })
           advance()
         }}
@@ -492,8 +509,8 @@ export default function RecordKnockForm({
               // field and told the canvasser they could skip it.
               placeholder={
                 capturesIssues
-                  ? NOTE_PLACEHOLDER.serveCapture
-                  : NOTE_PLACEHOLDER.win
+                  ? NOTE_PLACEHOLDER.capture[product]
+                  : NOTE_PLACEHOLDER.note
               }
               rows={3}
               className="min-h-20 pr-12"
@@ -506,6 +523,11 @@ export default function RecordKnockForm({
               disabled={record.isPending}
             />
           </div>
+          {capturesIssues && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {MEMO_CONSENT_LINE[product]}
+            </p>
+          )}
           <DictationFeedback dictation={dictation} />
         </div>
       )}

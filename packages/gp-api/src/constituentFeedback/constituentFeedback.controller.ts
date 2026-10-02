@@ -20,12 +20,13 @@ import {
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
-import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
-import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
 import { FeaturesService } from '@/features/services/features.service'
+import { AllowVolunteer } from '@/organizations/decorators/AllowVolunteer.decorator'
+import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
+import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
-import { ElectedOffice, User } from '@/generated/prisma'
+import { Organization, User } from '@/generated/prisma'
 import { ConstituentFeedbackService } from './services/constituentFeedback.service'
 import {
   ListConstituentFeedbackQuerySchema,
@@ -37,13 +38,20 @@ import {
 // surface the user has not been rolled out to should not answer questions
 // about it.
 //
-// This gates ROLLOUT, not authorization. @UseElectedOffice() is the real
-// access check and stays that way whatever the flag says — which is also
-// what keeps this Serve-only, since a Win org has no ElectedOffice row.
+// This gates ROLLOUT, not authorization. @UseOrganization() and its role
+// guard are the real access check and stay that way whatever the flag says.
+// Each product rolls out on its own key, chosen by the org's product: an
+// `eo-` slug is an elected official's office, anything else a campaign.
 const SERVE_ISSUE_CAPTURE_FLAG = 'serve-issue-capture'
+const WIN_ISSUE_CAPTURE_FLAG = 'win-issue-capture'
 
+// The two writes carry @AllowVolunteer(), the posture of the knock and call
+// routes they follow: the person who had the conversation is who records and
+// confirms it, and on Win that is usually a volunteer. The read stays at the
+// default, owner or campaign manager, because it is the CRM's record of a
+// person.
 @Controller('constituent-feedback')
-@UseElectedOffice()
+@UseOrganization()
 @UseInterceptors(ZodResponseInterceptor)
 export class ConstituentFeedbackController {
   constructor(
@@ -52,35 +60,37 @@ export class ConstituentFeedbackController {
   ) {}
 
   @Post()
+  @AllowVolunteer()
   @ResponseSchema(RecordConstituentFeedbackResponseSchema)
   async capture(
     @ReqUser() user: User,
-    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(RecordConstituentFeedbackSchema))
     body: RecordConstituentFeedback,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(user, organization)
 
     return this.feedback.capture({
-      organizationSlug: electedOffice.organizationSlug,
+      organizationSlug: organization.slug,
       actorUserId: user.id,
       body,
     })
   }
 
   @Patch(':id/confirm')
+  @AllowVolunteer()
   @ResponseSchema(ConstituentFeedbackSchema)
   async confirm(
     @ReqUser() user: User,
-    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqOrganization() organization: Organization,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(ConfirmConstituentFeedbackSchema))
     body: ConfirmConstituentFeedback,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(user, organization)
 
     return this.feedback.confirm({
-      organizationSlug: electedOffice.organizationSlug,
+      organizationSlug: organization.slug,
       id,
       body,
     })
@@ -90,15 +100,15 @@ export class ConstituentFeedbackController {
   @ResponseSchema(ConstituentFeedbackListResponseSchema)
   async list(
     @ReqUser() user: User,
-    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqOrganization() organization: Organization,
     @Query(new ZodValidationPipe(ListConstituentFeedbackQuerySchema))
     query: ListConstituentFeedbackQuery,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(user, organization)
 
     return {
       feedback: await this.feedback.listForPerson({
-        organizationSlug: electedOffice.organizationSlug,
+        organizationSlug: organization.slug,
         personId: query.personId,
       }),
     }
@@ -106,10 +116,15 @@ export class ConstituentFeedbackController {
 
   // 404 rather than 403 when the flag is off: a surface the user has not been
   // rolled out to should not advertise that it exists.
-  private async assertFeatureEnabled(user: User): Promise<void> {
+  private async assertFeatureEnabled(
+    user: User,
+    organization: Organization,
+  ): Promise<void> {
     const enabled = await this.features.isFeatureEnabled({
       user,
-      feature: SERVE_ISSUE_CAPTURE_FLAG,
+      feature: organization.slug.startsWith('eo-')
+        ? SERVE_ISSUE_CAPTURE_FLAG
+        : WIN_ISSUE_CAPTURE_FLAG,
     })
     if (!enabled) throw new NotFoundException()
   }
