@@ -16,8 +16,15 @@ import type {
   ConfirmConstituentFeedback,
   ConstituentFeedbackListResponse,
   ConstituentFeedbackRecord,
+  FeedbackReportResponse,
+  FeedbackThemeDetail,
+  IssueTag,
+  IssueTagListResponse,
+  IssueTagStatus,
   RecordConstituentFeedback,
   RecordConstituentFeedbackResponse,
+  SynthesisRun,
+  UpdateIssueTag,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
@@ -1642,6 +1649,31 @@ export type APIEndpoints = {
   'GET /v1/constituent-feedback': {
     Request: { personId: string }
     Response: ConstituentFeedbackListResponse
+  }
+  // The effort's report: what the "What we heard" page renders, and what
+  // the turf and phone entry rows read their two counts from.
+  'GET /v1/constituent-feedback/efforts/:outreachId/report': {
+    Request: {}
+    Response: FeedbackReportResponse
+  }
+  // 422 `{ confirmed, required }` under the floor, 429 inside the cooldown,
+  // 409 while a run is in flight.
+  'POST /v1/constituent-feedback/efforts/:outreachId/synthesize': {
+    Request: {}
+    Response: SynthesisRun
+  }
+  'GET /v1/constituent-feedback/themes/:id': {
+    Request: {}
+    Response: FeedbackThemeDetail
+  }
+  // Owner and manager only: a volunteer gets 403.
+  'GET /v1/constituent-feedback/tags': {
+    Request: { status?: IssueTagStatus }
+    Response: IssueTagListResponse
+  }
+  'PATCH /v1/constituent-feedback/tags/:id': {
+    Request: UpdateIssueTag
+    Response: IssueTag
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
