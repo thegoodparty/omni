@@ -1,4 +1,4 @@
-# Refreshed from thegoodparty/gp-data-platform on 2026-10-01 by sem_anchors.py refresh-vendored.
+# Refreshed from thegoodparty/gp-data-platform on 2026-10-02 by sem_anchors.py refresh-vendored.
 # Do not edit by hand: the analytics-governance run rewrites it every Monday and Thursday.
 semantic_models:
   - name: users_win
