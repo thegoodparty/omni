@@ -299,8 +299,10 @@ export interface ArmEnv extends SweepEnv {
   metadataBucket?: string
   artifactBucket?: string
   dispatchQueueUrl?: string
-  // Absent on a local run, where the arm's own config decides.
-  backgroundBudget?: ShapeBudget
+  // Absent on a local run, where the arm's own config decides. Without the
+  // in-flight slots: on a sweep the admitted list already says what runs, so
+  // the arm never counts slots, and they stay the arm's own.
+  backgroundBudget?: Omit<ShapeBudget, 'maxInFlight'>
   // Present exactly when backgroundBudget is. Absent on a local run, where
   // the arm decides admission itself by spending its own budget down.
   backgroundAdmitted?: ReadonlySet<string>
@@ -486,7 +488,9 @@ const positiveInt = (name: string, raw: string): number => {
   return Number(raw)
 }
 
-const backgroundBudgetFrom = (data: ParsedArm): ShapeBudget | undefined => {
+const backgroundBudgetFrom = (
+  data: ParsedArm,
+): Omit<ShapeBudget, 'maxInFlight'> | undefined => {
   if (data.JUDGE_BACKGROUND_ATTEMPTS === undefined) {
     // A cap with no attempts is a half-resolved budget. Refused rather than
     // dropped, because dropping it silently falls back to the arm's own
@@ -579,7 +583,13 @@ export const armConfigFor = (
 ): JudgeConfig =>
   env.backgroundBudget === undefined
     ? base
-    : { ...base, background: env.backgroundBudget }
+    : {
+        ...base,
+        background: {
+          ...env.backgroundBudget,
+          maxInFlight: base.background.maxInFlight,
+        },
+      }
 
 // What a record's `variant.ref` says for this arm. The base arm is a branch
 // name; the candidate arm's head ref is not in the plan's outputs, so it falls

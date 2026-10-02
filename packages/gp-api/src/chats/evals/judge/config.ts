@@ -141,6 +141,23 @@ export interface ShapeBudget {
   // rather than a separate shorter list: the case files stay the full set, so
   // raising this is a config change and not an authoring job.
   maxCases?: number
+  // How many runs one arm may have in flight at once. Every run of every
+  // admitted agent starts together, so this is also how many runs an arm may
+  // walk at all: admission fills the slots and refuses the rest by name.
+  //
+  // Bounded well below the platform's own cap, which is shared. The dev
+  // scheduler launches at most MAX_CONCURRENT_AGENTS tasks (50 by default)
+  // across everything running there, and a run queued behind that cap is
+  // waiting outside its own timeout, so the sweep's poll can give up on a run
+  // that never started. Twelve leaves the rest of dev most of the room.
+  //
+  // PER SWEEP, NOT IN TOTAL. Each PR's sweep has its own concurrency group,
+  // so four PRs judged at once can put 48 runs out, and with anything else on
+  // dev that reaches the cap: runs queue, their polls time out as infra
+  // errors, and the task still launches and bills with nothing waiting for
+  // it. Live sweeps are explicit requests, so this is rare; lower this, or
+  // serialize live sweeps, before it is not.
+  maxInFlight: number
 }
 
 export interface JudgeConfig {
@@ -178,7 +195,7 @@ export interface JudgeConfig {
 
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
   attemptsPerCase: 3,
-  background: { attemptsPerCase: 1, maxCases: 3 },
+  background: { attemptsPerCase: 1, maxCases: 3, maxInFlight: 12 },
   dimensions: ['task_success', 'instruction_adherence', 'user_utility'],
   panel: {
     seats: ['claude-sonnet-4-6'],

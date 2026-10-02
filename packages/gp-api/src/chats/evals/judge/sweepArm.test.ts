@@ -278,7 +278,7 @@ describe('captureArm', () => {
     const config = {
       ...DEFAULT_JUDGE_CONFIG,
       attemptsPerCase: 2,
-      background: { attemptsPerCase: 5 },
+      background: { attemptsPerCase: 5, maxInFlight: 12 },
     }
     const d = await deps({
       runCase: echoRunner([]),
@@ -637,5 +637,261 @@ describe('captureArm', () => {
       [COS],
     )
     expect(manifest.spent).toBe(spends)
+  })
+})
+
+// HOW THE ARM SPENDS ITS WALL CLOCK. Admission is sized to one wave: every
+// background run starts at once and the arm is done when the slowest is. An
+// arm that walked them one after another would take several times what was
+// admitted, and be killed with no manifest written. These hold the walk to
+// the promise armBudget.ts makes on its behalf.
+describe('captureArm, walking background agents', () => {
+  const SECOND: AgentEntry = { ...BACKGROUND, agentId: 'self_research' }
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5))
+
+  // A runner that counts how many runs are out at once, per shape.
+  const counting = () => {
+    const inFlight = { background: 0, chat: 0 }
+    const most = { background: 0, chat: 0 }
+    const runCase: CaptureArmDeps['runCase'] = async (request) => {
+      const shape = request.agent.shape
+      inFlight[shape] += 1
+      most[shape] = Math.max(most[shape], inFlight[shape])
+      await tick()
+      inFlight[shape] -= 1
+      return echoRunner()(request)
+    }
+    return { runCase, most }
+  }
+
+  it('starts every run of every background agent at once', async () => {
+    const { runCase, most } = counting()
+    const manifest = await captureArm(
+      await deps({ config: oneAttempt, runCase, loadCases: () => caseList(3) }),
+      env({ agentIds: ['meeting_briefing', 'self_research'] }),
+      [BACKGROUND, SECOND],
+    )
+    // Two agents of three cases at one attempt: six runs, all out together.
+    expect(most.background).toBe(6)
+    expect(manifest.agents.map((a) => a.recordsWritten)).toEqual([3, 3])
+  })
+
+  // A chat case runs inside this process against one test database, and a
+  // seeded transcript belongs to one case, so chat stays one at a time.
+  it('still walks chat cases one at a time', async () => {
+    const { runCase, most } = counting()
+    await captureArm(
+      await deps({ config: oneAttempt, runCase, loadCases: () => caseList(3) }),
+      env({ agentIds: ['chief_of_staff'] }),
+      [COS],
+    )
+    expect(most.chat).toBe(1)
+  })
+
+  // THE CHAT AGENTS USE THE WAIT. A background run cannot finish until a chat
+  // case has run, so an arm that waited out its background agents before
+  // walking chat would never finish — the race below fails it instead.
+  it('walks chat agents while background runs are still out', async () => {
+    let chatRan: () => void = () => undefined
+    const chatHasRun = new Promise<void>((resolve) => {
+      chatRan = resolve
+    })
+    const runCase: CaptureArmDeps['runCase'] = async (request) => {
+      if (request.agent.shape === 'background') await chatHasRun
+      else chatRan()
+      return echoRunner()(request)
+    }
+    const capture = captureArm(
+      await deps({ config: oneAttempt, runCase, loadCases: () => caseList(1) }),
+      env({ agentIds: ['meeting_briefing', 'chief_of_staff'] }),
+      [BACKGROUND, COS],
+    )
+    const manifest = await Promise.race([
+      capture,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('the arm waited for background')),
+          1000,
+        ),
+      ),
+    ])
+    expect(manifest.agents.map((a) => a.agentId)).toEqual([
+      'meeting_briefing',
+      'chief_of_staff',
+    ])
+  })
+
+  // NOT HELD BACK BY A CHAT AGENT LISTED BEFORE IT. The chat case below can
+  // only finish once the second background agent has started, so an arm that
+  // walked the selection in order — awaiting the chat agent before starting
+  // the agent after it — never finishes, and the race fails it.
+  it('starts a background agent listed after a chat agent at once', async () => {
+    let secondStarted: () => void = () => undefined
+    const second = new Promise<void>((resolve) => {
+      secondStarted = resolve
+    })
+    const runCase: CaptureArmDeps['runCase'] = async (request) => {
+      if (request.agent.agentId === 'self_research') secondStarted()
+      if (request.agent.shape === 'chat') await second
+      return echoRunner()(request)
+    }
+    const capture = captureArm(
+      await deps({ config: oneAttempt, runCase, loadCases: () => caseList(1) }),
+      env({
+        agentIds: ['meeting_briefing', 'chief_of_staff', 'self_research'],
+      }),
+      [BACKGROUND, COS, SECOND],
+    )
+    const manifest = await Promise.race([
+      capture,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('the chat agent held the wave back')),
+          1000,
+        ),
+      ),
+    ])
+    // And the manifest still lists them in walk order.
+    expect(manifest.agents.map((a) => a.agentId)).toEqual([
+      'meeting_briefing',
+      'chief_of_staff',
+      'self_research',
+    ])
+  })
+
+  // ONE FAILED RUN DOES NOT ABANDON THE REST. Each is already dispatched and
+  // billing, so the arm waits every one out and keeps what they wrote; the
+  // skip still says how many records the agent left in the store.
+  it('waits out the other runs of an agent when one fails', async () => {
+    let finished = 0
+    const d = await deps({
+      config: oneAttempt,
+      loadCases: () => caseList(3),
+      runCase: async (request) => {
+        if (request.case.caseId === 'case-0') throw new Error('task died')
+        await tick()
+        finished += 1
+        return echoRunner()(request)
+      },
+    })
+    const manifest = await captureArm(
+      d,
+      env({ agentIds: ['meeting_briefing'] }),
+      [BACKGROUND],
+    )
+    expect(finished).toBe(2)
+    expect(manifest.skipped[0]?.reason).toContain('task died')
+    expect(manifest.skipped[0]?.reason).toContain(
+      'had written 2 record(s) before it failed',
+    )
+    expect(await d.store.listRecords('swp_1', 'candidate')).toHaveLength(2)
+  })
+
+  // A FATAL ERROR STILL WAITS. Thrown with polls open, the process exits under
+  // Fargate tasks that keep running and billing, and their records are lost.
+  it('waits for in-flight background runs before an arm-fatal throw', async () => {
+    let finished = 0
+    const d = await deps({
+      config: oneAttempt,
+      loadCases: (agent) => {
+        if (agent.agentId === 'chief_of_staff') {
+          throw new ArmCaptureError('the store is unreachable')
+        }
+        return caseList(3)
+      },
+      runCase: async (request) => {
+        await tick()
+        finished += 1
+        return echoRunner()(request)
+      },
+    })
+    const outcome = await captureArm(
+      d,
+      env({ agentIds: ['meeting_briefing', 'chief_of_staff'] }),
+      [BACKGROUND, COS],
+    ).then(
+      () => 'resolved',
+      (err: Error) => `${err.constructor.name}: ${err.message}; ${finished}`,
+    )
+    expect(outcome).toBe('ArmCaptureError: the store is unreachable; 3')
+  })
+
+  // AND STARTS NOTHING AFTER IT. Background agents start first, in walk
+  // order, so a fatal one stops the background agents after it and every
+  // chat agent: each would spend on an arm that is about to throw.
+  it('dispatches no agent after an arm-fatal error', async () => {
+    const THIRD: AgentEntry = { ...BACKGROUND, agentId: 'trending_issues' }
+    const asked: string[] = []
+    const d = await deps({
+      config: oneAttempt,
+      loadCases: (agent) => {
+        if (agent.agentId === 'self_research') {
+          throw new ArmCaptureError('the store is unreachable')
+        }
+        return caseList(1)
+      },
+      runCase: async (request) => {
+        asked.push(request.agent.agentId)
+        return echoRunner()(request)
+      },
+    })
+    await expect(
+      captureArm(
+        d,
+        env({
+          agentIds: [
+            'meeting_briefing',
+            'self_research',
+            'chief_of_staff',
+            'trending_issues',
+          ],
+        }),
+        [BACKGROUND, SECOND, COS, THIRD],
+      ),
+    ).rejects.toThrow(ArmCaptureError)
+    expect(asked).toEqual(['meeting_briefing'])
+  })
+
+  // Every ATTEMPT is a run in the wave too. Admission counts cases times
+  // attempts as slots, so a walk that ran a case's attempts one after another
+  // would take that many runs' worth of wall clock.
+  it('starts every attempt of every case at once', async () => {
+    const { runCase, most } = counting()
+    await captureArm(
+      await deps({
+        config: {
+          ...DEFAULT_JUDGE_CONFIG,
+          background: { attemptsPerCase: 2, maxInFlight: 12 },
+        },
+        runCase,
+        loadCases: () => caseList(3),
+      }),
+      env({ agentIds: ['meeting_briefing'] }),
+      [BACKGROUND],
+    )
+    expect(most.background).toBe(6)
+  })
+
+  // In walk order whatever finished first, so a manifest does not depend on
+  // which Fargate task happened to be quicker.
+  it('lists agents in walk order, not finishing order', async () => {
+    const manifest = await captureArm(
+      await deps({
+        config: oneAttempt,
+        loadCases: () => caseList(1),
+        runCase: async (request) => {
+          if (request.agent.agentId === 'meeting_briefing') {
+            await new Promise((resolve) => setTimeout(resolve, 30))
+          }
+          return echoRunner()(request)
+        },
+      }),
+      env({ agentIds: ['meeting_briefing', 'self_research'] }),
+      [BACKGROUND, SECOND],
+    )
+    expect(manifest.agents.map((a) => a.agentId)).toEqual([
+      'meeting_briefing',
+      'self_research',
+    ])
   })
 })

@@ -37,7 +37,12 @@ const fitsAlone = (entry: AgentEntry): boolean => {
     armCaseLoader(SWEEP_VALUES, ARM_BUDGET_MS, DEFAULT_JUDGE_CONFIG)(entry)
     return true
   } catch (err) {
-    if (err instanceof Error && /would take/.test(err.message)) return false
+    if (
+      err instanceof Error &&
+      /would take|runs in flight at once/.test(err.message)
+    ) {
+      return false
+    }
     throw err
   }
 }
@@ -52,8 +57,12 @@ const walked = (entry: AgentEntry): string[] =>
 describe('the background budget', () => {
   // A literal on purpose: this is the one place the chosen numbers are
   // written down as a decision rather than read back from the config.
-  it('is 1 attempt over the first 3 cases', () => {
-    expect(background).toEqual({ attemptsPerCase: 1, maxCases: 3 })
+  it('is 1 attempt over the first 3 cases, 12 runs at once', () => {
+    expect(background).toEqual({
+      attemptsPerCase: 1,
+      maxCases: 3,
+      maxInFlight: 12,
+    })
   })
 
   // Both halves. Every background agent returning 1 says nothing about chat,
@@ -77,48 +86,26 @@ describe('the background budget', () => {
   )
 })
 
-describe('what it makes possible, with cases still run one at a time', () => {
-  // Four agents fit an arm on their own. The other eleven do not, because a
-  // case runs to its agent's declared timeout and three of them in sequence
-  // still overrun: meeting_briefing alone is three 65-minute polls. Running
-  // cases concurrently is what changes this list, not the budget.
-  it('admits exactly these agents on their own', () => {
-    expect(sweepable.filter(fitsAlone).map((one) => one.agentId)).toEqual([
-      'opportunities_and_challenges',
-      'opposition_research',
-      'race_opponent_actions',
-      'race_opponent_summary',
-    ])
+describe('what it makes possible, with every run started at once', () => {
+  // Every agent fits an arm on its own now. A run waits out at most its
+  // agent's declared timeout plus the poll headroom, the longest is
+  // meeting_briefing at 65 minutes, and an arm's runs finish together rather
+  // than one after another. Run in sequence, eleven of these did not fit.
+  it('admits every agent on its own', () => {
+    expect(sweepable.filter((one) => !fitsAlone(one))).toEqual([])
+    expect(sweepable.length).toBe(15)
   })
 
-  it('refuses the rest by name', () => {
-    expect(
-      sweepable.filter((one) => !fitsAlone(one)).map((one) => one.agentId),
-    ).toEqual([
-      'campaign_tracker_tasks',
-      'district_issue_pulse',
-      'district_issue_snapshot',
-      'find_existing_ordinances',
-      'meeting_briefing',
-      'meeting_schedule',
-      'opponent_research',
-      'race_opponent_collection',
-      'self_research',
-      'top_community_issues',
-      'trending_issues',
-    ])
-  })
-
-  // TOGETHER IS NOT THE SUM OF ALONE. One arm walks agents in registry order
-  // against one budget, so the first agent to fit takes 60 of the 70 minutes
-  // and the other three are refused. Selecting all four runs one.
-  it('runs only the first of them when all four share an arm', () => {
+  // TOGETHER IS NOT THE SUM OF ALONE. One arm fills twelve slots in registry
+  // order, three runs an agent, so four agents share an arm and the rest are
+  // refused by name. Judging all fifteen takes four sweeps.
+  it('runs the first four when every agent shares an arm', () => {
     const shared = armCaseLoader(
       SWEEP_VALUES,
       ARM_BUDGET_MS,
       DEFAULT_JUDGE_CONFIG,
     )
-    const admitted = sweepable.filter(fitsAlone).filter((one) => {
+    const admitted = sweepable.filter((one) => {
       try {
         shared(one)
         return true
@@ -127,7 +114,10 @@ describe('what it makes possible, with cases still run one at a time', () => {
       }
     })
     expect(admitted.map((one) => one.agentId)).toEqual([
-      'opportunities_and_challenges',
+      'campaign_tracker_tasks',
+      'district_issue_pulse',
+      'district_issue_snapshot',
+      'find_existing_ordinances',
     ])
   })
 })

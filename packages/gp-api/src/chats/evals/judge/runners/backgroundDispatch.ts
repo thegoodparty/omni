@@ -49,11 +49,12 @@ export const pollTimeoutMsFor = (timeoutSeconds: number): number =>
 // the judging step failing on a missing arm.
 //
 // ONE KNOWN GAP, not measured yet: only background wall clock is spent
-// against this. Chat agents run inside the same arm and the same vitest
-// timeout, and nothing deducts them, so a sweep heavy on chat cases plus a
-// background agent that fits on its own could still overrun. There are no
-// measured chat turn durations to budget them with; when there are, they
-// belong in admitBackground's remaining budget.
+// against this. Chat agents walk inside the same arm and the same vitest
+// timeout while the background runs are out, so the arm takes the longer of
+// the two rather than their sum, but nothing bounds the chat half: a sweep
+// with more than an arm's worth of chat cases could still overrun. There are
+// no measured chat turn durations to budget them with; when there are, they
+// belong beside the wave in admitBackground.
 export const ARM_BUDGET_MS = 70 * 60 * 1000
 
 // Deliberately NOT a fallback for a manifest with no timeout. `timeout_seconds`
@@ -204,6 +205,9 @@ export interface BackgroundBudgetInput {
   budgetMs: number
   attemptsPerCase: number
   maxCases: number | undefined
+  // How many runs may be in flight at once, which on a local run is also how
+  // many it may walk; see ShapeBudget.maxInFlight.
+  maxInFlight: number
   // WHICH BACKGROUND AGENTS THIS ARM MAY WALK, decided once for both arms.
   //
   // Absent on a local run, where the arm decides for itself by spending its
@@ -236,8 +240,14 @@ export const caseLoaderFor = (
     loadConfig = agentConfigFor,
   }: CaseLoaderDeps = {},
 ): ((agent: AgentEntry) => CaseList) => {
-  const { budgetMs, attemptsPerCase, maxCases, admitted, refusedReasons } =
-    budget
+  const {
+    budgetMs,
+    attemptsPerCase,
+    maxCases,
+    maxInFlight,
+    admitted,
+    refusedReasons,
+  } = budget
   if (maxCases !== undefined && maxCases < 1) {
     throw new Error(
       `the background case cap is ${maxCases}, which is not a number of ` +
@@ -246,13 +256,12 @@ export const caseLoaderFor = (
         'nearly the whole list, which is the opposite of a cap',
     )
   }
-  // SPENT DOWN ACROSS AGENTS, not re-offered to each one, and created ONCE
-  // PER LOADER — so once per arm, since the arm builds one. captureArm walks
-  // agents sequentially inside a single job, so a per-agent check against the
-  // whole budget says yes to four agents that each fit and together take
-  // three times the arm; the arm is then killed mid-walk, and because
-  // putManifest runs after the loop, judging dies on a missing arm.
-  const remaining = { ms: budgetMs }
+  // THE SLOTS ARE SPENT DOWN ACROSS AGENTS, not re-offered to each one, and
+  // created ONCE PER LOADER — so once per arm, since the arm builds one.
+  // captureArm starts every admitted background run at once, so a per-agent
+  // check against all the slots says yes to four agents that each fit and
+  // together put four times the runs in flight.
+  const remaining = { slots: maxInFlight }
   return (agent) => {
     const list = load(agent)
     if (list.shape !== 'background') return list
@@ -281,23 +290,52 @@ export const caseLoaderFor = (
       values,
     )
     const config = loadConfig(agent.agentId)
+    // Reached here rather than at the dispatch, where a manifest naming no
+    // model would arrive as a skip on case 1 with every agent walked before
+    // it already billed. Before the slots are taken, so an agent refused for
+    // it leaves them to the agents after it.
+    modelOf(config)
     if (admitted === undefined) {
       // Refused BEFORE deducting, so a refused agent leaves its share for
       // the ones after it.
-      refuseIfOverBudget(
-        agent.agentId,
-        cases.length,
-        attemptsPerCase,
-        config,
-        remaining.ms,
+      const runs = cases.length * attemptsPerCase
+      const why = waveRefusal(
+        runs,
+        pollTimeoutMs(config),
+        remaining.slots,
         budgetMs,
+        maxInFlight,
       )
-      remaining.ms -= armWallClockMs(cases.length, attemptsPerCase, config)
+      // PER AGENT, AND THROWN FROM INSIDE THE LOADER ON PURPOSE.
+      //
+      // `captureArm` calls `loadCases(agent)` inside its per-agent try/catch, so a
+      // throw here becomes a named entry in the manifest's `skipped` list and THE
+      // REST OF THE SWEEP CONTINUES. That placement is the whole design:
+      //
+      // An earlier version checked the whole selection at the top of the arm and
+      // threw before `captureArm`. Every one of the fifteen background agents
+      // overruns any plausible job budget on its own — the cheapest is six hours of
+      // wall clock, meeting_briefing twenty-six — so that check fired on every
+      // selection naming a background agent and took the CHAT agents in the same
+      // sweep down with it. `auto` on a branch touching both a chat directory and
+      // an experiment directory produced no verdict of any kind, which is strictly
+      // worse than the unwired state it replaced: that skipped the background agent
+      // by name and still judged the chat half.
+      //
+      // It was also self-defeating as a guard. Throwing before `captureArm` means
+      // `putManifest` never runs and the judging step then fails on a missing arm —
+      // precisely the end state the check exists to avoid. Thrown from here, the
+      // manifest is written, it says which agent was refused and why, and the money
+      // is still unspent.
+      if (why !== undefined) {
+        throw new Error(
+          `${agent.agentId} ${why}. Background already has its own reduced ` +
+            'budget and this does not fit inside it: select fewer agents, ' +
+            'or change config.background.',
+        )
+      }
+      remaining.slots -= runs
     }
-    // Reached here rather than at the dispatch, where a manifest naming no
-    // model would arrive as a skip on case 1 with every agent walked before
-    // it already billed.
-    modelOf(config)
     return { ...list, cases }
   }
 }
@@ -323,6 +361,7 @@ export const armCaseLoader = (
     budgetMs,
     attemptsPerCase: config.background.attemptsPerCase,
     maxCases: config.background.maxCases,
+    maxInFlight: config.background.maxInFlight,
     ...(admitted !== undefined && { admitted }),
     ...(refusedReasons !== undefined && { refusedReasons }),
   })
@@ -353,24 +392,73 @@ export const armDeps = (
   ),
 })
 
+// WHY ONE AGENT'S RUNS DO NOT FIT THE WAVE, or undefined when they do.
+//
+// The arm starts every admitted run at once and is done when the slowest one
+// is, so an agent fits when each of its runs fits the arm on its own and
+// there are slots left for all of them. Deliberately not a packing of short
+// runs behind each other in one slot: that schedule is only as safe as its
+// worst case, and a run that finishes early lets the next one start somewhere
+// else and finish later than planned. One wave has no such case.
+// Room inside the arm for what is not the run: staging the config, sending
+// the message, reading the trace back and writing the record. A run allowed
+// right up to the arm's budget would always overrun it by that much.
+export const WAVE_MARGIN_MS = 5 * 60 * 1000
+
+export const waveRefusal = (
+  runs: number,
+  runMs: number,
+  slotsLeft: number,
+  budgetMs: number,
+  maxInFlight: number,
+): string | undefined => {
+  const minutes = (value: number): number => Math.ceil(value / 60_000)
+  if (runMs + WAVE_MARGIN_MS > budgetMs) {
+    return (
+      `would take ${minutes(runMs)} minutes for a single run on the slower ` +
+      `arm, which with ${minutes(WAVE_MARGIN_MS)} to stage and record it ` +
+      `does not fit the arm's ${minutes(budgetMs)}`
+    )
+  }
+  if (runs > slotsLeft) {
+    return (
+      `needs ${runs} runs in flight at once, and ${slotsLeft} of the arm's ` +
+      `${maxInFlight} slots were left once the agents before it were admitted`
+    )
+  }
+  return undefined
+}
+
 // THE DECISION BOTH ARMS OBEY: which selected background agents fit one arm,
 // walked in the order the arms will walk them.
 //
-// `costOf` returns an agent's wall clock on ONE arm, or a refusal. The caller
-// takes the larger of the two arms' costs, so an agent is admitted only if it
-// fits on whichever arm is slower — a branch that LOWERS a timeout would
-// otherwise be admitted on the candidate's number and then overrun the base
-// arm at the base's. An agent one arm cannot load at all is refused here,
-// before anyone pays: a background agent new on the branch has no base to be
-// compared against.
+// `costOf` returns an agent's runs and the wall clock of one run on ONE arm,
+// or a refusal. The caller takes the larger of the two arms' run times, so an
+// agent is admitted only if it fits on whichever arm is slower — a branch
+// that LOWERS a timeout would otherwise be admitted on the candidate's number
+// and then overrun the base arm at the base's. An agent one arm cannot load
+// at all is refused here, before anyone pays: a background agent new on the
+// branch has no base to be compared against.
+//
+// `maxInFlight` says how the arms will walk. Given, both start every run at
+// once and admission fills that many slots. Absent, the base arm predates
+// that and walks one run after another, so admission falls back to spending
+// the arm's wall clock down run by run, which the slower arm can honour.
 export const admitBackground = (
   selected: readonly AgentEntry[],
-  costOf: (agent: AgentEntry) => { ms: number } | { refused: string },
+  costOf: (
+    agent: AgentEntry,
+  ) =>
+    | { runs: number; runMs: number; caseIds?: readonly string[] }
+    | { refused: string },
   budgetMs: number,
+  maxInFlight?: number,
 ): { admitted: string[]; refused: { agentId: string; reason: string }[] } => {
   const admitted: string[] = []
   const refused: { agentId: string; reason: string }[] = []
-  let remaining = budgetMs
+  let remainingMs = budgetMs
+  let slotsLeft = maxInFlight ?? 0
+  const takenCaseIds = new Set<string>()
   const minutes = (value: number): number => Math.ceil(value / 60_000)
   for (const agent of selected) {
     if (agent.shape !== 'background') continue
@@ -379,74 +467,51 @@ export const admitBackground = (
       refused.push({ agentId: agent.agentId, reason: cost.refused })
       continue
     }
-    if (cost.ms > remaining) {
+    if (maxInFlight !== undefined) {
+      const why = waveRefusal(
+        cost.runs,
+        cost.runMs,
+        slotsLeft,
+        budgetMs,
+        maxInFlight,
+      )
+      if (why !== undefined) {
+        refused.push({ agentId: agent.agentId, reason: why })
+        continue
+      }
+      admitted.push(agent.agentId)
+      slotsLeft -= cost.runs
+      continue
+    }
+    // A base arm this old names a run without its agent, so two agents
+    // sharing a case id would dispatch one run id twice and the platform
+    // would drop the second. Refused rather than walked.
+    const shared = (cost.caseIds ?? []).filter((id) => takenCaseIds.has(id))
+    if (shared.length > 0) {
       refused.push({
         agentId: agent.agentId,
         reason:
-          `would take ${minutes(cost.ms)} minutes on the slower arm, and ` +
-          `${minutes(remaining)} of the arm's ${minutes(budgetMs)} were ` +
+          `shares case ids [${shared.join(', ')}] with an agent already ` +
+          "admitted, and the base ref's run ids do not name the agent, so " +
+          'one of the two would never be dispatched',
+      })
+      continue
+    }
+    const ms = cost.runs * cost.runMs
+    if (ms > remainingMs) {
+      refused.push({
+        agentId: agent.agentId,
+        reason:
+          `would take ${minutes(ms)} minutes on the slower arm, walked one ` +
+          `run after another as the base ref does, and ` +
+          `${minutes(remainingMs)} of the arm's ${minutes(budgetMs)} were ` +
           'left once the agents before it were admitted',
       })
       continue
     }
     admitted.push(agent.agentId)
-    remaining -= cost.ms
+    remainingMs -= ms
+    for (const id of cost.caseIds ?? []) takenCaseIds.add(id)
   }
   return { admitted, refused }
-}
-
-// PER AGENT, AND THROWN FROM INSIDE THE LOADER ON PURPOSE.
-//
-// `captureArm` calls `loadCases(agent)` inside its per-agent try/catch, so a
-// throw here becomes a named entry in the manifest's `skipped` list and THE
-// REST OF THE SWEEP CONTINUES. That placement is the whole design:
-//
-// An earlier version checked the whole selection at the top of the arm and
-// threw before `captureArm`. Every one of the fifteen background agents
-// overruns any plausible job budget on its own — the cheapest is six hours of
-// wall clock, meeting_briefing twenty-six — so that check fired on every
-// selection naming a background agent and took the CHAT agents in the same
-// sweep down with it. `auto` on a branch touching both a chat directory and
-// an experiment directory produced no verdict of any kind, which is strictly
-// worse than the unwired state it replaced: that skipped the background agent
-// by name and still judged the chat half.
-//
-// It was also self-defeating as a guard. Throwing before `captureArm` means
-// `putManifest` never runs and the judging step then fails on a missing arm —
-// precisely the end state the check exists to avoid. Thrown from here, the
-// manifest is written, it says which agent was refused and why, and the money
-// is still unspent.
-// Exported so the real registry can be measured against a real budget in a
-// unit test, rather than the arithmetic only ever being exercised against
-// injected case counts and injected manifests. See budgetConsequences.test.ts,
-// which pins which published agents fit an arm at today's budget.
-export const armWallClockMs = (
-  caseCount: number,
-  attemptsPerCase: number,
-  config: AgentConfig,
-): number => caseCount * attemptsPerCase * pollTimeoutMs(config)
-
-const refuseIfOverBudget = (
-  agentId: string,
-  caseCount: number,
-  attemptsPerCase: number,
-  config: AgentConfig,
-  remainingMs: number,
-  budgetMs: number,
-): void => {
-  const ms = armWallClockMs(caseCount, attemptsPerCase, config)
-  if (ms <= remainingMs) return
-  const minutes = (value: number): number => Math.ceil(value / 60_000)
-  const spent = minutes(budgetMs - remainingMs)
-  throw new Error(
-    `${agentId} would take ${minutes(ms)} minutes of wall clock ` +
-      `(${caseCount} cases x ${attemptsPerCase} attempts, each waiting out ` +
-      `the agent's declared timeout), and this arm has ` +
-      `${minutes(remainingMs)} of its ${minutes(budgetMs)} left` +
-      (spent > 0 ? ` after ${spent} already committed to earlier agents` : '') +
-      '. Cases run one after another, so the arm would be cut off partway ' +
-      'with its records orphaned and no manifest written. Background already ' +
-      'has its own reduced budget and this does not fit inside it: select ' +
-      'fewer agents, or lower config.background.',
-  )
 }
