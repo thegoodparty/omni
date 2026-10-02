@@ -10,7 +10,11 @@ import { updateFilingUrlAndResubmit } from '@/app/dashboard/campaigns/actions'
 interface EditFilingUrlActionProps {
   campaignId: number
   filingUrl: string
-  onResolved: () => Promise<void> | void
+  // Omitted on surfaces that don't refetch after a save (the 10DLC status
+  // page, where the snapshot reload takes seconds) — the trigger then goes
+  // dead on success instead, so the stale pre-save URL can't be re-edited
+  // and resubmitted again from the same row.
+  onResolved?: () => Promise<void> | void
 }
 
 export function EditFilingUrlAction({
@@ -21,6 +25,7 @@ export function EditFilingUrlAction({
   const { showToast } = useToast()
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [draft, setDraft] = useState(filingUrl)
 
   const trimmed = draft.trim()
@@ -45,7 +50,8 @@ export function EditFilingUrlAction({
             : 'Filing link updated — the next sweep will resubmit'
       )
       setOpen(false)
-      await onResolved()
+      setSaved(true)
+      await onResolved?.()
     } catch (error) {
       Sentry.captureException(error)
       showToast(describeActionFailure(error, 'Failed to update filing link'))
@@ -67,10 +73,10 @@ export function EditFilingUrlAction({
         <Button
           variant="outline"
           size="1"
-          disabled={saving}
-          aria-label="Edit filing link"
+          disabled={saving || saved}
+          aria-label={saved ? 'Filing updated' : 'Edit filing link'}
         >
-          Edit
+          {saved ? 'Filing updated' : 'Edit'}
         </Button>
       </Dialog.Trigger>
       <Dialog.Content maxWidth="480px">
