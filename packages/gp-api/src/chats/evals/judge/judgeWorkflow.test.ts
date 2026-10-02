@@ -336,7 +336,7 @@ describe('judge.yml tells every judge process who asked', () => {
   })
 
   // The price and the guard state belong in the same comment: a reader
-  // approving ~$776 of sweep should be able to see whether two arms that hash
+  // approving ~$632 of sweep should be able to see whether two arms that hash
   // alike will be judged or refused.
   it('says in the plan comment which mode the request is in', () => {
     const estimate = steps.find(
