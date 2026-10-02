@@ -6,7 +6,8 @@
    "agreement": 0.8,
    "dashboard_wide_areas": 5,
    "min_attributed": 10,
-   "min_coverage": 0.5
+   "min_coverage": 0.5,
+   "min_users": 5
   },
   "traced": 338,
   "unmapped_prefixes": {
@@ -14,11 +15,11 @@
    "Onboarding V2": 27
   },
   "verdicts": {
-   "consistent": 131,
+   "consistent": 145,
    "dashboard_wide": 25,
    "flow": 75,
-   "moved": 24,
-   "moved_then_quiet": 12,
+   "moved": 11,
+   "moved_then_quiet": 11,
    "stale_area_name": 36,
    "unclear": 34,
    "unmapped": 32
@@ -63,7 +64,8 @@
     "coverage": 0.855,
     "fires": 1170,
     "impersonated": 0,
-    "on_reached": 294
+    "on_reached": 294,
+    "users": 296
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -105,7 +107,8 @@
     "coverage": 0.745,
     "fires": 47,
     "impersonated": 0,
-    "on_reached": 18
+    "on_reached": 18,
+    "users": 32
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -182,7 +185,8 @@
     "coverage": 0.858,
     "fires": 1193,
     "impersonated": 0,
-    "on_reached": 296
+    "on_reached": 296,
+    "users": 301
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -256,7 +260,8 @@
     "coverage": 0.8,
     "fires": 10,
     "impersonated": 9,
-    "on_reached": 8
+    "on_reached": 8,
+    "users": 3
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -295,7 +300,8 @@
     "coverage": 1.0,
     "fires": 10,
     "impersonated": 9,
-    "on_reached": 10
+    "on_reached": 10,
+    "users": 2
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -334,7 +340,8 @@
     "coverage": 0.94,
     "fires": 5442,
     "impersonated": 367,
-    "on_reached": 4898
+    "on_reached": 4898,
+    "users": 832
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -373,7 +380,8 @@
     "coverage": 0.984,
     "fires": 699,
     "impersonated": 26,
-    "on_reached": 684
+    "on_reached": 684,
+    "users": 209
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -412,7 +420,8 @@
     "coverage": 0.917,
     "fires": 12,
     "impersonated": 6,
-    "on_reached": 11
+    "on_reached": 11,
+    "users": 6
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -451,7 +460,8 @@
     "coverage": 0.722,
     "fires": 18,
     "impersonated": 10,
-    "on_reached": 13
+    "on_reached": 13,
+    "users": 6
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -490,7 +500,8 @@
     "coverage": 0.941,
     "fires": 607,
     "impersonated": 31,
-    "on_reached": 566
+    "on_reached": 566,
+    "users": 168
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -529,7 +540,8 @@
     "coverage": 0.944,
     "fires": 969,
     "impersonated": 75,
-    "on_reached": 911
+    "on_reached": 911,
+    "users": 216
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -568,7 +580,8 @@
     "coverage": 0.955,
     "fires": 880,
     "impersonated": 59,
-    "on_reached": 836
+    "on_reached": 836,
+    "users": 205
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -607,7 +620,8 @@
     "coverage": 0.953,
     "fires": 1117,
     "impersonated": 84,
-    "on_reached": 1058
+    "on_reached": 1058,
+    "users": 218
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -646,7 +660,8 @@
     "coverage": 0.948,
     "fires": 515,
     "impersonated": 24,
-    "on_reached": 482
+    "on_reached": 482,
+    "users": 161
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -685,7 +700,8 @@
     "coverage": 0.945,
     "fires": 603,
     "impersonated": 27,
-    "on_reached": 565
+    "on_reached": 565,
+    "users": 168
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -756,7 +772,8 @@
     "coverage": 0.851,
     "fires": 47,
     "impersonated": 0,
-    "on_reached": 39
+    "on_reached": 39,
+    "users": 24
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -795,7 +812,8 @@
     "coverage": 0.941,
     "fires": 135,
     "impersonated": 5,
-    "on_reached": 127
+    "on_reached": 127,
+    "users": 37
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -834,7 +852,8 @@
     "coverage": 0.902,
     "fires": 92,
     "impersonated": 3,
-    "on_reached": 83
+    "on_reached": 83,
+    "users": 39
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -873,7 +892,8 @@
     "coverage": 0.942,
     "fires": 1508,
     "impersonated": 96,
-    "on_reached": 1399
+    "on_reached": 1399,
+    "users": 246
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -912,7 +932,8 @@
     "coverage": 0.969,
     "fires": 191,
     "impersonated": 12,
-    "on_reached": 175
+    "on_reached": 175,
+    "users": 65
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -951,7 +972,8 @@
     "coverage": 0.944,
     "fires": 2810,
     "impersonated": 91,
-    "on_reached": 2522
+    "on_reached": 2522,
+    "users": 592
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -990,7 +1012,8 @@
     "coverage": 0.907,
     "fires": 2858,
     "impersonated": 89,
-    "on_reached": 1541
+    "on_reached": 1541,
+    "users": 604
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1029,7 +1052,8 @@
     "coverage": 0.943,
     "fires": 2810,
     "impersonated": 91,
-    "on_reached": 2511
+    "on_reached": 2511,
+    "users": 592
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1100,7 +1124,8 @@
     "coverage": 0.947,
     "fires": 2624,
     "impersonated": 87,
-    "on_reached": 2397
+    "on_reached": 2397,
+    "users": 533
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1139,7 +1164,8 @@
     "coverage": 0.909,
     "fires": 2858,
     "impersonated": 89,
-    "on_reached": 1621
+    "on_reached": 1621,
+    "users": 604
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1178,7 +1204,8 @@
     "coverage": 0.944,
     "fires": 2624,
     "impersonated": 87,
-    "on_reached": 2377
+    "on_reached": 2377,
+    "users": 533
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1217,7 +1244,8 @@
     "coverage": 0.915,
     "fires": 71,
     "impersonated": 0,
-    "on_reached": 64
+    "on_reached": 64,
+    "users": 12
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1256,7 +1284,8 @@
     "coverage": 0.981,
     "fires": 257,
     "impersonated": 15,
-    "on_reached": 246
+    "on_reached": 246,
+    "users": 155
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1295,7 +1324,8 @@
     "coverage": 0.958,
     "fires": 96,
     "impersonated": 17,
-    "on_reached": 85
+    "on_reached": 85,
+    "users": 52
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1334,7 +1364,8 @@
     "coverage": 0.944,
     "fires": 1473,
     "impersonated": 234,
-    "on_reached": 1285
+    "on_reached": 1285,
+    "users": 137
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1376,7 +1407,8 @@
     "coverage": 0.856,
     "fires": 104,
     "impersonated": 0,
-    "on_reached": 75
+    "on_reached": 75,
+    "users": 55
    },
    "source": "detector",
    "verdict": "moved"
@@ -1447,7 +1479,8 @@
     "coverage": 0.985,
     "fires": 68,
     "impersonated": 15,
-    "on_reached": 61
+    "on_reached": 61,
+    "users": 37
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1486,7 +1519,8 @@
     "coverage": 0.971,
     "fires": 240,
     "impersonated": 23,
-    "on_reached": 212
+    "on_reached": 212,
+    "users": 63
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1563,7 +1597,8 @@
     "coverage": 0.5,
     "fires": 2,
     "impersonated": 0,
-    "on_reached": 1
+    "on_reached": 1,
+    "users": 2
    },
    "source": "detector",
    "verdict": "moved"
@@ -1602,7 +1637,8 @@
     "coverage": 0.408,
     "fires": 206,
     "impersonated": 0,
-    "on_reached": 82
+    "on_reached": 82,
+    "users": 29
    },
    "source": "detector",
    "verdict": "moved"
@@ -1743,7 +1779,8 @@
     "coverage": 1.0,
     "fires": 1,
     "impersonated": 0,
-    "on_reached": 1
+    "on_reached": 1,
+    "users": 1
    },
    "source": "detector",
    "verdict": "moved_then_quiet"
@@ -1785,7 +1822,8 @@
     "coverage": 0.952,
     "fires": 21,
     "impersonated": 0,
-    "on_reached": 16
+    "on_reached": 16,
+    "users": 15
    },
    "source": "detector",
    "verdict": "moved"
@@ -1827,7 +1865,8 @@
     "coverage": 0.0,
     "fires": 1,
     "impersonated": 0,
-    "on_reached": 0
+    "on_reached": 0,
+    "users": 1
    },
    "source": "detector",
    "verdict": "moved_then_quiet"
@@ -1869,7 +1908,8 @@
     "coverage": 0.981,
     "fires": 268,
     "impersonated": 0,
-    "on_reached": 229
+    "on_reached": 229,
+    "users": 31
    },
    "source": "detector",
    "verdict": "moved"
@@ -1908,7 +1948,8 @@
     "coverage": 1.0,
     "fires": 1,
     "impersonated": 0,
-    "on_reached": 1
+    "on_reached": 1,
+    "users": 1
    },
    "source": "detector",
    "verdict": "moved_then_quiet"
@@ -1979,7 +2020,8 @@
     "coverage": 0.937,
     "fires": 63,
     "impersonated": 0,
-    "on_reached": 42
+    "on_reached": 42,
+    "users": 28
    },
    "source": "detector",
    "verdict": "moved"
@@ -2050,7 +2092,8 @@
     "coverage": 1.0,
     "fires": 14,
     "impersonated": 0,
-    "on_reached": 0
+    "on_reached": 0,
+    "users": 2
    },
    "source": "detector",
    "verdict": "moved"
@@ -2089,7 +2132,8 @@
     "coverage": 0.939,
     "fires": 33,
     "impersonated": 0,
-    "on_reached": 28
+    "on_reached": 28,
+    "users": 33
    },
    "source": "detector",
    "verdict": "moved"
@@ -2128,7 +2172,8 @@
     "coverage": 0.939,
     "fires": 49,
     "impersonated": 0,
-    "on_reached": 32
+    "on_reached": 32,
+    "users": 17
    },
    "source": "detector",
    "verdict": "moved"
@@ -2167,7 +2212,8 @@
     "coverage": 0.929,
     "fires": 14,
     "impersonated": 0,
-    "on_reached": 0
+    "on_reached": 0,
+    "users": 2
    },
    "source": "detector",
    "verdict": "moved"
@@ -2204,545 +2250,6 @@
    "source": "detector",
    "verdict": "moved_then_quiet"
   },
-  "Serve Onboarding - BR Suggestion Changed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - BR Suggestion Changed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - BR Suggestion Changed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.5,
-    "attributed": 2,
-    "coverage": 1.0,
-    "fires": 2,
-    "impersonated": 1,
-    "on_reached": 1
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Confirm Viewed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Confirm Viewed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Confirm Viewed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.909,
-    "attributed": 11,
-    "coverage": 0.917,
-    "fires": 12,
-    "impersonated": 1,
-    "on_reached": 10
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Know Your Constituents Completed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Know Your Constituents Completed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Know Your Constituents Completed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.846,
-    "attributed": 13,
-    "coverage": 0.867,
-    "fires": 15,
-    "impersonated": 1,
-    "on_reached": 11
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Know Your Constituents Viewed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Know Your Constituents Viewed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Know Your Constituents Viewed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.933,
-    "attributed": 15,
-    "coverage": 0.882,
-    "fires": 17,
-    "impersonated": 1,
-    "on_reached": 14
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Net New Completed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Net New Completed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Net New Completed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.846,
-    "attributed": 13,
-    "coverage": 0.867,
-    "fires": 15,
-    "impersonated": 1,
-    "on_reached": 11
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Office Completed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Office Completed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Office Completed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 1.0,
-    "attributed": 9,
-    "coverage": 1.0,
-    "fires": 9,
-    "impersonated": 0,
-    "on_reached": 9
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Office Status Viewed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Office Status Viewed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Office Status Viewed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.952,
-    "attributed": 21,
-    "coverage": 0.875,
-    "fires": 24,
-    "impersonated": 1,
-    "on_reached": 20
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Office Viewed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Office Viewed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Office Viewed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 1.0,
-    "attributed": 11,
-    "coverage": 1.0,
-    "fires": 11,
-    "impersonated": 0,
-    "on_reached": 11
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Party Designation Blocked": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Party Designation Blocked",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Party Designation Blocked",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": null,
-   "source": "detector",
-   "verdict": "moved_then_quiet"
-  },
-  "Serve Onboarding - Party Designation Viewed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Party Designation Viewed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Party Designation Viewed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.941,
-    "attributed": 17,
-    "coverage": 0.944,
-    "fires": 18,
-    "impersonated": 1,
-    "on_reached": 16
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Pledge Completed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Pledge Completed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Pledge Completed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.846,
-    "attributed": 13,
-    "coverage": 0.867,
-    "fires": 15,
-    "impersonated": 1,
-    "on_reached": 11
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Pledge Viewed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Pledge Viewed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Pledge Viewed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.846,
-    "attributed": 13,
-    "coverage": 0.867,
-    "fires": 15,
-    "impersonated": 1,
-    "on_reached": 11
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Term Dates Viewed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Term Dates Viewed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Term Dates Viewed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.8,
-    "attributed": 15,
-    "coverage": 1.0,
-    "fires": 15,
-    "impersonated": 1,
-    "on_reached": 12
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
-  "Serve Onboarding - Welcome Viewed": {
-   "applied_date": "",
-   "area_keys": [
-    "/serve/onboarding"
-   ],
-   "areas": [
-    "onboarding"
-   ],
-   "claimed": "Serve Onboarding",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Serve Onboarding - Welcome Viewed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-02",
-   "live_routes": [
-    "/serve/onboarding"
-   ],
-   "okr": false,
-   "proposed_display_name": "onboarding - Welcome Viewed",
-   "proposed_fires_on": "onboarding (/serve/onboarding)",
-   "proposed_surface": "onboarding",
-   "proposed_url": "/serve/onboarding",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 1.0,
-    "attributed": 40,
-    "coverage": 0.8,
-    "fires": 50,
-    "impersonated": 4,
-    "on_reached": 40
-   },
-   "source": "detector",
-   "verdict": "moved"
-  },
   "Settings - Personal Info: Click Upload": {
    "applied_date": "",
    "area_keys": [
@@ -2777,7 +2284,8 @@
     "coverage": 0.979,
     "fires": 96,
     "impersonated": 0,
-    "on_reached": 92
+    "on_reached": 92,
+    "users": 73
    },
    "source": "detector",
    "verdict": "moved"
