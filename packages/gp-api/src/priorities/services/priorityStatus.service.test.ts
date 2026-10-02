@@ -688,8 +688,8 @@ describe('update_priority_status only lets constituents answer a check', () => {
     }
     return tool
   }
-  const offerDefine = (id: string) =>
-    toolAt(id, true, formatISO(new Date())).execute({
+  const offerDefine = (id: string, startedAt = formatISO(new Date())) =>
+    toolAt(id, true, startedAt).execute({
       steps: [
         {
           id: 'define',
@@ -746,9 +746,12 @@ describe('update_priority_status only lets constituents answer a check', () => {
 
   it('refuses confirmed in the turn the check was offered', async () => {
     const id = await createPriority()
-    await offerDefine(id)
+    // One turn: formatISO is second-precision, so two clock reads can land
+    // in different seconds and read as two turns.
+    const startedAt = formatISO(new Date())
+    await offerDefine(id, startedAt)
 
-    const result = await toolAt(id, true, formatISO(new Date())).execute({
+    const result = await toolAt(id, true, startedAt).execute({
       steps: [
         {
           id: 'define',
