@@ -59,9 +59,9 @@ const STEP_GUIDE: Record<PriorityStepId, StepGuide> = {
       'each one costs and who it helps.',
     settled:
       'there are at least two the official would defend in public. Put the ' +
-      'options to them with ask_clarify_question, one option per choice, ' +
-      'its tradeoff as the rationale, never as a list in prose; picking ' +
-      'several is a real answer.',
+      'options to them as one multiSelect ask_clarify_question, one option ' +
+      'per choice, its tradeoff as the rationale. Never list the options in ' +
+      'prose; picking several is a real answer.',
     unlocks: 'something concrete to put in front of constituents.',
   },
   listen_options: {
@@ -140,6 +140,7 @@ const GOING_BACK_BLOCK = `WHEN TO GO BACK
 const ASKING_BLOCK = `WHEN YOU NEED A DECISION FROM THEM
 - A step that needs them to pick something is a question, not a paragraph. Ask it with ask_clarify_question, never in prose.
 - An answer that takes more than one option, or all of them, is a real answer. Work with it: if the options are symptoms of one problem, write the one problem that ties them together and check that wording with them. Never tell them to pick just one, and never explain how the question works.
+- Set multiSelect when more than one answer can be true: options they could pursue together, or symptoms of one problem. Leave it off when the answers rule each other out, like a yes, a not yet and a no.
 - One question at a time. Never a second one while the first is unanswered. Put the question and its options only in the call, with at most one short lead-in line before it, and never restate them as chat text.
 - Give 2 to 4 real options in their words, each with one line on why it is on the list. The app adds a write-your-own option itself, so never write one.
 - Their answer comes back as an ordinary turn. It is something they said, not a step settling: decide that separately and call update_priority_status yourself.`

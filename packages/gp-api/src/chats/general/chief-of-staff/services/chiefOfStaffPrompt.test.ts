@@ -181,6 +181,19 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).not.toContain('CHECKS THEY PUT OFF')
   })
 
+  it('says when a clarify question takes several answers', () => {
+    const withClarify = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [...TOOLS, 'ask_clarify_question'],
+    })
+    expect(withClarify).toContain(
+      'Set `multiSelect` on `ask_clarify_question` when more than one answer can be true',
+    )
+    expect(
+      buildChiefOfStaffSystemPrompt({ ctx: baseCtx(), toolNames: TOOLS }),
+    ).not.toContain('multiSelect')
+  })
+
   it('checks in on a put-off check only with the reminder tool', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx({ priorities: [priorityInFlow] }),

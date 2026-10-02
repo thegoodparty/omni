@@ -3,19 +3,15 @@ import type { JsonValue } from './record'
 
 // Placeholder substitution for a background case's params.
 //
-// A background agent's `input_schema` names identifiers that only exist once
-// a dev organization exists: `organization_slug`, `race_id`, `user_email`.
-// Those cannot be written into a case list, because the mechanism that
-// produces such an organization — POST /v1/test-fixtures/users — is swept by
-// `UsersService.deleteTestUsers` after about 24 hours. A hardcoded slug is
-// therefore correct for one day and then dispatches every later sweep against
-// an organization that no longer exists, which arrives as an agent failure
-// rather than as a stale fixture.
+// A background agent's `input_schema` names three identifiers a case list
+// cannot carry: `organization_slug`, `race_id`, `user_email`. The slug is
+// derived from the sweep, the race id is read live from BallotReady's data,
+// and a public case list should carry no address.
 //
-// So a case list carries a token and a sweep carries the value. The fixture is
-// minted once per sweep (see sweepFixture.ts), its identifiers are threaded to
-// both arms through the environment exactly as JUDGE_DATA_VERSION is, and the
-// tokens are replaced here, at dispatch time.
+// So a case list carries a token and a sweep carries the value. The values
+// are resolved once per sweep (see judgeIdentifiers.ts), threaded to both arms
+// through the environment exactly as JUDGE_DATA_VERSION is, and the tokens
+// are replaced here, at dispatch time.
 
 // Named one by one rather than matched by pattern, because this list is the
 // vocabulary: a token nobody declared here must be a typo, and the guard below
@@ -34,20 +30,19 @@ export const JUDGE_PLACEHOLDERS: Record<PlaceholderName, string> = {
 }
 
 // Which environment variable supplies which token. Part of the vocabulary
-// rather than of the fixture, because both ends of the thread name it: the
-// plan step that mints a fixture builds the export from it (`fixtureEnv` in
-// sweepFixture.ts), and `ArmEnvSchema` declares the same keys from it
-// (sweepEnv.ts), which is what makes an arm unable to read a variable nobody
-// exports.
+// rather than of the values, because both ends of the thread name it: the
+// export is built from it (`fixtureEnv` in sweepFixture.ts), and
+// `ArmEnvSchema` declares the same keys from it (sweepEnv.ts), which is what
+// makes an arm unable to read a variable nobody exports.
 export const JUDGE_FIXTURE_ENV_NAMES = {
   orgSlug: 'JUDGE_FIXTURE_ORG_SLUG',
   raceId: 'JUDGE_FIXTURE_RACE_ID',
   userEmail: 'JUDGE_FIXTURE_USER_EMAIL',
 } as const satisfies Record<PlaceholderName, string>
 
-// Partial: a sweep that needs only an org slug has no reason to mint a race,
-// and a value that is absent must fail at the guard naming what is missing
-// rather than be substituted with something invented here.
+// Partial: a sweep that could not resolve a race still has its org slug, and
+// a value that is absent must fail at the guard naming what is missing rather
+// than be substituted with something invented here.
 export type PlaceholderValues = Partial<Record<PlaceholderName, string>>
 
 // Every `{judge…}` token, declared or not. Substitution only ever touches the
@@ -173,9 +168,9 @@ const advise = (found: readonly Finding[]): string => {
   return unknown.length > 0
     ? `${[...new Set(unknown)].join(', ')} is not a placeholder this build ` +
         `knows; the vocabulary is ${Object.values(JUDGE_PLACEHOLDERS).join(', ')}`
-    : 'the sweep was not given a value for it — the fixture identifiers ' +
-        'reach an arm through the environment, so check that the plan step ' +
-        'minted a fixture and exported it'
+    : 'the sweep was not given a value for it — the identifiers reach an ' +
+        "arm through the environment, so check the 'Resolve the background " +
+        "agents' identifiers' step"
 }
 
 // The pre-dispatch guard, and NOTHING DOWNSTREAM OF IT WOULD CATCH THIS.
@@ -209,6 +204,36 @@ export const assertNoPlaceholders = (
       `${describe(found)}. ${advise(found)}`,
   )
 }
+
+// The known placeholders a list uses that the sweep has no value for, so a
+// refusal for that reason can be told from a broken list. A list that is
+// broken anyway names none, so nothing excuses it: a token outside the
+// vocabulary, or any token in a KEY, which substitution never rewrites.
+export const missingValues = (
+  cases: readonly Pick<BackgroundCase, 'params'>[],
+  values: PlaceholderValues,
+): PlaceholderName[] => {
+  const all: Finding[] = []
+  for (const one of cases) findPlaceholders(one.params, '', all)
+  const inValues = cases.flatMap((one) => tokensInValues(one.params))
+  const known = new Set<string>(Object.values(JUDGE_PLACEHOLDERS))
+  const broken =
+    all.length > inValues.length || inValues.some((token) => !known.has(token))
+  if (broken) return []
+  const used = new Set(inValues)
+  return PLACEHOLDER_NAMES.filter(
+    (name) => used.has(JUDGE_PLACEHOLDERS[name]) && values[name] === undefined,
+  )
+}
+
+const tokensInValues = (value: JsonValue): string[] =>
+  typeof value === 'string'
+    ? tokensIn(value)
+    : Array.isArray(value)
+      ? value.flatMap(tokensInValues)
+      : value !== null && typeof value === 'object'
+        ? Object.values(value).flatMap(tokensInValues)
+        : []
 
 // The loader's own shape, narrowed to the two fields substitution touches, so
 // this is not a third declaration of "a background case". `Pick` rather than
