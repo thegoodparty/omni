@@ -194,6 +194,49 @@ describe('ciContextFromEnv', () => {
     expect(ci?.prNumber).toBe(2371)
   })
 
+  // Ahead of the pull ref too: the number judge.yml passes is the one the
+  // sweep was asked about.
+  it('prefers JUDGE_PR_NUMBER to a pull ref', () => {
+    const ci = ciContextFromEnv(
+      env({
+        GITHUB_REPOSITORY: 'thegoodparty/omni',
+        GITHUB_RUN_ID: '1',
+        GITHUB_REF: 'refs/pull/9/merge',
+        JUDGE_PR_NUMBER: '2371',
+      }),
+    )
+    expect(ci?.prNumber).toBe(2371)
+  })
+
+  // An empty one is not a number, so the pull ref still decides.
+  it('falls through an empty JUDGE_PR_NUMBER to the pull ref', () => {
+    const ci = ciContextFromEnv(
+      env({
+        GITHUB_REPOSITORY: 'thegoodparty/omni',
+        GITHUB_RUN_ID: '1',
+        GITHUB_REF: 'refs/pull/9/merge',
+        JUDGE_PR_NUMBER: '',
+      }),
+    )
+    expect(ci?.prNumber).toBe(9)
+  })
+
+  // The repo is rendered into links on a public summary, so a record that
+  // carries markdown in it is refused rather than rendered.
+  it.each(['thegoodparty/omni) [x](https://evil.example', 'omni', 'a/b/c'])(
+    'refuses a record whose repo is %j',
+    (repo) => {
+      expect(
+        CiContextSchema.safeParse({
+          repo,
+          workflowRunId: '1',
+          workflowRunAttempt: 1,
+          workflowRunUrl: 'https://github.com/x/y/actions/runs/1',
+        }).success,
+      ).toBe(false)
+    },
+  )
+
   it('carries no PR number for a sweep dispatched without one', () => {
     const ci = ciContextFromEnv(
       env({

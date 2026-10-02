@@ -125,7 +125,9 @@ export type Telemetry = z.infer<typeof TelemetrySchema>
 // the agent run above, and naming them alike is how someone ends up looking
 // up the wrong thing. Absent on a local run, which has no CI to point at.
 export const CiContextSchema = z.object({
-  repo: z.string().min(1),
+  // owner/name and nothing else. The report renders it into links on a public
+  // summary, so a record cannot carry markdown in it.
+  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
   // A sweep can be dispatched without a PR, so this is optional.
   prNumber: z.number().int().positive().optional(),
   workflowRunId: z.string().min(1),
