@@ -512,7 +512,7 @@ const storyBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.story) return null
   if (ctx.story.complete) {
     return [
-      'The candidate has finished their Campaign Story. Do not re-run the intake unless they ask to change an answer, in which case save it (campaign_story save) and offer to regenerate their plan (campaign_story generate).',
+      'The candidate has finished their Campaign Story. Do not re-run the intake unless they ask to change an answer. When they do, save it (campaign_story save) and tell them you are updating their Campaign Plan to match — saving is what starts that, so do not ask whether to regenerate and do not call campaign_story generate for an edit.',
       GENERATE_STATUS_GUIDANCE,
     ].join('\n\n')
   }
