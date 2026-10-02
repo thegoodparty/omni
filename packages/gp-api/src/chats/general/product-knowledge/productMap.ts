@@ -162,6 +162,7 @@ const WIN_AREAS: ProductArea[] = [
       'Click that row to reopen the flow and pick up where you left off, or delete it from there',
       'One saved text and one saved robocall at a time, kept for 90 days',
       'SMS and Robocall take a promo code on their payment step, in a Promo Code box above the card details. A code that covers the whole cost schedules the send with no card',
+      'Phone banking and Door knocking offer Hear from voters as a goal. The flow asks what question to put to people, and the call script or door card is written to ask it',
     ],
   },
   {
@@ -178,6 +179,7 @@ const WIN_AREAS: ProductArea[] = [
       'Recommended voter lists sit above the saved lists: ready-made audiences (voters who have not heard from you, persuadable independent-leaning voters, your supporters to invite or turn out) with a Details view and a Send outreach button, no saving needed',
       'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',
       'Opening a list shows its filter summary and outreach history, never a table of individual voters',
+      'A voter’s record can carry What they told us: what they said at the door or on the phone, the issue, where they stand, what they want, and any accepted tags. It is being rolled out account by account',
     ],
     gate: 'Filtering the voter file needs the Pro upgrade, and so does seeing which precincts it covers. Without Pro the page still shows district aggregates and a blurred preview.',
   },
@@ -384,6 +386,22 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'Creating a campaign ends at drawing the turfs. The walking route is planned the first time somebody starts knocking a turf, which is also when they are asked whether they are walking or driving',
       'Each turf can be handed to a different person, from its card in the campaign’s row in outreach history',
     ],
+  },
+  {
+    navId: null,
+    name: 'What we heard',
+    path: '/dashboard/issue-capture/[outreachId]',
+    modes: ['win', 'serve'],
+    does: 'Read what people said on one door knocking turf or phone banking list, grouped into themes ranked by how many conversations raised them.',
+    inside: [
+      'Reached from What we heard on a turf’s card in its campaign’s row in outreach history, and at the top of a phone banking call list. It appears once somebody has answered',
+      'The line under the title counts who answered, who left a note, and how many notes are confirmed. Only confirmed notes count toward a theme',
+      'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
+      'Summarize what we heard groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
+      'Each theme opens to its details, where people stand, what they want, and the notes behind it',
+      'New tags to review: Accept puts a suggested tag on people’s records, Dismiss drops it',
+    ],
+    gate: 'Being rolled out account by account, so not every account has it yet.',
   },
 ]
 

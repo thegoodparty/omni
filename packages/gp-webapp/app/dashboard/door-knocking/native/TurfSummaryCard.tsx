@@ -42,6 +42,10 @@ type Props = {
   // keeps its figures and loses the footer, instead of offering a dead
   // control.
   footer: ReactNode
+  // Under the figures: what the people on this turf said, as the link into
+  // its report. Required for the reason `trailing` is, and `null` again
+  // says "nothing".
+  heard: ReactNode
 }
 
 // What a turf is worth, in the one wording every surface that lists turfs
@@ -85,6 +89,7 @@ export const TurfSummaryCard = ({
   muted = false,
   trailing,
   footer,
+  heard,
 }: Props) => {
   const progress =
     turf.peopleCount > 0 ? (turf.loggedCount / turf.peopleCount) * 100 : 0
@@ -127,6 +132,7 @@ export const TurfSummaryCard = ({
             {turfPercentLabel(turf.loggedCount, turf.peopleCount)}
           </span>
         </div>
+        {heard}
       </div>
       {footer && (
         <div className="flex flex-row items-center justify-between gap-3 border-t bg-primary/5 px-3 py-2.5">

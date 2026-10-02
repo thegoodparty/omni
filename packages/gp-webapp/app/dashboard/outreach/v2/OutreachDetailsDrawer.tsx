@@ -583,9 +583,13 @@ export const OutreachDetailsDrawer = ({
   // Null until the detail lands: the list id rides the detail, so a link
   // built without it could only go to the bare rail. Holding the slot
   // disabled for a moment beats a press that silently lands somewhere else.
+  //
+  // It carries the row's id as `?outreachId=` because the caller page reads
+  // its list, and a list does not know its envelope: that id is how the
+  // page links to what people said on this list.
   const continueHref =
-    isPhoneBanking && phoneBanking
-      ? `/dashboard/outreach/phone-banking/${phoneBanking.listId}`
+    isPhoneBanking && phoneBanking && row
+      ? `/dashboard/outreach/phone-banking/${phoneBanking.listId}?outreachId=${row.id}`
       : null
 
   // The SMS lifecycle actions this branch added have no mode in the canvas's
