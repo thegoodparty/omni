@@ -1099,6 +1099,47 @@ describe('<PersonOverlay>', () => {
       expect(screen.getByText('Road bond')).toBeInTheDocument()
     })
 
+    it('lists the tags a memo carries', async () => {
+      mockedUseFlagOn.mockImplementation((key) => ({
+        ready: true,
+        on: key === 'win-issue-capture',
+      }))
+      api.mock('GET /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          feedback: [
+            {
+              id: 'feedback-1',
+              personId: 'p_1',
+              occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+              channel: 'door_knock',
+              transcript: 'She wants the bond spent on the roads.',
+              issueLabel: 'Road bond',
+              stance: 'supports',
+              desiredOutcome: 'Spend it on the roads',
+              extractionStatus: 'extracted',
+              confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+              outreachId: 7,
+              actorName: 'Kamal Al Sawafi',
+              tags: [
+                { id: 'tag-1', name: 'Road repair', status: 'accepted' },
+                { id: 'tag-2', name: 'Taxes', status: 'accepted' },
+              ],
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      const tags = await screen.findByRole('list', { name: 'Tags' })
+      expect(
+        within(tags)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Road repair', 'Taxes'])
+    })
+
     it('shows nothing when win-issue-capture is off', async () => {
       mockedUseFlagOn.mockImplementation((key) => ({
         ready: true,
