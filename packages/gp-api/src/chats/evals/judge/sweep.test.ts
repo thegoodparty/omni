@@ -527,7 +527,21 @@ describe('judgeSweep', () => {
           },
         ],
       }),
-      manifest('candidate'),
+      // Both arms, because the store holds two cases and the two arms of a
+      // real sweep always walk the same ones — judgeSweep refuses a pair of
+      // manifests that disagree, which is the whole point of that check.
+      manifest('candidate', {
+        agents: [
+          {
+            agentId: 'chief_of_staff',
+            caseList: 'chief_of_staff.json',
+            placeholderCases: false,
+            cases: 2,
+            attempts: 1,
+            recordsWritten: 2,
+          },
+        ],
+      }),
     ])
     const result = await run(store)
     expect(result.report.placeholderCases).toEqual(['chief_of_staff'])
@@ -554,7 +568,20 @@ describe('judgeSweep', () => {
         ],
       }),
       // The candidate arm says nothing, which is what an older ref writes.
-      manifest('candidate'),
+      // Both arms: the store holds two cases, and judgeSweep refuses two
+      // manifests that disagree about how many each arm walked.
+      manifest('candidate', {
+        agents: [
+          {
+            agentId: 'chief_of_staff',
+            caseList: 'chief_of_staff.json',
+            placeholderCases: false,
+            cases: 2,
+            attempts: 1,
+            recordsWritten: 2,
+          },
+        ],
+      }),
     ])
     const result = await run(store)
     expect(result.report.seededTranscripts).toEqual([

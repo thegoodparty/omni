@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { AgentEntry } from '../agents'
+import type { JudgeConfig } from '../config'
 import type { PlaceholderValues } from '../caseParams'
 import { substituteBackgroundCases } from '../caseParams'
 import type { CaseList } from '../cases'
@@ -138,6 +139,15 @@ export const caseLoaderFor =
     load: typeof loadCaseList = loadCaseList,
     loadBackground: typeof loadBackgroundCases = loadBackgroundCases,
     loadConfig: (agentId: string) => AgentConfig = agentConfigFor,
+    // SPENT DOWN ACROSS AGENTS, not re-offered to each one. captureArm walks
+    // agents sequentially inside a single job, so a per-agent check against
+    // the whole budget says yes to four agents that each fit and together
+    // take three times the arm. The arm is then killed mid-walk, and because
+    // putManifest runs after the loop, no manifest is written and judging
+    // dies on a missing arm — the exact outcome this refusal exists to avoid.
+    //
+    // Harmless while nothing fit; the budget is what made it reachable.
+    remaining = { ms: budgetMs },
   ) =>
   (agent: AgentEntry): CaseList => {
     const list = load(agent)
@@ -149,25 +159,58 @@ export const caseLoaderFor =
     // the file. Taking the FIRST n rather than a sample: the two arms must
     // walk the same cases or there is nothing to pair, and `maxCases` is read
     // from one config by both.
+    if (maxCases !== undefined && maxCases < 1) {
+      throw new Error(
+        `the background case cap is ${maxCases}, which is not a number of ` +
+          'cases a sweep can walk: 0 judges nothing while reporting a clean ' +
+          'arm, and a negative one is read by slice as "all but the last" — ' +
+          'nearly the whole list, which is the opposite of a cap',
+      )
+    }
     const all = loadBackground(agent)
     const cases = substituteBackgroundCases(
       maxCases === undefined ? all : all.slice(0, maxCases),
       values,
     )
     const config = loadConfig(agent.agentId)
+    const cost = armWallClockMs(cases.length, attemptsPerCase, config)
     refuseIfOverBudget(
       agent.agentId,
       cases.length,
       attemptsPerCase,
       config,
+      remaining.ms,
       budgetMs,
     )
+    remaining.ms -= cost
     // Reached here rather than at the dispatch, where a manifest naming no
     // model would arrive as a skip on case 1 with every agent walked before
     // it already billed.
     modelOf(config)
     return { ...list, cases }
   }
+
+// WHAT THE ARM ACTUALLY CALLS, so that CI executes the wiring rather than
+// only the helper.
+//
+// `sweep.eval.test.ts` is `describe.skipIf(!sweepRequested)` — dead text in
+// CI — so while it built these arguments inline, reverting them to the chat
+// budget left the whole suite green. That is the same gap that let a swapped
+// bucket and a hardcoded agent id through twice before.
+//
+// Takes the config rather than the two numbers, so there is one place that
+// knows the background budget comes from `config.background`.
+export const armCaseLoader = (
+  values: PlaceholderValues,
+  budgetMs: number,
+  config: JudgeConfig,
+): ((agent: AgentEntry) => CaseList) =>
+  caseLoaderFor(
+    values,
+    budgetMs,
+    config.background.attemptsPerCase,
+    config.background.maxCases,
+  )
 
 // PER AGENT, AND THROWN FROM INSIDE THE LOADER ON PURPOSE.
 //
@@ -206,17 +249,22 @@ const refuseIfOverBudget = (
   caseCount: number,
   attemptsPerCase: number,
   config: AgentConfig,
+  remainingMs: number,
   budgetMs: number,
 ): void => {
   const ms = armWallClockMs(caseCount, attemptsPerCase, config)
-  if (ms <= budgetMs) return
+  if (ms <= remainingMs) return
   const minutes = (value: number): number => Math.ceil(value / 60_000)
+  const spent = minutes(budgetMs - remainingMs)
   throw new Error(
-    `${agentId} would take ${minutes(ms)} minutes of wall clock on this ` +
-      `arm (${caseCount} cases x ${attemptsPerCase} attempts, each waiting ` +
-      `out the agent's declared timeout), against a budget of ` +
-      `${minutes(budgetMs)}. Cases run one after another, so the arm would ` +
-      'be cut off partway with its records orphaned. Background needs its ' +
-      'own case and attempt budget before it can sweep.',
+    `${agentId} would take ${minutes(ms)} minutes of wall clock ` +
+      `(${caseCount} cases x ${attemptsPerCase} attempts, each waiting out ` +
+      `the agent's declared timeout), and this arm has ` +
+      `${minutes(remainingMs)} of its ${minutes(budgetMs)} left` +
+      (spent > 0 ? ` after ${spent} already committed to earlier agents` : '') +
+      '. Cases run one after another, so the arm would be cut off partway ' +
+      'with its records orphaned and no manifest written. Background already ' +
+      'has its own reduced budget and this does not fit inside it: select ' +
+      'fewer agents, or lower config.background.',
   )
 }

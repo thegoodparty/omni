@@ -16,8 +16,8 @@ import {
 import type { BackgroundRunnerDeps } from './runners/background'
 import { runBackgroundCase } from './runners/background'
 import {
+  armCaseLoader,
   backgroundRunInputFor,
-  caseLoaderFor,
 } from './runners/backgroundDispatch'
 import { findAgent } from './agents'
 import { DEFAULT_JUDGE_CONFIG } from './config'
@@ -116,11 +116,10 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
         {
           store,
           now: () => new Date(),
-          loadCases: caseLoaderFor(
+          loadCases: armCaseLoader(
             env.fixtureValues,
             ARM_TIMEOUT_MS,
-            DEFAULT_JUDGE_CONFIG.background.attemptsPerCase,
-            DEFAULT_JUDGE_CONFIG.background.maxCases,
+            DEFAULT_JUDGE_CONFIG,
           ),
           runCase: async (request) => {
             // THE ONE PLACE THE TWO RUNNERS DIVERGE. `captureArm` walks cases

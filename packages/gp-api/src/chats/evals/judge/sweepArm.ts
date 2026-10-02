@@ -218,6 +218,7 @@ const captureAgent = async (
     placeholderCases: list.placeholder,
     ...(seeded.length > 0 && { seededTranscriptCases: seeded }),
     cases: list.cases.length,
+    caseIds: list.cases.map((one) => one.caseId),
     attempts: attemptsPerCase,
     recordsWritten: progress.recordsWritten,
   }

@@ -260,11 +260,38 @@ describe('captureArm', () => {
         caseList: 'chief_of_staff.json',
         placeholderCases: false,
         cases: 3,
+        // WHICH cases, so judging can refuse two arms that walked different
+        // ones. A count alone reads 3 against 3 while the two threes differ,
+        // and every pair goes unmatched after both arms were billed.
+        caseIds: ['case-0', 'case-1', 'case-2'],
         attempts: 2,
         recordsWritten: 6,
       },
     ])
     expect(await d.store.listRecords('swp_1', 'candidate')).toHaveLength(6)
+  })
+
+  // THE SHAPE DECIDES THE ATTEMPTS, and this is the only test that can see
+  // it. Every other captureArm test runs on a config whose two attempt
+  // numbers are equal, so reverting captureArm to the chat number left the
+  // whole suite green — the manifest's `attempts` would then claim 3 for an
+  // agent walked once, which is only noticed beside a bill.
+  it('gives each shape its own attempt count, and records which', async () => {
+    const d = await deps({
+      runCase: echoRunner([]),
+      loadCases: () => caseList(1),
+      config: DEFAULT_JUDGE_CONFIG,
+    })
+    const manifest = await captureArm(
+      d,
+      env({ agentIds: ['chief_of_staff', 'meeting_briefing'] }),
+      [COS, BACKGROUND],
+    )
+    expect(JSON.stringify(manifest.skipped)).toBe('[]')
+    expect(manifest.agents.map((a) => [a.agentId, a.attempts])).toEqual([
+      ['chief_of_staff', DEFAULT_JUDGE_CONFIG.attemptsPerCase],
+      ['meeting_briefing', DEFAULT_JUDGE_CONFIG.background.attemptsPerCase],
+    ])
   })
 
   it('stamps the capture window the arm gap is measured from', async () => {

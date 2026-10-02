@@ -159,6 +159,18 @@ export const ArmAgentSchema = z.object({
   cases: z.number().int().nonnegative(),
   attempts: z.number().int().positive(),
   recordsWritten: z.number().int().nonnegative(),
+  // WHICH cases, not just how many. The two arms are separate processes in
+  // separate checkouts at different refs, and cases pair by id — so a branch
+  // that inserts or reorders a case in a list silently changes which ones the
+  // candidate walks. A count alone cannot see that: base and candidate both
+  // say 3 while walking two different threes, and every pair goes unmatched
+  // after both arms have been billed.
+  //
+  // Optional because an arm captured by a ref that predates this field
+  // records nothing here, and a base arm is routinely older than its
+  // candidate. Absent means "cannot check", which the judging step treats as
+  // a pass rather than inventing a disagreement.
+  caseIds: z.array(z.string().min(1)).optional(),
 })
 export type ArmAgent = z.infer<typeof ArmAgentSchema>
 

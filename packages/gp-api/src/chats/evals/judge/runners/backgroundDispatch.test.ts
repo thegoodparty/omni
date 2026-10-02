@@ -341,11 +341,11 @@ describe('the wall-clock refusal', () => {
     caseId: `c${i}`,
     params: {},
   }))
-  const loader = (budgetMs: number, maxCases?: number) =>
+  const loader = (budgetMs: number, maxCases?: number, attempts = 3) =>
     caseLoaderFor(
       {},
       budgetMs,
-      3,
+      attempts,
       maxCases,
       (agent) =>
         agent.shape === 'background'
@@ -356,9 +356,24 @@ describe('the wall-clock refusal', () => {
     )
 
   // cases x attempts x the agent's own poll: 8 x 3 x 65 minutes.
-  it('names the agent and both numbers', () => {
+  it('names the agent, what it costs, and what is left', () => {
     expect(() => loader(70 * 60 * 1000)(background)).toThrow(
-      /meeting_briefing would take 1560 minutes[\s\S]*against a budget of 70/,
+      /meeting_briefing would take 1560 minutes[\s\S]*70 of its 70 left/,
+    )
+  })
+
+  // THE RUNNING TOTAL, which is what the per-agent check alone cannot see.
+  // captureArm walks agents sequentially, so four agents that each fit the
+  // arm can still take three times it between them. The second call has to
+  // be refused against what the first one left, and the message has to say
+  // how much was already committed or the number reads as a contradiction.
+  it('spends the budget down across agents', () => {
+    // One case at one attempt is 65 minutes, so the first agent fits a
+    // 100-minute arm and the second cannot.
+    const load = loader(100 * 60 * 1000, 1, 1)
+    expect(() => load(background)).not.toThrow()
+    expect(() => load(background)).toThrow(
+      /35 of its 100 left.*already committed/s,
     )
   })
 
