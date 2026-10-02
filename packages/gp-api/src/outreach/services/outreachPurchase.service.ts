@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { isAxiosError } from 'axios'
+import { OutreachStatus } from 'src/generated/prisma'
+import { z } from 'zod'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
@@ -9,6 +11,10 @@ import { PeerlyPhoneListService } from 'src/vendors/peerly/services/peerlyPhoneL
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachService } from './outreach.service'
 import { PinoLogger } from 'nestjs-pino'
+
+// The draft id is the one audience input a p2p purchase trusts, and Stripe
+// hands metadata values back as strings.
+const P2pDraftIdSchema = z.coerce.number().int().positive()
 
 @Injectable()
 export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachPurchaseMetadata> {
@@ -24,8 +30,11 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
 
   async validatePurchase({
     contactCount,
+    outreachType,
   }: OutreachPurchaseMetadata): Promise<void> {
-    if (!contactCount) {
+    // p2p bills a server-derived count, where a Peerly-confirmed 0 is a
+    // valid $0 send. Only types priced off the client count need one here.
+    if (outreachType !== 'p2p' && !contactCount) {
       throw new BadRequestException('contactCount is required')
     }
   }
@@ -34,25 +43,32 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     contactCount,
     campaignId,
     outreachType,
-    phoneListToken,
+    outreachId,
   }: OutreachPurchaseMetadata): Promise<number> {
     if (outreachType !== 'p2p') {
       return calcTextAmountInCents(contactCount)
     }
 
     // Every PeerlyPhoneList row is written with a real campaignId
-    // (recordUpload requires one), so a p2p purchase with a phoneListToken
-    // but no campaignId is a client-supplied contradiction, not a legacy
-    // no-campaign case — reject it rather than looking the token up
-    // unscoped.
+    // (recordUpload requires one), so a p2p purchase with no campaignId is a
+    // client-supplied contradiction, not a legacy no-campaign case — reject
+    // it rather than reading a draft unscoped.
     if (!campaignId) {
       throw new BadRequestException(
         'A campaign is required to bill a p2p purchase',
       )
     }
+    // Stripe round-trips metadata values as strings, so the draft id is
+    // coerced rather than compared as a number.
+    const draftId = P2pDraftIdSchema.safeParse(outreachId)
+    if (!draftId.success) {
+      throw new BadRequestException(
+        'An outreach draft is required to bill a p2p purchase',
+      )
+    }
 
     const billedContactCount = await this.resolveBilledContactCount(
-      phoneListToken,
+      draftId.data,
       campaignId,
       contactCount,
     )
@@ -77,12 +93,17 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     return calcTextAmountInCents(billedContactCount)
   }
 
-  // p2p purchases must never bill off the client-supplied contactCount — it
-  // rides in checkout metadata the client controls. Preference order: Peerly's
-  // own leads_loaded for the list (the vendor's count of what actually got
-  // uploaded), falling back to the captured recipient rows if Peerly can't be
-  // reached. Either source missing entirely means there's nothing to bill
-  // against, so this throws before the caller ever calls Stripe.
+  // p2p purchases bill the list the DRAFT will send to, and nothing the
+  // client says. Both the contactCount and any list handle ride in checkout
+  // metadata the client controls, so the audience is re-derived from
+  // `Outreach.phoneListId` on the row being paid for — otherwise a purchase
+  // could be priced against one list while a different, larger one is sent,
+  // and the free-texts offer applied to the smaller count can take the whole
+  // charge to zero. Preference order within that list is unchanged: Peerly's
+  // own leads_loaded (the vendor's count of what actually got uploaded),
+  // falling back to the captured recipient rows if Peerly can't be reached.
+  // Either source missing entirely means there's nothing to bill against, so
+  // this throws before the caller ever calls Stripe.
   //
   // This does a live Peerly fetch on every call, so PurchaseService's
   // free-purchase recheck (a second calculateAmount call before granting a
@@ -93,25 +114,39 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   // vendor pricing on every call) — failing the recheck closed on drift, not
   // trusting a stale amount, is intentional here too.
   private async resolveBilledContactCount(
-    phoneListToken: string | undefined,
+    outreachId: number,
     campaignId: number,
     clientContactCount: number,
   ): Promise<number> {
-    if (!phoneListToken) {
+    // Only an unpaid draft is priced. Once finalize moves the row on, a
+    // late checkout request (e.g. a client retry of a timed-out create)
+    // has nothing left to buy, and minting it a session would charge a
+    // second time for a send that is already scheduled.
+    const outreach = await this.outreachService.findFirst({
+      where: {
+        id: outreachId,
+        campaignId,
+        status: OutreachStatus.pending_payment,
+      },
+    })
+    if (!outreach) {
+      throw new BadRequestException('No outreach draft found for this purchase')
+    }
+    if (!outreach.phoneListId) {
       throw new BadRequestException(
-        'A phone list is required to bill a p2p purchase',
+        'The outreach draft has no phone list to bill',
       )
     }
 
     const capturedList = await this.peerlyPhoneListCapture.findFirst({
-      where: { token: phoneListToken, campaignId },
+      where: { peerlyListId: outreach.phoneListId, campaignId },
     })
     if (!capturedList) {
       throw new BadRequestException('No phone list found for this purchase')
     }
 
     const peerlyLeadsLoaded = await this.fetchLeadsLoadedFromPeerly(
-      phoneListToken,
+      capturedList.token,
       capturedList.peerlyListId,
     )
     const serverContactCount =
@@ -129,7 +164,13 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
 
     if (serverContactCount !== clientContactCount) {
       this.logger.warn(
-        { campaignId, phoneListToken, clientContactCount, serverContactCount },
+        {
+          campaignId,
+          outreachId,
+          peerlyListId: outreach.phoneListId,
+          clientContactCount,
+          serverContactCount,
+        },
         'p2p contactCount mismatch between client and server; billing the server-derived count',
       )
     }

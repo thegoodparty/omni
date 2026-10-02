@@ -37,6 +37,7 @@ import { GooglePlacesService } from 'src/vendors/google/services/google-places.s
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerlyPhoneListCapture.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { CreateOutreachSchema } from '../schemas/createOutreachSchema'
 import {
@@ -102,6 +103,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly areaCodeFromZipService: AreaCodeFromZipService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
+    private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly notificationService: OutreachNotificationService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly materializationService: OutreachMaterializationService,
@@ -168,6 +170,23 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     )
   }
 
+  private async requireCampaignPhoneList(
+    campaign: Campaign,
+    phoneListId: number | undefined,
+  ): Promise<void> {
+    if (!phoneListId) {
+      throw new BadRequestException(
+        'Phone list ID is required for P2P outreach',
+      )
+    }
+    const phoneList = await this.peerlyPhoneListCapture.findFirst({
+      where: { peerlyListId: phoneListId, campaignId: campaign.id },
+    })
+    if (!phoneList) {
+      throw new BadRequestException('Phone list not found for this campaign')
+    }
+  }
+
   private async resolveP2pCreateInputs(
     campaign: Campaign,
     createOutreachDto: CreateOutreachSchema,
@@ -198,6 +217,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // decision 2026-09-02): a message missing a required element never
     // becomes a scheduled campaign. Admin approval stays advisory-only.
     await this.requireCompliantScript(campaign, resolvedScriptText)
+
+    // The list id is both what the send goes out to and what the purchase is
+    // priced from, so it has to name a list THIS campaign uploaded. Checked
+    // before anything is written, so a rejected create leaves no row.
+    await this.requireCampaignPhoneList(campaign, createOutreachDto.phoneListId)
 
     let resolvedGeography: P2pJobGeographyResult
     try {
