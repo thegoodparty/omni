@@ -32,6 +32,11 @@ import {
   cardWidgetTools,
   type CardWidgetContext,
 } from '../../../shared/agent-chat/cards/cardWidgets'
+import { ProposalFlowsProvider } from '../../../shared/agent-chat/cards/proposalFlows'
+import {
+  CardDetailProvider,
+  CardDetailSheetHost,
+} from '../../../shared/agent-chat/cards/cardDetail'
 import {
   CLARIFY_TOOL,
   clarifyWidgetTool,
@@ -238,7 +243,20 @@ const listMapFromSegments = (
   return parsed.success ? parsed.data : null
 }
 
-export default function ChiefOfStaffChatBody({
+// Chief of Staff has no rail of its own, so a card's detail opens in the
+// right-side sheet the contacts page uses for a person.
+const ChiefOfStaffChatBody = (props: Props): React.JSX.Element => (
+  <CardDetailProvider>
+    <ProposalFlowsProvider>
+      <ChiefOfStaffChatThread {...props} />
+    </ProposalFlowsProvider>
+    <CardDetailSheetHost />
+  </CardDetailProvider>
+)
+
+export default ChiefOfStaffChatBody
+
+function ChiefOfStaffChatThread({
   conversationIdOverride,
   opener,
   active = true,

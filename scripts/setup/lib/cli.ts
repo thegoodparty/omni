@@ -102,6 +102,10 @@ const PACKAGES: Record<string, PackageConfig> = {
       DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/gpdb',
       CORS_ORIGIN: 'http://localhost:4000',
       WEBAPP_ROOT_URL: 'http://localhost:4000',
+      // Clerk rejects any session token whose azp isn't listed, so the
+      // .env.example placeholder would 401 every request from the local
+      // webapp.
+      CLERK_AUTHORIZED_PARTIES: 'http://localhost:4000',
       OTEL_SERVICE_ENVIRONMENT: 'dev',
       // Mirrors deploy/index.ts's preview-disable pattern: these queues
       // don't exist for a local stack, and both vars degrade gracefully

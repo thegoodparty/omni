@@ -68,23 +68,111 @@ is worse than the move itself.
 in the transcript from an empty status. That is why a reloaded thread reads the
 same as it did live.
 
+## Cards are compact, and a card's detail opens over the page
+
+Every card is one row in the stream; see "Cards" in
+`shared/agent-chat/AGENTS.md`. The people cards open their detail in the
+shared `CardDetailSheetHost`, the same right-side sheet a constituent opens
+in on the contacts page and in Chief of Staff; the status rail stays where it
+is. `PriorityWorkspace` wraps everything in `CardDetailProvider`, so a panel
+opened on the live turn stays open when the turn settles and the persisted
+copy of the card replaces it.
+
+Outreach cards never open a panel. A proposal's button opens that channel's
+own flow over this conversation (`ProposalFlowsProvider`, mounted here
+around the workspace), filled in, and the official finishes it there; the
+route never changes. The card carries this priority's id (the widget
+context), so the phone banking or social outreach they finish is linked to
+the priority and a second completion returns the first. Priorities hands off
+to the workflow that owns the job; it does not re-implement it. The agent
+counts the audience but does not save it (the card carries the filter), picks
+one channel, and says why these people and why that channel in its own
+message, so the card never has to.
+
+## A step carries whether its people were asked
+
+`define`, `options`, `method` and `plan` always end with a check. The agent
+picks who by the affectedness method in the prompt (`AFFECTEDNESS_BLOCK` in
+`gp-api/.../priority-flow/priorityFlow.prompt.ts`, from Samuel's Serve lists
+runbook), counts the group without saving it, writes the one question, and offers it as
+work already done through `present_outreach_proposal` on whichever channel
+those people answer on, door knocking included. Every check has two sides,
+both always offered: the most affected, and the least affected (exposure
+inverted, same gates), each on its own card. The official can take both, one,
+or neither. The check is the ask for its stage. `listen_problem` and
+`listen_options` never ask again: they are where the answers to the `define`
+and `options` checks land.
+
+A model left alone records the check and moves on without showing it, so the
+server holds the order. `update_priority_status` refuses to record `asked`
+until a card or a question has gone out in that turn (the priority-flow
+handler tells it, since tools are built per turn), refuses to open a step past
+a settled gate that has no check, and answers a gate settled without one with
+`checkDue`: offer it now, before any next-step work. So `asked` means shown,
+and the rail reads it as waiting on the official.
+
+Three more holds, because the model also called the official's own agreement
+"constituents agreed":
+
+- **Recording `asked` while something was offered stamps `offeredAt` on the
+  server** (`mergeStepCheck`'s `offered` argument, which only the server
+  passes). Reads heal earlier rows: `parsePriorityStatus` drops an `asked`
+  with no `offeredAt`, and any check on a step that is not a gate. The gate
+  then counts as bare and asks again.
+- **`confirmed` and `revised` need evidence.** The side has to have been `out`,
+  or shown in an earlier turn (`offeredAt` before the handler's turn
+  `startedAt`), and `heard` has to say what constituents said. A check patch
+  on a step that is not a gate is refused, and the client merge ignores one.
+- **An unanswered `asked` lets one step open past its gate, and no further.**
+  After that, the agent has to ask again or record the answer.
+- **A real send puts a side out, not the agent.** A proposal names the check
+  it puts out (`stepId`, `side`), and the create that sends it carries them.
+  Once the send is real (the phone list built, the post saved, the text paid
+  for, the walk drawn) `PriorityStatusService.recordOutreachSent` moves that side to `out`
+  through the same merge, stamping `sentAt` and `sentProposalKey`; a side
+  already out on a send keeps it, and a side constituents already answered
+  keeps its answer. A deferred or declined side does move: the send is what
+  happened. A status write that fails after the send committed is logged,
+  and `healSends` puts it out before the next turn reads the status. The `<status>` block shows `Sent:`, the
+  proposal tool refuses to offer a sent side again, and the workspace tells
+  the agent with one hidden `PROPOSAL_SENT_MARKER` turn (see "Cards" in
+  `shared/agent-chat/AGENTS.md`).
+
+Listening is not a gate. The answer lives on the step as `check`
+(`PriorityStepCheckSchema` in contracts): `asked`, `out`, `confirmed`,
+`revised`, `deferred`, `declined`, with the least-affected side nested as
+`check.contrast` with its own state. It is nested rather than a second check
+because it is offered, answered and raised together; it has its own state
+because the official can take one side and not the other. A check patch may
+omit `state` to move only the contrast. A deferral comes back at most
+`MAX_CHECK_RAISES` times, and the count is derived (and capped) in
+`mergeStepCheck`: recording `deferred` over `deferred` is a raise. It is
+shared by the server and `applyStatusUpdate` so the two never count
+differently. A malformed check, or contrast, drops on its own, in the stored
+status, in a live patch and in the server's tool input, so it never stops the
+step itself from moving. The rail prints one line per step,
+not one per side (`STEP_CHECK_LABELS`): anything waiting on the official wins,
+then anything out, then how the main side landed. Who each side is lives in
+the conversation, not the rail.
+
+Chief of Staff reads the same state (current step, next action, checks)
+through its priorities context and points into this flow without running it.
+When a put-off check's moment arrives it raises it once, in one line, and
+records it with `record_check_reminder`, a narrow write in
+`PriorityStatusService.recordCheckReminder` that touches only that step's
+check and spends the same raise counter, so the two surfaces never nag
+separately.
+
 ## Cards are keyed, not trusted
 
 A card is a tool call rendered inline through `shared/agent-chat/cards/ChatCardRenderer`.
-Two values in an outreach proposal are **derived in
-`shared/agent-chat/cards/toChatCard.ts`, never read off the model's args**:
-
-- `proposalKey` — `mintProposalKey(conversationId, toolCallId)` from
-  `@goodparty_org/contracts`. Deterministic uuidv5, so the browser and the
-  server arrive at the same key and the card can resolve the outreach it would
-  create. This needs `toolCallId`, which the SSE event and the persisted
-  segment both carry; a proposal without one drops rather than minting a key
-  the server would not agree with.
-- `deepLinkOnly` — `channel !== 'phoneBanking'`. Only phone banking can be
-  completed from a card. Social carries no platform in the proposal contract,
-  and text lands `pending_payment` behind Stripe, so a Send button there would
-  leave an unpaid draft. The API's 400 is the backstop; the guard is that the
-  button never renders.
+`proposalKey` is **derived in `shared/agent-chat/cards/toChatCard.ts`, never
+read off the model's args**: `mintProposalKey(conversationId, toolCallId)`
+from `@goodparty_org/contracts`. Deterministic uuidv5, so the browser and the
+server arrive at the same key and the card can resolve the outreach sent
+under it, which is how a proposal reads as sent. This needs `toolCallId`,
+which the SSE event and the persisted segment both carry; a proposal without
+one drops rather than minting a key the server would not agree with.
 
 Args that fail to parse drop the card and leave the turn's prose alone.
 `read_past_outreach` is a data read whose args are `{ channel? }`, so it always
@@ -122,6 +210,12 @@ written-in answer shown as written. The widget always adds its own "Or write you
 own..." option, which is the bail-out back to free chat, so the agent never
 writes one.
 
+A question where more than one answer can be true sets `multiSelect`. The
+options step always does: each option is a checkbox with its tradeoff as the
+rationale, never a list in prose. The answer is one line of the chosen labels
+("A and B"), and a reload checks that set again. The format lives in
+`shared/agent-chat/AGENTS.md`.
+
 ## The chat dock is off here
 
 `DashboardLayout` mounts the Chief of Staff bar at the bottom of every
@@ -133,4 +227,6 @@ knocking's walk is the other case.
 
 The rail is an `aside` from `lg` up. Below that it collapses into a sheet
 opened from a button in the page header, next to the title — not a fixed
-bottom affordance, which would fight the composer.
+bottom affordance, which would fight the composer. A card's detail follows
+the same split, and `useIsMobile` (the `lg` boundary) decides which of the two
+mounts the detail, since only one may hold the portal target.

@@ -18,9 +18,9 @@ nearest reference wrapper.
 | `streaming.ts` | `LiveSegment` + `segmentsToLive` (project a persisted turn into segments for rendering) + `useSmoothReveal`. |
 | `chatClient.ts` | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface, and this one also implements the optional `setMessageFeedback` / `clearMessageFeedback` calls. |
 | `chatTypes.ts` | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat. |
-| `ClarifyQuestionWidget.tsx` | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. |
+| `ClarifyQuestionWidget.tsx` | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. With `multiSelect` the cards are checkboxes and one button sends the set; see "Multi-select answers" below. |
 | `widgetRegistry.ts` + `turnBlocks.tsx` | **Tool calls rendered as widgets.** See "Widgets" below. |
-| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. The copy is Serve copy (`SERVE_*`); Win's Campaign Manager mounts the Chief of Staff body but its agent has none of these tools. |
+| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. The copy is Serve copy (`SERVE_*`); Win's Campaign Manager mounts the Chief of Staff body but its agent has none of these tools. See "Cards" below. |
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`. |
 | `MessageActionBar.tsx` | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls. |
 | `chatHelpers.ts` | `newClientMessageId`, `friendlyError`. |
@@ -99,6 +99,97 @@ other tool, and a label map that falls back to the raw tool name would put
 Staff's `show_list_map` is deliberately not on one: its map renders after the
 turn's prose and only once per turn, and a registry entry would move it to
 where the tool fired.
+
+## Cards — one row each, the detail somewhere else
+
+A card is never the full thing in the stream. Each one renders as a row in
+the clarify question's own option-card style (`optionCard.ts`, which
+`ClarifyQuestionWidget` uses too, so an answer and a contact read as one
+family): a title, one short line, and whatever it leads to. Why a card is
+there is the agent's to say, once, in its message; no card repeats it.
+
+- **People open a panel here.** `OutsideContactCard` is one row (name, role)
+  and its panel is laid out the way the contacts page lays out a person
+  (`PersonOverlay`): the name as the heading, one line under it, then one
+  `InfoSection` per thing to know (why reach out, who to ask for, what to say
+  with copy) and call / email / site. `ConstituentsCard` is one row per
+  person, and each opens that constituent's actual record, rendered by
+  `PersonRecord`, the presentational half of `PersonOverlay` extracted for
+  this. The three parts of the record that read the contacts table's own
+  queries (the Win status row, top issues, the activity feed) come in as
+  slots, and the chat omits them, along with the map (`showMap={false}`;
+  the address already says where they live); the person query uses the contacts page's
+  own key (`['person', org, id]`) so the follow-up switch updates both. Both
+  render through `CardDetail` (`cards/cardDetail.tsx`), which portals the
+  detail into the surface's `CardDetailSheetHost`, so it stays in the card's
+  React tree. Every surface mounts that one host: a sheet flying in from the
+  right over the page in `PersonOverlay`'s shell, with its X, closed by the X
+  or Escape, handing focus back to the chip that opened it. Nothing on the
+  page is replaced. A card outside any `CardDetailProvider` falls back to its
+  own sheet. The detail key is the tool call id (`cardWidgets.tsx`),
+  which the live and persisted copies of one call share, so a panel opened
+  mid-turn survives the turn settling. Each card registers its key with the
+  provider, and the panel closes once no mounted card owns the open key (a
+  conversation switch). It checks a microtask later, so the live-to-persisted
+  swap of one card does not count as the card going away.
+- **Outreach opens the channel's own flow, over the conversation.**
+  `OutreachProposalCard` is the audience, the count, the one channel the
+  agent chose, and a button ("Start the text", "Start the calls"...). No
+  channel switcher, no why, no cost note. The button calls
+  `ProposalFlowsProvider` (`cards/proposalFlows.tsx`), which both surfaces
+  mount and which mounts the outreach page's own `SocialFlow`,
+  `PhoneBankingFlow` and `SmsFlow` (Serve surfaces, SMS behind the same
+  `serve-sms-outreach` flag) only while one is open, the way Bryan's priority
+  prototype mounted them (`feat/serve-priorities-flow`). The route never
+  changes, so closing or finishing it leaves the official in the thread where
+  they were. The flow is filled in with what the card carries: the message
+  (`initialScript`, as written: `SmsFlow` signs any seed itself with
+  `ensureSmsIdentification`, which persisted cards from before the server
+  guard need, since they still carry "Hi, this is [Your Name]..."), phone
+  banking's name, and the audience. A card from before `audienceFilters` points at a saved list; a
+  current one carries the filter the agent counted with, and the flow opens
+  its builder already filled in (`proposedAudience`) and saves the list when
+  the official confirms and names it. Door knocking is the exception: its
+  create flow is drawn on its own map page and takes only a saved list, so the
+  card saves the list at the click, the latest point it can, and goes there,
+  carrying the card's link on the URL (`?proposalKey=&priorityId=&stepId=&side=`)
+  to that page's create. Every channel carries the card's link on its create
+  (`{ proposalKey, priorityId, stepId, side }`, the check fields only on a
+  priority), so the send is linked to the priority, a second completion
+  returns the first, and the server moves that side of the check to out once
+  the send is real. The card resolves by that key, so a sent proposal reads
+  as sent and links to its row on the outreach page; a text reads as sent
+  only once paid for. When a flow finishes, the provider calls the surface's
+  `useOnProposalSent` listeners: the chip re-resolves, and the priority
+  workspace refetches its rail and sends one hidden turn that opens with
+  `PROPOSAL_SENT_MARKER` and ends on the proposal key, filtered from the
+  transcript like the kickoff, so the agent hears about the send once. A
+  walk is finished on another page, so no listener hears it; the server has
+  already put the check out, and the agent reads it in `<status>` on the next
+  turn. Chief of Staff has no check to move and sends no such turn. While the
+  SMS flag reads off, a text
+  proposal says texting is not available instead of offering a button.
+  `PastOutreachCard` is one row per send, linking to its row's drawer on the
+  hub. No compose, edit or send UI lives in a card: the flows own it.
+
+Chief of Staff renders inside a vaul drawer, and React bubbles a portal's
+pointer events up the React tree into it, which is why the detail sheet
+carries `data-vaul-no-drag`.
+
+## Multi-select answers
+
+`multiSelect` on the question (default false, so older threads parse as single
+choice) is for questions where more than one answer can be true: options to
+pursue together, symptoms of one problem. Single choice still answers on the
+first click and renders exactly as before.
+
+The answer is still one ordinary user turn, so no surface needed a change. The
+widget sends the checked labels in option order, not click order, as one line:
+`A`, `A and B`, `A, B, and C` (`formatClarifyChoices`). On reload
+`parseClarifyChoices` maps that line back to the set by matching whole labels in
+option order, so a label holding a comma or an "and" still parses. Anything
+that is not exactly such a line is a written-in answer and shows as written.
+The ordinance flow's stored `clarifyAnswers[].answer` holds the same line.
 
 ## Reference wrappers — copy the closest
 

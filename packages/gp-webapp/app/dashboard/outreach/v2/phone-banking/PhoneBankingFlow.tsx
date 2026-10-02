@@ -11,6 +11,7 @@ import {
   type PhoneBankingCreateResponse,
   type PhoneBankingPurpose,
   type PhoneBankingScriptDraftRequest,
+  type ProposalLink,
   type RecommendedListVariant,
   type ServePhoneBankingCreate,
   type ServePhoneBankingPurpose,
@@ -59,6 +60,7 @@ import {
 import {
   intentForOutreachPurpose,
   useOutreachAudience,
+  type ProposedAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import {
@@ -172,7 +174,7 @@ interface PhoneBankingFlowDraftInput {
   event?: OutreachEventDetails
 }
 
-interface PhoneBankingFlowCreateInput {
+interface PhoneBankingFlowCreateInput extends ProposalLink {
   name: string
   script: string
   sheetCount: number
@@ -217,11 +219,22 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
       )
       return data.draft
     },
-    createList: async (input) => {
-      const { data } = await clientRequest(
-        'POST /v1/phone-banking/lists',
-        input as PhoneBankingCreate,
-      )
+    createList: async ({
+      name,
+      script,
+      sheetCount,
+      purpose,
+      voterFileFilterId,
+    }) => {
+      // Named, not rest-spread: a proposal link is a Serve chat card's, and
+      // Win's create is strict, so a link field added later must not leak.
+      const { data } = await clientRequest('POST /v1/phone-banking/lists', {
+        name,
+        script,
+        sheetCount,
+        purpose,
+        voterFileFilterId,
+      } as PhoneBankingCreate)
       return data
     },
   },
@@ -264,6 +277,20 @@ interface PhoneBankingFlowProps {
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the who step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
+  // A script already written, from a chat card's outreach proposal. Opens on
+  // the who step under `custom`, the same seed SmsFlow's `initialScript` is.
+  initialScript?: string
+  // The list name a chat card proposal already knows, so the script step does
+  // not stop on an empty required field. Editable like any typed name.
+  initialName?: string
+  // An audience a chat card counted but did not save: the who step opens on
+  // the list builder already filled in, and saves it when the official
+  // confirms and names it.
+  proposedAudience?: ProposedAudience
+  // The chat card proposal this flow was opened from. Rides on the create so
+  // the list is linked to its priority, and a second completion of the same
+  // proposal hands back the first list rather than building another.
+  proposalLink?: ProposalLink
   // The tracker task this flow was launched from, carried onto the created
   // list so every call logged against it joins back to the task.
   tracker?: OutreachTrackerOrigin
@@ -285,6 +312,10 @@ export const PhoneBankingFlow = ({
   surface = WIN_PHONE_BANKING_SURFACE,
   preselectedListId,
   preselectedRecommendedVariant,
+  initialScript,
+  initialName,
+  proposedAudience,
+  proposalLink,
   tracker,
   source,
   initialEvent,
@@ -361,6 +392,7 @@ export const PhoneBankingFlow = ({
     countOverlay: PHONE_BANKING_COUNT_OVERLAY,
     recommendedListIntent,
     preselectedRecommendedVariant,
+    ...(proposedAudience && { proposedAudience }),
   })
   const {
     reset: resetAudience,
@@ -386,6 +418,7 @@ export const PhoneBankingFlow = ({
         sheetCount,
         purpose: purpose as PhoneBankingFlowPurpose,
         voterFileFilterId,
+        ...proposalLink,
       })
     },
     onSuccess: (response) => {
@@ -439,19 +472,22 @@ export const PhoneBankingFlow = ({
     // purpose its intent maps onto: the candidate answered that question by
     // picking the card. It drafts for that purpose too, below, exactly as a
     // tap on the card would.
-    const carriedPurpose = preselectedRecommendedVariant
-      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
-      : null
-    setStepId(carriedPurpose ? 'who' : 'purpose')
-    setPurpose(carriedPurpose)
+    // A seeded script wins over a carried purpose: the words are already
+    // chosen, so drafting for a purpose would throw them away.
+    const carriedPurpose =
+      !initialScript && preselectedRecommendedVariant
+        ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+        : null
+    setStepId(initialScript || carriedPurpose ? 'who' : 'purpose')
+    setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
-    setScript('')
-    setScriptManuallyEdited(false)
+    setScript(initialScript ?? '')
+    setScriptManuallyEdited(Boolean(initialScript))
     setInstructions('')
     setSheetCount(1)
     setSheetCountEdited(false)
-    setName('')
-    setNameEdited(false)
+    setName(initialName ?? '')
+    setNameEdited(Boolean(initialName))
     setSaved(false)
     setCreateResponse(null)
     setGateOpen(false)
@@ -491,6 +527,8 @@ export const PhoneBankingFlow = ({
     resetEventDetails,
     draftMutate,
     preselectedRecommendedVariant,
+    initialScript,
+    initialName,
   ])
 
   // Applies the handed-over preselected list to the who step's picker once
@@ -517,6 +555,11 @@ export const PhoneBankingFlow = ({
     preselectSpentRef.current = true
     if (audienceLists.some((list) => list.id === preselectedListId)) {
       selectAudienceList(preselectedListId)
+      // A caller that handed over the script as well as the list (a chat
+      // card's proposal) lands on the script, but only once the list really
+      // resolved: a script with no audience behind it would strand the
+      // official on a step whose Continue cannot pass.
+      if (initialScript) setStepId('script')
     }
   }, [
     open,
@@ -524,6 +567,7 @@ export const PhoneBankingFlow = ({
     audienceLists,
     audienceListsFetching,
     selectAudienceList,
+    initialScript,
   ])
 
   // Sizes the default sheet count to the audience once it resolves, instead

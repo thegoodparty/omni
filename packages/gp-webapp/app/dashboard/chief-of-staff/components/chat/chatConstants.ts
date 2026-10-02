@@ -28,6 +28,7 @@ export const SAVED_FILTERS_TOOL = 'crud_saved_filters'
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   web_search: 'Searching the web',
   crud_priorities: 'Working on your priorities',
+  record_check_reminder: 'Noting that on your priority',
   list_briefings: 'Reading your briefings',
   get_briefing: 'Reading your briefings',
   read_community_issues: 'Reading your community issues',

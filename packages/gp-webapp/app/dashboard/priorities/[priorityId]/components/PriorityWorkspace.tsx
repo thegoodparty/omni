@@ -40,6 +40,18 @@ import {
   type CardWidgetContext,
 } from '../../../shared/agent-chat/cards/cardWidgets'
 import {
+  ProposalFlowsProvider,
+  useOnProposalSent,
+} from '../../../shared/agent-chat/cards/proposalFlows'
+import {
+  isProposalSentMessage,
+  proposalSentMessage,
+} from '../../../shared/agent-chat/cards/proposalPresentation'
+import {
+  CardDetailProvider,
+  CardDetailSheetHost,
+} from '../../../shared/agent-chat/cards/cardDetail'
+import {
   CLARIFY_TOOL,
   clarifyWidgetTool,
   type ClarifyWidgetContext,
@@ -85,19 +97,23 @@ const statusMarker = (
   render: () => <StatusChangeMarker changes={changes} />,
 })
 
-export const PriorityWorkspace = ({
-  priorityId,
-  title,
-  description,
-  initialStatus,
-  initialNextAction,
-}: {
+const RAIL_TITLE = 'Where this stands'
+
+type PriorityWorkspaceProps = {
   priorityId: string
   title: string
   description: string
   initialStatus: PriorityStatus
   initialNextAction: string | null
-}): React.JSX.Element => {
+}
+
+const PriorityWorkspaceBody = ({
+  priorityId,
+  title,
+  description,
+  initialStatus,
+  initialNextAction,
+}: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>('loading')
   const [retryNonce, setRetryNonce] = useState(0)
@@ -234,6 +250,41 @@ export const PriorityWorkspace = ({
     sendRef.current = send
   }, [send])
 
+  // Outreach a card opened was just sent. The server has already moved its
+  // check to out, so the rail refetches; the agent hears it through a hidden
+  // turn, sent once per proposal (the key it ends on survives a reload) and
+  // held until any turn in flight is done.
+  const pendingSent = useRef<string[]>([])
+  const toldKeys = useRef(new Set<string>())
+  const [sentTick, setSentTick] = useState(0)
+  const messagesRef = useRef(messages)
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+  useOnProposalSent(
+    useCallback(
+      (proposal) => {
+        void reconcile()
+        const content = proposalSentMessage(proposal)
+        const told =
+          toldKeys.current.has(proposal.proposalKey) ||
+          messagesRef.current.some((m) =>
+            m.content.includes(proposal.proposalKey),
+          )
+        if (told) return
+        toldKeys.current.add(proposal.proposalKey)
+        pendingSent.current.push(content)
+        setSentTick((tick) => tick + 1)
+      },
+      [reconcile],
+    ),
+  )
+  useEffect(() => {
+    if (sending || phase !== 'ready' || !conversationId) return
+    const next = pendingSent.current.shift()
+    if (next) send(next, { hidden: true })
+  }, [sending, phase, conversationId, sentTick, send])
+
   useEffect(() => {
     let cancelled = false
     const init = async (): Promise<void> => {
@@ -291,13 +342,25 @@ export const PriorityWorkspace = ({
       }
       const reply = messages
         .slice(index + 1)
-        .find((later) => later.role === 'user' && later.content !== KICKOFF)
+        .find(
+          (later) =>
+            later.role === 'user' &&
+            later.content !== KICKOFF &&
+            !isProposalSentMessage(later.content),
+        )
       if (reply) answers[message.id] = reply.content
     })
     return answers
   }, [messages])
   const visibleMessages = useMemo(
-    () => messages.filter((m) => !(m.role === 'user' && m.content === KICKOFF)),
+    () =>
+      messages.filter(
+        (m) =>
+          !(
+            m.role === 'user' &&
+            (m.content === KICKOFF || isProposalSentMessage(m.content))
+          ),
+      ),
     [messages],
   )
 
@@ -316,7 +379,6 @@ export const PriorityWorkspace = ({
   // Hold the shimmer until something has actually painted, so there is no
   // empty flash between "Thinking..." and the first word.
   const working = sending && blocks.length === 0
-  const railTitle = 'Where this stands'
 
   if (phase === 'error') {
     return (
@@ -367,12 +429,12 @@ export const PriorityWorkspace = ({
                     className="shrink-0 gap-1.5 lg:hidden"
                   >
                     <ListChecksIcon className="size-4" aria-hidden />
-                    {railTitle}
+                    {RAIL_TITLE}
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="bottom" className="max-h-[85dvh]">
                   <SheetHeader>
-                    <SheetTitle>{railTitle}</SheetTitle>
+                    <SheetTitle>{RAIL_TITLE}</SheetTitle>
                   </SheetHeader>
                   <SheetBody>
                     <PriorityStatusRail
@@ -478,6 +540,17 @@ export const PriorityWorkspace = ({
       <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border p-4 lg:block">
         <PriorityStatusRail status={status} nextAction={nextAction} />
       </aside>
+      <CardDetailSheetHost />
     </div>
   )
 }
+
+export const PriorityWorkspace = (
+  props: PriorityWorkspaceProps,
+): React.JSX.Element => (
+  <CardDetailProvider>
+    <ProposalFlowsProvider>
+      <PriorityWorkspaceBody {...props} />
+    </ProposalFlowsProvider>
+  </CardDetailProvider>
+)

@@ -67,9 +67,12 @@ bar stops animating. Docker must be running whenever you run setup.
 
 ## 6. Clone and run
 
+First `cd` into whatever folder you keep projects in (for example
+`cd ~/code` — your choice), then:
+
 ```bash
-gh repo clone thegoodparty/omni ~/omni -- --recurse-submodules
-cd ~/omni
+gh repo clone thegoodparty/omni -- --recurse-submodules
+cd omni
 nvm install
 npm run setup
 ```
@@ -79,8 +82,8 @@ it shows), then takes 15–25 minutes on first run. It ends with a summary
 that includes a URL, email, and password — that's your local login at
 http://localhost:4000.
 
-Re-running `npm run setup` any time is safe: it skips what's already
-done and asks before touching your local database.
+Re-running `npm run setup` (from your omni folder) any time is safe: it
+skips what's already done and asks before touching your local database.
 
 ## If something fails
 
@@ -89,8 +92,8 @@ done and asks before touching your local database.
   device-flow sign-in.
 - "refused the request (403)" → your GitHub account isn't an active
   thegoodparty org member — ask an org admin.
-- Node version errors → `cd ~/omni && nvm install`, open a new terminal,
-  retry.
+- Node version errors → from your omni folder, run `nvm install`, open a
+  new terminal, retry.
 - Anything else: paste the last ~20 lines of output to an engineer or a
   Claude session in the repo.
 
