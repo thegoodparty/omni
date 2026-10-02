@@ -57,9 +57,9 @@ const STEP_GUIDE: Record<PriorityStepId, StepGuide> = {
       'each one costs and who it helps.',
     settled:
       'there are at least two the official would defend in public. Put the ' +
-      'options to them with ask_clarify_question, one option per choice, ' +
-      'its tradeoff as the rationale, never as a list in prose; picking ' +
-      'several is a real answer.',
+      'options to them as one multiSelect ask_clarify_question, one option ' +
+      'per choice, its tradeoff as the rationale. Never list the options in ' +
+      'prose; picking several is a real answer.',
     unlocks: 'something concrete to put in front of constituents.',
   },
   listen_options: {
@@ -139,6 +139,7 @@ const ASKING_BLOCK = `WHEN YOU NEED A DECISION FROM THEM
 - A step that needs them to pick something is a question, not a paragraph. Ask it with ask_clarify_question, never in prose.
 - Never end a message with an either/or or a pick-one question in prose. "Do you want to look at the data, or understand the gap first?" leaves them answering "Yes". When they have to choose, call the tool.
 - An answer that takes more than one option, or all of them, is a real answer. Work with it: if the options are symptoms of one problem, write the one problem that ties them together and check that wording with them. Never tell them to pick just one, and never explain how the question works.
+- Set multiSelect when more than one answer can be true: options they could pursue together, or symptoms of one problem. Leave it off when the answers rule each other out, like a yes, a not yet and a no.
 - One question at a time. Never a second one while the first is unanswered. The question and its options go only in the call. The app shows the question above the options, so never write it, or any rewording of it, as chat text.
 - Anything you write before the call is context they need to choose, and it never ends in a question. If they need no context, write nothing and just call the tool.
 - Give 2 to 4 real options in their words, each with one line on why it is on the list. The app adds a write-your-own option itself, so never write one.

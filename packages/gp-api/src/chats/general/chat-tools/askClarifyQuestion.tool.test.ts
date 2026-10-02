@@ -1,0 +1,62 @@
+import { describe, expect, it } from 'vitest'
+import { buildAskClarifyQuestionTool } from './askClarifyQuestion.tool'
+
+describe('buildAskClarifyQuestionTool', () => {
+  const tool = buildAskClarifyQuestionTool()
+
+  it('tells the agent when to ask for several answers', () => {
+    expect(tool.description).toContain(
+      'Set multiSelect when more than one answer can be true',
+    )
+    expect(tool.description).toContain(
+      'Leave it off when the answers rule each other out',
+    )
+  })
+
+  it('takes a multi-select question and defaults to single choice', () => {
+    const question = {
+      questionId: 'q1',
+      question: 'Which of these hold up for you?',
+      options: [{ label: 'Curbside pilot' }, { label: 'Drop-off sites' }],
+    }
+    expect(tool.inputSchema.parse(question).multiSelect).toBe(false)
+    expect(
+      tool.inputSchema.parse({ ...question, multiSelect: true }).multiSelect,
+    ).toBe(true)
+  })
+
+  it('refuses a multi-select question whose labels contain each other', async () => {
+    const options = [
+      { label: 'Dogs' },
+      { label: 'Cats' },
+      { label: 'Dogs and Cats' },
+    ]
+    expect(
+      await tool.execute({
+        questionId: 'q1',
+        question: 'Which pets?',
+        options,
+        multiSelect: true,
+      }),
+    ).toHaveProperty('error')
+    expect(
+      await tool.execute({
+        questionId: 'q1',
+        question: 'Which pets?',
+        options,
+        multiSelect: false,
+      }),
+    ).toEqual({ asked: true, questionId: 'q1' })
+  })
+
+  it('refuses an option with no label', async () => {
+    expect(
+      await tool.execute({
+        questionId: 'q1',
+        question: 'Which pets?',
+        options: [{ label: 'Dogs' }, { label: '  ' }],
+        multiSelect: true,
+      }),
+    ).toHaveProperty('error')
+  })
+})
