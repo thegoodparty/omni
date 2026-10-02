@@ -124,6 +124,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
         captureMethod: input.body.captureMethod,
         transcript: input.body.transcript,
         effortQuestion: target.effortQuestion,
+        outreachId: target.outreachId,
         doorKnockInteractionId: target.doorKnockInteractionId,
         phoneBankingInteractionId: target.phoneBankingInteractionId,
         ...this.extractionFields(extracted),
@@ -140,6 +141,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
         // runs against the current one. Keeping the old copy here would leave
         // the row claiming a prompt the extraction never saw.
         effortQuestion: target.effortQuestion,
+        outreachId: target.outreachId,
         confirmedAt: null,
         ...this.extractionFields(extracted),
       },
@@ -248,6 +250,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     desiredOutcome: string | null
     extractionStatus: ConstituentFeedbackExtractionStatus
     confirmedAt: Date | null
+    outreachId: number | null
     actor: { firstName: string | null; lastName: string | null } | null
   }): ConstituentFeedbackRecord {
     const name = [row.actor?.firstName, row.actor?.lastName]
@@ -265,6 +268,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
       desiredOutcome: row.desiredOutcome,
       extractionStatus: row.extractionStatus,
       confirmedAt: row.confirmedAt,
+      outreachId: row.outreachId,
       actorName: name === '' ? null : name,
     }
   }
@@ -296,17 +300,27 @@ export class ConstituentFeedbackService extends createPrismaBase(
       },
       select: {
         stop: {
-          select: { turf: { select: { communityInputQuestion: true } } },
+          select: {
+            turf: {
+              select: {
+                communityInputQuestion: true,
+                outreach: { select: { id: true } },
+              },
+            },
+          },
         },
       },
     })
     if (target === null) throw new NotFoundException()
+    const outreachId = target.stop.turf.outreach?.id
+    if (outreachId === undefined) throw new NotFoundException()
 
     return {
       personId: knock.personId,
       doorKnockInteractionId: knock.id,
       phoneBankingInteractionId: null,
       effortQuestion: target.stop.turf.communityInputQuestion,
+      outreachId,
     }
   }
 
@@ -319,7 +333,12 @@ export class ConstituentFeedbackService extends createPrismaBase(
       where: { id: entryId, list: { organizationSlug } },
       select: {
         phoneBankingListId: true,
-        list: { select: { communityInputQuestion: true } },
+        list: {
+          select: {
+            communityInputQuestion: true,
+            outreach: { select: { id: true } },
+          },
+        },
       },
     })
     if (entry === null) throw new NotFoundException()
@@ -340,6 +359,9 @@ export class ConstituentFeedbackService extends createPrismaBase(
       doorKnockInteractionId: null,
       phoneBankingInteractionId: call.id,
       effortQuestion: entry.list.communityInputQuestion,
+      // A Win list created with no Campaign row is written without an
+      // envelope, so a call can legitimately have no effort to file under.
+      outreachId: entry.list.outreach?.id ?? null,
     }
   }
 }

@@ -1,0 +1,66 @@
+enum IssueTagStatus {
+  proposed
+  accepted
+  retired
+}
+
+enum IssueTagSource {
+  seed       // Win: the campaign's declared positions, at first run
+  synthesis  // a theme a run proposed
+  human      // typed by a manager on the curation screen
+}
+
+model IssueTag {
+  id                 String         @id @default(uuid(7))
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+  organizationSlug   String         @map("organization_slug")
+  organization       Organization   @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  name               String
+  // Lowercased and trimmed. The uniqueness key, so "Flooding" and "flooding"
+  // are one tag, and a proposal matching a retired tag revives it rather
+  // than failing on the name.
+  normalizedName     String         @map("normalized_name")
+  status             IssueTagStatus @default(proposed)
+  source             IssueTagSource
+  // Win only, and only on seeded tags: the declared issue category this tag
+  // came from, so the report can compare what voters said with what the
+  // candidate declared at signup. Null on every tag that came from memos.
+  declaredTopIssueId Int?           @map("declared_top_issue_id")
+  declaredTopIssue   TopIssue?      @relation(fields: [declaredTopIssueId], references: [id], onDelete: SetNull)
+  // The run that proposed it. When that run is superseded, proposals no
+  // human has touched are deleted, so the list cannot fill with dead
+  // suggestions.
+  proposedByRunId    String?               @map("proposed_by_run_id")
+  proposedByRun      FeedbackSynthesisRun? @relation(fields: [proposedByRunId], references: [id], onDelete: SetNull)
+  // Set when a manager merges this tag into another; members move over.
+  // Only an accepted tag may be a merge target, so chains never form.
+  mergedIntoId       String?        @map("merged_into_id")
+  mergedInto         IssueTag?      @relation("IssueTagMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom         IssueTag[]     @relation("IssueTagMerge")
+
+  feedback ConstituentFeedbackTag[]
+  themes   FeedbackTheme[]
+
+  @@unique([organizationSlug, normalizedName])
+  @@index([organizationSlug, status])
+  @@map("issue_tag")
+}
+
+// Which tags are on which memo. New in this design; PR #2145 has no tags.
+model ConstituentFeedbackTag {
+  feedbackId String              @map("feedback_id")
+  feedback   ConstituentFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  tagId      String              @map("tag_id")
+  tag        IssueTag            @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  // Null means a human applied it. A run's rows are removed when the run
+  // is superseded; a human's survive. A run never overwrites a human's row
+  // for the same pair.
+  runId      String?               @map("run_id")
+  run        FeedbackSynthesisRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
+  createdAt  DateTime            @default(now()) @map("created_at")
+
+  @@id([feedbackId, tagId])
+  @@index([tagId])
+  @@map("constituent_feedback_tag")
+}

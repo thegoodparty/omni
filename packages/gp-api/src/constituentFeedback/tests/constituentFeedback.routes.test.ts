@@ -6,7 +6,11 @@ import {
   Person,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
-import { DoorKnockOutcome, DoorKnockingMode } from '@/generated/prisma'
+import {
+  DoorKnockOutcome,
+  DoorKnockingMode,
+  OutreachType,
+} from '@/generated/prisma'
 import type { GeoJsonPolygon } from '@goodparty_org/contracts'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { ConstituentFeedbackExtractionService } from '../services/constituentFeedbackExtraction.service'
@@ -190,6 +194,60 @@ describe('constituent feedback routes', () => {
     })
   })
 
+  // The envelope is the one key an effort has on both channels. Filing the
+  // memo under it at capture is what lets a report scope to one list without
+  // walking back through the call row.
+  it('files a phone-bank memo under its list’s outreach envelope', async () => {
+    const res = await capture('Rosa wants weekly compost pickup.')
+    expect(res.status).toBe(201)
+
+    const envelope = await service.prisma.outreach.findUniqueOrThrow({
+      where: { phoneBankingListId: listId },
+    })
+    const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+      where: { id: res.data.id },
+    })
+    expect(row.outreachId).toBe(envelope.id)
+  })
+
+  // A Win list made without a Campaign row is written with no envelope. What
+  // the person said is still worth keeping; it just has no effort to sit under.
+  it('captures against a list with no envelope, unlinked', async () => {
+    await service.prisma.outreach.delete({
+      where: { phoneBankingListId: listId },
+    })
+
+    const res = await capture('Rosa wants weekly compost pickup.')
+
+    expect(res.status).toBe(201)
+    const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+      where: { id: res.data.id },
+    })
+    expect(row.outreachId).toBeNull()
+  })
+
+  // Rows written before the link existed carry none. A re-record resolves the
+  // effort again, so it files such a row on the way through.
+  it('files a re-recorded memo under its envelope', async () => {
+    const first = await capture('First take.')
+    expect(first.status).toBe(201)
+    await service.prisma.constituentFeedback.update({
+      where: { id: first.data.id },
+      data: { outreachId: null },
+    })
+
+    const second = await capture('Second take.')
+    expect(second.status).toBe(201)
+
+    const envelope = await service.prisma.outreach.findUniqueOrThrow({
+      where: { phoneBankingListId: listId },
+    })
+    const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+      where: { id: first.data.id },
+    })
+    expect(row.outreachId).toBe(envelope.id)
+  })
+
   // A re-record REPLACES the triple, so the confirmation the old one earned
   // is void. Leaving `confirmedAt` set would hand reporting a model guess
   // wearing a human's signature.
@@ -282,6 +340,10 @@ describe('constituent feedback routes', () => {
     expect(res.status).toBe(200)
     expect(res.data.feedback).toHaveLength(1)
     expect(res.data.feedback[0]?.issueLabel).toBe('Compost collection')
+    const envelope = await service.prisma.outreach.findUniqueOrThrow({
+      where: { phoneBankingListId: listId },
+    })
+    expect(res.data.feedback[0]?.outreachId).toBe(envelope.id)
   })
 
   // The question is denormalized onto the row precisely because the effort's
@@ -407,6 +469,13 @@ describe('constituent feedback routes', () => {
           ...(question === null ? {} : { communityInputQuestion: question }),
         },
       })
+      const envelope = await service.prisma.outreach.create({
+        data: {
+          organizationSlug: orgSlug,
+          outreachType: OutreachType.nativeDoorKnocking,
+          doorKnockingTurfId: turf.id,
+        },
+      })
       await service.prisma.doorKnockingRoute.create({
         data: {
           doorKnockingTurfId: turf.id,
@@ -447,7 +516,12 @@ describe('constituent feedback routes', () => {
           actorUserId: service.user.id,
         },
       })
-      return { knockClientKey, stopTargetId: target.id, knockPersonId }
+      return {
+        knockClientKey,
+        stopTargetId: target.id,
+        knockPersonId,
+        outreachId: envelope.id,
+      }
     }
 
     const captureKnock = (
@@ -492,6 +566,36 @@ describe('constituent feedback routes', () => {
       // Denormalized off the turf, so a later edit cannot rewrite the prompt
       // this extraction actually ran against.
       expect(row.effortQuestion).toBe('How do you feel about compost?')
+    })
+
+    it('files a knock memo under its turf’s outreach envelope', async () => {
+      const seeded = await seedKnock(eoSlug, 'How do you feel about compost?')
+
+      const res = await captureKnock(seeded)
+
+      expect(res.status).toBe(201)
+      const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(row.outreachId).toBe(seeded.outreachId)
+    })
+
+    // Every turf is created with an envelope, and the knock route already
+    // refuses a turf without one. A memo here would be an effort-less row on
+    // a channel where that cannot legitimately happen.
+    it('refuses a knock on a turf with no envelope', async () => {
+      const seeded = await seedKnock(eoSlug, 'Mine')
+      await service.prisma.outreach.delete({
+        where: { id: seeded.outreachId },
+      })
+
+      const res = await captureKnock(seeded)
+
+      expect(res.status).toBe(404)
+      const rows = await service.prisma.constituentFeedback.findMany({
+        where: { organizationSlug: eoSlug },
+      })
+      expect(rows).toHaveLength(0)
     })
 
     // The gate. A stop target belonging to another org's turf must not

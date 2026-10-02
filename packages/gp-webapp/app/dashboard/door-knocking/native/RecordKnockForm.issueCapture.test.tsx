@@ -132,6 +132,7 @@ beforeEach(() => {
       desiredOutcome: 'Remove them and delete the data',
       extractionStatus: 'extracted',
       confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+      outreachId: 7,
       actorName: 'Kamal Al Sawafi',
     },
   })

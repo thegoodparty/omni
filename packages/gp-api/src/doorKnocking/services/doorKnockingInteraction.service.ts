@@ -72,6 +72,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
       sourceId: input.clientKey,
       manual: false,
       actorUserId,
+      outreachId,
     })
 
     // The status of the PERSON, not of the row just written. The walk view
