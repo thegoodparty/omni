@@ -121,6 +121,13 @@ def test_area_for_path_matches_dynamic_segments_and_prefers_literals():
     assert idx.area_for_path("/nowhere") is None
 
 
+def test_an_optional_catch_all_route_matches_its_bare_path():
+    idx = _idx({"/dashboard/contacts/[[...attr]]": "pageMetaData({ title: 'Voter Data' })"})
+    assert idx.area_for_path("/dashboard/contacts").key == "/dashboard/contacts/[[...attr]]"
+    assert idx.area_for_path("/dashboard/contacts/a/b").key == "/dashboard/contacts/[[...attr]]"
+    assert idx.area_for_path("/dashboard/contactsx") is None
+
+
 def test_all_areas_covers_pages_and_the_product_map():
     keys = {a.key for a in _idx({"/dashboard/questions": "pageMetaData({ title: 'Additional Questions' })"}).all_areas()}
     assert {"/dashboard/profile", "/dashboard", "/dashboard/polls", "/dashboard/questions"} <= keys

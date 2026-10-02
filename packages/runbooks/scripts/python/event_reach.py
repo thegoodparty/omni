@@ -85,15 +85,18 @@ class Area:
 
 
 def _route_regex(route: str) -> re.Pattern[str]:
-    parts = []
-    for seg in route.split("/"):
-        if seg.startswith("[[...") or seg.startswith("[..."):
-            parts.append(".+")
+    out = ""
+    for seg in route.split("/")[1:]:
+        if seg.startswith("[[..."):
+            # Optional catch-all: Next serves the bare parent path from this page too.
+            out += "(?:/.+)?"
+        elif seg.startswith("[..."):
+            out += "/.+"
         elif seg.startswith("["):
-            parts.append("[^/]+")
+            out += "/[^/]+"
         else:
-            parts.append(re.escape(seg))
-    return re.compile("^" + "/".join(parts) + "$")
+            out += "/" + re.escape(seg)
+    return re.compile("^" + (out or "/") + "$")
 
 
 class AreaIndex:
