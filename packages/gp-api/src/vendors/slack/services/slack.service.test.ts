@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpService } from '@nestjs/axios'
 import { PinoLogger } from 'nestjs-pino'
 import { of } from 'rxjs'
@@ -94,6 +94,35 @@ describe('SlackService.message', () => {
 
     expect(result).toBeUndefined()
     expect(mockPostMessage).not.toHaveBeenCalled()
+    expect(mockHttpPost).not.toHaveBeenCalled()
+  })
+})
+
+describe('SlackService when not configured', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  })
+
+  it('logs once on construction and resolves undefined without calling Slack', async () => {
+    vi.stubEnv('SLACK_APP_ID', '')
+    vi.stubEnv('SLACK_APP_BOT_TOKEN', '')
+    vi.resetModules()
+    const { SlackService: SS } = await import('./slack.service.js')
+    const logger = createMockLogger()
+    const mockHttpPost = vi.fn()
+    const service = new SS(
+      { post: mockHttpPost } as Partial<HttpService> as HttpService,
+      logger,
+    )
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Slack notifications are disabled'),
+    )
+
+    const result = await service.message(testMessage, SlackChannel.botDev)
+
+    expect(result).toBeUndefined()
     expect(mockHttpPost).not.toHaveBeenCalled()
   })
 })

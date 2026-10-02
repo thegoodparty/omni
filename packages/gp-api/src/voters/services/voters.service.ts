@@ -1,5 +1,5 @@
 import { HttpService } from '@nestjs/axios'
-import { Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import { addDays } from 'date-fns'
 import { firstValueFrom } from 'rxjs'
 import {
@@ -14,12 +14,14 @@ import { AxiosResponse } from 'axios'
 import { cloneDeep } from 'es-toolkit'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { PinoLogger } from 'nestjs-pino'
+import { resolveEnvVar } from '../../shared/env/env'
 
 const API_BASE = 'https://api.l2datamapping.com/api/v2'
-const L2_DATA_KEY = process.env.L2_DATA_KEY
-if (!L2_DATA_KEY) {
-  throw new Error('Please set L2_DATA_KEY in your .env')
-}
+
+const L2_NOT_CONFIGURED_MESSAGE =
+  'Voter file lookups are disabled: set L2_DATA_KEY'
+
+const l2DataKey = resolveEnvVar('L2_DATA_KEY')
 
 type L2Column = { type: string; id: string; name: { [key: string]: string } }
 
@@ -31,6 +33,16 @@ export class VotersService {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(VotersService.name)
+    if (!l2DataKey.configured) {
+      this.logger.warn(L2_NOT_CONFIGURED_MESSAGE)
+    }
+  }
+
+  private requireApiKey(): string {
+    if (!l2DataKey.configured) {
+      throw new BadRequestException(L2_NOT_CONFIGURED_MESSAGE)
+    }
+    return l2DataKey.value
   }
 
   async getVoterCounts(
@@ -42,6 +54,7 @@ export class VotersService {
     partisanType: string,
     priorElectionDates: string[],
   ): Promise<VoterCounts> {
+    this.requireApiKey()
     const searchJson: { filters: Record<string, string | number> } = {
       filters: {},
     }
@@ -270,8 +283,9 @@ export class VotersService {
   }
 
   async getColumns(electionState: string) {
+    const apiKey = this.requireApiKey()
     let columns: L2Column[] = []
-    const columnsUrl = `${API_BASE}/customer/application/columns/1OSR/VM_${electionState}/?id=1OSR&apikey=${L2_DATA_KEY}`
+    const columnsUrl = `${API_BASE}/customer/application/columns/1OSR/VM_${electionState}/?id=1OSR&apikey=${apiKey}`
     type ExpectedResponse = {
       columns: L2Column[]
     }
@@ -288,9 +302,10 @@ export class VotersService {
   }
 
   async querySearchColumn(searchColumn: string, electionState: string) {
+    const apiKey = this.requireApiKey()
     let searchValues: string[] = []
     try {
-      const searchUrl = `${API_BASE}/customer/application/column/values/1OSR/VM_${electionState}/${searchColumn}?id=1OSR&apikey=${L2_DATA_KEY}`
+      const searchUrl = `${API_BASE}/customer/application/column/values/1OSR/VM_${electionState}/${searchColumn}?id=1OSR&apikey=${apiKey}`
       type ExpectedResponse = { values: string[]; message: string }
       const response = await firstValueFrom(
         this.httpService.get<ExpectedResponse>(searchUrl),
@@ -316,6 +331,7 @@ export class VotersService {
     electionState: string,
     searchJson: Prisma.JsonObject,
   ): Promise<PartisanCounts> {
+    const apiKey = this.requireApiKey()
     const counts: PartisanCounts = {
       total: 0,
       democrat: 0,
@@ -327,7 +343,7 @@ export class VotersService {
     countsJson.format = 'counts'
     countsJson.columns = ['Parties_Description']
 
-    const searchUrl = `${API_BASE}/records/search/1OSR/VM_${electionState}?id=1OSR&apikey=${L2_DATA_KEY}`
+    const searchUrl = `${API_BASE}/records/search/1OSR/VM_${electionState}?id=1OSR&apikey=${apiKey}`
     type ExpectedResponse = { __COUNT: number; Parties_Description: string }[]
     let response: AxiosResponse<ExpectedResponse>
     try {
@@ -359,11 +375,12 @@ export class VotersService {
     electionState: string,
     searchJson: Prisma.JsonObject,
   ): Promise<number> {
+    const apiKey = this.requireApiKey()
     const count = 0
     // Note: this endpoint also returns # of households which we don't use.
     // This endpoint could use same query as getPartisanCounts but we use a different endpoint
     // but if we need partisan election counts we can use the same endpoint.
-    const searchUrl = `${API_BASE}/records/search/estimate/1OSR/VM_${electionState}?id=1OSR&apikey=${L2_DATA_KEY}`
+    const searchUrl = `${API_BASE}/records/search/estimate/1OSR/VM_${electionState}?id=1OSR&apikey=${apiKey}`
     type ExpectedResponse = { results: { count: number } }
     let response: AxiosResponse<ExpectedResponse>
     try {
@@ -386,6 +403,7 @@ export class VotersService {
     electionState: string,
     searchJson: Prisma.JsonObject,
   ): Promise<GenderCounts> {
+    const apiKey = this.requireApiKey()
     const counts: GenderCounts = {
       women: 0,
       men: 0,
@@ -395,7 +413,7 @@ export class VotersService {
     countsJson.format = 'counts'
     countsJson.columns = ['Voters_Gender']
 
-    const searchUrl = `${API_BASE}/records/search/1OSR/VM_${electionState}?id=1OSR&apikey=${L2_DATA_KEY}`
+    const searchUrl = `${API_BASE}/records/search/1OSR/VM_${electionState}?id=1OSR&apikey=${apiKey}`
     type ExpectedResponse = { __COUNT: number; Voters_Gender: string }[]
     let response: AxiosResponse<ExpectedResponse>
     try {
@@ -427,6 +445,7 @@ export class VotersService {
     electionState: string,
     searchJson: Prisma.JsonObject,
   ): Promise<EthnicityCounts> {
+    const apiKey = this.requireApiKey()
     const counts: EthnicityCounts = {
       white: 0,
       asian: 0,
@@ -438,7 +457,7 @@ export class VotersService {
     countsJson.format = 'counts'
     countsJson.columns = ['EthnicGroups_EthnicGroup1Desc']
 
-    const searchUrl = `${API_BASE}/records/search/1OSR/VM_${electionState}?id=1OSR&apikey=${L2_DATA_KEY}`
+    const searchUrl = `${API_BASE}/records/search/1OSR/VM_${electionState}?id=1OSR&apikey=${apiKey}`
     type ExpectedResponse = {
       __COUNT: number
       EthnicGroups_EthnicGroup1Desc: string

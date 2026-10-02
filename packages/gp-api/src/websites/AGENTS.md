@@ -38,6 +38,13 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
   out every agent call, and resume-looped nine compliance runs to death
   (2026-09-20..22). Budget exhausted with zero found is a 502 (retryable),
   never an empty list.
+- **The budget must never discard a verdict we already hold.** Checks run in
+  batches, and each check is raced against the remaining budget _individually_.
+  Racing the batch as one unit meant a single candidate still in registrar
+  backoff threw away every sibling result the batch had already settled — four
+  available, priced domains became "nothing could be checked" and a 502
+  (2026-09-30, campaign 327394). Only checks still in flight when the budget
+  runs out are lost, and those count as unchecked.
 - **The candidate cap applies after the TLD fan-out, not before it.**
   `MAX_PATTERN_CANDIDATES` bounds SLDs, and the fan-out then multiplies each
   by `SUPPORTED_TLDS`, so the nominal 50 was really up to 300 Route53 calls
@@ -54,6 +61,7 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
   empty list the caller could read as "the namespace is taken".
 - **Vercel registrar buys are asynchronous orders.** `buySingleDomain` 2xx means "order accepted", not "domain bought" — an order can still fail on Vercel's side (completion is typically ~13s). `completeDomainRegistration` polls `getRegistrarOrder` and only stamps `submitted`/`registrantVerifiedAt` once the order reports completed; the real orderId is persisted as `Domain.operationId`. Never treat the buy response alone as proof of registration.
 - `forwardRef(() => CampaignsModule)` — circular with campaigns. Keep new edges to the campaigns side as forwardRefs to avoid breaking module init.
-- `WebsiteView` uses a localStorage-issued visitor UUID; treat it as advisory, not authoritative analytics.
+- `WebsiteView` uses a localStorage-issued visitor UUID; treat it as advisory, not authoritative analytics. The handler's 60s dedupe is keyed on `(websiteId, visitorId)`, so `visitorId` is pinned to a UUID and the route is metered by `WebsiteTrackViewRateLimitGuard` (60 per 60s per IP) — a fresh id per request would otherwise write a fresh row every time. Draft sites record no views.
 - Public-facing endpoints use `@PublicAccess()` and `@UseCampaign()` together — don't drop one when refactoring or you'll either expose admin data or 401 the public site.
 - Contact form submissions are write-only from the public site; the admin-side read goes through a separate authenticated endpoint with `GetWebsiteContactsSchema`.
+- `POST :vanityPath/contact-form` is metered by `WebsiteContactFormRateLimitGuard` (5 per 60s per IP, in-memory and therefore per replica), and `name`/`message` are length-capped in `ContactForm.schema.ts`. Candidate sites call the route through their own Next route handler, which forwards the visitor's address as `X-Forwarded-For` (`helpers/clientAddress.ts` in `packages/candidate-sites`), so the per-IP number is per visitor. Dropping that forwarding would silently collapse every visitor of every site onto the function's egress address.

@@ -1,9 +1,12 @@
 // Geoapify's published cost model, transcribed from its own calculator at
-// https://www.geoapify.com/pricing-details/ (retrieved 2026-09-01). Creating a
-// list is the only paid call in the product, so every credit the route row,
-// the spend log line, the metric and the quota ledger carry is priced here —
-// one edit when the vendor reprices, rather than four places that can quietly
-// disagree about what a route cost.
+// https://www.geoapify.com/pricing-details/ (retrieved 2026-09-01). Buying the
+// route is where the money is: creating a list spends nothing unless the create
+// itself carries a travel mode, which the current flow does not send, and
+// either way the buy goes through one path that spends at both APIs below — ten
+// credits per block face to order the faces, plus one per door for the street
+// path. Every credit the route row, the spend log line, the metric and the
+// ledger carry is priced here, so there is one edit when the vendor reprices
+// rather than four places that can quietly disagree about what a route cost.
 
 // Where the Route Planner's quadratic branch gives way to the flat one. The
 // two branches meet exactly here (10 x 10 either way), so the curve is

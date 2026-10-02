@@ -52,9 +52,13 @@ describe('start outreach CTA', () => {
       </ul>,
     )
     fireEvent.click(screen.getByRole('button', { name: /start outreach/i }))
+    // The task id rides the callback so the hub can put `trackerTaskId` on
+    // the outreach completion event — see
+    // docs/features/voter-outreach-analytics.md.
     expect(onStartOutreach).toHaveBeenCalledWith(
       'text',
       '2026-02-03T00:00:00.000Z',
+      task.id,
     )
   })
 

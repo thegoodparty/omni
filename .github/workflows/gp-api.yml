@@ -65,6 +65,16 @@ jobs:
           route-types: 'true'
 
       - name: Lint
+        env:
+          # SAME FAILURE AS THE BUILD STEP BELOW, same cap, different tool.
+          # typescript-eslint builds a full type-aware program over
+          # `{src,apps,libs,test}/**/*.ts` and peaks right at Node's default
+          # ~4GB heap, so whether a run survives is luck rather than a
+          # property of the diff: measured locally, `main` itself OOMs at
+          # 4096MB and passes at 5120MB, which means every PR has been one
+          # file away from exit 134 and the ones that hit it looked like
+          # ordinary red. First observed here on run 36821761791.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run lint -w ${{ env.WORKSPACE }}
 
       - name: Typecheck
@@ -77,6 +87,9 @@ jobs:
       - name: Typecheck deploy
         working-directory: ${{ env.WORKSPACE }}
         run: npx tsc -p tsconfig.deploy.json
+
+      - name: Check env contract
+        run: npm run check:env-contract -w ${{ env.WORKSPACE }}
 
       - name: Check Prisma migrations
         working-directory: ${{ env.WORKSPACE }}

@@ -7,7 +7,6 @@ import {
   User,
 } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { OutreachController } from './outreach.controller'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 
@@ -240,11 +239,10 @@ describe('OutreachController', () => {
         baseCampaign,
         textDto,
         'https://cdn.example.com/uploaded.png',
-        undefined,
       )
     })
 
-    it('creates P2P outreach passing p2pImage with stream, filename, mimetype', async () => {
+    it('creates P2P outreach with the uploaded imageUrl', async () => {
       mockS3Service.uploadFile.mockResolvedValue(
         'https://cdn.example.com/p2p.png',
       )
@@ -263,26 +261,7 @@ describe('OutreachController', () => {
         baseCampaign,
         p2pDto,
         'https://cdn.example.com/p2p.png',
-        {
-          stream: mockImage.data,
-          filename: mockImage.filename,
-          mimetype: mockImage.mimetype,
-        },
       )
-    })
-
-    it('does not pass p2pImage for non-P2P outreach types', async () => {
-      await controller.create(
-        mockUser,
-        baseCampaign,
-        baseOrganization,
-        textDto as never,
-        mockImage as never,
-      )
-
-      const createCall = firstOrThrow(mockOutreachService.create.mock.calls)
-      // signature: (user, campaign, dto, imageUrl, p2pImage) — position 4 is p2pImage
-      expect(createCall[4]).toBeUndefined()
     })
 
     it('creates outreach without image when outreachType does not require one', async () => {
@@ -304,7 +283,6 @@ describe('OutreachController', () => {
         mockUser,
         baseCampaign,
         emailDto,
-        undefined,
         undefined,
       )
     })

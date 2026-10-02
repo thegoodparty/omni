@@ -4,6 +4,7 @@ import { Alert, RecordingRule } from './alerts.types'
 import { GEOAPIFY_DAILY_CREDIT_POOL } from './geoapify-budget-alerts'
 import { logSignalExpr } from './log-signals'
 import { RECORDING_RULES } from './provisioned-alerts'
+import { routeErrorAlerts } from './route-alerts'
 
 // Since 2026-09-29 no hand-written global alert queries Loki: each reads a
 // recorded signal instead, and the LogQL that decides WHAT is counted lives on
@@ -12,9 +13,6 @@ import { RECORDING_RULES } from './provisioned-alerts'
 // window, the threshold and the prose.
 const CAMPAIGN_ERRORS = 'gp_api:public_campaign_lookup_errors:count1m'
 const CAMPAIGN_RESOLVABLE = 'gp_api:public_campaign_lookups_resolvable:count1m'
-const PROFILE_ERRORS = 'gp_api:public_person_profile_errors:count1m'
-const PROFILE_RESOLVABLE =
-  'gp_api:public_person_profile_lookups_resolvable:count1m'
 const REPOINT_COLLISIONS = 'gp_api:person_id_repoint_collisions:count1m'
 
 // Mirrors grafana.ts's `alert.timeRangeSeconds ?? 600` — the window the
@@ -153,15 +151,9 @@ describe('public-person-profiles-error-ratio', () => {
   // return. 1.8M such misses in a week would bury a total outage in a rounding
   // error. Against non-404s the August failure reads 100%.
   it('counts only server errors, against lookups that were meant to resolve', () => {
-    expect(logSignalExpr(PROFILE_ERRORS)).toContain(
-      'response_statusCode >= 500',
-    )
-    expect(logSignalExpr(PROFILE_ERRORS)).not.toContain(
-      'response_statusCode >= 400',
-    )
-    expect(logSignalExpr(PROFILE_RESOLVABLE)).toContain(
-      'response_statusCode != 404',
-    )
+    expect(alert!.expr).toContain('response_statusCode >= 500')
+    expect(alert!.expr).not.toContain('response_statusCode >= 400')
+    expect(alert!.expr).toContain('response_statusCode != 404')
   })
 
   // Per route, so a quiet route cannot page on a single 500. The series drops
@@ -193,21 +185,17 @@ describe('public-person-profiles-error-ratio', () => {
   // by needing to be remembered; the prefix regex covers a new route on the
   // controller the day it ships.
   it('covers routes added to the controller later', () => {
-    for (const metric of [PROFILE_ERRORS, PROFILE_RESOLVABLE]) {
-      expect(logSignalExpr(metric), metric).toContain(
-        '/v1/public-person-profiles(/.*)?$',
-      )
-    }
+    expect(alert!.expr).toContain('/v1/public-person-profiles(/.*)?$')
   })
 
   // The worst answer a route can give is none, and it is the one a status
   // range cannot see: a request the gateway kills mid-flight completes with a
   // null status, which Loki's json parser drops, so `>= 500` misses it. The
   // generated rules learned this from two door-knocking timeouts that went
-  // unseen in August (see noStatusFilter in controller-alerts.ts), and a
+  // unseen in August (see noStatusFilter in route-alerts.ts), and a
   // hand-written rule gets no benefit from that unless it says so itself.
   it('counts a request that was killed before it could answer', () => {
-    expect(logSignalExpr(PROFILE_ERRORS)).toContain(
+    expect(alert!.expr).toContain(
       '( response_statusCode >= 500 ) or ( response_statusCode = "" )',
     )
   })
@@ -218,22 +206,12 @@ describe('public-person-profiles-error-ratio', () => {
   // Three occurrences: once as a failure, and once in each of the two places
   // the non-404 population is counted — the ratio, and the floor.
   it('counts that request as traffic as well as as a failure', () => {
-    expect(logSignalExpr(PROFILE_RESOLVABLE)).toContain(
+    expect(alert!.expr).toContain(
       '( response_statusCode != 404 ) or ( response_statusCode = "" )',
     )
 
-    // Once in each signal, where it used to be three times in one expression:
-    // the ratio's denominator and the volume floor now read the same recorded
-    // series, so the population they measure cannot differ.
-    for (const metric of [PROFILE_ERRORS, PROFILE_RESOLVABLE]) {
-      const occurrences =
-        logSignalExpr(metric).match(/response_statusCode = ""/g) ?? []
-      expect(occurrences.length, metric).toBe(1)
-    }
-
-    const floorAndRatio =
-      alert!.expr.match(new RegExp(PROFILE_RESOLVABLE, 'g')) ?? []
-    expect(floorAndRatio.length).toBe(2)
+    const occurrences = alert!.expr.match(/response_statusCode = ""/g) ?? []
+    expect(occurrences.length).toBe(3)
   })
 
   // The prose is what the responder reads at 3am, and a rule that pages on a
@@ -264,12 +242,22 @@ const rereadFactor = (alert: Alert | RecordingRule) =>
 /**
  * Everything we provision that reads a log stream on a schedule.
  *
- * The alerts and the recording rules together, because they spend one budget.
- * A rule moved onto a recorded metric stops appearing in the first list and
- * starts appearing in the second, and the total is what has to hold.
+ * THE ROUTE ALERTS ARE IN HERE NOW, AND THEIR ABSENCE WAS THE SECOND BUG. This
+ * list walked `GLOBAL_ALERTS` only, so the generated route rules — which are
+ * not members of it — were invisible to the one test that exists to stop the
+ * estate outspending its allowance. On 2026-09-28 those rules were 75 reads of
+ * the entire gp-api stream every minute, 750x ingest, and this test passed
+ * while Grafana Cloud started answering 429 and every rule in the estate fired
+ * at once. A budget check that cannot see the largest line item is not a budget
+ * check.
+ *
+ * The three sources spend one budget, so they are summed as one. A rule moved
+ * onto a recorded metric stops appearing in the log lists and starts appearing
+ * in the recording list, and the total is what has to hold either way.
  */
 const scheduledLokiReads = (): (Alert | RecordingRule)[] => [
   ...GLOBAL_ALERTS.filter((alert) => alert.type === 'log'),
+  ...routeErrorAlerts().filter((alert) => alert.type === 'log'),
   ...RECORDING_RULES,
 ]
 
@@ -306,21 +294,38 @@ const MAX_REREAD_FACTOR = 12
  * included. gp-api prod is a small share of that overnight and a large one at
  * midday: 67.8 MB/h at 07:30 UTC on 2026-09-29, 281 MB/h at 09:30. So an
  * unchanged rule set that measured 0.79 of the allowance at 08:30 measured 2.84
- * at 10:30. A factor budget is therefore not scale-invariant, and it drifts
- * upward as the product grows.
+ * at 10:30, and was still over two days later. A factor budget is therefore not
+ * scale-invariant, it has to be calibrated against the worst hour, and it
+ * drifts upward as the product grows.
  *
- * Calibration, at that peak rather than at the overnight floor: the set totalled
- * 161 in effective factor and the account read 3,095 GB/day against a 1,108
- * GB/day allowance, i.e. ~19 GB/day per unit. 40 therefore predicts ~770
- * GB/day, about 70% of the allowance in the worst hour measured and far less
- * the rest of the day. The set totals 27 today, all but 12 of it recording
- * rules, which is as close to the floor as this estate gets.
+ * Calibration, at that peak rather than at the overnight floor: on 2026-09-29
+ * the set totalled 161 in effective factor and the account read 3,095 GB/day
+ * against a 1,108 GB/day allowance, i.e. ~19 GB/day per unit. 40 therefore
+ * predicts ~770 GB/day, about 70% of the allowance in the worst hour measured
+ * and far less the rest of the day.
  *
- * The factor is a per-rule lower bound rather than an exact cost: until
- * 2026-09-29 the two error-ratio rules evaluated their stream three times inside
- * one expression (numerator, denominator, volume floor), so each cost about
- * three times what its factor said. Both read a recorded metric now, but a new
- * rule that repeats a leg would do the same thing again.
+ * The set totals 29 today and all but 12 of it sits at the 1x floor, which is
+ * as close to the floor as this estate gets. Two shapes reach that floor and
+ * they are not interchangeable. A recording rule reads one minute once a minute
+ * and lets an alert assemble any window it likes in PromQL, so it is the only
+ * way to afford a window wider than the interval — a 24h Geoapify tier, a 6h
+ * sweep, a 1h settlement check — but it can only write ONE unlabelled series.
+ * An alert that needs a dimension sets its own window equal to its interval
+ * instead, which is the same 1x and costs detection latency rather than
+ * coverage, because consecutive windows tile the timeline. The route alerts and
+ * `public-person-profiles-error-ratio` are in that second position.
+ *
+ * The 12 is `district-auto-match-no-district-spike`, the one rule neither shape
+ * fits: it counts DISTINCT campaigns over 6h, so recording it would put
+ * campaign ids into Prometheus labels — an unbounded number of new series
+ * during exactly the regression it watches for — and a 6h evaluation interval
+ * would be six hours of latency on a 6h trend. 6h on 30m is the compromise.
+ *
+ * The factor is a per-rule lower bound rather than an exact cost: the profile
+ * ratio evaluates its stream three times inside one expression (numerator,
+ * denominator, volume floor), so it costs about 3 where it counts 1. The
+ * calibration absorbs that on average; a new rule that repeats a leg does the
+ * same thing again.
  *
  * If this test fails, the answer is almost never a bigger number here, and it is
  * not a slower interval either — that buys cost with detection latency on the
@@ -446,12 +451,19 @@ describe('evaluation intervals', () => {
     }
   })
 
+  it('keeps every route alert on a Loki stream selector', () => {
+    for (const alert of routeErrorAlerts()) {
+      expect(alert.type, alert.slug).toBe('log')
+      expect(alert.expr, alert.slug).toContain('service_name="gp-api"')
+    }
+  })
+
   // `for` is counted in whole evaluations, so an interval that does not divide
   // it evenly pushes firing latency out to the next evaluation without saying
   // so anywhere. Keeping the two commensurate means the `for` a reader sees is
   // the delay they actually get.
   it('keeps `for` a whole number of evaluation intervals', () => {
-    const slowAlerts = GLOBAL_ALERTS.filter(
+    const slowAlerts = [...GLOBAL_ALERTS, ...routeErrorAlerts()].filter(
       (alert) => alert.evaluationIntervalSeconds !== undefined,
     )
     expect(slowAlerts.length).toBeGreaterThan(0)
@@ -459,13 +471,93 @@ describe('evaluation intervals', () => {
     for (const alert of slowAlerts) {
       const forSeconds = toSeconds(alert.for.slice(0, -1), alert.for.slice(-1))
 
-      expect(forSeconds % alert.evaluationIntervalSeconds!).toEqual(0)
+      expect(forSeconds % alert.evaluationIntervalSeconds!, alert.slug).toEqual(
+        0,
+      )
+    }
+  })
+})
+
+/**
+ * Every `gp_api:` series an alert selects, as the alert that selects it.
+ *
+ * The prefix is the convention for a metric this repo records rather than one a
+ * service exports, so a match here is a claim that some recording rule produces
+ * it. Nothing else in Prometheus is named this way.
+ */
+const recordedMetricReaders = (): { slug: string; metric: string }[] =>
+  GLOBAL_ALERTS.flatMap((alert) =>
+    [...alert.expr.matchAll(/gp_api:[a-z_:0-9]+/g)].map(([metric]) => ({
+      slug: alert.slug,
+      metric,
+    })),
+  )
+
+describe('recorded metrics', () => {
+  /**
+   * THE CHEAP HALF OF THE 2026-09-28 GUARD, and it is important to be exact
+   * about which half.
+   *
+   * This catches an alert wired to a metric nothing produces: a typo, a rename,
+   * or a recording rule deleted out from under its consumers. It would NOT have
+   * caught the actual outage, because the rules existed, were named correctly,
+   * and were read correctly — they simply never wrote, and no assertion over
+   * these definitions can see that. Writing is observed in production by
+   * `recorded-metric-not-writing`, which watches the metric rather than the
+   * rule, and that alert is the real guard.
+   *
+   * Both are needed and neither substitutes for the other: this one fails a PR,
+   * that one pages an on-call.
+   */
+  it('reads only metrics a provisioned recording rule writes', () => {
+    const produced = new Set(RECORDING_RULES.map((rule) => rule.metric))
+    const orphans = recordedMetricReaders()
+      .filter(({ metric }) => !produced.has(metric))
+      .map(({ slug, metric }) => `${slug} reads ${metric}`)
+
+    expect(orphans).toEqual([])
+  })
+
+  /**
+   * A recording rule is only watchable if absence means one thing.
+   *
+   * `recorded-metric-not-writing` pages when the metric has no samples for 30
+   * minutes. That is only a fault signal if the rule writes in every interval,
+   * including the intervals where the underlying logs match nothing — which for
+   * door-knocking spend is most of them. `or vector(0)` is what makes the
+   * pipeline emit an explicit zero instead of an empty result, so dropping it
+   * would not break the budget tiers, it would break the thing watching them,
+   * and it would do so silently.
+   */
+  it('makes every recording rule write in every interval', () => {
+    for (const rule of RECORDING_RULES) {
+      expect(rule.expr, rule.slug).toContain('or vector(0)')
+    }
+  })
+
+  /**
+   * The constraint that killed the route recording rules, written down as a
+   * test so the next person meets it in CI rather than in a silent outage.
+   *
+   * Grafana's recording-rule writer requires a wide frame. A Loki query that
+   * returns one series per label set is `timeseries-multi` and is rejected with
+   * `unsupported time series type timeseries-multi` — reported nowhere the rule
+   * itself can be seen to be unhealthy. A bare `sum(...)` collapses to a single
+   * unlabelled series, which the writer accepts; `sum by (...)` does not.
+   *
+   * So a recording rule here may not group. Anything that needs a dimension
+   * preserved reads Loki directly, the way the route alerts do.
+   */
+  it('never groups a recording rule, which the writer cannot accept', () => {
+    for (const rule of RECORDING_RULES) {
+      expect(rule.expr, rule.slug).not.toMatch(/\bby\s*\(/)
+      expect(rule.expr, rule.slug).not.toMatch(/\bwithout\s*\(/)
     }
   })
 })
 
 // The two structural properties of a recording rule, asserted over every one
-// we provision rather than only over the route pair in controller-alerts.test.
+// we provision rather than only over the route pair that used to live in route-alerts.test.
 // A rule that reads a wider window than its interval is the defect that
 // produced 2,690 GB/day and the 2026-09-28 429s; a rule that reads up to `now`
 // loses lines permanently. Neither is visible in Grafana when it is wrong.

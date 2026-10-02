@@ -48,13 +48,19 @@ export class PriorityFlowOutreachService extends createPrismaBase(
 
   async forOffice(
     organizationSlug: string,
-    priorityId: string,
+    priorityId: string | null,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
       where: {
         organizationSlug,
-        priorityId: { not: priorityId },
+        // `not` alone compiles to SQL `<>`, which drops every NULL row. Nearly
+        // all outreach has no priority, so that silently emptied the list.
+        ...(priorityId === null
+          ? {}
+          : {
+              OR: [{ priorityId: { not: priorityId } }, { priorityId: null }],
+            }),
         ...(channel === undefined ? {} : { outreachType: channel }),
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },

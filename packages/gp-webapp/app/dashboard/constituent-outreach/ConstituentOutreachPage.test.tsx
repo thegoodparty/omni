@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
@@ -59,13 +59,6 @@ vi.mock('helpers/useSnackbar', () => ({
 // active org slug — same precedent as PhoneBankingFlow.test.tsx.
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test-org' }),
-}))
-
-// Door knocking's card only exists on the flag; the rest of this suite is
-// about the hub with all three channels on it.
-const doorKnockingFlag = { ready: true, enabled: true }
-vi.mock('@shared/experiments/nativeDoorKnockingFlag', () => ({
-  useNativeDoorKnockingFlag: () => doorKnockingFlag,
 }))
 
 // `serve-sms-outreach`. Mutable so one file can drive all three states the
@@ -180,10 +173,6 @@ const savedDetail = {
 const user = userEvent.setup()
 
 describe('ConstituentOutreachPage — Serve outreach history', () => {
-  beforeEach(() => {
-    doorKnockingFlag.enabled = true
-  })
-
   it('renders seeded outreach rows (channel, name, status, date)', () => {
     const outreaches: HistoryRow[] = [
       {
@@ -310,24 +299,11 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     await user.click(screen.getByText('Door knocking'))
 
     expect(router.push).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1',
+      '/dashboard/door-knocking?create=1&source=outreach_page',
     )
     expect(
       screen.queryByText('Explain a recent decision'),
     ).not.toBeInTheDocument()
-  })
-
-  // Serve has no eCanvasser control arm behind the flag, so the card's only
-  // destination is a Win-only legacy dashboard about an integration an
-  // elected official cannot connect.
-  it('omits the Door knocking card when the native flag is off', () => {
-    doorKnockingFlag.enabled = false
-    render(<ConstituentOutreachPage outreaches={[]} />)
-
-    expect(
-      screen.queryByRole('button', { name: /Door knocking/ }),
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
   })
 
   it('opens the phone banking flow (serve surface) when the Phone banking card is clicked', async () => {
@@ -634,5 +610,53 @@ describe('ConstituentOutreachPage — the serve-sms-outreach gate', () => {
     ).toBeInTheDocument()
     // A serve-only purpose card, from SERVE_SMS_PURPOSES.
     expect(screen.getByText('Explain a recent decision')).toBeInTheDocument()
+  })
+})
+
+// Door knocking leaves this page and comes back to it, and the row it wrote
+// while away has to be here. See `OutreachHubPage.test.tsx` for the Win half
+// of the same fix.
+describe('ConstituentOutreachPage — the mount refresh', () => {
+  it('asks the server once on mount, so a campaign made while away appears', async () => {
+    // The seeded snapshot predates the campaign: the refetch is the only
+    // thing that can put it on the table, because this route's RSC may not
+    // have re-run on the way back.
+    api.mock('GET /v1/outreach/serve', {
+      status: 200,
+      data: [
+        {
+          id: 1,
+          date: '2026-08-20',
+          outreachType: 'socialMedia',
+          name: 'Budget update post',
+          status: 'completed',
+        },
+        {
+          id: 2,
+          date: '2026-09-29',
+          outreachType: 'nativeDoorKnocking',
+          name: 'Introduction walk',
+          status: 'in_progress',
+        },
+      ],
+    })
+
+    render(
+      <ConstituentOutreachPage
+        outreaches={[
+          {
+            id: 1,
+            date: '2026-08-20',
+            outreachType: 'socialMedia',
+            name: 'Budget update post',
+            status: 'completed',
+          },
+        ]}
+      />,
+    )
+
+    expect(
+      await within(desktopTable()).findByText('Introduction walk'),
+    ).toBeInTheDocument()
   })
 })

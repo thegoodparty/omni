@@ -12,7 +12,11 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
 import type { RecommendedListVariant } from '@goodparty_org/contracts'
-import type { ComposeSource } from 'app/dashboard/outreach/util/composeOutreachHref.util'
+import {
+  parseTrackerOrigin,
+  type ComposeSource,
+} from 'app/dashboard/outreach/util/composeOutreachHref.util'
+import type { OutreachTrackerOrigin } from 'app/dashboard/outreach/util/outreachAnalytics'
 import type { TcrCompliance } from 'helpers/types'
 
 // What a `?compose=` deep link asks the hub to open, once the channel's gate
@@ -29,6 +33,12 @@ export interface ComposeRequest {
   // A voter data page recommendation not saved yet (`?recommended=`), which
   // the flow's audience step saves on arrival.
   recommendedVariant?: RecommendedListVariant
+  // The tracker task this compose was launched from, carried onto the
+  // outreach completion event so task completion and outreach are one funnel.
+  tracker?: OutreachTrackerOrigin
+  // Where the compose link was pressed. Absent for a link with no allowlisted
+  // `?source=`.
+  source?: ComposeSource
 }
 
 interface OutreachComposeDeepLinkProps {
@@ -77,6 +87,10 @@ export const OutreachComposeDeepLink = ({
   const router = useRouter()
   const [campaign] = useCampaign()
   const composeSource = parseComposeSource(searchParams?.get('source'))
+  // The same allowlist, typed, for the flow the hub opens next.
+  const requestSource = COMPOSE_SOURCES.find(
+    (source) => source === searchParams?.get('source'),
+  )
   const { runTextGate, gateModals } = useTextOutreachGate(
     tcrCompliance,
     composeSource,
@@ -142,6 +156,10 @@ export const OutreachComposeDeepLink = ({
     )
     const dueParam = searchParams?.get('due') || ''
     const due = DUE_DATE_RE.test(dueParam) ? dueParam : undefined
+    const tracker = parseTrackerOrigin(
+      searchParams?.get('trackerTaskId'),
+      searchParams?.get('phase'),
+    )
     router.replace('/dashboard/outreach', { scroll: false })
     trackEvent(EVENTS.Outreach.ClickCreate, {
       type: composeType,
@@ -156,6 +174,8 @@ export const OutreachComposeDeepLink = ({
           due,
           listId: preselectedListId,
           recommendedVariant,
+          tracker,
+          source: requestSource,
         })
       }
       return
@@ -163,7 +183,7 @@ export const OutreachComposeDeepLink = ({
     // Social has no gate and no audience: unlocked for everyone, like its
     // tile.
     if (composeType === OUTREACH_TYPES.socialMedia) {
-      onCompose({ type: composeType })
+      onCompose({ type: composeType, tracker, source: requestSource })
       return
     }
     // Phone banking's upgrade-at-entry, exactly as its tile does it: the Pro
@@ -180,6 +200,8 @@ export const OutreachComposeDeepLink = ({
         type: composeType,
         listId: preselectedListId,
         recommendedVariant,
+        tracker,
+        source: requestSource,
       })
       return
     }
@@ -196,6 +218,8 @@ export const OutreachComposeDeepLink = ({
       due,
       listId: preselectedListId,
       recommendedVariant,
+      tracker,
+      source: requestSource,
     })
   }, [
     composeType,
@@ -208,6 +232,7 @@ export const OutreachComposeDeepLink = ({
     recommendedVariant,
     onCompose,
     composeSource,
+    requestSource,
     resumesDraft,
   ])
 

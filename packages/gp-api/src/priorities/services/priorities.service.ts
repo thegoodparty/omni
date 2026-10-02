@@ -5,13 +5,11 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 export type CreatePriorityData = {
   title: string
   description: string
-  targetDate?: Date | null
 }
 
 export type UpdatePriorityData = {
   title?: string
   description?: string
-  targetDate?: Date | null
 }
 
 type TxClient = Prisma.TransactionClient
@@ -35,7 +33,6 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
         electedOfficeId,
         title: data.title,
         description: data.description,
-        targetDate: data.targetDate ?? null,
         source,
       },
     })
@@ -48,9 +45,6 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
         ...(patch.title !== undefined ? { title: patch.title } : {}),
         ...(patch.description !== undefined
           ? { description: patch.description }
-          : {}),
-        ...(patch.targetDate !== undefined
-          ? { targetDate: patch.targetDate }
           : {}),
       },
     })

@@ -450,7 +450,7 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     title: 'Plan and Schedule 2 Social Posts for the week',
     description:
       'Plan and schedule two social posts to engage supporters and reach voters.',
-    channel: 'general',
+    channel: 'socialMedia',
     timing: { kind: 'recurring', interval: 'weekly' },
     dayOfWeek: 'friday',
     electionType: 'both',
@@ -468,7 +468,7 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     title: 'Social media update',
     description:
       'Post campaign activities and photos on your channel of choice.',
-    channel: 'general',
+    channel: 'socialMedia',
     timing: { kind: 'recurring', interval: 'weekly' },
     dayOfWeek: 'friday',
     electionType: 'both',
@@ -815,7 +815,7 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     category: 'Communications & Visibility',
     title: 'Create a Get Out The Vote social post',
     description: 'Remind your supporters that it is time to vote.',
-    channel: 'general',
+    channel: 'socialMedia',
     timing: { kind: 'electionDay' },
     electionType: 'both',
     proRequired: false,

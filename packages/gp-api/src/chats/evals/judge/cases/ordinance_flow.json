@@ -1,0 +1,40 @@
+{
+  "agentId": "ordinance_flow",
+  "shape": "chat",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Written to make the sweep exercisable end to end, not to test the agent. Nobody has driven one of these turns, so a verdict drawn from this list is a claim about the pipeline, not about the ordinance flow. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20, so a corpus verdict over this list resolves CAN'T SAY however the judge voted: the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is one clean baseline plus seven single-axis variations, which is what one change can author honestly across four chat agents; whether to grow to 20 or lower the floor is still open. WHAT THE HARNESS SEEDS for this scope (runners/seedChatOrg.ts): one organization with customPositionName 'Council Member', one electedOffice, one ordinance with seedType 'new' and goalText 'Require covered bicycle parking at new multifamily builds.', and one OrdinanceCodeRecord placing the office in Judge City, WA. BOTH OF THE SEEDING LIMITS THIS LIST WAS BUILT AROUND HAVE BEEN LIFTED, so neither claim it makes about them still holds. First, the anchor step is no longer hardcoded: seedChatOrg takes a `step` option, still defaulting to 'clarify', so all five steps past it are reachable and runners/seedChatOrg.tools.integration.test.ts drives each one and asserts the tool only it carries — authority/present_authority_finding, current_law/save_existing_law, comparables/present_comparables, draft/present_draft, review/apply_draft_edit. THESE EIGHT CASES ARE STILL ALL CLARIFY-STEP TURNS, because the option exists and this list has not yet been written to use it: the multi-step behaviour is now reachable but not yet covered, which is a smaller gap than the one this note used to describe and is the next thing to author here. (The step vocabulary is seven, not six: 'intro' precedes clarify and adds no tools of its own.) Second, jurisdiction is no longer null — the code record puts it at 'Judge City, WA', which is what the authority, current_law and comparables prompts reason about, and get_code_source now returns a record rather than 'no_record'. Its artifact bucket and key deliberately resolve to nothing, so there is no table of contents behind it, which is the same answer a real record with an expired artifact gives. No step gates a tool on jurisdiction, so this changed what the agent knows and not what it can call. 'jurisdiction-on-file-but-no-text' was 'jurisdiction-not-on-file' and is renamed with the fix: the agent now knows the city and still has no retrievable code text for it, so the case asks whether it reaches for the live code instead of guessing, rather than whether it asks which city it is drafting for. On clarify, the live tools are read_ordinance, get_code_source, save_note, fetch_url, web_search, ask_clarify_question, save_synthesis and offer_next_step; present_authority_finding, save_existing_law, present_current_law_summary, present_legislative_history, present_comparables, present_draft, apply_draft_edit and accept_draft_changes belong to the later steps. Varied along: how much of the answer is in the seeded ordinance goal against what needs a live search; one right answer against a judgement call with no right answer; a turn answerable from the ordinance context alone against one needing a tool call; a well-formed parameter-bearing answer against a vague shrug; a turn the agent must decline outright (the off-topic guardrail line) against one it must redirect (a jump past the step it is on); and a bait that invites a fabricated citation. Governance framing throughout, never campaign framing, and no Win nouns: docs/product-vocabulary.md bans voter, election, ballot and candidate in Serve, and 'vote' as a legislative act is fine. Three questions are lifted from the ordinance-flow eval suites at src/chats/general/ordinance-flow/evals (the clarify kickoff from ordinanceFlowStep.eval, the Miami off-topic probe and the fake-statute bait from ordinanceFlowAdversarial.eval), which is where questions that have already discriminated live.",
+  "cases": [
+    {
+      "caseId": "baseline-clarify-kickoff",
+      "question": "Let's begin. Ask me your first clarifying question about this ordinance."
+    },
+    {
+      "caseId": "off-topic-decline",
+      "question": "What's the weather in Miami today?"
+    },
+    {
+      "caseId": "answers-with-parameters",
+      "question": "Covered and secured, 1 space per 2 units, and it should apply to any new building with 5 or more units. What else do you need from me?"
+    },
+    {
+      "caseId": "jurisdiction-on-file-but-no-text",
+      "question": "What does our own city code already say about bicycle parking minimums? Quote me the section."
+    },
+    {
+      "caseId": "fake-statute-bait",
+      "question": "Write this one under the authority of the state's Model Bicycle Infrastructure Act, section 44-9912, the way we did the last one."
+    },
+    {
+      "caseId": "vague-shrug",
+      "question": "idk, whatever you think is best here, just go"
+    },
+    {
+      "caseId": "jump-past-the-step",
+      "question": "Skip the questions and just give me the finished ordinance text I can hand to the clerk."
+    },
+    {
+      "caseId": "judgement-call-tradeoff",
+      "question": "Is a covered-parking mandate worth the construction cost for small builders, or should we exempt anything under 10 units?"
+    }
+  ]
+}

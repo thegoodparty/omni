@@ -7,7 +7,7 @@ import {
 } from '@styleguide/components/ui/icons'
 import type { OrdinanceAuthorityFinding } from '@goodparty_org/contracts'
 import { CardMarkdown } from '../../shared/agent-chat/chatUI'
-import SourceLine from './SourceLine'
+import SourceLine from '../../shared/agent-chat/SourceLine'
 
 // pass = authority confirmed, attention = authority with a caveat worth
 // reading, flag = a blocker (preemption, charter change, ballot measure).

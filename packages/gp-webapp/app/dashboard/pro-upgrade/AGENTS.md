@@ -264,6 +264,36 @@ The dashboard **entry banner** ("76% … win", `ProUpgradeBanner`) and the **loc
 rerouting** are in `app/dashboard/components/campaignManager/` and the shared
 `TasksList`, not here. They route into this wizard at `/dashboard/pro-upgrade`.
 
+## Entry attribution (Flow Started)
+
+`Pro Upgrade - Flow Started` is the Pro funnel's first step and the only event
+that says where the candidate came from: `source` (which surface), `channel`
+(`generic`, or the outreach channel whose pitch it was) and `cta` (the button
+label pressed). Funnels group by it, so the step events after it carry none of
+this, and neither does the server-side `Account - Pro Subscription Confirmed`.
+
+- Every link into the wizard is built with `proUpgradeHref({ source, channel, cta })`
+  (`proUpgradeAttribution.ts`), never the bare `PRO_UPGRADE_ENTRY_PATH`. A new
+  entry point adds its value to `ProUpgradeSourceSchema`. The one exception is the
+  outreach walls that render only with `outreach-pro-gating-v2` off
+  (`P2PUpgradeModal`, `ChannelTileGrid`'s locked tiles, the deep link's Pro paths,
+  `DoorKnockingProLockedView`). The flag is at 100%, so they read as `direct` until
+  they are deleted with it.
+- `ProUpgradeEntry` fires the event once, just before its redirect, because the
+  redirect drops the query string. It allowlists `source` and `channel` (anything
+  else reads as `direct` / `generic`) and caps `cta`. An already-Pro candidate
+  routed to success does not fire it.
+- `ProUpgradeModal` takes a `source` prop from whichever surface opens it
+  (`auto_modal` from `ProUpgradePrompt`, `contacts` from the CRM).
+- The embedded `ProUpgradeFlow` fires the same event once on mount, from the
+  `attribution` prop `OutreachGate` builds: the outreach flow's own source, the
+  gate channel, the label of the button that opened the gate, and the tracker
+  task when there is one. See `app/dashboard/outreach/AGENTS.md`'s Analytics
+  section.
+- `InterstitialStep` reports its own view and both choices
+  (`Upgrade Interstitial Viewed` / `Completed` for Join Pro / `Dismissed` for
+  Maybe later) with `channel`.
+
 ## Gotchas
 
 - **Webhook-latency seam (the recurring bug class).** `isPro` flips only via the async

@@ -32,13 +32,14 @@ import type { CreateOutreachSchema } from '../schemas/createOutreachSchema'
 import { EmailService } from 'src/email/email.service'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
-import { OutreachService, type P2pOutreachImageInput } from './outreach.service'
+import { OutreachService } from './outreach.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 
 const mockOutreachCreate = vi.fn()
 const mockOutreachFindMany = vi.fn()
 const mockOutreachUpdateMany = vi.fn()
+const mockOutreachFindFirst = vi.fn()
 const mockOutreachUpdate = vi.fn()
 const mockOutreachFindUniqueOrThrow = vi.fn()
 const mockGetFileBytes = vi.fn()
@@ -103,18 +104,14 @@ describe('OutreachService', () => {
       'Paid for by Friends of Jane. Reply STOP to opt out.',
     phoneListId: 100,
     title: 'P2P Title',
-  }
-
-  const p2pImage: P2pOutreachImageInput = {
-    stream: Buffer.from('fake-image'),
-    filename: 'image.png',
-    mimetype: 'image/png',
+    draft: true,
   }
 
   beforeEach(async () => {
     mockOutreachCreate.mockReset()
     mockOutreachFindMany.mockReset()
     mockOutreachUpdateMany.mockReset()
+    mockOutreachFindFirst.mockReset()
     mockOutreachUpdate.mockReset()
     mockOutreachFindUniqueOrThrow.mockReset()
     mockGetFileBytes.mockReset()
@@ -144,7 +141,7 @@ describe('OutreachService', () => {
       outreach: {
         create: mockOutreachCreate,
         findMany: mockOutreachFindMany,
-        findFirst: vi.fn(),
+        findFirst: mockOutreachFindFirst,
         findFirstOrThrow: vi.fn(),
         findUnique: vi.fn(),
         findUniqueOrThrow: mockOutreachFindUniqueOrThrow,
@@ -226,7 +223,7 @@ describe('OutreachService', () => {
   })
 
   describe('create', () => {
-    it('creates non-P2P outreach via createRecord when p2pImage is not provided', async () => {
+    it('creates non-P2P outreach via createRecord', async () => {
       const imageUrl = 'https://cdn.example.com/image.png'
       const created = {
         id: 1,
@@ -241,7 +238,6 @@ describe('OutreachService', () => {
         mockCampaign,
         baseCreateDto,
         imageUrl,
-        undefined,
       )
 
       expect(mockOutreachCreate).toHaveBeenCalledTimes(1)
@@ -260,13 +256,7 @@ describe('OutreachService', () => {
       const created = { id: 9, ...baseCreateDto, voterFileFilter: null }
       mockOutreachCreate.mockResolvedValue(created)
 
-      await service.create(
-        mockUser,
-        mockCampaign,
-        baseCreateDto,
-        undefined,
-        undefined,
-      )
+      await service.create(mockUser, mockCampaign, baseCreateDto, undefined)
 
       expect(mockMaterializeOutreach).toHaveBeenCalledWith(
         mockCampaign,
@@ -283,7 +273,6 @@ describe('OutreachService', () => {
         mockUser,
         mockCampaign,
         baseCreateDto,
-        undefined,
         undefined,
       )
 
@@ -422,7 +411,7 @@ describe('OutreachService', () => {
       expect(firstOrThrow(scheduled)).toEqual([
         mockCampaign.userId,
         EVENTS.Outreach.CampaignScheduled,
-        { channel: 'sms', outreachId: 44, recipientCount: 250 },
+        { channel: 'sms', medium: 'text', outreachId: 44, recipientCount: 250 },
         undefined,
         // Deterministic messageId: a Segment replay dedups to one event.
         '44:campaign_scheduled',
@@ -433,15 +422,115 @@ describe('OutreachService', () => {
       // The replay path: a Stripe webhook retry loses the pending_payment ->
       // pending race, so finalize returns at the claim. This is what makes the
       // emit exactly-once without its own dedup.
-      // confirmFinalized's findFirst is an un-stubbed vi.fn() returning
-      // undefined, so its poll breaks on the first pass rather than sleeping,
-      // then throws to send the webhook back for a retry. Either way the claim
-      // was lost, so nothing is emitted.
+      // findFirst resolves undefined here, so the watch reports `missing` on
+      // its first pass rather than sleeping, and the claim throws to send the
+      // webhook back for a retry. Either way the claim was lost, so nothing
+      // is emitted.
       mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
 
       await expect(service.finalizeOutreachPurchase(45, 1)).rejects.toThrow()
 
       expect(mockAnalyticsTrack).not.toHaveBeenCalled()
+    })
+
+    // The race behind incident 94: the browser's own complete-checkout-session
+    // call and the Stripe webhook arrive in the same second, the browser wins
+    // the claim, Peerly refuses the candidate's script, and the browser hands
+    // the draft back. What the webhook does with that hand-back decides
+    // whether Stripe is told to redeliver.
+    describe('when the finalize claim is lost', () => {
+      const heldDraft = {
+        id: 46,
+        campaignId: 1,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending,
+        imageUrl: 'https://assets.goodparty.org/outreach/img.png',
+        phoneListId: 100,
+        script: 'hello voter https://bit.ly/abc',
+        identityId: 'ident-1',
+        title: 'P2P Title',
+        name: null,
+        didState: null,
+        didNpaSubset: null,
+        date: new Date('2025-02-01T12:00:00.000Z'),
+        audienceRequest: null,
+        campaignPlanDueDate: null,
+        textCount: 250,
+        billableTextCount: 250,
+        voterFileFilterId: 7,
+        voterFileFilter: null,
+        campaign: { ...mockCampaign, user: mockUser },
+      }
+
+      it('does nothing further once a concurrent finalize stamped a job', async () => {
+        mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+        mockOutreachFindFirst.mockResolvedValue({
+          status: OutreachStatus.pending,
+          projectId: 'job-123',
+        })
+
+        await expect(
+          service.finalizeOutreachPurchase(46, 1),
+        ).resolves.toBeUndefined()
+
+        expect(mockOutreachFindUniqueOrThrow).not.toHaveBeenCalled()
+        expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+      })
+
+      it('takes over a draft the winner handed back and raises the real refusal', async () => {
+        // First claim loses, the watch sees pending_payment, the retake wins.
+        mockOutreachUpdateMany
+          .mockResolvedValueOnce({ count: 0 })
+          .mockResolvedValue({ count: 1 })
+        mockOutreachFindFirst.mockResolvedValue({
+          status: OutreachStatus.pending_payment,
+          projectId: null,
+        })
+        mockOutreachFindUniqueOrThrow.mockResolvedValue(heldDraft)
+        mockGetFileBytes.mockResolvedValue({
+          bytes: Buffer.from('img'),
+          contentType: 'image/png',
+        })
+        mockPeerlyCreateJob.mockRejectedValue(
+          new BadRequestException('Message cannot contain bit.ly links.'),
+        )
+
+        // A content refusal, not a bare retryable failure: the webhook layer
+        // reads BadRequestException as permanent and acknowledges Stripe
+        // instead of collecting redeliveries.
+        await expect(service.finalizeOutreachPurchase(46, 1)).rejects.toThrow(
+          BadRequestException,
+        )
+        expect(mockPeerlyCreateJob).toHaveBeenCalledTimes(1)
+        // The revert must fire: pending -> pending_payment hands the draft
+        // back so the candidate can edit and schedule again. Call 1 = the
+        // claim we lost, call 2 = the takeover claim we won, call 3 = the
+        // revert. Without the third the draft would be stranded at pending
+        // with no Peerly job and nothing able to claim it.
+        expect(mockOutreachUpdateMany).toHaveBeenCalledTimes(3)
+        expect(mockOutreachUpdateMany).toHaveBeenNthCalledWith(3, {
+          where: {
+            id: 46,
+            status: OutreachStatus.pending,
+            projectId: null,
+          },
+          data: { status: OutreachStatus.pending_payment },
+        })
+      })
+
+      it('takes the draft over once, then defers to a redelivery', async () => {
+        mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+        mockOutreachFindFirst.mockResolvedValue({
+          status: OutreachStatus.pending_payment,
+          projectId: null,
+        })
+
+        await expect(service.finalizeOutreachPurchase(46, 1)).rejects.toThrow(
+          /a concurrent finalize failed and the retake lost the claim too/,
+        )
+        expect(mockOutreachUpdateMany).toHaveBeenCalledTimes(2)
+        expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+      })
     })
 
     it('forwards campaignPlanDueDate from the DTO into notifySuccess', async () => {
@@ -455,7 +544,7 @@ describe('OutreachService', () => {
         voterFileFilter: null,
       })
 
-      await service.create(mockUser, mockCampaign, dto, undefined, undefined)
+      await service.create(mockUser, mockCampaign, dto, undefined)
 
       expect(mockNotifySuccess).toHaveBeenCalledWith(
         expect.objectContaining({ campaignPlanDueDate: '2026-04-19' }),
@@ -473,7 +562,7 @@ describe('OutreachService', () => {
         voterFileFilter: null,
       })
 
-      await service.create(mockUser, mockCampaign, dto, undefined, undefined)
+      await service.create(mockUser, mockCampaign, dto, undefined)
 
       const [createArg] = firstOrThrow(mockOutreachCreate.mock.calls)
       expect(createArg.data).toHaveProperty('campaignPlanDueDate', '2026-04-19')
@@ -491,7 +580,7 @@ describe('OutreachService', () => {
         voterFileFilter: null,
       })
 
-      await service.create(mockUser, mockCampaign, dto, undefined, undefined)
+      await service.create(mockUser, mockCampaign, dto, undefined)
 
       expect(mockNotifySuccess).toHaveBeenCalledWith(
         expect.objectContaining({ textCount: 5200, billableTextCount: 200 }),
@@ -507,13 +596,7 @@ describe('OutreachService', () => {
       const created = { id: 1, ...baseCreateDto, voterFileFilter: null }
       mockOutreachCreate.mockResolvedValue(created)
 
-      await service.create(
-        mockUser,
-        mockCampaign,
-        baseCreateDto,
-        undefined,
-        undefined,
-      )
+      await service.create(mockUser, mockCampaign, baseCreateDto, undefined)
 
       expect(mockOutreachCreate).toHaveBeenCalledWith({
         data: {
@@ -524,7 +607,7 @@ describe('OutreachService', () => {
       })
     })
 
-    it('runs P2P flow and createRecord when p2pImage and imageUrl are provided', async () => {
+    it('writes a P2P create as an unpaid draft and calls no vendor', async () => {
       mockTcrFindFirstOrThrow.mockResolvedValue({
         peerlyIdentityId: 'identity-123',
       })
@@ -532,13 +615,10 @@ describe('OutreachService', () => {
         didState: 'CA',
         didNpaSubset: ['415', '510'],
       })
-      mockPeerlyCreateJob.mockResolvedValue('job-id-456')
       const created = {
         id: 2,
         ...p2pCreateDto,
-        projectId: 'job-id-456',
-        script: 'Resolved script text',
-        status: OutreachStatus.pending,
+        status: OutreachStatus.pending_payment,
         didState: 'CA',
         didNpaSubset: ['415', '510'],
         imageUrl: 'https://cdn.example.com/p2p.png',
@@ -551,7 +631,6 @@ describe('OutreachService', () => {
         mockCampaign,
         p2pCreateDto,
         'https://cdn.example.com/p2p.png',
-        p2pImage,
       )
 
       expect(mockTcrFindFirstOrThrow).toHaveBeenCalledWith({
@@ -564,38 +643,28 @@ describe('OutreachService', () => {
           areaCodeFromZipService: expect.anything(),
         }),
       )
-      expect(mockPeerlyCreateJob).toHaveBeenCalledWith(
-        expect.objectContaining({
-          campaignId: mockCampaign.id,
-          listId: p2pCreateDto.phoneListId,
-          identityId: 'identity-123',
-          didState: 'CA',
-          didNpaSubset: ['415', '510'],
-          imageInfo: {
-            fileStream: p2pImage.stream,
-            fileName: p2pImage.filename,
-            mimeType: p2pImage.mimetype,
-            title: p2pCreateDto.title,
-          },
-        }),
-      )
+      expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
       expect(mockOutreachCreate).toHaveBeenCalledWith({
         data: expect.objectContaining({
-          ...p2pCreateDto,
+          campaignId: p2pCreateDto.campaignId,
+          outreachType: OutreachType.p2p,
+          phoneListId: p2pCreateDto.phoneListId,
           organizationSlug: mockCampaign.organizationSlug,
-          projectId: 'job-id-456',
-          status: OutreachStatus.pending,
+          status: OutreachStatus.pending_payment,
+          identityId: 'identity-123',
           didState: 'CA',
           didNpaSubset: ['415', '510'],
           imageUrl: 'https://cdn.example.com/p2p.png',
         }),
         include: { voterFileFilter: true },
       })
-      // P2P materializes the resolved filter into interaction rows.
-      expect(mockMaterializeOutreach).toHaveBeenCalledWith(
-        mockCampaign,
-        created,
-      )
+      // `draft` selects the write path; it is not a column.
+      const [{ data }] = firstOrThrow(mockOutreachCreate.mock.calls)
+      expect(data).not.toHaveProperty('draft')
+      // Notification and materialization belong to the funded send, which
+      // finalizeOutreachPurchase performs — not to writing the draft.
+      expect(mockNotifySuccess).not.toHaveBeenCalled()
+      expect(mockMaterializeOutreach).not.toHaveBeenCalled()
       expect(result).toEqual(created)
     })
 
@@ -611,7 +680,6 @@ describe('OutreachService', () => {
           mockCampaign,
           p2pCreateDto,
           'https://cdn.example.com/p2p.png',
-          p2pImage,
         ),
       ).rejects.toThrow(
         'Campaign is 10DLC-approved for internal testing only; ' +
@@ -632,7 +700,6 @@ describe('OutreachService', () => {
           mockCampaign,
           p2pCreateDto,
           'https://cdn.example.com/p2p.png',
-          p2pImage,
         ),
       ).rejects.toThrow(
         'TCR Compliance Peerly identity ID is required for P2P outreach',
@@ -659,7 +726,6 @@ describe('OutreachService', () => {
           campaignWithLongScript,
           { ...p2pCreateDto, script: 'smsKey' },
           'https://cdn.example.com/p2p.png',
-          p2pImage,
         ),
       ).rejects.toThrow(BadRequestException)
 
@@ -676,7 +742,6 @@ describe('OutreachService', () => {
           mockCampaign,
           p2pCreateDto,
           'https://cdn.example.com/p2p.png',
-          p2pImage,
         ),
       ).rejects.toThrow(BadRequestException)
 
@@ -684,44 +749,13 @@ describe('OutreachService', () => {
       expect(mockOutreachCreate).not.toHaveBeenCalled()
     })
 
-    it('throws BadRequest when P2P is requested without imageUrl or p2pImage', async () => {
+    it('throws BadRequest when P2P is requested without imageUrl', async () => {
       await expect(
-        service.create(
-          mockUser,
-          mockCampaign,
-          p2pCreateDto,
-          undefined,
-          p2pImage,
-        ),
+        service.create(mockUser, mockCampaign, p2pCreateDto, undefined),
       ).rejects.toThrow(BadRequestException)
       await expect(
-        service.create(
-          mockUser,
-          mockCampaign,
-          p2pCreateDto,
-          undefined,
-          p2pImage,
-        ),
+        service.create(mockUser, mockCampaign, p2pCreateDto, undefined),
       ).rejects.toThrow(/required for P2P outreach/)
-
-      await expect(
-        service.create(
-          mockUser,
-          mockCampaign,
-          p2pCreateDto,
-          'https://cdn.example.com/p2p.png',
-          undefined,
-        ),
-      ).rejects.toThrow(BadRequestException)
-      await expect(
-        service.create(
-          mockUser,
-          mockCampaign,
-          p2pCreateDto,
-          'https://cdn.example.com/p2p.png',
-          undefined,
-        ),
-      ).rejects.toThrow(/filename and MIME type|Peerly job setup/)
 
       expect(mockTcrFindFirstOrThrow).not.toHaveBeenCalled()
       expect(mockOutreachCreate).not.toHaveBeenCalled()
@@ -748,7 +782,6 @@ describe('OutreachService', () => {
         mockCampaign,
         dto,
         undefined,
-        undefined,
       )
 
       expect(mockFindVoterFileFilter).toHaveBeenCalledWith(42, 'org-test')
@@ -765,10 +798,10 @@ describe('OutreachService', () => {
       mockFindVoterFileFilter.mockResolvedValue(null)
 
       await expect(
-        service.create(mockUser, mockCampaign, dto, undefined, undefined),
+        service.create(mockUser, mockCampaign, dto, undefined),
       ).rejects.toThrow(NotFoundException)
       await expect(
-        service.create(mockUser, mockCampaign, dto, undefined, undefined),
+        service.create(mockUser, mockCampaign, dto, undefined),
       ).rejects.toThrow(/Voter file filter not found/)
 
       expect(mockFilterAccessCheck).toHaveBeenCalledWith('org-test')
@@ -786,10 +819,10 @@ describe('OutreachService', () => {
       )
 
       await expect(
-        service.create(mockUser, mockCampaign, dto, undefined, undefined),
+        service.create(mockUser, mockCampaign, dto, undefined),
       ).rejects.toThrow(ForbiddenException)
       await expect(
-        service.create(mockUser, mockCampaign, dto, undefined, undefined),
+        service.create(mockUser, mockCampaign, dto, undefined),
       ).rejects.toThrow(/Campaign is not pro/)
 
       expect(mockFindVoterFileFilter).not.toHaveBeenCalled()
@@ -805,7 +838,6 @@ describe('OutreachService', () => {
           mockCampaign,
           p2pCreateDto,
           'https://cdn.example.com/p2p.png',
-          p2pImage,
         ),
       ).rejects.toThrow(BadGatewayException)
 
@@ -815,7 +847,6 @@ describe('OutreachService', () => {
           mockCampaign,
           p2pCreateDto,
           'https://cdn.example.com/p2p.png',
-          p2pImage,
         ),
       ).rejects.toThrow(/step "tcrLookup"/)
     })

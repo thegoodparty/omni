@@ -90,7 +90,7 @@ export const parseControllerFile = (
 
   // The gap that let `mcp` go unwatched, made unshippable. A controller with no
   // ROUTE_MAP entries still lands in CONTROLLER_NAMES, so it satisfies the
-  // coverage tests in deploy/components/alerting/controller-alerts.test.ts by
+  // coverage tests in deploy/components/alerting/route-alerts.test.ts by
   // being listed somewhere — while `controllerAlerts` generates no rule for it
   // and giving it an owner enables nothing. There is no alert to be wrong, and
   // therefore nothing anywhere to report the absence. Failing generation is the

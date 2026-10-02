@@ -60,6 +60,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    Format: `{Product Area} - {Noun} {Past-Tense Verb}`, in Title Case. Prefer the verbs `Viewed` and `Completed`; reach for `Created`, `Updated`, `Dismissed`, `Blocked`, `Errored` only when those do not fit.
 
+   **One ` - ` separator, and no colons.** The product area is the only prefix. Never add a second segment after a colon, and never name an event after the click: `Pro Upgrade - Upgrade Interstitial Dismissed`, not `Pro Upgrade - Interstitial: Click maybe later`. Whatever the button says belongs in a property (`cta`, `choice`) or in the noun, and the verb says what the candidate did to the noun. Many older events use the `Area - Thing: Click X` shape. It is legacy, not a pattern to copy. Do not rename one just to remove its colon, though: a rename is a supersession that splits the event's history (see `event-metadata`), so it happens only when someone asks for it.
+
    ```
    Briefing Assistant - Briefing Viewed
    Briefing Assistant - Agenda Submitted
@@ -68,6 +70,9 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    - Product area is the navigation area the user is in (frontend) or the domain the work belongs to (backend). Follow the app's navigation as the source of truth for the area name rather than inventing one or leaning on a fixed list; the canonical set is still evolving, so match how the product is organized in the nav today.
    - If it is something the user _is_ or _has_ (officeType, isPro, onboardingCompleted), it is a **user property**, not an event — set it with `identifyUser` (frontend, from `@shared/utils/analytics`) or `AnalyticsService.identify` (backend), not a track call.
+   - **Never put the product in the name.** A surface both Win and Serve reach fires one event carrying `product: 'win' | 'serve'`, not two events named `Voter Outreach - X` and `Constituent Outreach - X`. Two names make every cross-product total a union, and missing one undercounts with no error. This is the analytics half of the Win/Serve vocabulary rule in `docs/product-vocabulary.md`: user-facing copy is mode-keyed, analytics event names are not, because the property carries the distinction instead. `npm run check:serve-vocabulary` does not cover analytics constants, so nothing catches this for you.
+   - **Outreach events use the `Outreach -` namespace.** Anything both products fire is `Outreach - {Channel} {Thing}`, with `product:` carrying Win vs Serve. `Voter Outreach -` survives only on the Win-only leftovers that predate this rule; do not add to it.
+   - **Before adding a second event, ask whether a property would do.** One event with a property beats N events: N events can go dark one at a time behind a healthy-looking total, which is exactly how three per-channel completion events were lost for a month. Reuse the property the existing charts already filter on rather than forking a second one that means the same thing.
 
 4. **Register it in the `EVENTS` map.**
 
@@ -247,12 +252,24 @@ If the change you are working on **removes** a `trackEvent` call (a frontend/cli
 
 Adds and removes are **independent**. A removal happening in the same change as an addition does _not_ mean the new event supersedes the removed one — only treat it as a supersession if the human explicitly says so (handled by the add's `supersedes` hint in step 6, not by pairing them automatically).
 
+## Record a new trap
+
+If registering or retiring an event revealed a trap in the governance tooling — the
+provenance walk recording something other than what its column name suggests, a
+retirement that the monitor would read wrong, an event shape the call-site counter cannot
+see — add a one-liner to `packages/runbooks/books/analytics-governance-gotchas.md`: the
+symptom, the mitigation, and a Status of `invariant` or `state · as-of YYYY-MM`. Put the
+full explanation in the owning book (`refresh-event-provenance.md` for the walk and its
+columns, `monitor-analytics-event-health.md` for the status model) and link it rather than
+restating it. Skip if the symptom is already a row.
+
 ## Common mistakes
 
 - Firing a server-truth outcome from the frontend, or double-firing it on both sides — the browser only sees a job _start_; let gp-api emit the completion.
 - Renaming a backend event marked `⚠️ DO NOT MODIFY` — it breaks the HubSpot workflow that triggers on that exact string.
 - `await`-ing a non-critical backend `track` and letting a Segment hiccup block or fail the request — use `void … .catch(() => undefined)` for telemetry.
 - Passing a string literal to `trackEvent` / `track` instead of an `EVENTS` entry — defeats the single source of truth and drifts the catalog.
+- A colon or a `Click X` in the name (`Pitch: Click join`). Name the noun and what happened to it (`Pitch Completed`), and put the button in a property.
 - Minting a new event for what is really a property (one event per outreach channel instead of a `channel` property).
 - Wrong casing — group keys PascalCase, event-name values Title Case, property keys camelCase.
 - Firing a "Viewed" event on every render instead of once in a `useEffect`.

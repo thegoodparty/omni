@@ -153,14 +153,16 @@ const MAP_POINTS_MAX = MAX_RESULTS_PER_PAGE
 // The CSV download is a Postgres COPY stream gp-api cannot post-process, so an
 // `eo-` org's download drops these columns from the projection instead
 // (ENG-10696). Only downloadVoterFilePeople (the separate outreach/task-flow
-// audience download) uses this narrow pair; the CRM download excludes the
-// wider SERVE_EXCLUDED_DOWNLOAD_COLUMNS set below (ENG-10830). Ethnicity
-// joins party here rather than only in the wider set because this endpoint
-// is the other way a Serve list leaves as a file, and #1933's rule is about
-// the list that reaches someone's hands, not about which route built it.
+// audience download) uses this narrow set; the CRM download excludes the
+// wider SERVE_EXCLUDED_DOWNLOAD_COLUMNS set below (ENG-10830). Ethnicity and
+// the L2 voter id join party here rather than only in the wider set because
+// this endpoint is the other way a Serve list leaves as a file, and the rule
+// is about the list that reaches someone's hands, not about which route
+// built it.
 const SERVE_EXCLUDED_VOTER_FILE_COLUMNS: ExcludableVoterColumn[] = [
   'Parties_Description',
   'EthnicGroups_EthnicGroup1Desc',
+  'LALVOTERID',
 ]
 
 // The recommended-list dimensions a Serve org may not filter on. Keep in

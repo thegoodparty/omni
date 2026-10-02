@@ -17,6 +17,10 @@ import {
 import { useUser } from '@shared/hooks/useUser'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { buildTrackingAttrs, EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachChannel,
+  outreachEventProps,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { identifyUser } from '@shared/utils/analytics'
 import { ModalOrDrawer } from '@shared/ui/ModalOrDrawer'
 
@@ -172,11 +176,20 @@ export const RecordVoterContactsModal = ({
       const recipientCount = updatedFields[key]
       if (recipientCount !== undefined && recipientCount > 0) {
         trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
-          recipientCount,
-          price: 0,
-          medium: key,
+          // `outreachChannel` normalizes the form key onto the tracker's
+          // channel vocabulary — `events` is singular in the contract, and
+          // the rest pass through unchanged. `price` is omitted: this modal
+          // records work the candidate did offline and captures no cost, and
+          // a hardcoded 0 would read as a free send on a paid channel.
+          // `campaignName` is omitted for the same reason: this log names no
+          // campaign, and the literal string 'null' it used to send read as one.
+          ...outreachEventProps({
+            channel: outreachChannel(key),
+            isServe: false,
+            recipientCount,
+            sendDate: new Date(),
+          }),
           method: 'manual',
-          campaignName: 'null',
         })
       }
     }

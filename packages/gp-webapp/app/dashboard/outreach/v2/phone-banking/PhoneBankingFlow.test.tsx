@@ -105,7 +105,14 @@ const user = userEvent.setup()
 
 const openFlow = (onSaved?: (outreachId: number, name: string) => void) => {
   const onClose = vi.fn()
-  render(<PhoneBankingFlow open onClose={onClose} onSaved={onSaved} />)
+  render(
+    <PhoneBankingFlow
+      source="outreach_page"
+      open
+      onClose={onClose}
+      onSaved={onSaved}
+    />,
+  )
   return { onClose }
 }
 
@@ -247,7 +254,7 @@ describe('PhoneBankingFlow', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.ListCreated,
       {
-        product: 'phoneBanking',
+        product: 'win',
         filtersApplied: true,
         listSize: createResponse.personCount,
       },
@@ -256,7 +263,11 @@ describe('PhoneBankingFlow', () => {
     await user.click(downloadLink)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.SheetDownloaded,
-      { listId: createResponse.id, contactCount: createResponse.personCount },
+      {
+        product: 'win',
+        listId: createResponse.id,
+        contactCount: createResponse.personCount,
+      },
     )
 
     await user.click(screen.getByRole('button', { name: 'Go to call list' }))
@@ -1103,7 +1114,14 @@ describe('PhoneBankingFlow', () => {
     mockDraft()
     mockSavedLists([{ id: 7, name: 'Supporters' }])
     mockListDetail(5)
-    render(<PhoneBankingFlow open onClose={vi.fn()} preselectedListId={7} />)
+    render(
+      <PhoneBankingFlow
+        source="outreach_page"
+        open
+        onClose={vi.fn()}
+        preselectedListId={7}
+      />,
+    )
     await advanceToWho()
 
     // The picker trigger reads the selected list's name instead of its
@@ -1121,7 +1139,14 @@ describe('PhoneBankingFlow', () => {
   it('ignores a preselected id that matches no saved list', async () => {
     mockDraft()
     mockSavedLists([{ id: 7, name: 'Supporters' }])
-    render(<PhoneBankingFlow open onClose={vi.fn()} preselectedListId={999} />)
+    render(
+      <PhoneBankingFlow
+        source="outreach_page"
+        open
+        onClose={vi.fn()}
+        preselectedListId={999}
+      />,
+    )
     await advanceToWho()
 
     // Prove the lists have resolved (the row renders in the picker) before
@@ -1137,7 +1162,14 @@ describe('PhoneBankingFlow', () => {
     mockDraft()
     mockSavedLists([{ id: 7, name: 'Supporters' }])
     mockListDetail(5)
-    render(<PhoneBankingFlow open onClose={vi.fn()} preselectedListId={7} />)
+    render(
+      <PhoneBankingFlow
+        source="outreach_page"
+        open
+        onClose={vi.fn()}
+        preselectedListId={7}
+      />,
+    )
     await advanceToWho()
     expect(
       await screen.findByText(/Reach 5 voters by phone banking/),
@@ -1183,6 +1215,7 @@ describe('PhoneBankingFlow with the serve surface', () => {
     const onClose = vi.fn()
     render(
       <PhoneBankingFlow
+        source="outreach_page"
         open
         onClose={onClose}
         surface={SERVE_PHONE_BANKING_SURFACE}

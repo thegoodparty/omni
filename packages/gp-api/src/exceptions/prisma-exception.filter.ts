@@ -35,7 +35,7 @@ const isPrismaError = <T>(exception: unknown, name: string): exception is T =>
 // could not serve this right now" as the same class of error, and only the
 // numeric code tells them apart. Guessing wrong toward 4xx is the expensive
 // direction, because it is the silent one: EXCLUDED_STATUS_CODES in
-// deploy/components/alerting/controller-alerts.ts drops 400s on purpose, so a
+// deploy/components/alerting/route-alerts.ts drops 400s on purpose, so a
 // server fault dressed as a bad request pages nobody, appears in no 5xx rate,
 // and tells the caller not to bother retrying something a retry would fix.
 //

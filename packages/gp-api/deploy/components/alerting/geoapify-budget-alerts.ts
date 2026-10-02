@@ -12,8 +12,8 @@ import { doorKnockingCredits } from './door-knocking-spend'
  *
  * 50,000 is the TDD-sized plan (the $179/month tier), and the figure the
  * existing `door-knocking-route-planner-spend-ceiling` alert already reasons
- * against ("most of Geoapify's ~50k daily pool"), so the two agree. What it is
- * NOT is the free tier's 3,000/day — see gp-api `docs/door-knocking.md`
+ * against (its 10,000 is a fifth of this pool in six hours), so the two agree.
+ * What it is NOT is the free tier's 3,000/day — see gp-api `docs/door-knocking.md`
  * § Procurement, which records the account's provenance as an open question.
  * If we are still on a free key this constant is 16x too high and no tier can
  * fire before the vendor starts refusing routes, which is the failure this
@@ -70,20 +70,19 @@ const DAY_SECONDS = 86_400
 const ACTION: Record<(typeof TIERS)[number], string> = {
   60: 'Nothing is broken yet — this is the tier that asks a question. Is this real pilot growth, or one organization looping? If it is growth, the plan is the thing to change, and changing it means changing GEOAPIFY_DAILY_CREDIT_POOL in deploy/components/alerting/geoapify-budget-alerts.ts to match. If it is a loop, you have most of a day to catch it.',
   80: 'Decide now rather than watching. At this share of the pool the account plausibly runs dry before the window rolls, and the remedy with the longest lead time — upgrading the Geoapify plan — is the one that stops being available once it does.',
-  90: 'Act. Pull the `native-door-knocking` flag from the heaviest organization, or upgrade the plan. There is no global cap in the code (deliberately — one org must not be able to fail another org’s knock), so nothing but this page is standing between the remaining headroom and an exhausted account.',
-  95: 'Treat as an outage in waiting. Once Geoapify refuses, `planRoute` throws and every list creation across every organization answers 502 “Route optimization failed” — door knocking stops working for customers who spent nothing. Pull the flag from the heaviest organizations now and upgrade behind it.',
+  90: 'Act. Upgrade the Geoapify plan, or reach the heaviest organization and get it to pause list-building until the window rolls. There is no global cap in the code (deliberately — one org must not be able to fail another org’s knock), so nothing but this page is standing between the remaining headroom and an exhausted account.',
+  95: 'Treat as an outage in waiting. Once Geoapify refuses, `planRoute` throws and every list creation across every organization answers 502 “Route optimization failed” — door knocking stops working for customers who spent nothing. Throttle the heaviest organizations now and upgrade behind it.',
 }
 
 /**
  * Tiered warnings on the whole-account Geoapify allowance.
  *
  * The gap these fill, and it is now the whole gap: nothing in the code
- * measures credits against what the account can afford. A per-organization
- * stop budget used to sit here — 500 waypoints per rolling 24h — and was
- * removed, so the only per-account limit left is five campaigns a day per
- * organization, which paces list-building rather than bounding spend and
- * cannot: five two-stop turfs and five 150-stop turfs are the same five
- * campaigns and differ by a factor of thirty in credits. The existing
+ * measures credits against what the account can afford, and nothing refuses a
+ * route however much one organization has spent. Two per-organization limits
+ * used to sit here and both are gone — a 500-waypoint daily stop budget, and
+ * five campaigns a day (removed 2026-09-24, because creating a list stopped
+ * costing anything). The existing
  * `door-knocking-route-planner-spend-ceiling` catches a fast burn (>10,000
  * credits / 6h) without knowing the budget. So these tiers are the only thing
  * that answers "how close are we to the wall?", and the wall is hard:
@@ -92,10 +91,10 @@ const ACTION: Record<(typeof TIERS)[number], string> = {
  * it.
  *
  * That is also why measuring the pool is the right shape rather than summing
- * per-org allowances. The campaign limit is admin-raisable per organization
- * (`override_door_knocking_campaign_limit`, capped at 30), and an override
- * buys no new headroom — it enlarges one org's share of this same fixed pool,
- * and only a measurement of the pool notices.
+ * per-org allowances: there are none left to sum, and one organization is now
+ * free to take a quarter of the day's pool in an evening without anything in
+ * the product noticing — which is what happened on 2026-10-01 (incident 99),
+ * legitimately, from one press of Create campaign that made ~100 lists.
  *
  * A runaway trips the 6h ceiling first and these later, which is the intended
  * ordering — that one measures rate, these measure budget.
@@ -144,7 +143,7 @@ export const geoapifyBudgetAlerts: Alert[] = TIERS.map((percent) => ({
       'en-US',
     )} credits) in the last 24 hours, across all organizations.`,
     ACTION[percent],
-    '*View in Grafana* shows the recorded credit total that fired, not the spend itself. Run this in Explore on the logs datasource to find the source, grouped by organization: `sum by (organizationSlug) (sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))`. No per-org spend cap exists to compare that against, so read it against the campaign limit instead: a full-sized 150-stop campaign is about 210 credits, so an organization far above five of those (~1,000) has either been granted an override — check `override_door_knocking_campaign_limit` on the org — or is looping. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
+    '*View in Grafana* shows the recorded credit total that fired, not the spend itself. Run this in Explore on the logs datasource to find the source, grouped by organization: `sum by (organizationSlug) (sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))`. No per-org cap exists to compare that against — every one of them has been removed — so read the shape of the spend instead: one spend line per turfId with ids climbing is a campaign preparing a canvass (~145 credits a list, so ~14,000 for a 100-list campaign), while the same turfId billed twice, or buys arriving faster than a person can press a button, is a loop. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
     `The allowance is a hand-maintained constant (GEOAPIFY_DAILY_CREDIT_POOL, currently ${GEOAPIFY_DAILY_CREDIT_POOL.toLocaleString(
       'en-US',
     )}), not something gp-api can read. If all four tiers fired at once, suspect the constant before the spend — a free-tier key is 3,000/day.`,

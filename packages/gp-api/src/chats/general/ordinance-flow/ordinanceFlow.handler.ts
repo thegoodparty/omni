@@ -22,7 +22,6 @@ import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.servi
 import {
   buildAcceptDraftChangesTool,
   buildApplyDraftEditTool,
-  buildAskClarifyQuestionTool,
   buildBraveSearchTool,
   buildFetchUrlTool,
   buildGetCodeSourceTool,
@@ -38,6 +37,7 @@ import {
   buildSaveSynthesisTool,
   type OrdinanceToolDeps,
 } from './tools/ordinanceFlowTools'
+import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import { buildOrdinanceFlowSystemPrompt } from './services/ordinanceFlowPrompt'
 
 // Sensitive scope: the ordinance record and its research (constituent-derived

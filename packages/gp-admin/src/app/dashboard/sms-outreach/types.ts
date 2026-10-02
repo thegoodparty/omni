@@ -8,6 +8,7 @@ export const STATUS_LABELS: Record<SmsApprovalStatus, string> = {
   denied: 'Denied',
   canvass_requested: 'Send booked',
   peerly_approved: 'Vendor approved',
+  sent: 'Sent',
   canceled: 'Canceled',
 }
 
@@ -19,6 +20,7 @@ export const STATUS_COLORS: Record<
   denied: 'red',
   canvass_requested: 'blue',
   peerly_approved: 'green',
+  sent: 'green',
   canceled: 'gray',
 }
 
@@ -28,13 +30,16 @@ export const STANDARDS_RULE_LABELS: Record<SmsStandardsRule, string> = {
   candidate_name: "Message doesn't include the candidate's name",
   paid_for_by: 'Missing "Paid for by <committee>" disclaimer',
   length: 'Message exceeds the vendor length cap',
+  link_shortener:
+    'Contains a shortened link (e.g. bit.ly), which the vendor rejects',
 }
 
-export type QueueTab = 'awaiting' | 'booked' | 'denied' | 'canceled'
+export type QueueTab = 'awaiting' | 'booked' | 'sent' | 'denied' | 'canceled'
 
 export const TAB_STATUSES: Record<QueueTab, SmsApprovalStatus[]> = {
   awaiting: ['awaiting_review'],
   booked: ['canvass_requested', 'peerly_approved'],
+  sent: ['sent'],
   denied: ['denied'],
   canceled: ['canceled'],
 }

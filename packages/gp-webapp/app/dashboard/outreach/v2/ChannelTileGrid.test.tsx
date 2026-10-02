@@ -56,11 +56,6 @@ vi.mock('@shared/hooks/useElectedOffice', () => ({
   useElectedOffice: () => mockElectedOffice,
 }))
 
-const nativeDoorKnockingFlag = { ready: true, enabled: true }
-vi.mock('@shared/experiments/nativeDoorKnockingFlag', () => ({
-  useNativeDoorKnockingFlag: () => nativeDoorKnockingFlag,
-}))
-
 const renderGrid = (
   overrides: Partial<{
     onCreateSocial: () => void
@@ -264,31 +259,13 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
     expect(packFetches.count).toBe(0)
   })
 
-  // The control arm lands on the eCanvasser dashboard, which has no map in it.
-  // Tens of megabytes of district for a surface they will never be shown is a
-  // worse deal than the wait this prefetch exists to shorten.
-  it('does not download a district for the arm that never sees the map', async () => {
-    nativeDoorKnockingFlag.enabled = false
-    try {
-      renderGrid()
-
-      await userEvent.click(screen.getByText('Door knocking'))
-
-      expect(packFetches.count).toBe(0)
-      // Still navigates: the gate on the far side decides which surface.
-      expect(mockRouterPush).toHaveBeenCalled()
-    } finally {
-      nativeDoorKnockingFlag.enabled = true
-    }
-  })
-
   it('carries the preselected list as ?listId=', async () => {
     renderGrid({ preselectedListId: 42 })
 
     await userEvent.click(screen.getByText('Door knocking'))
 
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1&listId=42',
+      '/dashboard/door-knocking?create=1&source=outreach_page&listId=42',
     )
   })
 
@@ -298,7 +275,7 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
     await userEvent.click(screen.getByText('Door knocking'))
 
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1',
+      '/dashboard/door-knocking?create=1&source=outreach_page',
     )
   })
 
@@ -322,7 +299,7 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
 
     await userEvent.click(screen.getByText('Door knocking'))
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1&listId=42',
+      '/dashboard/door-knocking?create=1&source=outreach_page&listId=42',
     )
 
     // Phone banking is the one remaining tile that APPLIES a preselect, so
@@ -470,7 +447,7 @@ describe('ChannelTileGrid — the preselect reaches every audience-taking tile',
     await userEvent.click(screen.getByText('Door knocking'))
 
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1&recommended=persuadeAffinity',
+      '/dashboard/door-knocking?create=1&source=outreach_page&recommended=persuadeAffinity',
     )
   })
 })
@@ -562,7 +539,7 @@ describe('ChannelTileGrid — flag on: the tiles open the gated flows', () => {
     await userEvent.click(screen.getByText('Door knocking'))
 
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1',
+      '/dashboard/door-knocking?create=1&source=outreach_page',
     )
     expect(
       screen.queryByText('Get Pro voter data and tools'),

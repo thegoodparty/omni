@@ -16,6 +16,7 @@ import {
 } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type {
   LngLat,
+  RoutePathGeometry,
   RoutePlannerPlan,
 } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type { GeoapifyApi } from '@/vendors/geoapify/observability/geoapify.metrics'
@@ -57,8 +58,9 @@ import { recordWaypointSpend } from '../utils/waypointSpend.util'
 // the number of stops a savable list can hold, rather than carrying a second
 // 150 that can drift from this one.
 export const MAX_STOPS = 150
-// The vendor call happens inside the transaction by design, so the timeout
-// must absorb it.
+// The route purchase, when a create is handed a travel mode, happens inside
+// the transaction by design, so the timeout must absorb that vendor call. The
+// people-db scan does not run in there any more — see `create`.
 const CREATE_TX_TIMEOUT_MS = 120_000
 
 // What one create cost, kept split by API until the metric records it that
@@ -246,19 +248,74 @@ export class DoorKnockingCreateService extends createPrismaBase(
     ])
     const excludePersonIds = [...new Set([...doNotKnockIds, ...notAVoterIds])]
 
+    // Read outside the transaction for the same reason the status reads above
+    // are: the audience resolution needs it, and that resolution and the
+    // people-db scan it feeds are what a create actually spends its time on.
+    const filter = await this.client.voterFileFilter.findFirst({
+      where: {
+        id: input.voterFileFilterId,
+        organizationSlug: organization.slug,
+      },
+      // activityConditions is a relation, so it has to be pulled in
+      // explicitly — without it the resolution below sees a list with no
+      // conditions and routes the unfiltered roster.
+      include: { activityConditions: true },
+    })
+    if (!filter) {
+      throw new NotFoundException('Voter file filter not found')
+    }
+
+    // The list's own saved filters, resolved exactly as the CRM resolves them.
+    // Anything less and the list's activity conditions, support-status,
+    // contacts-made and voter-likelihood overrides stop applying the moment it
+    // is routed — the roster the candidate previewed in Contacts and the
+    // roster they walk would quietly disagree.
+    const resolved = await this.contacts.resolveSavedFilterForQuery(
+      organization,
+      filter,
+    )
+    if (resolved.empty) {
+      // Nobody survives the list's own filters, so there is nothing to route —
+      // and nothing about the polygon, which has not been looked at yet, could
+      // change that. Raised before paying for a people-db scan that can only
+      // come back empty.
+      throw new BadRequestException(emptyAudienceMessage(filter, isServe))
+    }
+
+    // The doors, resolved BEFORE the transaction opens rather than inside it.
+    // This is a Databricks statement over the voter file, not a Postgres
+    // query: measured at 3.4s of a 3.5s transaction, against ~60ms for every
+    // write the create makes. A transaction waiting on it holds one of the
+    // instance's 20 connections (DB_CONN_LIMIT) doing nothing, so twenty saves
+    // in flight together pinned the entire pool and the next one failed with
+    // "The database was briefly unavailable" — Prisma allows a transaction two
+    // seconds to acquire a connection and then gives up (P2028). A campaign
+    // saved as one batch of lists passes twenty easily, and holding the
+    // connection across this call was the only thing that made it possible.
+    const { people } = await this.peopleApi.evaluate({
+      districtId,
+      bbox: polygonBbox(input.geoPoly),
+      filters: resolved.filters,
+      idOverrides: resolved.idOverrides,
+      contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+      excludePersonIds,
+    })
+    const stops = this.buildStops(people, input.geoPoly, isServe)
+
     const turfId = await this.client.$transaction(
       async (tx) => {
-        const filter = await tx.voterFileFilter.findFirst({
-          where: {
-            id: input.voterFileFilterId,
-            organizationSlug: organization.slug,
-          },
-          // activityConditions is a relation, so it has to be pulled in
-          // explicitly — without it the resolution below sees a list with no
-          // conditions and routes the unfiltered roster.
-          include: { activityConditions: true },
+        // The filter was read before the people-db scan, and a delete can land
+        // in that window: `assertNotLocked` only refuses a filter already used
+        // for outreach, and this create stamps that further down. Re-read it
+        // here, where the turf insert that follows takes a key-share lock on
+        // the row and holds the gap shut, so a racing delete gets "Voter file
+        // filter not found" rather than a foreign-key violation surfacing as a
+        // 500.
+        const filterStillExists = await tx.voterFileFilter.findFirst({
+          where: { id: filter.id, organizationSlug: organization.slug },
+          select: { id: true },
         })
-        if (!filter) {
+        if (!filterStillExists) {
           throw new NotFoundException('Voter file filter not found')
         }
 
@@ -325,34 +382,6 @@ export class DoorKnockingCreateService extends createPrismaBase(
             purpose: input.purpose,
           },
         })
-
-        // The list's own saved filters, resolved exactly as the CRM resolves
-        // them. Anything less and the list's activity conditions,
-        // support-status, contacts-made and voter-likelihood overrides stop
-        // applying the moment it is routed — the roster the candidate
-        // previewed in Contacts and the roster they walk would quietly
-        // disagree.
-        const resolved = await this.contacts.resolveSavedFilterForQuery(
-          organization,
-          filter,
-        )
-        if (resolved.empty) {
-          // Nobody survives the list's own filters, so there is nothing to
-          // route — and nothing about the polygon, which has not been looked
-          // at yet, could change that. Raised before paying for a people-db
-          // scan that can only come back empty.
-          throw new BadRequestException(emptyAudienceMessage(filter, isServe))
-        }
-
-        const { people } = await this.peopleApi.evaluate({
-          districtId,
-          bbox: polygonBbox(input.geoPoly),
-          filters: resolved.filters,
-          idOverrides: resolved.idOverrides,
-          contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
-          excludePersonIds,
-        })
-        const stops = this.buildStops(people, input.geoPoly, isServe)
 
         // A travel mode is what turns a create into a purchase. Sent, the
         // route is bought here exactly as it always was. Omitted, the turf
@@ -847,27 +876,117 @@ export class DoorKnockingCreateService extends createPrismaBase(
       throw error
     }
 
+    // An open walk is planned as a closed one (see orderFaces) and opened at
+    // its longest leg, so it starts and ends at the turf's edges rather than
+    // being pinned to finish in the middle. The vendor reports the leg into
+    // each face; the leg that closes the tour is what its total has left over.
+    let faceOrder = plan.orderedJobIds.map(Number)
+    let faceLegSeconds = plan.legSeconds
+    let faceLegMeters = plan.legMeters
+    if (!request.loop && faceOrder.length > 1) {
+      const sum = (values: number[]) =>
+        values.reduce((total, value) => total + value, 0)
+      const closing = (legs: number[], total: number) =>
+        total - sum(legs) + (legs[0] ?? 0)
+      const cycleMeters = [
+        closing(plan.legMeters, plan.totalMeters),
+        ...plan.legMeters.slice(1),
+      ]
+      const cycleSeconds = [
+        closing(plan.legSeconds, plan.totalSeconds),
+        ...plan.legSeconds.slice(1),
+      ]
+      const cut = cycleMeters.reduce(
+        (longest, meters, position) =>
+          meters > cycleMeters[longest]! ? position : longest,
+        0,
+      )
+      const rotate = <Value>(values: Value[]) => [
+        ...values.slice(cut),
+        ...values.slice(0, cut),
+      ]
+      faceOrder = rotate(faceOrder)
+      faceLegSeconds = [0, ...rotate(cycleSeconds).slice(1)]
+      faceLegMeters = [0, ...rotate(cycleMeters).slice(1)]
+    }
+
     const sequenced = sequenceBlockFaces({
       stops,
       faces,
-      faceOrder: plan.orderedJobIds.map(Number),
-      faceLegSeconds: plan.legSeconds,
-      faceLegMeters: plan.legMeters,
+      faceOrder,
+      faceLegSeconds,
+      faceLegMeters,
       mode: request.mode,
       loop: request.loop,
+    })
+
+    // Straight legs between consecutive doors only hold along one side of one
+    // street. A sparse list has a face per door, so every leg crosses the
+    // neighbourhood, and drawn straight they cut through blocks and water. The
+    // Routing API walks the final door order on the real streets and measures
+    // each leg between the doors actually left and entered, at 1 credit per
+    // door beside the planner's 10 per face.
+    const walked = sequenced.stopIndexes.map(
+      (stopIndex) => [stops[stopIndex]!.lng, stops[stopIndex]!.lat] as LngLat,
+    )
+    if (request.loop && walked.length > 1) walked.push(walked[0]!)
+    const path = await this.geoapify.routeThrough({
+      mode: request.mode,
+      waypoints: walked,
     })
 
     // Totals are re-derived rather than passed through: the vendor's are for
     // its own tour of representatives, and the per-leg numbers on the walk
     // sheet should add up to the total printed above them.
+    if (!path.legs) {
+      return {
+        ...plan,
+        orderedJobIds: sequenced.stopIndexes.map(String),
+        legSeconds: sequenced.legSeconds,
+        legMeters: sequenced.legMeters,
+        totalSeconds: sequenced.totalSeconds,
+        totalMeters: sequenced.totalMeters,
+        routingWaypoints: path.billedWaypoints,
+        pathGeometry: path.geometry,
+      }
+    }
+    // Next-door neighbours on one side of one street keep the straight
+    // sidewalk leg. Routing snaps each door to its nearest road, and a house
+    // whose point sits nearer the street behind it would otherwise be reached
+    // by walking around the block.
+    const legs = path.legs.map((leg, index) =>
+      sequenced.continuesFace[index + 1]
+        ? {
+            seconds: sequenced.legSeconds[index + 1]!,
+            meters: sequenced.legMeters[index + 1]!,
+          }
+        : leg,
+    )
+    const geometry: RoutePathGeometry | null =
+      path.geometry?.type === 'MultiLineString' &&
+      path.geometry.coordinates.length === legs.length
+        ? {
+            type: 'MultiLineString',
+            coordinates: path.geometry.coordinates.map((line, index) =>
+              sequenced.continuesFace[index + 1]
+                ? [walked[index]!, walked[index + 1]!]
+                : line,
+            ),
+          }
+        : path.geometry
     return {
       ...plan,
       orderedJobIds: sequenced.stopIndexes.map(String),
-      legSeconds: sequenced.legSeconds,
-      legMeters: sequenced.legMeters,
-      totalSeconds: sequenced.totalSeconds,
-      totalMeters: sequenced.totalMeters,
-      pathGeometry: null,
+      legSeconds: sequenced.stopIndexes.map((_, position) =>
+        position === 0 ? 0 : legs[position - 1]!.seconds,
+      ),
+      legMeters: sequenced.stopIndexes.map((_, position) =>
+        position === 0 ? 0 : legs[position - 1]!.meters,
+      ),
+      totalSeconds: legs.reduce((sum, leg) => sum + leg.seconds, 0),
+      totalMeters: legs.reduce((sum, leg) => sum + leg.meters, 0),
+      routingWaypoints: path.billedWaypoints,
+      pathGeometry: geometry,
     }
   }
 
@@ -937,8 +1056,11 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // Anchors are deterministic, never random, and are placed on face
     // representatives for the same reasons they were placed on stops. Loop:
     // start = end at the first by address (a closed tour is the same cycle
-    // from anywhere, so the anchor is cost-free). Open: end-only anchor,
-    // letting the vendor pick the best start.
+    // from anywhere, so the anchor is cost-free). Open: start = end on the
+    // face nearest the centroid, and planStops opens that closed tour at its
+    // longest leg. An end-only anchor there pinned every open walk to finish
+    // in the middle of the turf: 1,400m against a best of 968m on a six-door
+    // Cheyenne turf, where the closed-then-opened tour walks 1,066m.
     //
     // The open anchor sits on the face NEAREST the centroid, and the one thing
     // it must not be is the farthest — which is what it used to be, chosen so
@@ -951,10 +1073,8 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // answer it marks EVERY job unassigned, so the one broken address is
     // indistinguishable from a turf that cannot be walked at all.
     //
-    // Anchoring at the centre costs almost nothing and buys the diagnosis. On
-    // an 8-face Lincoln Park turf: 2366s/2658m from the far edge against
-    // 2403s/2698m from the centre, 1.6% slower. With one unroutable stop added,
-    // the far-edge anchor returns no plan and all 9 jobs unassigned, while the
+    // Anchoring at the centre buys the diagnosis. On an 8-face Lincoln Park
+    // turf with one unroutable stop added, the far-edge anchor returns no plan and all 9 jobs unassigned, while the
     // central anchor returns the other 8 planned and `unassigned_jobs: [8]` —
     // the single address to name, which is what makes the 400 below possible.
     const anchorStops = representatives.map((stopIndex) => stops[stopIndex]!)
@@ -982,7 +1102,8 @@ export class DoorKnockingCreateService extends createPrismaBase(
           (s.lat - centroidLat) ** 2 + (s.lng - centroidLng) ** 2
         return d(stop) < d(anchorStops[best]!) ? index : best
       }, 0)
-      agent = { end_location: jobs[anchorIndex]!.location }
+      const anchor = jobs[anchorIndex]!.location
+      agent = { start_location: anchor, end_location: anchor }
     }
 
     // Checked here rather than on the stop list, because these are the
@@ -1005,10 +1126,8 @@ export class DoorKnockingCreateService extends createPrismaBase(
       agent,
       jobs,
       // The plan's polyline would thread the face representatives, not the
-      // doors, so it is not worth a second billed call. Consumers fall back to
-      // straight legs between consecutive stops — and under a serpentine order
-      // those consecutive stops are next-door neighbours, so the straight line
-      // IS the sidewalk.
+      // doors. planStops buys the path through the doors instead, once their
+      // order is known.
       fetchGeometry: false,
     })
   }

@@ -63,17 +63,20 @@ type LogSignal = {
    */
   pipeline: string[]
   /**
-   * The label to split the count by, for a signal whose alert pages per
-   * dimension. Omitted for a signal that is one number.
+   * NOT A FIELD, AND THAT IS THE POINT. There is no way to split a signal by a
+   * dimension here, because Grafana's recording-rule writer will not accept
+   * one: a Loki query returning one series per label set is `timeseries-multi`
+   * and the writer rejects it — silently, since a rule that writes nothing
+   * looks exactly like a rule with nothing to write. Two route recording rules
+   * added on 2026-09-28 never wrote a datapoint and took 168 alert rules blind
+   * with them. See the header of `provisioned-alerts.ts`.
    *
-   * `| keep` is what makes this safe rather than merely correct: structured
-   * metadata carries `requestId`, `trace_id` and `span_id`, all unique per
-   * request, and they are part of the identity of the vector `count_over_time`
-   * counts. Without it the inner vector is about one series per log line and
-   * the query fails outright past 500 series. With it, it is bounded by the
-   * number of distinct values of this one label.
+   * So every signal below aggregates with a bare `sum(...)` to ONE unlabelled
+   * series. An alert that needs a dimension preserved has to read Loki itself,
+   * and the way to make that affordable is main's own trick: set its fetch
+   * window equal to its evaluation interval, which puts it at the 1x floor.
+   * `public-person-profiles-error-ratio` is the one rule in that position.
    */
-  groupBy?: string
 }
 
 const STREAM = '{service_name="gp-api", deployment_environment_name="$ENV"}'
@@ -203,48 +206,24 @@ const SIGNALS: LogSignal[] = [
       '| response_statusCode != 404',
     ],
   },
-  {
-    slug: 'public-person-profile-errors',
-    name: 'gp-api public person profile failures per minute',
-    metric: 'gp_api:public_person_profile_errors:count1m',
-    // A null status is the absence of one, so `>= 500` misses the worst answer
-    // a route can give: a request the gateway killed before it answered.
-    pipeline: [
-      '|= "Request completed"',
-      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
-      '| ( response_statusCode >= 500 ) or ( response_statusCode = "" )',
-    ],
-    groupBy: 'request_endpoint',
-  },
-  {
-    slug: 'public-person-profile-lookups-resolvable',
-    name: 'gp-api public person profile lookups that should resolve, per minute',
-    metric: 'gp_api:public_person_profile_lookups_resolvable:count1m',
-    // A killed request counts as traffic as well as as a failure. Failures
-    // that are not also traffic push the ratio above 100% during a pure
-    // timeout wave, and leave the volume floor guarding a smaller population
-    // than the ratio it qualifies.
-    pipeline: [
-      '|= "Request completed"',
-      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
-      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
-    ],
-    groupBy: 'request_endpoint',
-  },
 ]
 
-const signalExpr = (signal: LogSignal) => {
-  const aggregation = signal.groupBy ? `sum by (${signal.groupBy})` : 'sum'
-  const keep = signal.groupBy ? [`| keep ${signal.groupBy}`] : []
-
-  return [
-    `${aggregation} (count_over_time(`,
+/**
+ * `or vector(0)` IS LOAD-BEARING, for the reason the door-knocking rule gives:
+ * without it a minute whose logs match nothing writes no sample at all, and
+ * `recorded-metric-not-writing` cannot then tell a quiet signal from a rule
+ * that has stopped writing. Every one of these is quiet most of the time, so
+ * that is nearly every interval. The explicit zero also makes a
+ * `threshold: 0` alert read 0 rather than no data, which is the same
+ * non-firing answer by a route somebody can see.
+ */
+const signalExpr = (signal: LogSignal) =>
+  [
+    'sum(count_over_time(',
     STREAM,
     ...signal.pipeline,
-    ...keep,
-    `[${SIGNAL_WINDOW}]))`,
+    `[${SIGNAL_WINDOW}])) or vector(0)`,
   ].join(' ')
-}
 
 const byMetric = new Map(SIGNALS.map((signal) => [signal.metric, signal]))
 
@@ -281,18 +260,3 @@ export const logSignalExpr = (metric: string) => signalExpr(signal(metric))
 /** Total count of a signal over `window`. */
 export const logSignalTotal = (metric: string, window: string) =>
   `sum_over_time(${metric}{environment="$ENV"}[${window}])`
-
-/**
- * Total count of a signal over `window`, split by the label it is grouped by.
- *
- * Grafana turns each returned series into its own alert instance, so this is
- * what keeps a per-route alert per-route: a route that is entirely broken is
- * judged on its own numbers rather than averaged out by a busier sibling that
- * is fine.
- */
-export const logSignalTotalBy = (metric: string, window: string) => {
-  const { groupBy } = signal(metric)
-  if (!groupBy) throw new Error(`${metric} is not grouped`)
-
-  return `sum by (${groupBy}) (${logSignalTotal(metric, window)})`
-}

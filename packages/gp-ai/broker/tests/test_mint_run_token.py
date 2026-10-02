@@ -1,13 +1,17 @@
 import logging
+import os
 import time
 import uuid
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from broker.auth import hash_service_token
 from broker.dynamodb_client import (
+    JUDGE_RUN_ID_MAX_LENGTH,
+    JUDGE_RUN_ID_PREFIX,
     InputFileRef,
     ScopeTicket,
     ScopeTicketStore,
@@ -654,3 +658,265 @@ class TestFailureLogging:
             for r in caplog.records
             if r.name == self.LOGGER_NAME and r.levelno == logging.INFO
         ), f"missing success info log with clerk_user=absent; got: {[r.message for r in caplog.records]}"
+
+
+class TestMintJudgeFields:
+    """The enforcement half of the judge override contract.
+
+    The dispatch Lambda mints the allowlist; this endpoint is what turns it
+    into a ScopeTicket the broker's `/experiment/manifest` will honor. Split
+    across two PRs, this half did not exist and pydantic silently dropped what
+    dispatch sent — the ticket carried no override and every judge run read the
+    published bytes.
+
+    A SERVICE_TOKEN holder is authenticated, not trusted, so every judge
+    invariant dispatch establishes is re-established here.
+    """
+
+    MANIFEST_KEY = "_judge/voter_targeting/abc123def456/manifest.json"
+    INSTRUCTION_KEY = "_judge/voter_targeting/abc123def456/instruction.md"
+    JUDGE_RUN_ID = "_judge-run-001"
+    PRODUCT_RUN_ID = "0199b4c0-7b1e-7000-8000-0123456789ab"
+
+    @pytest.fixture(autouse=True)
+    def _dev_environment(self, monkeypatch):
+        """An override is dev-only at the broker as well as at dispatch."""
+        monkeypatch.setenv("ENVIRONMENT", "dev")
+
+    def _override(self, **overrides) -> dict:
+        base = {
+            "manifest_key": self.MANIFEST_KEY,
+            "instruction_key": self.INSTRUCTION_KEY,
+            "manifest_version_id": "override-m-1",
+            "instruction_version_id": "override-i-1",
+        }
+        base.update(overrides)
+        return base
+
+    def _post(self, store, **payload_overrides):
+        app = _create_test_app(store=store)
+        return TestClient(app).post(
+            "/internal/mint-run-token",
+            json=_mint_payload(**payload_overrides),
+            headers={"Authorization": f"Bearer {SERVICE_TOKEN}"},
+        )
+
+    def _judge(self, **payload_overrides):
+        return {"run_id": self.JUDGE_RUN_ID, "is_eval": True, **payload_overrides}
+
+    def test_override_and_eval_flag_reach_the_stored_ticket(self):
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, **self._judge(experiment_override=self._override()))
+
+        assert resp.status_code == 200
+        ticket = store.put_ticket.call_args.args[0]
+        assert ticket.is_eval is True
+        assert ticket.experiment_override is not None
+        assert ticket.experiment_override.manifest_key == self.MANIFEST_KEY
+        assert ticket.experiment_override.instruction_key == self.INSTRUCTION_KEY
+        assert ticket.experiment_override.manifest_version_id == "override-m-1"
+        assert ticket.experiment_override.instruction_version_id == "override-i-1"
+
+    def test_eval_flag_alone_is_accepted_for_a_base_arm(self):
+        """A sweep's base arm runs the published bytes with no override, and
+        its callback still has to be suppressed."""
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, **self._judge())
+
+        assert resp.status_code == 200
+        ticket = store.put_ticket.call_args.args[0]
+        assert ticket.is_eval is True
+        assert ticket.experiment_override is None
+
+    def test_a_product_mint_stores_neither_judge_field(self):
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.PRODUCT_RUN_ID)
+
+        assert resp.status_code == 200
+        ticket = store.put_ticket.call_args.args[0]
+        assert ticket.is_eval is False
+        assert ticket.experiment_override is None
+
+    def test_is_eval_on_a_product_run_id_is_a_400(self):
+        """The load-bearing binding. `is_eval` makes the broker drop this run's
+        success callback AND every terminal status, so a token holder who could
+        set it against a real run id could hide a genuine product failure from
+        gp-api until the 45-minute stale sweep."""
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.PRODUCT_RUN_ID, is_eval=True)
+
+        assert resp.status_code == 400
+        assert "is_eval" in resp.json()["detail"]
+        store.put_ticket.assert_not_called()
+
+    def test_a_judge_run_id_without_is_eval_is_a_400(self):
+        """The converse is a wiring bug rather than an attack: it posts
+        callbacks gp-api cannot match, one error per run."""
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.JUDGE_RUN_ID)
+
+        assert resp.status_code == 400
+        store.put_ticket.assert_not_called()
+
+    def test_override_without_the_eval_flag_is_a_400(self):
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.JUDGE_RUN_ID, experiment_override=self._override())
+
+        assert resp.status_code == 400
+        store.put_ticket.assert_not_called()
+
+    def test_a_judge_run_id_at_the_dispatch_cap_is_accepted(self):
+        """The boundary itself is legal — the longest run id dispatch will
+        accept must still mint, or a real sweep arm would 400."""
+        store = MagicMock(spec=ScopeTicketStore)
+        run_id = JUDGE_RUN_ID_PREFIX + "a" * (JUDGE_RUN_ID_MAX_LENGTH - len(JUDGE_RUN_ID_PREFIX))
+        assert len(run_id) == JUDGE_RUN_ID_MAX_LENGTH
+
+        resp = self._post(store, **self._judge(run_id=run_id))
+
+        assert resp.status_code == 200
+        assert store.put_ticket.call_args.args[0].run_id == run_id
+
+    def test_a_judge_run_id_over_the_dispatch_cap_is_a_400(self):
+        """The prefix check alone passed anything up to IDENTIFIER_PATTERN's 64
+        characters. The dispatch Lambda `fullmatch`es JUDGE_RUN_ID_RE and
+        refuses a longer run id outright, because it hands the run id to ECS
+        RunTask as `startedBy` verbatim and the task reaper reads it back — so
+        a ticket minted here for a longer one is a live credential for a run
+        the layer above will never dispatch. A SERVICE_TOKEN holder is
+        authenticated, not trusted; mint re-establishes the whole shape, not
+        just the prefix."""
+        store = MagicMock(spec=ScopeTicketStore)
+        run_id = JUDGE_RUN_ID_PREFIX + "a" * (JUDGE_RUN_ID_MAX_LENGTH - len(JUDGE_RUN_ID_PREFIX) + 1)
+        assert len(run_id) == JUDGE_RUN_ID_MAX_LENGTH + 1
+
+        resp = self._post(store, **self._judge(run_id=run_id))
+
+        assert resp.status_code == 400
+        assert "startedBy" in resp.json()["detail"]
+        store.put_ticket.assert_not_called()
+
+    def test_the_rejection_does_not_echo_the_run_id(self):
+        """The 400 body is returned to a caller that may not be dispatch. The
+        other judge rejections keep the run id out of the response too — it
+        goes to the log line, which is ours."""
+        store = MagicMock(spec=ScopeTicketStore)
+        run_id = JUDGE_RUN_ID_PREFIX + "z" * (JUDGE_RUN_ID_MAX_LENGTH - len(JUDGE_RUN_ID_PREFIX) + 1)
+
+        resp = self._post(store, **self._judge(run_id=run_id))
+
+        assert resp.status_code == 400
+        assert run_id not in resp.json()["detail"]
+
+    def test_a_long_product_run_id_is_untouched_by_the_judge_cap(self):
+        """The cap is the judge dispatch contract, not a product one. A product
+        mint keeps whatever IDENTIFIER_PATTERN already allowed — narrowing it
+        here would reject run ids gp-api is free to mint."""
+        store = MagicMock(spec=ScopeTicketStore)
+        run_id = "a" * 64
+
+        resp = self._post(store, run_id=run_id)
+
+        assert resp.status_code == 200
+        assert store.put_ticket.call_args.args[0].run_id == run_id
+
+    @pytest.mark.parametrize("environment", ["prod", "production", "qa", ""])
+    def test_an_eval_run_outside_dev_is_a_400(self, environment):
+        """Dev-only on `is_eval` itself, not just on the override, and at the
+        broker as well as upstream in the Lambda.
+
+        A sweep's base arm sets `is_eval` with no override at all and gets
+        every consequence of it — both callback senders silenced, the org's
+        `latest.json` left alone. In prod that is a run spending real money
+        that gp-api has no row for and no signal about. An allowlist, not a
+        deny-prod check, and with no permissive default."""
+        store = MagicMock(spec=ScopeTicketStore)
+
+        with patch.dict(os.environ, {"ENVIRONMENT": environment}):
+            resp = self._post(store, **self._judge())
+
+            assert resp.status_code == 400
+            assert "ENVIRONMENT" in resp.json()["detail"]
+        store.put_ticket.assert_not_called()
+
+    @pytest.mark.parametrize("environment", ["prod", "production", "qa", ""])
+    def test_an_override_outside_dev_is_a_400(self, environment):
+        store = MagicMock(spec=ScopeTicketStore)
+
+        with patch.dict(os.environ, {"ENVIRONMENT": environment}):
+            resp = self._post(store, **self._judge(experiment_override=self._override()))
+
+            assert resp.status_code == 400
+            assert "ENVIRONMENT" in resp.json()["detail"]
+        store.put_ticket.assert_not_called()
+
+    @pytest.mark.parametrize("environment", ["prod", "production", "qa", ""])
+    def test_a_product_mint_is_untouched_by_the_environment_gate(self, environment):
+        """The gate keys on `is_eval`, so a product mint works in every
+        environment exactly as it does today."""
+        store = MagicMock(spec=ScopeTicketStore)
+
+        with patch.dict(os.environ, {"ENVIRONMENT": environment}):
+            resp = self._post(store, run_id=self.PRODUCT_RUN_ID)
+
+        assert resp.status_code == 200
+        assert store.put_ticket.call_args.args[0].is_eval is False
+
+    def test_override_for_another_agent_is_a_400(self):
+        """The agentId segment is bound to the experiment being minted: without
+        it a ticket for experiment A could be handed experiment B's staged
+        candidate bytes."""
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(
+            store,
+            **self._judge(
+                experiment_override=self._override(
+                    manifest_key="_judge/walking_plan/abc123def456/manifest.json",
+                    instruction_key="_judge/walking_plan/abc123def456/instruction.md",
+                )
+            ),
+        )
+
+        assert resp.status_code == 400
+        assert "does not match experiment_id" in resp.json()["detail"]
+        store.put_ticket.assert_not_called()
+
+    def test_override_outside_the_judge_prefix_is_a_422(self):
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(
+            store,
+            **self._judge(experiment_override=self._override(manifest_key="voter_targeting/manifest.json")),
+        )
+
+        assert resp.status_code == 422
+        store.put_ticket.assert_not_called()
+
+    def test_override_without_a_version_pin_is_a_422(self):
+        store = MagicMock(spec=ScopeTicketStore)
+        override = self._override()
+        del override["manifest_version_id"]
+
+        resp = self._post(store, **self._judge(experiment_override=override))
+
+        assert resp.status_code == 422
+        store.put_ticket.assert_not_called()
+
+    def test_an_unknown_mint_field_is_refused_rather_than_dropped(self):
+        """`extra="forbid"`. A mint field this model merely accepted is an
+        authorization the ticket never carries — which is exactly how the judge
+        override shipped inert. A 422 on the first request beats a silent
+        drop."""
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, judge_override=self._override())
+
+        assert resp.status_code == 422
+        store.put_ticket.assert_not_called()

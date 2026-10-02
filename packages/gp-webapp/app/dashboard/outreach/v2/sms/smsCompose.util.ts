@@ -50,16 +50,22 @@ export const SMS_GREETING = 'Hello {first_name},'
 // convert here, only an emitted token.
 export const SERVE_SMS_GREETING = 'Hello {{first_name}},'
 
-// One stand-in first name, shared by the compose step's greeting chip and
-// the review step's preview bubble, so both read as the message a
-// constituent receives rather than as a merge token. Display only: the
+// One stand-in first name, shared by the compose step's greeting chip (both
+// surfaces) and Serve's review preview bubble, so they read as the message
+// a recipient receives rather than as a merge token. Display only: the
 // script that goes to fulfilment always carries the literal token.
 export const SERVE_SMS_SAMPLE_FIRST_NAME = 'Sam'
 
 export const withSampleFirstName = (text: string): string =>
   text.replace(/\{\{first_name\}\}/g, SERVE_SMS_SAMPLE_FIRST_NAME)
 
-export const SERVE_SMS_GREETING_PREVIEW = {
+// The chip above the body shows the greeting as the words that open the
+// text, not as a variable name: a candidate who reads "Greeting First
+// Name" writes their own "Hello!" under it, and the script goes to Peerly
+// as "Hello {first_name}, Hello! …" (CAS, 2026-09-29). Both surfaces greet
+// with the same words and differ only in the merge token, so one preview
+// serves both.
+export const SMS_GREETING_PREVIEW = {
   greeting: withSampleFirstName(SERVE_SMS_GREETING),
   caption: 'Each person sees their own first name.',
 }

@@ -1,0 +1,101 @@
+{
+  "agentId": "meeting_briefing",
+  "shape": "background",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Every params object here validates against the published meeting_briefing manifest input_schema (additionalProperties: false, $refs inlined the way publish_experiments.py inlines them), and every value is plausible, but nobody has dispatched one. So a verdict drawn from this list is a claim about the pipeline, not about the agent. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20. A corpus verdict over this list therefore resolves CAN'T SAY however the judge voted, because the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is deliberate and not a rounding error: one clean baseline plus seven single-axis variations is what one change can author honestly across nine agents. Whether to grow every list to 20 or to lower the floor is still open \u2014 do not read the shortfall as a decision. Varied along: input richness, which is the axis this agent is most sensitive to \u2014 case 1 supplies every optional hint and case 2 supplies only the three required fields, so the discovery path runs long; whether the official is districted or at-large (the l2DistrictType/l2DistrictName pair present or absent, which the schema ties together); how the agenda is reached (a pasted packet URL, a prose location hint from a prior run, or nothing at all); city council against county board against school board against a rural selectboard; and big-city against small-town publishing practice, since a selectboard packet is a scanned PDF and a large county has an agenda center. People are fictional placeholders in the house style (gp-webapp e2e-tests briefings.spec.ts uses 'Test Official'); this file is public, so no real person is named. States, cities, office titles and L2 voter file column names are real.",
+  "cases": [
+    {
+      "caseId": "baseline-districted-city-council",
+      "params": {
+        "officialName": "Test Council Member",
+        "state": "MN",
+        "meetingDate": "2026-10-13",
+        "meetingTime": "18:30",
+        "meetingTimezone": "America/Chicago",
+        "positionName": "Minneapolis City Council Member",
+        "l2DistrictType": "City_Ward",
+        "l2DistrictName": "MINNEAPOLIS WARD 3"
+      }
+    },
+    {
+      "caseId": "sparse-required-only",
+      "params": {
+        "officialName": "Test Official",
+        "state": "NC",
+        "meetingDate": "2026-10-06"
+      }
+    },
+    {
+      "caseId": "at-large-no-district",
+      "params": {
+        "officialName": "Test Council Member At Large",
+        "state": "NC",
+        "meetingDate": "2026-10-05",
+        "meetingTime": "17:30",
+        "meetingTimezone": "America/New_York",
+        "positionName": "Hendersonville City Council Member"
+      }
+    },
+    {
+      "caseId": "agenda-packet-url-supplied",
+      "params": {
+        "officialName": "Test Supervisor",
+        "state": "AZ",
+        "meetingDate": "2026-11-04",
+        "meetingTime": "09:00",
+        "meetingTimezone": "America/Phoenix",
+        "positionName": "Maricopa County Board of Supervisors Member",
+        "l2DistrictType": "County_Supervisorial_District",
+        "l2DistrictName": "3",
+        "agendaPacketUrl": "https://www.maricopa.gov/AgendaCenter"
+      }
+    },
+    {
+      "caseId": "known-agenda-location-hint",
+      "params": {
+        "officialName": "Test Trustee",
+        "state": "IL",
+        "meetingDate": "2026-10-26",
+        "meetingTime": "19:00",
+        "meetingTimezone": "America/Chicago",
+        "positionName": "Oak Park Village Trustee",
+        "knownAgendaLocation": "Village board agendas are indexed at https://www.oak-park.us/your-government/village-board and the packet PDF is posted the Friday before each Monday meeting."
+      }
+    },
+    {
+      "caseId": "rural-selectboard",
+      "params": {
+        "officialName": "Test Selectboard Member",
+        "state": "VT",
+        "meetingDate": "2026-10-05",
+        "meetingTime": "18:30",
+        "meetingTimezone": "America/New_York",
+        "positionName": "Middlebury Selectboard Member"
+      }
+    },
+    {
+      "caseId": "large-county-no-time-given",
+      "params": {
+        "officialName": "Test Commissioner",
+        "state": "CA",
+        "meetingDate": "2026-12-08",
+        "positionName": "Alameda County Board of Supervisors Member",
+        "l2DistrictType": "County_Supervisorial_District",
+        "l2DistrictName": "5"
+      }
+    },
+    {
+      "caseId": "districted-school-board",
+      "params": {
+        "officialName": "Test Board Director",
+        "state": "WA",
+        "meetingDate": "2026-11-18",
+        "meetingTime": "16:30",
+        "meetingTimezone": "America/Los_Angeles",
+        "positionName": "Seattle School Board Director",
+        "l2DistrictType": "School_Board_District",
+        "l2DistrictName": "5"
+      }
+    }
+  ]
+}

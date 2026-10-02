@@ -37,7 +37,7 @@ import {
   composeFooter,
   IMAGE_ACCEPT,
   IMAGE_MAX_BYTES,
-  SERVE_SMS_GREETING_PREVIEW,
+  SMS_GREETING_PREVIEW,
 } from './smsCompose.util'
 
 const TONE_LABELS: Record<SocialTone, string> = {
@@ -107,6 +107,9 @@ const standardsFailureCopy = (
     return 'keep the {first_name} greeting token'
   }
   if (rule === 'paid_for_by') return 'keep the "Paid for by" line'
+  if (rule === 'link_shortener') {
+    return 'links must not use a shortener like bit.ly — paste the full web address instead'
+  }
   return 'shorten the message to fit the length limit'
 }
 
@@ -289,36 +292,22 @@ export const SmsComposeStep = ({
                 {composedLength} chars · {segments} SMS
               </span>
             </div>
-            {isServe ? (
-              <div className="mb-2">
-                <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
-                  {SERVE_SMS_GREETING_PREVIEW.greeting}
-                </span>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {SERVE_SMS_GREETING_PREVIEW.caption}
-                </p>
-              </div>
-            ) : (
-              <p className="mb-2">
-                <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
-                  Greeting First Name
-                </span>
+            <div className="mb-2">
+              <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
+                {SMS_GREETING_PREVIEW.greeting}
+              </span>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {SMS_GREETING_PREVIEW.caption}
               </p>
-            )}
+            </div>
             <Textarea
               value={body}
               onChange={(e) => onBodyChange(e.target.value)}
               placeholder="Write your message…"
               aria-label="Message body"
               aria-invalid={overLimit}
-              // Borderless at rest so the field sits seamlessly inside the
-              // card, which is the design — but `focus-visible:ring-0` also
-              // removed the focus indicator, so the draft read as static
-              // text and nobody realised it could be edited. It is a WCAG
-              // 2.4.7 failure too: keyboard users had nothing to follow.
-              // The ring is restored on focus only; the resting state is
-              // unchanged.
-              className="min-h-[140px] resize-none rounded-md border-0 p-0 ring-offset-2 ring-offset-card outline-none focus-visible:ring-[3px] focus-visible:ring-components-input-focus [field-sizing:content]"
+              variant="seamless"
+              className="min-h-[140px] resize-none [field-sizing:content]"
             />
             <p className="mt-3 text-xs text-muted-foreground whitespace-pre-line">
               {composeFooter(committeeName)}

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
+import userEvent from '@testing-library/user-event'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   INTERSTITIAL_COPY,
   PITCH_PANEL_COPY,
@@ -8,6 +10,11 @@ import {
 } from 'app/dashboard/outreach/v2/gate/gateCopy'
 import InterstitialStep from './InterstitialStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 vi.mock('./ProUpgradeWizard', () => ({
   useProUpgradeWizard: vi.fn(),
@@ -87,5 +94,49 @@ describe('InterstitialStep', () => {
 
     expect(exit).toHaveBeenCalledTimes(1)
     expect(goToNextStep).not.toHaveBeenCalled()
+  })
+})
+
+describe('InterstitialStep analytics', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setChannel('robocall')
+  })
+
+  it('reports the view with its channel', () => {
+    render(<InterstitialStep />)
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.InterstitialViewed,
+      { channel: 'robocall' },
+    )
+  })
+
+  it('reports Join Pro and moves on', async () => {
+    render(<InterstitialStep />)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: INTERSTITIAL_COPY.cta }),
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.InterstitialCompleted,
+      { channel: 'robocall' },
+    )
+    expect(goToNextStep).toHaveBeenCalled()
+  })
+
+  it('reports Maybe later and exits', async () => {
+    render(<InterstitialStep />)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: INTERSTITIAL_COPY.dismiss }),
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.InterstitialDismissed,
+      { channel: 'robocall' },
+    )
+    expect(exit).toHaveBeenCalled()
   })
 })

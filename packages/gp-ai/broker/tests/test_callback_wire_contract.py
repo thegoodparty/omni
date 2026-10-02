@@ -40,6 +40,13 @@ class GpApiAgentExperimentResultData(BaseModel):
     artifactBucket: str | None = None
     durationSeconds: float | None = None
     error: str | None = None
+    # Mirrors zod's `costUsd: z.number().optional()`, whose exact semantics are
+    # load-bearing for the broker: a MISSING key parses, an explicit NULL does
+    # not. A bare `float` with a default reproduces both halves in pydantic
+    # (missing takes the default; None fails the type), which `float | None`
+    # would not. The default itself is never read — the broker omits the key
+    # when it has no cost to report rather than sending one.
+    costUsd: float = 0.0
 
     model_config = ConfigDict(extra="allow")
 
@@ -112,6 +119,39 @@ class TestFailureCallbackParsesAtGpApi:
         assert msg.data.error == "Missing required field: voters[0].address"
 
 
+class TestUnmeasuredCostParsesAtGpApi:
+    def test_a_callback_with_no_cost_parses(self):
+        """The broker withholds `costUsd` when the runner never measured the
+        run's spend. gp-api must still accept the callback — if it didn't, the
+        message would dead-letter and the run row would never go terminal."""
+        sqs = MagicMock()
+        sender = CallbackSender(sqs_client=sqs, queue_url="https://sqs.example.com/q.fifo")
+        sender.send_result(
+            run_id="run-5",
+            organization_slug="org-5",
+            experiment_id="voter_targeting",
+            status="failed",
+            reason_code="Timeout",
+            detail="Agent exceeded 600s limit",
+        )
+        body = json.loads(sqs.send_message.call_args[1]["MessageBody"])
+        assert "costUsd" not in body["data"]
+        msg = GpApiAgentExperimentResultMessage.model_validate(body)
+        assert msg.data.status == "failed"
+
+    def test_a_callback_with_a_measured_cost_parses(self):
+        msg = _send_and_parse(
+            run_id="run-5",
+            organization_slug="org-5",
+            experiment_id="voter_targeting",
+            status="failed",
+            reason_code="Timeout",
+            detail="Agent exceeded 600s limit",
+            cost_usd=0.0,
+        )
+        assert msg.data.costUsd == 0.0
+
+
 class TestSchemaRejectsInvalid:
     """Locks in what gp-api WOULD reject, so a code change that emits these
     shapes fails fast in CI rather than silently dead-lettering in prod.
@@ -148,6 +188,20 @@ class TestSchemaRejectsInvalid:
         body = json.loads(sqs.send_message.call_args[1]["MessageBody"])
         with pytest.raises(ValidationError):
             GpApiAgentExperimentResultMessage.model_validate(body)
+
+    def test_explicit_null_cost_rejected(self):
+        """Why the broker OMITS `costUsd` for an unmeasured cost instead of
+        sending null: zod's `.optional()` is not `.nullish()`, so a null would
+        fail validation and dead-letter the callback, leaving the run row
+        non-terminal forever. The omission is the only way to say "unknown"
+        that gp-api accepts."""
+        with pytest.raises(ValidationError):
+            GpApiAgentExperimentResultMessage.model_validate(
+                {
+                    "type": "agentExperimentResult",
+                    "data": {"runId": "run-null-cost", "status": "failed", "costUsd": None},
+                }
+            )
 
     def test_missing_required_field_rejected(self):
         with pytest.raises(ValidationError):

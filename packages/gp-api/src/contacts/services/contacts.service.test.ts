@@ -502,7 +502,7 @@ describe('ContactsService', () => {
         )
       })
 
-      it('excludes the party and ethnicity columns for an elected-office org', async () => {
+      it('excludes the party, ethnicity, and voter id columns for an elected-office org', async () => {
         const org = makeOrganization({
           slug: 'eo-office-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -523,6 +523,7 @@ describe('ContactsService', () => {
             excludeColumns: [
               'Parties_Description',
               'EthnicGroups_EthnicGroup1Desc',
+              'LALVOTERID',
             ],
           }),
           res,
@@ -966,6 +967,35 @@ describe('ContactsService', () => {
         expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
           expect.objectContaining({
             excludeColumns: [...EXCLUDABLE_VOTER_COLUMNS],
+          }),
+          res,
+          expect.any(Object),
+        )
+      })
+
+      // Spelled out rather than folded into the assertion above, which spreads
+      // the very constant the service reads and so cannot notice the id
+      // leaving that set. This is the CRM path's literal guarantee; the
+      // voter-file path has its own.
+      it('excludes the L2 voter id from a Serve (eo-) org CSV download', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        const res = {
+          raw: {
+            headersSent: false,
+            flushHeaders: vi.fn(),
+            setHeader: vi.fn(),
+            on: vi.fn(),
+          },
+        } as never
+
+        await service.downloadContacts({ segment: 'all' }, res, org)
+
+        expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
+          expect.objectContaining({
+            excludeColumns: expect.arrayContaining(['LALVOTERID']),
           }),
           res,
           expect.any(Object),

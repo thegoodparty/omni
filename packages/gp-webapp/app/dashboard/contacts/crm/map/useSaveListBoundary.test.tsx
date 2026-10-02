@@ -51,9 +51,10 @@ describe('useSaveListBoundary', () => {
           order.push('invalidate')
         },
       )
-      const onSaved = vi.fn(() => {
+      const onClose = vi.fn(() => {
         order.push('closed')
       })
+      const onSaved = vi.fn()
       if (status === undefined) {
         mockedRequest.mockResolvedValue({ data: { id: 7 } } as never)
       } else {
@@ -63,7 +64,7 @@ describe('useSaveListBoundary', () => {
       }
 
       const { result } = renderHook(
-        () => useSaveListBoundary(7, 'chat', onSaved),
+        () => useSaveListBoundary(7, 'chat', { onClose, onSaved }),
         {
           wrapper: ({ children }) => (
             <QueryClientProvider client={queryClient}>
@@ -75,7 +76,7 @@ describe('useSaveListBoundary', () => {
 
       result.current.mutate([RING])
 
-      await waitFor(() => expect(onSaved).toHaveBeenCalled())
+      await waitFor(() => expect(onClose).toHaveBeenCalled())
       // Closing is last whatever happened; how many caches were refreshed
       // first differs between the paths and is not what this pins.
       expect(order[order.length - 1]).toBe('closed')
@@ -83,6 +84,38 @@ describe('useSaveListBoundary', () => {
         order.filter((step) => step === 'invalidate').length,
       ).toBeGreaterThan(0)
       expect(order.indexOf('closed')).toBe(order.length - 1)
+      // The 409 closes the surface too, so a chat announcing the save off
+      // `onClose` would announce a write the lock refused.
+      expect(onSaved).toHaveBeenCalledTimes(status === undefined ? 1 : 0)
     },
   )
+
+  // The chat's turn says one of two things and the rings are the only thing
+  // that decides which, so the flag has to come off the same `drawnRings`
+  // the event reads rather than off the caller's own idea of what it sent.
+  it.each([
+    ['a drawn shape', [RING], false],
+    ['a cleared boundary', [], true],
+  ])('reports %s to onSaved', async (_label, rings, cleared) => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const onSaved = vi.fn()
+    mockedRequest.mockResolvedValue({ data: { id: 7 } } as never)
+
+    const { result } = renderHook(
+      () => useSaveListBoundary(7, 'chat', { onSaved }),
+      {
+        wrapper: ({ children }) => (
+          <QueryClientProvider client={queryClient}>
+            {children}
+          </QueryClientProvider>
+        ),
+      },
+    )
+
+    result.current.mutate(rings)
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ cleared }))
+  })
 })

@@ -1132,6 +1132,10 @@ describe('WalkView', () => {
     expect(screen.getByText('2/2 reached')).toBeInTheDocument()
 
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+      medium: 'doorKnocking',
+      fanout: 'one-to-one',
+      product: 'win',
+      listId: 3,
       outcome: 'answered',
       supportAnswer: 'supporter',
       willVote: 'unsure',
@@ -1162,6 +1166,10 @@ describe('WalkView', () => {
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        medium: 'doorKnocking',
+        fanout: 'one-to-one',
+        product: 'win',
+        listId: 3,
         outcome: 'not_home',
         knockStatus: 'not_home',
         hasNote: true,
@@ -1397,6 +1405,10 @@ describe('WalkView not-a-voter reason', () => {
       outcome: 'not_a_voter',
     })
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+      medium: 'doorKnocking',
+      fanout: 'one-to-one',
+      product: 'win',
+      listId: 3,
       outcome: 'not_a_voter',
       knockStatus: 'not_a_voter',
       hasNote: false,

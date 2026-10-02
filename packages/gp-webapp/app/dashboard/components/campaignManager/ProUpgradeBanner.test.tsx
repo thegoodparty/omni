@@ -45,7 +45,9 @@ describe('ProUpgradeBanner', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Get Pro' }))
 
-    expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade?source=dashboard_banner&channel=generic&cta=Get+Pro',
+    )
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.BannerGetPro,
     )
