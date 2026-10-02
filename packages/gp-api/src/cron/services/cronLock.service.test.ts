@@ -262,3 +262,92 @@ describe('CronLockService.tryClaimHourlyRun', () => {
     ).toBe(false)
   })
 })
+
+describe('CronLockService.tryClaimTenMinuteRun', () => {
+  beforeEach(async () => {
+    await service.prisma.cronRun.deleteMany({})
+  })
+
+  it('grants the first caller and denies a second in the same slot', async () => {
+    const lock = service.app.get(CronLockService)
+
+    expect(
+      await lock.tryClaimTenMinuteRun(
+        JOB,
+        new Date('2026-05-29T07:20:00.100Z'),
+      ),
+    ).toBe(true)
+    expect(
+      await lock.tryClaimTenMinuteRun(
+        JOB,
+        new Date('2026-05-29T07:20:01.400Z'),
+      ),
+    ).toBe(false)
+  })
+
+  it('grants the claim again in the next ten-minute slot', async () => {
+    const lock = service.app.get(CronLockService)
+
+    expect(
+      await lock.tryClaimTenMinuteRun(
+        JOB,
+        new Date('2026-05-29T07:20:00.000Z'),
+      ),
+    ).toBe(true)
+    expect(
+      await lock.tryClaimTenMinuteRun(
+        JOB,
+        new Date('2026-05-29T07:30:00.000Z'),
+      ),
+    ).toBe(true)
+  })
+
+  it('stores the claim at the exact start of the slot', async () => {
+    const lock = service.app.get(CronLockService)
+
+    expect(
+      await lock.tryClaimTenMinuteRun(
+        JOB,
+        new Date('2026-05-29T07:27:11.987Z'),
+      ),
+    ).toBe(true)
+
+    const row = await service.prisma.cronRun.findFirstOrThrow({
+      where: { jobName: JOB },
+    })
+    expect(row.runDate.toISOString()).toBe('2026-05-29T07:20:00.000Z')
+  })
+
+  it('never takes over a completed claim, even when stale', async () => {
+    const lock = service.app.get(CronLockService)
+    const now = new Date('2026-05-29T07:20:00.000Z')
+
+    expect(await lock.tryClaimTenMinuteRun(JOB, now)).toBe(true)
+    await lock.markTenMinuteCompleted(JOB, now)
+
+    expect(
+      await lock.tryClaimTenMinuteRun(
+        JOB,
+        new Date('2026-05-29T07:29:00.000Z'),
+      ),
+    ).toBe(false)
+  })
+
+  it('takes over a stale claim that never completed', async () => {
+    const lock = service.app.get(CronLockService)
+
+    expect(
+      await lock.tryClaimTenMinuteRun(
+        JOB,
+        new Date('2026-05-29T07:20:00.000Z'),
+      ),
+    ).toBe(true)
+    // Six minutes on, still the same slot, past the five-minute window.
+    expect(
+      await lock.tryClaimTenMinuteRun(
+        JOB,
+        new Date('2026-05-29T07:26:00.000Z'),
+      ),
+    ).toBe(true)
+  })
+})

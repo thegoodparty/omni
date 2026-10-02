@@ -3,11 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
   RecordPhoneBankingCall,
   RecordPhoneBankingCallResponse,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { mapWillVoteToLikelihood } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import {
@@ -52,6 +54,19 @@ type RowInput = {
 // first's insert has committed.
 const PHONE_BANKING_LIST_LOCK_NAMESPACE = 25714
 
+// `completed` is the ratchet the response reports on every later call;
+// `completedNowId` is set only on the call that flipped it, so a re-logged
+// call on a finished list does not start another synthesis run.
+type EnvelopeCompletion = {
+  completed: boolean
+  completedNowId: number | null
+}
+
+const NOT_COMPLETED: EnvelopeCompletion = {
+  completed: false,
+  completedNowId: null,
+}
+
 @Injectable()
 export class PhoneBankingCallService extends createPrismaBase(
   MODELS.ContactInteractionPhoneBanking,
@@ -59,6 +74,7 @@ export class PhoneBankingCallService extends createPrismaBase(
   constructor(
     private readonly contactStatus: ContactStatusService,
     private readonly access: PhoneBankingAccessService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -94,7 +110,7 @@ export class PhoneBankingCallService extends createPrismaBase(
     }
 
     const occurredAt = new Date()
-    const { rows, envelopeCompleted } = await this.client.$transaction((tx) =>
+    const { rows, envelope } = await this.client.$transaction((tx) =>
       this.applyOutcome(
         tx,
         organizationSlug,
@@ -114,6 +130,17 @@ export class PhoneBankingCallService extends createPrismaBase(
     await this.emitLikelihoodEvents(rows)
     await this.emitFollowUpEvents(rows)
 
+    // The list just finished: its memos can be summarized. Fire-and-forget,
+    // resolved lazily like the turf's trigger; the call is already saved.
+    if (envelope.completedNowId !== null) {
+      this.moduleRef
+        .get(FeedbackSynthesisService, { strict: false })
+        .requestRunOnEffortCompleted({
+          organizationSlug,
+          outreachId: envelope.completedNowId,
+        })
+    }
+
     return {
       entryId: entry.id,
       results: rows.map((row) => ({
@@ -126,7 +153,7 @@ export class PhoneBankingCallService extends createPrismaBase(
           occurredAt: row.occurredAt,
         },
       })),
-      envelopeCompleted,
+      envelopeCompleted: envelope.completed,
     }
   }
 
@@ -140,7 +167,7 @@ export class PhoneBankingCallService extends createPrismaBase(
     actorUserId: number,
   ): Promise<{
     rows: ContactInteractionPhoneBanking[]
-    envelopeCompleted: boolean
+    envelope: EnvelopeCompletion
   }> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PHONE_BANKING_LIST_LOCK_NAMESPACE}::int, ${listId}::int)`
 
@@ -227,8 +254,8 @@ export class PhoneBankingCallService extends createPrismaBase(
       }
     }
 
-    const envelopeCompleted = await this.maybeCompleteEnvelope(tx, listId)
-    return { rows, envelopeCompleted }
+    const envelope = await this.maybeCompleteEnvelope(tx, listId)
+    return { rows, envelope }
   }
 
   // Fills bare `answered` rows for the entry's other household members,
@@ -299,13 +326,15 @@ export class PhoneBankingCallService extends createPrismaBase(
   private async maybeCompleteEnvelope(
     tx: Prisma.TransactionClient,
     listId: number,
-  ): Promise<boolean> {
+  ): Promise<EnvelopeCompletion> {
     const outreach = await tx.outreach.findUnique({
       where: { phoneBankingListId: listId },
       select: { id: true, status: true },
     })
-    if (!outreach) return false
-    if (outreach.status === OutreachStatus.completed) return true
+    if (!outreach) return NOT_COMPLETED
+    if (outreach.status === OutreachStatus.completed) {
+      return { completed: true, completedNowId: null }
+    }
 
     const [totalPersons, loggedCount] = await Promise.all([
       tx.phoneBankingListEntryPerson.count({
@@ -315,13 +344,13 @@ export class PhoneBankingCallService extends createPrismaBase(
         where: { phoneBankingListId: listId },
       }),
     ])
-    if (loggedCount < totalPersons) return false
+    if (loggedCount < totalPersons) return NOT_COMPLETED
 
     await tx.outreach.update({
       where: { id: outreach.id },
       data: { status: OutreachStatus.completed },
     })
-    return true
+    return { completed: true, completedNowId: outreach.id }
   }
 
   // Shared willVote->voter_likelihood mapping and eo- skip with

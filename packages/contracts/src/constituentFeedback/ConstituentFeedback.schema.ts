@@ -4,6 +4,7 @@ import {
   ConstituentFeedbackCaptureMethodSchema,
   ConstituentFeedbackExtractionStatusSchema,
   ConstituentFeedbackStanceSchema,
+  IssueTagStatusSchema,
 } from '../generated/enums'
 
 // A dictated summary of one conversation. Long enough for a rambling minute
@@ -122,6 +123,15 @@ export type ConfirmConstituentFeedback = z.infer<
   typeof ConfirmConstituentFeedbackSchema
 >
 
+// Declared here rather than beside the rest of the tag shapes so the
+// synthesis schemas import this file and never the other way round.
+export const IssueTagRefSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: IssueTagStatusSchema,
+})
+export type IssueTagRef = z.infer<typeof IssueTagRefSchema>
+
 export const ConstituentFeedbackSchema = z.object({
   id: z.string(),
   personId: z.string(),
@@ -139,6 +149,9 @@ export const ConstituentFeedbackSchema = z.object({
   // Who recorded it. Null when the actor's user row has since been removed,
   // matching how the contact feed renders an authorless note.
   actorName: z.string().nullable(),
+  // Accepted tags only. A proposal is a suggestion nobody has agreed to, so
+  // it shows in the report and the curation list, never on a person.
+  tags: z.array(IssueTagRefSchema),
 })
 export type ConstituentFeedbackRecord = z.infer<
   typeof ConstituentFeedbackSchema
