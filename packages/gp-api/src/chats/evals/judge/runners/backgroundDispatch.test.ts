@@ -795,6 +795,25 @@ describe('admitBackground', () => {
       expect(result.admitted).toEqual(['exact'])
     })
 
+    // A refused agent claims no case ids: refused for time, it must not
+    // then block a later agent that shares them.
+    it('lets an agent through whose case ids a refused agent shared', () => {
+      const runMs: Record<string, number> = {
+        big: minutes(200),
+        small: minutes(20),
+      }
+      const result = admitBackground(
+        [agent('big'), agent('small')],
+        (one) => ({
+          runs: 1,
+          runMs: runMs[one.agentId] ?? 0,
+          caseIds: ['shared'],
+        }),
+        minutes(70),
+      )
+      expect(result.admitted).toEqual(['small'])
+    })
+
     // Every run is charged, not one per agent.
     it('charges each agent for all of its runs', () => {
       const result = admitBackground(
