@@ -7,7 +7,7 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { useTestService } from '@/test-service'
-import { OutreachStatus, PrioritySource } from '../../generated/prisma'
+import { OutreachStatus, Prisma, PrioritySource } from '../../generated/prisma'
 import { OutreachServeSmsPurchaseHandlerService } from '../services/outreachServeSmsPurchase.service'
 
 const service = useTestService()
@@ -124,6 +124,30 @@ describe('a Serve text carrying a proposal link', () => {
         })
       ).status,
     ).steps.find((step) => step.id === 'define')?.check
+
+  // Two taps racing past the key check: the unique index lets one draft
+  // through, and the other gets that draft back rather than a 409 for a
+  // proposal nobody has paid for.
+  it('hands back the racing draft when two creates collide on the key', async () => {
+    const first = await createDraft()
+    expect(first.status).toBe(HttpStatus.CREATED)
+    vi.spyOn(service.prisma, '$transaction').mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    )
+
+    const second = await createDraft()
+
+    expect(second.status).toBe(HttpStatus.CREATED)
+    expect(second.data.outreachId).toBe(first.data.outreachId)
+    expect(
+      await service.prisma.outreach.count({
+        where: { organizationSlug: slug },
+      }),
+    ).toBe(1)
+  })
 
   it('reads as unsent until paid, then puts the check out and cannot be paid twice', async () => {
     const abandoned = await createDraft()
