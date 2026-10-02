@@ -246,6 +246,7 @@ const cardRulesBlock = (toolNames: string[]): string | null => {
   const lines = [
     ...(has('ask_clarify_question')
       ? [
+          '- Set `multiSelect` on `ask_clarify_question` when more than one answer can be true, such as options they could pursue together or symptoms of one problem. Leave it off when the answers rule each other out.',
           '- When the user has to pick between real options, ask with `ask_clarify_question`, one question at a time, never as a list in prose. Put the question and options only in the call.',
         ]
       : []),

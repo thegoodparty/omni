@@ -323,6 +323,18 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('one option per choice')
   })
 
+  it('puts the options step to them as one multi-select question', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('as one multiSelect ask_clarify_question')
+    expect(prompt).toContain('Never list the options in prose')
+    expect(prompt).toContain(
+      'Set multiSelect when more than one answer can be true',
+    )
+    expect(prompt).toContain(
+      'Leave it off when the answers rule each other out',
+    )
+  })
+
   it('takes an answer that picks several options as one problem', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('One problem can show up as several symptoms')
@@ -496,6 +508,25 @@ describe('PriorityFlowHandler', () => {
           'sidewalk?',
       }),
     ).toEqual({ presented: true, deepLinkOnly: false })
+  })
+
+  it('does not count a refused question as offered', async () => {
+    const tools = build().buildTools(baseCtx())
+    const offered = vi.mocked(priorityStatus.buildStatusTool).mock.calls[0]?.[1]
+      ?.offered
+    const ask = tools.ask_clarify_question
+    if (offered === undefined || ask === undefined || !('execute' in ask)) {
+      throw new Error('expected the offer reader and the ask tool')
+    }
+    expect(
+      await ask.execute({
+        questionId: 'q1',
+        question: 'Which pets?',
+        options: [{ label: 'Dogs' }, { label: 'Dogs and Cats' }],
+        multiSelect: true,
+      }),
+    ).toHaveProperty('error')
+    expect(offered()).toBe(false)
   })
 
   it('asks a structured question without touching the status', async () => {

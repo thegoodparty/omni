@@ -37,10 +37,16 @@ export const ChatClarifyOptionSchema = z.object({
 })
 export type ChatClarifyOption = z.infer<typeof ChatClarifyOptionSchema>
 
-/** One question, shown as a widget in the transcript. */
+/**
+ * One question, shown as a widget in the transcript. `multiSelect` turns the
+ * options into checkboxes for a question where more than one answer can be
+ * true. It defaults to false so questions persisted before it existed still
+ * parse as single choice.
+ */
 export const ChatClarifyQuestionSchema = z.object({
   questionId: z.string(),
   question: z.string(),
   options: z.array(ChatClarifyOptionSchema),
+  multiSelect: z.boolean().default(false),
 })
 export type ChatClarifyQuestion = z.infer<typeof ChatClarifyQuestionSchema>
