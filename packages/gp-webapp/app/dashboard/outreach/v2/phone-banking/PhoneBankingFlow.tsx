@@ -69,11 +69,12 @@ type StepId = 'purpose' | 'question' | 'who' | 'script' | 'sheets' | 'download'
 
 // The question step belongs to one purpose, so the order is derived rather
 // than fixed. That also keeps the progress bar honest: a hardcoded length
-// would draw five segments for a six-step flow.
+// would draw five segments for a six-step flow. The purpose is the same slug
+// on both surfaces: Win's "Hear from voters" and Serve's community input.
 //
-// NOT gated on `serve-issue-capture`. The create contract requires a question
-// whenever the purpose is community_input, so a flow that skipped this step
-// would 400 on save with nothing on screen explaining why.
+// NOT gated on either issue-capture flag. The create contract requires a
+// question whenever the purpose is community_input, so a flow that skipped
+// this step would 400 on save with nothing on screen explaining why.
 const stepOrderFor = (purpose: PhoneBankingFlowPurpose | null): StepId[] =>
   purpose === COMMUNITY_INPUT_PURPOSE
     ? ['purpose', 'question', 'who', 'script', 'sheets', 'download']
@@ -164,6 +165,7 @@ interface PhoneBankingFlowDraftInput {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
+  communityInputQuestion?: string
 }
 
 interface PhoneBankingFlowCreateInput {
@@ -172,9 +174,7 @@ interface PhoneBankingFlowCreateInput {
   sheetCount: number
   purpose: PhoneBankingFlowPurpose
   voterFileFilterId: number
-  // Serve's community_input only, where the contract requires it. Always
-  // undefined on the Win surface, whose purpose vocabulary has no such
-  // member, so its endpoint never sees the field.
+  // community_input only, where the contract requires it on both surfaces.
   communityInputQuestion?: string
 }
 
@@ -924,6 +924,7 @@ export const PhoneBankingFlow = ({
           <CommunityInputQuestionStep
             question={question}
             onChange={setQuestion}
+            isServe={surface.isServe}
           />
         </div>
       ) : stepId === 'who' ? (

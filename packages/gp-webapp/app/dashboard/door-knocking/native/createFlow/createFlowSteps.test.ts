@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   flowStage,
   previousStage,
+  purposeAsksQuestion,
   stageStep,
   stepperPosition,
   type CreateFlowStage,
 } from './createFlowSteps'
+import { DOOR_KNOCKING_PURPOSES } from './doorKnockingPurposes'
+import { SERVE_DOOR_KNOCKING_PURPOSES } from './serveDoorKnockingPurposes'
 
 // Every stage the stepper counts. `success` is deliberately not one of them —
 // see its own describe below.
@@ -190,5 +193,40 @@ describe('the community-input question stage', () => {
       if (stage !== null) moves += 1
     }
     expect(moves).toBe(stepperPosition('draw', true).totalSteps - 1)
+  })
+})
+
+// Win's "Hear from voters" and Serve's community input are one slug, so a
+// candidate gets the same extra stage an official does.
+describe('purposeAsksQuestion', () => {
+  const winCard = DOOR_KNOCKING_PURPOSES.find(
+    (purpose) => purpose.label === 'Hear from voters',
+  )
+
+  it('asks the question for the Win hear-from-voters purpose', () => {
+    const asks = purposeAsksQuestion(winCard?.id ?? null)
+
+    expect(asks).toBe(true)
+    expect(stepperPosition('question', asks)).toEqual({
+      currentStep: 2,
+      totalSteps: 6,
+    })
+    expect(previousStage('who', asks)).toBe('question')
+  })
+
+  it('asks it for the Serve community-input purpose', () => {
+    const serveCard = SERVE_DOOR_KNOCKING_PURPOSES.find(
+      (purpose) => purpose.label === 'Ask for community input',
+    )
+
+    expect(purposeAsksQuestion(serveCard?.id ?? null)).toBe(true)
+  })
+
+  it('asks nothing for any other purpose, or before one is picked', () => {
+    for (const purpose of DOOR_KNOCKING_PURPOSES) {
+      if (purpose.id === winCard?.id) continue
+      expect(purposeAsksQuestion(purpose.id)).toBe(false)
+    }
+    expect(purposeAsksQuestion(null)).toBe(false)
   })
 })

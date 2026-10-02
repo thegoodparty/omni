@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
 import { Campaign } from '../../generated/prisma'
+import { WIN_DOOR_KNOCKING_VOICE } from '../services/outreachDoorKnockingGeneration.service'
 
 const service = useTestService()
 
@@ -74,22 +75,83 @@ const draftBody = (overrides: object = {}) => ({
   ...overrides,
 })
 
+// The lines `withField` adds to `without`, asserting that adding them is the
+// ONLY difference — so a request without the field is byte-identical to one
+// that never knew the field existed.
+const addedLines = (without: string, withField: string): string[] => {
+  const before = without.split('\n')
+  const after = withField.split('\n')
+  let start = 0
+  while (start < before.length && before[start] === after[start]) start++
+  const count = after.length - before.length
+  expect(after.slice(start + count)).toEqual(before.slice(start))
+  return after.slice(start, start + count)
+}
+
 describe('POST /v1/outreach/door-knocking/draft', () => {
-  // `communityInputQuestion` is Serve-only: `community_input` is a Serve
-  // purpose, so the Win schema never declared the field. A Win prompt must be
-  // untouched by it even if a client sends one — Zod strips unknown keys, and
-  // this pins that rather than trusting it.
-  it('ignores a community-input question entirely', async () => {
-    mockPoints()
-    await postDraft(draftBody())
-    const baseline = promptOf('user')
+  // "Hear from voters" asks one question, and the card's ask is written from
+  // it the way Serve's community-input card is.
+  describe('the hear-from-voters question', () => {
+    const question = 'How do you feel about the road bond?'
 
-    jsonCompletion.mockClear()
-    mockPoints()
-    await postDraft(draftBody({ communityInputQuestion: 'Would you compost?' }))
+    it('adds the fenced question and its precedence, and nothing else', async () => {
+      mockPoints()
+      await postDraft(draftBody({ purpose: 'community_input' }))
+      const baseline = { system: promptOf('system'), user: promptOf('user') }
 
-    expect(promptOf('user')).toBe(baseline)
-    expect(promptOf('user')).not.toContain('Would you compost?')
+      jsonCompletion.mockClear()
+      mockPoints()
+      const res = await postDraft(
+        draftBody({
+          purpose: 'community_input',
+          communityInputQuestion: question,
+        }),
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(promptOf('system')).toBe(baseline.system)
+      expect(addedLines(baseline.user, promptOf('user'))).toEqual([
+        'The question this effort is trying to answer:',
+        '"""',
+        question,
+        '"""',
+        expect.stringContaining(
+          'in place of the general question described above',
+        ),
+      ])
+    })
+
+    it('drafts the purpose in Win’s own voice', async () => {
+      mockPoints()
+
+      await postDraft(
+        draftBody({
+          purpose: 'community_input',
+          communityInputQuestion: question,
+        }),
+      )
+
+      expect(promptOf('user')).toContain(
+        WIN_DOOR_KNOCKING_VOICE.purposePrompts.community_input,
+      )
+      expect(`${promptOf('system')}${promptOf('user')}`).not.toMatch(
+        /constituent/i,
+      )
+    })
+
+    // One-way, as on Serve: a question folded into any other purpose's ask
+    // writes a card about something the effort is not about.
+    it('refuses a question on a purpose that asks none', async () => {
+      const res = await postDraft(
+        draftBody({
+          purpose: 'persuade_voters',
+          communityInputQuestion: question,
+        }),
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(jsonCompletion).not.toHaveBeenCalled()
+    })
   })
 
   it('returns the three generated lines, named', async () => {

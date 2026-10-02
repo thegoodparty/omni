@@ -46,6 +46,9 @@ export interface PhoneBankingVoiceConfig<TPurpose extends string> {
   // in the regenerate-variation rule — Win's own campaign materials vs.
   // the elected official's own materials for Serve.
   materialsLabel: string
+  // Who is on the other end of the call, in the rail's own word, for the
+  // prompt blocks the two rails share.
+  personNoun: 'voter' | 'constituent'
 }
 
 interface DraftInput<TPurpose extends string> {
@@ -54,8 +57,9 @@ interface DraftInput<TPurpose extends string> {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
-  // Serve's community-input purpose only. Absent everywhere else, which is
-  // why the block it produces is conditional rather than a fixed line.
+  // The community-input purpose only, on either product. Absent everywhere
+  // else, which is why the block it produces is conditional rather than a
+  // fixed line.
   communityInputQuestion?: string
 }
 
@@ -137,6 +141,22 @@ const WIN_PURPOSE_PROMPTS: Record<PhoneBankingScriptPurpose, string> = {
     'the first ask. Do not invent event details not provided. Avoid ' +
     'inflammatory language. Close by thanking them for their time ' +
     'regardless of their answer.',
+  // Not from the product CSV, which predates this purpose on Win: Serve's
+  // community_input copy below, recast for a candidate's volunteer calling a
+  // voter. Listening, not persuading, is the whole of the brief.
+  community_input:
+    'Write a phonebank script for a volunteer inviting a voter to share ' +
+    'their view on a local issue. Format as alternating You:/Voter: lines. ' +
+    'Open with a brief rapport beat, then name the issue using the details ' +
+    'provided and ask an open-ended question inviting the voter to share ' +
+    'their perspective, not a yes/no question. Include an example of the ' +
+    'voter sharing a concern, with the caller reflecting it back to show ' +
+    'they heard it, rather than immediately pivoting to a pitch. Do not ' +
+    'invent details not provided. Do not reference party affiliation or ' +
+    'use inflammatory language. Close by thanking them and letting them ' +
+    'know the candidate will hear what they said. Keep the tone unhurried ' +
+    'and listening-focused throughout, this call is meant to hear from ' +
+    'them, not to persuade.',
   early_voting:
     'Write a phonebank script for a volunteer helping a voter make a ' +
     'specific plan to vote early, not just reminding them early ' +
@@ -304,6 +324,7 @@ export const WIN_PHONE_BANKING_VOICE: PhoneBankingVoiceConfig<PhoneBankingScript
     officeLabel: 'Office sought',
     subjectFallback: 'The candidate',
     materialsLabel: 'campaign materials',
+    personNoun: 'voter',
   }
 
 // The serve purpose prompts are the product CSV's copy (2026-08-31),
@@ -485,6 +506,7 @@ export const SERVE_PHONE_BANKING_VOICE: PhoneBankingVoiceConfig<ServePhoneBankin
     officeLabel: 'Office held',
     subjectFallback: 'The elected official',
     materialsLabel: "official's own materials",
+    personNoun: 'constituent',
   }
 
 // No max() here: an instructions-driven or near-cap improve result can land
@@ -518,7 +540,10 @@ const buildInstructionsBlock = <TPurpose extends string>(
 // further instructions to the prompt. The rule sits beside the data because
 // the whole point of the community-input purpose is that the call closes on
 // THIS question instead of a generic one.
-const buildQuestionBlock = (question: string): string[] => [
+const buildQuestionBlock = <TPurpose extends string>(
+  question: string,
+  voice: PhoneBankingVoiceConfig<TPurpose>,
+): string[] => [
   'The question this effort is trying to answer:',
   '"""',
   question,
@@ -527,12 +552,13 @@ const buildQuestionBlock = (question: string): string[] => [
   // also bans a yes/no question — and a real question ("Would you take part
   // in a compost pilot, and how do you feel about it?") is often partly one.
   // So the rule is to ask exactly this and invite elaboration, rather than to
-  // choose between the official's words and the purpose's format.
+  // choose between the author's words and the purpose's format.
   'This is the issue the script must raise, and the question it must put to ' +
-    'the constituent, in place of a general one. Keep what it asks exactly, ' +
-    'and follow it by inviting them to say more so the call still opens a ' +
-    'conversation rather than closing on a yes or no. Do not widen it into a ' +
-    'general what-matters-to-you question, and do not answer it yourself.',
+    `the ${voice.personNoun}, in place of a general one. Keep what it asks ` +
+    'exactly, and follow it by inviting them to say more so the call still ' +
+    'opens a conversation rather than closing on a yes or no. Do not widen it ' +
+    'into a general what-matters-to-you question, and do not answer it ' +
+    'yourself.',
 ]
 
 // Kept generic (parametrized by voice.subjectFallback/materialsLabel)
@@ -621,7 +647,7 @@ export class OutreachPhoneBankingGenerationService {
       voice.purposePrompts[input.purpose],
       `Tone: ${TONE_STYLES[input.tone]}`,
       ...(input.communityInputQuestion
-        ? buildQuestionBlock(input.communityInputQuestion)
+        ? buildQuestionBlock(input.communityInputQuestion, voice)
         : []),
       ...extraContext,
     ]

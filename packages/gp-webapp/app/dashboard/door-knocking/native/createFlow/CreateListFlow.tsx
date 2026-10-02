@@ -58,6 +58,7 @@ import {
   flowStage,
   MAX_CAMPAIGN_NAME_LENGTH,
   previousStage,
+  purposeAsksQuestion,
   stageStep,
   stepperPosition,
   type CreateFlowStage,
@@ -86,7 +87,6 @@ import type {
   RecommendedListIntent,
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
-import { COMMUNITY_INPUT_PURPOSE } from '@goodparty_org/contracts'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
 
@@ -350,9 +350,9 @@ const STAGE_META: Record<
     title: 'What do you want to do?',
     caption: 'Pick a goal so we can shape the right door knocking list.',
   },
-  // Reached only from the community_input purpose, which exists only in the
-  // Serve vocabulary — so this copy is only ever read by an elected
-  // official's canvasser even though the stage lives in a shared file.
+  // Reached only from the community_input purpose, which both products carry
+  // (Win's "Hear from voters", Serve's community input), so the copy names
+  // neither voters nor constituents.
   question: {
     title: 'What do you want to learn?',
     caption: 'One clear question, in the words you would say out loud.',
@@ -737,7 +737,7 @@ export default function CreateListFlow({
   const stage = flowStage(step, preDrawStage)
   // The community-input purpose asks one extra thing, which inserts a stage
   // and makes the path seven long.
-  const asksQuestion = purpose === COMMUNITY_INPUT_PURPOSE
+  const asksQuestion = purposeAsksQuestion(purpose)
 
   // Recommendations render in the who step's list-picker face only — the
   // same "picker mode, above the saved lists" placement Task 8 used for the
@@ -1051,8 +1051,7 @@ export default function CreateListFlow({
       instructions?: string
       communityInputQuestion?: string
     }) => {
-      const { communityInputQuestion, ...rest } = input
-      const body = { ...rest, filters: draftFilters }
+      const body = { ...input, filters: draftFilters }
       // Two endpoints for one call, chosen by the same `serveMode` context the
       // create body below uses — a Serve official's card must never be written
       // by the prompt that says "running for".
@@ -1060,11 +1059,6 @@ export default function CreateListFlow({
         ? clientRequest('POST /v1/outreach/serve/door-knocking/draft', {
             ...body,
             purpose: input.purpose as ServeDoorKnockingPurpose,
-            // Serve only, and destructured out of `body` above so the Win
-            // branch cannot send a field its endpoint does not accept.
-            ...(communityInputQuestion === undefined
-              ? {}
-              : { communityInputQuestion }),
           })
         : clientRequest('POST /v1/outreach/door-knocking/draft', {
             ...body,
@@ -1095,8 +1089,9 @@ export default function CreateListFlow({
     // Read here and passed as a variable, the way `instructions` is: the
     // question is what a community-input effort exists to ask, so the card's
     // ask has to be written from it rather than from a generic prompt.
-    const askedQuestion =
-      nextPurpose === COMMUNITY_INPUT_PURPOSE ? question.trim() : ''
+    const askedQuestion = purposeAsksQuestion(nextPurpose)
+      ? question.trim()
+      : ''
     draft.mutate(
       {
         purpose: nextPurpose,
@@ -1726,7 +1721,7 @@ export default function CreateListFlow({
                 // question typed for an earlier community-input pick would
                 // otherwise ride along as this campaign's.
                 setQuestion('')
-                goToStage(next === COMMUNITY_INPUT_PURPOSE ? 'question' : 'who')
+                goToStage(purposeAsksQuestion(next) ? 'question' : 'who')
               }}
             />
           )}
@@ -1735,6 +1730,7 @@ export default function CreateListFlow({
             <CommunityInputQuestionStep
               question={question}
               onChange={setQuestion}
+              isServe={serveMode}
             />
           )}
 
