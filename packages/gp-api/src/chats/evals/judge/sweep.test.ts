@@ -40,6 +40,15 @@ const COS: AgentEntry = {
   status: 'pending',
 }
 
+// A second agent, for the one test that needs the qualifier to tell two of
+// them apart.
+const PRIORITY_FLOW: AgentEntry = {
+  agentId: 'priority_flow',
+  shape: 'chat',
+  cases: 'priority_flow.json',
+  status: 'pending',
+}
+
 const REGISTRY: readonly AgentEntry[] = [COS]
 
 const env: SweepEnv = {
@@ -836,6 +845,38 @@ describe('a sweep whose agents were named by hand', () => {
     expect(result.report.agents).toHaveLength(1)
   })
 
+  // TWO AGENTS, ONE MATCH. Every other fixture in this file has a single
+  // agent, so an id attached from the wrong place — read off the records
+  // rather than taken from the loop — would be invisible. This is the only
+  // shape that can see it, and it also pins that a sibling whose digests
+  // genuinely differed is not dragged into the qualifier.
+  it('names only the agent whose digests matched', async () => {
+    const sibling = cases(1).map((record) => ({
+      ...record,
+      agentId: 'priority_flow',
+      runId: `pf-${record.runId}`,
+    }))
+    const result = await judgeSweep(
+      {
+        store: await seeded([...sameDigest(cases(1)), ...sibling]),
+        llm: alwaysX,
+        registry: [COS, PRIORITY_FLOW],
+      },
+      { ...NAMED, agentIds: ['chief_of_staff', 'priority_flow'] },
+    )
+    expect(result.report.identicalConfigs).toEqual([
+      {
+        agentId: 'chief_of_staff',
+        caseIds: ['case-0'],
+        digestSetsMatch: true,
+      },
+    ])
+    expect(result.report.agents.map((a) => a.agentId)).toEqual([
+      'chief_of_staff',
+      'priority_flow',
+    ])
+  })
+
   // The same two inputs under the derived selection, so the pair of tests is
   // the whole claim: the override is what changed the outcome, not the records.
   it('still refuses both, agent by agent, on a derived selection', async () => {
@@ -843,6 +884,10 @@ describe('a sweep whose agents were named by hand', () => {
     expect(digests.report.agents).toEqual([])
     expect(digests.report.identicalConfigs).toBeUndefined()
     expect(digests.report.refusals?.[0]?.reason).toContain('the same config')
+    // Red, which is the other half of "green where it used to end red": a
+    // refusal produced no verdict, and that is the one thing this exit code
+    // reports.
+    expect(digests.exitCode).toBe(1)
 
     const outputs = await run(
       await seeded([
@@ -856,6 +901,7 @@ describe('a sweep whose agents were named by hand', () => {
     expect(outputs.report.refusals?.[0]?.reason).toContain(
       'came back byte-identical on both arms',
     )
+    expect(outputs.exitCode).toBe(1)
   })
 })
 
