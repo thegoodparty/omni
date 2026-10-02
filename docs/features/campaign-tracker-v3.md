@@ -94,6 +94,17 @@ complete. The flag **is** the claim: the plan endpoint is polled, so the
 conditional `updateMany` is what stops two concurrent polls from each
 resetting and double-dispatching. Attempt counters deliberately survive.
 
+Three row states, not two, and conflating them cost a bug. The `persistedAt`
+stamps decide whether there is content to wipe; the runIds decide whether a
+generation is already on the wire. Content persisted takes the reset above.
+Nothing persisted and nothing dispatched stamps the claim and lets the
+dispatch that follows carry the story. Nothing persisted but a run still in
+flight stands aside without claiming: wiping would null the runIds
+`onExperimentRunCompleted` looks the plan up by, orphaning live Fargate runs
+so their output is dropped, while claiming would flag a plan story-aware
+whose params predate the story and so could never be regenerated. The read
+after those runs persist is the one that regenerates it.
+
 That read-path alignment is the backstop; the trigger is the write path, so a
 candidate who finishes their story in the manager chat doesn't have to open the
 plan tab for it to take effect. The story spans three fields across two tables
