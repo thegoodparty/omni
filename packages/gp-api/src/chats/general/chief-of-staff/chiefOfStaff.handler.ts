@@ -49,6 +49,7 @@ import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachP
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
@@ -96,6 +97,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly helpCenter?: HelpCenterSearchService,
     @Optional()
     private readonly pastOutreach?: PriorityFlowOutreachService,
+    @Optional()
+    private readonly priorityStatus?: PriorityStatusService,
   ) {}
 
   async loadContext(
@@ -147,6 +150,21 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       port: this.priorities,
       electedOfficeId: ctx.electedOfficeId,
     })
+
+    // Registered only when a priority has a check the official put off, so
+    // the prompt never offers a write with nothing to write to.
+    const hasDeferredCheck = ctx.priorities.some((priority) =>
+      priority.flow?.checks.some(
+        ({ check }) =>
+          check.state === 'deferred' || check.contrast?.state === 'deferred',
+      ),
+    )
+    if (this.priorityStatus && hasDeferredCheck) {
+      Object.assign(
+        tools,
+        this.priorityStatus.buildCheckReminderTool(ctx.electedOfficeId),
+      )
+    }
 
     const briefingProvider = this.briefings.forElectedOffice(
       ctx.electedOfficeId,

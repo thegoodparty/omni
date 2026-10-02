@@ -13,9 +13,10 @@ const presentOutreachProposalInput = OutreachProposalSchema.omit({
 })
 
 // Only a phone banking proposal can be completed from the card. A social post
-// has no platform in the proposal shape, and a text lands behind Stripe as an
-// unpaid draft, so a Send button on either would promise something that does
-// not happen. Derived from the channel rather than read off the model.
+// has no platform in the proposal shape, a text lands behind Stripe as an
+// unpaid draft, and door knocking is cut on a map, so a Send button on any of
+// them would promise something that does not happen. Derived from the channel
+// rather than read off the model.
 const isDeepLinkOnly = (channel: ProposalChannel): boolean =>
   channel !== ProposalChannelSchema.enum.phoneBanking
 
@@ -28,8 +29,10 @@ export const buildPresentOutreachProposalTool = (): LlmStreamTool<
     'audience is the list it will be sent to. Never call this with a sketch, ' +
     'a placeholder, or a message you plan to refine. Build the list and ' +
     'write the copy first, then present once. Only a phoneBanking proposal ' +
-    'can be sent from the card itself. A social or text proposal is a ' +
-    'recommendation the official finishes elsewhere, so write it that way ' +
+    'can be sent from the card itself. A social, text or doorKnocking ' +
+    'proposal is a recommendation the official finishes elsewhere (door ' +
+    'knocking opens the map with the list already picked, and the message ' +
+    'is what to say at the door), so write it that way ' +
     'and never promise them one click. deepLinkOnly is set from the channel ' +
     'whatever you pass, so do not reason about it.',
   inputSchema: presentOutreachProposalInput,

@@ -20,9 +20,13 @@ export const PROPOSAL_OUTREACH_TYPE: Record<ProposalChannel, OutreachType> = {
   social: 'socialMedia',
   phoneBanking: 'phoneBanking',
   text: 'text',
+  doorKnocking: 'doorKnocking',
 }
 
-const COMPOSE_PARAM: Record<ProposalChannel, string> = {
+const COMPOSE_PARAM: Record<
+  Exclude<ProposalChannel, 'doorKnocking'>,
+  string
+> = {
   social: 'social',
   phoneBanking: 'phoneBanking',
   text: 'text',
@@ -38,6 +42,14 @@ export const proposalComposeHref = (
   proposal: Pick<OutreachProposal, 'channel' | 'savedFilterId'>,
   handoffNonce?: string,
 ): string => {
+  // Door knocking is its own page rather than a hub flow, and its create
+  // flow takes the list the same way the CRM channel picker hands it one.
+  // No source: the page already reads an unnamed `?create=1` as a deep link.
+  if (proposal.channel === 'doorKnocking') {
+    return proposal.savedFilterId
+      ? `/dashboard/door-knocking?create=1&listId=${proposal.savedFilterId}`
+      : '/dashboard/door-knocking?create=1'
+  }
   const params = new URLSearchParams({
     compose: COMPOSE_PARAM[proposal.channel],
   })
@@ -76,6 +88,7 @@ export const PROPOSAL_REACHABILITY_KEY: Record<
   social: null,
   phoneBanking: 'phoneBanking',
   text: 'sms',
+  doorKnocking: 'doorKnocking',
 }
 
 export const proposalHasAudience = (channel: ProposalChannel): boolean =>

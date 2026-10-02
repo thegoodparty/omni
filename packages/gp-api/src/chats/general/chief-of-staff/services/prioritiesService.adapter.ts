@@ -1,10 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { formatISO } from 'date-fns'
+import {
+  PriorityStepIdSchema,
+  parsePriorityStatus,
+} from '@goodparty_org/contracts'
 import { PrioritySource } from '@/generated/prisma'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import {
   CreatePriorityInput,
   PrioritiesToolPort,
+  PriorityFlowState,
   PriorityRecord,
   UpdatePriorityInput,
 } from './prioritiesPort'
@@ -23,6 +28,24 @@ const toRecord = (row: PriorityRow): PriorityRecord => ({
   archivedAt: row.archivedAt ? formatISO(row.archivedAt) : null,
 })
 
+type PriorityFlowRow = {
+  status: Parameters<typeof parsePriorityStatus>[0]
+  currentStep: string | null
+  nextAction: string | null
+}
+
+const toFlowState = (row: PriorityFlowRow): PriorityFlowState => {
+  const status = parsePriorityStatus(row.status)
+  const currentStep = PriorityStepIdSchema.safeParse(row.currentStep)
+  return {
+    currentStep: currentStep.success ? currentStep.data : null,
+    nextAction: row.nextAction,
+    checks: status.steps.flatMap((step) =>
+      step.check === undefined ? [] : [{ stepId: step.id, check: step.check }],
+    ),
+  }
+}
+
 // Binds slice 3's PrioritiesToolPort to slice 1's PrioritiesService. The port
 // passes electedOfficeId in each call; the service uses positional args, so we
 // map between them here.
@@ -32,7 +55,7 @@ export class PrioritiesServiceAdapter implements PrioritiesToolPort {
 
   async listActive(electedOfficeId: string): Promise<PriorityRecord[]> {
     const rows = await this.priorities.listActive(electedOfficeId)
-    return rows.map(toRecord)
+    return rows.map((row) => ({ ...toRecord(row), flow: toFlowState(row) }))
   }
 
   async create(input: CreatePriorityInput): Promise<PriorityRecord> {
