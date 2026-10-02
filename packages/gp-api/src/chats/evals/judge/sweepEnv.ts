@@ -197,6 +197,13 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   // so that "blank cap" and "not supplied" cannot be confused.
   JUDGE_BACKGROUND_ATTEMPTS: BLANK_IS_UNSET,
   JUDGE_BACKGROUND_MAX_CASES: BLANK_IS_UNSET,
+  // Which background agents both arms may walk, decided once by armBudget.ts.
+  // Read under the same mode switch: with ATTEMPTS present, a blank list
+  // means NONE were admitted — never "decide for yourself", which is the
+  // per-arm decision this replaces. GitHub hands an empty output over as an
+  // empty string, so "admitted nothing" and "never resolved" would otherwise
+  // read the same.
+  JUDGE_BACKGROUND_ADMITTED: BLANK_IS_UNSET,
 })
 
 export class SweepEnvError extends Error {}
@@ -276,6 +283,9 @@ export interface ArmEnv extends SweepEnv {
   dispatchQueueUrl?: string
   // Absent on a local run, where the arm's own config decides.
   backgroundBudget?: ShapeBudget
+  // Present exactly when backgroundBudget is. Absent on a local run, where
+  // the arm decides admission itself by spending its own budget down.
+  backgroundAdmitted?: ReadonlySet<string>
 }
 
 export interface BackgroundDestination {
@@ -389,9 +399,19 @@ export const parseArmEnv = (
   }
 
   const backgroundBudget = backgroundBudgetFrom(data)
+  const backgroundAdmitted =
+    backgroundBudget === undefined
+      ? undefined
+      : new Set(
+          (data.JUDGE_BACKGROUND_ADMITTED ?? '')
+            .split(',')
+            .map((id) => id.trim())
+            .filter((id) => id !== ''),
+        )
   const env: ArmEnv = {
     ...toSweepEnv(data),
     ...(backgroundBudget !== undefined && { backgroundBudget }),
+    ...(backgroundAdmitted !== undefined && { backgroundAdmitted }),
     arm: data.JUDGE_ARM,
     baseRef: data.JUDGE_BASE_REF,
     candidateSha: data.JUDGE_CANDIDATE_SHA,
@@ -437,11 +457,16 @@ const backgroundBudgetFrom = (data: ParsedArm): ShapeBudget | undefined => {
     // A cap with no attempts is a half-resolved budget. Refused rather than
     // dropped, because dropping it silently falls back to the arm's own
     // config — which is the per-checkout mismatch this input exists to end.
-    if (data.JUDGE_BACKGROUND_MAX_CASES !== undefined) {
-      throw new SweepEnvError(
-        'JUDGE_BACKGROUND_MAX_CASES is set but JUDGE_BACKGROUND_ATTEMPTS is ' +
-          'not, so this is half a budget; the workflow sets both or neither',
-      )
+    for (const name of [
+      'JUDGE_BACKGROUND_MAX_CASES',
+      'JUDGE_BACKGROUND_ADMITTED',
+    ] as const) {
+      if (data[name] !== undefined) {
+        throw new SweepEnvError(
+          `${name} is set but JUDGE_BACKGROUND_ATTEMPTS is not, so this is ` +
+            'half a budget; the workflow sets all three or none',
+        )
+      }
     }
     return undefined
   }

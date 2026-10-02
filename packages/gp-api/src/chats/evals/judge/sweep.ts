@@ -23,12 +23,7 @@ import {
 } from './normalize'
 import { invariantViolations } from './invariants'
 import type { RunRecord } from './record'
-import {
-  RecordStoreError,
-  type ArmAgent,
-  type ArmManifest,
-  type RecordStore,
-} from './records'
+import { RecordStoreError, type ArmManifest, type RecordStore } from './records'
 import {
   renderReport,
   unpinnedMartReads,
@@ -147,69 +142,6 @@ export const judgeSweep = async (
     'candidate',
   )
   const manifests = [baseManifest, candidateManifest]
-
-  // THE TWO ARMS HAVE TO HAVE WALKED THE SAME THING, and nothing before this
-  // point can guarantee it. The base arm runs the BASE REF'S TypeScript in a
-  // second worktree, so a budget written as a constant in this checkout —
-  // cases per agent, attempts per case — simply does not exist over there.
-  //
-  // The shape that costs money: a candidate capped at 3 cases x 1 attempt
-  // while base still walks 8 x 3. Base refuses every background agent as
-  // over-budget and writes no records; candidate dispatches for real and is
-  // billed; judging then finds nothing to pair and reports a skip whose
-  // reason is the very budget the branch adds. One arm paid, no verdict.
-  //
-  // Checked against the MANIFESTS rather than the config, because that is the
-  // only account of what each arm actually did, and it holds however the two
-  // checkouts came to disagree.
-  const walkedBy = (m: ArmManifest): Map<string, ArmAgent> =>
-    new Map(m.agents.map((a) => [a.agentId, a]))
-  const baseWalk = walkedBy(baseManifest)
-  const mismatched: string[] = []
-  for (const [agentId, candidate] of walkedBy(candidateManifest)) {
-    const base = baseWalk.get(agentId)
-    if (base === undefined) continue
-    if (base.attempts !== candidate.attempts) {
-      mismatched.push(
-        `${agentId} ran ${base.attempts} attempts per case on base and ` +
-          `${candidate.attempts} on candidate`,
-      )
-      continue
-    }
-    // Ids when both arms recorded them, counts otherwise. An arm captured by
-    // a ref predating `caseIds` has none, and a base arm is routinely older
-    // than its candidate — so absence means "cannot check" and falls back to
-    // the weaker comparison rather than inventing a disagreement.
-    if (base.caseIds !== undefined && candidate.caseIds !== undefined) {
-      const only = (a: string[], b: string[]): string[] =>
-        a.filter((id) => !b.includes(id))
-      const missing = only(base.caseIds, candidate.caseIds)
-      const added = only(candidate.caseIds, base.caseIds)
-      if (missing.length > 0 || added.length > 0) {
-        mismatched.push(
-          `${agentId} walked different cases: base only ` +
-            `[${missing.join(', ')}], candidate only [${added.join(', ')}]`,
-        )
-      }
-      continue
-    }
-    if (base.cases !== candidate.cases) {
-      mismatched.push(
-        `${agentId} walked ${base.cases} cases on base and ` +
-          `${candidate.cases} on candidate`,
-      )
-    }
-  }
-  if (mismatched.length > 0) {
-    throw new SweepEnvError(
-      `the two arms did not walk the same thing: ${mismatched.join('; ')}. ` +
-        'Cases pair by id, so a case only one arm walked is evidence ' +
-        'thrown away after both arms were billed, and unequal attempts ' +
-        'compare unequal evidence. The usual cause is a budget that lives ' +
-        'as a constant in the branch rather than as a sweep-level input, so ' +
-        'the base ref never received it.',
-    )
-  }
 
   // The arms and this step read JUDGE_SPEND from two different workflow
   // steps, so one can be set and the other not — and the first version of

@@ -133,21 +133,19 @@ describe('what it makes possible, with cases still run one at a time', () => {
 })
 
 describe('and what it costs', () => {
-  // THE GATE FLAGS EVERY BACKGROUND VERDICT. Pairs are derived from what the
-  // real loader walks and the real attempt count, not restated: three cases
-  // at one attempt is three pairs against a floor of twenty, so a background
-  // verdict comes back directional rather than conclusive.
+  // How many pairs a background comparison yields, from what the real loader
+  // walks and the real attempt count. That this is under the evidence floor —
+  // so every background verdict reads directional, not conclusive — is
+  // checked against the real gate in score.test.ts, not restated here.
   //
   // The floor is deliberately not lowered to match. A gate moved to fit the
   // evidence stops being a gate, and the note it emits says exactly why the
   // verdict is weak.
-  it('leaves a background comparison under the evidence floor', () => {
+  it('yields three pairs per background agent', () => {
     const entry = agent('opposition_research')
-    const pairs =
-      walked(entry).length * attemptsFor(entry, DEFAULT_JUDGE_CONFIG)
-    expect(pairs).toBe(3)
-    expect(pairs).toBeLessThan(DEFAULT_JUDGE_CONFIG.gates.minCases)
-    expect(DEFAULT_JUDGE_CONFIG.gates.minCases).toBe(20)
+    expect(
+      walked(entry).length * attemptsFor(entry, DEFAULT_JUDGE_CONFIG),
+    ).toBe(3)
   })
 
   // THE CAP DROPS THE HARDEST CASES, not a random third of them. Case lists

@@ -1596,33 +1596,6 @@ jobs:
       # resolution walks upward: the base arm would silently resolve the
       # CANDIDATE's built `contracts` and `nest-common`, which is the one
       # thing the two arms must not share.
-      # ONE BUDGET FOR BOTH ARMS, read from the candidate before either runs.
-      #
-      # The background case and attempt budget lives in config.ts, and the
-      # base arm runs the BASE REF'S config.ts from its own worktree. Without
-      # this, a branch that changes the budget walks one budget on candidate
-      # and another on base; judgeSweep refuses the pair, but only after both
-      # arms are billed. Same arrangement as the mart's Delta version above.
-      #
-      # The candidate's value, because the sweep is a question about the
-      # candidate. Runs here, in the primary checkout (candidate_sha), before
-      # the base worktree even exists.
-      #
-      # Fails the job rather than warning, unlike the mart. That resolver can
-      # fail on the network and the sweep is still worth running unpinned;
-      # this reads a constant from a file in this checkout, so a failure means
-      # the candidate's judge code is broken and the arms would fail anyway.
-      # Nothing has been spent yet.
-      #
-      # A base ref that predates this input ignores it, which is the one gap
-      # left — and the reason the judging step cross-checks the manifests too.
-      - name: Resolve the background case and attempt budget
-        id: budget
-        working-directory: ${{ env.WORKSPACE }}
-        run: |
-          set -euo pipefail
-          npx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"
-
       - name: Check out the base arm into its own worktree
         id: base
         env:
@@ -1693,6 +1666,46 @@ jobs:
       # there instead: its own install, its own contracts and nest-common
       # dist, its own Prisma client and route types. Sharing any of those with
       # the candidate is what would make the two arms the same arm.
+      # ONE BUDGET, AND ONE LIST OF ADMITTED BACKGROUND AGENTS, FOR BOTH ARMS.
+      #
+      # Both live behind a per-worktree read. The case and attempt budget is a
+      # constant in config.ts, and which agents fit depends on each agent's
+      # timeout, read from its manifest — and the base arm reads the base
+      # ref's copy of both. Two arms deciding for themselves disagree the
+      # moment a branch changes either: one admits an agent the other refuses,
+      # and because the budget is spent down in walk order, that one
+      # disagreement moves every agent after it. Both arms bill and nothing
+      # pairs. So this decides once, and both arms obey it.
+      #
+      # AFTER the base worktree exists, because it reads both trees: an agent
+      # is admitted only if it fits on whichever arm is SLOWER (a branch that
+      # lowers a timeout would otherwise be admitted on the candidate's number
+      # and then overrun the base arm), and an agent missing from the base ref
+      # is refused before anyone pays — it has nothing to be compared with. It
+      # reads the base tree's files raw rather than running this branch's
+      # validators over them, so a base list in an older format cannot be
+      # refused for its format. BEFORE either arm, so nothing is spent yet.
+      #
+      # The CANDIDATE's budget, because the sweep is a question about the
+      # candidate, run from the primary checkout (candidate_sha).
+      #
+      # Fails the job rather than warning, unlike the mart: that resolver can
+      # fail on the network; this one reads files from two checkouts, so a
+      # failure means the judge code is broken and the arms would fail anyway.
+      #
+      # A base ref that predates these inputs ignores them, so for a PR opened
+      # against such a base the base arm still decides for itself. That is the
+      # one gap left, and it closes as soon as this is on the base ref.
+      - name: Resolve the background case and attempt budget
+        id: budget
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          BASE_DIR: ${{ steps.base.outputs.dir }}
+          JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
+        run: |
+          set -euo pipefail
+          npx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"
+
       - name: Install the base arm's workspace
         working-directory: ${{ steps.base.outputs.dir }}
         run: |
@@ -1754,6 +1767,7 @@ jobs:
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
           JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
           JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
+          JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
           # existing eval suites self-skip on, and the sweep suite is not one
           # of them: it skips on JUDGE_ARM being absent, which is the value
@@ -1796,6 +1810,7 @@ jobs:
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
           JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
           JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
+          JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"

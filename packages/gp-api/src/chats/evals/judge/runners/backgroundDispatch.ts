@@ -32,12 +32,27 @@ import type { AgentConfig, BackgroundRunInput } from './background'
 // the agent's own timer.
 export const POLL_HEADROOM_MS = 5 * 60 * 1000
 
+// One arm's wall clock for an agent from the two raw facts it turns on. Raw on
+// purpose: the base ref's files are read by the CANDIDATE's code, and running
+// the candidate's validators over them would refuse a base list in an older
+// but valid format — the drift that has broken this stack before. A case count
+// and a timeout are the only things the budget needs.
+export const pollTimeoutMsFor = (timeoutSeconds: number): number =>
+  timeoutSeconds * 1000 + POLL_HEADROOM_MS
+
 // The whole budget one arm may spend. The sweep job's `timeout-minutes: 180`
 // holds BOTH arms one after the other plus the judging step, so an arm gets
 // well under half of it; judgeWorkflow.test.ts asserts two of these fit in
 // the job. A background agent that would overrun it is refused by name in
 // caseLoaderFor rather than cut off partway — which would write no manifest
 // and leave the judging step failing on a missing arm.
+//
+// ONE KNOWN GAP, not measured yet: only background wall clock is spent
+// against this. Chat agents run inside the same arm and the same vitest
+// timeout, and nothing deducts them, so a sweep heavy on chat cases plus a
+// background agent that fits on its own could still overrun. There are no
+// measured chat turn durations to budget them with; when there are, they
+// belong in admitBackground's remaining budget.
 export const ARM_BUDGET_MS = 70 * 60 * 1000
 
 // Deliberately NOT a fallback for a manifest with no timeout. `timeout_seconds`
@@ -64,7 +79,7 @@ const pollTimeoutMs = (config: AgentConfig): number => {
         'wait out',
     )
   }
-  return timeout_seconds * 1000 + POLL_HEADROOM_MS
+  return pollTimeoutMsFor(timeout_seconds)
 }
 
 // The model the agent will actually run with, read from the manifest rather
@@ -138,65 +153,97 @@ export const backgroundRunInputFor = (
 // Substituted PER AGENT over the WHOLE list before any of it is walked, which
 // is what `substituteBackgroundCases` is for: per-case substitution would pay
 // for cases 1-7 and then die on case 8.
-export const caseLoaderFor =
-  (
-    values: PlaceholderValues,
-    budgetMs: number,
-    attemptsPerCase: number,
-    maxCases: number | undefined,
-    load: typeof loadCaseList = loadCaseList,
-    loadBackground: typeof loadBackgroundCases = loadBackgroundCases,
-    loadConfig: (agentId: string) => AgentConfig = agentConfigFor,
-    // SPENT DOWN ACROSS AGENTS, not re-offered to each one. captureArm walks
-    // agents sequentially inside a single job, so a per-agent check against
-    // the whole budget says yes to four agents that each fit and together
-    // take three times the arm. The arm is then killed mid-walk, and because
-    // putManifest runs after the loop, no manifest is written and judging
-    // dies on a missing arm — the exact outcome this refusal exists to avoid.
-    //
-    // Harmless while nothing fit; the budget is what made it reachable.
-    remaining = { ms: budgetMs },
-  ) =>
-  (agent: AgentEntry): CaseList => {
+export interface BackgroundBudgetInput {
+  budgetMs: number
+  attemptsPerCase: number
+  maxCases: number | undefined
+  // WHICH BACKGROUND AGENTS THIS ARM MAY WALK, decided once for both arms.
+  //
+  // Absent on a local run, where the arm decides for itself by spending its
+  // own budget down. Present on a sweep, where `armBudget.ts` decided before
+  // either arm ran — because each arm reads timeouts from its own worktree,
+  // and two arms deciding separately disagree the moment a branch changes
+  // one: one admits an agent the other refuses, the spend-down then pushes
+  // the disagreement onto every agent after it in walk order, and both arms
+  // bill for runs that pair with nothing. Empty means nothing was admitted,
+  // which is not the same as absent.
+  admitted?: ReadonlySet<string>
+}
+
+export interface CaseLoaderDeps {
+  load?: typeof loadCaseList
+  loadBackground?: typeof loadBackgroundCases
+  loadConfig?: (agentId: string) => AgentConfig
+}
+
+export const caseLoaderFor = (
+  values: PlaceholderValues,
+  budget: BackgroundBudgetInput,
+  {
+    load = loadCaseList,
+    loadBackground = loadBackgroundCases,
+    loadConfig = agentConfigFor,
+  }: CaseLoaderDeps = {},
+): ((agent: AgentEntry) => CaseList) => {
+  const { budgetMs, attemptsPerCase, maxCases, admitted } = budget
+  if (maxCases !== undefined && maxCases < 1) {
+    throw new Error(
+      `the background case cap is ${maxCases}, which is not a number of ` +
+        'cases a sweep can walk: 0 judges nothing while reporting a clean ' +
+        'arm, and a negative one is read by slice as "all but the last" — ' +
+        'nearly the whole list, which is the opposite of a cap',
+    )
+  }
+  // SPENT DOWN ACROSS AGENTS, not re-offered to each one, and created ONCE
+  // PER LOADER — so once per arm, since the arm builds one. captureArm walks
+  // agents sequentially inside a single job, so a per-agent check against the
+  // whole budget says yes to four agents that each fit and together take
+  // three times the arm; the arm is then killed mid-walk, and because
+  // putManifest runs after the loop, judging dies on a missing arm.
+  const remaining = { ms: budgetMs }
+  return (agent) => {
     const list = load(agent)
     if (list.shape !== 'background') return list
-    // Re-read, once per agent rather than once per case, to get the loader's
-    // own narrowing instead of a fourth structural one.
     // CAPPED BEFORE SUBSTITUTION AND BEFORE THE BUDGET CHECK, so the budget
-    // is measured against what will actually be walked rather than against
-    // the file. Taking the FIRST n rather than a sample: the two arms must
-    // walk the same cases or there is nothing to pair, and `maxCases` is read
-    // from one config by both.
-    if (maxCases !== undefined && maxCases < 1) {
-      throw new Error(
-        `the background case cap is ${maxCases}, which is not a number of ` +
-          'cases a sweep can walk: 0 judges nothing while reporting a clean ' +
-          'arm, and a negative one is read by slice as "all but the last" — ' +
-          'nearly the whole list, which is the opposite of a cap',
-      )
-    }
+    // is measured against what will actually be walked rather than the file.
+    // The FIRST n rather than a sample, so both arms take the same cases.
+    // Re-read once per agent to get the loader's own narrowing rather than a
+    // fourth structural one.
     const all = loadBackground(agent)
     const cases = substituteBackgroundCases(
       maxCases === undefined ? all : all.slice(0, maxCases),
       values,
     )
     const config = loadConfig(agent.agentId)
-    const cost = armWallClockMs(cases.length, attemptsPerCase, config)
-    refuseIfOverBudget(
-      agent.agentId,
-      cases.length,
-      attemptsPerCase,
-      config,
-      remaining.ms,
-      budgetMs,
-    )
-    remaining.ms -= cost
+    if (admitted !== undefined) {
+      if (!admitted.has(agent.agentId)) {
+        throw new Error(
+          `${agent.agentId} was not admitted by this sweep's background ` +
+            'budget, which was decided once for both arms before either ' +
+            "ran — see the 'Resolve the background case and attempt budget' " +
+            'step for why',
+        )
+      }
+    } else {
+      // Refused BEFORE deducting, so a refused agent leaves its share for
+      // the ones after it.
+      refuseIfOverBudget(
+        agent.agentId,
+        cases.length,
+        attemptsPerCase,
+        config,
+        remaining.ms,
+        budgetMs,
+      )
+      remaining.ms -= armWallClockMs(cases.length, attemptsPerCase, config)
+    }
     // Reached here rather than at the dispatch, where a manifest naming no
     // model would arrive as a skip on case 1 with every agent walked before
     // it already billed.
     modelOf(config)
     return { ...list, cases }
   }
+}
 
 // WHAT THE ARM ACTUALLY CALLS, so that CI executes the wiring rather than
 // only the helper.
@@ -212,13 +259,79 @@ export const armCaseLoader = (
   values: PlaceholderValues,
   budgetMs: number,
   config: JudgeConfig,
+  admitted?: ReadonlySet<string>,
 ): ((agent: AgentEntry) => CaseList) =>
-  caseLoaderFor(
-    values,
+  caseLoaderFor(values, {
     budgetMs,
-    config.background.attemptsPerCase,
-    config.background.maxCases,
-  )
+    attemptsPerCase: config.background.attemptsPerCase,
+    maxCases: config.background.maxCases,
+    ...(admitted !== undefined && { admitted }),
+  })
+
+// THE TWO THINGS AN ARM HANDS captureArm FROM ITS RESOLVED ENVIRONMENT, built
+// in one place that CI executes.
+//
+// They lived inline in `sweep.eval.test.ts`, which is `describe.skipIf` and
+// never runs in CI, and two mistakes there passed the whole suite: building
+// the loader once PER AGENT, which gives every agent a fresh budget and
+// undoes the spend-down; and leaving `config` off captureArm's deps, so
+// attempts fall back to the default while the cap uses the resolved budget —
+// two halves of one budget read from two places.
+export const armDeps = (
+  env: ArmEnv,
+  config: JudgeConfig,
+  budgetMs: number = ARM_BUDGET_MS,
+): { config: JudgeConfig; loadCases: (agent: AgentEntry) => CaseList } => ({
+  config,
+  loadCases: armCaseLoader(
+    env.fixtureValues,
+    budgetMs,
+    config,
+    env.backgroundAdmitted,
+  ),
+})
+
+// THE DECISION BOTH ARMS OBEY: which selected background agents fit one arm,
+// walked in the order the arms will walk them.
+//
+// `costOf` returns an agent's wall clock on ONE arm, or a refusal. The caller
+// takes the larger of the two arms' costs, so an agent is admitted only if it
+// fits on whichever arm is slower — a branch that LOWERS a timeout would
+// otherwise be admitted on the candidate's number and then overrun the base
+// arm at the base's. An agent one arm cannot load at all is refused here,
+// before anyone pays: a background agent new on the branch has no base to be
+// compared against.
+export const admitBackground = (
+  selected: readonly AgentEntry[],
+  costOf: (agent: AgentEntry) => { ms: number } | { refused: string },
+  budgetMs: number,
+): { admitted: string[]; refused: { agentId: string; reason: string }[] } => {
+  const admitted: string[] = []
+  const refused: { agentId: string; reason: string }[] = []
+  let remaining = budgetMs
+  const minutes = (value: number): number => Math.ceil(value / 60_000)
+  for (const agent of selected) {
+    if (agent.shape !== 'background') continue
+    const cost = costOf(agent)
+    if ('refused' in cost) {
+      refused.push({ agentId: agent.agentId, reason: cost.refused })
+      continue
+    }
+    if (cost.ms > remaining) {
+      refused.push({
+        agentId: agent.agentId,
+        reason:
+          `would take ${minutes(cost.ms)} minutes on the slower arm, and ` +
+          `${minutes(remaining)} of the arm's ${minutes(budgetMs)} were ` +
+          'left once the agents before it were admitted',
+      })
+      continue
+    }
+    admitted.push(agent.agentId)
+    remaining -= cost.ms
+  }
+  return { admitted, refused }
+}
 
 // PER AGENT, AND THROWN FROM INSIDE THE LOADER ON PURPOSE.
 //

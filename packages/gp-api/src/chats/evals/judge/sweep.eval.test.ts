@@ -17,7 +17,7 @@ import type { BackgroundRunnerDeps } from './runners/background'
 import { runBackgroundCase } from './runners/background'
 import {
   ARM_BUDGET_MS,
-  armCaseLoader,
+  armDeps,
   backgroundRunInputFor,
 } from './runners/backgroundDispatch'
 import { findAgent } from './agents'
@@ -119,8 +119,7 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
         {
           store,
           now: () => new Date(),
-          config,
-          loadCases: armCaseLoader(env.fixtureValues, ARM_TIMEOUT_MS, config),
+          ...armDeps(env, config, ARM_TIMEOUT_MS),
           runCase: async (request) => {
             // THE ONE PLACE THE TWO RUNNERS DIVERGE. `captureArm` walks cases
             // the same way for both shapes and `walkCases` validates whatever

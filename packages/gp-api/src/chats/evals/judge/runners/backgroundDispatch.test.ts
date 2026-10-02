@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ARM_BUDGET_MS,
   POLL_HEADROOM_MS,
+  admitBackground,
+  armDeps,
   backgroundRunInputFor,
   caseLoaderFor,
 } from './backgroundDispatch'
+import { DEFAULT_JUDGE_CONFIG } from '../config'
+import { findAgent } from '../agents'
+import { SWEEP_VALUES } from '../fixtures/sweep'
 import type { AgentConfig } from './background'
 import type { ArmCaseRequest } from '../sweepArm'
 import type { ArmEnv } from '../sweepEnv'
@@ -272,12 +278,12 @@ describe('caseLoaderFor', () => {
     const decoy: BackgroundCase[] = [{ caseId: 'decoy', params: {} }]
     const list = caseLoaderFor(
       { orgSlug: 'judge-fixture-1' },
-      HUGE_BUDGET_MS,
-      3,
-      undefined,
-      () => caseList('background', agent.agentId, decoy),
-      () => withToken,
-      () => config(),
+      { budgetMs: HUGE_BUDGET_MS, attemptsPerCase: 3, maxCases: undefined },
+      {
+        load: () => caseList('background', agent.agentId, decoy),
+        loadBackground: () => withToken,
+        loadConfig: () => config(),
+      },
     )(agent)
     expect(list.cases).toEqual([
       { caseId: 'c1', params: { organization_slug: 'judge-fixture-1' } },
@@ -294,12 +300,12 @@ describe('caseLoaderFor', () => {
     expect(() =>
       caseLoaderFor(
         { orgSlug: 'judge-fixture-1' },
-        HUGE_BUDGET_MS,
-        3,
-        undefined,
-        () => caseList('background', agent.agentId, mixed),
-        () => mixed,
-        () => config(),
+        { budgetMs: HUGE_BUDGET_MS, attemptsPerCase: 3, maxCases: undefined },
+        {
+          load: () => caseList('background', agent.agentId, mixed),
+          loadBackground: () => mixed,
+          loadConfig: () => config(),
+        },
       )(agent),
     ).toThrow(/c8/)
   })
@@ -308,10 +314,8 @@ describe('caseLoaderFor', () => {
     const cases = [{ caseId: 'c1', turns: ['hello'] }]
     const list = caseLoaderFor(
       { orgSlug: 'judge-fixture-1' },
-      HUGE_BUDGET_MS,
-      3,
-      undefined,
-      () => caseList('chat', chat.agentId, cases),
+      { budgetMs: HUGE_BUDGET_MS, attemptsPerCase: 3, maxCases: undefined },
+      { load: () => caseList('chat', chat.agentId, cases) },
     )(chat)
     expect(list.cases).toEqual(cases)
   })
@@ -341,18 +345,34 @@ describe('the wall-clock refusal', () => {
     caseId: `c${i}`,
     params: {},
   }))
-  const loader = (budgetMs: number, maxCases?: number, attempts = 3) =>
+  const loader = (
+    budgetMs: number,
+    maxCases?: number,
+    attempts = 3,
+    admitted?: ReadonlySet<string>,
+  ) =>
     caseLoaderFor(
       {},
-      budgetMs,
-      attempts,
-      maxCases,
-      (agent) =>
-        agent.shape === 'background'
-          ? caseList('background', agent.agentId, eight)
-          : caseList('chat', agent.agentId, [{ caseId: 'c1', turns: ['hi'] }]),
-      () => eight,
-      () => config({ timeout_seconds: 3600 }),
+      {
+        budgetMs,
+        attemptsPerCase: attempts,
+        maxCases,
+        ...(admitted !== undefined && { admitted }),
+      },
+      {
+        load: (agent) =>
+          agent.shape === 'background'
+            ? caseList('background', agent.agentId, eight)
+            : caseList('chat', agent.agentId, [
+                { caseId: 'c1', turns: ['hi'] },
+              ]),
+        loadBackground: () => eight,
+        // meeting_briefing declares an hour; opposition_research ten minutes.
+        loadConfig: (agentId) =>
+          config({
+            timeout_seconds: agentId === 'meeting_briefing' ? 3600 : 600,
+          }),
+      },
     )
 
   // cases x attempts x the agent's own poll: 8 x 3 x 65 minutes.
@@ -406,5 +426,219 @@ describe('the wall-clock refusal', () => {
 
   it('walks the whole list when no cap is set', () => {
     expect(loader(HUGE_BUDGET_MS, undefined)(background).cases).toHaveLength(8)
+  })
+})
+
+describe('the budget guards and the sweep-wide admission', () => {
+  const background = {
+    agentId: 'meeting_briefing',
+    shape: 'background' as const,
+    cases: 'meeting_briefing',
+    status: 'wired' as const,
+  }
+  const cheap = { ...background, agentId: 'opposition_research' }
+  const chat = {
+    ...background,
+    agentId: 'chief_of_staff',
+    shape: 'chat' as const,
+  }
+  const eight: BackgroundCase[] = Array.from({ length: 8 }, (_, i) => ({
+    caseId: `c${i}`,
+    params: {},
+  }))
+  const deps = {
+    load: (agent: AgentEntryLike) =>
+      agent.shape === 'background'
+        ? caseList('background', agent.agentId, eight)
+        : caseList('chat', agent.agentId, [{ caseId: 'c1', turns: ['hi'] }]),
+    loadBackground: () => eight,
+    loadConfig: (agentId: string) =>
+      config({ timeout_seconds: agentId === 'meeting_briefing' ? 3600 : 600 }),
+  }
+  type AgentEntryLike = { agentId: string; shape: 'chat' | 'background' }
+
+  // A REFUSED AGENT LEAVES ITS SHARE. captureArm walks every selected agent,
+  // refused ones included, so a refusal that still deducted would starve
+  // every agent after it of budget it never used.
+  it('does not charge a refused agent against the agents after it', () => {
+    // 100 minutes. meeting_briefing at 1 case x 1 attempt is 65 — over, once
+    // the cap makes it 3 cases (195). opposition_research is 15 a case.
+    const load = caseLoaderFor(
+      {},
+      { budgetMs: 100 * 60 * 1000, attemptsPerCase: 1, maxCases: 3 },
+      deps,
+    )
+    expect(() => load(background)).toThrow(/would take 195 minutes/)
+    expect(() => load(cheap)).not.toThrow()
+  })
+
+  // 0 judges nothing while reporting a clean arm; -1 is read by slice as
+  // "all but the last". Refused when the loader is BUILT, before any agent.
+  it.each([0, -1])('refuses a case cap of %i', (maxCases) => {
+    expect(() =>
+      caseLoaderFor(
+        {},
+        { budgetMs: HUGE_BUDGET_MS, attemptsPerCase: 1, maxCases },
+        deps,
+      ),
+    ).toThrow(/not a number of cases a sweep can walk/)
+  })
+
+  // ON A SWEEP, THE ADMITTED SET DECIDES, NOT THIS ARM'S OWN ARITHMETIC. Each
+  // arm reads timeouts from its own worktree, so two arms deciding for
+  // themselves disagree whenever a branch changes one.
+  it('walks an admitted agent without re-deciding its budget', () => {
+    // 3 cases x 1 attempt x 65 minutes is far over 1 ms — and admitted anyway,
+    // because the decision was taken once, for both arms, elsewhere.
+    const load = caseLoaderFor(
+      {},
+      {
+        budgetMs: 1,
+        attemptsPerCase: 1,
+        maxCases: 3,
+        admitted: new Set(['meeting_briefing']),
+      },
+      deps,
+    )
+    expect(load(background).cases).toHaveLength(3)
+  })
+
+  it('refuses an agent the sweep did not admit, however cheap', () => {
+    const load = caseLoaderFor(
+      {},
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: 3,
+        admitted: new Set(['meeting_briefing']),
+      },
+      deps,
+    )
+    expect(() => load(cheap)).toThrow(/not admitted by this sweep/)
+  })
+
+  // EMPTY IS NOT ABSENT. Nothing admitted means nothing walks — not "decide
+  // for yourself", which is the per-arm decision this exists to replace.
+  it('walks no background agent when the sweep admitted none', () => {
+    const load = caseLoaderFor(
+      {},
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: 3,
+        admitted: new Set(),
+      },
+      deps,
+    )
+    expect(() => load(cheap)).toThrow(/not admitted/)
+    expect(() => load(chat)).not.toThrow()
+  })
+})
+
+describe('admitBackground', () => {
+  const agent = (
+    agentId: string,
+    shape: 'chat' | 'background' = 'background',
+  ) => ({
+    agentId,
+    shape,
+    cases: `${agentId}.json`,
+    status: 'wired' as const,
+  })
+  const minutes = (n: number) => n * 60 * 1000
+
+  // In walk order, spending one budget: the arms walk agents in this order
+  // too, so an admission decided in any other order would disagree with what
+  // the arms can actually afford.
+  it('admits in walk order until the budget is spent', () => {
+    const cost: Record<string, number> = {
+      a: minutes(30),
+      b: minutes(30),
+      c: minutes(30),
+    }
+    const result = admitBackground(
+      [agent('a'), agent('b'), agent('c')],
+      (one) => ({ ms: cost[one.agentId] ?? 0 }),
+      minutes(70),
+    )
+    expect(result.admitted).toEqual(['a', 'b'])
+    expect(result.refused.map((one) => one.agentId)).toEqual(['c'])
+    expect(result.refused[0]?.reason).toMatch(/10 of the arm's 70 were left/)
+  })
+
+  it('lets a later cheap agent through after an expensive one is refused', () => {
+    const cost: Record<string, number> = {
+      big: minutes(200),
+      small: minutes(20),
+    }
+    const result = admitBackground(
+      [agent('big'), agent('small')],
+      (one) => ({ ms: cost[one.agentId] ?? 0 }),
+      minutes(70),
+    )
+    expect(result.admitted).toEqual(['small'])
+  })
+
+  it('carries a refusal from the cost through, and skips chat agents', () => {
+    const result = admitBackground(
+      [agent('chief_of_staff', 'chat'), agent('new_one')],
+      () => ({ refused: 'is not on the base ref' }),
+      minutes(70),
+    )
+    expect(result.admitted).toEqual([])
+    expect(result.refused).toEqual([
+      { agentId: 'new_one', reason: 'is not on the base ref' },
+    ])
+  })
+})
+
+// THE ARM'S WIRING, which lived in a suite CI never runs. Two mistakes there
+// passed everything: one loader per AGENT, giving each a fresh budget and
+// undoing the spend-down; and `config` left off captureArm's deps, so the
+// attempts fell back to the default while the cap used the resolved budget.
+describe('armDeps', () => {
+  const real = (agentId: string) => {
+    const found = findAgent(agentId)
+    if (found === undefined)
+      throw new Error(`${agentId} is not in the registry`)
+    return found
+  }
+
+  it('hands captureArm the same config the loader was built from', () => {
+    const config = {
+      ...DEFAULT_JUDGE_CONFIG,
+      background: { attemptsPerCase: 1, maxCases: 3 },
+    }
+    expect(armDeps(env(), config).config).toBe(config)
+  })
+
+  // ONE loader for the arm, so the budget is spent across agents. Each of
+  // these fits the 70-minute arm alone; the second does not fit after the
+  // first, which only holds if both calls share one budget.
+  it('spends one budget across every agent the arm walks', () => {
+    const { loadCases } = armDeps(
+      env({ fixtureValues: SWEEP_VALUES }),
+      DEFAULT_JUDGE_CONFIG,
+      ARM_BUDGET_MS,
+    )
+    expect(() => loadCases(real('opportunities_and_challenges'))).not.toThrow()
+    expect(() => loadCases(real('opposition_research'))).toThrow(/would take/)
+  })
+
+  // On a sweep the admitted set decides, and armDeps is what carries it from
+  // the env to the loader.
+  it('passes the admitted set from the sweep through to the loader', () => {
+    const { loadCases } = armDeps(
+      env({
+        fixtureValues: SWEEP_VALUES,
+        backgroundAdmitted: new Set(['opposition_research']),
+      }),
+      DEFAULT_JUDGE_CONFIG,
+      ARM_BUDGET_MS,
+    )
+    expect(() => loadCases(real('opposition_research'))).not.toThrow()
+    expect(() => loadCases(real('opportunities_and_challenges'))).toThrow(
+      /not admitted/,
+    )
   })
 })

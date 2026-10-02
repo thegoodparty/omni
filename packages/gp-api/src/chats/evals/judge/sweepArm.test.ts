@@ -260,10 +260,6 @@ describe('captureArm', () => {
         caseList: 'chief_of_staff.json',
         placeholderCases: false,
         cases: 3,
-        // WHICH cases, so judging can refuse two arms that walked different
-        // ones. A count alone reads 3 against 3 while the two threes differ,
-        // and every pair goes unmatched after both arms were billed.
-        caseIds: ['case-0', 'case-1', 'case-2'],
         attempts: 2,
         recordsWritten: 6,
       },
@@ -277,10 +273,17 @@ describe('captureArm', () => {
   // whole suite green — the manifest's `attempts` would then claim 3 for an
   // agent walked once, which is only noticed beside a bill.
   it('gives each shape its own attempt count, and records which', async () => {
+    // NON-DEFAULT numbers on both sides. Read off DEFAULT_JUDGE_CONFIG, this
+    // only told the shapes apart because the defaults happen to be 3 and 1.
+    const config = {
+      ...DEFAULT_JUDGE_CONFIG,
+      attemptsPerCase: 2,
+      background: { attemptsPerCase: 5 },
+    }
     const d = await deps({
       runCase: echoRunner([]),
       loadCases: () => caseList(1),
-      config: DEFAULT_JUDGE_CONFIG,
+      config,
     })
     const manifest = await captureArm(
       d,
@@ -289,8 +292,8 @@ describe('captureArm', () => {
     )
     expect(JSON.stringify(manifest.skipped)).toBe('[]')
     expect(manifest.agents.map((a) => [a.agentId, a.attempts])).toEqual([
-      ['chief_of_staff', DEFAULT_JUDGE_CONFIG.attemptsPerCase],
-      ['meeting_briefing', DEFAULT_JUDGE_CONFIG.background.attemptsPerCase],
+      ['chief_of_staff', 2],
+      ['meeting_briefing', 5],
     ])
   })
 

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
+import { budgetOutputLines } from './armBudget'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
@@ -679,10 +680,11 @@ describe('judge.yml assumes a role scoped to the judge', () => {
   })
 })
 
-// ONE BACKGROUND BUDGET FOR BOTH ARMS. The base arm runs the base ref's
-// config.ts, so a budget read by each arm from its own checkout differs
-// whenever a branch changes it — refused at judging, after both arms are
-// billed. The workflow resolves it once from the candidate instead.
+// ONE BACKGROUND BUDGET, AND ONE ADMITTED LIST, FOR BOTH ARMS. The base arm
+// reads the base ref's config.ts and manifests, so a budget or an admission
+// each arm decided for itself would differ whenever a branch changed either.
+// The workflow decides once instead, and these pin the plumbing exactly:
+// every way it can go wrong here leaves both arms quietly walking their own.
 describe('judge.yml hands both arms one background budget', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const steps = stepsOf(yaml)
@@ -691,43 +693,84 @@ describe('judge.yml hands both arms one background budget', () => {
     step.name.startsWith('Resolve the background case and attempt budget'),
   )
   const arms = steps.filter((step) => step.name.startsWith('Capture the '))
-  const BUDGET = ['JUDGE_BACKGROUND_ATTEMPTS', 'JUDGE_BACKGROUND_MAX_CASES']
 
-  it('resolves it from the candidate into the step outputs', () => {
-    expect(resolver?.body).toContain('id: budget')
-    expect(resolver?.body).toContain('npx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"')
+  // The resolver's OWN output keys, read off the function that writes them —
+  // not restated here, where a rename in one place would leave the two
+  // agreeing with each other and with nothing else.
+  const OUTPUT_KEYS = budgetOutputLines()
+    .trim()
+    .split('\n')
+    .map((line) => line.split('=')[0])
+  const ENV_FOR: Record<string, string> = {
+    attempts: 'JUDGE_BACKGROUND_ATTEMPTS',
+    max_cases: 'JUDGE_BACKGROUND_MAX_CASES',
+    admitted: 'JUDGE_BACKGROUND_ADMITTED',
+  }
+
+  it('covers every output the resolver writes', () => {
+    expect([...OUTPUT_KEYS].sort()).toEqual(Object.keys(ENV_FOR).sort())
+  })
+
+  // EXACT, because GitHub resolves an unknown output to '' and '' reads as
+  // "no cap" and "none admitted". A misspelled output name on both arms used
+  // to pass: the two agreed with each other and both silently walked the
+  // full list. Each arm must read exactly the key the resolver writes.
+  it.each(Object.entries(ENV_FOR))(
+    'gives both arms %s as %s, from the resolver',
+    (key, name) => {
+      expect(arms).toHaveLength(2)
+      for (const arm of arms) {
+        expect(envValue(arm.body, name)).toBe(
+          `\${{ steps.budget.outputs.${key} }}`,
+        )
+      }
+    },
+  )
+
+  // EXACTLY THIS SCRIPT. `toContain` accepted `npx tsx … || true`, which
+  // swallows a failure and leaves every output blank — and blank reads as
+  // "no budget resolved", which drops both arms back onto their own config.
+  it('runs the resolver and nothing that could swallow its failure', () => {
+    // Trimmed only because runBlockOf keeps the blank lines that trail a
+    // block; `|| true`, a second command or a dropped `set -e` all still
+    // change what is compared.
+    expect(runBlockOf(resolver?.body ?? '').trim()).toBe(
+      'set -euo pipefail\nnpx tsx "$BUDGET_ENTRY" "$GITHUB_OUTPUT"',
+    )
+    expect(resolver?.body).not.toContain('continue-on-error')
     expect(yaml).toContain('BUDGET_ENTRY: src/chats/evals/judge/armBudget.ts')
   })
 
-  // Before the base worktree EXISTS, not merely before the base capture: the
-  // resolver must read the primary checkout, and nothing after this point
-  // should be able to change which one that is.
-  it('runs before the base arm is checked out', () => {
+  // The working directory is what makes it read the CANDIDATE: it runs this
+  // checkout's armBudget.ts. The two env values are what make it read the
+  // BASE and the same selection the arms walk.
+  it('reads the candidate checkout, the base worktree and the selection', () => {
+    expect(resolver?.body).toMatch(
+      /^ {8}working-directory: \$\{\{ env\.WORKSPACE \}\}$/m,
+    )
+    expect(envValue(resolver?.body ?? '', 'BASE_DIR')).toBe(
+      '${{ steps.base.outputs.dir }}',
+    )
+    expect(envValue(resolver?.body ?? '', 'JUDGE_AGENTS')).toBe(
+      envValue(arms[0]?.body ?? '', 'JUDGE_AGENTS'),
+    )
+  })
+
+  // After the base worktree exists, because it reads it; before either arm,
+  // because nothing may have been spent when it decides.
+  it('runs between the base checkout and the first capture', () => {
     const resolved = names.findIndex((name) =>
       name.startsWith('Resolve the background case and attempt budget'),
     )
     const baseCheckout = names.findIndex((name) =>
       name.startsWith('Check out the base arm'),
     )
-    expect(resolved).toBeGreaterThan(-1)
-    expect(baseCheckout).toBeGreaterThan(resolved)
-  })
-
-  // Unlike the mart resolver, which may come back empty. A budget that cannot
-  // be read means the candidate's judge code is broken; continuing would let
-  // each arm fall back to its own config — the mismatch this step ends.
-  it('fails the job rather than continuing without a budget', () => {
-    expect(resolver?.body).not.toContain('continue-on-error')
-    expect(resolver?.body).toContain('set -euo pipefail')
-  })
-
-  // The SAME step output on both arms. Two literals would agree today and
-  // drift the first time config.ts changed, which is the whole bug.
-  it.each(BUDGET)('gives both arms %s from the one step output', (name) => {
-    expect(arms).toHaveLength(2)
-    const values = arms.map((arm) => envValue(arm.body, name))
-    expect(values[0]).toMatch(/^\$\{\{ steps\.budget\.outputs\.[a-z_]+ \}\}$/)
-    expect(values[1]).toBe(values[0])
+    const firstCapture = names.findIndex((name) =>
+      name.startsWith('Capture the '),
+    )
+    expect(baseCheckout).toBeGreaterThan(-1)
+    expect(resolved).toBeGreaterThan(baseCheckout)
+    expect(firstCapture).toBeGreaterThan(resolved)
   })
 })
 
