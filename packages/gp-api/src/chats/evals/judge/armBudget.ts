@@ -30,13 +30,14 @@ import { parseAgentIds } from './sweepEnv'
 
 const TIMEOUT_ONLY = z.object({ timeout_seconds: z.number() })
 
-// What one arm would walk for an agent: the wall clock, and WHICH cases. The
-// ids matter because cases pair by id and each arm caps its own list — a
+// What one arm would walk for an agent: how many runs, how long one run may
+// take, and WHICH cases. The ids matter because cases pair by id and each arm caps its own list — a
 // branch that inserts or reorders a case near the top of a list has each arm
 // take a different first few, and every one of them is a paid run pairing
 // with nothing.
 export interface ArmWalk {
-  ms: number
+  runs: number
+  runMs: number
   caseIds: readonly string[]
 }
 // Only the one field every case-list format has carried, because it is the key
@@ -84,10 +85,8 @@ const baseCost = (
       config.background.maxCases ?? list.cases.length,
     )
     return {
-      ms:
-        count *
-        config.background.attemptsPerCase *
-        pollTimeoutMsFor(manifest.timeout_seconds),
+      runs: count * config.background.attemptsPerCase,
+      runMs: pollTimeoutMsFor(manifest.timeout_seconds),
       caseIds: list.cases.slice(0, count).map((one) => one.caseId),
     }
   } catch {
@@ -131,6 +130,30 @@ export const baseHonoursAdmission = (baseDir: string): boolean => {
   }
 }
 
+// WHETHER THE BASE ARM STARTS ITS BACKGROUND RUNS ALL AT ONCE, which is what
+// admission by the wave assumes. A base that honours admission but predates
+// that walks its runs one after another, and a wave sized for twelve slots
+// would take it twelve runs' worth of wall clock. Against such a base,
+// admission falls back to the one-after-another spend-down it can honour.
+//
+// The exported constant, anchored, for the reason the admission probe reads
+// the schema key: a looser match finds the name in a comment.
+export const BASE_WALKS_CONCURRENTLY =
+  /^export const BACKGROUND_WALKS_CONCURRENTLY = true$/m
+
+export const baseWalksConcurrently = (baseDir: string): boolean => {
+  try {
+    return BASE_WALKS_CONCURRENTLY.test(
+      readFileSync(
+        join(baseDir, 'packages/gp-api/src/chats/evals/judge/sweepArm.ts'),
+        'utf8',
+      ),
+    )
+  } catch {
+    return false
+  }
+}
+
 const candidateCost = (agent: AgentEntry, config: JudgeConfig): ArmWalk => {
   const { timeout_seconds } = TIMEOUT_ONLY.parse(
     JSON.parse(agentConfigFor(agent.agentId).manifest),
@@ -141,10 +164,8 @@ const candidateCost = (agent: AgentEntry, config: JudgeConfig): ArmWalk => {
       ? all
       : all.slice(0, config.background.maxCases)
   return {
-    ms:
-      capped.length *
-      config.background.attemptsPerCase *
-      pollTimeoutMsFor(timeout_seconds),
+    runs: capped.length * config.background.attemptsPerCase,
+    runMs: pollTimeoutMsFor(timeout_seconds),
     caseIds: capped.map((one) => one.caseId),
   }
 }
@@ -162,10 +183,12 @@ export const resolveAdmission = (
       config: JudgeConfig,
     ) => ArmWalk | undefined
     honoursAdmission: (baseDir: string) => boolean
+    walksConcurrently: (baseDir: string) => boolean
   } = {
     candidate: candidateCost,
     base: baseCost,
     honoursAdmission: baseHonoursAdmission,
+    walksConcurrently: baseWalksConcurrently,
   },
 ): ReturnType<typeof admitBackground> => {
   // Deduplicated here as well as by the parser, keeping the first occurrence
@@ -251,9 +274,17 @@ export const resolveAdmission = (
             'reorders a case near the top of the list',
         }
       }
-      return { ms: Math.max(onCandidate.ms, onBase.ms) }
+      // The larger on each count. Equal case ids and one attempt count make
+      // the runs equal; the max costs nothing and does not rely on it.
+      return {
+        runs: Math.max(onCandidate.runs, onBase.runs),
+        runMs: Math.max(onCandidate.runMs, onBase.runMs),
+      }
     },
     ARM_BUDGET_MS,
+    costs.walksConcurrently(baseDir)
+      ? config.background.maxInFlight
+      : undefined,
   )
 }
 
@@ -304,8 +335,11 @@ if (require.main === module) {
   const budget = DEFAULT_JUDGE_CONFIG.background
   process.stderr.write(
     `both arms will walk background agents at ${budget.attemptsPerCase} ` +
-      `attempt(s) over ${budget.maxCases ?? 'every'} case(s); admitted: ` +
-      `${admitted.join(', ') || 'none'}\n`,
+      `attempt(s) over ${budget.maxCases ?? 'every'} case(s), ` +
+      (baseWalksConcurrently(baseDir)
+        ? `up to ${budget.maxInFlight} runs at once`
+        : 'one run after another, as the base ref does') +
+      `; admitted: ${admitted.join(', ') || 'none'}\n`,
   )
   for (const one of refused) {
     process.stderr.write(`refused ${one.agentId}: ${one.reason}\n`)

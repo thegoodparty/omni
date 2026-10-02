@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { AGENTS, findAgent, type AgentEntry } from './agents'
 import {
   BASE_HONOURS_ADMISSION,
+  BASE_WALKS_CONCURRENTLY,
   budgetOutputLines,
   resolveAdmission,
 } from './armBudget'
@@ -69,8 +70,20 @@ const NEW_ARM_SCHEMA = OLD_ARM_SCHEMA.replace(
 // swallowed an error, or read the candidate's tree instead all produced the
 // same answer. This builds a separate tree with exactly the files the raw
 // base read looks at, with timeouts chosen to differ from the candidate's.
+// WHAT AN ARM'S WALK DECLARES, old and new. The old one names the constant in
+// a comment, so a probe that matched any mention would pass against it.
+const OLD_ARM_WALK = [
+  '// BACKGROUND_WALKS_CONCURRENTLY is not declared by this arm',
+  'export const captureArm = async () => {}',
+  '',
+].join('\n')
+const NEW_ARM_WALK = `${OLD_ARM_WALK}export const BACKGROUND_WALKS_CONCURRENTLY = true\n`
+
 const baseTree = (spec: {
   honours?: boolean
+  // Whether the base arm starts its background runs at once. Absent means it
+  // does not, the base this branch is first merged against.
+  concurrent?: boolean
   timeouts: Record<string, number>
   // Replaces the copied case list with one holding exactly these ids — how a
   // base ref whose list differs from the branch's is modelled.
@@ -82,6 +95,10 @@ const baseTree = (spec: {
   writeFileSync(
     join(judgeDir, 'sweepEnv.ts'),
     spec.honours === false ? OLD_ARM_SCHEMA : NEW_ARM_SCHEMA,
+  )
+  writeFileSync(
+    join(judgeDir, 'sweepArm.ts'),
+    spec.concurrent === true ? NEW_ARM_WALK : OLD_ARM_WALK,
   )
   for (const [agentId, timeout] of Object.entries(spec.timeouts)) {
     const cases = findAgent(agentId)?.cases
@@ -150,13 +167,20 @@ const intoArmEnv = (outputs: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
     JUDGE_ARM_BUDGET_MS: outputs.arm_budget_ms,
   })
 
-const configWith = (background: ShapeBudget): JudgeConfig => ({
+// The slots are the arm's own and never travel, so every fixture carries the
+// default's and only the two numbers that do travel vary.
+const configWith = (
+  background: Omit<ShapeBudget, 'maxInFlight'>,
+): JudgeConfig => ({
   ...DEFAULT_JUDGE_CONFIG,
-  background,
+  background: {
+    ...background,
+    maxInFlight: DEFAULT_JUDGE_CONFIG.background.maxInFlight,
+  },
 })
 
 describe('the budget and the admitted list survive the trip to both arms', () => {
-  it.each<[string, ShapeBudget, string[]]>([
+  it.each<[string, Omit<ShapeBudget, 'maxInFlight'>, string[]]>([
     ['a capped budget', { attemptsPerCase: 2, maxCases: 5 }, ['a', 'b']],
     ['an uncapped budget', { attemptsPerCase: 4 }, ['only_one']],
   ])('carries %s through intact', (_label, budget, admitted) => {
@@ -164,7 +188,10 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
       intoArmEnv(PARSE(budgetOutputLines(configWith(budget), admitted))),
     )
     expect(arm.backgroundBudget).toEqual(budget)
-    expect(armConfigFor(arm).background).toEqual(budget)
+    expect(armConfigFor(arm).background).toEqual({
+      ...budget,
+      maxInFlight: DEFAULT_JUDGE_CONFIG.background.maxInFlight,
+    })
     expect([...(arm.backgroundAdmitted ?? [])]).toEqual(admitted)
   })
 
@@ -241,9 +268,14 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
       },
     })
     const arm = parseArmEnv(intoArmEnv(PARSE(readFileSync(out, 'utf8'))))
-    expect(arm.backgroundBudget).toEqual(DEFAULT_JUDGE_CONFIG.background)
-    // meeting_briefing is three 65-minute polls; opposition_research fits.
-    expect([...(arm.backgroundAdmitted ?? [])]).toEqual(['opposition_research'])
+    const { attemptsPerCase, maxCases } = DEFAULT_JUDGE_CONFIG.background
+    expect(arm.backgroundBudget).toEqual({ attemptsPerCase, maxCases })
+    // This tree walks concurrently, so meeting_briefing's three 65-minute
+    // runs finish together inside the arm, and both agents fit the slots.
+    expect([...(arm.backgroundAdmitted ?? [])]).toEqual([
+      'meeting_briefing',
+      'opposition_research',
+    ])
   })
 })
 
@@ -269,6 +301,27 @@ describe('the probe for whether the base arm reads the admitted list', () => {
   })
 })
 
+describe('the probe for whether the base arm walks concurrently', () => {
+  it('finds the declaration in this branch', () => {
+    expect(
+      BASE_WALKS_CONCURRENTLY.test(
+        readFileSync(join(__dirname, 'sweepArm.ts'), 'utf8'),
+      ),
+    ).toBe(true)
+  })
+
+  it.each([
+    ['an old arm walk that names it in a comment', OLD_ARM_WALK],
+    ['the name in a string', "  'BACKGROUND_WALKS_CONCURRENTLY',\n"],
+    [
+      'a declaration that says false',
+      'export const BACKGROUND_WALKS_CONCURRENTLY = false\n',
+    ],
+  ])('does not mistake %s for an arm that does', (_label, text) => {
+    expect(BASE_WALKS_CONCURRENTLY.test(text)).toBe(false)
+  })
+})
+
 describe('the resolver run against a base tree that differs', () => {
   // THE BASE IS SLOWER. Its own timeout, not the candidate's, has to decide —
   // and only a base tree that differs from the candidate can show it.
@@ -290,6 +343,66 @@ describe('the resolver run against a base tree that differs', () => {
       /^would take 195 minutes/,
     )
     expect(arm.armBudgetMs).toBe(ARM_BUDGET_MS)
+  })
+
+  // THE SAME SELECTION, TWO ANSWERS, by how the base walks. Two agents of
+  // three 15-minute runs: one after another that is 45 minutes each, and the
+  // second does not fit what the first left; in one wave both are six runs
+  // finishing together. So this is what proves the probe reaches the rule.
+  it.each<[string, boolean, string]>([
+    ['one run after another', false, 'opposition_research'],
+    ['all at once', true, 'opposition_research,race_opponent_actions'],
+  ])('admits by how the base arm walks: %s', (_label, concurrent, admitted) => {
+    const { written } = runEntry({
+      BASE_DIR: baseTree({
+        concurrent,
+        timeouts: { opposition_research: 600, race_opponent_actions: 600 },
+      }),
+      JUDGE_AGENTS: 'opposition_research,race_opponent_actions',
+    })
+    expect(written).toMatch(new RegExp(`^admitted=${admitted}$`, 'm'))
+  })
+
+  // In a wave the slower arm still decides, per run: a base whose single run
+  // is 80 minutes cannot finish inside a 70-minute arm, whatever is free.
+  it('refuses a run the slower base cannot finish, in a wave', () => {
+    const { written, stderr } = runEntry({
+      BASE_DIR: baseTree({
+        concurrent: true,
+        timeouts: { opposition_research: 4500 },
+      }),
+      JUDGE_AGENTS: 'opposition_research',
+    })
+    expect(written).toMatch(/^admitted=$/m)
+    expect(stderr).toMatch(
+      /refused opposition_research: would take 80 minutes for a single run/,
+    )
+    expect(stderr).toMatch(/up to 12 runs at once/)
+  })
+
+  // Five agents of three runs against twelve slots: the fifth is refused and
+  // says so, rather than being started and queued behind the platform's cap.
+  it('fills the slots in walk order and refuses the rest by name', () => {
+    const ids = [
+      'opposition_research',
+      'race_opponent_actions',
+      'race_opponent_summary',
+      'opportunities_and_challenges',
+      'district_issue_pulse',
+    ]
+    const { written, stderr } = runEntry({
+      BASE_DIR: baseTree({
+        concurrent: true,
+        timeouts: Object.fromEntries(ids.map((id) => [id, 600])),
+      }),
+      JUDGE_AGENTS: ids.join(','),
+    })
+    expect(written).toMatch(
+      new RegExp(`^admitted=${ids.slice(0, 4).join(',')}$`, 'm'),
+    )
+    expect(stderr).toMatch(
+      /refused district_issue_pulse: needs 3 runs in flight at once, and 0 of the arm's 12 slots/,
+    )
   })
 
   it('refuses an agent the base ref does not have, and admits one it does', () => {
@@ -343,7 +456,11 @@ describe('resolveAdmission', () => {
   const minutes = (n: number) => n * 60 * 1000
   // Both arms walking the same single case, so these tests isolate the cost;
   // the case-id check has its own test below.
-  const walk = (ms: number) => ({ ms, caseIds: ['c1'] })
+  const walk = (runMs: number, runs = 1) => ({
+    runs,
+    runMs,
+    caseIds: ['c1'],
+  })
 
   // THE SLOWER ARM DECIDES. A branch that LOWERS a timeout would otherwise be
   // admitted on the candidate's number and then overrun the base arm at the
@@ -358,6 +475,7 @@ describe('resolveAdmission', () => {
         candidate: () => walk(minutes(30)),
         base: () => walk(minutes(90)),
         honoursAdmission: () => true,
+        walksConcurrently: () => false,
       },
     )
     expect(result.admitted).toEqual([])
@@ -377,6 +495,7 @@ describe('resolveAdmission', () => {
         candidate: () => walk(minutes(10)),
         base: () => undefined,
         honoursAdmission: () => true,
+        walksConcurrently: () => false,
       },
     )
     expect(result.refused).toEqual([
@@ -400,6 +519,7 @@ describe('resolveAdmission', () => {
         },
         base: () => walk(minutes(10)),
         honoursAdmission: () => true,
+        walksConcurrently: () => false,
       },
     )
     expect(result.admitted).toEqual(['b'])
@@ -416,6 +536,7 @@ describe('resolveAdmission', () => {
         candidate: () => walk(minutes(10)),
         base: () => walk(minutes(10)),
         honoursAdmission: () => true,
+        walksConcurrently: () => false,
       },
     )
     expect(result.refused[0]?.reason).toMatch(/has no case list/)
@@ -434,6 +555,7 @@ describe('resolveAdmission', () => {
         candidate: () => walk(minutes(30)),
         base: () => walk(minutes(30)),
         honoursAdmission: () => true,
+        walksConcurrently: () => false,
       },
     )
     expect(result.admitted).toEqual(['a', 'b'])
@@ -445,7 +567,7 @@ describe('resolveAdmission', () => {
   it('multiplies the base arm by attempts too', () => {
     const config = {
       ...DEFAULT_JUDGE_CONFIG,
-      background: { attemptsPerCase: 2, maxCases: 1 },
+      background: { attemptsPerCase: 2, maxCases: 1, maxInFlight: 12 },
     }
     const result = resolveAdmission(
       ['opposition_research'],
@@ -465,7 +587,7 @@ describe('resolveAdmission', () => {
   it('multiplies the candidate arm by attempts when the candidate is slower', () => {
     const config = {
       ...DEFAULT_JUDGE_CONFIG,
-      background: { attemptsPerCase: 2, maxCases: 1 },
+      background: { attemptsPerCase: 2, maxCases: 1, maxInFlight: 12 },
     }
     const result = resolveAdmission(
       ['meeting_briefing'],
@@ -560,6 +682,7 @@ describe('resolveAdmission', () => {
         candidate: () => walk(minutes(1)),
         base: () => walk(minutes(1)),
         honoursAdmission: () => false,
+        walksConcurrently: () => false,
       },
     )
     expect(result.admitted).toEqual([])
@@ -613,9 +736,11 @@ describe('resolveAdmission', () => {
   // admitted set no longer checks its own budget, so the resolver is the only
   // guard there is. Pinned to the measured answer as well as to the loader.
   it('agrees with the arm loader at a budget where attempts change the answer', () => {
+    // Two runs an agent against five slots admits two agents; dropping the
+    // attempts on either path makes it one run each, and admits five.
     const config = {
       ...DEFAULT_JUDGE_CONFIG,
-      background: { attemptsPerCase: 2, maxCases: 1 },
+      background: { attemptsPerCase: 2, maxCases: 1, maxInFlight: 5 },
     }
     const ids = AGENTS.filter(
       (one) => one.shape === 'background' && one.status !== 'blocked',
@@ -633,7 +758,7 @@ describe('resolveAdmission', () => {
       },
     )
     expect(resolved).toEqual(walked.map((one) => one.agentId))
-    expect(resolved).toEqual(['campaign_tracker_tasks'])
+    expect(resolved).toEqual(['campaign_tracker_tasks', 'district_issue_pulse'])
   })
 })
 
@@ -690,7 +815,13 @@ describe('reading the budget an arm was handed', () => {
   // Only `background` is replaced. A wholesale swap would also reset the
   // chat attempts and the gates to whatever the arm's checkout says.
   it('replaces the background budget and nothing else', () => {
-    const base = { ...configWith({ attemptsPerCase: 7 }), attemptsPerCase: 6 }
+    // Non-default slots, so keeping the BASE's slots is told apart from
+    // keeping the default's.
+    const base = {
+      ...DEFAULT_JUDGE_CONFIG,
+      attemptsPerCase: 6,
+      background: { attemptsPerCase: 7, maxInFlight: 5 },
+    }
     const arm = parseArmEnv(
       armEnvFor({
         JUDGE_BACKGROUND_ATTEMPTS: '2',
@@ -698,7 +829,13 @@ describe('reading the budget an arm was handed', () => {
       }),
     )
     const config = armConfigFor(arm, base)
-    expect(config.background).toEqual({ attemptsPerCase: 2, maxCases: 5 })
+    // The slots stay the arm's own: they never travel, and on a sweep the
+    // admitted list already says what runs.
+    expect(config.background).toEqual({
+      attemptsPerCase: 2,
+      maxCases: 5,
+      maxInFlight: 5,
+    })
     expect({ ...config, background: undefined }).toEqual({
       ...base,
       background: undefined,

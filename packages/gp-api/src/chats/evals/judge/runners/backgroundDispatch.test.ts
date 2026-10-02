@@ -280,7 +280,12 @@ describe('caseLoaderFor', () => {
     const decoy: BackgroundCase[] = [{ caseId: 'decoy', params: {} }]
     const list = caseLoaderFor(
       { orgSlug: 'judge-fixture-1' },
-      { budgetMs: HUGE_BUDGET_MS, attemptsPerCase: 3, maxCases: undefined },
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 3,
+        maxCases: undefined,
+        maxInFlight: 99,
+      },
       {
         load: () => caseList('background', agent.agentId, decoy),
         loadBackground: () => withToken,
@@ -302,7 +307,12 @@ describe('caseLoaderFor', () => {
     expect(() =>
       caseLoaderFor(
         { orgSlug: 'judge-fixture-1' },
-        { budgetMs: HUGE_BUDGET_MS, attemptsPerCase: 3, maxCases: undefined },
+        {
+          budgetMs: HUGE_BUDGET_MS,
+          attemptsPerCase: 3,
+          maxCases: undefined,
+          maxInFlight: 99,
+        },
         {
           load: () => caseList('background', agent.agentId, mixed),
           loadBackground: () => mixed,
@@ -316,7 +326,12 @@ describe('caseLoaderFor', () => {
     const cases = [{ caseId: 'c1', turns: ['hello'] }]
     const list = caseLoaderFor(
       { orgSlug: 'judge-fixture-1' },
-      { budgetMs: HUGE_BUDGET_MS, attemptsPerCase: 3, maxCases: undefined },
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 3,
+        maxCases: undefined,
+        maxInFlight: 99,
+      },
       { load: () => caseList('chat', chat.agentId, cases) },
     )(chat)
     expect(list.cases).toEqual(cases)
@@ -326,11 +341,14 @@ describe('caseLoaderFor', () => {
 // THE REFUSAL, AND WHERE IT IS THROWN FROM.
 //
 // An earlier version checked the whole selection at the top of the arm. Every
-// background agent overruns any plausible budget on its own — six hours at
-// the cheapest — so that fired on every selection naming one and took the
-// CHAT agents down with it, which is strictly worse than the unwired state it
-// replaced. These tests pin the placement, not just the arithmetic.
-describe('the wall-clock refusal', () => {
+// background agent overran any plausible budget on its own at the time, so
+// that fired on every selection naming one and took the CHAT agents down with
+// it, which is strictly worse than the unwired state it replaced. These tests
+// pin the placement, not just the arithmetic.
+//
+// A local run's own refusal, by the wave: the arm starts every run at once,
+// so an agent fits when one run fits the arm and its runs fit the slots left.
+describe('the wave refusal', () => {
   const background = {
     agentId: 'meeting_briefing',
     shape: 'background' as const,
@@ -351,16 +369,11 @@ describe('the wall-clock refusal', () => {
     budgetMs: number,
     maxCases?: number,
     attempts = 3,
-    admitted?: ReadonlySet<string>,
+    maxInFlight = 12,
   ) =>
     caseLoaderFor(
       {},
-      {
-        budgetMs,
-        attemptsPerCase: attempts,
-        maxCases,
-        ...(admitted !== undefined && { admitted }),
-      },
+      { budgetMs, attemptsPerCase: attempts, maxCases, maxInFlight },
       {
         load: (agent) =>
           agent.shape === 'background'
@@ -377,25 +390,30 @@ describe('the wall-clock refusal', () => {
       },
     )
 
-  // cases x attempts x the agent's own poll: 8 x 3 x 65 minutes.
-  it('names the agent, what it costs, and what is left', () => {
-    expect(() => loader(70 * 60 * 1000)(background)).toThrow(
-      /meeting_briefing would take 1560 minutes[\s\S]*70 of its 70 left/,
+  // One run is the agent's timeout plus the poll headroom: 60 + 5 minutes.
+  it('refuses an agent whose single run outlasts the arm', () => {
+    expect(() => loader(60 * 60 * 1000, 1, 1)(background)).toThrow(
+      /meeting_briefing would take 65 minutes for a single run[\s\S]*arm's 60/,
+    )
+  })
+
+  // 8 cases x 3 attempts is 24 runs at once, twice the slots.
+  it('names the agent, the runs it needs and the slots left', () => {
+    expect(() => loader(HUGE_BUDGET_MS)(background)).toThrow(
+      /meeting_briefing needs 24 runs in flight at once, and 12 of the arm's 12 slots/,
     )
   })
 
   // THE RUNNING TOTAL, which is what the per-agent check alone cannot see.
-  // captureArm walks agents sequentially, so four agents that each fit the
-  // arm can still take three times it between them. The second call has to
-  // be refused against what the first one left, and the message has to say
-  // how much was already committed or the number reads as a contradiction.
-  it('spends the budget down across agents', () => {
-    // One case at one attempt is 65 minutes, so the first agent fits a
-    // 100-minute arm and the second cannot.
-    const load = loader(100 * 60 * 1000, 1, 1)
+  // Two agents that each fit the slots can still overfill them together, and
+  // the message has to say what was already taken or the numbers read as a
+  // contradiction.
+  it('spends the slots down across agents', () => {
+    // Three runs each against four slots: the first fits, the second cannot.
+    const load = loader(HUGE_BUDGET_MS, 3, 1, 4)
     expect(() => load(background)).not.toThrow()
     expect(() => load(background)).toThrow(
-      /35 of its 100 left.*already committed/s,
+      /needs 3 runs in flight at once, and 1 of the arm's 4 slots were left/,
     )
   })
 
@@ -403,31 +421,33 @@ describe('the wall-clock refusal', () => {
   // still load, so captureArm still captures it and the sweep still produces
   // a verdict for the half that can.
   it('leaves a chat agent in the same sweep untouched', () => {
-    expect(() => loader(70 * 60 * 1000)(chat)).not.toThrow()
+    expect(() => loader(1, undefined, 3, 0)(chat)).not.toThrow()
   })
 
   it('allows an agent that fits', () => {
-    expect(() => loader(HUGE_BUDGET_MS)(background)).not.toThrow()
+    expect(() => loader(HUGE_BUDGET_MS, 3, 1)(background)).not.toThrow()
   })
 
   // THE CAP IS WHAT MAKES THE AGENT FIT, so it has to be applied before the
-  // budget is measured. Measured against the file instead, the refusal fires
-  // on a list the sweep was never going to walk.
-  it('measures the budget against the capped list, not the file', () => {
-    // 8 cases x 3 attempts x 65m is far over; 1 x 3 x 65m is not.
-    expect(() => loader(200 * 60 * 1000)(background)).toThrow()
-    expect(() => loader(200 * 60 * 1000, 1)(background)).not.toThrow()
+  // slots are counted. Counted against the file instead, the refusal fires on
+  // a list the sweep was never going to walk.
+  it('counts the capped list, not the file', () => {
+    // 8 runs is over four slots; 3 is not.
+    expect(() => loader(HUGE_BUDGET_MS, undefined, 1, 4)(background)).toThrow()
+    expect(() => loader(HUGE_BUDGET_MS, 3, 1, 4)(background)).not.toThrow()
   })
 
   // The first n, not a sample. Two arms that walked different cases have
   // nothing to pair, and both arms read this from one config.
   it('takes the first n cases so both arms walk the same ones', () => {
-    const list = loader(HUGE_BUDGET_MS, 3)(background)
+    const list = loader(HUGE_BUDGET_MS, 3, 3, 99)(background)
     expect(list.cases.map((one) => one.caseId)).toEqual(['c0', 'c1', 'c2'])
   })
 
   it('walks the whole list when no cap is set', () => {
-    expect(loader(HUGE_BUDGET_MS, undefined)(background).cases).toHaveLength(8)
+    expect(
+      loader(HUGE_BUDGET_MS, undefined, 3, 99)(background).cases,
+    ).toHaveLength(8)
   })
 })
 
@@ -460,17 +480,23 @@ describe('the budget guards and the sweep-wide admission', () => {
   type AgentEntryLike = { agentId: string; shape: 'chat' | 'background' }
 
   // A REFUSED AGENT LEAVES ITS SHARE. captureArm walks every selected agent,
-  // refused ones included, so a refusal that still deducted would starve
-  // every agent after it of budget it never used.
+  // refused ones included, so a refusal that still took its slots would
+  // starve every agent after it of slots it never used.
   it('does not charge a refused agent against the agents after it', () => {
-    // 100 minutes. meeting_briefing at 1 case x 1 attempt is 65 — over, once
-    // the cap makes it 3 cases (195). opposition_research is 15 a case.
+    // A 60-minute arm and three slots. meeting_briefing's single run is 65
+    // minutes, so it is refused; opposition_research needs all three slots,
+    // which it only gets if the refusal took none of them.
     const load = caseLoaderFor(
       {},
-      { budgetMs: 100 * 60 * 1000, attemptsPerCase: 1, maxCases: 3 },
+      {
+        budgetMs: 60 * 60 * 1000,
+        attemptsPerCase: 1,
+        maxCases: 3,
+        maxInFlight: 3,
+      },
       deps,
     )
-    expect(() => load(background)).toThrow(/would take 195 minutes/)
+    expect(() => load(background)).toThrow(/65 minutes for a single run/)
     expect(() => load(cheap)).not.toThrow()
   })
 
@@ -480,7 +506,12 @@ describe('the budget guards and the sweep-wide admission', () => {
     expect(() =>
       caseLoaderFor(
         {},
-        { budgetMs: HUGE_BUDGET_MS, attemptsPerCase: 1, maxCases },
+        {
+          budgetMs: HUGE_BUDGET_MS,
+          attemptsPerCase: 1,
+          maxCases,
+          maxInFlight: 12,
+        },
         deps,
       ),
     ).toThrow(/not a number of cases a sweep can walk/)
@@ -490,7 +521,8 @@ describe('the budget guards and the sweep-wide admission', () => {
   // arm reads timeouts from its own worktree, so two arms deciding for
   // themselves disagree whenever a branch changes one.
   it('walks an admitted agent without re-deciding its budget', () => {
-    // 3 cases x 1 attempt x 65 minutes is far over 1 ms — and admitted anyway,
+    // A 65-minute run is far over 1 ms, and there are no slots — and it is
+    // walked anyway,
     // because the decision was taken once, for both arms, elsewhere.
     const load = caseLoaderFor(
       {},
@@ -498,6 +530,7 @@ describe('the budget guards and the sweep-wide admission', () => {
         budgetMs: 1,
         attemptsPerCase: 1,
         maxCases: 3,
+        maxInFlight: 0,
         admitted: new Set(['meeting_briefing']),
       },
       deps,
@@ -512,6 +545,7 @@ describe('the budget guards and the sweep-wide admission', () => {
         budgetMs: HUGE_BUDGET_MS,
         attemptsPerCase: 1,
         maxCases: 3,
+        maxInFlight: 12,
         admitted: new Set(['meeting_briefing']),
       },
       deps,
@@ -529,6 +563,7 @@ describe('the budget guards and the sweep-wide admission', () => {
         budgetMs: HUGE_BUDGET_MS,
         attemptsPerCase: 1,
         maxCases: 3,
+        maxInFlight: 12,
         admitted: new Set(),
         refusedReasons: new Map([
           ['opposition_research', 'would take 75 minutes on the slower arm'],
@@ -554,6 +589,7 @@ describe('the budget guards and the sweep-wide admission', () => {
         budgetMs: HUGE_BUDGET_MS,
         attemptsPerCase: 1,
         maxCases: 3,
+        maxInFlight: 12,
         admitted: new Set(),
       },
       { ...deps, loadBackground: () => withToken },
@@ -570,6 +606,7 @@ describe('the budget guards and the sweep-wide admission', () => {
         budgetMs: HUGE_BUDGET_MS,
         attemptsPerCase: 1,
         maxCases: 3,
+        maxInFlight: 12,
         admitted: new Set(),
       },
       deps,
@@ -591,36 +628,99 @@ describe('admitBackground', () => {
   })
   const minutes = (n: number) => n * 60 * 1000
 
-  // In walk order, spending one budget: the arms walk agents in this order
-  // too, so an admission decided in any other order would disagree with what
-  // the arms can actually afford.
-  it('admits in walk order until the budget is spent', () => {
-    const cost: Record<string, number> = {
-      a: minutes(30),
-      b: minutes(30),
-      c: minutes(30),
-    }
-    const result = admitBackground(
-      [agent('a'), agent('b'), agent('c')],
-      (one) => ({ ms: cost[one.agentId] ?? 0 }),
-      minutes(70),
-    )
-    expect(result.admitted).toEqual(['a', 'b'])
-    expect(result.refused.map((one) => one.agentId)).toEqual(['c'])
-    expect(result.refused[0]?.reason).toMatch(/10 of the arm's 70 were left/)
+  describe('by the wave, against a base that walks concurrently', () => {
+    // In walk order, filling one set of slots: the arms start agents in this
+    // order too, so an admission decided in any other order would disagree
+    // with what the arms can hold.
+    it('admits in walk order until the slots are spent', () => {
+      const result = admitBackground(
+        [agent('a'), agent('b'), agent('c')],
+        () => ({ runs: 3, runMs: minutes(30) }),
+        minutes(70),
+        7,
+      )
+      expect(result.admitted).toEqual(['a', 'b'])
+      expect(result.refused.map((one) => one.agentId)).toEqual(['c'])
+      expect(result.refused[0]?.reason).toMatch(
+        /needs 3 runs in flight at once, and 1 of the arm's 7 slots/,
+      )
+    })
+
+    // Slots are not time: an agent with room to spare is still refused if
+    // one of its runs alone outlasts the arm.
+    it('refuses a run longer than the arm, however many slots are free', () => {
+      const result = admitBackground(
+        [agent('slow')],
+        () => ({ runs: 1, runMs: minutes(80) }),
+        minutes(70),
+        12,
+      )
+      expect(result.admitted).toEqual([])
+      expect(result.refused[0]?.reason).toMatch(
+        /80 minutes for a single run[\s\S]*arm's 70/,
+      )
+    })
+
+    // A refused agent takes no slots, so a smaller one after it still fits.
+    it('lets a later small agent through after a large one is refused', () => {
+      const runs: Record<string, number> = { big: 10, small: 7 }
+      const result = admitBackground(
+        [agent('big'), agent('small')],
+        (one) => ({ runs: runs[one.agentId] ?? 0, runMs: minutes(30) }),
+        minutes(70),
+        7,
+      )
+      expect(result.admitted).toEqual(['small'])
+    })
+
+    // Wall clock does not add up across a wave: four agents of 65-minute runs
+    // all fit a 70-minute arm, which the run-after-run rule would refuse.
+    it('does not add the agents up in time', () => {
+      const result = admitBackground(
+        [agent('a'), agent('b'), agent('c'), agent('d')],
+        () => ({ runs: 3, runMs: minutes(65) }),
+        minutes(70),
+        12,
+      )
+      expect(result.admitted).toEqual(['a', 'b', 'c', 'd'])
+    })
   })
 
-  it('lets a later cheap agent through after an expensive one is refused', () => {
-    const cost: Record<string, number> = {
-      big: minutes(200),
-      small: minutes(20),
-    }
-    const result = admitBackground(
-      [agent('big'), agent('small')],
-      (one) => ({ ms: cost[one.agentId] ?? 0 }),
-      minutes(70),
-    )
-    expect(result.admitted).toEqual(['small'])
+  describe('one run after another, against a base that does not', () => {
+    it('admits in walk order until the time is spent', () => {
+      const result = admitBackground(
+        [agent('a'), agent('b'), agent('c')],
+        () => ({ runs: 1, runMs: minutes(30) }),
+        minutes(70),
+      )
+      expect(result.admitted).toEqual(['a', 'b'])
+      expect(result.refused[0]?.reason).toMatch(
+        /one run after another[\s\S]*10 of the arm's 70 were left/,
+      )
+    })
+
+    // Every run is charged, not one per agent.
+    it('charges each agent for all of its runs', () => {
+      const result = admitBackground(
+        [agent('a'), agent('b')],
+        () => ({ runs: 2, runMs: minutes(30) }),
+        minutes(70),
+      )
+      expect(result.admitted).toEqual(['a'])
+    })
+
+    it('lets a later cheap agent through after an expensive one is refused', () => {
+      const runMs: Record<string, number> = {
+        big: minutes(200),
+        small: minutes(20),
+      }
+      const result = admitBackground(
+        [agent('big'), agent('small')],
+        (one) => ({ runs: 1, runMs: runMs[one.agentId] ?? 0 }),
+        minutes(70),
+      )
+      expect(result.admitted).toEqual(['small'])
+    })
   })
 
   it('carries a refusal from the cost through, and skips chat agents', () => {
@@ -628,6 +728,7 @@ describe('admitBackground', () => {
       [agent('chief_of_staff', 'chat'), agent('new_one')],
       () => ({ refused: 'is not on the base ref' }),
       minutes(70),
+      12,
     )
     expect(result.admitted).toEqual([])
     expect(result.refused).toEqual([
@@ -654,7 +755,7 @@ describe('armDeps', () => {
   it('hands captureArm the same config the loader was built from', () => {
     const config = {
       ...DEFAULT_JUDGE_CONFIG,
-      background: { attemptsPerCase: 1, maxCases: 1 },
+      background: { attemptsPerCase: 1, maxCases: 1, maxInFlight: 12 },
     }
     const deps = armDeps(
       env({ fixtureValues: SWEEP_VALUES }),
@@ -665,17 +766,26 @@ describe('armDeps', () => {
     expect(deps.loadCases(real('opposition_research')).cases).toHaveLength(1)
   })
 
-  // ONE loader for the arm, so the budget is spent across agents. Each of
-  // these fits the 70-minute arm alone; the second does not fit after the
-  // first, which only holds if both calls share one budget.
-  it('spends one budget across every agent the arm walks', () => {
+  // ONE loader for the arm, so the slots are spent across agents. At the
+  // default three runs each against twelve slots, four agents fit and the
+  // fifth does not — which only holds if every call shares one set.
+  it('spends one set of slots across every agent the arm walks', () => {
     const { loadCases } = armDeps(
       env({ fixtureValues: SWEEP_VALUES }),
       DEFAULT_JUDGE_CONFIG,
       ARM_BUDGET_MS,
     )
-    expect(() => loadCases(real('opportunities_and_challenges'))).not.toThrow()
-    expect(() => loadCases(real('opposition_research'))).toThrow(/would take/)
+    for (const id of [
+      'opportunities_and_challenges',
+      'opposition_research',
+      'race_opponent_actions',
+      'race_opponent_summary',
+    ]) {
+      expect(() => loadCases(real(id))).not.toThrow()
+    }
+    expect(() => loadCases(real('district_issue_pulse'))).toThrow(
+      /needs 3 runs in flight at once, and 0 of the arm's 12 slots/,
+    )
   })
 
   // THE SWEEP'S BUDGET, not this arm's constant. A 1 ms budget refuses an
@@ -748,6 +858,7 @@ describe('refusedBeforeSpend', () => {
         budgetMs: HUGE_BUDGET_MS,
         attemptsPerCase: 1,
         maxCases: undefined,
+        maxInFlight: 12,
       }
       caseLoaderFor(
         arm.fixtureValues,
