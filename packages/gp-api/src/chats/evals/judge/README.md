@@ -463,18 +463,25 @@ supplied" — the same rule `JUDGE_DATA_VERSION` needed, and for a harder
 reason: `''` would substitute cleanly and dispatch a params object the agent's
 own `minLength` refuses.
 
-**judge.yml mints it, in `judgeFixture.ts`.** One step after the budget
-resolver, and only when that admitted a background agent, trades
+**judge.yml mints it, in a job of its own.** The `fixture` job runs alongside
+the plan on every live sweep, checks out main, trades
 `JUDGE_CLERK_MACHINE_SECRET` for a short-lived M2M token, mints the fixture
-against the dev gp-api, and writes four lines to its outputs: the three
-identifiers both arms read, and the user id the delete step needs. Never the
-password, session token or sign-in ticket the mint response also carries. A
-step after the verdict deletes it on every outcome; the `sweepTestUsers` cron
-reaps one that step missed, a day later. A failed mint does not fail the job:
-it leaves `fixtureValues` `{}`, and `backgroundRunInputFor` refuses each
-background agent by name on both arms, before anything is staged. The secret
-belongs to a Clerk machine of the judge's own, granted access to gp-api's, and
-reaches only those two steps. `judgeWorkflow.test.ts` pins all of that.
+against the dev gp-api through `judgeFixture.ts`, and publishes four outputs:
+the three identifiers both arms read, and the user id the `fixture-cleanup`
+job deletes after the sweep, on every outcome. Never the password, session
+token or sign-in ticket the mint response also carries. A failed mint does not
+fail the sweep: `fixtureValues` is `{}`, and each background agent is refused
+by name on both arms before anything is staged.
+
+**Why two extra jobs rather than two steps.** The M2M token passes gp-api's
+`AdminOrM2MGuard`, which opens every admin route on dev, not only test
+fixtures. The sweep job runs the branch's code from its first `npx tsx`, and
+code that has run on a runner can rewrite any file or `$GITHUB_ENV` a later
+step there trusts. So the secret only ever reaches a fresh runner running
+main's code, and it lives in the `judge-fixture` environment, restricted to
+main, so a branch's own copy of the workflow cannot read it either. The
+`sweepTestUsers` cron reaps a fixture the cleanup missed a day later.
+`judgeWorkflow.test.ts` pins all of that.
 
 **An unsubstituted token fails before the first dispatch, and nothing further
 down would catch it.** `substituteBackgroundCases` checks the WHOLE list and

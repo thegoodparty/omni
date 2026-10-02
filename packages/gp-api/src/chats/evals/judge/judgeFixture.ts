@@ -70,11 +70,25 @@ export const mintM2MToken = async (
 // sign-in ticket (src/testFixtures/AGENTS.md); $GITHUB_OUTPUT reaches every
 // later step and can surface in logs, so only the identifiers an arm reads and
 // the id the delete step needs ever leave this function.
-export const fixtureOutputLines = (fixture: JudgeFixture): string =>
-  `org_slug=${fixture.identifiers.orgSlug}\n` +
-  `race_id=${fixture.identifiers.raceId}\n` +
-  `user_email=${fixture.identifiers.userEmail}\n` +
-  `user_id=${fixture.userId}\n`
+//
+// A value carrying a line break is refused rather than written: in that file
+// it would end its own line and start an output of its choosing.
+export const fixtureOutputLines = (fixture: JudgeFixture): string => {
+  const values = {
+    org_slug: fixture.identifiers.orgSlug,
+    race_id: fixture.identifiers.raceId,
+    user_email: fixture.identifiers.userEmail,
+    user_id: String(fixture.userId),
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (/[\r\n]/.test(value)) {
+      throw new Error(`the minted fixture's ${key} contains a line break`)
+    }
+  }
+  return Object.entries(values)
+    .map(([key, value]) => `${key}=${value}\n`)
+    .join('')
+}
 
 // The id the delete step is handed back through $GITHUB_OUTPUT. A positive
 // whole number or a refusal: coercion would read "" as 0 and "1e3" as a
@@ -100,46 +114,67 @@ export const requireAllowedApi = (apiUrl: string | undefined): string => {
   return apiUrl
 }
 
-// gp-api is CommonJS, so `require.main` is the house pattern.
-//
 //   judgeFixture.ts mint <path to append outputs to>
 //   judgeFixture.ts delete <user id>
 //
-// Both read JUDGE_CLERK_MACHINE_SECRET and JUDGE_FIXTURE_API_URL. Exits
-// non-zero on any failure with one sentence and no stack; judge.yml decides
-// what a failure means for the sweep.
-if (require.main === module) {
-  const [command, argument] = process.argv.slice(2)
-  const run = async (): Promise<void> => {
-    const secret = process.env.JUDGE_CLERK_MACHINE_SECRET
-    if (!secret) {
-      throw new Error(
-        'JUDGE_CLERK_MACHINE_SECRET is not set, so no fixture can be minted',
-      )
-    }
-    const api = createFixtureApi({
-      baseUrl: requireAllowedApi(process.env.JUDGE_FIXTURE_API_URL),
-      token: await mintM2MToken(secret),
-    })
-    if (command === 'mint' && argument) {
-      const fixture = await mintJudgeFixture(api)
-      appendFileSync(argument, fixtureOutputLines(fixture))
-      process.stderr.write(
-        `minted fixture organization ${fixture.identifiers.orgSlug}\n`,
-      )
-      return
-    }
-    if (command === 'delete' && argument) {
-      await deleteJudgeFixture(api, { userId: parseUserId(argument) })
-      process.stderr.write(`deleted fixture user ${argument}\n`)
-      return
-    }
+// Both read JUDGE_CLERK_MACHINE_SECRET and JUDGE_FIXTURE_API_URL. Everything
+// that can be refused without the network is refused first, the arguments
+// included, so a bad call never spends a token or reaches an endpoint.
+//
+// Exported, with its two network edges injectable, so the entry's own wiring
+// is tested: which file it writes, what it writes there, and what it logs.
+export const runFixtureCommand = async (
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv,
+  {
+    mintToken = mintM2MToken,
+    createApi = createFixtureApi,
+    log = (line: string) => process.stderr.write(`${line}\n`),
+  }: {
+    mintToken?: (secret: string) => Promise<string>
+    createApi?: typeof createFixtureApi
+    log?: (line: string) => void
+  } = {},
+): Promise<void> => {
+  const [command, argument] = argv
+  if (!(command === 'mint' || command === 'delete') || !argument) {
     throw new Error('usage: judgeFixture.ts mint <out> | delete <user id>')
   }
-  run().catch((err: unknown) => {
-    process.stderr.write(
-      `${err instanceof Error ? err.message : String(err)}\n`,
+  const userId = command === 'delete' ? parseUserId(argument) : undefined
+  const secret = env.JUDGE_CLERK_MACHINE_SECRET
+  if (!secret) {
+    throw new Error(
+      'JUDGE_CLERK_MACHINE_SECRET is not set, so no fixture can be minted',
     )
-    process.exit(1)
-  })
+  }
+  const baseUrl = requireAllowedApi(env.JUDGE_FIXTURE_API_URL)
+  const api = createApi({ baseUrl, token: await mintToken(secret) })
+  if (userId === undefined) {
+    const fixture = await mintJudgeFixture(api)
+    appendFileSync(argument, fixtureOutputLines(fixture))
+    log(`minted fixture organization ${fixture.identifiers.orgSlug}`)
+    return
+  }
+  const { notFound } = await deleteJudgeFixture(api, { userId })
+  // Not found is an ordinary outcome, the cron may have got there first, but
+  // it is not a delete, and the log should not claim one.
+  log(
+    notFound.length > 0
+      ? `fixture user ${userId} was already gone`
+      : `deleted fixture user ${userId}`,
+  )
+}
+
+// gp-api is CommonJS, so `require.main` is the house pattern. Exits non-zero
+// on any failure with one sentence and no stack; judge.yml decides what a
+// failure means for the sweep.
+if (require.main === module) {
+  runFixtureCommand(process.argv.slice(2), process.env).catch(
+    (err: unknown) => {
+      process.stderr.write(
+        `${err instanceof Error ? err.message : String(err)}\n`,
+      )
+      process.exit(1)
+    },
+  )
 }
