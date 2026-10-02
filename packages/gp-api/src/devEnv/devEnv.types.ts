@@ -5,4 +5,7 @@ import { IncomingRequest } from '@/authentication/authentication.types'
 // is never carried past the guard.
 export interface DevEnvRequest extends IncomingRequest {
   githubLogin?: string
+  headers: IncomingRequest['headers'] & {
+    'x-github-token'?: string | string[]
+  }
 }

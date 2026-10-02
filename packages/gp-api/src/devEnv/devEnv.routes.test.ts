@@ -27,7 +27,7 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
 const secretsMock = mockClient(SecretsManagerClient)
 const service = useTestService()
 
-const BEARER = { Authorization: 'Bearer gho_a_github_user_token' }
+const BEARER = { 'X-GitHub-Token': 'gho_a_github_user_token' }
 const CLERK_DEV_VALUE = 'sk_test_devenvroutestest'
 
 const activeMembership = () =>
