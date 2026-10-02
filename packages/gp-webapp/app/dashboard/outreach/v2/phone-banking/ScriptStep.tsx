@@ -249,10 +249,6 @@ export const ScriptStep = ({
           </p>
         )}
       </div>
-
-      <p className="text-sm text-muted-foreground">
-        Phone banking is free — your volunteers make the calls.
-      </p>
     </div>
   )
 }
