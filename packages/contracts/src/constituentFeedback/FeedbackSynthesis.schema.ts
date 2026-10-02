@@ -130,6 +130,12 @@ export type FeedbackReportMemo = z.infer<typeof FeedbackReportMemoSchema>
 export const FeedbackReportResponseSchema = z.object({
   // The effort's question, from its turf or list. Null when it asked none.
   question: z.string().nullable(),
+  // A turf's envelope is door_knock, a phone list's is phone_bank, whether
+  // or not any memo has been recorded on it yet.
+  channel: ConstituentFeedbackChannelSchema,
+  // The fewest confirmed memos a run accepts. Sent rather than known by the
+  // client so the line under the floor cannot drift from the 422.
+  floor: z.number().int(),
   denominators: z.object({
     // Distinct people who answered on this effort.
     conversations: z.number().int(),
