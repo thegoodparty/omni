@@ -468,11 +468,17 @@ export const parseArmEnv = (
 // A positive integer or a sentence. Not `z.coerce.number()`: that reads
 // "1.5" and "1e1" as numbers and "" as 0, and every one of those reaches
 // slice or a loop bound as something nobody wrote.
+const UNIT_FOR: Record<string, string> = {
+  JUDGE_BACKGROUND_ATTEMPTS: 'attempts',
+  JUDGE_BACKGROUND_MAX_CASES: 'cases',
+  JUDGE_ARM_BUDGET_MS: 'milliseconds',
+}
+
 const positiveInt = (name: string, raw: string): number => {
   if (!/^[1-9][0-9]*$/.test(raw)) {
     throw new SweepEnvError(
       `${name} is "${raw}", which is not a positive whole number of ` +
-        (name.endsWith('ATTEMPTS') ? 'attempts' : 'cases') +
+        (UNIT_FOR[name] ?? 'units') +
         '; the workflow resolves it from the candidate config, so a value ' +
         'like this means that step printed something unexpected',
     )

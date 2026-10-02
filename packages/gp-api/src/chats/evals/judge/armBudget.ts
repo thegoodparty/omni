@@ -29,6 +29,16 @@ import { parseAgentIds } from './sweepEnv'
 // agent has to fit on whichever arm is slower.
 
 const TIMEOUT_ONLY = z.object({ timeout_seconds: z.number() })
+
+// What one arm would walk for an agent: the wall clock, and WHICH cases. The
+// ids matter because cases pair by id and each arm caps its own list — a
+// branch that inserts or reorders a case near the top of a list has each arm
+// take a different first few, and every one of them is a paid run pairing
+// with nothing.
+export interface ArmWalk {
+  ms: number
+  caseIds: readonly string[]
+}
 // Only the one field every case-list format has carried, because it is the key
 // the two arms' cases pair on. Anything beyond it is the base ref's format to
 // decide, and reading more of it here is how an older but valid list would get
@@ -42,7 +52,7 @@ const baseCost = (
   baseDir: string,
   agent: AgentEntry,
   config: JudgeConfig,
-): number | undefined => {
+): ArmWalk | undefined => {
   try {
     const manifest = TIMEOUT_ONLY.parse(
       JSON.parse(
@@ -73,11 +83,13 @@ const baseCost = (
       list.cases.length,
       config.background.maxCases ?? list.cases.length,
     )
-    return (
-      count *
-      config.background.attemptsPerCase *
-      pollTimeoutMsFor(manifest.timeout_seconds)
-    )
+    return {
+      ms:
+        count *
+        config.background.attemptsPerCase *
+        pollTimeoutMsFor(manifest.timeout_seconds),
+      caseIds: list.cases.slice(0, count).map((one) => one.caseId),
+    }
   } catch {
     return undefined
   }
@@ -110,17 +122,22 @@ const baseHonoursAdmission = (baseDir: string): boolean => {
   }
 }
 
-const candidateCost = (agent: AgentEntry, config: JudgeConfig): number => {
+const candidateCost = (agent: AgentEntry, config: JudgeConfig): ArmWalk => {
   const { timeout_seconds } = TIMEOUT_ONLY.parse(
     JSON.parse(agentConfigFor(agent.agentId).manifest),
   )
-  const all = loadBackgroundCases(agent).length
-  const count = Math.min(all, config.background.maxCases ?? all)
-  return (
-    count *
-    config.background.attemptsPerCase *
-    pollTimeoutMsFor(timeout_seconds)
-  )
+  const all = loadBackgroundCases(agent)
+  const capped =
+    config.background.maxCases === undefined
+      ? all
+      : all.slice(0, config.background.maxCases)
+  return {
+    ms:
+      capped.length *
+      config.background.attemptsPerCase *
+      pollTimeoutMsFor(timeout_seconds),
+    caseIds: capped.map((one) => one.caseId),
+  }
 }
 
 export const resolveAdmission = (
@@ -129,12 +146,12 @@ export const resolveAdmission = (
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
   registry: readonly AgentEntry[] = AGENTS,
   costs: {
-    candidate: (agent: AgentEntry, config: JudgeConfig) => number
+    candidate: (agent: AgentEntry, config: JudgeConfig) => ArmWalk
     base: (
       baseDir: string,
       agent: AgentEntry,
       config: JudgeConfig,
-    ) => number | undefined
+    ) => ArmWalk | undefined
     honoursAdmission: (baseDir: string) => boolean
   } = {
     candidate: candidateCost,
@@ -174,7 +191,7 @@ export const resolveAdmission = (
       if (agent.cases === null) {
         return { refused: 'has no case list, so it has no inputs to compare' }
       }
-      let onCandidate: number
+      let onCandidate: ArmWalk
       try {
         onCandidate = costs.candidate(agent, config)
       } catch (err) {
@@ -192,7 +209,27 @@ export const resolveAdmission = (
             'cannot be read, so there is no base arm to compare it against',
         }
       }
-      return { ms: Math.max(onCandidate, onBase) }
+      // THE SAME CASES ON BOTH ARMS, or none of it is worth paying for. Cases
+      // pair by id, so a case only one arm walks is a paid run with no
+      // partner. Compared as sets: the same ids in a different order still
+      // pair.
+      const onlyBase = onBase.caseIds.filter(
+        (id) => !onCandidate.caseIds.includes(id),
+      )
+      const onlyCandidate = onCandidate.caseIds.filter(
+        (id) => !onBase.caseIds.includes(id),
+      )
+      if (onlyBase.length > 0 || onlyCandidate.length > 0) {
+        return {
+          refused:
+            'would walk different cases on the two arms — the base ref has ' +
+            `[${onlyBase.join(', ')}] where this branch has ` +
+            `[${onlyCandidate.join(', ')}] — so those runs would be paid for ` +
+            'and pair with nothing; this happens when a branch adds or ' +
+            'reorders a case near the top of the list',
+        }
+      }
+      return { ms: Math.max(onCandidate.ms, onBase.ms) }
     },
     ARM_BUDGET_MS,
   )

@@ -47,6 +47,9 @@ const REPO_ROOT = join(__dirname, '../../../../../..')
 const baseTree = (spec: {
   honours?: boolean
   timeouts: Record<string, number>
+  // Replaces the copied case list with one holding exactly these ids — how a
+  // base ref whose list differs from the branch's is modelled.
+  caseIds?: Record<string, string[]>
 }): string => {
   const root = mkdtempSync(join(tmpdir(), 'base-tree-'))
   const judgeDir = join(root, 'packages/gp-api/src/chats/evals/judge')
@@ -68,10 +71,18 @@ const baseTree = (spec: {
       join(experiment, 'manifest.json'),
       JSON.stringify({ timeout_seconds: timeout }),
     )
-    copyFileSync(
-      join(__dirname, 'cases', cases),
-      join(judgeDir, 'cases', cases),
-    )
+    const ids = spec.caseIds?.[agentId]
+    if (ids === undefined) {
+      copyFileSync(
+        join(__dirname, 'cases', cases),
+        join(judgeDir, 'cases', cases),
+      )
+    } else {
+      writeFileSync(
+        join(judgeDir, 'cases', cases),
+        JSON.stringify({ cases: ids.map((caseId) => ({ caseId })) }),
+      )
+    }
   }
   return root
 }
@@ -251,6 +262,9 @@ describe('resolveAdmission', () => {
   })
   const registry = [agent('a'), agent('b'), { ...agent('none'), cases: null }]
   const minutes = (n: number) => n * 60 * 1000
+  // Both arms walking the same single case, so these tests isolate the cost;
+  // the case-id check has its own test below.
+  const walk = (ms: number) => ({ ms, caseIds: ['c1'] })
 
   // THE SLOWER ARM DECIDES. A branch that LOWERS a timeout would otherwise be
   // admitted on the candidate's number and then overrun the base arm at the
@@ -262,8 +276,8 @@ describe('resolveAdmission', () => {
       DEFAULT_JUDGE_CONFIG,
       registry,
       {
-        candidate: () => minutes(30),
-        base: () => minutes(90),
+        candidate: () => walk(minutes(30)),
+        base: () => walk(minutes(90)),
         honoursAdmission: () => true,
       },
     )
@@ -281,7 +295,7 @@ describe('resolveAdmission', () => {
       DEFAULT_JUDGE_CONFIG,
       registry,
       {
-        candidate: () => minutes(10),
+        candidate: () => walk(minutes(10)),
         base: () => undefined,
         honoursAdmission: () => true,
       },
@@ -303,9 +317,9 @@ describe('resolveAdmission', () => {
         candidate: (one) => {
           if (one.agentId === 'a')
             throw new Error('manifest has no timeout_seconds')
-          return minutes(10)
+          return walk(minutes(10))
         },
-        base: () => minutes(10),
+        base: () => walk(minutes(10)),
         honoursAdmission: () => true,
       },
     )
@@ -320,8 +334,8 @@ describe('resolveAdmission', () => {
       DEFAULT_JUDGE_CONFIG,
       registry,
       {
-        candidate: () => minutes(10),
-        base: () => minutes(10),
+        candidate: () => walk(minutes(10)),
+        base: () => walk(minutes(10)),
         honoursAdmission: () => true,
       },
     )
@@ -338,8 +352,8 @@ describe('resolveAdmission', () => {
       DEFAULT_JUDGE_CONFIG,
       registry,
       {
-        candidate: () => minutes(30),
-        base: () => minutes(30),
+        candidate: () => walk(minutes(30)),
+        base: () => walk(minutes(30)),
         honoursAdmission: () => true,
       },
     )
@@ -383,6 +397,54 @@ describe('resolveAdmission', () => {
     expect(result.refused[0]?.reason).toMatch(/would take 130 minutes/)
   })
 
+  // THE SAME CASES OR NOTHING. A branch that inserts a case near the top of a
+  // list has each arm take a different first three, and the runs only one arm
+  // walks are paid for and pair with nothing. Built from the REAL list, so the
+  // ids the candidate will actually walk are the ones the base disagrees with.
+  it('refuses an agent whose two arms would walk different cases', () => {
+    const real = JSON.parse(
+      readFileSync(
+        join(__dirname, 'cases', 'opposition_research.json'),
+        'utf8',
+      ),
+    ) as { cases: { caseId: string }[] }
+    const first = real.cases.map((one) => one.caseId)
+    const result = resolveAdmission(
+      ['opposition_research'],
+      baseTree({
+        timeouts: { opposition_research: 600 },
+        caseIds: {
+          opposition_research: ['inserted-at-top', ...first.slice(0, 2)],
+        },
+      }),
+    )
+    expect(result.admitted).toEqual([])
+    expect(result.refused[0]?.reason).toMatch(
+      /would walk different cases on the two arms/,
+    )
+    expect(result.refused[0]?.reason).toContain('inserted-at-top')
+    expect(result.refused[0]?.reason).toContain(first[2])
+  })
+
+  // Same ids in another order still pair, so they are not refused.
+  it('admits an agent whose two arms walk the same cases in a different order', () => {
+    const real = JSON.parse(
+      readFileSync(
+        join(__dirname, 'cases', 'opposition_research.json'),
+        'utf8',
+      ),
+    ) as { cases: { caseId: string }[] }
+    const first = real.cases.slice(0, 3).map((one) => one.caseId)
+    const result = resolveAdmission(
+      ['opposition_research'],
+      baseTree({
+        timeouts: { opposition_research: 600 },
+        caseIds: { opposition_research: [...first].reverse() },
+      }),
+    )
+    expect(result.admitted).toEqual(['opposition_research'])
+  })
+
   // A BASE THAT WILL NOT OBEY. Its arm ignores the admitted list and walks
   // every background agent at its own old budget, refusing each one; the
   // candidate would run them, and once a fixture is minted that is paid work
@@ -394,8 +456,8 @@ describe('resolveAdmission', () => {
       DEFAULT_JUDGE_CONFIG,
       registry,
       {
-        candidate: () => minutes(1),
-        base: () => minutes(1),
+        candidate: () => walk(minutes(1)),
+        base: () => walk(minutes(1)),
         honoursAdmission: () => false,
       },
     )
