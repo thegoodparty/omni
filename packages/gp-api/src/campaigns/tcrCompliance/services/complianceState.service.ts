@@ -12,6 +12,7 @@ import {
   ComplianceStage,
   PeerlyCvVerificationStatus,
   PeerlyCvVerificationStatusSchema,
+  PinDeliveryMethodSchema,
   type ComplianceStateOutput,
 } from '@goodparty_org/contracts'
 import { formatISO, isBefore, parseISO } from 'date-fns'
@@ -126,7 +127,13 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
   private async resolvePeerlyCvState(
     stage: ComplianceStage,
     campaign: Campaign,
-    tcrCompliance: Pick<TcrCompliance, 'peerlyIdentityId'> | null,
+    tcrCompliance: Pick<
+      TcrCompliance,
+      | 'peerlyIdentityId'
+      | 'peerlyCvStatus'
+      | 'pinDeliveryMethod'
+      | 'pinDeliveryDestination'
+    > | null,
   ): Promise<Pick<ComplianceStateOutput, 'peerlyCvStatus' | 'pinDelivery'>> {
     if (stage !== ComplianceStage.awaiting_pin) {
       return { peerlyCvStatus: null, pinDelivery: null }
@@ -161,20 +168,23 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
     } catch (e) {
       // A non-404 Peerly error (5xx / auth / timeout) makes retrieve throw a
       // BadGatewayException; without this guard it would 502 the whole
-      // compliance-state read (agent + FE). Degrade to the in-progress state.
+      // compliance-state read (agent + FE).
       this.logger.error(
         { e },
         `Failed to retrieve Peerly CV details for identity ` +
-          `${peerlyIdentityId}; degrading to null`,
+          `${peerlyIdentityId}; falling back to the last recorded CV status`,
       )
-      return { peerlyCvStatus: null, pinDelivery: null }
+      return this.lastRecordedCvState(tcrCompliance)
     }
     // Peerly's `verification_status` is not yet a hardened enum on their side;
-    // parse defensively so an unrecognized value degrades to the in-progress
-    // state instead of 500ing the compliance-state read (agent + FE).
+    // parse defensively so an unrecognized value degrades instead of 500ing
+    // the compliance-state read (agent + FE).
     const parsed = PeerlyCvVerificationStatusSchema.safeParse(details.status)
+    if (!parsed.success) {
+      return this.lastRecordedCvState(tcrCompliance)
+    }
     return {
-      peerlyCvStatus: parsed.success ? parsed.data : null,
+      peerlyCvStatus: parsed.data,
       // Mask the raw destination server-side so the candidate's filing
       // email/phone/address never crosses the wire (only the display string).
       pinDelivery: details.pinDelivery
@@ -183,6 +193,46 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
             displayString: maskPinDeliveryDestination(details.pinDelivery),
           }
         : null,
+    }
+  }
+
+  // What we last saw Campaign Verify say, mirrored onto the record by the
+  // nightly poll. Used when the live read gives us nothing usable, because
+  // reporting null there is read by the FE as "no PIN issued yet" and hides
+  // the PIN-entry screen from a candidate who already has their PIN: on
+  // 2026-10-02 Campaign Verify answered 403 for a batch of identities and one
+  // candidate, approved since July with the PIN in their inbox, loaded their
+  // compliance page five times and was shown no Campaign Verify status at all.
+  //
+  // A stale status cannot mislead in the dangerous direction: the poll refuses
+  // to overwrite a recorded status with null (persistObservedCvStatus), and CV
+  // statuses do not move backwards, so the mirror is either current or behind
+  // on a record that has since progressed.
+  private lastRecordedCvState(
+    tcrCompliance: Pick<
+      TcrCompliance,
+      'peerlyCvStatus' | 'pinDeliveryMethod' | 'pinDeliveryDestination'
+    > | null,
+  ): Pick<ComplianceStateOutput, 'peerlyCvStatus' | 'pinDelivery'> {
+    const parsed = PeerlyCvVerificationStatusSchema.safeParse(
+      tcrCompliance?.peerlyCvStatus,
+    )
+    const method = PinDeliveryMethodSchema.safeParse(
+      tcrCompliance?.pinDeliveryMethod,
+    )
+    const destination = tcrCompliance?.pinDeliveryDestination
+    return {
+      peerlyCvStatus: parsed.success ? parsed.data : null,
+      pinDelivery:
+        method.success && destination
+          ? {
+              method: method.data,
+              displayString: maskPinDeliveryDestination({
+                method: method.data,
+                destination,
+              }),
+            }
+          : null,
     }
   }
 }
