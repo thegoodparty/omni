@@ -39,31 +39,33 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client                           | TypeScript        | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
 | `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments                   | Markdown + Python | —    |
+| `packages/universal-judge` | Blind A/B evaluation of agent changes, driven from a PR comment   | TypeScript        | —    |
 
 ## Where to look (read the nearest doc first)
 
-| You're doing                           | Read                                          |
-| -------------------------------------- | --------------------------------------------- |
-| **Working inside package X**           | **`packages/X/AGENTS.md`** (then nested ones) |
-| Understanding the system / service map | `docs/architecture.md`                        |
-| Our AI agent platform (CAP) — overview | `docs/cap.md`                                 |
-| Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
-| Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
-| The Python AI services + their infra   | `packages/gp-ai/AGENTS.md`                    |
-| **Writing any user-facing copy**       | **`docs/product-copy.md`**                    |
-| **Writing copy Win and Serve share**   | **`docs/product-vocabulary.md`** (voters vs constituents) |
-| **Shipping a user-facing feature**     | **`docs/product-knowledge.md`** (add it to the assistants' product map) |
-| Setting up / running locally           | `docs/development.md`                         |
-| Writing or fixing a test               | `docs/testing.md`                             |
-| Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
-| Deploys, branches, CI                  | `docs/deployment.md`                          |
-| **Adding or rotating a secret**        | **`docs/secrets.md`** (never ask for AWS access) |
-| Debugging a prod issue / incident      | `docs/observability.md`                       |
-| The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |
-| Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
-| Design rules + fixtures for Claude Design | `docs/design-memory/`                      |
-| Querying analytics data / Databricks   | `docs/databricks.md`                          |
-| AI code-review rule files              | `ai-rules/` (git submodule)                   |
+| You're doing                              | Read                                                                    |
+| ----------------------------------------- | ----------------------------------------------------------------------- |
+| **Working inside package X**              | **`packages/X/AGENTS.md`** (then nested ones)                           |
+| Understanding the system / service map    | `docs/architecture.md`                                                  |
+| Our AI agent platform (CAP) — overview    | `docs/cap.md`                                                           |
+| Background agents / PMF Engine / evals    | `docs/cap-background-agents.md`                                         |
+| Interactive AI chat (the `ai` SDK)        | `docs/cap-interactive-agents.md`                                        |
+| The Python AI services + their infra      | `packages/gp-ai/AGENTS.md`                                              |
+| **Writing any user-facing copy**          | **`docs/product-copy.md`**                                              |
+| **Writing copy Win and Serve share**      | **`docs/product-vocabulary.md`** (voters vs constituents)               |
+| **Shipping a user-facing feature**        | **`docs/product-knowledge.md`** (add it to the assistants' product map) |
+| Setting up / running locally              | `docs/development.md`                                                   |
+| Writing or fixing a test                  | `docs/testing.md`                                                       |
+| Checking whether an agent change helped   | `packages/universal-judge/AGENTS.md`                                    |
+| Adding a scheduled / cron job             | `docs/scheduled-jobs.md`                                                |
+| Deploys, branches, CI                     | `docs/deployment.md`                                                    |
+| **Adding or rotating a secret**           | **`docs/secrets.md`** (never ask for AWS access)                        |
+| Debugging a prod issue / incident         | `docs/observability.md`                                                 |
+| The CRM (contacts) — flows, debugging     | `packages/gp-api/src/contacts/AGENTS.md`                                |
+| Which MCP tools exist + their env vars    | `docs/mcp.md`                                                           |
+| Design rules + fixtures for Claude Design | `docs/design-memory/`                                                   |
+| Querying analytics data / Databricks      | `docs/databricks.md`                                                    |
+| AI code-review rule files                 | `ai-rules/` (git submodule)                                             |
 
 `packages/gp-api/AGENTS.md` is the gold-standard for nested-doc style — pointer
 tables and terse, high-signal sections. Each app and most feature folders carry one.

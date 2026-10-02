@@ -1,0 +1,192 @@
+name: Universal judge
+
+# Comment-triggered A/B evaluation. Someone writes "run the universal judge on
+# community issues" on a PR; this runs both variants against the same fixed
+# inputs, judges the outputs blind, and posts a table back.
+#
+# This is the first issue_comment-triggered workflow in the repo, so the actor
+# guard is deliberate rather than copied: issue_comment fires for ANY comment from
+# ANY account, and this job spends real money and assumes an AWS role. Hence the
+# author_association allowlist. The workflow file that runs is always the one on
+# the default branch, never the PR's copy, so a PR cannot edit this file to widen
+# its own permissions.
+
+on:
+  issue_comment:
+    types: [created]
+
+# One run per PR. A second comment supersedes the first rather than racing it for
+# the same clone id and the same sticky comment.
+concurrency:
+  group: universal-judge-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  judge:
+    # Only on PRs, only when asked, and only from someone with write access.
+    if: >-
+      github.event.issue.pull_request != null &&
+      contains(github.event.comment.body, 'universal judge') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Acknowledge
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'eyes',
+            })
+
+      - name: Resolve PR refs
+        id: pr
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.issue.number,
+            })
+            core.setOutput('head_sha', pr.data.head.sha)
+            core.setOutput('base_ref', pr.data.base.ref)
+
+      # The candidate is the PR's tree, the baseline is its base branch. Both are
+      # checked out because a foreground agent's variant IS the working tree.
+      - name: Check out candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          path: candidate
+
+      - name: Check out baseline
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.base_ref }}
+          path: baseline
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install judge
+        working-directory: candidate
+        run: npm ci --workspace packages/universal-judge --include-workspace-root
+
+      # Resolve the request before doing any expensive setup, so a background-only
+      # run never pays to install gp-api twice.
+      - name: Resolve plan
+        id: plan
+        working-directory: candidate/packages/universal-judge
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          npx tsx src/cli.ts --comment "$COMMENT_BODY" --plan-out "$RUNNER_TEMP/plan.json"
+          {
+            echo "has_foreground=$(jq -r .hasForeground "$RUNNER_TEMP/plan.json")"
+            echo "agents=$(jq -r '.agents | join(",")' "$RUNNER_TEMP/plan.json")"
+            echo "cost=$(jq -r .estimatedCostUsd "$RUNNER_TEMP/plan.json")"
+          } >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/plan.json"
+
+      # Foreground producers boot gp-api against a testcontainer Postgres, in both
+      # checkouts. Skipped entirely when only background agents were asked for.
+      - name: Install gp-api (candidate)
+        if: steps.plan.outputs.has_foreground == 'true'
+        working-directory: candidate
+        run: |
+          npm ci
+          npm run generate:prisma:gp-api
+
+      - name: Install gp-api (baseline)
+        if: steps.plan.outputs.has_foreground == 'true'
+        working-directory: baseline
+        run: |
+          npm ci
+          npm run generate:prisma:gp-api
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Run the judge
+        id: judge
+        working-directory: candidate/packages/universal-judge
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Through the environment, never interpolated into the shell, so a
+          # comment body cannot break out of the argument it is supposed to be.
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          npx tsx src/cli.ts \
+            --comment "$COMMENT_BODY" \
+            --baseline-ref "${{ steps.pr.outputs.base_ref }}" \
+            --candidate-ref "pr-${{ github.event.issue.number }}" \
+            --baseline-checkout "$GITHUB_WORKSPACE/baseline" \
+            --candidate-checkout "$GITHUB_WORKSPACE/candidate" \
+            --experiments-dir "$GITHUB_WORKSPACE/candidate/packages/runbooks/experiments" \
+            --env dev \
+            --requested-by "${{ github.event.comment.user.login }}" \
+            --out "$RUNNER_TEMP/universal-judge.md"
+        # A failed run still posts a comment saying so, which is more useful to the
+        # author than a silent red check.
+        continue-on-error: true
+
+      - name: Post results
+        if: always()
+        uses: actions/github-script@v8
+        env:
+          REPORT_PATH: ${{ runner.temp }}/universal-judge.md
+        with:
+          script: |
+            const fs = require('fs')
+            const marker = '<!-- universal-judge -->'
+            const runUrl =
+              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const body = fs.existsSync(process.env.REPORT_PATH)
+              ? fs.readFileSync(process.env.REPORT_PATH, 'utf8')
+              : [
+                  marker,
+                  '## Universal judge',
+                  '',
+                  `The run did not finish. See the [workflow log](${runUrl}) for what went wrong.`,
+                ].join('\n')
+
+            // listComments is oldest-first and paginated, so on a long-lived PR the
+            // marker comment can sit past page one. Paginate rather than guess.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              per_page: 100,
+            })
+            const existing = comments.find(
+              (c) => c.body?.includes(marker) && c.user?.type === 'Bot',
+            )
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              })
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body,
+              })
+            }

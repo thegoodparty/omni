@@ -1,0 +1,21 @@
+{
+  "agent": "ordinance_draft",
+  "description": "Ordinance-flow draft-step cases. The draft step is chosen because it synthesises from already-hydrated prior-step data instead of researching live, so two variants answer the same question rather than racing the open web. Only fixtures whose prior steps are actually populated can be used: a fixture carrying nothing but a goal makes the agent ask a clarifying question instead of drafting, which is correct behaviour and useless as a comparison. That leaves three, below the six-case power floor — see the note in AGENTS.md.",
+  "cases": [
+    {
+      "id": "bike_parking",
+      "label": "Bike parking — new ordinance, all four prior steps hydrated",
+      "params": { "fixture": "bike-parking" }
+    },
+    {
+      "id": "bike_parking_redraft",
+      "label": "Bike parking redraft — amends existing law, expects redline",
+      "params": { "fixture": "bike-parking-redraft" }
+    },
+    {
+      "id": "oil_spill",
+      "label": "Oil spill response — authority and current law settled, no comparables",
+      "params": { "fixture": "oil-spill" }
+    }
+  ]
+}
