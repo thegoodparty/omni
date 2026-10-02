@@ -610,11 +610,12 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    DATA-2609, `is_active_serve_user` also gated the People Served cohort), so name
    each one and let the reviewer decide whether it follows.
 2. **Read every gotchas book** in full: `books/analytics-governance-gotchas.md` here,
-   and **both** of gp-data-platform's `.claude/skills/win-analytics-knowledge/references/gotchas.md`
-   and `serve-analytics-knowledge/references/gotchas.md`, whichever product the metric
-   is. The outreach events are shared, so a trap recorded under one product applies to
-   the other (DATA-2609 needed the Win book's `method = 'unknown'` row for a Serve
-   metric); a shared cross-product book is being split out of the two (path TBD).
+   and **both** of gp-data-platform's product books,
+   `.claude/skills/win-analytics-knowledge/references/gotchas.md` and
+   `serve-analytics-knowledge/references/gotchas.md`. The outreach events are shared
+   across products, so a trap recorded under one applies to the other: read both,
+   whichever product the metric is for. A shared cross-product book is being split
+   out of the two (path TBD).
    After drafting the plan, check it against them row by row and say which rows
    applied. On DATA-2584 this check found four defects in a plan drafted without it.
 3. **Pin the dates** from the warehouse, and the prod release from `release.yml`, not
