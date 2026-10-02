@@ -53,6 +53,7 @@ import {
 } from './statusPresentation'
 import { countDoors, knockableTargets } from '../routeCounts'
 import { WhatWeHeardLink } from 'app/dashboard/issue-capture/WhatWeHeardLink'
+import { NotesToReviewLink } from 'app/dashboard/issue-capture/NotesToReviewLink'
 
 // The age field's own options plus the retired overlapping ranges ENG-10752
 // replaced. The pickers only offer the new ones, but a list saved before that
@@ -539,6 +540,10 @@ export default function TurfDetailsSheet({
               outreachId={liveTurf.outreachId}
               isServe={isServeOrg}
               className="mt-2 border-t border-border pt-3"
+            />
+            <NotesToReviewLink
+              outreachId={liveTurf.outreachId}
+              isServe={isServeOrg}
             />
           </div>
         </DetailsSection>
