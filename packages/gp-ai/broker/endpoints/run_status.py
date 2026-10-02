@@ -183,7 +183,7 @@ def run_status(
         ticket.run_id,
         ticket.experiment_id,
         ticket.organization_slug,
-        req.duration_seconds or 0,
+        req.duration_seconds,
         (req.detail or "")[:200],
     )
     _emit_terminal_failure_metric(ticket.experiment_id, req.status)
@@ -217,7 +217,10 @@ def run_status(
             status=wire_status,
             reason_code=wire_reason_code,
             detail=req.detail or "",
-            duration_seconds=req.duration_seconds or 0,
+            # Both forwarded as-is, NOT `or 0`. Duration had the same defect
+            # cost did, one line apart: an absent duration became a measured
+            # 0 seconds.
+            duration_seconds=req.duration_seconds,
             # Forwarded as-is, NOT `or 0`. The runner withholds cost_usd when
             # any part of the run's spend was never observed (an unpriced model,
             # or a terminal ResultMessage that carried no cost), and `or 0`

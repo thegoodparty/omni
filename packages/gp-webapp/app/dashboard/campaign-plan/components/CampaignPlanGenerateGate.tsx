@@ -14,18 +14,19 @@ import { getBioPlainLength } from 'app/dashboard/profile/texting-compliance/cand
 import { CAMPAIGN_STORY_SECTIONS } from 'app/dashboard/campaign-story/sections'
 import {
   isCampaignStoryComplete,
+  isStoryFieldAnswered,
   useCampaignStory,
 } from 'app/dashboard/campaign-story/useCampaignStory'
 
-interface CampaignPlanStoryGateProps {
+interface CampaignPlanGenerateGateProps {
   onGenerate: () => void
 }
 
 const CARD_CLASS = 'mx-auto flex max-w-2xl flex-col items-start gap-4 p-8'
 
-const CampaignPlanStoryGate = ({
+const CampaignPlanGenerateGate = ({
   onGenerate,
-}: CampaignPlanStoryGateProps): React.JSX.Element => {
+}: CampaignPlanGenerateGateProps): React.JSX.Element => {
   const { data: story, isError } = useCampaignStory()
   // The "why" (bio) and issues live on the website (shared with Pro-upgrade),
   // not the story.
@@ -38,8 +39,7 @@ const CampaignPlanStoryGate = ({
     queryFn: getUserWebsite,
     // Always refetch on mount: a candidate who just edited their why or issues
     // on the story page (a direct saveAboutFields write that doesn't touch this
-    // cache) must see them here, not a stale within-staleTime snapshot that
-    // would wrongly gate them. Mirrors useCampaignStory's refetch.
+    // cache) must see them here, not a stale within-staleTime snapshot.
     refetchOnMount: 'always',
   })
   const bio = website?.content?.about?.bio ?? ''
@@ -47,8 +47,7 @@ const CampaignPlanStoryGate = ({
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   // Only spin while genuinely loading — an errored fetch leaves data undefined
-  // forever, so fall through (fail closed) to the "complete your story" prompt
-  // rather than spinning indefinitely.
+  // forever, so fall through and offer generation rather than spinning.
   if (
     (story === undefined && !isError) ||
     (websiteLoading && !websiteIsError)
@@ -60,38 +59,13 @@ const CampaignPlanStoryGate = ({
     )
   }
 
-  // Fail open on a website-fetch error: don't read it as "no why / no issues"
-  // and block a candidate who actually has a complete story.
-  if (
-    !isCampaignStoryComplete(
-      story,
-      websiteIsError || getBioPlainLength(bio) > 0,
-      websiteIsError || issues.length > 0,
-    )
-  ) {
-    return (
-      <Card className={CARD_CLASS}>
-        <ScrollTextIcon className="size-8 text-primary" />
-        <div className="flex flex-col gap-2">
-          <h2 className="text-2xl font-semibold text-foreground">
-            Your Campaign Plan starts with your story
-          </h2>
-          <p className="text-muted-foreground">
-            We build your personalized plan from your why, your background, and
-            the issues you&apos;ll fight for. Complete your Campaign Story and
-            we&apos;ll generate your plan from it.
-          </p>
-        </div>
-        <Button asChild>
-          {/* Deep link: CampaignManagerHome auto-launches the story-intake
-              chat flow on `?personalize=1`, same as its own story card. */}
-          <Link href="/dashboard?personalize=1">
-            Open your campaign manager
-          </Link>
-        </Button>
-      </Card>
-    )
-  }
+  const hasBio = getBioPlainLength(bio) > 0
+  // Fail open on a website-fetch error: don't read it as "no why / no issues".
+  const storyComplete = isCampaignStoryComplete(
+    story,
+    websiteIsError || hasBio,
+    websiteIsError || issues.length > 0,
+  )
 
   return (
     <Card className={CARD_CLASS}>
@@ -101,27 +75,32 @@ const CampaignPlanStoryGate = ({
           Ready to build your Campaign Plan
         </h2>
         <p className="text-muted-foreground">
-          We&apos;ll generate your plan from your Campaign Story below. Give it
-          a final look — edit anything before we start.
+          {storyComplete
+            ? 'Give your story a final look and edit anything before we start.'
+            : 'You can add your story any time to make your plan sharper.'}
         </p>
       </div>
 
       <div className="flex w-full flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-semibold text-foreground">
-            Your why
-          </span>
-          <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-            {bio ? issueDescriptionText(bio) : ''}
-          </p>
-        </div>
-        {CAMPAIGN_STORY_SECTIONS.map(({ id, title }) => (
+        {hasBio && (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-semibold text-foreground">
+              Your why
+            </span>
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+              {issueDescriptionText(bio)}
+            </p>
+          </div>
+        )}
+        {CAMPAIGN_STORY_SECTIONS.filter(({ id }) =>
+          isStoryFieldAnswered(story?.[id]),
+        ).map(({ id, title }) => (
           <div key={id} className="flex flex-col gap-1">
             <span className="text-sm font-semibold text-foreground">
               {title}
             </span>
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-              {story[id]}
+              {story?.[id]}
             </p>
           </div>
         ))}
@@ -153,7 +132,9 @@ const CampaignPlanStoryGate = ({
           Generate my Campaign Plan
         </Button>
         <Button variant="ghost" className="sm:ml-auto" asChild>
-          <Link href="/dashboard?personalize=1">Edit in campaign manager</Link>
+          <Link href="/dashboard?personalize=1">
+            {storyComplete ? 'Edit in campaign manager' : 'Add your story'}
+          </Link>
         </Button>
       </div>
 
@@ -166,7 +147,11 @@ const CampaignPlanStoryGate = ({
         }}
         redButton={false}
         title="Are you sure you're ready?"
-        description="It's important that your story is fully complete before we generate your plan, for the best results."
+        description={
+          storyComplete
+            ? "It's important that your story is fully complete before we generate your plan, for the best results."
+            : "We'll build your plan from your race. You can add your story later."
+        }
         proceedLabel="Yes, generate my plan"
         cancelLabel="Not yet"
       />
@@ -174,4 +159,4 @@ const CampaignPlanStoryGate = ({
   )
 }
 
-export default CampaignPlanStoryGate
+export default CampaignPlanGenerateGate

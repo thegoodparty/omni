@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SocialToneSchema } from './OutreachSocial.schema'
+import { OutreachEventDetailsSchema } from './OutreachEvent.schema'
 import {
   PhoneBankingPurposeSchema,
   type PhoneBankingPurpose,
@@ -44,6 +45,7 @@ export const PhoneBankingScriptDraftRequestSchema = z
       .max(PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH)
       .transform((v) => (v.length === 0 ? undefined : v))
       .optional(),
+    event: OutreachEventDetailsSchema.optional(),
   })
   // The two paths are mutually exclusive by construction (the service picks
   // improve vs. fresh generation off currentDraft alone, so a previousDraft
@@ -78,6 +80,7 @@ export const ServePhoneBankingScriptDraftRequestSchema = z
       .max(PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH)
       .transform((v) => (v.length === 0 ? undefined : v))
       .optional(),
+    event: OutreachEventDetailsSchema.optional(),
   })
   .refine(
     (v) => v.currentDraft === undefined || v.previousDraft === undefined,

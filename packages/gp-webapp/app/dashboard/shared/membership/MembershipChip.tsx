@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { ProBadge } from '@styleguide'
 import { ShieldCheckIcon } from '@styleguide/components/ui/icons'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { trackEvent } from 'helpers/analyticsHelper'
 import { useFeatureFlags } from 'app/shared/experiments/FeatureFlagsProvider'
 import {
   OUTREACH_PRO_GATING_V2_FLAG_KEY,
@@ -18,6 +18,7 @@ import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
 import {
   isMembershipSurfaceVisible,
+  MEMBERSHIP_CLICK_EVENTS,
   resolveMembershipAction,
 } from './MembershipBanner'
 
@@ -32,6 +33,7 @@ const verificationLabel = (state: MembershipState): string => {
 
 export const MembershipChip = (): React.JSX.Element | null => {
   const router = useRouter()
+  const pathname = usePathname()
   const { enabled } = useOutreachProGatingV2Flag(false)
   const { exposure } = useFeatureFlags()
   const { ready, state, tcrCompliance } = useMembershipState({ enabled })
@@ -48,24 +50,12 @@ export const MembershipChip = (): React.JSX.Element | null => {
     exposure(OUTREACH_PRO_GATING_V2_FLAG_KEY)
   }, [visible, exposure])
 
-  // One view per appearance, the banner's rule: a texting transition while
-  // the chip stays on screen is not a second view.
-  const stateRef = useRef(state)
-  stateRef.current = state
-  useEffect(() => {
-    if (!visible) return
-    trackEvent(EVENTS.ProUpgrade.Membership.ChipViewed, {
-      tier: stateRef.current?.tier,
-      texting: stateRef.current?.texting,
-    })
-  }, [visible])
-
   if (!visible || !state) return null
 
   const action = resolveMembershipAction(state)
 
   const handleClick = () => {
-    trackEvent(EVENTS.ProUpgrade.Membership.ChipClicked, { action })
+    if (action) trackEvent(MEMBERSHIP_CLICK_EVENTS[action], { path: pathname })
     if (action === 'pitch') setPitchOpen(true)
     else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
     else if (action === 'pin') setPinOpen(true)
@@ -99,7 +89,14 @@ export const MembershipChip = (): React.JSX.Element | null => {
           {body}
         </span>
       )}
-      {pitchOpen && <ProPitchDialog open onOpenChange={setPitchOpen} />}
+      {pitchOpen && (
+        <ProPitchDialog
+          open
+          onOpenChange={setPitchOpen}
+          source="navigation"
+          channel="generic"
+        />
+      )}
       {pinOpen && (
         <PinDialog
           open

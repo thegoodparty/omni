@@ -57,6 +57,19 @@ describe('parsePriorityStatus', () => {
     ).toBe('settled')
   })
 
+  it('reopens a listening step a version 1 row closed with no check', () => {
+    const status = parsePriorityStatus({
+      version: 1,
+      steps: [
+        { id: 'define', state: 'settled', summary: 'Potholes on Elm' },
+        { id: 'listen_problem', state: 'settled', summary: 'Two calls' },
+      ],
+    })
+    const listen = status.steps.find((step) => step.id === 'listen_problem')
+    expect(listen?.state).toBe('open')
+    expect(listen?.summary).toBe('Two calls')
+  })
+
   it('reads a version 1 row with no checks', () => {
     const status = parsePriorityStatus({
       version: 1,

@@ -186,3 +186,44 @@ describe('segment bounds match the Python enforcers', () => {
     ).toBe(false)
   })
 })
+
+// THE DOT IN THE FILENAME HAS TO BE ESCAPED, every one of them. `replace`
+// with a string pattern substitutes only the first match, so a two-dot
+// filename reached the pattern with its second dot unescaped — and an
+// unescaped dot matches any character, which validates a key that is not the
+// file the schema names. Today's leaves are `manifest.json` and
+// `instruction.md`, both single-dot, so the bug is latent; these assert the
+// property rather than the two names that happen to be safe.
+describe('a filename with more than one dot', () => {
+  const key = (name: string) => `${JUDGE_KEY_PREFIX}agent/digest/${name}`
+
+  it('still rejects a key whose dot is a different character', () => {
+    // `manifest.json` with the dot replaced. Under the old `replace` this
+    // passed for any two-dot filename, because the trailing dot was a
+    // wildcard.
+    expect(
+      JudgeOverrideSchema.safeParse({
+        manifest_key: key('manifestXjson'),
+        instruction_key: key('instruction.md'),
+      }).success,
+    ).toBe(false)
+  })
+
+  it('accepts the exact filenames it names', () => {
+    expect(
+      JudgeOverrideSchema.safeParse({
+        manifest_key: key('manifest.json'),
+        instruction_key: key('instruction.md'),
+      }).success,
+    ).toBe(true)
+  })
+
+  it('rejects an instruction key whose dot is a different character', () => {
+    expect(
+      JudgeOverrideSchema.safeParse({
+        manifest_key: key('manifest.json'),
+        instruction_key: key('instructionXmd'),
+      }).success,
+    ).toBe(false)
+  })
+})

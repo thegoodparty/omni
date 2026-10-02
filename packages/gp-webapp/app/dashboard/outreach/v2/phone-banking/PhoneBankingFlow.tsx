@@ -31,6 +31,16 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { ChannelBadge } from '../channelMeta'
+import type {
+  OutreachEventDetails,
+  ProposalEvent,
+} from '@goodparty_org/contracts'
+import { EventDetailsStep } from '../EventDetailsStep'
+import {
+  EVENT_DETAILS_TITLE,
+  isEventInvite,
+  useEventDetails,
+} from '../eventDetails'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
@@ -63,11 +73,20 @@ import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 
-type StepId = 'purpose' | 'who' | 'script' | 'sheets' | 'download'
+type StepId = 'purpose' | 'details' | 'who' | 'script' | 'sheets' | 'download'
 const STEP_ORDER: StepId[] = ['purpose', 'who', 'script', 'sheets', 'download']
+const EVENT_STEP_ORDER: StepId[] = [
+  'purpose',
+  'details',
+  'who',
+  'script',
+  'sheets',
+  'download',
+]
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
+  details: EVENT_DETAILS_TITLE,
   who: 'Who do you want to reach?',
   script: 'Write your call script',
   sheets: 'How many call sheets would you like me to create?',
@@ -150,6 +169,7 @@ interface PhoneBankingFlowDraftInput {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
+  event?: OutreachEventDetails
 }
 
 interface PhoneBankingFlowCreateInput {
@@ -249,6 +269,9 @@ interface PhoneBankingFlowProps {
   tracker?: OutreachTrackerOrigin
   // Where the flow was opened from, for its stage events and the Pro gate.
   source: OutreachFlowSource
+  // What an agent's proposal knows about the event it invites people to; the
+  // details step opens on it.
+  initialEvent?: ProposalEvent
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -264,6 +287,7 @@ export const PhoneBankingFlow = ({
   preselectedRecommendedVariant,
   tracker,
   source,
+  initialEvent,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   // Milestone 2's in-flow gate. Phone banking saves no draft — the list is
@@ -284,6 +308,15 @@ export const PhoneBankingFlow = ({
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
+  const eventDetails = useEventDetails({
+    enabled: open && isEventInvite(purpose),
+    isServe: surface.isServe,
+    proposed: initialEvent,
+  })
+  const { reset: resetEventDetails } = eventDetails
+  // The details the current script was written from, so an unchanged
+  // Continue back through the details step keeps the script.
+  const draftedEventRef = useRef<string | null>(null)
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
@@ -428,7 +461,13 @@ export const PhoneBankingFlow = ({
     resetDraftMutation()
     resetCreateMutation()
     resetAudience()
-    if (carriedPurpose) {
+    resetEventDetails()
+    draftedEventRef.current = null
+    // An event invite drafts once its details are in, off the details step.
+    const carriedEvent =
+      carriedPurpose !== null && isEventInvite(carriedPurpose)
+    if (carriedEvent) setStepId('details')
+    if (carriedPurpose && !carriedEvent) {
       // requestDraft's own body, inlined: it reads the instructions state,
       // which the reset above has not flushed yet, and this effect cannot
       // depend on a closure that is fresh every render.
@@ -449,6 +488,7 @@ export const PhoneBankingFlow = ({
     resetDraftMutation,
     resetCreateMutation,
     resetAudience,
+    resetEventDetails,
     draftMutate,
     preselectedRecommendedVariant,
   ])
@@ -511,7 +551,8 @@ export const PhoneBankingFlow = ({
     setSheetCount(count)
   }
 
-  const stepIndex = STEP_ORDER.indexOf(stepId)
+  const stepOrder = isEventInvite(purpose) ? EVENT_STEP_ORDER : STEP_ORDER
+  const stepIndex = stepOrder.indexOf(stepId)
 
   const audienceLabel = audience.selectedList?.name ?? ''
 
@@ -539,10 +580,12 @@ export const PhoneBankingFlow = ({
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
     const trimmedInstructions = instructionsOverride.trim()
+    const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draftMutate(
       {
         purpose: nextPurpose,
         tone: nextTone,
+        ...(event ? { event } : {}),
         ...(currentDraft === undefined ? {} : { currentDraft }),
         ...(previousDraft === undefined ? {} : { previousDraft }),
         ...(trimmedInstructions === ''
@@ -573,8 +616,25 @@ export const PhoneBankingFlow = ({
     setScript('')
     setScriptManuallyEdited(false)
     setInstructions('')
+    draftedEventRef.current = null
+    if (isEventInvite(selected)) {
+      setStepId('details')
+      return
+    }
     setStepId('who')
     requestDraft(selected, 'warm', undefined, undefined, '')
+  }
+
+  const handleEventDetailsContinue = () => {
+    const drafted = JSON.stringify(eventDetails.event)
+    if (draftedEventRef.current !== drafted) {
+      draftedEventRef.current = drafted
+      setTone('warm')
+      setScript('')
+      setScriptManuallyEdited(false)
+      requestDraft(purpose, 'warm')
+    }
+    setStepId('who')
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
@@ -648,7 +708,7 @@ export const PhoneBankingFlow = ({
       audience.resetBuilder()
       return
     }
-    const previous = STEP_ORDER[stepIndex - 1]
+    const previous = stepOrder[stepIndex - 1]
     if (!previous) return
     // Backing OFF the who step discards the picked list so a re-entry starts
     // from an empty picker instead of resuming a selection the user just
@@ -720,7 +780,7 @@ export const PhoneBankingFlow = ({
     setGateOpen(true)
   }
 
-  const cta: FlowShellCta | null = gateOpen
+  const baseCta: FlowShellCta | null = gateOpen
     ? // The gate screens carry their own buttons.
       null
     : saved
@@ -776,6 +836,15 @@ export const PhoneBankingFlow = ({
                 }
               : null
 
+  const cta: FlowShellCta | null =
+    stepId === 'details' && !gateOpen && !saved
+      ? {
+          label: 'Continue',
+          onClick: handleEventDetailsContinue,
+          disabled: eventDetails.event === null,
+        }
+      : baseCta
+
   return (
     <OutreachFlowShell
       open={open}
@@ -788,7 +857,7 @@ export const PhoneBankingFlow = ({
         />
       }
       currentStep={stepIndex + 1}
-      totalSteps={STEP_ORDER.length}
+      totalSteps={stepOrder.length}
       onBack={stepIndex > 0 && !saved && !gateOpen ? handleBack : undefined}
       cta={cta}
       // A React element is truthy even when it renders null, so the caller
@@ -853,6 +922,13 @@ export const PhoneBankingFlow = ({
             onSelect={handleSelectPurpose}
           />
         </div>
+      ) : stepId === 'details' ? (
+        <EventDetailsStep
+          details={eventDetails.details}
+          onChange={eventDetails.setDetails}
+          destination="call script"
+          prefillNote={eventDetails.prefillNote}
+        />
       ) : stepId === 'who' ? (
         <>
           <OutreachAudienceStep

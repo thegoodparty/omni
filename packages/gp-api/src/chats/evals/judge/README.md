@@ -11,6 +11,52 @@ of it, which is the only reason one judge can cover every agent.
 Design: the [TDD](https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-139733)
 and the shorter [review doc](https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-140793).
 
+## Asking for a judgment
+
+You ask about a pull request, and the judge compares the PR's branch with what
+it branches from (normally `main`).
+
+**On the PR, comment `/judge`.** The bot replies with a plan: which agents it
+would compare and what that would cost. No sweep runs and nothing is spent.
+Then confirm it:
+
+| Comment | What it does |
+| --- | --- |
+| `/judge` | Plan only, for the agents your diff touched |
+| `/judge --live` | Runs it for those agents |
+| `/judge chief_of_staff --live` | Runs it for the agent you name |
+| `/judge chief_of_staff,opposition_research --live` | Several, comma-separated, no spaces |
+| `/judge all --live` | Every agent with a case list. Expensive; for changes to shared code |
+
+The comment has to start with `/judge`. Only people with write access to the
+repository can run one, because it spends on the organization's model
+account. Fork PRs are skipped.
+
+**Or from Actions.** Open **Actions → Universal Judge request → Run
+workflow**, fill in the PR number and the agents (`auto` by default), and tick
+**Actually run the sweep and spend on model calls** to spend. Leave it
+unticked for the plan.
+
+**Reading the result.** The verdict is in the run's summary: open **Actions →
+Universal Judge comment** (or **request**, for a dispatch) and pick the run.
+Every comment on any PR starts a comment run, most of them skipped, so look
+for the one at the time you posted. The PR thread says the sweep started but
+not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
+**CAN'T SAY**. Most are CAN'T SAY today, and that's expected for two reasons.
+Almost all the case lists are still placeholders (see below), and every list
+has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
+measured difference still shown beside it. The summary also lists what was
+excluded and why, and an agent that couldn't be compared is listed as
+refused, with the reason.
+
+A sweep of one chat agent takes about half an hour. The plan comment shows the
+estimate before anything runs: about $7 for a chat agent, $13 for a background
+agent, $35 for `ordinance_flow`.
+
+**A second request on the same PR cancels the first**, from a comment or from
+Actions. That includes a plan-only `/judge`: posting one while a live sweep is
+running throws away what that sweep already spent, and no verdict comes out.
+
 ## Running a sweep: THREE PROCESSES, NOT ONE
 
 This is the shape of the whole thing, and it is forced rather than chosen. An
@@ -48,6 +94,8 @@ naming it.
 | `JUDGE_RECORDS_BUCKET`    | all   | An S3 bucket. Not wired in CI yet — see below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `JUDGE_SPEND`             | all   | Only the exact string `true` calls a real model. Anything else uses a canned reply, which is how the pipeline is exercised for nothing. **Step 3 spends too** — one panel call per judgeable pair, per seat — so all three must agree; step 3 refuses a setting that differs from what the arms' manifests recorded.                                                                                                                                                                                                                                                                                                                                                  |
 | `JUDGE_DATA_VERSION`      | 1, 2  | The Delta version both arms read. Resolved ONCE by `dataVersion.ts` in a `sweep` step of its own, before either arm runs, and published as a step output both arms read: an arm that looked up "current" itself would look it up an hour after the other and get a different answer. Empty when the mart could not be read — no credential, a dead one, a history the warehouse will not hand over — which reads here as "not pinned". The sweep then proceeds against the live mart rather than refusing, because most agents never query it, and `report.ts` names every run that queried the mart anyway.                                                          |
+| `JUDGE_BACKGROUND_ATTEMPTS` / `JUDGE_BACKGROUND_MAX_CASES` / `JUDGE_BACKGROUND_ADMITTED` | 1, 2 | The background case and attempt budget, and which background agents it admits, decided ONCE by `armBudget.ts` for both arms — after the base worktree exists and before either arm runs. The base arm reads the base ref's `config.ts` and manifests, so a budget or an admission each arm decided for itself would differ whenever a branch changed either, and with the budget spent down in walk order one disagreement moves every agent after it. Every admitted run starts at once and the arm is done when the slowest is, so an agent is admitted when one of its runs fits the arm on whichever arm is slower and its runs fit the `config.background.maxInFlight` slots left; one missing from the base ref is refused before anyone pays. Against a base ref whose arm still walks runs one after another (no `BACKGROUND_WALKS_CONCURRENTLY` in its `sweepArm.ts`), admission spends the arm's wall clock down run by run instead. `ATTEMPTS` switches the mode: present, a blank `MAX_CASES` means no cap and a blank `ADMITTED` means none admitted; absent, the arm decides for itself (a local run). Either of the other two without `ATTEMPTS` is refused as half a budget. A base ref older than these inputs ignores them. |
+| `JUDGE_FIXTURE_ORG_SLUG` / `JUDGE_FIXTURE_RACE_ID` / `JUDGE_FIXTURE_USER_EMAIL` | 1, 2 | The dev test organization every background dispatch runs against, minted ONCE by `judgeFixture.ts` for both arms when the budget admitted a background agent, and deleted after the verdict. Empty reads as "not minted", and every background agent is then refused by name before anything is staged. See [Six background agents need a real identifier](#six-background-agents-need-a-real-identifier-and-it-cannot-be-a-literal) below. |
 | `JUDGE_SELECTION`         | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead: the digest is the rendered prompt plus the tool names, so a branch that changes only the model, the provider, the sampling settings or a tool's implementation hashes identically, and refusing to judge it would refuse the comparison somebody asked for. Resolved once by judge.yml's `select` step and read by all three processes.       |
 | `JUDGE_ANTHROPIC_API_KEY` | 1, 2  | The real Anthropic key, and it cannot arrive as `ANTHROPIC_API_KEY`: `vitest.config.ts` applies `.env.test` over the process environment and `.env.test` defines that name as a stub, so a key exported under it is replaced before any test line runs — which is how the first live sweep spent two arms collecting `invalid x-api-key`. `modelKey.ts` moves this into place at module scope, ahead of the app boot that constructs LlmService. **Required when `JUDGE_SPEND=true`** and ignored otherwise, so a dry run keeps the stub and cannot reach the real API. Export it in the shell; a `.env` file will not do it, because nothing on this path loads one. |
 | `AI_MODELS`               | 3     | LlmService refuses to construct without it. It is the default fallback chain, which the panel never reaches — each seat pins its own model — so step 3 derives it from `panel.seats` when the environment has not set it. Steps 1 and 2 get it from `.env.test`.                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -115,7 +163,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                     |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                             |
 
-## Case lists: nineteen of twenty agents, and all nineteen are placeholders
+## Case lists: nineteen of twenty agents, and all but one are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-first agent is a
@@ -139,7 +187,8 @@ what its inputs should be, not an unwritten file. `briefing_annotation` is not
 that gap: it is `blocked`, has no handler, and is out of the denominator on
 purpose, so inputs for it would be inputs for a runner that cannot drive it.
 
-**Every one of them is `placeholder: true`.** Each background list is
+**All but one are `placeholder: true`.** The exception is
+`race_opponent_summary.json`, a real bench of nine cases. Each other background list is
 schema-valid against its experiment manifest's `input_schema` and each value
 is plausible; each chat list asks a question the seeded fixture org can
 actually be asked. But nobody has dispatched or driven one, so a verdict drawn
@@ -461,14 +510,25 @@ supplied" — the same rule `JUDGE_DATA_VERSION` needed, and for a harder
 reason: `''` would substitute cleanly and dispatch a params object the agent's
 own `minLength` refuses.
 
-**The exporting half is not wired yet, and that is deliberate rather than
-implied.** `sweepArm.ts` still skips every background agent
-(`BACKGROUND_NOT_WIRED`), and `judge.yml` declares no `JUDGE_FIXTURE_*` entry
-and no mint step — so `fixtureValues` is `{}` on every arm CI runs today.
-Minting a real Clerk identity in CI belongs with the background runner, not
-ahead of it. `judgeWorkflow.test.ts` already owns this class of guard for
-`JUDGE_DATA_VERSION`; it should gain the same check for these three when that
-step lands.
+**judge.yml mints it, in a job of its own.** The `fixture` job runs alongside
+the plan on every live sweep, checks out main, trades
+`JUDGE_CLERK_MACHINE_SECRET` for a short-lived M2M token, mints the fixture
+against the dev gp-api through `judgeFixture.ts`, and publishes four outputs:
+the three identifiers both arms read, and the user id the `fixture-cleanup`
+job deletes after the sweep, on every outcome. Never the password, session
+token or sign-in ticket the mint response also carries. A failed mint does not
+fail the sweep: `fixtureValues` is `{}`, and each background agent is refused
+by name on both arms before anything is staged.
+
+**Why two extra jobs rather than two steps.** The M2M token passes gp-api's
+`AdminOrM2MGuard`, which opens every admin route on dev, not only test
+fixtures. The sweep job runs the branch's code from its first `npx tsx`, and
+code that has run on a runner can rewrite any file or `$GITHUB_ENV` a later
+step there trusts. So the secret only ever reaches a fresh runner running
+main's code, and it lives in the `judge-fixture` environment, restricted to
+main, so a branch's own copy of the workflow cannot read it either. The
+`sweepTestUsers` cron reaps a fixture the cleanup missed a day later.
+`judgeWorkflow.test.ts` pins all of that.
 
 **An unsubstituted token fails before the first dispatch, and nothing further
 down would catch it.** `substituteBackgroundCases` checks the WHOLE list and

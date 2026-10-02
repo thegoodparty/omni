@@ -154,7 +154,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     // Registered only when a priority has a check the official put off, so
     // the prompt never offers a write with nothing to write to.
     const hasDeferredCheck = ctx.priorities.some((priority) =>
-      priority.flow?.checks.some(({ check }) => check.state === 'deferred'),
+      priority.flow?.checks.some(
+        ({ check }) =>
+          check.state === 'deferred' || check.contrast?.state === 'deferred',
+      ),
     )
     if (this.priorityStatus && hasDeferredCheck) {
       Object.assign(

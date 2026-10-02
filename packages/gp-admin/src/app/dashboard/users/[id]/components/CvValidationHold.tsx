@@ -5,6 +5,7 @@ import { Button, Checkbox, Flex, Link, Text } from '@radix-ui/themes'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { useCvHoldOverride } from '@/app/dashboard/campaigns/components/useCvHoldOverride'
+import { EditFilingUrlAction } from '@/app/dashboard/campaigns/components/EditFilingUrlAction'
 
 interface CvValidationHoldProps {
   campaignId: number
@@ -40,9 +41,21 @@ export function CvValidationHold({
         </Flex>
       )}
       {filingUrl && (
-        <Link size="2" href={filingUrl} target="_blank" rel="noreferrer">
-          Open the filing page
-        </Link>
+        <Flex align="center" gap="2">
+          <Link size="2" href={filingUrl} target="_blank" rel="noreferrer">
+            Open the filing page
+          </Link>
+          <ProtectedContent
+            requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
+            hideWhenUnauthorized
+          >
+            <EditFilingUrlAction
+              campaignId={campaignId}
+              filingUrl={filingUrl}
+              onResolved={onResolved}
+            />
+          </ProtectedContent>
+        </Flex>
       )}
       <ProtectedContent
         requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}

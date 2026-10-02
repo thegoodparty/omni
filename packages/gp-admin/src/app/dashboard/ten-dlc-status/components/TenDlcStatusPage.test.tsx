@@ -17,6 +17,13 @@ class ResizeObserverMock {
 globalThis.ResizeObserver =
   ResizeObserverMock as unknown as typeof ResizeObserver
 
+// Radix Select needs the pointer-capture APIs jsdom lacks (same stubs as
+// CampaignForm.test.tsx) or the dropdown never opens.
+Element.prototype.hasPointerCapture = vi.fn(() => false)
+Element.prototype.setPointerCapture = vi.fn()
+Element.prototype.releasePointerCapture = vi.fn()
+HTMLElement.prototype.scrollIntoView = vi.fn()
+
 const mockHas = vi.fn()
 const mockUseAuth = vi.fn()
 
@@ -46,10 +53,13 @@ vi.mock('../actions', () => ({
 
 const mockResendCvPin = vi.fn()
 const mockOverrideCvValidationAndResubmit = vi.fn()
+const mockUpdateFilingUrlAndResubmit = vi.fn()
 vi.mock('@/app/dashboard/campaigns/actions', () => ({
   resendCvPin: (...args: unknown[]) => mockResendCvPin(...args),
   overrideCvValidationAndResubmit: (...args: unknown[]) =>
     mockOverrideCvValidationAndResubmit(...args),
+  updateFilingUrlAndResubmit: (...args: unknown[]) =>
+    mockUpdateFilingUrlAndResubmit(...args),
 }))
 
 const BUCKET_KEYS: TenDlcStatusBucketKey[] = [
@@ -71,6 +81,7 @@ const entry = (overrides: Partial<TenDlcStatusEntry>): TenDlcStatusEntry => ({
   campaignSlug: 'test-camp',
   userId: 11,
   committeeName: 'Friends of Test',
+  assignedPa: null,
   peerlyIdentityId: null,
   filingUrl: null,
   since: new Date('2026-09-20T00:00:00Z').toISOString(),
@@ -220,6 +231,57 @@ describe('TenDlcStatusPage', () => {
     expect(screen.getByText('other-camp')).toBeInTheDocument()
   })
 
+  it('filters rows by assignee, including Unassigned, and clears', async () => {
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        rejected: [
+          entry({
+            campaignId: 1,
+            campaignSlug: 'janes-camp',
+            assignedPa: 'Jane Smith',
+          }),
+          entry({
+            campaignId: 2,
+            campaignSlug: 'bobs-camp',
+            assignedPa: 'Bob Ross',
+          }),
+        ],
+        awaitingPin: [entry({ campaignId: 3, campaignSlug: 'orphan-camp' })],
+      })
+    )
+
+    renderPage()
+    await screen.findByText('janes-camp')
+
+    await userEvent.click(
+      screen.getByRole('combobox', { name: 'Assignee filter' })
+    )
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'Jane Smith' })
+    )
+
+    expect(screen.getByText('janes-camp')).toBeInTheDocument()
+    expect(screen.queryByText('bobs-camp')).not.toBeInTheDocument()
+    expect(screen.queryByText('orphan-camp')).not.toBeInTheDocument()
+    expect(screen.getByText('Showing 1 of 3 registrations')).toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('combobox', { name: 'Assignee filter' })
+    )
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'Unassigned' })
+    )
+
+    expect(screen.getByText('orphan-camp')).toBeInTheDocument()
+    expect(screen.queryByText('janes-camp')).not.toBeInTheDocument()
+    expect(screen.getByText('Showing 1 of 3 registrations')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(screen.getByText('janes-camp')).toBeInTheDocument()
+    expect(screen.getByText('bobs-camp')).toBeInTheDocument()
+    expect(screen.getByText('orphan-camp')).toBeInTheDocument()
+  })
+
   it('surfaces a load failure instead of rendering an empty page', async () => {
     mockGetTenDlcStatusSnapshot.mockRejectedValue(new Error('api down'))
 
@@ -299,7 +361,132 @@ describe('TenDlcStatusPage', () => {
     )
   })
 
-  it('renders each bucket-specific context column', async () => {
+  it('offers the filing-link edit only before a Peerly identity exists', async () => {
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        stuckSubmission: [
+          entry({
+            campaignId: 7,
+            campaignSlug: 'held-camp',
+            filingUrl: 'https://sos.example.gov/old-filing',
+            cvValidationFailedAt: new Date(
+              '2026-09-25T00:00:00Z'
+            ).toISOString(),
+          }),
+        ],
+        // Identity already minted: CampaignVerify consumed the URL, so the
+        // row keeps the view-only Filing link and no edit affordance.
+        cvUnissued: [
+          entry({
+            campaignId: 9,
+            campaignSlug: 'submitted-camp',
+            peerlyIdentityId: 'ident-9',
+            filingUrl: 'https://sos.example.gov/submitted-filing',
+            peerlyCvStatus: 'IN_REVIEW',
+          }),
+        ],
+      })
+    )
+
+    renderPage()
+    expect(await screen.findAllByRole('link', { name: /Filing/ })).toHaveLength(
+      2
+    )
+    expect(
+      screen.getAllByRole('button', { name: 'Edit filing link' })
+    ).toHaveLength(1)
+  })
+
+  it('edits the filing link from a row and goes dead after saving', async () => {
+    mockUpdateFilingUrlAndResubmit.mockResolvedValue({
+      error: null,
+      retriedRunId: 'run-3',
+      retryError: null,
+    })
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        stuckSubmission: [
+          entry({
+            campaignId: 7,
+            campaignSlug: 'held-camp',
+            filingUrl: 'https://sos.example.gov/old-filing',
+            cvValidationFailedAt: new Date(
+              '2026-09-25T00:00:00Z'
+            ).toISOString(),
+          }),
+        ],
+      })
+    )
+
+    renderPage()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Edit filing link' })
+    )
+    const input = screen.getByRole('textbox')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'https://sos.example.gov/corrected-filing')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save and resubmit' })
+    )
+
+    await waitFor(() =>
+      expect(mockUpdateFilingUrlAndResubmit).toHaveBeenCalledWith(
+        7,
+        'https://sos.example.gov/corrected-filing'
+      )
+    )
+    expect(mockShowToast).toHaveBeenCalledWith(
+      'Filing link updated — registration resubmitted'
+    )
+    // The snapshot isn't refetched here, so the trigger must go dead — a
+    // second save from the stale row would resubmit against the old URL.
+    expect(
+      screen.getByRole('button', { name: 'Filing updated' })
+    ).toBeDisabled()
+    expect(mockUpdateFilingUrlAndResubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces a filing-link rejection and keeps the dialog editable', async () => {
+    mockUpdateFilingUrlAndResubmit.mockResolvedValue({
+      error: 'Filing URL must be an official election-authority filing record',
+      retriedRunId: null,
+      retryError: null,
+    })
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        stuckSubmission: [
+          entry({
+            campaignId: 7,
+            campaignSlug: 'held-camp',
+            filingUrl: 'https://sos.example.gov/old-filing',
+            cvValidationFailedAt: new Date(
+              '2026-09-25T00:00:00Z'
+            ).toISOString(),
+          }),
+        ],
+      })
+    )
+
+    renderPage()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Edit filing link' })
+    )
+    const input = screen.getByRole('textbox')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'https://goodparty.org/candidate/held')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save and resubmit' })
+    )
+
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Filing URL must be an official election-authority filing record'
+      )
+    )
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+  })
+
+  it('renders a bucket-specific explanation row under each entry', async () => {
     mockGetTenDlcStatusSnapshot.mockResolvedValue(
       snapshot({
         stuckSubmission: [
@@ -346,16 +533,55 @@ describe('TenDlcStatusPage', () => {
 
     renderPage()
 
-    expect(await screen.findByText('run run-77 (FAILED)')).toBeInTheDocument()
-    expect(screen.getByText('vote-held.site (registered)')).toBeInTheDocument()
+    // No-hold stuck row: the explanation points at the agent run by link.
+    const runLink = await screen.findByRole('link', { name: 'run run-77' })
+    expect(runLink).toHaveAttribute('href', '/dashboard/agent-runs/run-77')
+    expect(
+      screen.getByText(/No CV hold — it stopped inside/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/vote-held\.site \(registered\) — no DNS delegation/)
+    ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Radix unsuspension' })
     ).toHaveAttribute('href', 'https://abuse.radix.website/unsuspension')
-    expect(screen.getByText(/ident-3 · escalation pending/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/ident-3 — CampaignVerify has been reviewing/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Escalation posts to the shared Peerly channel/)
+    ).toBeInTheDocument()
     expect(
       screen.getByText('missing user association (data repair)')
     ).toBeInTheDocument()
-    expect(screen.getByText(/ident-5 · CV IN_REVIEW/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/ident-5 — CV IN_REVIEW: CampaignVerify/)
+    ).toBeInTheDocument()
+  })
+
+  it('shows the assigned success person, or Unassigned when there is none', async () => {
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        rejected: [
+          entry({
+            campaignId: 1,
+            campaignSlug: 'owned-camp',
+            assignedPa: 'Jane Smith',
+          }),
+          entry({
+            campaignId: 2,
+            campaignSlug: 'orphan-camp',
+            assignedPa: null,
+          }),
+        ],
+      })
+    )
+
+    renderPage()
+
+    expect(await screen.findByText('Assigned to')).toBeInTheDocument()
+    expect(screen.getByText('Jane Smith')).toBeInTheDocument()
+    expect(screen.getByText('Unassigned')).toBeInTheDocument()
   })
 
   it('labels rejected rows with the recovery path the identity dictates', async () => {
@@ -375,10 +601,12 @@ describe('TenDlcStatusPage', () => {
     renderPage()
 
     expect(
-      await screen.findByText('identity minted — escalate to Peerly')
+      await screen.findByText(
+        /ident-1 — CampaignVerify rejected after submission/
+      )
     ).toBeInTheDocument()
     expect(
-      screen.getByText('no identity — repair data, then reset status')
+      screen.getByText(/Rejected before any Peerly identity existed/)
     ).toBeInTheDocument()
   })
 })

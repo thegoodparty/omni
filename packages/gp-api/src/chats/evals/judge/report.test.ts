@@ -2,6 +2,7 @@ import { hoursToMilliseconds } from 'date-fns'
 import { describe, expect, it } from 'vitest'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
+import type { InvariantViolation } from './invariants'
 import type { AgentEntry } from './agents'
 import { createRng } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
@@ -196,14 +197,43 @@ describe('a judge that reads position instead of quality', () => {
   // The whole reason for the order-swap subsample. A fixed slot preference
   // produces a delta of zero and zero consistency, and the gate has to
   // report that rather than dressing it up as equivalence.
+  //
+  // FIFTY CASES, because the gate needs gates.minSwappedPairs of them before
+  // it will fail anything, and orderSwap.fraction 0.2 takes every fifth pair.
+  // 25 cases is five swapped pairs, which is the sample the first live sweep
+  // had and is not enough to tell a biased judge from a coin.
   it('is gated, not reported as a verdict', async () => {
+    const normalized = normalizeAgent(sweepRecords(50), createRng(42))
+    const judgments = await judgeAll(alwaysX, normalized.judgeable)
+    const score = scoreAgent({ normalized, judgments })
+    // The delta is NOT asserted. A fixed slot preference scores whichever arm
+    // the rng put in X, so the delta depends on how the slots happened to
+    // fall across the sample rather than on the bias — it was exactly 0 at 25
+    // cases by coincidence of an even split. Zero consistency is the property
+    // that actually identifies this judge.
+    expect(score.positionConsistency).toBe(0)
+    expect(score.swappedPairs).toBeGreaterThanOrEqual(
+      DEFAULT_JUDGE_CONFIG.gates.minSwappedPairs,
+    )
+    expect(score.label).toBe("CAN'T SAY")
+    expect(score.labelNote).toMatch(/reading position rather than quality/)
+  })
+
+  // The same biased judge on the sample a placeholder case list produces.
+  // Still reported, and it no longer decides the verdict — the case floor
+  // does, which is the honest reason at that size.
+  it('is reported but not gated when too few pairs were swapped', async () => {
     const normalized = normalizeAgent(sweepRecords(25), createRng(42))
     const judgments = await judgeAll(alwaysX, normalized.judgeable)
     const score = scoreAgent({ normalized, judgments })
-    expect(score.overall.delta).toBe(0)
     expect(score.positionConsistency).toBe(0)
-    expect(score.label).toBe("CAN'T SAY")
-    expect(score.labelNote).toMatch(/reading position rather than quality/)
+    expect(score.swappedPairs).toBeLessThan(
+      DEFAULT_JUDGE_CONFIG.gates.minSwappedPairs,
+    )
+    expect(score.labelNote ?? '').not.toMatch(/reading position/)
+    const report = renderReport({ agents: [score] })
+    expect(report).toContain(`0 of ${score.swappedPairs} agreed`)
+    expect(report).toContain('Too few swapped pairs to gate on')
   })
 })
 
@@ -382,7 +412,9 @@ describe('provenance', () => {
   it('links the verdict back to the PR and the workflow run', async () => {
     const score = await pipeline(sweepRecords(3))
     const report = renderReport({ agents: [score] })
-    expect(report).toContain('Change under test: thegoodparty/omni #2198')
+    expect(report).toContain(
+      'Change under test: thegoodparty/omni [#2198](https://github.com/thegoodparty/omni/pull/2198)',
+    )
     expect(report).toContain(
       'https://github.com/thegoodparty/omni/actions/runs/36592029654',
     )
@@ -417,6 +449,7 @@ describe('provenance', () => {
         ungraded: 0,
       },
       positionConsistency: null,
+      swappedPairs: 0,
       orderUnstablePairs: [],
       panelDisagreementRate: null,
       flags: [],
@@ -1004,5 +1037,122 @@ describe('ungraded judgments say why', () => {
     const report = await withUngraded(0, ['stale reason'])
     expect(report).not.toContain('Why:')
     expect(report).not.toContain('stale reason')
+  })
+})
+
+// THE ONE QUALIFIER A PAIRWISE VERDICT STRUCTURALLY CANNOT CARRY. Delete a
+// rule from an agent's prompt and the outputs that follow usually read better
+// — a vocabulary constraint costs directness — so the delta moves TOWARD the
+// candidate and the regression is reported as an improvement. The live sweep
+// did exactly that: overall +0.44 toward a candidate whose only change was
+// deleting the constituents-not-voters rule, with instruction_adherence flat
+// at +0.02. These lines are what a reader needs beside that number.
+describe('a rule the candidate broke', () => {
+  const violation = (over: Partial<InvariantViolation> = {}) => ({
+    agentId: 'chief_of_staff',
+    invariant: 'constituents-not-voters',
+    describe: 'The people the user serves are constituents, never voters.',
+    baseRuns: 0,
+    candidateRuns: 2,
+    candidateCaseIds: ['capability-inventory-from-context'],
+    baseUnknownRuns: 0,
+    candidateUnknownRuns: 0,
+    ...over,
+  })
+
+  const render = (violations: InvariantViolation[]): string =>
+    renderReport({ agents: [], invariantViolations: violations })
+
+  it('is stated as a fact, and says the delta will not show it', async () => {
+    const report = render([violation()])
+    expect(report).toContain('The candidate broke a rule the base kept')
+    expect(report).toContain('the delta above will not show it')
+    expect(report).toContain('constituents-not-voters')
+    expect(report).toContain('capability-inventory-from-context')
+    // The rule itself, so a reader who has not read the prompt knows what
+    // was broken.
+    expect(report).toContain('never voters')
+  })
+
+  // A rule BOTH arms break is a standing bug, not something this branch did.
+  // Reporting it under the same headline would send someone to review a diff
+  // that did not cause it.
+  it('is not called a regression when both arms broke it', () => {
+    const report = render([violation({ baseRuns: 3, candidateRuns: 2 })])
+    expect(report).not.toContain('The candidate broke a rule the base kept')
+    expect(report).toContain('broken by BOTH arms')
+    expect(report).toContain('standing problem')
+  })
+
+  // The opposite direction, and worth printing: the branch fixed something
+  // the comparison also cannot see.
+  it('says so when only the base broke it', () => {
+    const report = render([
+      violation({ baseRuns: 4, candidateRuns: 0, candidateCaseIds: [] }),
+    ])
+    expect(report).not.toContain('The candidate broke a rule the base kept')
+    expect(report).toContain('this branch fixing it')
+  })
+
+  it('prints nothing at all when every rule held', () => {
+    const report = renderReport({ agents: [] })
+    expect(report).not.toContain('broke a rule')
+    expect(report).not.toContain('standing problem')
+  })
+
+  // Three facts from one list, so a sweep that hit all three says all three
+  // rather than collapsing them into the loudest.
+  it('keeps the three cases apart in one report', () => {
+    const report = render([
+      violation({ invariant: 'new-break' }),
+      violation({ invariant: 'both-break', baseRuns: 1, candidateRuns: 1 }),
+      violation({
+        invariant: 'base-only',
+        baseRuns: 2,
+        candidateRuns: 0,
+        candidateCaseIds: [],
+      }),
+    ])
+    expect(report).toContain('The candidate broke a rule the base kept')
+    expect(report).toContain('new-break')
+    expect(report).toContain('broken by BOTH arms')
+    expect(report).toContain('this branch fixing it')
+  })
+})
+
+// "The base kept it" is a claim, and a base arm that produced no answer does
+// not support it. The finding stands — the candidate broke the rule — but the
+// comparison behind the headline is weaker, and the line has to say so.
+describe('a base arm that never answered', () => {
+  const render = (over: Partial<InvariantViolation>): string =>
+    renderReport({
+      agents: [],
+      invariantViolations: [
+        {
+          agentId: 'chief_of_staff',
+          invariant: 'constituents-not-voters',
+          describe: 'The people the user serves are constituents.',
+          baseRuns: 0,
+          candidateRuns: 2,
+          candidateCaseIds: ['priorities-on-file'],
+          baseUnknownRuns: 0,
+          candidateUnknownRuns: 0,
+          ...over,
+        },
+      ],
+    })
+
+  it('says the base claim is unverified to that extent', () => {
+    const report = render({ baseUnknownRuns: 3 })
+    expect(report).toContain('The candidate broke a rule the base kept')
+    expect(report).toContain('The base produced no answer on 3 run(s)')
+    expect(report).toContain('unverified')
+  })
+
+  it('says nothing extra when the base answered every run', () => {
+    const report = render({ baseUnknownRuns: 0 })
+    expect(report).toContain('The candidate broke a rule the base kept')
+    expect(report).not.toContain('produced no answer')
+    expect(report).not.toContain('unverified')
   })
 })

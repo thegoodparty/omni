@@ -309,17 +309,56 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
       expect(promptOf('system')).toContain('ONE request and no more')
     })
 
-    // The one line allowed to carry brackets, and only because event
-    // logistics are not modelled anywhere in this product.
-    it('permits logistics brackets only for an event invite', async () => {
+    it('writes an event invite from the details the flow sent', async () => {
+      mockPoints()
+
+      await postDraft(
+        draftBody({
+          purpose: 'event_invite',
+          event: {
+            date: '2026-10-17',
+            time: '18:30',
+            location: 'Georgetown Public Library',
+          },
+        }),
+      )
+
+      const user = promptOf('user')
+      expect(user).toContain('Date: Saturday, October 17')
+      expect(user).toContain('Time: 6:30 PM')
+      expect(user).toContain('Location: Georgetown Public Library')
+      expect(`${promptOf('system')}\n${user}`).not.toMatch(
+        /\[(date|time|location)\]/i,
+      )
+    })
+
+    it('leaves the logistics out of an event invite sent without details', async () => {
       mockPoints()
 
       await postDraft(draftBody({ purpose: 'event_invite' }))
 
-      expect(promptOf('user')).toContain('[date]')
+      const user = promptOf('user')
+      expect(user).toContain('No event date, time or place was given.')
       expect(promptOf('system')).toContain(
-        'Use a bracketed placeholder ONLY in the ask',
+        'Never write a bracketed placeholder.',
       )
+      expect(`${promptOf('system')}\n${user}`).not.toMatch(
+        /\[(date|time|location)\]/i,
+      )
+    })
+
+    it('rejects event details it cannot write in', async () => {
+      const res = await service.client.post(
+        '/v1/outreach/door-knocking/draft',
+        draftBody({
+          purpose: 'event_invite',
+          event: { date: 'Saturday', time: '6pm', location: 'Library' },
+        }),
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(jsonCompletion).not.toHaveBeenCalled()
     })
 
     // Fresh generation only. Improve mode polishes the author's own words, so

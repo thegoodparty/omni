@@ -4,7 +4,10 @@ import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
-import { P2P_JOB_DEFAULTS } from '../constants/p2pJob.constants'
+import {
+  P2P_JOB_DEFAULTS,
+  P2P_JOB_READ_TIMEOUT_MS,
+} from '../constants/p2pJob.constants'
 import {
   GetJobResponseDto,
   JobDetailedStatsResponseDto,
@@ -385,28 +388,6 @@ describe('PeerlyP2pJobService', () => {
     })
   })
 
-  describe('getJobsByIdentityId', () => {
-    it('returns jobs from HTTP service', async () => {
-      const mockJobs = [{ id: 'job-1' }, { id: 'job-2' }]
-      mockHttpService.get.mockResolvedValue({ data: mockJobs })
-
-      const result = await service.getJobsByIdentityId('identity-123')
-
-      expect(result).toEqual(mockJobs)
-      expect(mockHttpService.get).toHaveBeenCalledWith(
-        expect.stringContaining('identity-123'),
-      )
-    })
-
-    it('throws BadGatewayException when retrieval fails', async () => {
-      mockHttpService.get.mockRejectedValue(new Error('API error'))
-
-      await expect(service.getJobsByIdentityId('identity-123')).rejects.toThrow(
-        BadGatewayException,
-      )
-    })
-  })
-
   describe('deleteJob', () => {
     it('deletes the job through the HTTP service', async () => {
       mockHttpService.delete.mockResolvedValue(undefined)
@@ -450,7 +431,30 @@ describe('PeerlyP2pJobService', () => {
       const result = await service.getJob('job-1')
 
       expect(result).toEqual(mockJob)
-      expect(mockHttpService.get).toHaveBeenCalledWith('/1to1/jobs/job-1')
+      expect(mockHttpService.get).toHaveBeenCalledWith(
+        '/1to1/jobs/job-1',
+        expect.anything(),
+      )
+    })
+
+    // The status sweep polls one job per open outreach in sequence, so an
+    // unresponsive vendor must cost this read seconds, not the minutes that
+    // four 60-second attempts would take.
+    it('bounds the read with its own deadline', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: {
+          id: 'job-1',
+          status: PeerlyJobStatus.ACTIVE,
+          leads_remaining: 0,
+        },
+      })
+
+      await service.getJob('job-1')
+
+      const config = mockHttpService.get.mock.calls[0]?.[1]
+      expect(config.timeout).toBe(P2P_JOB_READ_TIMEOUT_MS)
+      expect(config.signal).toBeInstanceOf(AbortSignal)
+      expect(config.signal.aborted).toBe(false)
     })
 
     it('throws BadGatewayException when retrieval fails', async () => {
@@ -945,6 +949,29 @@ describe('PeerlyP2pJobService', () => {
       await expect(service.getJobDetailedStats('job-1', range)).rejects.toThrow(
         BadGatewayException,
       )
+    })
+  })
+
+  describe('sendTestMessage', () => {
+    // Peerly rejects a send-test that does not name the test list the
+    // number sits on, which is how the CAS test-text button shipped
+    // broken: the body carried the phone alone and every click 502'd.
+    it('names both the phone and its test list in the send body', async () => {
+      await service.sendTestMessage('test-job-1', '5551234567', 169614)
+
+      expect(mockHttpService.post).toHaveBeenCalledWith(
+        '/1to1/jobs/test-job-1/send_test_message',
+        { test_contact_phone: '5551234567', test_list_id: '169614' },
+      )
+    })
+
+    it("routes a vendor rejection through the shared handler, keeping Peerly's message", async () => {
+      mockHttpService.post.mockRejectedValueOnce(new Error('vendor down'))
+
+      await expect(
+        service.sendTestMessage('test-job-1', '5551234567', 169614),
+      ).rejects.toThrow(BadGatewayException)
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
     })
   })
 })

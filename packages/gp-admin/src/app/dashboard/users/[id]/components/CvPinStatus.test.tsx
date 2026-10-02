@@ -32,6 +32,7 @@ const mockResendCvPin = vi.fn()
 const mockSetInternalTestingApproval = vi.fn()
 const mockUpdateCommitteeName = vi.fn()
 const mockOverrideCvValidationAndResubmit = vi.fn()
+const mockUpdateFilingUrlAndResubmit = vi.fn()
 
 vi.mock('@/app/dashboard/campaigns/actions', () => ({
   listCampaigns: (...args: unknown[]) => mockListCampaigns(...args),
@@ -43,6 +44,8 @@ vi.mock('@/app/dashboard/campaigns/actions', () => ({
   updateCommitteeName: (...args: unknown[]) => mockUpdateCommitteeName(...args),
   overrideCvValidationAndResubmit: (...args: unknown[]) =>
     mockOverrideCvValidationAndResubmit(...args),
+  updateFilingUrlAndResubmit: (...args: unknown[]) =>
+    mockUpdateFilingUrlAndResubmit(...args),
 }))
 
 const mockUser: User = {
@@ -551,6 +554,192 @@ describe('CvPinStatus', () => {
       ).toBeInTheDocument()
     })
 
+    it('edits the filing link, resubmits, and refreshes the state', async () => {
+      mockUpdateFilingUrlAndResubmit.mockResolvedValue({
+        error: null,
+        retriedRunId: 'run-2',
+        retryError: null,
+      })
+      mockGetCampaignComplianceState
+        .mockResolvedValueOnce(heldState)
+        .mockResolvedValueOnce({
+          ...heldState,
+          stage: 'ready_to_submit',
+          filingUrl: 'https://candidates.sos.mn.gov/filings/jake-solberg',
+          cvValidationFailedAt: null,
+          cvValidationFailureReasons: [],
+        })
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Edit filing link' })
+      )
+      const input = screen.getByRole('textbox')
+      await user.clear(input)
+      await user.type(
+        input,
+        'https://candidates.sos.mn.gov/filings/jake-solberg'
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'Save and resubmit' })
+      )
+
+      await waitFor(() =>
+        expect(mockUpdateFilingUrlAndResubmit).toHaveBeenCalledWith(
+          7,
+          'https://candidates.sos.mn.gov/filings/jake-solberg'
+        )
+      )
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Filing link updated — registration resubmitted'
+      )
+      expect(
+        await screen.findByText('10DLC: Not yet submitted')
+      ).toBeInTheDocument()
+    })
+
+    it('surfaces a filing-link rejection via toast and keeps the dialog open', async () => {
+      mockUpdateFilingUrlAndResubmit.mockResolvedValue({
+        error:
+          'Filing URL must be an official election-authority filing record',
+        retriedRunId: null,
+        retryError: null,
+      })
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Edit filing link' })
+      )
+      const input = screen.getByRole('textbox')
+      await user.clear(input)
+      await user.type(input, 'https://goodparty.org/candidate/jake')
+      await user.click(
+        screen.getByRole('button', { name: 'Save and resubmit' })
+      )
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          'Filing URL must be an official election-authority filing record'
+        )
+      )
+      expect(screen.getByRole('textbox')).toBeInTheDocument()
+      expect(mockGetCampaignComplianceState).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports a retry failure on the filing-link edit and still refreshes', async () => {
+      mockUpdateFilingUrlAndResubmit.mockResolvedValue({
+        error: null,
+        retriedRunId: null,
+        retryError: 'No dispatch queue configured',
+      })
+      mockGetCampaignComplianceState
+        .mockResolvedValueOnce(heldState)
+        .mockResolvedValueOnce({
+          ...heldState,
+          stage: 'ready_to_submit',
+          cvValidationFailedAt: null,
+          cvValidationFailureReasons: [],
+        })
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Edit filing link' })
+      )
+      const input = screen.getByRole('textbox')
+      await user.clear(input)
+      await user.type(input, 'https://sos.example.gov/filings/jake')
+      await user.click(
+        screen.getByRole('button', { name: 'Save and resubmit' })
+      )
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          'Filing link updated, but resubmitting failed: ' +
+            'No dispatch queue configured'
+        )
+      )
+      expect(
+        await screen.findByText('10DLC: Not yet submitted')
+      ).toBeInTheDocument()
+    })
+
+    it('re-enables the edit when the refreshed state is still held on a new URL', async () => {
+      mockUpdateFilingUrlAndResubmit.mockResolvedValue({
+        error: null,
+        retriedRunId: 'run-2',
+        retryError: null,
+      })
+      // The replacement URL failed validation too: the hold view stays
+      // mounted with the new filingUrl, so the edit must be usable again.
+      mockGetCampaignComplianceState
+        .mockResolvedValueOnce(heldState)
+        .mockResolvedValueOnce({
+          ...heldState,
+          filingUrl: 'https://sos.example.gov/filings/jake',
+        })
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Edit filing link' })
+      )
+      const input = screen.getByRole('textbox')
+      await user.clear(input)
+      await user.type(input, 'https://sos.example.gov/filings/jake')
+      await user.click(
+        screen.getByRole('button', { name: 'Save and resubmit' })
+      )
+
+      const edit = await screen.findByRole('button', {
+        name: 'Edit filing link',
+      })
+      expect(edit).toBeEnabled()
+      expect(
+        screen.queryByRole('button', { name: 'Filing updated' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('reports a refresh failure after a successful save without contradicting it', async () => {
+      mockUpdateFilingUrlAndResubmit.mockResolvedValue({
+        error: null,
+        retriedRunId: 'run-2',
+        retryError: null,
+      })
+      mockGetCampaignComplianceState
+        .mockResolvedValueOnce(heldState)
+        .mockRejectedValueOnce(new Error('network down'))
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Edit filing link' })
+      )
+      const input = screen.getByRole('textbox')
+      await user.clear(input)
+      await user.type(input, 'https://sos.example.gov/filings/jake')
+      await user.click(
+        screen.getByRole('button', { name: 'Save and resubmit' })
+      )
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          'Filing link updated — registration resubmitted'
+        )
+      )
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          expect.stringContaining('refreshing the page failed')
+        )
+      )
+      expect(mockShowToast).not.toHaveBeenCalledWith(
+        expect.stringContaining('Failed to update filing link')
+      )
+      expect(mockCaptureException).toHaveBeenCalledTimes(1)
+    })
+
     it('hides the override controls without write_campaigns permission', async () => {
       mockHas.mockImplementation(
         ({ permission }: { permission: string }) =>
@@ -570,6 +759,9 @@ describe('CvPinStatus', () => {
         })
       ).not.toBeInTheDocument()
       expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Edit filing link' })
+      ).not.toBeInTheDocument()
     })
   })
 

@@ -41,7 +41,8 @@ describe('fetchDevEnvBundles', () => {
       fetchImpl,
     )
     const [, init] = fetchImpl.mock.calls[0]
-    expect(init.headers.Authorization).toBe('Bearer gho_abc')
+    expect(init.headers['X-GitHub-Token']).toBe('gho_abc')
+    expect(init.headers.Authorization).toBeUndefined()
     expect(init.body).toBe(JSON.stringify({ packages: ['gp-api'] }))
   })
 
@@ -98,7 +99,7 @@ describe('fetchDevEnvBundles', () => {
         ['gp-api'],
         fetchImpl,
       ),
-    ).rejects.toThrow(/rejected the GitHub token/)
+    ).rejects.toThrow(/confirm you are an active member/)
   })
 
   it('fails closed when the endpoint is unreachable', async () => {

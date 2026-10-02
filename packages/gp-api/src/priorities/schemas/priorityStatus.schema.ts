@@ -133,6 +133,13 @@ export const RecordCheckReminderInputSchema = z.object({
   stepId: PriorityStepIdSchema.describe(
     'The step whose put-off check you just raised.',
   ),
+  side: z
+    .enum(['main', 'contrast'])
+    .default('main')
+    .describe(
+      'main = the most affected group, contrast = the least affected. The ' +
+        'side whose put-off check you raised.',
+    ),
   answer: CheckReminderAnswerSchema.describe(
     'not_yet = they put it off again, or did not take it up. taking_it_up ' +
       '= they want to do it now, and you pointed them at the priority, ' +

@@ -246,7 +246,7 @@ export const mintJudgeFixture = async (
   if (fixture.electedOfficeId === undefined) {
     // The POST already created a Clerk user, an organization, a campaign and
     // — normally — an elected office. Throwing without deleting would discard
-    // the only id that can reclaim it deliberately, leaving the 6-hourly
+    // the only id that can reclaim it deliberately, leaving the hourly
     // sweepTestUsers cron as the only reaper and contradicting this
     // function's own claim above that a failure leaks no Clerk identity.
     // Clerk's Backend API budget is the scarce resource here
@@ -273,7 +273,7 @@ export const mintJudgeFixture = async (
 }
 
 // A user the endpoint could not find is reported, not thrown: that is an
-// ordinary outcome — the 6-hourly sweepTestUsers cron may have got there
+// ordinary outcome — the hourly sweepTestUsers cron may have got there
 // first — and it arrives as `notFound` in a 200 body.
 //
 // A TRANSPORT failure still rejects, and that is deliberate rather than an
@@ -281,9 +281,12 @@ export const mintJudgeFixture = async (
 // finished sweep's outcome with a cleanup error; swallowing it here instead
 // would hide a leaked Clerk identity from the one place that could report it.
 // Wrap the call, do not weaken it.
+// Takes only the id, because that is all a delete reads — and the delete runs
+// in a later workflow step than the mint, where the identifiers are not in
+// hand and the id is.
 export const deleteJudgeFixture = async (
   api: FixtureApi,
-  fixture: JudgeFixture,
+  fixture: Pick<JudgeFixture, 'userId'>,
 ): Promise<DeleteTestFixtureUsersResponse> =>
   DeleteTestFixtureUsersResponseSchema.parse(
     await deleteFixtureUser(api, fixture.userId),

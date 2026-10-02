@@ -24,20 +24,17 @@ overview: `docs/features/campaign-tracker-v3.md`.
   keeps history for the weekly agent's prior-task lookup. Consequence: every
   reader must scope to the latest generation. The frontend (`buildTrackerStrategy`)
   and the digest (`weeklyTasksDigestHandler`, a separate `latest_gen` CTE) both do.
-- **Bootstrap is gated on campaign story, then an atomic claim.**
-  `bootstrapTrackerIfPlanComplete` (in `campaignStrategy.service.ts`) only
-  proceeds if a `campaign_story` row exists. The tracker takes the story as
-  input, so story-off (legacy) campaigns generate their plan but never bootstrap
-  the tracker. The gate is on the story _data_ — it never depended on the
-  webapp's `campaign-story` flag (removed in ENG-11013; the legacy cohort is
-  now only reachable by a pre-existing campaign with no story row). Then: two
-  plan sections complete on independent SQS
-  messages, so `bootstrapForCampaign` claims `CampaignStrategy.trackerBootstrapped`
-  with one conditional `updateMany` (false->true); only the winner materializes +
+- **Bootstrap is claimed atomically, and is not gated on the campaign story.**
+  `bootstrapTrackerIfPlanComplete` (in `campaignStrategy.service.ts`) proceeds
+  as soon as both plan sections persist. The story is input that sharpens the
+  tasks, not a precondition — a campaign with no story row gets the same
+  generic rows. Two plan sections complete on independent SQS messages, so
+  `bootstrapForCampaign` claims `CampaignStrategy.trackerBootstrapped` with one
+  conditional `updateMany` (false->true); only the winner materializes +
   dispatches, and the claim is released on failure so a later trigger retries.
 - **Static rows materialize eagerly, at plan-generation start.**
-  `getOrGenerateStrategicLandscape` calls `materializeStaticTasks` (story-gated,
-  best-effort) so the static checklist + outreach render immediately, without
+  `getOrGenerateStrategicLandscape` calls `materializeStaticTasks`
+  (best-effort) so the static checklist + outreach render immediately, without
   waiting for the SQS-driven completion bootstrap (which never fires in local
   dev). The dynamic `dispatchGeneration` still runs only from the completion
   bootstrap (it needs the finished plan). `materializeStaticTasks` is idempotent
@@ -45,6 +42,37 @@ overview: `docs/features/campaign-tracker-v3.md`.
   (`TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY`), because the plan endpoint is polled
   and the count-check alone isn't atomic, so the eager call and the bootstrap
   call can't double-insert the catalog.
+- **The story task mirrors story state through its completion, not its
+  existence.** The catalog's `Campaign story` category
+  (`CAMPAIGN_STORY_CATEGORY` in contracts) holds one `static` task, materialized
+  for every campaign and never deleted. `completed` tracks whether the Campaign
+  Story is finished, in both directions:
+  `reconcileCampaignStoryTask` (same advisory lock as the ballot-access
+  reconcile, called from `dispatchGeneration`) ticks it when the story is
+  complete and reopens it when the story is emptied again, so the row can never
+  disagree with the card pinned above the rail. The row is the record of the
+  work; making it vanish would lose that.
+- **The tracker read ticks it too.** The story is finished on other surfaces —
+  the story page, the manager chat — so `completeCampaignStoryTaskIfDone` runs
+  on `GET /campaigns/tracker-tasks` and closes the task there rather than
+  leaving the list stale until the next generation. It is the open->complete
+  direction only, and it short-circuits on an indexed count when the row is
+  already ticked, so polling the list does not pay for a story read it cannot
+  use. The full reconcile still owns the reverse.
+- **It sits at the end of pre-launch.** `phase: 'preLaunch'` with `preLaunch`
+  timing, which resolves a week past the block's anchor, alongside the two
+  catalog rows that close the phase out. `buildCampaignStoryTrackerTaskRows`
+  exists separately from `buildStaticTrackerTaskRows` only because the row
+  carries `link`/`cta`, which the catalog schema does not model. When the
+  reconcile re-adds it to a campaign materialized long ago it recovers that
+  campaign's original anchor from its earliest pre-launch row rather than
+  taking a fresh one, so the row lands with its siblings instead of a week out
+  from today.
+  Known consequence, tracked separately: an open pre-launch row dated in the
+  present pulls a mid-campaign candidate's rail back to Pre-launch, because the
+  webapp decides "happening now" from task dates. Ticking the row does not
+  rescue it — the date is what pulls the phase in. That is the date-driven
+  phase model needing a rethink, not this row's placement.
 - **Ballot access is gated on the candidate's ballot stage.** The catalog's
   `Ballot access` category (`BALLOT_ACCESS_CATEGORY` in contracts) is dropped at
   materialization for a candidate who answered onboarding's "Are you already on

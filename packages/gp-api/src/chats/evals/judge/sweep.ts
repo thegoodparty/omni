@@ -21,6 +21,7 @@ import {
   normalizeAgent,
   type NormalizeOptions,
 } from './normalize'
+import { invariantViolations } from './invariants'
 import type { RunRecord } from './record'
 import { RecordStoreError, type ArmManifest, type RecordStore } from './records'
 import {
@@ -257,6 +258,10 @@ export const judgeSweep = async (
   }
 
   const unpinned = unpinnedMartReads(records)
+  // Over every record for the same reason the mart check is: a run excluded
+  // from the comparison still produced an answer, and an answer that broke a
+  // rule is a fact about the branch whether or not it was judgeable.
+  const broken = invariantViolations(records)
 
   const report: SweepReport = {
     agents: scores,
@@ -281,6 +286,7 @@ export const judgeSweep = async (
     // excluded still read the live mart, and the point of the warning is to
     // say which reads the missing pin was free to move.
     ...(unpinned.length > 0 && { unpinnedMart: unpinned }),
+    ...(broken.length > 0 && { invariantViolations: broken }),
   }
 
   return {

@@ -19,10 +19,8 @@ import {
   CampaignManagerHandler,
 } from './campaignManager.handler'
 import type { CampaignManagerContext } from './campaignManagerPrompt'
-import type {
-  CampaignStoryIntakeService,
-  StoryState,
-} from './campaignStoryIntake.service'
+import type { CampaignStoryIntakeService } from './campaignStoryIntake.service'
+import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import type { ElectionsService } from '@/elections/services/elections.service'

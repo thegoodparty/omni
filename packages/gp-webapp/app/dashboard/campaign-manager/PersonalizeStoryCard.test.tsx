@@ -21,13 +21,27 @@ describe('PersonalizeStoryCard', () => {
     const user = userEvent.setup()
     render(<PersonalizeStoryCard onPersonalize={onPersonalize} />)
 
-    expect(
-      screen.getByText('Personalize your campaign messaging'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('Tell us your campaign story')).toBeInTheDocument()
     await user.click(
       screen.getByRole('button', { name: 'Personalize your campaign' }),
     )
     expect(onPersonalize).toHaveBeenCalledTimes(1)
+  })
+
+  // The hook fails closed on a story-fetch error, so without this guard a
+  // candidate who already wrote their story is told to go write it.
+  it('renders nothing when the story fetch errored', () => {
+    mockHook.mockReturnValue({
+      isComplete: false,
+      isLoading: false,
+      isError: true,
+    })
+
+    render(<PersonalizeStoryCard onPersonalize={vi.fn()} />)
+
+    expect(
+      screen.queryByText('Tell us your campaign story'),
+    ).not.toBeInTheDocument()
   })
 
   it('renders nothing once the story is complete', () => {

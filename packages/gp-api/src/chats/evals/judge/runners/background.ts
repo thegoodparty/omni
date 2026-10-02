@@ -208,12 +208,19 @@ export const backgroundConfigDigest = (config: AgentConfig): string =>
 
 export interface RunIdParts {
   sweepId: string
+  // THE AGENT IS PART OF THE RUN. Two agents' lists share case ids —
+  // top_community_issues and trending_issues share their first three — and
+  // the platform's job table is keyed on the run id alone, so without it the
+  // second agent's dispatch was dropped as a duplicate of the first's and its
+  // poll ran out the clock. armBudget.ts refuses such a pair against a base
+  // ref whose run ids predate this.
+  agentId: string
   caseId: string
   arm: Arm
   attempt: number
 }
 
-// Deterministic per (sweep, case, arm, attempt), which is what makes the
+// Deterministic per (sweep, agent, case, arm, attempt), which is what makes the
 // artifact key predictable before dispatch and a double-dispatch of the same
 // attempt collapse instead of paying twice. It is deliberately NOT stable
 // across sweeps: the artifact archive is written with IfNoneMatch=*, so a
@@ -233,6 +240,7 @@ export const judgeRunId = (parts: RunIdParts): string => {
   const tail = `${parts.arm}-${parts.attempt}`
   const readable =
     `${JUDGE_RUN_ID_PREFIX}${requireSegment('sweepId', parts.sweepId)}-` +
+    `${requireSegment('agentId', parts.agentId)}-` +
     `${requireSegment('caseId', parts.caseId)}-${tail}`
   if (readable.length <= JUDGE_RUN_ID_MAX_LENGTH) return readable
 
@@ -1103,6 +1111,7 @@ export const runBackgroundCase = async (
   const { digest, override } = judgeConfigKeys(input.agentId, input.config)
   const runId = judgeRunId({
     sweepId: input.sweepId,
+    agentId: input.agentId,
     caseId: input.agentCase.caseId,
     arm: input.arm,
     attempt: input.attempt,
