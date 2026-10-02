@@ -70,6 +70,14 @@ type SectionState = 'persisted' | 'inflight' | 'redispatch' | 'dead' | 'stalled'
 type StrategicLandscapeParams =
   AgentJobContracts['opposition_research']['Input']
 
+// What alignPlanWithStory tells the caller. `lostClaim` means another request
+// won the one-shot story claim and is dispatching for this plan, so this
+// caller must stand down rather than dispatch a second time.
+type StoryAlignment = {
+  plan: CampaignStrategy
+  lostClaim: boolean
+}
+
 type DispatchBase = {
   organizationSlug: string
   clerkUserId: string
@@ -193,12 +201,20 @@ export class CampaignStrategyService extends createPrismaBase(
     // Resolve raceId synchronously so a 400 surfaces to this call rather than
     // a dispatch with no race.
     const brHashId = resolveRaceId(campaign.details)
-    const plan = await this.alignPlanWithStory(
+    const { plan, lostClaim } = await this.alignPlanWithStory(
       await this.alignPlanWithRace(
         await this.upsertForCampaign(campaign.id, brHashId),
         brHashId,
       ),
     )
+
+    // Another request won the story claim and is dispatching for this plan
+    // right now. Joining in would double the Fargate spend and burn two of the
+    // ten lifetime attempt slots per section — a reset row, and an
+    // never-generated one, both look exactly like a row that needs
+    // dispatching, so nothing downstream can tell the difference. Report what
+    // is true: it is generating.
+    if (lostClaim) return { status: 'generating' }
 
     const [opposition, opportunities] = await Promise.all([
       this.runFor(plan.oppositionRunId),
@@ -865,11 +881,11 @@ export class CampaignStrategyService extends createPrismaBase(
   // lifetime Fargate spend per campaign.
   private async alignPlanWithStory(
     plan: CampaignStrategy,
-  ): Promise<CampaignStrategy> {
-    if (plan.generatedWithStory) return plan
+  ): Promise<StoryAlignment> {
+    if (plan.generatedWithStory) return { plan, lostClaim: false }
 
     const { complete } = await this.storyState.read(plan.campaignId)
-    if (!complete) return plan
+    if (!complete) return { plan, lostClaim: false }
 
     // Never generated yet (first visit, or a reset already in flight): there is
     // no stale content to wipe, so just stamp the flag. The dispatch that
@@ -884,11 +900,21 @@ export class CampaignStrategyService extends createPrismaBase(
         where: { id: plan.id, generatedWithStory: false },
         data: { generatedWithStory: true },
       })
-      return count === 0
-        ? this.model.findUniqueOrThrow({ where: { id: plan.id } })
-        : { ...plan, generatedWithStory: true }
+      // The loser yields here too. No content was wiped, but that is not what
+      // is contended: the winner is about to dispatch, and a loser that falls
+      // through dispatches a second pair of runs for the same first
+      // generation, spending two of the ten lifetime slots per section
+      // instead of one.
+      return {
+        plan:
+          count === 0
+            ? await this.model.findUniqueOrThrow({ where: { id: plan.id } })
+            : { ...plan, generatedWithStory: true },
+        lostClaim: count === 0,
+      }
     }
 
+    let claimed = false
     await this.client.$transaction(async (tx) => {
       const { count } = await tx.campaignStrategy.updateMany({
         where: { id: plan.id, generatedWithStory: false },
@@ -907,6 +933,7 @@ export class CampaignStrategyService extends createPrismaBase(
         },
       })
       if (count === 0) return
+      claimed = true
       await tx.campaignStrategyOpportunity.deleteMany({
         where: { campaignStrategyId: plan.id },
       })
@@ -918,7 +945,10 @@ export class CampaignStrategyService extends createPrismaBase(
       })
     })
 
-    return this.model.findUniqueOrThrow({ where: { id: plan.id } })
+    return {
+      plan: await this.model.findUniqueOrThrow({ where: { id: plan.id } }),
+      lostClaim: !claimed,
+    }
   }
 
   // Eager regeneration for the campaign-story write paths, so a candidate who

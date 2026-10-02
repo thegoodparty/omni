@@ -896,6 +896,24 @@ describe('CampaignStrategyService', () => {
       ).not.toHaveBeenCalled()
     })
 
+    // Same contention, different branch: no content to wipe, but the winner is
+    // still dispatching, so a loser that falls through spends a second pair of
+    // attempt slots on the very first generation.
+    it('stands down when it loses the stamp race on a never-generated plan', async () => {
+      completeStory()
+      sectionsReadable()
+      prisma.campaignStrategy.upsert.mockResolvedValue(planRow())
+      prisma.campaignStrategy.updateMany.mockResolvedValue({ count: 0 })
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
+        planRow({ generatedWithStory: true }),
+      )
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res).toEqual({ status: 'generating' })
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    })
+
     it('stamps the flag without a reset when the plan has never generated', async () => {
       completeStory()
       prisma.campaignStrategy.upsert.mockResolvedValue(planRow())
@@ -976,6 +994,31 @@ describe('CampaignStrategyService', () => {
 
       expect(storyState.read).not.toHaveBeenCalled()
       expect(prisma.campaignStrategy.updateMany).not.toHaveBeenCalled()
+    })
+
+    // Losing the claim means another request already wiped the sections and is
+    // dispatching for them. The wiped row looks exactly like one that needs
+    // dispatching, so without the short-circuit this poll would dispatch too —
+    // doubling the Fargate spend and burning two of the ten lifetime slots the
+    // claim exists to protect.
+    it('reports generating and dispatches nothing when it loses the claim', async () => {
+      completeStory()
+      sectionsReadable()
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaignStrategy.updateMany.mockResolvedValue({ count: 0 })
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
+        planRow({ generatedWithStory: true }),
+      )
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res).toEqual({ status: 'generating' })
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     })
 
     // The claim is what stops two concurrent polls (the plan endpoint is
