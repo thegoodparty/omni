@@ -5,6 +5,7 @@ import {
   ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
+  ChatScope,
   Prisma,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
@@ -96,6 +97,10 @@ export interface StreamArgs {
   // Omitted for scopes with no attachment support (e.g. briefing chats),
   // which keeps injection off regardless of any flag's state.
   attachmentsFlag?: string
+  // The caller's chat scope. This service is shared across scopes, so the
+  // AttachedDocumentQueried analytics event needs it to attribute a citation
+  // to the right product (Win vs Serve) instead of always reading Serve.
+  scope?: ChatScope
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -887,7 +892,11 @@ export class ChatStreamService {
               .track(
                 args.ownerUserId,
                 EVENTS.ChiefOfStaff.AttachedDocumentQueried,
-                { documentId: firstAttachmentId, turnIndex },
+                {
+                  documentId: firstAttachmentId,
+                  turnIndex,
+                  ...(args.scope && { scope: args.scope }),
+                },
               )
               .catch((err: unknown) => {
                 this.logger.error(

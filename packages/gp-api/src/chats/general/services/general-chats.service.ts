@@ -319,6 +319,7 @@ export class GeneralChatsService {
         userMessage: args.userMessage,
         models: handler.models,
         traceName: `${handler.scope}-chat-stream`,
+        scope: handler.scope,
         ...(handler.maxSteps && { maxSteps: handler.maxSteps }),
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
