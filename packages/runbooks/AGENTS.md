@@ -80,6 +80,12 @@ A fifth consumer of the same committed sem data is pre-merge, not scheduled:
 to block a PR that drops a call site of an OKR-watched event or leaves a dead `EVENTS` key, run
 by a local hook and the `Analytics guard` CI check on every PR. See `books/monitor-analytics-event-health.md`.
 
+`scripts/python/event_reach.py` (DATA-2531) maps where a webapp event can fire, shared by
+that guard (a `surface_moved` warning) and by the weekly `scripts/python/surface_drift.py`
+detector, which flags an event whose label no longer matches where the code reaches and
+writes `instrumentation_data/surface_drift.json` for the console's surface queue and the
+triage skill's Queue D. See `books/monitor-analytics-event-health.md`.
+
 ## Used by the delegate worker
 
 The `ops/delegate/worker` (in the separate `ops` repo) clones omni at boot via the GitHub App token with a partial + sparse checkout of just this package, and sets `RUNBOOKS_DIR=/app/omni/packages/runbooks` in the agent environment. Updates to `commands/*.md` propagate to the bot on the next agent run with no `ops` redeploy — the clone is fresh each boot. See `ops/delegate/worker/entrypoint.ts` for the clone step and `ops/delegate/README.md` for the operator runbook.

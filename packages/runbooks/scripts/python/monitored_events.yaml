@@ -881,10 +881,15 @@ dismissed:
 #     detector and the guard's surface_moved warning skip these events. Owner: Tristan.
 #   prefix_areas: a prefix the detector cannot match to an area by itself, mapped to the
 #     area slug it means (the nav label, or the page title for a page not in the nav).
+#     This ADDS an area the prefix may match; the prefix still matches by its own name
+#     too, so one prefix can span pages with different area names (Serve Onboarding
+#     maps to onboarding on one page and still matches its own name on another).
 #   relabels: an approved relabel, written in the PR that moves an event (the guard's
 #     surface_moved fix) or by hand. Row: {event, surface, display_name, reason, date}.
-#     Triage applies it to Govern through event-metadata. Rows stay after they are
-#     applied: with git history this list is the record of every relabel.
+#     Add a row directly under the `relabels:` line below, which is mid-file, not at
+#     the end of this file. Triage applies it to Govern through event-metadata. Rows
+#     stay after they are applied: with git history this list is the record of every
+#     relabel.
 flow_prefixes:
   - Pro Upgrade
   - P2P Upgrade

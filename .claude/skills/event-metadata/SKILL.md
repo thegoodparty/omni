@@ -143,9 +143,9 @@ whose surface moved without a rename. The analytics-event explorer files an even
 `surface:` tag when there is one and by the nav-label prefix of its display name
 otherwise, so the tag is what lets a mislabelled event be filed correctly **without**
 renaming it — and stops a rename silently re-filing an event as a side effect. Use the
-nav label, lower-kebab: `surface:campaign-details`, `surface:dashboard`,
-`surface:pro-upgrade`. `product:` says who owns the event; `surface:` says where it
-lives. Neither implies the other.
+nav label, or the page title for a page not in the nav, lower-kebab:
+`surface:campaign-details`, `surface:dashboard`, `surface:pro-upgrade`. `product:` says
+who owns the event; `surface:` says where it lives. Neither implies the other.
 
 ## Procedure
 
@@ -201,6 +201,34 @@ retire are optional transitions on top.
    - **Retired** → confirm the removal; require a one-line reason (block without it);
      stamp `not in use: <today> (<reason>, #PR)`; keep the existing `supersession:`
      lineage.
+
+### Mode: RELABEL
+
+For an event that fires somewhere other than its label says (DATA-2531). Input is one
+row of `instrumentation_data/surface_drift.json` (or a `relabels:` row): the event, the
+proposed `surface:` slug, display name, `fires_on` and `url`.
+
+1. Fetch the event via `get_events` in both projects; parse the `gp-meta` block.
+2. Show the human the proposed display name, `fires_on` and `url`. The display name and
+   the trigger half of `fires_on` are drafts: confirm or edit both. The `surface:` slug
+   is mechanical; change it only if the human says so.
+3. Write, per project:
+   - replace any existing `surface:` tag with the new one; keep every other tag;
+   - set `fires_on:` and `url:` inside the `gp-meta` block (they are mutable);
+   - add one line **outside** the block: `Previously shown as <old display name>.`, so
+     Amplitude's semantic search, which matches descriptions, still finds the event by
+     its old name;
+   - set the display name, only in a project where `get_events` returns the event as
+     ingested. For a never-ingested event a display name lands on the tracking-plan
+     entry instead (2026-08-07, dev): skip it there and say so.
+4. **Refuse** in a relabel: any change to the status line (`in use` / `not in use`) or
+   to `supersession:`. A relabel says where an event fires, never that it was retired or
+   replaced. If either needs changing, stop and run Mode: EXISTING separately.
+5. **Refuse** for an event any semantic-layer metric counts (its explorer row has
+   `okr_metrics`): stop and ask the human, because the metric's definition may name it.
+6. Never change the raw event name. It is immutable and every chart is keyed on it.
+7. Verify as in "Verify", then report the row back to the triage skill so it can mark
+   it `applied`.
 
 ### Preview and confirm
 
