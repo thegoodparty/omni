@@ -925,9 +925,13 @@ remembered on the `hold_failed` row for the retry.
   fresh draft, and once a draft under it is paid the key is spent (409).
   `findByProposalKey` skips `pending_payment`, so an unpaid text reads as
   not sent. Each create (and each replay) calls
-  `PriorityStatusService.recordOutreachSent`, the text from the purchase
-  handler once paid and enqueued, which moves that side of the priority's
-  check to out. Door knocking takes the link on `POST
+  `PriorityStatusService.recordOutreachSentOrLog` after its own commit,
+  which moves that side of the priority's check to out and logs rather than
+  throws, since the send stands either way; the text records from the
+  purchase handler once paid and enqueued, where a throw makes Stripe
+  redeliver. A write that fails is healed by the next replay or by
+  `healSends`, which the priority flow runs before each turn reads the
+  status. Door knocking takes the link on `POST
   /door-knocking/serve/turfs` (`CreateServeDoorKnockingTurfSchema`) and
   writes it on a new campaign's anchor envelope only; a key this org already
   spent on a walk leaves the next walk unlinked. See

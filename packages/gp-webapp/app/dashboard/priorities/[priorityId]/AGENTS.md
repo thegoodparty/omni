@@ -129,9 +129,11 @@ Three more holds, because the model also called the official's own agreement
   it puts out (`stepId`, `side`), and the create that sends it carries them.
   Once the send is real (the phone list built, the post saved, the text paid
   for, the walk drawn) `PriorityStatusService.recordOutreachSent` moves that side to `out`
-  through the same merge, stamping `sentAt` and `sentProposalKey`; a replay
-  of the same proposal records nothing new, and a side constituents already
-  answered keeps its answer. The `<status>` block shows `Sent:`, the
+  through the same merge, stamping `sentAt` and `sentProposalKey`; a side
+  already out on a send keeps it, and a side constituents already answered
+  keeps its answer. A deferred or declined side does move: the send is what
+  happened. A status write that fails after the send committed is logged,
+  and `healSends` puts it out before the next turn reads the status. The `<status>` block shows `Sent:`, the
   proposal tool refuses to offer a sent side again, and the workspace tells
   the agent with one hidden `PROPOSAL_SENT_MARKER` turn (see "Cards" in
   `shared/agent-chat/AGENTS.md`).

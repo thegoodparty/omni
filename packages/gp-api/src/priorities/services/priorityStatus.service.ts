@@ -23,6 +23,7 @@ import {
   type PriorityStepState,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { OutreachStatus } from 'src/generated/prisma'
 import type { LlmStreamTool, LlmTool } from '@/llm/services/llm.service'
 import {
   RecordCheckReminderInputSchema,
@@ -264,8 +265,11 @@ const withSend = (
   send: { proposalKey: string; who: string; now: string },
 ): PriorityStepCheck | undefined => {
   const sideStored = side === 'main' ? stored : stored?.contrast
+  // A side already out on a recorded send keeps that send, so a second send
+  // to it (or a heal replaying an older one) cannot keep re-stamping it.
   if (
     sideStored?.sentProposalKey === send.proposalKey ||
+    (sideStored?.state === 'out' && sideStored.sentAt !== undefined) ||
     (sideStored !== undefined && ANSWERED.includes(sideStored.state))
   ) {
     return stored
@@ -514,6 +518,51 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
       where: { id: outreach.priorityId },
       data: { status },
     })
+  }
+
+  // For callers whose send has already committed: the send stands whatever
+  // happens here, so a failed status write is logged, not thrown. The next
+  // replay of the same proposal, or the priority's next turn (healSends),
+  // records it.
+  async recordOutreachSentOrLog(
+    outreachId: number,
+    proposalKey: string | null,
+  ): Promise<void> {
+    try {
+      await this.recordOutreachSent(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, proposalKey },
+        'Could not put the priority check out for a committed send',
+      )
+    }
+  }
+
+  // Re-records every real send linked to a check on this priority, so a
+  // check whose status write failed after its send committed heals on the
+  // priority's next turn. A send already recorded changes nothing.
+  async healSends(priorityId: string): Promise<void> {
+    const sends = await this.client.outreach.findMany({
+      where: {
+        priorityId,
+        proposalKey: { not: null },
+        priorityStepId: { not: null },
+        status: {
+          notIn: [
+            OutreachStatus.pending_payment,
+            OutreachStatus.draft,
+            OutreachStatus.canceled,
+            OutreachStatus.denied,
+            OutreachStatus.failed,
+          ],
+        },
+      },
+      select: { id: true, proposalKey: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    for (const send of sends) {
+      await this.recordOutreachSentOrLog(send.id, send.proposalKey)
+    }
   }
 
   buildStatusTool(

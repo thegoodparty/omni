@@ -139,7 +139,10 @@ export class OutreachSocialService extends createPrismaBase(
       const existing = await this.replayProposal(proposalKey, serveScope)
       if (existing) {
         // Recorded on a replay too, so a failed status write heals here.
-        await this.priorityStatus.recordOutreachSent(existing.id)
+        await this.priorityStatus.recordOutreachSentOrLog(
+          existing.id,
+          proposalKey,
+        )
         return toOutreachDetail(existing)
       }
     }
@@ -234,7 +237,10 @@ export class OutreachSocialService extends createPrismaBase(
     }
 
     if (proposalKey !== undefined) {
-      await this.priorityStatus.recordOutreachSent(outreach.id)
+      await this.priorityStatus.recordOutreachSentOrLog(
+        outreach.id,
+        proposalKey,
+      )
     }
 
     return toOutreachDetail(outreach)

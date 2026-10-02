@@ -224,8 +224,9 @@ export class DoorKnockingCreateService extends createPrismaBase(
 
   // A chat card's link goes on the anchor envelope only: a campaign is one
   // walk, and a sibling turf joins it. A key this org already spent on a walk
-  // means the check is already out, so a second walk from the same card is
-  // its own campaign and records nothing.
+  // means that walk is the send, so a second walk from the same card is its
+  // own campaign, and the first is recorded again in case its status write
+  // never landed.
   private async anchorLink(
     organizationSlug: string,
     input: CreateDoorKnockingTurf,
@@ -234,7 +235,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     if (input.campaignOutreachId !== undefined || !link.proposalKey) return {}
     const holder = await this.client.outreach.findUnique({
       where: { proposalKey: link.proposalKey },
-      select: { organizationSlug: true, outreachType: true },
+      select: { id: true, organizationSlug: true, outreachType: true },
     })
     if (!holder) return link
     if (
@@ -243,6 +244,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
     ) {
       throw new ConflictException('Proposal key is already in use')
     }
+    await this.priorityStatus.recordOutreachSentOrLog(
+      holder.id,
+      link.proposalKey,
+    )
     return {}
   }
 
@@ -344,7 +349,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
 
     const envelopeLink = await this.anchorLink(organization.slug, input, link)
 
-    const turfId = await this.client.$transaction(
+    const { turfId, outreachId } = await this.client.$transaction(
       async (tx) => {
         // The filter was read before the people-db scan, and a delete can land
         // in that window: `assertNotLocked` only refuses a filter already used
@@ -456,7 +461,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
 
         // The envelope is the walk: it carries the lifecycle and it is what
         // outreach surfaces list.
-        await tx.outreach.create({
+        const envelope = await tx.outreach.create({
           data: {
             ...scope,
             outreachType: OutreachType.nativeDoorKnocking,
@@ -491,9 +496,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
             campaignOutreachId: input.campaignOutreachId ?? null,
             ...envelopeLink,
           },
+          select: { id: true },
         })
 
-        return turf.id
+        return { turfId: turf.id, outreachId: envelope.id }
       },
       { timeout: CREATE_TX_TIMEOUT_MS },
     )
@@ -508,11 +514,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // Drawing the walk is when a door-knocking check is out, the way a phone
     // list being built is for a call.
     if (envelopeLink.proposalKey) {
-      const envelope = await this.client.outreach.findUniqueOrThrow({
-        where: { proposalKey: envelopeLink.proposalKey },
-        select: { id: true },
-      })
-      await this.priorityStatus.recordOutreachSent(envelope.id)
+      await this.priorityStatus.recordOutreachSentOrLog(
+        outreachId,
+        envelopeLink.proposalKey,
+      )
     }
 
     // Read back outside the transaction so the response is built by the one

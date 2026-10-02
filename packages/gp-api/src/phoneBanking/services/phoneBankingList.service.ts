@@ -159,7 +159,10 @@ export class PhoneBankingListService extends createPrismaBase(
     // A replay records it too, so a status write that failed the first time
     // heals on the next completion.
     if (created.outreachId !== null) {
-      await this.priorityStatus.recordOutreachSent(created.outreachId)
+      await this.priorityStatus.recordOutreachSentOrLog(
+        created.outreachId,
+        proposalKey,
+      )
     }
     return created
   }

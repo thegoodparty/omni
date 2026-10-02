@@ -5,11 +5,8 @@ import {
   type Organization,
 } from '../../../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import {
-  ChatAnchorSchema,
-  parsePriorityStatus,
-  type PriorityStatus,
-} from '@goodparty_org/contracts'
+import { ChatAnchorSchema, type PriorityStatus } from '@goodparty_org/contracts'
+import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import {
   PriorityFlowOutreachService,
@@ -41,7 +38,10 @@ export interface PriorityFlowContext {
 export class PriorityFlowContextService extends createPrismaBase(
   MODELS.ChatConversation,
 ) {
-  constructor(private readonly outreach: PriorityFlowOutreachService) {
+  constructor(
+    private readonly outreach: PriorityFlowOutreachService,
+    private readonly priorityStatus: PriorityStatusService,
+  ) {
     super()
   }
 
@@ -75,6 +75,11 @@ export class PriorityFlowContextService extends createPrismaBase(
       conversation.organizationSlug ?? '',
     )
 
+    // A send whose status write failed after it committed is put out now,
+    // before the agent reads the status.
+    await this.priorityStatus.healSends(priority.id)
+    const status = await this.priorityStatus.read(priority.id)
+
     const official = await this.client.user.findUnique({
       where: { id: userId },
       select: { firstName: true },
@@ -94,7 +99,7 @@ export class PriorityFlowContextService extends createPrismaBase(
       title: priority.title,
       description: priority.description,
       source: priority.source,
-      status: parsePriorityStatus(priority.status),
+      status,
       anchorSummaries: await this.outreach.summarizeAnchors(priority.id),
       districtFilters: null,
       constituentToolEnabled: false,
