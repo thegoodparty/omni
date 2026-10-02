@@ -76,9 +76,14 @@ export const restoreSmsSystemRegions = (
   regions: { greeting: string; footer: string; token: string },
 ): string => {
   let text = reply.trim()
-  if (regions.footer && !text.endsWith(`\n\n${regions.footer}`)) {
-    text = text.replace(/\n\n[^\n]*(?:paid for by|reply stop)[^\n]*$/i, '')
-    text = `${text.trimEnd()}\n\n${regions.footer}`
+  if (regions.footer) {
+    // A reply that closes on the exact footer kept it, whatever gap the
+    // model left before it; the gap goes back to the blank line it had.
+    const closes = text.endsWith(regions.footer)
+    const body = closes
+      ? text.slice(0, text.length - regions.footer.length)
+      : text.replace(/\n\n[^\n]*(?:paid for by|reply stop)[^\n]*$/i, '')
+    text = `${body.trimEnd()}\n\n${regions.footer}`
   }
   if (!text.includes(regions.token)) text = `${regions.greeting} ${text}`
   return text

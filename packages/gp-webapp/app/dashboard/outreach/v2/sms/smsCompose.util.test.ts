@@ -309,6 +309,15 @@ describe('restoreSmsSystemRegions', () => {
     expect(restoreSmsSystemRegions(reply, regions)).toBe(reply)
   })
 
+  it('keeps a footer the model closed on after a single line break', () => {
+    expect(
+      restoreSmsSystemRegions(
+        `Hello {first_name}, vote Tuesday.\n${regions.footer}`,
+        regions,
+      ),
+    ).toBe(`Hello {first_name}, vote Tuesday.\n\n${regions.footer}`)
+  })
+
   it('composes the greeting and footer around a body-only reply', () => {
     expect(restoreSmsSystemRegions('Vote Tuesday.', regions)).toBe(
       `Hello {first_name}, Vote Tuesday.\n\n${regions.footer}`,
