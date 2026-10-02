@@ -158,6 +158,7 @@ const WIN_AREAS: ProductArea[] = [
       'Door knocking opens its own page rather than a flow here',
       'Each channel starts by asking who to reach, which reads from your saved lists',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, and the draft writes them in',
+      'While building any channel, and on the phone banking call page, one line under the header links the community training that fits the goal picked: the messaging webinar for introductions and persuasion, the GOTV course for turnout, the Voter Contact course otherwise',
       'A text or robocall can be written and saved before upgrading to Pro: build it, save it, and finish it once you can send',
       'A saved one waits in the outreach history, labeled with what it still needs — Pro needed, Verification needed, Verification in review, PIN needed, or Ready to schedule',
       'Click that row to reopen the flow and pick up where you left off, or delete it from there',

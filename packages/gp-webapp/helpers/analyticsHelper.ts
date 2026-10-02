@@ -664,6 +664,14 @@ export const EVENTS = {
       StepViewed: 'Voter Outreach - Flow Step Viewed',
       StepCompleted: 'Voter Outreach - Flow Step Completed',
     },
+    // The one community training linked from a channel flow's header and
+    // from the phone banking call page (v2/communityResources.ts). Carries
+    // `channel`, `medium`, `purpose`, `resource` (which training) and
+    // `surface` (`flow` | `caller`), so "which training gets opened from
+    // where" is one chart rather than one event per training.
+    CommunityResource: {
+      Opened: 'Outreach - Community Resource Opened',
+    },
   },
   CandidateWebsite: {
     Started: 'Candidate Website - Started',

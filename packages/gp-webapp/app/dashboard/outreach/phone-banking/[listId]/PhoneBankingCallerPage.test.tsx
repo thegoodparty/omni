@@ -269,6 +269,44 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(link).toHaveAttribute('href', '/dashboard/constituent-outreach')
   })
 
+  it('links the community training that fits the list purpose in the header', async () => {
+    mockGetList({ ...buildList(), purpose: 'election_day_turnout' })
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+
+    expect(
+      screen.getByText(
+        /Get ready for GOTV with a step-by-step turnout strategy\./,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open course' })).toHaveAttribute(
+      'href',
+      'https://goodpartyorg.circle.so/c/win/sections/980444/lessons/3719939',
+    )
+  })
+
+  it('shows no community training to a Serve list or a volunteer', async () => {
+    mockGetList({ ...buildList(), isServe: true })
+    const { unmount } = render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+    expect(screen.queryByRole('link', { name: /^Open / })).toBeNull()
+    unmount()
+
+    mockGetList(buildList())
+    render(
+      <PhoneBankingCallerPage
+        listId={LIST_ID}
+        surface={{
+          exitHref: '/volunteer/phone-banking',
+          exitLabel: 'Assignments',
+          showDeleteAction: false,
+        }}
+      />,
+    )
+    await screen.findByText('August GOTV')
+    expect(screen.queryByRole('link', { name: /^Open / })).toBeNull()
+  })
+
   it('an answered save carries the active tab personId, and switching tabs shows a different logged record', async () => {
     const user = userEvent.setup()
     mockGetList(buildList())

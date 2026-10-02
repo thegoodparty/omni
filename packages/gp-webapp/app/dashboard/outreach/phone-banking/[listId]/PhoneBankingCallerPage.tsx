@@ -49,6 +49,7 @@ import {
   outreachProduct,
 } from '../../util/outreachAnalytics'
 import { outreachDetailQueryPrefix } from '../../v2/useOutreachDetail'
+import { CommunityResourceLink } from '../../v2/CommunityResourceLink'
 import PhoneBankingEntryPanel from './PhoneBankingEntryPanel'
 import {
   NOT_CALLED_LABEL,
@@ -263,7 +264,7 @@ export default function PhoneBankingCallerPage({
           surface ? 'h-[calc(100dvh-3.5rem)]' : 'h-[calc(100dvh-4rem)]',
         )}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <IconButton
               asChild
@@ -284,6 +285,19 @@ export default function PhoneBankingCallerPage({
               {list?.name ?? 'Phone banking'}
             </h1>
           </div>
+          {/* The community training for this list's purpose. Candidates
+              only: the trainings live in the Win community, and a
+              volunteer (`surface`) calling on someone else's behalf is not
+              who they are for. Sits between the title and the actions on
+              desktop; wraps onto its own row under them on a phone. */}
+          {list && !isServe && !surface && (
+            <CommunityResourceLink
+              channel="phone-bank"
+              purpose={list.purpose}
+              surface="caller"
+              className="order-3 basis-full lg:order-none lg:min-w-0 lg:flex-1 lg:basis-auto lg:px-4 lg:text-right"
+            />
+          )}
           <div className="flex shrink-0 items-center gap-1">
             {selectedSheet === null ? (
               <Button

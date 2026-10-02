@@ -22,6 +22,7 @@ import { useOutreachGate } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 import { useLockedAtOpen } from 'app/dashboard/outreach/v2/gate/useLockedAtOpen'
 import { useTeamOptions } from '../useTeamOptions'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
+import { CommunityResourceLink } from 'app/dashboard/outreach/v2/CommunityResourceLink'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
 import type { OutreachEventDetails } from '@goodparty_org/contracts'
 import { EventDetailsStep } from 'app/dashboard/outreach/v2/EventDetailsStep'
@@ -1544,6 +1545,15 @@ export default function CreateListFlow({
           type="nativeDoorKnocking"
           locked={gate.requirement !== null && !gateOpen}
         />
+      }
+      headerNote={
+        serveMode || gateOpen ? undefined : (
+          <CommunityResourceLink
+            channel="door"
+            purpose={purpose}
+            surface="flow"
+          />
+        )
       }
       currentStep={currentStep}
       totalSteps={totalSteps}
