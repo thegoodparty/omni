@@ -187,7 +187,7 @@ export const RobocallFlow = ({
   const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
   const [user] = useUser()
   // Who the disclosure says paid for the call: the recorded committee, or,
-  // until verification records one, the candidate and office, as on SMS.
+  // until verification records one, the candidate's name, as on SMS.
   // The candidate's name is the campaign owner's, then the compliance
   // record's, then the signed-in user's, so the line always has a sponsor:
   // a script with no disclosure cannot pass the recording check, and "the
@@ -198,11 +198,7 @@ export const RobocallFlow = ({
     gate.tcrCompliance?.candidateName ||
     `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
   const sponsor =
-    gate.tcrCompliance?.committeeName ??
-    provisionalCommitteeName(
-      sponsorName,
-      campaign?.positionName || campaign?.details?.normalizedOffice || '',
-    )
+    gate.tcrCompliance?.committeeName ?? provisionalCommitteeName(sponsorName)
 
   // Every saved-draft and gate concern — the row, the resume switch, the
   // gate/explainer visibility, and the origin that says what finishing the

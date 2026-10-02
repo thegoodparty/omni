@@ -720,6 +720,31 @@ describe('SmsFlow', () => {
       await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
     })
 
+    // The polish endpoint takes a message within the 1000-character limit,
+    // so over it neither the AI button nor a tone pill sends one; the note
+    // says to shorten it instead.
+    it('sends no polish for a message over the length limit', async () => {
+      const calls = mockDraftAndImprove()
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ` ${'Vote early. '.repeat(80)}`,
+        )
+      })
+
+      expect(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      ).toBeDisabled()
+      expect(
+        screen.getByText(/Keep the whole message .* under 1000 characters/),
+      ).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
+      expect(screen.getByRole('radio', { name: /Direct/ })).toBeChecked()
+      expect(calls).toHaveLength(1)
+    })
+
     it('polishes edited words in a new tone rather than replacing them', async () => {
       const calls = mockDraftAndImprove()
       const { editor } = await reachCompose()
@@ -1600,7 +1625,7 @@ describe('SmsFlow', () => {
 
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/Paid for by \S+ \S+ for City Council\. Reply STOP/)
+      ).toHaveTextContent(/Paid for by Jane Doe\. Reply STOP/)
       expect(
         screen.queryByText(/keep the "Paid for by" line/),
       ).not.toBeInTheDocument()

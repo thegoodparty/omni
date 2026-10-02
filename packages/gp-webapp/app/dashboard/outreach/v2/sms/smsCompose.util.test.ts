@@ -158,15 +158,12 @@ describe('upgradeScriptFooter', () => {
 })
 
 describe('provisionalCommitteeName', () => {
-  it('names the candidate and the office sought', () => {
-    expect(provisionalCommitteeName('Sarah Chen', 'City Council')).toBe(
-      'Sarah Chen for City Council',
-    )
+  it('names the candidate alone, with no office', () => {
+    expect(provisionalCommitteeName(' Sarah Chen ')).toBe('Sarah Chen')
   })
 
-  it('falls back to the name alone, and to nothing without one', () => {
-    expect(provisionalCommitteeName('Sarah Chen', '')).toBe('Sarah Chen')
-    expect(provisionalCommitteeName('  ', 'City Council')).toBeNull()
+  it('is nothing without a name', () => {
+    expect(provisionalCommitteeName('  ')).toBeNull()
   })
 })
 
@@ -345,9 +342,23 @@ describe('restoreSmsSystemRegions', () => {
   it('replaces a closing paragraph that is a rewritten footer', () => {
     expect(
       restoreSmsSystemRegions(
-        'Hello {first_name}, vote Tuesday.\n\nText STOP to unsubscribe, reply stop.',
+        'Hello {first_name}, vote Tuesday.\n\nReply STOP to unsubscribe.',
         regions,
       ),
     ).toBe(`Hello {first_name}, vote Tuesday.\n\n${regions.footer}`)
+  })
+
+  // A last paragraph that only mentions the footer's words is the
+  // candidate's, and stays.
+  it('keeps a closing paragraph that only mentions paid for by', () => {
+    expect(
+      restoreSmsSystemRegions(
+        'Hello {first_name}, vote Tuesday.\n\nOur event was paid for by the community.',
+        regions,
+      ),
+    ).toBe(
+      'Hello {first_name}, vote Tuesday.\n\nOur event was paid for by the community.' +
+        `\n\n${regions.footer}`,
+    )
   })
 })

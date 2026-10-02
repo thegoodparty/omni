@@ -234,6 +234,28 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.data).toEqual({ draft: script })
   })
 
+  // Cutting a long reply to fit would take the closing disclosure off, so a
+  // polish over the limit is refused rather than truncated.
+  it('refuses an Improve reply over the script limit rather than cutting it', async () => {
+    jsonCompletion.mockImplementation(
+      ({ messages }: { messages: { role: string; content: string }[] }) => {
+        const user = messages.find((m) => m.role === 'user')?.content ?? ''
+        const masked = user.split('"""')[1]?.trim() ?? ''
+        return Promise.resolve({
+          object: { draft: `${'Vote early. '.repeat(170)}${masked}` },
+        })
+      },
+    )
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'Hi, vote Tuesday.\n\nPaid for by Jane Doe, 202-555-0147.',
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+  })
+
   it('refuses an Improve reply that drops the disclosure', async () => {
     mockDraft('Hi, this is Jane. Vote Tuesday.')
 

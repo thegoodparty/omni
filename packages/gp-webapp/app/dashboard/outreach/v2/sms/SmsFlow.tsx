@@ -825,10 +825,7 @@ export const SmsFlow = ({
   // swapped for the real committee the moment one exists.
   const provisionalCommittee = surface.isServe
     ? null
-    : provisionalCommitteeName(
-        candidateFullName,
-        campaign?.positionName || campaign?.details?.normalizedOffice || '',
-      )
+    : provisionalCommitteeName(candidateFullName)
   const footerCommittee = committeeName ?? provisionalCommittee
   const upgradeFooter = (script: string) =>
     upgradeScriptFooter(script, footerCommittee)
@@ -1005,6 +1002,15 @@ export const SmsFlow = ({
   ) => {
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
+    // The polish endpoint takes a message within the limit. Every path to it
+    // (the AI button, a tone pill, Try again) stops here when it is over, and
+    // the over-limit note already says to shorten it.
+    if (
+      currentDraft !== undefined &&
+      currentDraft.length > SMS_COMPOSED_MAX_LENGTH
+    ) {
+      return
+    }
     const requestId = ++draftRequestRef.current
     const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draftMutation.mutate(

@@ -373,7 +373,9 @@ export const SmsComposeStep = ({
                 variant="ghost"
                 size="small"
                 className="text-muted-foreground"
-                disabled={isDrafting}
+                // The polish endpoint takes a message within the limit; over
+                // it, the note below says to shorten it first.
+                disabled={isDrafting || (isImprove && overLimit)}
                 onClick={onAiAction}
               >
                 {isDrafting ? (

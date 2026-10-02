@@ -24,7 +24,7 @@ const baseProps = {
   onToneChange: vi.fn(),
   script:
     'This is Sarah, running for City Council.\n\n' +
-    'Paid for by Sarah Chen for City Council, 512-555-0123.',
+    'Paid for by Sarah Chen, 512-555-0123.',
   onScriptChange: vi.fn(),
   protectedParts: [],
   hasWrittenBody: true,

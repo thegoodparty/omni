@@ -68,9 +68,9 @@ export const upgradeScriptFooter = (
 // comes back unchanged; one that does not is from a gp-api that predates
 // masking (a deploy where the webapp lands first), and must never reach a
 // send without them. Judged by structure, not phrases: only a separate
-// closing paragraph that reads as a footer is replaced, so a body sentence
-// that says "reply STOP" stays, and a reworded greeting that kept the token
-// is the candidate's to keep.
+// closing paragraph that opens like a footer is replaced, so a body sentence
+// or paragraph that says "reply STOP" stays, and a reworded greeting that
+// kept the token is the candidate's to keep.
 export const restoreSmsSystemRegions = (
   reply: string,
   regions: { greeting: string; footer: string; token: string },
@@ -82,7 +82,9 @@ export const restoreSmsSystemRegions = (
     const closes = text.endsWith(regions.footer)
     const body = closes
       ? text.slice(0, text.length - regions.footer.length)
-      : text.replace(/\n\n[^\n]*(?:paid for by|reply stop)[^\n]*$/i, '')
+      : // Only a closing paragraph that opens the way a footer does: one that
+        // merely mentions "paid for by" or "reply STOP" is the candidate's.
+        text.replace(/\n\n(?:Paid for by |Reply STOP\b)[^\n]*$/, '')
     text = `${body.trimEnd()}\n\n${regions.footer}`
   }
   if (!text.includes(regions.token)) text = `${regions.greeting} ${text}`
@@ -92,16 +94,12 @@ export const restoreSmsSystemRegions = (
 // The committee a campaign names before verification has recorded the real
 // one, so the message always shows its "Paid for by" line. Never sent: a
 // campaign cannot schedule a text until it is verified, and verification
-// records the committee, which upgradeScriptFooter then swaps in. The same
-// fallback the robocall disclosure uses (docs/features/message-composer.md).
+// records the committee, which upgradeScriptFooter then swaps in. The name
+// alone, with no office: an office reads badly in a disclaimer ("Palm Bay
+// City Council - Seat 5"). The same fallback the robocall disclosure uses.
 export const provisionalCommitteeName = (
   candidateName: string,
-  office: string,
-): string | null => {
-  const name = candidateName.trim()
-  if (!name) return null
-  return office.trim() ? `${name} for ${office.trim()}` : name
-}
+): string | null => candidateName.trim() || null
 
 // Peerly merges {first_name} from the uploaded list CSV — the same token our
 // own 10DLC identity registration samples use ("Hello {first_name}, this is

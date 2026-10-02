@@ -422,6 +422,13 @@ export class OutreachSmsGenerationService {
         this.logger.warn({ attempt }, 'SMS improve dropped a locked part')
         continue
       }
+      // The markers are shorter than the text they hold, so a reply within
+      // the limit can come back over it once restored; the response schema
+      // would then fail the request with no message to show.
+      if (restored.length > SMS_COMPOSED_MAX_LENGTH) {
+        this.logger.warn({ attempt }, 'SMS improve came back over the limit')
+        continue
+      }
       const newlyFailing = standards(restored).filter(
         (rule) => !failingBefore.has(rule),
       )

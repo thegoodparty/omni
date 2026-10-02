@@ -30,8 +30,8 @@ const scriptText = () => scriptEditor().getText({ blockSeparator: '\n' })
 // wiring is what's under test, so the hook is driven directly through the
 // shared reactive stand-in (see mockReactiveGate for why it is a module
 // singleton rather than a hoisted ref).
-// The disclosure names the candidate and office until a committee is
-// recorded, so the campaign carries both. No state: the schedule cases read
+// The disclosure names the candidate until a committee is recorded, so
+// the campaign carries a name. No state: the schedule cases read
 // the time zone off its absence.
 const campaignMock = {
   ownerName: 'Sarah Chen',
@@ -1227,7 +1227,7 @@ describe('RobocallFlow', () => {
     await gotoComposeRaw()
     await waitFor(() =>
       expect(scriptText()).toMatch(
-        /\n\nPaid for by \S.* for City Council, 202-555-0147\.$/,
+        /\n\nPaid for by Sarah Chen, 202-555-0147\.$/,
       ),
     )
   })
@@ -1275,7 +1275,7 @@ describe('RobocallFlow', () => {
     ],
     [
       'quotes the line mid-script but dropped the close',
-      'I always say "Paid for by Sarah Chen for City Council, 202-555-0147." Vote early.',
+      'I always say "Paid for by Sarah Chen, 202-555-0147." Vote early.',
     ],
   ])(
     'keeps a polish that %s and closes it on the line',
@@ -1300,7 +1300,7 @@ describe('RobocallFlow', () => {
 
       await waitFor(() =>
         expect(scriptText()).toBe(
-          `${polished}\n\nPaid for by Sarah Chen for City Council, 202-555-0147.`,
+          `${polished}\n\nPaid for by Sarah Chen, 202-555-0147.`,
         ),
       )
     },

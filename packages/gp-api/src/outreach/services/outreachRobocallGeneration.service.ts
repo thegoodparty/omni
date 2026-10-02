@@ -283,12 +283,16 @@ export class OutreachRobocallGenerationService {
         throw new BadGatewayException('Robocall script generation failed')
       }
       const restored = restoreProtectedParts(reply, locked)
-      if (restored !== null) {
-        return restored.slice(0, ROBOCALL_SCRIPT_MAX_LENGTH)
+      // Never cut a long reply to fit: the disclosure is the script's last
+      // line, so truncation would take it off. Over the limit is a miss.
+      if (restored !== null && restored.length <= ROBOCALL_SCRIPT_MAX_LENGTH) {
+        return restored
       }
       this.logger.warn(
         { attempt },
-        'Robocall improve reply changed a locked part; retrying',
+        restored === null
+          ? 'Robocall improve reply changed a locked part; retrying'
+          : 'Robocall improve reply came back over the limit; retrying',
       )
     }
     throw new BadGatewayException('Robocall script generation failed')

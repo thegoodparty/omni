@@ -288,6 +288,18 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
     )
   })
 
+  // The markers are shorter than what they hold, so a reply within the
+  // limit can come back over it once restored. That is a miss to retry, not
+  // a reply the response schema would then reject.
+  it('treats a polish that restores past the length limit as a miss', async () => {
+    const { service, jsonCompletion } = replyWith(
+      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}\n\n⟦3⟧ ⟦4⟧`,
+      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}\n\n⟦3⟧ ⟦4⟧`,
+    )
+    await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
+    expect(jsonCompletion).toHaveBeenCalledTimes(2)
+  })
+
   it('refuses to polish without the message protection', async () => {
     const { service } = buildService()
     await expect(
