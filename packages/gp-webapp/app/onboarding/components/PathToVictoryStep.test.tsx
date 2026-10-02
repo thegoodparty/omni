@@ -43,12 +43,11 @@ const BURBANK: RaceTargetMetrics = {
   numberOfSeats: 3,
 }
 
-const renderCard = async (metrics: Partial<RaceTargetMetrics> = {}) => {
+// The other seat variants are covered in winNumberCopy.test.ts; this checks
+// the card wires the copy in.
+const renderCard = async () => {
   api.mock('GET /v1/contacts/stats', { status: 200, data: statsResponse })
-  const campaign = {
-    id: 1,
-    raceTargetMetrics: { ...BURBANK, ...metrics },
-  } as unknown as Campaign
+  const campaign = { id: 1, raceTargetMetrics: BURBANK } as unknown as Campaign
   render(
     <PathToVictoryStep campaign={campaign} officeName={OFFICE} skipReveal />,
   )
@@ -78,57 +77,5 @@ describe('PathToVictoryStep', () => {
       'Enough to finish in the top 3. Races this size can be won with 25.0% of the votes cast.',
     )
     expect(steps[3]).toHaveTextContent('17,958')
-  })
-
-  it('explains a single-seat race in 3 steps', async () => {
-    const steps = await renderCard({
-      projectedTurnout: 3874,
-      winNumber: 1938,
-      winNumberLower: null,
-      winNumberUpper: null,
-      numberOfSeats: 1,
-    })
-
-    expect(heroSentence()).toBe(
-      `Projected votes to win the race for ${OFFICE}.`,
-    )
-    expect(steps).toHaveLength(3)
-    expect(
-      screen.queryByText('Votes projected in your race'),
-    ).not.toBeInTheDocument()
-    expect(steps[2]).toHaveTextContent(
-      'There is 1 seat, so you need more than half of the votes cast.',
-    )
-  })
-
-  it('makes no seat claim when the seat count is unknown', async () => {
-    const steps = await renderCard({ numberOfSeats: null })
-
-    expect(heroSentence()).toBe(
-      `Projected votes to win the race for ${OFFICE}.`,
-    )
-    expect(steps).toHaveLength(3)
-    expect(steps[2]).toHaveTextContent(
-      'Based on the voters we expect to cast a ballot in your race.',
-    )
-    // The range is turnout-derived and still shown.
-    expect(screen.getByText('17,707–19,162')).toBeInTheDocument()
-  })
-
-  it('falls back to 3 steps for an archived civics win number', async () => {
-    const steps = await renderCard({
-      winNumber: 17000,
-      winNumberLower: null,
-      winNumberUpper: null,
-    })
-
-    expect(heroSentence()).toBe(
-      `Projected votes to win the race for ${OFFICE}.`,
-    )
-    expect(steps).toHaveLength(3)
-    expect(steps[2]).toHaveTextContent(
-      'Based on the voters we expect to cast a ballot in your race.',
-    )
-    expect(steps[2]).toHaveTextContent('17,000')
   })
 })

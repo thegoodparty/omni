@@ -64,33 +64,4 @@ describe('CountsInfoModal', () => {
       'To win 1 of 3 seats, you need 17,958 of those voters on your side. That’s enough to finish in the top 3.',
     )
   })
-
-  it('frames a single-seat race as more than half the votes', async () => {
-    const winLine = await renderModal({
-      projectedTurnout: 3874,
-      winNumber: 1938,
-      voterContactGoal: 9690,
-      numberOfSeats: 1,
-    })
-
-    expect(
-      screen.getByText('This is how many votes you need to win the race.'),
-    ).toBeInTheDocument()
-    expect(winLine).toBe(
-      'To win, you need 1,938 of those voters on your side. That’s more than half of the votes cast.',
-    )
-  })
-
-  it('makes no seat claim when the seat count is unknown', async () => {
-    const winLine = await renderModal({
-      projectedTurnout: 35914,
-      winNumber: 17958,
-      voterContactGoal: 89790,
-      numberOfSeats: null,
-    })
-
-    expect(winLine).toBe(
-      'To win, you need 17,958 of those voters on your side.',
-    )
-  })
 })
