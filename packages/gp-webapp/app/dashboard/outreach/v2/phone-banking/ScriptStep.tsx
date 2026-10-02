@@ -2,11 +2,13 @@
 
 import type { ReactNode } from 'react'
 import {
+  CONSTITUENT_NAME_TOKEN,
   PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH,
   PHONE_BANKING_NAME_MAX_LENGTH,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
   SOCIAL_TONE_VALUES,
   type SocialTone,
+  VOTER_NAME_TOKEN,
 } from '@goodparty_org/contracts'
 import {
   Button,
@@ -17,7 +19,8 @@ import {
   IconButton,
   Input,
   Label,
-  Textarea,
+  TokenField,
+  type TokenSpec,
 } from '@styleguide'
 import {
   ClockIcon,
@@ -37,6 +40,18 @@ const INSTRUCTIONS_PLACEHOLDER =
   'Optional: tell the AI what to change (e.g. mention the school levy, ' +
   'keep it under a minute)'
 
+// The contact's name, which the caller page fills in for each call. A pill,
+// because what the volunteer reads differs from what the script holds. Keyed
+// by surface: an elected official's script never says "voter".
+const CONTACT_NAME_TOKEN: Record<'win' | 'serve', TokenSpec> = {
+  win: { id: 'contact_name', label: 'Voter name', text: VOTER_NAME_TOKEN },
+  serve: {
+    id: 'contact_name',
+    label: 'Constituent name',
+    text: CONSTITUENT_NAME_TOKEN,
+  },
+}
+
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
   direct: 'Direct',
@@ -52,6 +67,7 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 }
 
 interface ScriptStepProps {
+  isServe: boolean
   name: string
   onNameChange: (name: string) => void
   audienceLabel: string
@@ -70,6 +86,7 @@ interface ScriptStepProps {
 }
 
 export const ScriptStep = ({
+  isServe,
   name,
   onNameChange,
   audienceLabel,
@@ -178,9 +195,10 @@ export const ScriptStep = ({
         )}
 
         <Card className="gap-3 p-4">
-          <Textarea
+          <TokenField
             value={script}
-            onChange={(e) => onScriptChange(e.target.value)}
+            onChange={onScriptChange}
+            tokens={[CONTACT_NAME_TOKEN[isServe ? 'serve' : 'win']]}
             // Read-only until the first draft lands, so nothing typed is
             // overwritten by it.
             readOnly={isDrafting && !script.trim()}
@@ -192,11 +210,11 @@ export const ScriptStep = ({
             aria-label="Call script"
             // Matches the draft/improve endpoint's currentDraft cap (2000),
             // not the higher create-endpoint script cap (5000) — Improve
-            // with AI sends the full text as currentDraft, so the textarea
+            // with AI sends the full text as currentDraft, so the field
             // must never accept more than that endpoint allows.
             maxLength={PHONE_BANKING_SCRIPT_MAX_LENGTH}
             variant="seamless"
-            className="min-h-[140px] resize-none [field-sizing:content]"
+            className="min-h-[140px]"
           />
           <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
             {canImprove && (

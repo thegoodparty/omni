@@ -206,4 +206,33 @@ describe('TokenField', () => {
     expect(box).toHaveAttribute('aria-invalid', 'true')
     expect(box).toHaveAttribute('contenteditable', 'false')
   })
+
+  // As a textarea's maxlength: nothing grows past it, a cut always lands.
+  it('refuses an edit past maxLength and allows one that shortens', async () => {
+    const { editor, onChange } = await mount({
+      value: 'Hi there.',
+      tokens: [],
+      protectedRanges: [],
+      maxLength: 12,
+    })
+    act(() => {
+      editor.commands.insertContentAt(positionOf(editor, '.'), ' you all')
+    })
+    expect(editor.getText()).toBe('Hi there.')
+    expect(onChange).not.toHaveBeenCalled()
+
+    act(() => {
+      editor.commands.insertContentAt(positionOf(editor, '.'), ' yo')
+    })
+    expect(editor.getText()).toBe('Hi there yo.')
+    act(() => {
+      editor.commands.insertContentAt(positionOf(editor, '.'), '!')
+    })
+    expect(editor.getText()).toBe('Hi there yo.')
+    act(() => {
+      const at = positionOf(editor, ' yo')
+      editor.view.dispatch(editor.state.tr.delete(at, at + 3))
+    })
+    expect(editor.getText()).toBe('Hi there.')
+  })
 })

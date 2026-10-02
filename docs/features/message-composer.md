@@ -1,9 +1,11 @@
 # Message composer and outreach disclaimers
 
 Owner: Justin. Status: waves 0 and 1 built (`Textarea` seamless variant;
-`TokenField`, `TokenPill` and `MERGE_TAGS`, with no call sites yet), plus
-the SMS span derivation wave 2 plugs into (`deriveSmsProtectedParts`).
-Robocall spans and everything user-visible past wave 0 are not built.
+`TokenField`, `TokenPill` and `MERGE_TAGS`), the SMS span derivation
+(`deriveSmsProtectedParts`), and in #2353 every compose field moved onto
+`TokenField`: SMS with its locked greeting, disclaimer and opt-out, and
+phone banking (a contact-name pill), social and door knocking with no locks.
+Robocall's locked disclosure is the one compose field still to move.
 
 A plan for two things that turn out to be one thing: editable-but-protected
 disclaimers in the SMS and robocall flows, and a reusable composer to hold them.
@@ -489,7 +491,7 @@ Same shape as SMS, with the model out of the loop.
 | 2a   | SMS compose onto `TokenField`, server-side masked Improve, one AI action          | SMS footer becomes editable-with-locked-atoms                   |
 | 2b   | `MessageComposer` shell extracted across the four composers                       | None beyond 2a                                                  |
 | 3    | Robocall: deterministic disclosure, prompt change, locked atom, custom path fixed | Custom scripts stop failing after the recording                 |
-| 4    | Social, phone banking, door-knocking talking points onto the shell                | Consistent toolbar and counter                                  |
+| 4    | Social, phone banking, door-knocking talking points onto `TokenField`             | One field everywhere; phone banking's contact name is a pill    |
 | 5    | Optional: chat composers, polls                                                   |                                                                 |
 
 Wave 0 stands alone and is worth landing regardless of the rest.

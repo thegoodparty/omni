@@ -9,7 +9,7 @@ import {
   FilterPill,
   FilterPillGroup,
   IconButton,
-  Textarea,
+  TokenField,
 } from '@styleguide'
 import {
   ClockIcon,
@@ -144,9 +144,9 @@ export const ComposeStep = ({
         )}
 
         <Card className="gap-3 p-4">
-          <Textarea
+          <TokenField
             value={draft}
-            onChange={(e) => onDraftChange(e.target.value)}
+            onChange={onDraftChange}
             // Read-only until the first draft lands, so nothing typed is
             // overwritten by it.
             readOnly={isDrafting && !draft.trim()}
@@ -158,7 +158,7 @@ export const ComposeStep = ({
             aria-label="Draft message"
             maxLength={2000}
             variant="seamless"
-            className="min-h-[140px] resize-none [field-sizing:content]"
+            className="min-h-[140px]"
           />
           <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
             {canUndo && (

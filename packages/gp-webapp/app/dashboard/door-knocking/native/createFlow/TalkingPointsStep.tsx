@@ -4,7 +4,7 @@ import {
   DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
   DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
 } from '@goodparty_org/contracts'
-import { Button, Card, cn, IconButton, Input, Textarea } from '@styleguide'
+import { Button, Card, cn, IconButton, Input, TokenField } from '@styleguide'
 import {
   Loader2Icon,
   MicIcon,
@@ -214,16 +214,18 @@ export const TalkingPointsStep = ({
 
         {SECTIONS.map(({ key, label, caption, placeholder }) => (
           <div key={key} className="space-y-1">
-            <label
-              htmlFor={`talking-points-${key}`}
+            {/* Names the field by id: a label's `for` reaches only form
+                controls, and the field is an editable region. */}
+            <p
+              id={`talking-points-${key}-label`}
               className="text-sm font-medium text-foreground"
             >
               {label}
-            </label>
-            <Textarea
-              id={`talking-points-${key}`}
+            </p>
+            <TokenField
+              aria-labelledby={`talking-points-${key}-label`}
               value={lines[key]}
-              onChange={(e) => onLineChange(key, e.target.value)}
+              onChange={(next) => onLineChange(key, next)}
               // Read-only until the first draft lands, so nothing typed is
               // overwritten by it.
               readOnly={isDrafting && nothingDrafted}
@@ -234,7 +236,7 @@ export const TalkingPointsStep = ({
               // these back as currentDraft, so the box must never accept
               // more than that endpoint allows.
               maxLength={DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH}
-              className="min-h-0 resize-none [field-sizing:content]"
+              className="min-h-0"
             />
             <p className="text-xs text-muted-foreground">{caption}</p>
           </div>

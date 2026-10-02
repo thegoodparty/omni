@@ -34,6 +34,9 @@ interface TokenFieldProps {
   // reader, and colour alone carrying meaning fails WCAG 1.4.1.
   onBlockedEdit?: (target: TokenSpec | ProtectedSpec) => void
   placeholder?: string
+  // As a textarea's: the most characters the value may hold, tokens counted
+  // as their text.
+  maxLength?: number
   readOnly?: boolean
   // As `Textarea`'s: `seamless` for a field that is the content of a card.
   variant?: 'default' | 'seamless'
@@ -73,6 +76,7 @@ function TokenField({
   protectedRanges = [],
   onBlockedEdit,
   placeholder,
+  maxLength,
   readOnly = false,
   variant = 'default',
   className,
@@ -90,8 +94,15 @@ function TokenField({
     onBlockedEdit,
     tokens,
     protectedRanges,
+    maxLength,
   })
-  latest.current = { onChange, onBlockedEdit, tokens, protectedRanges }
+  latest.current = {
+    onChange,
+    onBlockedEdit,
+    tokens,
+    protectedRanges,
+    maxLength,
+  }
   // What the field last reported. A `value` equal to it is the field's own
   // edit coming back round, not a new message to load.
   const emitted = React.useRef(value)
@@ -191,7 +202,10 @@ function TokenField({
     // mismatch.
     immediatelyRender: false,
     editable: !readOnly,
-    extensions: tokenFieldExtensions({ onBlocked }),
+    extensions: tokenFieldExtensions({
+      onBlocked,
+      maxLength: () => latest.current.maxLength,
+    }),
     content: valueToContent(value, tokens, protectedRanges),
     editorProps: { attributes },
     onUpdate: ({ editor: current }) => {
