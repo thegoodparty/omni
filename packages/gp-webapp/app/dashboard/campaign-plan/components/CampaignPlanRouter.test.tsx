@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { formatInTimeZone } from 'date-fns-tz'
 import { render } from 'helpers/test-utils/render'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -12,13 +11,6 @@ vi.mock('@shared/hooks/useCampaign', () => ({
 }))
 vi.mock('./CampaignPlanPage', () => ({
   default: () => <div data-testid="plan-page" />,
-}))
-vi.mock('./CampaignPlanGenerateGate', () => ({
-  default: ({ onGenerate }: { onGenerate: () => void }) => (
-    <button type="button" onClick={onGenerate}>
-      generate
-    </button>
-  ),
 }))
 vi.mock('../../shared/DashboardLayout', () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -35,38 +27,36 @@ const setElectionDate = (
 }
 
 const planPage = () => screen.queryByTestId('plan-page')
-const generateButton = () => screen.queryByRole('button', { name: 'generate' })
 const electionPassedGate = () =>
   screen.queryByRole('heading', { name: /election date has passed/i })
 
 describe('CampaignPlanRouter', () => {
   beforeEach(() => {
-    sessionStorage.clear()
     setElectionDate('2099-11-03')
   })
 
-  it('routes a campaign whose election has passed to the update-your-race gate, even with a plan', () => {
-    setElectionDate('2024-11-05')
-    render(<CampaignPlanRouter initialUser={null} planExists />)
-    expect(electionPassedGate()).toBeInTheDocument()
-    expect(planPage()).not.toBeInTheDocument()
-    expect(generateButton()).not.toBeInTheDocument()
+  // Opening the tab is the request. Rendering the plan page is what fires the
+  // generation POST, so "no plan yet" must still render it rather than asking.
+  it('opens the plan without asking, so a candidate never generates it themselves', () => {
+    render(<CampaignPlanRouter initialUser={null} />)
+    expect(planPage()).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /generate/i }),
+    ).not.toBeInTheDocument()
   })
 
-  it('does not let a generate request bypass the past-election gate', () => {
+  it('routes a campaign whose election has passed to the update-your-race gate', () => {
     setElectionDate('2024-11-05')
-    sessionStorage.setItem(
-      'campaignPlanGenerateRequestedAt',
-      String(Date.now()),
-    )
-    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
+    render(<CampaignPlanRouter initialUser={null} />)
     expect(electionPassedGate()).toBeInTheDocument()
+    // Critically, the plan page never mounts, so nothing is dispatched for a
+    // race that has already happened.
     expect(planPage()).not.toBeInTheDocument()
   })
 
   it('gates on a past primary when no general date is stored, showing that date', () => {
     setElectionDate(undefined, '2024-03-05')
-    render(<CampaignPlanRouter initialUser={null} planExists />)
+    render(<CampaignPlanRouter initialUser={null} />)
     expect(electionPassedGate()).toBeInTheDocument()
     expect(screen.getByText(/2024/)).toBeInTheDocument()
     expect(planPage()).not.toBeInTheDocument()
@@ -74,63 +64,22 @@ describe('CampaignPlanRouter', () => {
 
   it('does not block when the general date is past but the primary is upcoming', () => {
     setElectionDate('2024-11-05', '2099-03-03')
-    render(<CampaignPlanRouter initialUser={null} planExists />)
+    render(<CampaignPlanRouter initialUser={null} />)
     expect(planPage()).toBeInTheDocument()
     expect(electionPassedGate()).not.toBeInTheDocument()
   })
 
   it('treats election day itself (in UTC) as upcoming', () => {
     setElectionDate(formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd'))
-    render(<CampaignPlanRouter initialUser={null} planExists />)
+    render(<CampaignPlanRouter initialUser={null} />)
     expect(planPage()).toBeInTheDocument()
     expect(electionPassedGate()).not.toBeInTheDocument()
   })
 
   it('treats a missing election date as not passed', () => {
     setElectionDate(undefined)
-    render(<CampaignPlanRouter initialUser={null} planExists />)
+    render(<CampaignPlanRouter initialUser={null} />)
     expect(planPage()).toBeInTheDocument()
     expect(electionPassedGate()).not.toBeInTheDocument()
-  })
-
-  it('shows the generate gate for a user with no plan', () => {
-    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
-    expect(generateButton()).toBeInTheDocument()
-    expect(planPage()).not.toBeInTheDocument()
-  })
-
-  it('renders the plan once the user requests generation', async () => {
-    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
-    await userEvent.click(screen.getByRole('button', { name: 'generate' }))
-    expect(planPage()).toBeInTheDocument()
-  })
-
-  it('keeps showing the plan after navigating away mid-generation', async () => {
-    sessionStorage.setItem(
-      'campaignPlanGenerateRequestedAt',
-      String(Date.now()),
-    )
-    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
-    expect(await screen.findByTestId('plan-page')).toBeInTheDocument()
-  })
-
-  it('ignores a stale generate request and shows the gate', () => {
-    const sixteenMinutesAgo = Date.now() - 16 * 60 * 1000
-    sessionStorage.setItem(
-      'campaignPlanGenerateRequestedAt',
-      String(sixteenMinutesAgo),
-    )
-    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
-    expect(generateButton()).toBeInTheDocument()
-    expect(planPage()).not.toBeInTheDocument()
-  })
-
-  // The campaign story is no longer a precondition for the plan: it sharpens a
-  // plan rather than gating one. The router must not consult story state at
-  // all, so a campaign with a plan and no story renders the plan.
-  it('shows the plan for a user with a plan regardless of story state', () => {
-    render(<CampaignPlanRouter initialUser={null} planExists />)
-    expect(planPage()).toBeInTheDocument()
-    expect(generateButton()).not.toBeInTheDocument()
   })
 })
