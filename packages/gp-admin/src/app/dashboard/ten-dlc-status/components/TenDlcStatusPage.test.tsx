@@ -53,10 +53,13 @@ vi.mock('../actions', () => ({
 
 const mockResendCvPin = vi.fn()
 const mockOverrideCvValidationAndResubmit = vi.fn()
+const mockUpdateFilingUrlAndResubmit = vi.fn()
 vi.mock('@/app/dashboard/campaigns/actions', () => ({
   resendCvPin: (...args: unknown[]) => mockResendCvPin(...args),
   overrideCvValidationAndResubmit: (...args: unknown[]) =>
     mockOverrideCvValidationAndResubmit(...args),
+  updateFilingUrlAndResubmit: (...args: unknown[]) =>
+    mockUpdateFilingUrlAndResubmit(...args),
 }))
 
 const BUCKET_KEYS: TenDlcStatusBucketKey[] = [
@@ -356,6 +359,131 @@ describe('TenDlcStatusPage', () => {
     expect(mockShowToast).toHaveBeenCalledWith(
       'Hold cleared — registration resubmitted'
     )
+  })
+
+  it('offers the filing-link edit only before a Peerly identity exists', async () => {
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        stuckSubmission: [
+          entry({
+            campaignId: 7,
+            campaignSlug: 'held-camp',
+            filingUrl: 'https://sos.example.gov/old-filing',
+            cvValidationFailedAt: new Date(
+              '2026-09-25T00:00:00Z'
+            ).toISOString(),
+          }),
+        ],
+        // Identity already minted: CampaignVerify consumed the URL, so the
+        // row keeps the view-only Filing link and no edit affordance.
+        cvUnissued: [
+          entry({
+            campaignId: 9,
+            campaignSlug: 'submitted-camp',
+            peerlyIdentityId: 'ident-9',
+            filingUrl: 'https://sos.example.gov/submitted-filing',
+            peerlyCvStatus: 'IN_REVIEW',
+          }),
+        ],
+      })
+    )
+
+    renderPage()
+    expect(await screen.findAllByRole('link', { name: /Filing/ })).toHaveLength(
+      2
+    )
+    expect(
+      screen.getAllByRole('button', { name: 'Edit filing link' })
+    ).toHaveLength(1)
+  })
+
+  it('edits the filing link from a row and goes dead after saving', async () => {
+    mockUpdateFilingUrlAndResubmit.mockResolvedValue({
+      error: null,
+      retriedRunId: 'run-3',
+      retryError: null,
+    })
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        stuckSubmission: [
+          entry({
+            campaignId: 7,
+            campaignSlug: 'held-camp',
+            filingUrl: 'https://sos.example.gov/old-filing',
+            cvValidationFailedAt: new Date(
+              '2026-09-25T00:00:00Z'
+            ).toISOString(),
+          }),
+        ],
+      })
+    )
+
+    renderPage()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Edit filing link' })
+    )
+    const input = screen.getByRole('textbox')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'https://sos.example.gov/corrected-filing')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save and resubmit' })
+    )
+
+    await waitFor(() =>
+      expect(mockUpdateFilingUrlAndResubmit).toHaveBeenCalledWith(
+        7,
+        'https://sos.example.gov/corrected-filing'
+      )
+    )
+    expect(mockShowToast).toHaveBeenCalledWith(
+      'Filing link updated — registration resubmitted'
+    )
+    // The snapshot isn't refetched here, so the trigger must go dead — a
+    // second save from the stale row would resubmit against the old URL.
+    expect(
+      screen.getByRole('button', { name: 'Filing updated' })
+    ).toBeDisabled()
+    expect(mockUpdateFilingUrlAndResubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces a filing-link rejection and keeps the dialog editable', async () => {
+    mockUpdateFilingUrlAndResubmit.mockResolvedValue({
+      error: 'Filing URL must be an official election-authority filing record',
+      retriedRunId: null,
+      retryError: null,
+    })
+    mockGetTenDlcStatusSnapshot.mockResolvedValue(
+      snapshot({
+        stuckSubmission: [
+          entry({
+            campaignId: 7,
+            campaignSlug: 'held-camp',
+            filingUrl: 'https://sos.example.gov/old-filing',
+            cvValidationFailedAt: new Date(
+              '2026-09-25T00:00:00Z'
+            ).toISOString(),
+          }),
+        ],
+      })
+    )
+
+    renderPage()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Edit filing link' })
+    )
+    const input = screen.getByRole('textbox')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'https://goodparty.org/candidate/held')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save and resubmit' })
+    )
+
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Filing URL must be an official election-authority filing record'
+      )
+    )
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
   })
 
   it('renders each bucket-specific context column', async () => {

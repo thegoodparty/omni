@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { Button, Dialog, Flex, Text, TextField } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
@@ -10,7 +10,11 @@ import { updateFilingUrlAndResubmit } from '@/app/dashboard/campaigns/actions'
 interface EditFilingUrlActionProps {
   campaignId: number
   filingUrl: string
-  onResolved: () => Promise<void> | void
+  // Omitted on surfaces that don't refetch after a save (the 10DLC status
+  // page, where the snapshot reload takes seconds) — the trigger then goes
+  // dead on success instead, so the stale pre-save URL can't be re-edited
+  // and resubmitted again from the same row.
+  onResolved?: () => Promise<void> | void
 }
 
 export function EditFilingUrlAction({
@@ -21,7 +25,16 @@ export function EditFilingUrlAction({
   const { showToast } = useToast()
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [draft, setDraft] = useState(filingUrl)
+
+  // A refetch can hand this still-mounted component a new filingUrl (the
+  // replacement URL can itself fail validation, keeping the hold view up) —
+  // the new prop is a new editable value, so the dead state must lift.
+  useEffect(() => {
+    setSaved(false)
+    setDraft(filingUrl)
+  }, [filingUrl])
 
   const trimmed = draft.trim()
   const unsaveable = trimmed.length === 0 || trimmed === filingUrl
@@ -45,7 +58,19 @@ export function EditFilingUrlAction({
             : 'Filing link updated — the next sweep will resubmit'
       )
       setOpen(false)
-      await onResolved()
+      setSaved(true)
+      // Own catch: the server write already succeeded, so a refetch failure
+      // must not fall into the generic failure toast below and contradict
+      // the success toast.
+      try {
+        await onResolved?.()
+      } catch (refreshError) {
+        Sentry.captureException(refreshError)
+        showToast(
+          'Filing link saved, but refreshing the page failed — reload to ' +
+            'see the updated status'
+        )
+      }
     } catch (error) {
       Sentry.captureException(error)
       showToast(describeActionFailure(error, 'Failed to update filing link'))
@@ -67,10 +92,10 @@ export function EditFilingUrlAction({
         <Button
           variant="outline"
           size="1"
-          disabled={saving}
-          aria-label="Edit filing link"
+          disabled={saving || saved}
+          aria-label={saved ? 'Filing updated' : 'Edit filing link'}
         >
-          Edit
+          {saved ? 'Filing updated' : 'Edit'}
         </Button>
       </Dialog.Trigger>
       <Dialog.Content maxWidth="480px">

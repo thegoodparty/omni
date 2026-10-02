@@ -212,7 +212,33 @@ jobs:
           # refreshing at all, so annotate the run the way the sheet step does.
           if ! uv run event_explorer_snapshot.py --series \
             -o ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json; then
+            # A failed write can leave a half-written file, and the commit step stages
+            # whatever is on disk, so put the last good copy back.
+            git checkout -- ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json
             msg="Explorer snapshot NOT rebuilt: the shared page keeps its previous data until the next run."
+            echo "::warning::$msg"
+            echo ":warning: $msg" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      # The event health console's page renders this file. It has to be built here: its
+      # main input is the health report, which is gitignored and exists only in this
+      # workspace (and as the run artifact below). It reads the explorer snapshot too,
+      # so it runs after that step. The same republish routine publishes it (DATA-2582).
+      - name: Event health console snapshot
+        id: console_snapshot
+        # It lifts the area rollup and cards from the explorer snapshot, so a failed
+        # explorer step would leave it joining this run onto last run's file.
+        if: steps.explorer_snapshot.outcome == 'success'
+        working-directory: packages/runbooks/scripts/python
+        # Non-fatal for the same reason as the explorer snapshot above.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if ! uv run governance_console_snapshot.py \
+            -o ../../surfaces/governance-console/data/governance-console.json; then
+            git checkout -- ../../surfaces/governance-console/data/governance-console.json
+            msg="Event health console snapshot NOT rebuilt: the console keeps its previous data until the next run."
             echo "::warning::$msg"
             echo ":warning: $msg" >> "$GITHUB_STEP_SUMMARY"
             exit 1
@@ -226,7 +252,8 @@ jobs:
           set -euo pipefail
           state_dir=packages/runbooks/scripts/python/instrumentation_data
           snapshot=packages/prototypes/app/p/analytics-event-explorer/data/event-explorer.json
-          if [ -z "$(git status --porcelain -- "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml "$snapshot")" ]; then
+          console=packages/runbooks/surfaces/governance-console/data/governance-console.json
+          if [ -z "$(git status --porcelain -- "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml "$snapshot" "$console")" ]; then
             echo "No state changes this run."
             exit 0
           fi
@@ -234,7 +261,7 @@ jobs:
           git config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
           branch=bot/analytics-governance-state
           git checkout -B "$branch"
-          git add "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml "$snapshot"
+          git add "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml "$snapshot" "$console"
           git commit -m "chore(analytics): scheduled governance state refresh"
           git push -f origin "$branch"
           pr=$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')
@@ -242,7 +269,7 @@ jobs:
             gh pr create --base main --head "$branch" \
               --title "chore(analytics): scheduled governance state refresh" \
               --body "$(cat <<'EOF'
-          Automated state write-back from the analytics-governance scheduled run: the provenance CSV/watermark and the health log/state, per the DATA-2068 state story (the scheduled run is the authoritative writer; per-PR provisional rows are hints it verifies). The analytics-event explorer's snapshot rides along, because the shared page renders that file and nothing else; it carries its own refresh time, so this PR now opens on every run rather than only on a state change.
+          Automated state write-back from the analytics-governance scheduled run: the provenance CSV/watermark and the health log/state, per the DATA-2068 state story (the scheduled run is the authoritative writer; per-PR provisional rows are hints it verifies). The analytics-event explorer's and the event health console's snapshots ride along, because each page renders its file and nothing else; both carry their own refresh time, so this PR now opens on every run rather than only on a state change.
 
           Auto-merges once delegate approves and checks pass. If a newer run fires before this merges, it force-updates this same branch, so the PR always carries the latest state.
           EOF
@@ -307,11 +334,12 @@ jobs:
           retention-days: 30
 
       - name: Notify Slack on failure
-        # `continue-on-error` on the snapshot and OKR refresh steps leaves the job green, so
+        # `continue-on-error` on the two snapshot steps and the OKR refresh step leaves the job green, so
         # `failure()` alone would never see it and the header's promise that failures
         # reach Slack would quietly stop holding for those steps.
         if: >-
           (failure() || steps.explorer_snapshot.outcome == 'failure'
+            || steps.console_snapshot.outcome == 'failure'
             || steps.refresh_okr.outcome == 'failure')
           && env.SLACK_APP_BOT_TOKEN != ''
           && env.SLACK_EVENT_LIFECYCLE_CHANNEL_ID != ''

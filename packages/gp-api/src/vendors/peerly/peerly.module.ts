@@ -14,6 +14,7 @@ import { GoogleModule } from '../google/google.module'
 import { SlackModule } from '../slack/slack.module'
 import { P2pController } from './p2p.controller'
 import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service'
+import { PeerlyAccountService } from './services/peerlyAccount.service'
 import { PeerlyErrorHandlingService } from './services/peerlyErrorHandling.service'
 import { PeerlyHttpService } from './services/peerlyHttp.service'
 import { PeerlyIdentityService } from './services/peerlyIdentity.service'
@@ -45,6 +46,7 @@ import { PeerlyTestListService } from './services/peerlyTestList.service'
   providers: [
     PeerlyErrorHandlingService,
     PeerlyHttpService,
+    PeerlyAccountService,
     PeerlyIdentityService,
     PeerlyPhoneListService,
     PeerlyPhoneListCaptureService,
@@ -56,6 +58,7 @@ import { PeerlyTestListService } from './services/peerlyTestList.service'
     PeerlyJobResultsService,
   ],
   exports: [
+    PeerlyAccountService,
     PeerlyIdentityService,
     PeerlyPhoneListService,
     PeerlyPhoneListCaptureService,

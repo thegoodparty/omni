@@ -59,7 +59,7 @@ describe('GithubOrgMemberGuard', () => {
     } as unknown as PinoLogger
     guard = new GithubOrgMemberGuard(logger)
     req = {
-      headers: { authorization: 'Bearer gho_a_github_user_token' },
+      headers: { 'x-github-token': 'gho_a_github_user_token' },
     } as unknown as DevEnvRequest
   })
 
@@ -150,10 +150,17 @@ describe('GithubOrgMemberGuard', () => {
   })
 
   it.each([
-    ['no header', undefined],
-    ['a non-bearer scheme', 'token gho_x'],
-  ])('rejects %s without calling GitHub', async (_label, authorization) => {
-    req = { headers: { authorization } } as unknown as DevEnvRequest
+    ['no header', {}],
+    ['an empty header', { 'x-github-token': '' }],
+    // The old transport: SessionGuard 401s Authorization bearers that are
+    // not Clerk tokens even on public routes, so this guard must never
+    // read the token from there.
+    [
+      'an Authorization bearer only',
+      { authorization: 'Bearer gho_a_github_user_token' },
+    ],
+  ])('rejects %s without calling GitHub', async (_label, headers) => {
+    req = { headers } as unknown as DevEnvRequest
 
     await expect(guard.canActivate(contextFor(req))).rejects.toThrow(
       UnauthorizedException,

@@ -83,8 +83,8 @@ Needs nothing: no uv, no credentials. Then publish `product-map.html` to the URL
 profile scope, `comments` composer only). Passing `capabilities` replaces the whole
 declaration and kills tracking and the feedback button.
 
-The explorer's republish routine (`trig_01E8wipVnESi9uqoEBWZXFKY`, Mon and Thu 12:00 and
-13:00 UTC) republishes this page too, under the same guard: only when the committed
+The surfaces republish routine (`trig_01E8wipVnESi9uqoEBWZXFKY`, Mon and Thu 12:00 and
+13:00 UTC) republishes this page with the explorer and the console, under the same guard: only when the committed
 snapshot's `refreshed_at` is strictly newer than the live page's.
 
 ## Shared with the other two pages

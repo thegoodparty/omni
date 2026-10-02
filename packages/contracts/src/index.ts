@@ -1107,6 +1107,10 @@ export {
   type SmsTestMessageRequest,
   SmsTestMessageResponseSchema,
   type SmsTestMessageResponse,
+  SmsVendorAccountSchema,
+  type SmsVendorAccount,
+  SmsVendorBalanceResponseSchema,
+  type SmsVendorBalanceResponse,
 } from './outreach/SmsAdminConsole.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
