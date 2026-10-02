@@ -31,9 +31,9 @@ import type { AgentConfig, BackgroundRunInput } from './background'
 // the agent's own timer.
 export const POLL_HEADROOM_MS = 5 * 60 * 1000
 
-// Deliberately NOT a fallback for a manifest with no timeout. `agentConfigFor`
-// requires the field, so an agent that reaches here has one; a default would
-// only serve to make a future loosening of that requirement silent.
+// Deliberately NOT a fallback for a manifest with no timeout. `timeout_seconds`
+// is in agentConfigFor's REQUIRED_FIELDS, so an agent that reaches here has
+// one; a default would only serve to make a future loosening of that silent.
 // Parsed rather than asserted, for the reason the projection is: the manifest
 // is a file on disk whose shape this module does not control.
 const StagedManifestSchema = z.object({
@@ -117,60 +117,6 @@ export const backgroundRunInputFor = (
   }
 }
 
-// WHAT THE SELECTED BACKGROUND AGENTS WILL COST IN WALL CLOCK, worst case.
-//
-// `walkCases` is a plain sequential `for … await`, so an agent's arm is
-// cases x attempts runs end to end, each waiting out its own poll. At the
-// registry's 8-case lists and attemptsPerCase 3 that is 24 runs; at
-// meeting_briefing's declared hour, fourteen hours for one agent on one arm,
-// against a job budget of three.
-//
-// This exists because of what happens WITHOUT it rather than what it prevents.
-// vitest aborts the `it()` at its timeout but nothing aborts the in-flight
-// promise: `captureArm` never returns, so `putManifest` never runs, and the
-// judging step then fails on an arm that has no manifest — with the records
-// orphaned, the Fargate tasks still dialling, and the money gone. Refusing
-// before the first dispatch costs nothing and says which agents and how long.
-export const backgroundWorstCaseMs = (
-  agents: readonly { agentId: string; shape: string }[],
-  attemptsPerCase: number,
-  countCases: (agentId: string) => number,
-  loadConfig: (agentId: string) => AgentConfig = agentConfigFor,
-): { totalMs: number; perAgent: { agentId: string; ms: number }[] } => {
-  const perAgent = agents
-    .filter((agent) => agent.shape === 'background')
-    .map((agent) => ({
-      agentId: agent.agentId,
-      ms:
-        countCases(agent.agentId) *
-        attemptsPerCase *
-        pollTimeoutMs(loadConfig(agent.agentId)),
-    }))
-  return {
-    totalMs: perAgent.reduce((sum, one) => sum + one.ms, 0),
-    perAgent,
-  }
-}
-
-export const describeBudgetOverrun = (
-  worst: ReturnType<typeof backgroundWorstCaseMs>,
-  budgetMs: number,
-): string => {
-  const minutes = (ms: number): number => Math.ceil(ms / 60_000)
-  const slowest = worst.perAgent
-    .sort((a, b) => b.ms - a.ms)
-    .map((one) => `${one.agentId} ${minutes(one.ms)}m`)
-    .join(', ')
-  return (
-    `this arm's background agents can take ${minutes(worst.totalMs)} ` +
-    `minutes end to end, against a budget of ${minutes(budgetMs)}: ` +
-    `${slowest}. Cases run one after another, so the arm would be cut ` +
-    'off partway with its records orphaned and no manifest written, and the ' +
-    'judging step would then fail on a missing arm. Select fewer agents, or ' +
-    'lower attemptsPerCase for background shapes.'
-  )
-}
-
 // THE CASE LOADER A SWEEP WALKS WITH, which is not the raw one.
 //
 // Six of the fifteen background case lists carry `{judgeOrgSlug}` or
@@ -186,16 +132,81 @@ export const describeBudgetOverrun = (
 export const caseLoaderFor =
   (
     values: PlaceholderValues,
+    budgetMs: number,
+    attemptsPerCase: number,
     load: typeof loadCaseList = loadCaseList,
     loadBackground: typeof loadBackgroundCases = loadBackgroundCases,
+    loadConfig: (agentId: string) => AgentConfig = agentConfigFor,
   ) =>
   (agent: AgentEntry): CaseList => {
     const list = load(agent)
     if (list.shape !== 'background') return list
     // Re-read, once per agent rather than once per case, to get the loader's
     // own narrowing instead of a fourth structural one.
-    return {
-      ...list,
-      cases: substituteBackgroundCases(loadBackground(agent), values),
-    }
+    const cases = substituteBackgroundCases(loadBackground(agent), values)
+    const config = loadConfig(agent.agentId)
+    refuseIfOverBudget(
+      agent.agentId,
+      cases.length,
+      attemptsPerCase,
+      config,
+      budgetMs,
+    )
+    // Reached here rather than at the dispatch, where a manifest naming no
+    // model would arrive as a skip on case 1 with every agent walked before
+    // it already billed.
+    modelOf(config)
+    return { ...list, cases }
   }
+
+// PER AGENT, AND THROWN FROM INSIDE THE LOADER ON PURPOSE.
+//
+// `captureArm` calls `loadCases(agent)` inside its per-agent try/catch, so a
+// throw here becomes a named entry in the manifest's `skipped` list and THE
+// REST OF THE SWEEP CONTINUES. That placement is the whole design:
+//
+// An earlier version checked the whole selection at the top of the arm and
+// threw before `captureArm`. Every one of the fifteen background agents
+// overruns any plausible job budget on its own — the cheapest is six hours of
+// wall clock, meeting_briefing twenty-six — so that check fired on every
+// selection naming a background agent and took the CHAT agents in the same
+// sweep down with it. `auto` on a branch touching both a chat directory and
+// an experiment directory produced no verdict of any kind, which is strictly
+// worse than the unwired state it replaced: that skipped the background agent
+// by name and still judged the chat half.
+//
+// It was also self-defeating as a guard. Throwing before `captureArm` means
+// `putManifest` never runs and the judging step then fails on a missing arm —
+// precisely the end state the check exists to avoid. Thrown from here, the
+// manifest is written, it says which agent was refused and why, and the money
+// is still unspent.
+// Exported so the real registry can be measured against a real budget in a
+// unit test, rather than the arithmetic only ever being exercised against
+// injected case counts and injected manifests. See backgroundBudget.test.ts:
+// at today's case lists and attempts, the answer for every published agent is
+// "does not fit", and that belongs in CI rather than in a sweep's logs.
+export const armWallClockMs = (
+  caseCount: number,
+  attemptsPerCase: number,
+  config: AgentConfig,
+): number => caseCount * attemptsPerCase * pollTimeoutMs(config)
+
+const refuseIfOverBudget = (
+  agentId: string,
+  caseCount: number,
+  attemptsPerCase: number,
+  config: AgentConfig,
+  budgetMs: number,
+): void => {
+  const ms = armWallClockMs(caseCount, attemptsPerCase, config)
+  if (ms <= budgetMs) return
+  const minutes = (value: number): number => Math.ceil(value / 60_000)
+  throw new Error(
+    `${agentId} would take ${minutes(ms)} minutes of wall clock on this ` +
+      `arm (${caseCount} cases x ${attemptsPerCase} attempts, each waiting ` +
+      `out the agent's declared timeout), against a budget of ` +
+      `${minutes(budgetMs)}. Cases run one after another, so the arm would ` +
+      'be cut off partway with its records orphaned. Background needs its ' +
+      'own case and attempt budget before it can sweep.',
+  )
+}

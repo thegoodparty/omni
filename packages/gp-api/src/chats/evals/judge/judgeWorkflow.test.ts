@@ -540,9 +540,16 @@ describe('judge.yml tells both arms where a background run goes', () => {
 
   // A $GITHUB_ENV write, which `setsEnv` cannot see: that matcher looks for a
   // `NAME:` entry under a step's own `env:` block, and these are exported by
-  // an earlier step instead. Anchored on the redirect as well as the name so
-  // that merely MENTIONING a variable — in the warning text below, which names
-  // two of them — does not satisfy it.
+  // an earlier step instead.
+  //
+  // Anchored on `echo "` immediately followed by the name, and on the
+  // redirect, so a comment cannot satisfy it and neither can a line that
+  // merely contains the name inside some other string — a `::warning::`
+  // mentioning a variable, or a `NAME_OLD=` prefix collision.
+  //
+  // WHAT IT STILL CANNOT SEE: that the line RUNS. The queue URL is exported
+  // inside the success branch of an `if url="$(aws sqs get-queue-url …)"`,
+  // so a line moved into the `else` branch satisfies every assertion here.
   const exportsVar = (body: string, name: string): boolean =>
     new RegExp(`^\\s*echo "${name}=.*>> "\\$GITHUB_ENV"`, 'm').test(body)
 

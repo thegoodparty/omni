@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   POLL_HEADROOM_MS,
   backgroundRunInputFor,
-  backgroundWorstCaseMs,
   caseLoaderFor,
-  describeBudgetOverrun,
 } from './backgroundDispatch'
 import type { AgentConfig } from './background'
 import type { ArmCaseRequest } from '../sweepArm'
@@ -31,13 +29,24 @@ const config = (over: Record<string, unknown> = {}): AgentConfig => ({
   instruction: 'do the research',
 })
 
+// DELIBERATELY DISAGREES WITH `request()` ON EVERY FIELD BOTH CARRY.
+//
+// sweepId and arm exist on both, and `parseArmEnv` does not reconcile them.
+// While the two fixtures said the same thing, reading either field off the
+// wrong one was invisible: mutations substituting `env.sweepId` for
+// `request.sweepId`, and `env.arm` for `request.arm`, both survived the whole
+// suite. Records written under the wrong sweep id land in a directory the
+// other arm never looks in.
+//
+// Keep them different. The whole-object assertion below then covers every
+// field's SOURCE for free, which is cheaper than a test per field.
 const env = (over: Partial<ArmEnv> = {}): ArmEnv => ({
-  sweepId: 'sweep-1',
+  sweepId: 'sweep-from-env',
   agentIds: ['meeting_briefing'],
   spends: true,
   explicitSelection: false,
   recordsDir: '/tmp/records',
-  arm: 'candidate',
+  arm: 'base',
   baseRef: 'main',
   candidateSha: 'c0ffee',
   armCommit: 'deadbeef',
@@ -58,7 +67,7 @@ const request = (over: Partial<ArmCaseRequest> = {}): ArmCaseRequest => ({
   },
   case: { caseId: 'case-1', params: { meeting_id: 'm-1' } },
   attempt: 2,
-  sweepId: 'sweep-1',
+  sweepId: 'sweep-from-request',
   arm: 'candidate',
   variant: { ref: 'feature', commit: 'deadbeef' },
   spends: true,
@@ -71,7 +80,7 @@ describe('backgroundRunInputFor', () => {
   it('builds every argument of the dispatch from the request and the env', () => {
     const built = config()
     expect(backgroundRunInputFor(request(), env(), () => built)).toEqual({
-      sweepId: 'sweep-1',
+      sweepId: 'sweep-from-request',
       agentId: 'meeting_briefing',
       arm: 'candidate',
       attempt: 2,
@@ -115,14 +124,45 @@ describe('backgroundRunInputFor', () => {
     expect(asked).toEqual(['self_research'])
   })
 
+  // THE RETURNED FIELD, not just the loader call. The test above hands a
+  // non-default agent to `loadConfig` and checks what it was asked for; this
+  // checks what came back carries the same id. A literal here would judge one
+  // agent's branch against another agent's records — the failure the file's
+  // header names — and it survived until this assertion existed, because the
+  // whole-object test's fixture agent IS the id a hardcode would pick.
+  it('carries that agent id into the dispatch', () => {
+    const built = backgroundRunInputFor(
+      request({
+        agent: {
+          agentId: 'self_research',
+          shape: 'background',
+          cases: 'self_research',
+          status: 'wired',
+        },
+      }),
+      env(),
+      () => config(),
+    )
+    expect(built.agentId).toBe('self_research')
+  })
+
   // WHY THE POLL IS DERIVED AND NOT A CONSTANT. A flat 15 minutes was shorter
   // than eleven of the sixteen published agents' own `timeout_seconds`, so a
   // perfectly healthy run was abandoned inside its own budget: the money was
   // already spent, the Fargate task kept going, and the record came back an
   // infraError that the delta excludes. Both arms, every attempt.
+  // PINNED TO A LITERAL, because every other assertion about the headroom
+  // computes its expectation FROM the constant and so cannot constrain it:
+  // shrinking it to 30 seconds passed the entire suite. This is the one
+  // number deciding whether a healthy run is abandoned inside its own
+  // declared timeout, billed, and then excluded from the delta.
+  it('allows five minutes for task placement and artifact upload', () => {
+    expect(POLL_HEADROOM_MS).toBe(5 * 60 * 1000)
+  })
+
   it.each([
-    [1200, 1200 * 1000 + POLL_HEADROOM_MS],
-    [3600, 3600 * 1000 + POLL_HEADROOM_MS],
+    [1200, 1_500_000],
+    [3600, 3_900_000],
   ])('waits out an agent declaring %i seconds', (seconds, expected) => {
     const input = backgroundRunInputFor(request(), env(), () =>
       config({ timeout_seconds: seconds }),
@@ -195,87 +235,21 @@ describe('backgroundRunInputFor', () => {
   })
 })
 
-describe('backgroundWorstCaseMs', () => {
-  const agents = [
-    { agentId: 'meeting_briefing', shape: 'background' },
-    { agentId: 'chief_of_staff', shape: 'chat' },
-  ]
+const HUGE_BUDGET_MS = 1000 * 60 * 60 * 1000
 
-  // cases x attempts x the agent's own poll, because walkCases is sequential.
-  // The arithmetic is the finding: 8 cases at 3 attempts is 24 runs, and at
-  // meeting_briefing's declared hour that is fourteen hours for ONE agent on
-  // ONE arm, against a job budget of three.
-  it('multiplies cases by attempts by the agent own poll', () => {
-    const worst = backgroundWorstCaseMs(
-      agents,
-      3,
-      () => 8,
-      () => config({ timeout_seconds: 3600 }),
-    )
-    expect(worst.totalMs).toBe(8 * 3 * (3600 * 1000 + POLL_HEADROOM_MS))
-  })
-
-  // A chat agent costs turns, not a Fargate poll, and counting it here would
-  // refuse a sweep over time it is not going to spend.
-  it('counts only the background agents', () => {
-    const worst = backgroundWorstCaseMs(
-      agents,
-      3,
-      () => 8,
-      () => config(),
-    )
-    expect(worst.perAgent.map((one) => one.agentId)).toEqual([
-      'meeting_briefing',
-    ])
-  })
-
-  it('is zero for a chat-only selection', () => {
-    const worst = backgroundWorstCaseMs(
-      [{ agentId: 'chief_of_staff', shape: 'chat' }],
-      3,
-      () => 8,
-      () => config(),
-    )
-    expect(worst.totalMs).toBe(0)
-  })
-})
-
-describe('describeBudgetOverrun', () => {
-  // The refusal has to say WHICH agents and HOW LONG, slowest first. A
-  // sentence that only says "too long" leaves the reader to work out what to
-  // deselect, which is the one thing they need from it.
-  it('names the agents slowest first, with both numbers', () => {
-    const message = describeBudgetOverrun(
-      {
-        totalMs: 90 * 60 * 1000,
-        perAgent: [
-          { agentId: 'quick', ms: 30 * 60 * 1000 },
-          { agentId: 'slow', ms: 60 * 60 * 1000 },
-        ],
-      },
-      70 * 60 * 1000,
-    )
-    expect(message).toContain('90')
-    expect(message).toContain('70')
-    expect(message.indexOf('slow 60m')).toBeLessThan(
-      message.indexOf('quick 30m'),
-    )
-  })
+const caseList = (
+  shape: 'background' | 'chat',
+  agentId: string,
+  cases: JudgeCase[],
+): CaseList => ({
+  agentId,
+  shape,
+  placeholder: false,
+  cases,
+  source: `${agentId}.json`,
 })
 
 describe('caseLoaderFor', () => {
-  const caseList = (
-    shape: 'background' | 'chat',
-    agentId: string,
-    cases: JudgeCase[],
-  ): CaseList => ({
-    agentId,
-    shape,
-    placeholder: false,
-    cases,
-    source: `${agentId}.json`,
-  })
-
   const agent = {
     agentId: 'top_community_issues',
     shape: 'background' as const,
@@ -292,10 +266,17 @@ describe('caseLoaderFor', () => {
   // tokens intact and were refused one by one as named skips — reading as bad
   // case lists rather than as missing wiring.
   it('substitutes a background list before it is walked', () => {
+    // The envelope reader returns a DECOY list. Only `loadBackground`'s cases
+    // may reach the output: substituting `list.cases` instead of re-reading
+    // is a mutation that survived while both seams returned the same array.
+    const decoy: BackgroundCase[] = [{ caseId: 'decoy', params: {} }]
     const list = caseLoaderFor(
       { orgSlug: 'judge-fixture-1' },
-      () => caseList('background', agent.agentId, withToken),
+      HUGE_BUDGET_MS,
+      3,
+      () => caseList('background', agent.agentId, decoy),
       () => withToken,
+      () => config(),
     )(agent)
     expect(list.cases).toEqual([
       { caseId: 'c1', params: { organization_slug: 'judge-fixture-1' } },
@@ -312,17 +293,79 @@ describe('caseLoaderFor', () => {
     expect(() =>
       caseLoaderFor(
         { orgSlug: 'judge-fixture-1' },
+        HUGE_BUDGET_MS,
+        3,
         () => caseList('background', agent.agentId, mixed),
         () => mixed,
+        () => config(),
       )(agent),
     ).toThrow(/c8/)
   })
 
   it('leaves a chat list alone', () => {
     const cases = [{ caseId: 'c1', turns: ['hello'] }]
-    const list = caseLoaderFor({ orgSlug: 'judge-fixture-1' }, () =>
-      caseList('chat', chat.agentId, cases),
+    const list = caseLoaderFor(
+      { orgSlug: 'judge-fixture-1' },
+      HUGE_BUDGET_MS,
+      3,
+      () => caseList('chat', chat.agentId, cases),
     )(chat)
     expect(list.cases).toEqual(cases)
+  })
+})
+
+// THE REFUSAL, AND WHERE IT IS THROWN FROM.
+//
+// An earlier version checked the whole selection at the top of the arm. Every
+// background agent overruns any plausible budget on its own — six hours at
+// the cheapest — so that fired on every selection naming one and took the
+// CHAT agents down with it, which is strictly worse than the unwired state it
+// replaced. These tests pin the placement, not just the arithmetic.
+describe('the wall-clock refusal', () => {
+  const background = {
+    agentId: 'meeting_briefing',
+    shape: 'background' as const,
+    cases: 'meeting_briefing',
+    status: 'wired' as const,
+  }
+  const chat = {
+    agentId: 'chief_of_staff',
+    shape: 'chat' as const,
+    cases: 'chief_of_staff',
+    status: 'wired' as const,
+  }
+  const eight: BackgroundCase[] = Array.from({ length: 8 }, (_, i) => ({
+    caseId: `c${i}`,
+    params: {},
+  }))
+  const loader = (budgetMs: number) =>
+    caseLoaderFor(
+      {},
+      budgetMs,
+      3,
+      (agent) =>
+        agent.shape === 'background'
+          ? caseList('background', agent.agentId, eight)
+          : caseList('chat', agent.agentId, [{ caseId: 'c1', turns: ['hi'] }]),
+      () => eight,
+      () => config({ timeout_seconds: 3600 }),
+    )
+
+  // cases x attempts x the agent's own poll: 8 x 3 x 65 minutes.
+  it('names the agent and both numbers', () => {
+    expect(() => loader(70 * 60 * 1000)(background)).toThrow(
+      /meeting_briefing would take 1560 minutes[\s\S]*against a budget of 70/,
+    )
+  })
+
+  // THE REGRESSION THIS REPLACED. A chat agent in the same selection must
+  // still load, so captureArm still captures it and the sweep still produces
+  // a verdict for the half that can.
+  it('leaves a chat agent in the same sweep untouched', () => {
+    expect(() => loader(70 * 60 * 1000)(chat)).not.toThrow()
+  })
+
+  it('allows an agent that fits', () => {
+    expect(() => loader(HUGE_BUDGET_MS)(background)).not.toThrow()
   })
 })

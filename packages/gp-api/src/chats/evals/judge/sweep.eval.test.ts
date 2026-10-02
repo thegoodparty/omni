@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
-import { isChatCase, loadCaseList } from './cases'
+import { isChatCase } from './cases'
 import type { ChatTurnScript } from './runners/chatSeam'
 import { ciContextFromEnv, runChatCase } from './runners/chat'
 import { seedChatOrg, seedOptionsFor } from './runners/seedChatOrg'
@@ -13,15 +13,14 @@ import {
   s3ObjectStore,
   sqsDispatchQueue,
 } from './runners/awsAdapters'
+import type { BackgroundRunnerDeps } from './runners/background'
 import { runBackgroundCase } from './runners/background'
 import {
   backgroundRunInputFor,
-  backgroundWorstCaseMs,
   caseLoaderFor,
-  describeBudgetOverrun,
 } from './runners/backgroundDispatch'
-import { DEFAULT_JUDGE_CONFIG } from './config'
 import { findAgent } from './agents'
+import { DEFAULT_JUDGE_CONFIG } from './config'
 import {
   backgroundDestinationFrom,
   parseArmEnv,
@@ -95,31 +94,33 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
       const store = storeFromEnv(env)
       const ci = ciContextFromEnv()
 
-      // BEFORE THE FIRST DISPATCH. Cases run one after another, so an agent's
-      // arm is cases x attempts runs end to end — and at the registry's
-      // 8-case lists that is well past any job budget for the slower agents.
-      // See backgroundWorstCaseMs for why being cut off partway is worse than
-      // not starting: no manifest is written and the judging step fails on a
-      // missing arm, with the records orphaned and the money gone.
-      const worst = backgroundWorstCaseMs(
-        env.agentIds
-          .map((id) => findAgent(id))
-          .filter((one) => one !== undefined),
-        DEFAULT_JUDGE_CONFIG.attemptsPerCase,
-        (agentId) => {
-          const agent = findAgent(agentId)
-          return agent === undefined ? 0 : loadCaseList(agent).cases.length
-        },
-      )
-      if (worst.totalMs > ARM_TIMEOUT_MS) {
-        throw new Error(describeBudgetOverrun(worst, ARM_TIMEOUT_MS))
+      // ONE PAIR OF CLIENTS FOR THE ARM, not one per case. Built lazily so a
+      // chat-only sweep never constructs them, and memoised so a 24-case
+      // background agent does not leave two dozen undestroyed SDK clients
+      // behind. The destination is resolved once here rather than again
+      // beside every dispatch.
+      let ports: BackgroundRunnerDeps | undefined
+      const backgroundPorts = (): BackgroundRunnerDeps => {
+        ports ??= {
+          store: s3ObjectStore(new S3Client({})),
+          queue: sqsDispatchQueue(
+            new SQSClient({}),
+            backgroundDestinationFrom(env).dispatchQueueUrl,
+          ),
+          clock: realClock,
+        }
+        return ports
       }
 
       const manifest = await captureArm(
         {
           store,
           now: () => new Date(),
-          loadCases: caseLoaderFor(env.fixtureValues),
+          loadCases: caseLoaderFor(
+            env.fixtureValues,
+            ARM_TIMEOUT_MS,
+            DEFAULT_JUDGE_CONFIG.attemptsPerCase,
+          ),
           runCase: async (request) => {
             // THE ONE PLACE THE TWO RUNNERS DIVERGE. `captureArm` walks cases
             // the same way for both shapes and `walkCases` validates whatever
@@ -127,14 +128,7 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
             // decides which runner drives the case and what it needs to do it.
             if (request.agent.shape === 'background') {
               return runBackgroundCase(
-                {
-                  store: s3ObjectStore(new S3Client({})),
-                  queue: sqsDispatchQueue(
-                    new SQSClient({}),
-                    backgroundDestinationFrom(env).dispatchQueueUrl,
-                  ),
-                  clock: realClock,
-                },
+                backgroundPorts(),
                 backgroundRunInputFor(request, env),
               )
             }
@@ -244,7 +238,14 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
         // still named one of them would fail this assertion AFTER both arms
         // had been fully billed — the manifest would carry the background
         // agents and this list would not.
-        return entry?.cases !== null && entry?.status !== 'blocked'
+        //
+        // The `entry === undefined` arm is explicit rather than left to
+        // optional chaining: `undefined !== null` is true, so an id the
+        // registry cannot resolve counted as capturable and was then expected
+        // in a manifest that can never contain it. captureArm refuses an
+        // unknown id outright, so it is not capturable here either.
+        if (entry === undefined) return false
+        return entry.cases !== null && entry.status !== 'blocked'
       })
       expect(
         manifest.agents.map((a) => a.agentId).sort(),

@@ -39,7 +39,17 @@ const BehaviorProjectionSchema = z.object({
 // published experiment that is missing one of these cannot be swept, and
 // saying so here names the experiment instead of failing later with the
 // consumer's own wording and no agent id.
-const REQUIRED_FIELDS = ['model', 'max_turns', 'output_schema'] as const
+// timeout_seconds is here because the sweep derives its artifact poll from
+// it: without one there is no budget to wait out, and the alternative is a
+// flat constant that was shorter than eleven of the sixteen agents' own
+// declared timeouts — a healthy run abandoned inside its budget, billed, and
+// then excluded from the delta as an infraError.
+const REQUIRED_FIELDS = [
+  'model',
+  'max_turns',
+  'output_schema',
+  'timeout_seconds',
+] as const
 
 export class AgentConfigError extends Error {}
 

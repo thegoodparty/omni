@@ -59,9 +59,11 @@ const RATES: Record<string, ModelRates> = {
   // Same rates the harness itself prices with — gp-ai/pmf_engine/runner/
   // harness/claude_sdk.py `_PRICE_PER_MTOK`. The cache figures are Anthropic's
   // published multipliers off the input rate, 0.1x for a read and 1.25x for a
-  // 5-minute write, and they are filled in here rather than left null because
-  // background runs are long agentic loops that really do cache: background.ts
-  // accumulates both counts, so a null would throw on every real run.
+  // 5-minute write. Filled in rather than left null because background runs
+  // are long agentic loops that really do cache — background.ts accumulates
+  // both counts — and a null here would send every one of them down
+  // captureCostUsd's degraded path, which falls back to the harness's own
+  // total and loses the re-derivation this table exists to provide.
   sonnet: {
     inputPerMillion: 3,
     outputPerMillion: 15,

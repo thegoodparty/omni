@@ -77,9 +77,13 @@ describe('agentConfigFor', () => {
     },
   )
 
-  // Optional in the behavior set, so their absence is not an error — but they
-  // must not be invented either.
-  it.each(['timeout_seconds', 'runtime'])(
+  // Optional in the behavior set, so its absence is not an error — but it
+  // must not be invented either. `timeout_seconds` used to be on this list
+  // and moved to REQUIRED_FIELDS when the sweep began deriving its artifact
+  // poll from it: there is no honest default for how long to wait out an
+  // agent, and the flat constant it replaced was shorter than eleven of the
+  // sixteen published agents' own declared timeouts.
+  it.each(['runtime'])(
     'omits %s rather than defaulting it when the manifest has none',
     (field) => {
       const without: Record<string, unknown> = { ...published }
