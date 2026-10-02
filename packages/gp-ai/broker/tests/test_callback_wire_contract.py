@@ -154,6 +154,10 @@ class TestUnmeasuredCostParsesAtGpApi:
             detail="Agent exceeded 600s limit",
             cost_usd=0.0,
         )
+        # A measured $0.00 equals the mirror's default, so the value alone
+        # cannot tell a sent zero from an omitted key — which is the exact
+        # distinction this field exists to carry. Assert it was SENT.
+        assert "costUsd" in msg.data.model_fields_set
         assert msg.data.costUsd == 0.0
 
 
@@ -232,8 +236,11 @@ class TestTheMirrorRejectsWhatGpApiRejects:
             GpApiAgentExperimentResultData.model_validate({**self.BASE, field: None})
 
     def test_every_optional_key_may_be_missing(self):
-        """BASE omits all five at once, so one parse covers each of them."""
-        GpApiAgentExperimentResultData.model_validate(self.BASE)
+        """BASE omits all five at once, so one parse covers each of them —
+        and every one of them is genuinely absent, not filled from a default
+        that a later assertion might mistake for a value."""
+        data = GpApiAgentExperimentResultData.model_validate(self.BASE)
+        assert data.model_fields_set == {"runId", "status"}
 
     def test_a_terminal_status_with_no_duration_omits_the_key_on_the_wire(self):
         """Read off the RAW body, not the parsed model: the mirror defaults the

@@ -122,6 +122,20 @@ class TestPriceTurn:
         assert claude_sdk._price_turn("claude-sonnet-5", {"prompt_tokens": 1_000_000}) == 3.0
         assert claude_sdk._price_turn("claude-sonnet-5", {"input_tokens": 1_000_000}) == 0.0
 
+    def test_a_null_cache_count_is_not_applicable_rather_than_unreadable(self):
+        """The API types both cache counts as `integer | null`, and null means
+        no cache was involved. Read as "reported but garbled", every turn
+        carrying one would leave its run's timeout estimate withheld — so a null
+        has to price exactly like an absent key."""
+        usage = {
+            "input_tokens": 1_000_000,
+            "output_tokens": 1_000_000,
+            "cache_creation_input_tokens": None,
+            "cache_read_input_tokens": None,
+        }
+        assert claude_sdk._price_turn("claude-sonnet-5", usage) == 3.0 + 15.0
+        assert claude_sdk._priced_turn("claude-sonnet-5", usage)[1] is None
+
     @pytest.mark.parametrize(
         "bad",
         ["not a number", -1, float("inf"), 2**53],
@@ -136,14 +150,32 @@ class TestPriceTurn:
         usage = {"input_tokens": bad, "output_tokens": 1_000_000}
         assert claude_sdk._price_turn("claude-sonnet-5", usage) is None
         _, why = claude_sdk._priced_turn("claude-sonnet-5", usage)
-        assert why is not None and "input_tokens" in why
+        # Whole strings, not substrings: "cache_read_input_tokens" CONTAINS
+        # "input_tokens", so `in` would accept a reason naming the wrong class.
+        assert why == "a turn reported token counts that could not be read: input_tokens"
+
+    def test_a_count_exactly_at_the_bound_is_still_priced(self):
+        """The bound is inclusive. 2**53 one past it is refused above; the
+        bound itself must not be, or an off-by-one there would withhold a
+        turn that reported a perfectly readable count."""
+        usage = {"output_tokens": claude_sdk._MAX_LOGGED_TOKEN_COUNT}
+        assert claude_sdk._price_turn("claude-sonnet-5", usage) is not None
+
+    def test_a_realistic_usage_object_with_extra_fields_still_prices(self):
+        """Real usage objects carry service_tier, server_tool_use and friends.
+        Only the four billed classes are read, so the rest must be ignored
+        rather than counted as unreadable."""
+        usage = {
+            "output_tokens": 1_000_000,
+            "service_tier": "standard",
+            "server_tool_use": {"web_search_requests": 0},
+        }
+        assert claude_sdk._price_turn("claude-sonnet-5", usage) == 15.0
 
     def test_names_every_unreadable_class(self):
         usage = {"input_tokens": "x", "cache_read_input_tokens": -5, "output_tokens": 1}
         _, why = claude_sdk._priced_turn("claude-sonnet-5", usage)
-        assert why is not None
-        assert "input_tokens" in why and "cache_read_input_tokens" in why
-        assert "output_tokens" not in why
+        assert why == "a turn reported token counts that could not be read: cache_read_input_tokens, input_tokens"
 
     def test_says_which_kind_of_unobserved_it_was(self):
         """Only a missing rate is fixed by editing _PRICE_PER_MTOK. A reason
@@ -151,8 +183,9 @@ class TestPriceTurn:
         someone to fix the wrong thing."""
         _, rate = claude_sdk._priced_turn("gemini-3-flash", {"output_tokens": 1})
         _, usage = claude_sdk._priced_turn("claude-sonnet-5", None)
-        assert rate is not None and "no rate on record" in rate
-        assert usage is not None and "no rate on record" not in usage
+        # The model name is the actionable part, so it is pinned whole.
+        assert rate == "no rate on record for model 'gemini-3-flash'; add it to _PRICE_PER_MTOK"
+        assert usage == "a turn reported no usage, so its cost was never observed"
 
     def test_cache_read_is_cheap_relative_to_fresh_input(self):
         # The core reason we sum per-turn dollars instead of summing input
@@ -231,9 +264,9 @@ class TestUnpricedTurnThroughTheHarness:
             usage={"input_tokens": "garbled", "output_tokens": 1},
         )
         await _accumulate_over([turn])
-        reasons = list(claude_sdk._unobserved_cost_reasons)
-        assert any("input_tokens" in reason for reason in reasons)
-        assert not any("no rate on record" in reason for reason in reasons)
+        assert claude_sdk._unobserved_cost_reasons == {
+            "a turn reported token counts that could not be read: input_tokens"
+        }
 
     @pytest.mark.asyncio
     async def test_a_fully_priced_run_still_bills_its_estimate(self):
