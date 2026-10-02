@@ -19,7 +19,7 @@ import {
   ARM_BUDGET_MS,
   armDeps,
   backgroundRunInputFor,
-  refusedBeforeSpend,
+  capturableAgents,
 } from './runners/backgroundDispatch'
 import { findAgent } from './agents'
 import {
@@ -235,25 +235,7 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
       // A skip here means paid work that did not happen, and the reason is in
       // the manifest — this assertion is what turns that into a red job
       // rather than a quiet coverage gap.
-      const capturable = requested.filter((id) => {
-        const entry = findAgent(id)
-        // No `shape` clause. Both shapes are captured now, and a filter that
-        // still named one of them would fail this assertion AFTER both arms
-        // had been fully billed — the manifest would carry the background
-        // agents and this list would not.
-        //
-        // The `entry === undefined` arm is explicit rather than left to
-        // optional chaining: `undefined !== null` is true, so an id the
-        // registry cannot resolve counted as capturable and was then expected
-        // in a manifest that can never contain it. captureArm refuses an
-        // unknown id outright, so it is not capturable here either.
-        if (entry === undefined) return false
-        // A background agent refused by design is a named skip, not a broken
-        // capture. Turned red, it would skip the candidate arm and strand
-        // every chat agent this arm already paid for.
-        if (refusedBeforeSpend(entry, env)) return false
-        return entry.cases !== null && entry.status !== 'blocked'
-      })
+      const capturable = capturableAgents(requested, env, findAgent)
       expect(
         manifest.agents.map((a) => a.agentId).sort(),
         `skipped: ${JSON.stringify(manifest.skipped)}`,

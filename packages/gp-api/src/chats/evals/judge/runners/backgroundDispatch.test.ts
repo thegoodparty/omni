@@ -6,10 +6,11 @@ import {
   armDeps,
   backgroundRunInputFor,
   caseLoaderFor,
+  capturableAgents,
   refusedBeforeSpend,
 } from './backgroundDispatch'
 import { DEFAULT_JUDGE_CONFIG } from '../config'
-import { findAgent } from '../agents'
+import { findAgent, type AgentEntry } from '../agents'
 import { SWEEP_VALUES } from '../fixtures/sweep'
 import type { AgentConfig } from './background'
 import type { ArmCaseRequest } from '../sweepArm'
@@ -731,21 +732,17 @@ describe('armDeps', () => {
 // chat agent already paid for, or wave through a capture that broke.
 describe('refusedBeforeSpend', () => {
   const background = request().agent
+  const other = { ...background, agentId: 'self_research' }
   const chat = {
     ...background,
     agentId: 'chief_of_staff',
     shape: 'chat' as const,
   }
   const one: BackgroundCase[] = [{ caseId: 'case-1', params: {} }]
-  const loaderDeps = {
-    load: () => caseList('background', background.agentId, one),
-    loadBackground: () => one,
-    loadConfig: () => config(),
-  }
   // What the arm does with this env: load the agent's cases through the
   // loader the arm builds, then build the first dispatch. Either throwing is a
-  // refusal before anything is staged.
-  const armRefuses = (arm: ArmEnv): boolean => {
+  // refusal before anything is staged; the message says which.
+  const armRefusal = (agent: typeof background, arm: ArmEnv): string => {
     try {
       const budget = {
         budgetMs: HUGE_BUDGET_MS,
@@ -757,39 +754,89 @@ describe('refusedBeforeSpend', () => {
         arm.backgroundAdmitted === undefined
           ? budget
           : { ...budget, admitted: arm.backgroundAdmitted },
-        loaderDeps,
-      )(background)
-      backgroundRunInputFor(request(), arm, () => config())
-      return false
-    } catch {
-      return true
+        {
+          load: () => caseList('background', agent.agentId, one),
+          loadBackground: () => one,
+          loadConfig: () => config(),
+        },
+      )(agent)
+      backgroundRunInputFor(request({ agent }), arm, () => config())
+      return ''
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err)
     }
   }
 
-  it.each<[string, Partial<ArmEnv>]>([
-    ['not admitted', { backgroundAdmitted: new Set(['someone_else']) }],
-    ['admitted list empty', { backgroundAdmitted: new Set() }],
-    ['no organization minted', { fixtureValues: {} }],
-    ['no metadata bucket', { metadataBucket: undefined }],
-    ['no artifact bucket', { artifactBucket: undefined }],
-    ['no dispatch queue', { dispatchQueueUrl: undefined }],
-  ])('counts %s as refused, and the arm does refuse it', (_, over) => {
+  it.each<[string, typeof background, Partial<ArmEnv>, RegExp]>([
+    [
+      'not admitted',
+      background,
+      { backgroundAdmitted: new Set(['someone_else']) },
+      /was not admitted/,
+    ],
+    // A different agent, with the default one admitted, so a predicate that
+    // asked about one fixed id rather than this agent's cannot pass.
+    [
+      'another agent not admitted',
+      other,
+      { backgroundAdmitted: new Set([background.agentId]) },
+      /was not admitted/,
+    ],
+    [
+      'admitted list empty',
+      background,
+      { backgroundAdmitted: new Set() },
+      /was not admitted/,
+    ],
+    [
+      'no organization minted',
+      background,
+      { fixtureValues: {} },
+      /minted no dev organization/,
+    ],
+    [
+      'no dispatch queue',
+      background,
+      { dispatchQueueUrl: undefined },
+      /JUDGE_DISPATCH_QUEUE_URL/,
+    ],
+  ])(
+    'counts %s as refused, and the arm does refuse it',
+    (_, agent, over, why) => {
+      const arm = env(over)
+      expect(armRefusal(agent, arm)).toMatch(why)
+      expect(refusedBeforeSpend(agent, arm)).toBe(true)
+    },
+  )
+
+  // The arm refuses these too, but a missing bucket is a line the workflow
+  // dropped, not a state it can reach on purpose, so the arm must stay red.
+  it.each<[string, Partial<ArmEnv>, RegExp]>([
+    [
+      'a missing metadata bucket',
+      { metadataBucket: undefined },
+      /JUDGE_METADATA_BUCKET/,
+    ],
+    [
+      'a missing artifact bucket',
+      { artifactBucket: undefined },
+      /JUDGE_ARTIFACT_BUCKET/,
+    ],
+  ])('does not excuse %s', (_, over, why) => {
     const arm = env(over)
-    expect(armRefuses(arm)).toBe(true)
-    expect(refusedBeforeSpend(background, arm)).toBe(true)
+    expect(armRefusal(background, arm)).toMatch(why)
+    expect(refusedBeforeSpend(background, arm)).toBe(false)
   })
 
   it.each<[string, Partial<ArmEnv>]>([
     [
       'admitted, with everything it needs',
-      {
-        backgroundAdmitted: new Set([background.agentId]),
-      },
+      { backgroundAdmitted: new Set([background.agentId]) },
     ],
     ['a local run, which has no admitted list', {}],
   ])('does not count %s, and the arm does dispatch it', (_, over) => {
     const arm = env(over)
-    expect(armRefuses(arm)).toBe(false)
+    expect(armRefusal(background, arm)).toBe('')
     expect(refusedBeforeSpend(background, arm)).toBe(false)
   })
 
@@ -802,11 +849,74 @@ describe('refusedBeforeSpend', () => {
         env({
           backgroundAdmitted: new Set(),
           fixtureValues: {},
-          metadataBucket: undefined,
-          artifactBucket: undefined,
           dispatchQueueUrl: undefined,
         }),
       ),
     ).toBe(false)
+  })
+})
+
+// The arm suite's final check reads this, and that suite never runs in CI, so
+// this is where its rule is held: what it must have captured, by id.
+describe('capturableAgents', () => {
+  const registry: AgentEntry[] = [
+    {
+      agentId: 'chief_of_staff',
+      shape: 'chat',
+      cases: 'cos.json',
+      status: 'wired',
+    },
+    {
+      agentId: 'meeting_briefing',
+      shape: 'background',
+      cases: 'mb.json',
+      status: 'wired',
+    },
+    {
+      agentId: 'self_research',
+      shape: 'background',
+      cases: 'sr.json',
+      status: 'wired',
+    },
+    { agentId: 'no_list', shape: 'chat', cases: null, status: 'wired' },
+    {
+      agentId: 'blocked_one',
+      shape: 'chat',
+      cases: 'b.json',
+      status: 'blocked',
+    },
+  ]
+  const find = (id: string) => registry.find((one) => one.agentId === id)
+
+  it('expects every chat agent with a list, and every admitted background one', () => {
+    expect(
+      capturableAgents(
+        ['chief_of_staff', 'meeting_briefing', 'self_research'],
+        env({ backgroundAdmitted: new Set(['meeting_briefing']) }),
+        find,
+      ),
+    ).toEqual(['chief_of_staff', 'meeting_briefing'])
+  })
+
+  it('leaves out an agent with no list, a blocked one and an unknown id', () => {
+    expect(
+      capturableAgents(
+        ['no_list', 'blocked_one', 'not_an_agent', 'chief_of_staff'],
+        env(),
+        find,
+      ),
+    ).toEqual(['chief_of_staff'])
+  })
+
+  // The case that broke sweeps: nothing background could dispatch, and the
+  // chat agent is still expected — so it is the chat skip that goes red.
+  it('still expects the chat agents when every background one is refused', () => {
+    expect(
+      capturableAgents(
+        ['meeting_briefing', 'chief_of_staff'],
+        env({ fixtureValues: {} }),
+        find,
+      ),
+    ).toEqual(['chief_of_staff'])
   })
 })

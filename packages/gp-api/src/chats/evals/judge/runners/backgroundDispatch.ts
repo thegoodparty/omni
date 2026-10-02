@@ -98,24 +98,50 @@ const modelOf = (config: AgentConfig): string => {
 }
 
 // WHETHER A BACKGROUND AGENT IS REFUSED BY DESIGN, before anything is staged:
-// the sweep did not admit it, minted no organization for it, or has nowhere
-// to dispatch it. Each of those is refused by name further in — by the loader
-// or by backgroundRunInputFor below — and each is an ordinary sweep, not a
-// failed one.
+// the sweep did not admit it, minted no organization for it, or could not
+// resolve the queue to dispatch it to. Each of those is refused by name
+// further in — by the loader or by backgroundRunInputFor below — and each is
+// an ordinary sweep, not a failed one.
 //
-// The arm suite reads this to tell those skips from a capture that broke. It
-// lives here, where CI runs it, because that suite is skipped in CI. An arm
-// that went red over one did worse than refuse: the candidate arm runs only
-// after a green base arm, so every chat agent in the same sweep was billed on
-// one arm and paired with nothing.
+// The queue alone of the three destination values, because it alone is
+// resolved at run time and allowed to fail: judge.yml looks it up and warns
+// when it cannot. The two buckets are written into the workflow, so a
+// missing one is a dropped line, and that stays a red arm.
+//
+// Not the local spend-down refusal. A local run has no admitted list and its
+// loader refuses an agent that overruns the arm, which still turns that run
+// red; CI always resolves an admitted list, so it never reaches that path.
 export const refusedBeforeSpend = (agent: AgentEntry, env: ArmEnv): boolean =>
   agent.shape === 'background' &&
   ((env.backgroundAdmitted !== undefined &&
     !env.backgroundAdmitted.has(agent.agentId)) ||
+    // Also what a mint that silently produced nothing looks like, and it is
+    // meant to: that sweep still judges its chat agents.
     env.fixtureValues.orgSlug === undefined ||
-    env.metadataBucket === undefined ||
-    env.artifactBucket === undefined ||
     env.dispatchQueueUrl === undefined)
+
+// THE AGENTS AN ARM MUST HAVE CAPTURED, for the arm suite's final check. A
+// skip of any of these is paid work that did not happen, and the suite turns
+// it into a red job. Here rather than in the suite, which CI skips, so the
+// rule is exercised where it can fail.
+//
+// An agent refused by design is left out. Red over one, the base arm skips
+// the candidate arm (which runs only after a green base), and every chat
+// agent already paid for on the base pairs with nothing.
+export const capturableAgents = (
+  requested: readonly string[],
+  env: ArmEnv,
+  find: (agentId: string) => AgentEntry | undefined,
+): string[] =>
+  requested.filter((id) => {
+    const entry = find(id)
+    // Explicit rather than left to optional chaining: an id the registry
+    // cannot resolve is refused outright by captureArm, so it can never be
+    // in a manifest and must not be expected there.
+    if (entry === undefined) return false
+    if (refusedBeforeSpend(entry, env)) return false
+    return entry.cases !== null && entry.status !== 'blocked'
+  })
 
 export const backgroundRunInputFor = (
   request: ArmCaseRequest,
