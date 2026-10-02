@@ -27,9 +27,10 @@ import {
 //   bio / why they serve  -> PersonProfile.bioOverride / whyRunning, via
 //                            OutreachServeComposeContextService
 //   published priorities  -> visible PersonProfileIssues, same service
-//   decision / event / resource details -> not modeled; the prompts ask for
-//                            a square-bracket placeholder instead of an
-//                            invented specific
+//   event date/time/place -> eventDetailsContext, from the flow's event
+//                            details step
+//   decision / resource details -> not modeled; the prompts leave a missing
+//                            specific out rather than invent or bracket it
 
 const SERVE_PURPOSE_GOALS: Record<ServeOutreachPurpose, string> = {
   introduce_myself:
@@ -77,14 +78,13 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeOutreachPurpose, string> = {
     'inviting questions or disagreement by reply. Never invent the ' +
     'outcome, the tally, or a justification the materials do not ' +
     'contain, and never name or criticize a colleague. Where a ' +
-    'specific is missing, leave a short square-bracket placeholder for ' +
-    'the official to fill in.',
+    'specific is missing, write around it.',
   event_invite:
     'Structure: a warm invitation naming why the gathering matters to ' +
-    'the neighborhood; then a details line the official fills in ' +
-    'before sending, formatted exactly as "📅 [Date] | 🕐 [Time] | 📍 ' +
-    '[Location]"; then a reply-to-RSVP ask. Never invent event ' +
-    'specifics.',
+    'the neighborhood; then one details line with the event details ' +
+    'given below, formatted as "📅 <date> | 🕐 <time> | 📍 <location>"; ' +
+    'leave the line out entirely if no event details are given; then a ' +
+    'reply-to-RSVP ask. Never invent event specifics.',
   community_input:
     'Structure: name the issue or upcoming decision in the first line; ' +
     'then one or two sentences on why the official wants to hear from ' +
@@ -96,11 +96,11 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeOutreachPurpose, string> = {
   share_resource:
     'Structure: name the program, service, or resource in the first ' +
     'line; then one or two sentences on who it helps and what it does; ' +
-    'then a closing line on how to get it — a number to call, a place ' +
-    'to go, or a date — as short square-bracket placeholders like ' +
-    '[phone number] unless the materials provide them; then invite a ' +
-    'reply from anyone who needs help getting access. Never invent ' +
-    'eligibility rules, deadlines, or contact details.',
+    'then a closing line on how to get it (a number to call, a place ' +
+    'to go, or a date) only as the materials give it, leaving out ' +
+    'whatever they do not; then invite a reply from anyone who needs ' +
+    'help getting access. Never invent eligibility rules, deadlines, or ' +
+    'contact details.',
   custom: '',
 }
 
@@ -123,16 +123,14 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
   '- Invite responses as replies to this message ("You can reply here',
   '  with questions") — never "text me back" or "call me": the',
   '  message is sent from a temporary number.',
-  '- Square-bracket placeholders are ONLY for missing LOGISTICS —',
-  '  meeting times, dates, locations, phone numbers. Use short ones',
-  '  like [time] or [date] rather than inventing real-sounding',
-  '  specifics.',
-  '- NEVER use a placeholder for substance: priorities, positions,',
+  '- Never write a square-bracket placeholder, for logistics or for',
+  '  substance. Meeting times, dates, locations and phone numbers come',
+  '  only from the event details or the materials; leave out any they',
+  '  do not give rather than inventing real-sounding specifics.',
+  '- Never fill a gap in substance either: priorities, positions,',
   '  accomplishments, reasons, or anything about what the official',
-  '  stands for. A bracketed priority is worse than no priority — it',
-  '  ships the official a form to fill in and reads as unfinished. If',
-  '  the materials do not contain these, leave the section out',
-  '  entirely and write what the materials DO support.',
+  '  stands for. If the materials do not contain these, leave the',
+  '  section out entirely and write what the materials DO support.',
   '- The app has ALREADY written the greeting and identification above',
   '  your text ("Hi, this is <name>, your <office>."). Do not greet, do',
   '  not name the official, and do not restate the office — an opening',

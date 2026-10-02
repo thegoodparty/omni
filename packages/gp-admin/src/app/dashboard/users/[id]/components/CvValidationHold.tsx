@@ -5,7 +5,7 @@ import { Button, Checkbox, Flex, Link, Text } from '@radix-ui/themes'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { useCvHoldOverride } from '@/app/dashboard/campaigns/components/useCvHoldOverride'
-import { EditFilingUrlAction } from './EditFilingUrlAction'
+import { EditFilingUrlAction } from '@/app/dashboard/campaigns/components/EditFilingUrlAction'
 
 interface CvValidationHoldProps {
   campaignId: number

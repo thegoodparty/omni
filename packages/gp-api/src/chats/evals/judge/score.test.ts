@@ -515,6 +515,27 @@ describe("cannot_determine and CAN'T SAY", () => {
     expect(result.labelNote).toMatch(/could not tell on 50%/)
   })
 
+  // THE BACKGROUND BUDGET LANDS UNDER THE FLOOR — checked against the gate
+  // itself rather than restated as `3 < 20`. The number of judgments is
+  // DERIVED from the budget, and every one of them is a unanimous win, so the
+  // gate is the only thing standing between this and a confident BETTER. A
+  // budget change that clears the floor turns this red, which is the point:
+  // background verdicts would then start reading as conclusive.
+  it('gates a comparison at the background budget, however clear it looks', () => {
+    const { attemptsPerCase, maxCases } = DEFAULT_JUDGE_CONFIG.background
+    expect(maxCases).toBeDefined()
+    const pairs = (maxCases ?? 0) * attemptsPerCase
+    const judgments = Array.from({ length: pairs }, (_, i) =>
+      judgment({ caseId: `case-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'X' }),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+    })
+    expect(result.overall.delta).toBe(1)
+    expect(result.label).toBe("CAN'T SAY")
+    expect(result.labelNote).toMatch(/below the floor of 20/)
+  })
+
   it('gates below the case-count floor whatever the delta says', () => {
     const judgments = Array.from({ length: 5 }, (_, i) =>
       judgment({ caseId: `case-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'X' }),

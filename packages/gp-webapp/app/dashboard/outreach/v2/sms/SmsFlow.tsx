@@ -5,7 +5,9 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   OutreachDetail,
+  OutreachEventDetails,
   OutreachReceipt,
+  ProposalEvent,
   RecommendedList,
   RecommendedListVariant,
   ServeSmsDraftRequest,
@@ -75,6 +77,12 @@ import {
   SERVE_SMS_PURPOSES,
   serveSmsPurposeNameSuggestion,
 } from '../serveSmsPurposes'
+import { EventDetailsStep } from '../EventDetailsStep'
+import {
+  EVENT_DETAILS_TITLE,
+  isEventInvite,
+  useEventDetails,
+} from '../eventDetails'
 import { SMS_PURPOSE_INTRO_BODY, SmsPurposeStep } from './SmsPurposeStep'
 import {
   NAME_ONLY_COPY,
@@ -102,7 +110,13 @@ import {
   type ServeSmsCreateFn,
 } from './useServeSmsSend'
 
-type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review'
+type StepId =
+  | 'purpose'
+  | 'details'
+  | 'audience'
+  | 'schedule'
+  | 'compose'
+  | 'review'
 const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
@@ -126,6 +140,7 @@ const VERIFY_BUILD_STEP_ORDER: StepId[] = [...PRO_BUILD_STEP_ORDER, 'review']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
+  details: EVENT_DETAILS_TITLE,
   audience: 'Who do you want to reach?',
   schedule: 'When do you want to send?',
   compose: 'What do you want to say?',
@@ -183,6 +198,7 @@ interface SmsFlowDraftInput {
   purpose: SmsFlowPurpose
   tone: SocialTone
   currentDraft?: string
+  event?: OutreachEventDetails
 }
 
 // A caller-supplied surface parametrizes the purpose cards and their intro,
@@ -296,6 +312,9 @@ interface SmsFlowProps {
   // AI-drafts, so the seeded words are what they edit rather than something
   // a draft immediately overwrites.
   initialScript?: string
+  // What an agent's proposal knows about the event it invites people to; the
+  // details step opens on it.
+  initialEvent?: ProposalEvent
   preselectedListId?: number
   // An audience a chat card counted but did not save: the audience step
   // opens on the list builder already filled in, and saves it when the
@@ -472,6 +491,7 @@ export const SmsFlow = ({
   surface = WIN_SMS_SURFACE,
   campaignPlanDueDate,
   tracker,
+  initialEvent,
   source,
   initialScript,
   proposedAudience,
@@ -494,6 +514,15 @@ export const SmsFlow = ({
 
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsFlowPurpose | null>(null)
+  const eventDetails = useEventDetails({
+    enabled: open && isEventInvite(purpose),
+    isServe: surface.isServe,
+    proposed: initialEvent,
+  })
+  const { reset: resetEventDetails } = eventDetails
+  // The details the current body was written from: changing them on the way
+  // back through the details step makes that body stale.
+  const confirmedEventRef = useRef<string | null>(null)
   const [tone, setTone] = useState<SocialTone>('warm')
   const [body, setBody] = useState('')
   const [manuallyEdited, setManuallyEdited] = useState(false)
@@ -581,11 +610,16 @@ export const SmsFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
-  const stepOrder = !buildMode
+  const baseStepOrder = !buildMode
     ? STEP_ORDER
     : gate.requirement === 'pro'
       ? PRO_BUILD_STEP_ORDER
       : VERIFY_BUILD_STEP_ORDER
+  const stepOrder: StepId[] = isEventInvite(purpose)
+    ? baseStepOrder.flatMap((id) =>
+        id === 'purpose' ? ['purpose', 'details'] : [id],
+      )
+    : baseStepOrder
 
   // Reference equality against the Win singleton, not a purpose check:
   // recommended lists are Win-only (the endpoint 400s an eo- org outright),
@@ -639,11 +673,17 @@ export const SmsFlow = ({
     setStepId(
       resumeDraft
         ? 'schedule'
-        : initialScript || carriedPurpose
+        : initialScript
           ? 'audience'
-          : 'purpose',
+          : carriedPurpose
+            ? isEventInvite(carriedPurpose)
+              ? 'details'
+              : 'audience'
+            : 'purpose',
     )
     setPurpose(initialScript ? 'custom' : carriedPurpose)
+    resetEventDetails()
+    confirmedEventRef.current = null
     setTone('warm')
     setBody(initialScript ?? '')
     seedUncheckedRef.current = Boolean(initialScript)
@@ -672,6 +712,7 @@ export const SmsFlow = ({
     open,
     resetDraftMutation,
     resetAudience,
+    resetEventDetails,
     initialScript,
     preselectedRecommendedVariant,
     resumeDraft,
@@ -884,11 +925,13 @@ export const SmsFlow = ({
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draftMutation.mutate(
       {
         purpose: nextPurpose,
         tone: nextTone,
         ...(currentDraft === undefined ? {} : { currentDraft }),
+        ...(event ? { event } : {}),
       },
       {
         onSuccess: (generated) => {
@@ -923,6 +966,21 @@ export const SmsFlow = ({
     setBody('')
     setToneDrafts({})
     resetDraftMutation()
+    confirmedEventRef.current = null
+    setStepId(isEventInvite(selected) ? 'details' : 'audience')
+  }
+
+  const handleEventDetailsContinue = () => {
+    const confirmed = JSON.stringify(eventDetails.event)
+    if (confirmedEventRef.current !== confirmed) {
+      confirmedEventRef.current = confirmed
+      draftRequestRef.current += 1
+      setBody('')
+      setToneDrafts({})
+      setUndoText(null)
+      setManuallyEdited(false)
+      resetDraftMutation()
+    }
     setStepId('audience')
   }
 
@@ -1325,7 +1383,7 @@ export const SmsFlow = ({
 
   const reviewGateCta =
     gate.requirement !== null ? REVIEW_GATE_CTA[gate.requirement] : undefined
-  const cta: FlowShellCta | null = scheduled
+  const baseCta: FlowShellCta | null = scheduled
     ? null
     : // The gate screens carry their own buttons.
       gateOpen
@@ -1461,6 +1519,15 @@ export const SmsFlow = ({
                       }
                     : null
 
+  const cta: FlowShellCta | null =
+    stepId === 'details' && !scheduled && !gateOpen
+      ? {
+          label: 'Continue',
+          onClick: handleEventDetailsContinue,
+          disabled: eventDetails.event === null,
+        }
+      : baseCta
+
   // Mirrors the review step's isFree: a free send reads "Review and send" /
   // "Schedule campaign" instead of the pay vocabulary (design prototype).
   const isFreeSend =
@@ -1585,6 +1652,13 @@ export const SmsFlow = ({
           onSelect={handleSelectPurpose}
           purposes={surface.purposes}
           introBody={surface.purposeIntroBody}
+        />
+      ) : stepId === 'details' ? (
+        <EventDetailsStep
+          details={eventDetails.details}
+          onChange={eventDetails.setDetails}
+          destination="message"
+          prefillNote={eventDetails.prefillNote}
         />
       ) : stepId === 'audience' ? (
         <>

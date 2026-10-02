@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -387,6 +387,124 @@ describe('SmsFlow', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('Receipt')).not.toBeInTheDocument()
     expect(receiptCalls).toBe(0)
+  })
+
+  describe('event invite details', () => {
+    const fillEventDetails = (date: string, time: string, location: string) => {
+      fireEvent.change(screen.getByLabelText('Date'), {
+        target: { value: date },
+      })
+      fireEvent.change(screen.getByLabelText('Start time'), {
+        target: { value: time },
+      })
+      fireEvent.change(screen.getByLabelText('Location'), {
+        target: { value: location },
+      })
+    }
+
+    it('asks for the details, drafts with them, and lands a draft with nothing to fill', async () => {
+      const calls: SmsDraftRequest[] = []
+      api.mock('POST /v1/outreach/sms/draft', ({ body }) => {
+        calls.push(body)
+        return {
+          status: 200,
+          data: {
+            draft:
+              'Join us for a neighborhood meet and greet.\n' +
+              `📅 Saturday, September 12 | 🕐 6:30 PM | 📍 ${body.event?.location}\n` +
+              'Reply here to RSVP.',
+          },
+        }
+      })
+      openFlow()
+
+      await userEvent.click(screen.getByText('Invite voters to a local event'))
+
+      expect(
+        await screen.findByRole('heading', {
+          level: 3,
+          name: 'When and where is the event?',
+        }),
+      ).toBeInTheDocument()
+      const continueButton = () =>
+        screen.getByRole('button', { name: 'Continue' })
+      expect(continueButton()).toBeDisabled()
+
+      fillEventDetails('2026-08-20', '18:30', 'Georgetown Public Library')
+      expect(screen.getByText(/That date has passed/)).toBeInTheDocument()
+      expect(continueButton()).toBeDisabled()
+
+      fillEventDetails('2026-09-12', '18:30', 'Georgetown Public Library')
+      expect(continueButton()).toBeEnabled()
+      await userEvent.click(continueButton())
+
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(continueButton())
+
+      expect(
+        await screen.findByText(/📍 Georgetown Public Library/),
+      ).toBeInTheDocument()
+      expect(calls).toHaveLength(1)
+      expect(calls[0]).toMatchObject({
+        purpose: 'event_invite',
+        event: {
+          date: '2026-09-12',
+          time: '18:30',
+          location: 'Georgetown Public Library',
+        },
+      })
+      expect(screen.queryByText(/Replace them with the real details/)).toBe(
+        null,
+      )
+      await attachImage()
+      await waitFor(() => expect(continueButton()).toBeEnabled())
+    })
+
+    it('opens the details on what an agent handed in', async () => {
+      mockDraft()
+      render(
+        <SmsFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          initialEvent={{
+            date: '2026-09-15',
+            time: '19:00',
+            location: 'Main Street Park',
+          }}
+        />,
+      )
+
+      await userEvent.click(screen.getByText('Invite voters to a local event'))
+
+      expect(await screen.findByLabelText('Date')).toHaveValue('2026-09-15')
+      expect(screen.getByLabelText('Start time')).toHaveValue('19:00')
+      expect(screen.getByLabelText('Location')).toHaveValue('Main Street Park')
+      expect(screen.getByText(/We filled in what we know/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    })
+
+    it('skips the details step for every other purpose', async () => {
+      mockDraft()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+
+      expect(
+        (await screen.findAllByText('Who do you want to reach?')).length,
+      ).toBeGreaterThan(0)
+      expect(screen.queryByText('When and where is the event?')).toBe(null)
+    })
   })
 
   // The compose chip reads as the words that open the text ("Hello Sam,"),

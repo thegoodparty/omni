@@ -1,3 +1,4 @@
+import { ProposalEventSchema } from '../outreach/OutreachEvent.schema'
 import { z } from 'zod'
 import { SupportStatusRollupSchema } from '../generated/enums'
 import {
@@ -100,6 +101,12 @@ export type ProposalAudienceFilters = z.infer<
  */
 export const OutreachProposalSchema = z.object({
   proposalKey: z.string().uuid(),
+  event: ProposalEventSchema.optional().describe(
+    'For an event invite: the date (YYYY-MM-DD), start time (24-hour HH:MM) ' +
+      'and location you know. Write the same details into the message. ' +
+      'Leave out any part you do not know; never guess one or leave a ' +
+      'placeholder for it.',
+  ),
   audience: z.string().min(1),
   count: z.number().int().nonnegative(),
   channel: ProposalChannelSchema,

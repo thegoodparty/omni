@@ -109,29 +109,68 @@ _MAX_LOGGED_TOKEN_COUNT = 2**53 - 1
 USAGE_SCHEMA_VERSION = 1
 
 
-def _price_turn(model: str, usage: object) -> float | None:
-    """Dollar cost of one turn from its per-call token usage, or None when the
-    model has no rate on record.
+# The billed classes the API types as nullable (`Optional[int]` in the
+# Anthropic SDK's Usage). Every other class is a required int.
+_NULLABLE_USAGE_KEYS = frozenset({"cache_creation_input_tokens", "cache_read_input_tokens"})
+
+
+def _priced_turn(model: str, usage: object) -> tuple[float | None, str | None]:
+    """Dollar cost of one turn, or (None, why) when it was never observed.
 
     Each token class is priced at its own rate and summed — never sum raw
     input tokens across turns, since prompt caching re-bills the growing
     context as cheap cache-reads each turn.
 
-    None rather than 0.0 for an unknown model, because this figure is what a
-    timed-out run is billed at and zero is a legal cost: a run on an unlisted
-    model would otherwise print "$0.00" for the most expensive failure there
-    is. Same reasoning as `_usage_counts` applied to a rate instead of a count
-    — omit the unobserved thing, never substitute zero for it. The other way
-    to be wrong is to borrow a neighbouring model's rate, which is what the
-    judge's pricing.ts exists to forbid.
+    None rather than 0.0 whenever the cost was not observed, because this
+    figure is what a timed-out run is billed at and zero is a legal cost:
+    $0.00 printed for an unobserved turn is the most expensive kind of
+    failure looking free. Three ways a turn goes unobserved:
+
+    - The model has no rate on record. Borrowing a neighbour's rate is the
+      other way to be wrong, and the judge's pricing.ts exists to forbid it.
+    - The turn carried no usage object at all. Nothing was reported, so
+      nothing was measured; pricing it at zero substitutes a number for an
+      absence, which `_usage_counts` refuses to do for a single count.
+    - A count WAS reported but could not be read (garbled, negative, or past
+      the safe-integer bound). Pricing the rest would be a sum missing a term
+      — understated while looking whole, which is exactly what
+      `get_accumulated_cost` refuses to report for the run. No count is
+      fabricated either way; the choice is between a wrong number and none.
+
+    A key the usage object does not carry is NOT unobserved: the CLI omits
+    classes that were not billed. Nor is a null cache count, which the API
+    sends when no cache was involved. Either way the class contributes
+    nothing; treating it as unobserved would withhold every uncached run's
+    cost. A null in a REQUIRED class is different — see below.
 
     Cannot raise, for the same reason `_usage_counts` cannot.
     """
     rates = next((v for k, v in _PRICE_PER_MTOK.items() if k in (model or "").lower()), None)
     if rates is None:
-        return None
+        return None, f"no rate on record for model {model or 'unknown'!r} (add it to _PRICE_PER_MTOK)"
+    if not isinstance(usage, dict):
+        return None, "a turn reported no usage, so its cost was never observed"
     counts = _usage_counts(usage) or {}
-    return sum(count * rates[_USAGE_TOKEN_KEYS[key]] for key, count in counts.items()) / 1_000_000
+    # A null is "not applicable" ONLY for the two classes the API types as
+    # nullable. The Anthropic SDK declares cache_creation_input_tokens and
+    # cache_read_input_tokens `Optional[int]` — null there means no cache was
+    # involved — but input_tokens and output_tokens are required ints. A null
+    # in one of THOSE is a count the API always reports arriving unreadable,
+    # and pricing the turn without it is the silent understatement this check
+    # exists to stop.
+    unreadable = sorted(
+        key
+        for key in _USAGE_TOKEN_KEYS
+        if key in usage and not (usage[key] is None and key in _NULLABLE_USAGE_KEYS) and key not in counts
+    )
+    if unreadable:
+        return None, f"a turn reported token counts that could not be read: {', '.join(unreadable)}"
+    return sum(count * rates[_USAGE_TOKEN_KEYS[key]] for key, count in counts.items()) / 1_000_000, None
+
+
+def _price_turn(model: str, usage: object) -> float | None:
+    """The cost alone, for callers that do not need to say why it is missing."""
+    return _priced_turn(model, usage)[0]
 
 
 def _usage_counts(usage: object) -> dict[str, int] | None:
@@ -582,17 +621,18 @@ async def run_agent(
     async for message in query(prompt=prompt, options=options):
         if isinstance(message, AssistantMessage):
             message_count += 1
-            turn_cost = _price_turn(message.model, message.usage)
+            turn_cost, unpriced = _priced_turn(message.model, message.usage)
             if turn_cost is None:
-                # Named here because this is the only place the model string
-                # exists; the accumulator downstream only knows that some turn
-                # went unpriced.
+                # The reason comes from the pricer rather than being assumed
+                # here: a turn can go unpriced for a missing rate, a missing
+                # usage object, or an unreadable count, and only the first is
+                # fixed by touching _PRICE_PER_MTOK.
+                reason = unpriced or "turn cost was not observed"
                 logger.warning(
-                    f"no rate on record for model {message.model!r} (session={session_id}); "
-                    "turn omitted from the running cost estimate rather than billed at $0 — "
-                    "add it to _PRICE_PER_MTOK"
+                    f"turn omitted from the running cost estimate rather than billed at $0 "
+                    f"(session={session_id}): {reason}"
                 )
-                _unobserved_cost_reasons.add(f"no rate on record for model {message.model or 'unknown'!r}")
+                _unobserved_cost_reasons.add(reason)
             else:
                 _accumulated_cost_usd += turn_cost
             content_blocks = []

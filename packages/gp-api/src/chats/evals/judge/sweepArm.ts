@@ -55,14 +55,6 @@ export interface CaptureArmDeps {
   config?: JudgeConfig
 }
 
-// Named rather than silent. An agent that quietly produced no records is
-// indistinguishable downstream from an agent that found nothing to compare,
-// and the second is a finding while the first is a gap.
-const BACKGROUND_NOT_WIRED =
-  'the background runner has not landed yet, so a background agent cannot ' +
-  'be driven from this suite; it is skipped rather than failed so the chat ' +
-  'agents in the same sweep still produce a verdict'
-
 export class ArmCaptureError extends Error {}
 
 // A skip reason ends up in the manifest, then in a refusal, then in
@@ -231,6 +223,72 @@ const captureAgent = async (
   }
 }
 
+// Background takes its own number. Read here rather than at the config so the
+// manifest's `attempts` field records what the agent was ACTUALLY walked
+// with — a manifest saying 3 for an agent walked once is the kind of
+// discrepancy that is only noticed while reading a verdict that disagrees
+// with the bill.
+export const attemptsFor = (agent: AgentEntry, config: JudgeConfig): number =>
+  agent.shape === 'background'
+    ? config.background.attemptsPerCase
+    : config.attemptsPerCase
+
+// ONE RUN: drive it, validate what came back, write it.
+//
+// Validated here as well as in the runner, because `runCase` is injected:
+// whatever satisfies the seam has to produce a record this store will accept,
+// and finding that out at write time would leave a half-captured arm behind a
+// schema error.
+//
+// A plain Error, so the per-agent catch in `captureArm` turns it into a named
+// skip. A runner that cannot produce a valid record is broken, but it is one
+// agent's runner and the rest of the sweep is still worth having.
+const runOne = async (
+  deps: CaptureArmDeps,
+  request: ArmCaseRequest,
+  progress: { recordsWritten: number },
+): Promise<void> => {
+  const parsed = RunRecordSchema.safeParse(await deps.runCase(request))
+  if (!parsed.success) {
+    throw new Error(
+      `the runner produced an invalid record for ${request.case.caseId} ` +
+        `attempt ${request.attempt}: ` +
+        describeIssues(parsed.error.issues),
+    )
+  }
+  assertAnswersRequest(parsed.data, request)
+  await deps.store.putRecord(parsed.data)
+  progress.recordsWritten += 1
+}
+
+const requestsFor = (
+  env: ArmEnv,
+  agent: AgentEntry,
+  list: CaseList,
+  attemptsPerCase: number,
+): ArmCaseRequest[] =>
+  list.cases.flatMap((judgeCase) =>
+    Array.from({ length: attemptsPerCase }, (_, i) => ({
+      agent,
+      case: judgeCase,
+      attempt: i + 1,
+      sweepId: env.sweepId,
+      arm: env.arm,
+      variant: variantFor(env),
+      spends: env.spends,
+    })),
+  )
+
+// THE PROBE armBudget.ts READS ON THE BASE REF, and the promises behind it:
+// this arm starts every run of every admitted background agent at once, and
+// its run ids name the agent (judgeRunId), so two agents sharing a case id
+// can run in the same wave.
+// Admission is sized to that, one wave that fits the arm, and a base arm that
+// walked them one after another would take several times the budget. So
+// armBudget.ts admits by the wave only against a base that declares this, and
+// by the old one-after-another spend-down against a base that does not.
+export const BACKGROUND_WALKS_CONCURRENTLY = true
+
 const walkCases = async (
   deps: CaptureArmDeps,
   env: ArmEnv,
@@ -239,39 +297,25 @@ const walkCases = async (
   attemptsPerCase: number,
   progress: { recordsWritten: number },
 ): Promise<void> => {
-  for (const judgeCase of list.cases) {
-    for (let attempt = 1; attempt <= attemptsPerCase; attempt += 1) {
-      const request: ArmCaseRequest = {
-        agent,
-        case: judgeCase,
-        attempt,
-        sweepId: env.sweepId,
-        arm: env.arm,
-        variant: variantFor(env),
-        spends: env.spends,
-      }
-      // Validated here as well as in the runner, because `runCase` is
-      // injected: whatever satisfies the seam has to produce a record this
-      // store will accept, and finding that out at write time would leave a
-      // half-captured arm behind a schema error.
-      //
-      // A plain Error, so the per-agent catch in `captureArm` turns it into
-      // a named skip. A runner that cannot produce a valid record is broken,
-      // but it is one agent's runner and the rest of the sweep is still
-      // worth having.
-      const parsed = RunRecordSchema.safeParse(await deps.runCase(request))
-      if (!parsed.success) {
-        throw new Error(
-          `the runner produced an invalid record for ${judgeCase.caseId} ` +
-            `attempt ${attempt}: ` +
-            describeIssues(parsed.error.issues),
-        )
-      }
-      assertAnswersRequest(parsed.data, request)
-      await deps.store.putRecord(parsed.data)
-      progress.recordsWritten += 1
-    }
+  const requests = requestsFor(env, agent, list, attemptsPerCase)
+  if (agent.shape !== 'background') {
+    // One at a time. A chat case runs inside this process against the test
+    // app and its one database, and a seeded transcript is per case.
+    for (const request of requests) await runOne(deps, request, progress)
+    return
   }
+  // EVERY RUN AT ONCE. A background run is a Fargate task this process only
+  // waits on, so the wait is the cost, and waits overlap. All of them are
+  // SETTLED before anything is thrown: each one is already dispatched and
+  // billing, and one that failed early must not abandon the polls of the
+  // rest, whose records are still worth writing.
+  const settled = await Promise.allSettled(
+    requests.map((request) => runOne(deps, request, progress)),
+  )
+  const failed = settled.find(
+    (one): one is PromiseRejectedResult => one.status === 'rejected',
+  )
+  if (failed !== undefined) throw failed.reason
 }
 
 export const captureArm = async (
@@ -295,34 +339,81 @@ export const captureArm = async (
     )
   }
 
-  const agents: ArmAgent[] = []
-  const skipped: ArmSkip[] = selection.blocked.map((agent) => ({
-    agentId: agent.agentId,
-    reason: agent.blockedReason ?? 'blocked with no reason on record',
-  }))
+  const captured = new Map<string, ArmAgent>()
+  const failed = new Map<string, ArmSkip>()
+  let fatal: ArmCaptureError | undefined
 
-  for (const agent of selection.selected) {
-    if (agent.shape === 'background') {
-      skipped.push({ agentId: agent.agentId, reason: BACKGROUND_NOT_WIRED })
-      continue
-    }
+  const settle = async (
+    agent: AgentEntry,
+    capture: () => Promise<ArmAgent>,
+  ): Promise<void> => {
     try {
-      const list = loadCases(agent)
-      agents.push(
-        await captureAgent(deps, env, agent, list, config.attemptsPerCase),
-      )
+      captured.set(agent.agentId, await capture())
     } catch (err) {
       // One agent's capture failing leaves the others usable, which the design
       // asks for explicitly. The reason is carried into the manifest so the
       // report says which agent failed and why, rather than showing an agent
       // with fewer cases than it was billed for.
-      if (err instanceof ArmCaptureError) throw err
-      skipped.push({
+      if (err instanceof ArmCaptureError) {
+        fatal ??= err
+        return
+      }
+      failed.set(agent.agentId, {
         agentId: agent.agentId,
         reason: scrubReason(err instanceof Error ? err.message : String(err)),
       })
     }
   }
+
+  // EVERY BACKGROUND AGENT STARTS FIRST, AND NONE IS AWAITED; then the chat
+  // agents walk one after another while those runs are out. So the arm takes
+  // as long as the longer of the two, not their sum. First, rather than in
+  // walk order with the chat agents: a chat agent listed between two
+  // background ones would hold the second back until it finished, splitting
+  // the one wave admission sized the arm for into two that add up.
+  //
+  // `loadCases` still runs for the background agents in their walk order,
+  // before the first await in `settle`, because a local run's loader spends
+  // its slots down in that order.
+  const background: Promise<void>[] = []
+  const walk = (agent: AgentEntry) =>
+    settle(agent, () =>
+      captureAgent(
+        deps,
+        env,
+        agent,
+        loadCases(agent),
+        attemptsFor(agent, config),
+      ),
+    )
+  for (const agent of selection.selected) {
+    if (agent.shape !== 'background') continue
+    background.push(walk(agent))
+    if (fatal !== undefined) break
+  }
+  for (const agent of selection.selected) {
+    if (fatal !== undefined) break
+    if (agent.shape === 'background') continue
+    await walk(agent)
+  }
+  // Every dispatched run is waited out before the arm either throws or writes
+  // its manifest. Thrown with polls still open, the process would exit under
+  // tasks that keep running and billing, and their records would be lost.
+  await Promise.all(background)
+  if (fatal !== undefined) throw fatal
+
+  // In walk order, whatever order they finished in, so a manifest does not
+  // depend on which Fargate task happened to be quicker.
+  const agents = selection.selected.flatMap(
+    (agent) => captured.get(agent.agentId) ?? [],
+  )
+  const skipped: ArmSkip[] = [
+    ...selection.blocked.map((agent) => ({
+      agentId: agent.agentId,
+      reason: agent.blockedReason ?? 'blocked with no reason on record',
+    })),
+    ...selection.selected.flatMap((agent) => failed.get(agent.agentId) ?? []),
+  ]
 
   const variant = variantFor(env)
   const manifest: ArmManifest = {

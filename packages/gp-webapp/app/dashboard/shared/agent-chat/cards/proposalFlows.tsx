@@ -210,6 +210,7 @@ export const ProposalFlowsProvider = ({
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
           initialScript={proposal.message}
+          {...(proposal.event && { initialEvent: proposal.event })}
           initialName={proposalListName(proposal).slice(
             0,
             PHONE_BANKING_NAME_MAX_LENGTH,
@@ -227,6 +228,7 @@ export const ProposalFlowsProvider = ({
           onScheduled={async () => settled()}
           surface={SERVE_SMS_SURFACE}
           initialScript={proposal.message}
+          {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
           proposalLink={linkOf(opened)}

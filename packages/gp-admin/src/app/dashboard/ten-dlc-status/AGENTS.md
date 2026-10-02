@@ -41,9 +41,12 @@ there, not here — this page only renders.
   - Local resolvers can lie under the GoodParty VPN — verify DNS with
     `dig @8.8.8.8`.
 - **Rejected / stuck submission with a CV hold** — the row actions here
-  (CV override, resend PIN) call real gp-api admin endpoints; a SQL
-  filing-url swap alone never clears a CV hold, always override after a
-  swap.
+  (CV override, resend PIN, Edit filing link) call real gp-api admin
+  endpoints. A bad filing URL gets the Edit action (rows with a filing URL
+  and no Peerly identity): it clears the hold server-side and resubmits, so
+  no override is needed. The override is for a URL that is actually correct
+  but the validator can't read. A SQL filing-url swap alone never clears a
+  CV hold — use the Edit action, or override after a swap.
 - **Amber buckets** (CV IN_REVIEW, waiting_to_finalize) — already escalated
   to Peerly by the weekday 11am job; silence from that job means the claims
   were consumed, not that it is broken.
