@@ -64,7 +64,11 @@ data "aws_region" "current" {}
 #      correct expression of "only this judge's own runs" — it still refuses
 #      every artifact belonging to a real experiment run.
 #
-#   3. SendMessage on the dispatch queue. Send only: the sweep never receives,
+#   3. SendMessage on the dispatch queue, and GetQueueUrl on it, which is how
+#      judge.yml finds the queue to send to: a lookup on the one queue,
+#      returning its URL and nothing else. Without it the lookup fails, the
+#      sweep has nowhere to dispatch, and every background agent is refused.
+#      Send only otherwise: the sweep never receives,
 #      deletes, or changes queue attributes.
 #
 #   4. ListBucket on both buckets, which is NOT about enumeration and is the
@@ -148,7 +152,7 @@ resource "aws_iam_policy" "judge_sweep" {
       {
         Sid    = "DispatchJudgeRuns"
         Effect = "Allow"
-        Action = ["sqs:SendMessage"]
+        Action = ["sqs:SendMessage", "sqs:GetQueueUrl"]
         Resource = [
           "arn:aws:sqs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:${local.dispatch_queue}"
         ]

@@ -846,6 +846,48 @@ describe('the judge role trusts exactly judge.yml on main', () => {
   })
 })
 
+// WHAT judge.yml ASKS AWS FOR, THE POLICY HAS TO GRANT. The first live
+// background sweep assumed the role and then could not look the dispatch queue
+// up, because the policy granted SendMessage and not GetQueueUrl, so every
+// background agent was refused. Pinned from both files, so neither can drift.
+describe('the judge policy grants what the sweep job calls', () => {
+  const POLICY = path.resolve(
+    __dirname,
+    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
+  )
+  const tf = readFileSync(POLICY, 'utf8')
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const statement = (sid: string): string => {
+    // Alignment is terraform fmt's, so it moves with the neighbouring keys.
+    const at = tf.search(new RegExp(`Sid\\s*=\\s*"${sid}"`))
+    expect(at, `no ${sid} statement`).toBeGreaterThan(-1)
+    // To the end of the Resource list: an ARN interpolates `${...}`, so the
+    // first `}` is inside it, not the statement's end.
+    return tf.slice(at, tf.indexOf(']', tf.indexOf('Resource', at)) + 1)
+  }
+  const actions = (sid: string): string[] =>
+    [
+      ...(/Action\s*=\s*\[([^\]]*)\]/.exec(statement(sid))?.[1] ?? '').matchAll(
+        /"([^"]+)"/g,
+      ),
+    ].map((match) => match[1] ?? '')
+
+  it('grants the queue lookup the sweep job runs', () => {
+    expect(yaml).toContain('aws sqs get-queue-url --queue-name "$queue"')
+    expect(actions('DispatchJudgeRuns')).toContain('sqs:GetQueueUrl')
+  })
+
+  // Send and look up, nothing else: receiving or deleting would let a sweep
+  // consume the queue the platform dispatches real runs from.
+  it('grants the dispatch queue nothing but send and look up', () => {
+    expect(actions('DispatchJudgeRuns').sort()).toEqual([
+      'sqs:GetQueueUrl',
+      'sqs:SendMessage',
+    ])
+    expect(statement('DispatchJudgeRuns')).toContain('${local.dispatch_queue}')
+  })
+})
+
 // ONE BACKGROUND BUDGET, AND ONE ADMITTED LIST, FOR BOTH ARMS. The base arm
 // reads the base ref's config.ts and manifests, so a budget or an admission
 // each arm decided for itself would differ whenever a branch changed either.
