@@ -1799,6 +1799,10 @@ export class ContactsService {
   // everyone its criteria match, resolved exactly as a count of the same
   // criteria is. Null when the audience is no bigger than the sample, so the
   // caller saves it whole, which is what the official was told would happen.
+  //
+  // A widened sample is the exception. When everyone not already asked fits
+  // in it, it holds all of them, frozen, and never null: a live filter has no
+  // exclusions, so saving it whole would text the earlier sample again.
   async drawListSample(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,

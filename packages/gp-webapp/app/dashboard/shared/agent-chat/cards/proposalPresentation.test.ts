@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { proposalListSample } from './proposalPresentation'
+import { proposalListSample, proposalSampleLine } from './proposalPresentation'
 
 const KEY = '3f2c1a90-1111-4222-8333-444455556666'
 
@@ -30,5 +30,44 @@ describe('proposalListSample', () => {
     expect(
       proposalListSample({ proposalKey: KEY, count: 300, sampleSize: 300 }),
     ).toBeUndefined()
+  })
+
+  it('draws a widen even with no sample to size it, so the asked stay out', () => {
+    expect(
+      proposalListSample({
+        proposalKey: KEY,
+        count: 300,
+        widensOutreachIds: [12],
+      }),
+    ).toEqual({ size: 300, seedKey: KEY, excludeOutreachIds: [12] })
+  })
+})
+
+// A widen can end up holding everyone not yet asked, so it is never called
+// random.
+describe('proposalSampleLine', () => {
+  it('calls a first sample random', () => {
+    expect(
+      proposalSampleLine({ channel: 'text', count: 58_520, sampleSize: 4_000 }),
+    ).toBe('Text 4,000 of 58,520, picked at random')
+  })
+
+  it('says a widen reaches people not asked yet, never at random', () => {
+    expect(
+      proposalSampleLine({
+        channel: 'text',
+        count: 58_520,
+        sampleSize: 2_000,
+        widensOutreachIds: [12],
+      }),
+    ).toBe('Text up to 2,000 of the 58,520 not asked yet')
+    expect(
+      proposalSampleLine({
+        channel: 'phoneBanking',
+        count: 300,
+        sampleSize: 300,
+        widensOutreachIds: [12],
+      }),
+    ).toBe('Call everyone of the 300 not asked yet')
   })
 })

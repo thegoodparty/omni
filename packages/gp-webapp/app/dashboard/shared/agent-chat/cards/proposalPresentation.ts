@@ -1,5 +1,6 @@
 import {
   PROPOSAL_SENT_MARKER,
+  MAX_LIST_SAMPLE_SIZE,
   SupportStatusRollupSchema,
   type ListSample,
   type OutreachProposal,
@@ -118,33 +119,55 @@ const SAMPLE_VERB: Record<ProposalChannel, string> = {
   social: 'Reach',
 }
 
-/** "Text 4,000 of 58,520, picked at random", or null for the whole list. */
+const widens = (proposal: { widensOutreachIds?: number[] }): boolean =>
+  (proposal.widensOutreachIds?.length ?? 0) > 0
+
+/**
+ * "Text 4,000 of 58,520, picked at random", or null for the whole list. A
+ * widen is never called random: once everyone not yet asked fits in it, the
+ * list holds all of them, so it says who it reaches instead.
+ */
 export const proposalSampleLine = (proposal: {
   channel: ProposalChannel
   count: number
   sampleSize?: number
-}): string | null =>
-  isSampled(proposal)
-    ? `${SAMPLE_VERB[proposal.channel]} ${proposal.sampleSize.toLocaleString()} of ${proposal.count.toLocaleString()}, picked at random`
+  widensOutreachIds?: number[]
+}): string | null => {
+  const verb = SAMPLE_VERB[proposal.channel]
+  const of = proposal.count.toLocaleString()
+  if (widens(proposal)) {
+    return isSampled(proposal)
+      ? `${verb} up to ${proposal.sampleSize.toLocaleString()} of the ${of} not asked yet`
+      : `${verb} everyone of the ${of} not asked yet`
+  }
+  return isSampled(proposal)
+    ? `${verb} ${proposal.sampleSize.toLocaleString()} of ${of}, picked at random`
     : null
+}
 
 /**
  * The sample a list saved from this proposal is drawn as, keyed on the
  * proposal so saving it again draws the same people. Undefined saves the
- * live list.
+ * live list. A widen always draws, even with no sample to size it: a live
+ * list has nothing to leave the people already asked out of.
  */
 export const proposalListSample = (proposal: {
   proposalKey: string
   count: number
   sampleSize?: number
   widensOutreachIds?: number[]
-}): ListSample | undefined =>
-  isSampled(proposal)
-    ? {
-        size: proposal.sampleSize,
-        seedKey: proposal.proposalKey,
-        ...(proposal.widensOutreachIds?.length && {
-          excludeOutreachIds: proposal.widensOutreachIds,
-        }),
-      }
+}): ListSample | undefined => {
+  if (widens(proposal)) {
+    return {
+      size: Math.min(
+        isSampled(proposal) ? proposal.sampleSize : proposal.count,
+        MAX_LIST_SAMPLE_SIZE,
+      ),
+      seedKey: proposal.proposalKey,
+      excludeOutreachIds: proposal.widensOutreachIds,
+    }
+  }
+  return isSampled(proposal)
+    ? { size: proposal.sampleSize, seedKey: proposal.proposalKey }
     : undefined
+}

@@ -247,6 +247,42 @@ describe('lists saved as a sample', () => {
     expect(listed.data.pagination.totalResults).toBe(0)
   })
 
+  // Saved whole, a widen would be a live filter with nothing left out, and
+  // would text the earlier sample again. Everyone left is frozen instead.
+  it('freezes everyone not yet asked when they fit in a widen', async () => {
+    const slug = await setupServeOrg('rest')
+    stubAudience(58_520)
+    stubDraw([randomUUID(), randomUUID()])
+    const first = await createFilter(slug, {
+      name: 'First round',
+      hasCellPhone: true,
+      sample: { size: 2 },
+    })
+    const sent = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: 'text',
+        voterFileFilterId: first.data.id,
+      },
+    })
+    const rest = randomUUID()
+    stubAudience(1)
+    const draw = stubDraw([rest])
+
+    const second = await createFilter(slug, {
+      name: 'Everyone left',
+      hasCellPhone: true,
+      sample: { size: 2, excludeOutreachIds: [sent.id] },
+    })
+
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({ size: 1 })
+    const row = await service.prisma.voterFileFilter.findUniqueOrThrow({
+      where: { id: second.data.id },
+    })
+    expect(row.sampleSize).toBe(2)
+    expect(await sampleMemberIds(second.data.id)).toEqual([rest])
+  })
+
   it('refuses a sample on a list drawn on the map', async () => {
     const slug = await setupServeOrg('geo')
 
