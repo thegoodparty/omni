@@ -279,6 +279,16 @@ describe('a question written above the clarify widget', () => {
     )
   })
 
+  it('keeps a question-exclamation as context', () => {
+    expect(withoutTrailingQuestion('Really?! Which first?')).toBe('Really?!')
+  })
+
+  it('never leaves a bold span open', () => {
+    expect(
+      withoutTrailingQuestion('Context text. **Key insight. Which first?**'),
+    ).toBe('Context text.')
+  })
+
   it('keeps an exclamation that ends in an interrobang', () => {
     expect(withoutTrailingQuestion('Really!? Which first?')).toBe('Really!?')
   })

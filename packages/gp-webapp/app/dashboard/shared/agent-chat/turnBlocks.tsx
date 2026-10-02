@@ -39,7 +39,7 @@ export const withoutTrailingQuestion = (text: string): string => {
   let cut = 0
   if (!/^[*_].*[*_]$/.test(line)) {
     for (const match of line.matchAll(SENTENCE_BREAK)) {
-      if (match[0].startsWith('?')) continue
+      if (!/[!.]/.test(match[0])) continue
       if (ABBREVIATION.test(line.slice(0, match.index + 1))) continue
       cut = match.index + match[0].length
     }
@@ -50,6 +50,11 @@ export const withoutTrailingQuestion = (text: string): string => {
     return text
   }
 
+  // A cut inside a bold span would leave its marker open, so it backs off to
+  // where that span starts.
+  if ((line.slice(0, cut).match(/\*\*/g) ?? []).length % 2 !== 0) {
+    cut = line.lastIndexOf('**', cut)
+  }
   return (trimmed.slice(0, lineStart) + line.slice(0, cut)).trimEnd()
 }
 
