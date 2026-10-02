@@ -1,14 +1,22 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
+  AudioUploadUrlResponse,
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
   ConfirmConstituentFeedback,
   ConstituentFeedbackRecord,
   RecordConstituentFeedback,
   RecordConstituentFeedbackResponse,
 } from '@goodparty_org/contracts'
 import {
+  ConstituentFeedbackCaptureMethod,
   ConstituentFeedbackChannel,
   ConstituentFeedbackExtractionStatus,
   ConstituentFeedbackStance,
@@ -18,6 +26,11 @@ import {
 } from '@/generated/prisma'
 import { assertVolunteerAssignedToOutreach } from '@/doorKnocking/utils/doorKnockingAccess.util'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { APP_ROOT, WEBAPP_API_PATH } from '@/shared/util/appEnvironment.util'
+import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
+import { SPEECH_BUCKET } from '@/speech/speechBucket'
+import { S3Service } from '@/vendors/aws/services/s3.service'
+import { isDevOnlyRouteEnabled } from '../util/devOnlyRoute.util'
 import {
   ConstituentFeedbackExtractionService,
   RawExtraction,
@@ -45,6 +58,25 @@ type ExtractionFields = {
   proposedDesiredOutcome: string | null
 }
 
+const EMPTY_EXTRACTION = {
+  issueLabel: null,
+  stance: null,
+  desiredOutcome: null,
+  extractionConfidence: null,
+  extractionModel: null,
+  proposedIssueLabel: null,
+  proposedStance: null,
+  proposedDesiredOutcome: null,
+} as const satisfies Omit<ExtractionFields, 'extractionStatus'>
+
+type CaptureTarget = {
+  personId: string
+  doorKnockInteractionId: string | null
+  phoneBankingInteractionId: string | null
+  effortQuestion: string | null
+  outreachId: number | null
+}
+
 const STANCE_BY_VALUE: Record<string, ConstituentFeedbackStance | undefined> =
   Object.fromEntries(
     Object.values(ConstituentFeedbackStance).map((stance) => [stance, stance]),
@@ -66,6 +98,18 @@ const RECORD_INCLUDE = {
   },
 } as const satisfies Prisma.ConstituentFeedbackInclude
 
+// Long enough to cover a slow upload on one bar of signal, short enough that
+// a leaked URL is not a standing write into the bucket.
+const AUDIO_UPLOAD_EXPIRES_SECONDS = 15 * 60
+
+const AUDIO_PREFIX = 'constituent-feedback'
+
+// One recording per memo, named by the memo's own replay key, so a re-sent
+// upload lands on the same object and the key cannot name another org's.
+// `.webm` even for Safari's mp4: Transcribe reads the container, not the name.
+const audioKeyFor = (organizationSlug: string, clientKey: string): string =>
+  `${AUDIO_PREFIX}/${organizationSlug}/${clientKey}.webm`
+
 // What each channel's own write route tells a volunteer outside their
 // assignment, so the memo routes never say more than the knock or call did.
 const NOT_ASSIGNED_MESSAGE: Record<ConstituentFeedbackChannel, string> = {
@@ -80,8 +124,36 @@ export class ConstituentFeedbackService extends createPrismaBase(
   constructor(
     private readonly extraction: ConstituentFeedbackExtractionService,
     private readonly moduleRef: ModuleRef,
+    private readonly transcribeFile: TranscribeFileService,
+    private readonly s3: S3Service,
   ) {
     super()
+  }
+
+  // Where the phone puts a memo it recorded with no signal. In mock mode the
+  // URL is gp-api's own sink, reached through the webapp's `/api` proxy the
+  // way every other browser call is, so a laptop needs no bucket.
+  async audioUploadUrl(input: {
+    organizationSlug: string
+    clientKey: string
+  }): Promise<AudioUploadUrlResponse> {
+    const audioKey = audioKeyFor(input.organizationSlug, input.clientKey)
+    const expiresAt = new Date(Date.now() + AUDIO_UPLOAD_EXPIRES_SECONDS * 1000)
+    const uploadUrl =
+      this.transcribeFile.mode === 'mock'
+        ? `${APP_ROOT}${WEBAPP_API_PATH}constituent-feedback/audio-upload/${input.clientKey}`
+        : await this.s3.getSignedUrlForUpload(SPEECH_BUCKET, audioKey, {
+            expiresIn: AUDIO_UPLOAD_EXPIRES_SECONDS,
+          })
+    return { audioKey, uploadUrl, expiresAt }
+  }
+
+  // The mock sink takes the bytes and keeps none. It exists only in mock
+  // mode on a dev-only deploy.
+  acceptMockUpload(): void {
+    if (this.transcribeFile.mode !== 'mock' || !isDevOnlyRouteEnabled()) {
+      throw new NotFoundException()
+    }
   }
 
   async capture(input: {
@@ -111,40 +183,23 @@ export class ConstituentFeedbackService extends createPrismaBase(
       input.body.channel,
     )
 
+    const { transcript, audioKey } = input.body
+    if (audioKey !== undefined) {
+      return this.captureRecording({ ...input, audioKey, target })
+    }
+    // The contract's refine guarantees one of the two.
+    if (transcript === undefined) {
+      throw new BadRequestException('Send a transcript or an audioKey')
+    }
+
     const extracted = await this.extraction.extract({
-      transcript: input.body.transcript,
+      transcript,
       effortQuestion: target.effortQuestion,
       userId: input.actorUserId,
     })
 
-    // One memo per interaction is the real invariant, and the two unique
-    // indexes say so: `clientKey` is only a replay key. A client cannot be
-    // relied on to re-send the same one — the phone panel keys its form on
-    // personId, so switching tabs and re-recording mints a fresh uuid — and
-    // keying the upsert on it alone would take the create branch and collide
-    // on `phoneBankingInteractionId` instead of updating the row that is
-    // already there. So resolve by the interaction first and fall back to the
-    // replay key, which still covers a retry whose first attempt never landed.
-    const existing = await this.findFirst({
-      where: {
-        organizationSlug: input.organizationSlug,
-        ...(target.doorKnockInteractionId !== null
-          ? { doorKnockInteractionId: target.doorKnockInteractionId }
-          : { phoneBankingInteractionId: target.phoneBankingInteractionId }),
-      },
-      select: { id: true },
-    })
-
     const row = await this.model.upsert({
-      where:
-        existing !== null
-          ? { id: existing.id }
-          : {
-              organizationSlug_clientKey: {
-                organizationSlug: input.organizationSlug,
-                clientKey: input.body.clientKey,
-              },
-            },
+      where: await this.upsertKey(input.organizationSlug, target, input.body),
       create: {
         organizationSlug: input.organizationSlug,
         clientKey: input.body.clientKey,
@@ -153,7 +208,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
         actorUserId: input.actorUserId,
         channel: input.body.channel,
         captureMethod: input.body.captureMethod,
-        transcript: input.body.transcript,
+        transcript,
         effortQuestion: target.effortQuestion,
         outreachId: target.outreachId,
         doorKnockInteractionId: target.doorKnockInteractionId,
@@ -165,8 +220,11 @@ export class ConstituentFeedbackService extends createPrismaBase(
       // would hand reporting a model guess wearing a human's signature, which
       // is the one thing the column exists to prevent.
       update: {
-        transcript: input.body.transcript,
+        transcript,
         captureMethod: input.body.captureMethod,
+        // A live re-record replaces an offline one outright.
+        audioKey: null,
+        transcriptionJobName: null,
         // Re-read, not left at the first recording's value: the effort's
         // question can be edited between the two, and `extract()` above always
         // runs against the current one. Keeping the old copy here would leave
@@ -191,6 +249,268 @@ export class ConstituentFeedbackService extends createPrismaBase(
               desiredOutcome: row.desiredOutcome,
             },
     }
+  }
+
+  // The offline path. The phone recorded with no signal and has since put
+  // the audio at `audioKey`, so there are no words yet: the row is saved
+  // pending, a Transcribe job starts, and the pending-transcription cron
+  // writes the transcript and runs extraction when the job finishes. Nobody
+  // is at the door any more, so the triple waits in the "Notes to review"
+  // list instead of a confirm card.
+  private async captureRecording(input: {
+    organizationSlug: string
+    actorUserId: number
+    body: RecordConstituentFeedback
+    audioKey: string
+    target: CaptureTarget
+  }): Promise<RecordConstituentFeedbackResponse> {
+    if (
+      input.audioKey !==
+      audioKeyFor(input.organizationSlug, input.body.clientKey)
+    ) {
+      throw new BadRequestException('audioKey does not belong to this memo')
+    }
+    const { target } = input
+    const pending = {
+      transcript: null,
+      audioKey: input.audioKey,
+      transcriptionJobName: null,
+      captureMethod: ConstituentFeedbackCaptureMethod.dictation_offline,
+      effortQuestion: target.effortQuestion,
+      outreachId: target.outreachId,
+      confirmedAt: null,
+      ...EMPTY_EXTRACTION,
+      extractionStatus: ConstituentFeedbackExtractionStatus.pending,
+    }
+
+    const row = await this.model.upsert({
+      where: await this.upsertKey(input.organizationSlug, target, input.body),
+      create: {
+        organizationSlug: input.organizationSlug,
+        clientKey: input.body.clientKey,
+        personId: target.personId,
+        occurredAt: new Date(),
+        actorUserId: input.actorUserId,
+        channel: input.body.channel,
+        doorKnockInteractionId: target.doorKnockInteractionId,
+        phoneBankingInteractionId: target.phoneBankingInteractionId,
+        ...pending,
+      },
+      // Same rule as a live re-record: whatever was confirmed before is void.
+      update: pending,
+    })
+
+    await this.startTranscription(row.id, input.audioKey)
+
+    return {
+      id: row.id,
+      personId: row.personId,
+      extractionStatus: row.extractionStatus,
+      extraction: null,
+    }
+  }
+
+  // One memo per interaction is the real invariant, and the two unique
+  // indexes say so: `clientKey` is only a replay key. A client cannot be
+  // relied on to re-send the same one — the phone panel keys its form on
+  // personId, so switching tabs and re-recording mints a fresh uuid — and
+  // keying the upsert on it alone would take the create branch and collide
+  // on `phoneBankingInteractionId` instead of updating the row that is
+  // already there. So resolve by the interaction first and fall back to the
+  // replay key, which still covers a retry whose first attempt never landed.
+  private async upsertKey(
+    organizationSlug: string,
+    target: CaptureTarget,
+    body: RecordConstituentFeedback,
+  ): Promise<Prisma.ConstituentFeedbackWhereUniqueInput> {
+    const existing = await this.findFirst({
+      where: {
+        organizationSlug,
+        ...(target.doorKnockInteractionId !== null
+          ? { doorKnockInteractionId: target.doorKnockInteractionId }
+          : { phoneBankingInteractionId: target.phoneBankingInteractionId }),
+      },
+      select: { id: true },
+    })
+    return existing !== null
+      ? { id: existing.id }
+      : {
+          organizationSlug_clientKey: {
+            organizationSlug,
+            clientKey: body.clientKey,
+          },
+        }
+  }
+
+  // Starts the job and records its name for the cron to poll. A failure to
+  // start never fails the caller: the row stays pending with no job name,
+  // and the cron's next pass starts it.
+  async startTranscription(id: string, audioKey: string): Promise<void> {
+    try {
+      const { jobName } = await this.transcribeFile.transcribeFile(audioKey)
+      await this.model.updateMany({
+        where: { id, transcript: null, transcriptionJobName: null },
+        data: { transcriptionJobName: jobName },
+      })
+    } catch (err) {
+      this.logger.error({ err, id }, 'Could not start memo transcription')
+    }
+  }
+
+  // The job's words, then extraction exactly as a live capture runs it. The
+  // job name scopes both writes, so a memo re-recorded or retried while this
+  // one ran is left to its own job. `confirmedAt` stays null: the person
+  // who was there confirms it from the review list.
+  async completeTranscription(input: {
+    id: string
+    jobName: string
+    transcript: string
+  }): Promise<void> {
+    const where = {
+      id: input.id,
+      transcriptionJobName: input.jobName,
+      transcript: null,
+    }
+    const transcript = clamp(
+      input.transcript.trim(),
+      CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
+    )
+    // Silence transcribes to nothing, and nothing has no issue in it.
+    if (!transcript) {
+      await this.failTranscription({ ...input, reason: 'empty_transcript' })
+      return
+    }
+    const row = await this.findFirst({
+      where,
+      select: { effortQuestion: true, actorUserId: true },
+    })
+    if (row === null) return
+
+    const extracted = await this.extraction.extract({
+      transcript,
+      effortQuestion: row.effortQuestion,
+      userId: row.actorUserId,
+    })
+    await this.model.updateMany({
+      where,
+      data: { transcript, ...this.extractionFields(extracted) },
+    })
+  }
+
+  // The recording survives, so the review list offers to try again.
+  async failTranscription(input: {
+    id: string
+    jobName: string | null
+    reason: string
+  }): Promise<void> {
+    this.logger.warn(
+      { id: input.id, jobName: input.jobName, reason: input.reason },
+      'Memo transcription failed',
+    )
+    await this.model.updateMany({
+      where: {
+        id: input.id,
+        transcriptionJobName: input.jobName,
+        transcript: null,
+        extractionStatus: ConstituentFeedbackExtractionStatus.pending,
+      },
+      data: { extractionStatus: ConstituentFeedbackExtractionStatus.failed },
+    })
+  }
+
+  // An effort's unconfirmed memos, newest first: the "Notes to review" list.
+  // A volunteer sees the ones they recorded, which they can only have done on
+  // an effort they were assigned; an owner or manager sees everyone's.
+  async listPending(input: {
+    organizationSlug: string
+    outreachId: number
+    actorUserId: number
+    role: OrganizationRole | undefined
+  }): Promise<ConstituentFeedbackRecord[]> {
+    const rows = await this.findMany({
+      where: {
+        organizationSlug: input.organizationSlug,
+        outreachId: input.outreachId,
+        confirmedAt: null,
+        ...(input.role === OrganizationRole.volunteer
+          ? { actorUserId: input.actorUserId }
+          : {}),
+      },
+      orderBy: { occurredAt: Prisma.SortOrder.desc },
+      include: RECORD_INCLUDE,
+    })
+    return rows.map((row) => this.toRecord(row))
+  }
+
+  // The review list's "Try again", which is also the recovery for a memo
+  // whose transcription or extraction failed online. A recording with no
+  // words yet is transcribed again; words with no triple are extracted
+  // again. A volunteer retries only their own memo, on an effort they are
+  // still assigned to.
+  async retry(input: {
+    organizationSlug: string
+    id: string
+    actorUserId: number
+    role: OrganizationRole | undefined
+  }): Promise<ConstituentFeedbackRecord> {
+    const row = await this.findFirst({
+      where: {
+        id: input.id,
+        organizationSlug: input.organizationSlug,
+        confirmedAt: null,
+      },
+      select: {
+        outreachId: true,
+        channel: true,
+        actorUserId: true,
+        transcript: true,
+        audioKey: true,
+        effortQuestion: true,
+      },
+    })
+    if (row === null) throw new NotFoundException()
+    if (
+      input.role === OrganizationRole.volunteer &&
+      row.actorUserId !== input.actorUserId
+    ) {
+      throw new NotFoundException()
+    }
+    await this.assertVolunteerOnEffort(
+      input.role,
+      row.outreachId,
+      input.actorUserId,
+      row.channel,
+    )
+
+    if (row.transcript !== null) {
+      const extracted = await this.extraction.extract({
+        transcript: row.transcript,
+        effortQuestion: row.effortQuestion,
+        userId: input.actorUserId,
+      })
+      await this.model.update({
+        where: { id: input.id },
+        data: this.extractionFields(extracted),
+      })
+    } else if (row.audioKey !== null) {
+      await this.model.update({
+        where: { id: input.id },
+        data: {
+          extractionStatus: ConstituentFeedbackExtractionStatus.pending,
+          transcriptionJobName: null,
+        },
+      })
+      await this.startTranscription(input.id, row.audioKey)
+    } else {
+      throw new UnprocessableEntityException('This memo has nothing to retry')
+    }
+
+    return this.toRecord(
+      await this.model.findUniqueOrThrow({
+        where: { id: input.id },
+        include: RECORD_INCLUDE,
+      }),
+    )
   }
 
   // The confirmed triple replaces whatever the model proposed. `confirmedAt`
@@ -274,14 +594,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     return extracted === null
       ? {
           extractionStatus: ConstituentFeedbackExtractionStatus.failed,
-          issueLabel: null,
-          stance: null,
-          desiredOutcome: null,
-          extractionConfidence: null,
-          extractionModel: null,
-          proposedIssueLabel: null,
-          proposedStance: null,
-          proposedDesiredOutcome: null,
+          ...EMPTY_EXTRACTION,
         }
       : {
           extractionStatus: ConstituentFeedbackExtractionStatus.extracted,

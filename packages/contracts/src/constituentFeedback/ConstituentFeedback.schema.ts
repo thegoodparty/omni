@@ -16,6 +16,9 @@ export const CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH = 4_000
 // label that is secretly a paragraph poisons the clustering.
 export const CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH = 120
 export const CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH = 1_000
+// `constituent-feedback/{organizationSlug}/{clientKey}.webm`, with room for a
+// long slug.
+export const CONSTITUENT_FEEDBACK_AUDIO_KEY_MAX_LENGTH = 300
 
 // The triple: what the constituent cares about, where they stand on it, and
 // what they would change if they could. Every field is nullable because a
@@ -61,8 +64,50 @@ const RecordConstituentFeedbackBase = {
   // This memo's own replay-idempotency key, distinct from the knock's. A
   // dead-zone retry re-sends the same key and upserts the same row.
   clientKey: z.guid(),
-  transcript: z.string().min(1).max(CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH),
+  // The words, when the phone has them: dictated live or typed.
+  transcript: z
+    .string()
+    .min(1)
+    .max(CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH)
+    .optional(),
+  // The recording, when the phone had no signal to dictate over: the key
+  // `POST audio-upload-url` handed out, already holding the audio. The
+  // server transcribes it later, so the memo arrives with no text.
+  audioKey: z
+    .string()
+    .min(1)
+    .max(CONSTITUENT_FEEDBACK_AUDIO_KEY_MAX_LENGTH)
+    .optional(),
   captureMethod: ConstituentFeedbackCaptureMethodSchema,
+}
+
+// Exactly one source of words, and a capture method that agrees with it:
+// `dictation_offline` is what tells a server-transcribed memo apart from one
+// dictated live, so it comes with a recording and only with one.
+const requireOneSource = (
+  memo: {
+    transcript?: string
+    audioKey?: string
+    captureMethod: z.infer<typeof ConstituentFeedbackCaptureMethodSchema>
+  },
+  ctx: z.RefinementCtx,
+): void => {
+  const hasText = memo.transcript !== undefined
+  const hasRecording = memo.audioKey !== undefined
+  if (hasText === hasRecording) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Send exactly one of transcript or audioKey',
+      path: ['transcript'],
+    })
+  }
+  if (hasRecording !== (memo.captureMethod === 'dictation_offline')) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'captureMethod dictation_offline goes with audioKey',
+      path: ['captureMethod'],
+    })
+  }
 }
 
 export const RecordConstituentFeedbackSchema = z.discriminatedUnion('channel', [
@@ -80,7 +125,8 @@ export const RecordConstituentFeedbackSchema = z.discriminatedUnion('channel', [
       stopTargetId: z.number().int().positive(),
       ...RecordConstituentFeedbackBase,
     })
-    .strict(),
+    .strict()
+    .superRefine(requireOneSource),
   z
     .object({
       channel: z.literal('phone_bank'),
@@ -88,7 +134,8 @@ export const RecordConstituentFeedbackSchema = z.discriminatedUnion('channel', [
       personId: z.string(),
       ...RecordConstituentFeedbackBase,
     })
-    .strict(),
+    .strict()
+    .superRefine(requireOneSource),
 ])
 export type RecordConstituentFeedback = z.infer<
   typeof RecordConstituentFeedbackSchema
@@ -162,4 +209,31 @@ export const ConstituentFeedbackListResponseSchema = z.object({
 })
 export type ConstituentFeedbackListResponse = z.infer<
   typeof ConstituentFeedbackListResponseSchema
+>
+
+// The memo's own replay key, which names the recording, so a re-sent upload
+// lands on the same object.
+export const AudioUploadUrlRequestSchema = z
+  .object({ clientKey: z.guid() })
+  .strict()
+export type AudioUploadUrlRequest = z.infer<typeof AudioUploadUrlRequestSchema>
+
+// Where the phone PUTs the recording it held while it had no signal, and the
+// key to send with the memo once it has.
+export const AudioUploadUrlResponseSchema = z.object({
+  audioKey: z.string(),
+  uploadUrl: z.string(),
+  expiresAt: zCoerceDate(),
+})
+export type AudioUploadUrlResponse = z.infer<
+  typeof AudioUploadUrlResponseSchema
+>
+
+// An effort's unconfirmed memos, newest first: the "Notes to review" list.
+// A volunteer gets their own; an owner or manager gets everyone's.
+export const PendingFeedbackResponseSchema = z.object({
+  feedback: z.array(ConstituentFeedbackSchema),
+})
+export type PendingFeedbackResponse = z.infer<
+  typeof PendingFeedbackResponseSchema
 >

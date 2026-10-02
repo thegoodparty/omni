@@ -17,6 +17,10 @@ import cookie from '@fastify/cookie'
 import { HttpExceptionFilter } from './exceptions/http-exception.filter'
 import { PrismaExceptionFilter } from './exceptions/prisma-exception.filter'
 import { randomUUID } from 'crypto'
+import { transcribeFileMode } from './speech/services/transcribeFile.service'
+
+// A few minutes of Safari's AAC, with room to spare.
+const MOCK_AUDIO_BODY_LIMIT_BYTES = 25_000_000
 
 type BootstrapParams = {
   loggingEnabled: boolean
@@ -121,6 +125,21 @@ export const bootstrap = async (
       parts: 100, // For multipart forms, the max number of parts (fields + files)
     },
   })
+
+  // The mock audio sink (constituentFeedback, SPEECH_TRANSCRIBE_FILE_MODE=mock)
+  // takes the bytes a presigned S3 PUT would, and Fastify refuses a content
+  // type it has no parser for. Only in that mode, so no deployed route ever
+  // buffers audio.
+  if (transcribeFileMode() === 'mock') {
+    app
+      .getHttpAdapter()
+      .getInstance()
+      .addContentTypeParser(
+        /^audio\//,
+        { parseAs: 'buffer', bodyLimit: MOCK_AUDIO_BODY_LIMIT_BYTES },
+        (_request, body, done) => done(null, body),
+      )
+  }
 
   const httpExceptionLogger = await app.resolve(PinoLogger)
   const prismaExceptionLogger = await app.resolve(PinoLogger)

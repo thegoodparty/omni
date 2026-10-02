@@ -53,6 +53,10 @@ cannot leak and block a future slot.
 | UTC day         | `tryClaimDailyRun`     | `markCompleted`          | 6h           |
 | UTC hour        | `tryClaimHourlyRun`    | `markHourlyCompleted`    | 30m          |
 | UTC ten minutes | `tryClaimTenMinuteRun` | `markTenMinuteCompleted` | 5m           |
+| UTC minute      | `tryClaimMinuteRun`    | `markMinuteCompleted`    | 30s          |
+
+Every claim is a `cron_run` row. A job that fires every minute and is
+usually idle should check for work first and claim only when there is some.
 
 **Match the claim to the schedule.** Wrapping a sub-daily `@Cron` in
 `tryClaimDailyRun` silently throttles the job to one run per UTC day — the extra
@@ -72,6 +76,11 @@ Reference implementations, all clean examples of the shape below:
   (`feedbackSynthesisStaleRuns`, `*/10`): ten-minute slot; fails issue
   capture synthesis runs stuck `running` for 30 minutes. No deploy
   allowlist: one update against the deploy's own database, no vendor call
+- `constituentFeedback/services/pendingTranscription.service.ts`
+  (`feedbackPendingTranscription`, every minute): minute slot, claimed only
+  when an offline memo is waiting on its transcript; starts or polls its
+  batch Transcribe job and extracts the result. No deploy allowlist: it calls
+  Transcribe only for memos recorded on the deploy's own database
 
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.

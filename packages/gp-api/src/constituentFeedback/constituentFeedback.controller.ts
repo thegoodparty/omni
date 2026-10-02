@@ -2,15 +2,21 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  AudioUploadUrlRequestSchema,
+  AudioUploadUrlResponseSchema,
   ConfirmConstituentFeedbackSchema,
   ConstituentFeedbackListResponseSchema,
   ConstituentFeedbackSchema,
@@ -18,12 +24,14 @@ import {
   FeedbackThemeDetailSchema,
   IssueTagListResponseSchema,
   IssueTagSchema,
+  PendingFeedbackResponseSchema,
   RecordConstituentFeedbackResponseSchema,
   RecordConstituentFeedbackSchema,
   SeedFeedbackRequestSchema,
   SeedFeedbackResponseSchema,
   SynthesisRunSchema,
   UpdateIssueTagSchema,
+  type AudioUploadUrlRequest,
   type ConfirmConstituentFeedback,
   type RecordConstituentFeedback,
   type SeedFeedbackRequest,
@@ -52,6 +60,10 @@ import {
   ListIssueTagsQuerySchema,
   type ListIssueTagsQuery,
 } from './schemas/listIssueTags.schema'
+import {
+  ListPendingFeedbackQuerySchema,
+  type ListPendingFeedbackQuery,
+} from './schemas/listPendingFeedback.schema'
 import { issueCaptureFlagFor } from './util/issueCaptureFlag.util'
 
 // Every route is gated, unlike the Serve SMS controller which gates only its
@@ -67,6 +79,9 @@ import { issueCaptureFlagFor } from './util/issueCaptureFlag.util'
 // routes they follow: the person who had the conversation is who records and
 // confirms it, and on Win that is usually a volunteer. Like those routes, a
 // volunteer reaches only an effort they are assigned to (the service checks).
+// So do the offline path's routes (the upload URL, the mock sink, the review
+// list and its retry), where a volunteer also sees and retries only the
+// memos they recorded.
 // The read stays at the default, owner or campaign manager, because it is the
 // CRM's record of a person. So do the report, synthesis and tag routes: what
 // people said across an effort, and the org's vocabulary for it, are the
@@ -101,6 +116,85 @@ export class ConstituentFeedbackController {
       actorUserId: user.id,
       role,
       body,
+    })
+  }
+
+  // Where the phone puts a memo it recorded with no signal, before it posts
+  // the memo with the key.
+  @Post('audio-upload-url')
+  @AllowVolunteer()
+  @ResponseSchema(AudioUploadUrlResponseSchema)
+  async audioUploadUrl(
+    @ReqUser() user: User,
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(AudioUploadUrlRequestSchema))
+    body: AudioUploadUrlRequest,
+  ) {
+    await this.assertFeatureEnabled(user, organization)
+
+    return this.feedback.audioUploadUrl({
+      organizationSlug: organization.slug,
+      clientKey: body.clientKey,
+    })
+  }
+
+  // Dev only, mock mode only: stands in for the bucket's presigned PUT and
+  // discards the bytes. 404s anywhere else. Keyed by the memo's clientKey
+  // rather than the whole audio key, which runs past Fastify's 100-character
+  // route parameter limit; the key is that clientKey under this org anyway.
+  @Put('audio-upload/:clientKey')
+  @AllowVolunteer()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async mockAudioUpload(
+    @ReqUser() user: User,
+    @ReqOrganization() organization: Organization,
+    @Param('clientKey', ParseUUIDPipe) _clientKey: string,
+  ): Promise<void> {
+    await this.assertFeatureEnabled(user, organization)
+
+    this.feedback.acceptMockUpload()
+  }
+
+  // The "Notes to review" list: an effort's unconfirmed memos.
+  @Get('pending')
+  @AllowVolunteer()
+  @ResponseSchema(PendingFeedbackResponseSchema)
+  async pending(
+    @ReqUser() user: User,
+    @ReqOrganization() organization: Organization,
+    @ReqOrganizationRole() role: OrganizationRole,
+    @Query(new ZodValidationPipe(ListPendingFeedbackQuerySchema))
+    query: ListPendingFeedbackQuery,
+  ) {
+    await this.assertFeatureEnabled(user, organization)
+
+    return {
+      feedback: await this.feedback.listPending({
+        organizationSlug: organization.slug,
+        outreachId: query.outreachId,
+        actorUserId: user.id,
+        role,
+      }),
+    }
+  }
+
+  // Transcribe or extract a pending memo again.
+  @Post(':id/retry')
+  @AllowVolunteer()
+  @ResponseSchema(ConstituentFeedbackSchema)
+  async retry(
+    @ReqUser() user: User,
+    @ReqOrganization() organization: Organization,
+    @ReqOrganizationRole() role: OrganizationRole,
+    @Param('id') id: string,
+  ) {
+    await this.assertFeatureEnabled(user, organization)
+
+    return this.feedback.retry({
+      organizationSlug: organization.slug,
+      id,
+      actorUserId: user.id,
+      role,
     })
   }
 

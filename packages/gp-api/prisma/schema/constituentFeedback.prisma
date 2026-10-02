@@ -18,9 +18,12 @@ enum ConstituentFeedbackStance {
   unclear
 }
 
+// `dictation_offline` is a memo the phone recorded with no signal and
+// uploaded later: the server transcribed it, nobody saw the words live.
 enum ConstituentFeedbackCaptureMethod {
   dictation
   typed
+  dictation_offline
 }
 
 // `extracted` means a model produced a triple, not that anyone agreed with
@@ -80,10 +83,14 @@ model ConstituentFeedback {
   transcript    String?                          @db.Text
   captureMethod ConstituentFeedbackCaptureMethod @map("capture_method")
 
-  // Reserved for the offline path (record locally, upload, batch-transcribe).
-  // Null on every row today: dictation streams to Transcribe over a live
-  // socket and no audio is persisted anywhere.
+  // The offline path's recording in the speech bucket. Null on a memo
+  // dictated live: that streams to Transcribe over a socket and no audio is
+  // persisted anywhere.
   audioKey String? @map("audio_key")
+
+  // The batch Transcribe job turning `audioKey` into `transcript`, kept so
+  // the pending-transcription cron can poll it. Null until a job starts.
+  transcriptionJobName String? @map("transcription_job_name")
 
   // The triple, holding the CONFIRMED values — what the canvasser accepted or
   // corrected while they still remembered the conversation.
@@ -137,5 +144,7 @@ model ConstituentFeedback {
   // The collection-phase read: everything awaiting or missing an extraction.
   @@index([organizationSlug, extractionStatus])
   @@index([organizationSlug, outreachId])
+  // The pending-transcription cron reads across orgs, and pending rows are few.
+  @@index([extractionStatus])
   @@map("constituent_feedback")
 }

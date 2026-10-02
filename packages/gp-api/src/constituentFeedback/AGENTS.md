@@ -9,6 +9,10 @@ never sees it.
 An effort's confirmed memos are then synthesized into ranked themes, each
 proposing a tag for the org's list, and read back as the effort's report.
 
+With no signal, the phone records the memo instead and sends it later; the
+server transcribes it, extracts, and the memo waits in "Notes to review"
+for confirmation (see Offline memos).
+
 ## Key files
 
 | File                                                | Purpose                                              |
@@ -26,8 +30,10 @@ proposing a tag for the org's list, and read back as the effort's report.
 | `services/issueTagSeed.service.ts`                  | Win: accepted tags from declared positions           |
 | `services/feedbackSeed.service.ts`                  | Dev-only fake memos on an effort                     |
 | `services/synthesisStaleRunSweep.service.ts`        | Fails runs that never reported back                  |
+| `services/pendingTranscription.service.ts`          | Offline memos: polls Transcribe, then extracts       |
 | `util/issueTagName.util.ts`                         | `normalizedName`, always derived server-side         |
-| `schemas/`                                          | Query DTOs for the two list routes                   |
+| `util/devOnlyRoute.util.ts`                         | The deploy gate on the seed and the mock audio sink  |
+| `schemas/`                                          | Query DTOs for the three list routes                 |
 
 Request/response shapes are in `@goodparty_org/contracts`
 (`src/constituentFeedback/`), not here — the webapp is the consumer.
@@ -70,10 +76,19 @@ deletes only the rows carrying its `runId`.
 
 All under `@Controller('constituent-feedback')`, all `@UseOrganization()`.
 
-- `POST /`: record a memo. Extracts in the request and returns the proposed
-  triple. `@AllowVolunteer()`.
+- `POST /`: record a memo. With a `transcript`, extracts in the request and
+  returns the proposed triple. With an `audioKey` (the offline path), saves
+  it pending and starts a transcription job. `@AllowVolunteer()`.
 - `PATCH /:id/confirm`: the confirmed triple. Sets `confirmedAt`.
   `@AllowVolunteer()`.
+- `POST audio-upload-url`: `{ clientKey }` to `{ audioKey, uploadUrl,
+expiresAt }`. `@AllowVolunteer()`.
+- `PUT audio-upload/:clientKey`: the mock-mode upload sink; 404 otherwise.
+  `@AllowVolunteer()`.
+- `GET pending?outreachId=`: the effort's unconfirmed memos, newest first.
+  `@AllowVolunteer()`; a volunteer gets only the ones they recorded.
+- `POST :id/retry`: transcribe or extract a pending memo again.
+  `@AllowVolunteer()`; a volunteer only on their own memo.
 - `GET /?personId=`: that person's memos, newest first, with their accepted
   tags. Default posture: owner or campaign manager (a volunteer gets 403),
   since it is the CRM's record of a person.
@@ -85,8 +100,9 @@ All under `@Controller('constituent-feedback')`, all `@UseOrganization()`.
 - `GET tags?status=` and `PATCH tags/:id`: the tag list and its curation.
 - `POST seed`: dev-only fake memos; 404s on prod.
 
-Everything after the first two is default posture: what people said across
-an effort, and the org's vocabulary for it, are the manager's.
+The report, synthesis, theme and tag routes are default posture: what
+people said across an effort, and the org's vocabulary for it, are the
+manager's.
 
 The writes admit volunteers because the person who had the conversation is
 who records and confirms it, the posture the knock and call routes already
@@ -203,8 +219,59 @@ source with `mergedIntoId`.
 confirmed memos from a 40-memo fixture (`services/feedbackSeedMemos.ts`,
 five issues) on an effort that already has stop targets or list entries. A
 list takes one memo per person who has none. Gated like the community
-issues seed: `OTEL_SERVICE_ENVIRONMENT` unset, `local`, `test`, `preview` or
-`dev`; anything else 404s.
+issues seed (`util/devOnlyRoute.util.ts`): `OTEL_SERVICE_ENVIRONMENT`
+unset, `local`, `test`, `preview` or `dev`; anything else 404s.
+
+## Offline memos
+
+Dead zones are where door knocking happens. With no signal (or a dictation
+socket that does not open in three seconds) the phone records the memo with
+`MediaRecorder` and holds it in IndexedDB with its knock or call; once
+signal returns it sends the knock or call, then the memo. The webapp side is
+`app/dashboard/shared/dictation/useOfflineMemo.ts`.
+
+1. `POST audio-upload-url` builds the key
+   `constituent-feedback/{organizationSlug}/{clientKey}.webm` from the memo's
+   own replay key, so a re-sent upload overwrites the same object and no key
+   names another org's audio, and returns a 15-minute presigned PUT on
+   `SPEECH_BUCKET`. `.webm` even for Safari's mp4: Transcribe reads the
+   container, not the name.
+2. `POST /` with that `audioKey` and `captureMethod: dictation_offline`
+   resolves the knock or call and runs the volunteer check exactly as the
+   transcript path does, refuses (400) a key that is not the one built from
+   this `clientKey`, then upserts the row (same interaction-first rule as
+   below) with `transcript: null`, `extractionStatus: pending` and
+   `confirmedAt: null`, and starts a Transcribe job, recording
+   `transcriptionJobName`. A job that fails to start leaves the name null
+   for the cron.
+3. `PendingTranscriptionService` (`feedbackPendingTranscription`, every
+   minute, `CronLockService` minute slot) reads rows that are pending, have
+   an `audioKey` and no transcript, oldest touch first, 25 a pass. It reads
+   before it claims, so an idle minute writes no `cron_run` row. Per row:
+   start the job if there is none, else poll it. On text it writes the
+   transcript and runs extraction exactly as a live capture does
+   (`completeTranscription`), leaving `confirmedAt` null. A failed job, an
+   empty transcript, or a row untouched for an hour becomes `failed`. Every
+   write is scoped by the job name, so a memo re-recorded or retried
+   meanwhile is left to its own job. No deploy allowlist: it calls
+   Transcribe only for memos recorded on its own database.
+4. `GET pending` is the "Notes to review" list. `POST :id/retry` on a memo
+   with a recording and no words resets it to pending and starts a new job;
+   on one with words it extracts again. Confirming goes through the usual
+   `PATCH /:id/confirm`, which is also how a typed triple is saved.
+
+The same list is the retry path for any memo whose transcription or
+extraction failed online.
+
+**Mock mode.** `SPEECH_TRANSCRIBE_FILE_MODE=mock` (see `src/speech/AGENTS.md`
+for the transcription half). The upload URL then points at
+`{APP_ROOT}/api/v1/constituent-feedback/audio-upload/{clientKey}`: the
+webapp's `/api` proxy, which adds the session, to `PUT
+audio-upload/:clientKey` here, which keeps nothing. It is keyed by the
+`clientKey` because the whole audio key runs past Fastify's 100-character
+route parameter limit. The sink 404s outside mock mode or off a dev-only
+deploy, and `app.ts` registers an `audio/*` body parser only in mock mode,
+so no deployed route buffers audio. `.env.test` sets `mock`.
 
 ## The extraction prompt names no product
 
@@ -219,7 +286,10 @@ mock engine's grouping prompt follows the same rule.
 
 It would be cheaper on a queue. It is in the request because the confirmation
 step needs the person who heard the conversation, and that person is only
-present for the few seconds after they stop speaking. Deferred extraction
+present for the few seconds after they stop speaking. The one exception is
+a memo recorded with no signal: nobody is at the door when it is
+transcribed, so the cron extracts it and the canvasser confirms it later
+from "Notes to review". Deferred extraction
 means corrections get made later by someone reading a transcript who was not
 there, which is a different and much weaker claim about what a person
 said.
@@ -312,9 +382,9 @@ on", which is the opposite of the point.
 - **`effortQuestion` is denormalized onto the row.** The effort's question can
   be edited after the fact, and an extraction has to stay readable against the
   prompt it actually ran with.
-- **`audioKey` is null on every row.** Dictation streams to Transcribe over a
-  live socket and no audio is persisted. The column exists so the offline path
-  lands additively.
+- **`audioKey` is set only on offline memos.** Live dictation streams to
+  Transcribe over a socket and stores no audio; a live re-record of an
+  offline memo clears both `audioKey` and `transcriptionJobName`.
 
 ## Test command
 
