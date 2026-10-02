@@ -57,7 +57,7 @@ export const Seamless: Story = {
         variant="seamless"
         className="min-h-[140px] resize-none [field-sizing:content]"
         aria-label="Message body"
-        defaultValue="Hi, it's Sam Rivera, running for city council. Can I count on your vote on November 3?"
+        defaultValue="Hi, it's Sarah Chen, running for city council. Can I count on your vote on November 3?"
       />
     </Card>
   ),

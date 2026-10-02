@@ -53,15 +53,16 @@ and branch on `MAP` only where the map genuinely differs.
 
 ```
 analytics-governance.yml, Mon + Thu 11:00 UTC        run ends ~11:19, state PR merges ~11:40
-  └─ event_explorer_snapshot.py  ->  data/event-explorer.json, committed in the state PR
-        └─ routine "Republish the analytics events explorer and product map",
-           Mon + Thu 12:00 and 13:00 UTC
+  ├─ event_explorer_snapshot.py  ->  data/event-explorer.json, committed in the state PR
+  └─ governance_console_snapshot.py  ->  the console's data file, same PR
+        └─ routine "Republish the analytics surfaces", Mon + Thu 12:00 and 13:00 UTC
               ├─ standalone/build.py  ->  publish to the explorer's artifact URL
-              └─ surfaces/product-map/build.py  ->  publish to the map's artifact URL
+              ├─ surfaces/product-map/build.py  ->  publish to the map's artifact URL
+              └─ surfaces/governance-console/build.py  ->  publish to the console's URL
 ```
 
-Each page is checked and published on its own, so a map that is already current never
-stops the explorer, and the reverse.
+Each page is checked and published on its own, so a page that is already current never
+stops the others.
 
 It fires twice because the merge is reliable but not guaranteed: across the eight runs
 measured, the state PR was created 11:12-11:19 and merged 19-26 minutes later. When the

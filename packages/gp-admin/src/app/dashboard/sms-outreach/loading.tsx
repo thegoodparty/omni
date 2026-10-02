@@ -1,17 +1,22 @@
-import { Container, Flex, Heading, Skeleton, Text } from '@radix-ui/themes'
+import { Box, Container, Flex, Heading, Skeleton, Text } from '@radix-ui/themes'
 
 // Mirrors the queue's real layout (tabs, toolbar, table rows) so the page
 // doesn't reflow when data lands — the chrome is already where it will be.
 export default function Loading() {
   return (
     <Container size="4">
-      <Heading size="6" mb="1">
-        SMS outreach
-      </Heading>
-      <Text color="gray" size="2">
-        Scheduled text campaigns awaiting the one human approval. Approving
-        books the vendor&apos;s canvassers; nothing sends without it.
-      </Text>
+      <Flex justify="between" align="start" gap="4">
+        <Box>
+          <Heading size="6" mb="1">
+            SMS outreach
+          </Heading>
+          <Text color="gray" size="2">
+            Scheduled text campaigns awaiting the one human approval. Approving
+            books the vendor&apos;s canvassers; nothing sends without it.
+          </Text>
+        </Box>
+        <Skeleton width="180px" height="88px" />
+      </Flex>
       <Flex justify="between" align="center" mt="4" mb="3">
         <Flex gap="4">
           <Skeleton width="110px" height="28px" />

@@ -87,7 +87,7 @@ const CampaignPlanRouter = ({
   // branch below.
   const navHeader: DashboardNavHeaderConfig = {
     icon: 'scroll',
-    label: NAV_LABELS.campaignTracker,
+    label: NAV_LABELS.campaignPlan,
   }
 
   const requestGenerate = (): void => {

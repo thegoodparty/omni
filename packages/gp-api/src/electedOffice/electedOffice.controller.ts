@@ -125,12 +125,7 @@ export class ElectedOfficeController {
     if (!user) {
       throw new UnauthorizedException()
     }
-    const {
-      ballotReadyPositionId,
-      customPositionName,
-      overrideDistrictId,
-      ...eoFields
-    } = body
+    const { ballotReadyPositionId, customPositionName, ...eoFields } = body
 
     // When an organization context exists (e.g. an existing candidate campaign
     // becoming an elected office), link any campaign and inherit the office
@@ -157,7 +152,7 @@ export class ElectedOfficeController {
       orgData = {
         positionId: ballotReadyPositionId ?? null,
         customPositionName: customPositionName ?? null,
-        overrideDistrictId: overrideDistrictId ?? null,
+        overrideDistrictId: null,
       }
     }
 

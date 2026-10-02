@@ -117,17 +117,18 @@ rename below is therefore recorded as a supersession rather than a rename, and
 a chart spanning the cutover has to union the old name with the new, unless
 the pair has been joined with Govern's merge (UI only):
 
-| Old name                                                               | New name                                         | History                                                                                              |
-| ---------------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `Voter Outreach - Campaign Completed`                                  | `Outreach - Campaign Completed`                  | live since 2025-06-26; merged 2026-09-30                                                             |
-| `Voter Outreach - Phone Banking Call List Created`                     | `Outreach - Phone Banking Call List Created`     | live since 2026-08-27; merged 2026-09-30                                                             |
-| `Voter Outreach - Phone Banking Call Sheet Downloaded`                 | `Outreach - Phone Banking Call Sheet Downloaded` | live since 2026-08-29; merged 2026-09-30                                                             |
-| `Outreach - Phone Banking: Call Logged`                                | `Outreach - Phone Banking Call Logged`           | live since 2026-09-01; merged 2026-09-30                                                             |
-| `Outreach - Phone Banking: Contact Viewed`                             | `Outreach - Phone Banking Contact Viewed`        | live since 2026-08-29; merged 2026-09-30                                                             |
-| `Door Knocking - Door Logged`                                          | `Outreach - Door Knocking Door Logged`           | live since 2026-08-19; merged 2026-09-30                                                             |
-| `Door Knocking - List Created`, `Session Started`, `Session Abandoned` | `Outreach - Door Knocking <Thing>`               | merged 2026-09-30                                                                                    |
-| the rest of `Door Knocking - *`                                        | `Outreach - Door Knocking <Thing>`               | low volume; merge once the new name has fired, since Govern cannot merge into an event with no data  |
-| `Dashboard - Campaign Task Status Updated`                             | `Dashboard - Campaign Task Completed`            | dark since 2026-09-01; merged 2026-09-30, so the series before the cutover also holds un-completions |
+| Old name                                                                                     | New name                                         | History                                                                                              |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `Voter Outreach - Campaign Completed`                                                        | `Outreach - Campaign Completed`                  | live since 2025-06-26; merged 2026-09-30                                                             |
+| `Voter Outreach - Phone Banking Call List Created`                                           | `Outreach - Phone Banking Call List Created`     | live since 2026-08-27; merged 2026-09-30                                                             |
+| `Voter Outreach - Phone Banking Call Sheet Downloaded`                                       | `Outreach - Phone Banking Call Sheet Downloaded` | live since 2026-08-29; merged 2026-09-30                                                             |
+| `Outreach - Phone Banking: Call Logged`                                                      | `Outreach - Phone Banking Call Logged`           | live since 2026-09-01; merged 2026-09-30                                                             |
+| `Outreach - Phone Banking: Contact Viewed`                                                   | `Outreach - Phone Banking Contact Viewed`        | live since 2026-08-29; merged 2026-09-30                                                             |
+| `Door Knocking - Door Logged`                                                                | `Outreach - Door Knocking Door Logged`           | live since 2026-08-19; merged 2026-09-30                                                             |
+| `Door Knocking - List Created`, `Session Started`, `Session Abandoned`                       | `Outreach - Door Knocking <Thing>`               | merged 2026-09-30                                                                                    |
+| `Door Knocking - Route Build Failed`                                                         | `Outreach - Door Knocking Route Build Failed`    | merged 2026-10-01                                                                                    |
+| `Door Knocking - Session Completed`, `List Deleted`, `List Edited`, `Not A Voter Reason Set` | `Outreach - Door Knocking <Thing>`               | 33 events in all; left unmerged by decision, so a chart spanning the cutover unions both names       |
+| `Dashboard - Campaign Task Status Updated`                                                   | `Dashboard - Campaign Task Completed`            | dark since 2026-09-01; merged 2026-09-30, so the series before the cutover also holds un-completions |
 
 Every old name above now carries its `supersession:` line in Amplitude, so a
 chart author lands on where the series continues. The eleven that were
@@ -391,14 +392,19 @@ block carries the same date.
 
 ## Monitoring
 
-Not yet built. What to create now that the new events are firing:
+A volume anomaly monitor watches `Outreach - Campaign Completed` **grouped by
+`medium`** (Amplitude monitor `zxdr3o2w` on chart `xdxrdhf6`, created
+2026-10-01): automatic anomaly detection at 99%, drops and spikes, checked
+daily. The grouping is the point: one channel dropping to zero alerts instead
+of hiding inside a flat total. This is the check that would have caught the
+August break in a day rather than a month. The chart starts at 2026-09-30, so
+the baseline only sees post-cutover rows.
 
-- A volume anomaly monitor on `Outreach - Campaign Completed` **grouped
-  by `medium`**, so one channel dropping to zero alerts instead of hiding
-  inside a flat total. This is the check that would have caught the August
-  break in a day rather than a month.
+Not built:
+
 - Volume monitors on `Outreach - Door Knocking Door Logged` and
-  `Outreach - Phone Banking Call Logged`.
+  `Outreach - Phone Banking Call Logged`. Optional; add them if the campaign
+  monitor proves useful.
 - A CI check that fails a PR removing an event literal a live Amplitude custom
   event, cohort or saved chart depends on.
 

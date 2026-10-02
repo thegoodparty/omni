@@ -37,6 +37,7 @@ import {
 import { hashPassword } from '../util/passwords.util'
 import {
   FIXTURE_USER_EMAIL_DOMAIN,
+  FIXTURE_USER_EMAIL_PATTERN,
   FIXTURE_USER_EMAIL_PREFIX,
   isTestUser,
   TEST_USER_DOMAIN,
@@ -57,7 +58,13 @@ const REGISTER_USER_CRM_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 
 const CLERK_PAGE_SIZE = 500
 
-const TEST_USER_SWEEP_CRON = '37 */6 * * *'
+const TEST_USER_SWEEP_CRON = '37 * * * *'
+
+// E2E runs mint ~900 users an hour against a dev Clerk instance capped at
+// 50k. QA fixture users outlive a single run (eval judge sweeps,
+// validate-feature approval waits), so they keep a full day.
+const E2E_USER_MAX_AGE_HOURS = 3
+const FIXTURE_USER_MAX_AGE_HOURS = 24
 const TEST_USER_SWEEP_JOB = 'testUserSweep'
 
 // The long-lived deploys: exactly one gp-api per Clerk instance.
@@ -1025,7 +1032,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   }
 
   /**
-   * Six-hourly sweep of stale e2e and fixture users.
+   * Hourly sweep of stale e2e and fixture users.
    *
    * Runs only on the long-lived dev and prod deploys. Every ephemeral
    * PR-preview stack and every local gp-api holds the same dev Clerk secret,
@@ -1046,8 +1053,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     }
 
     // Prod runs two replicas, which fire this cron on the same instant
-    // against the same Clerk instance. Hourly and not daily: a daily claim
-    // would throttle a six-hourly job to one pass per UTC day.
+    // against the same Clerk instance.
     const now = new Date()
     if (!(await this.cronLock.tryClaimHourlyRun(TEST_USER_SWEEP_JOB, now))) {
       return
@@ -1061,13 +1067,16 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   }
 
   /**
-   * Deletes old e2e test users that were created more than 24 hours ago.
-   * Cleans out users from both the postgres db and from Clerk. Scheduled by
-   * {@link sweepTestUsers}, which owns the environment gate and the lock.
+   * Deletes e2e test users older than {@link E2E_USER_MAX_AGE_HOURS} and QA
+   * fixture users older than {@link FIXTURE_USER_MAX_AGE_HOURS}, from both
+   * the postgres db and Clerk. Scheduled by {@link sweepTestUsers}, which
+   * owns the environment gate and the lock.
    */
   async deleteTestUsers() {
     try {
-      const cutoff = subHours(new Date(), 24)
+      const now = new Date()
+      const e2eCutoff = subHours(now, E2E_USER_MAX_AGE_HOURS)
+      const fixtureCutoff = subHours(now, FIXTURE_USER_MAX_AGE_HOURS)
 
       // 1. Delete DB users. The SQL clauses only prefilter candidates; the
       // isTestUser pass is what makes the fixture match exact (qa-<uuid>
@@ -1075,15 +1084,18 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       const candidates = await this.model.findMany({
         where: {
           OR: [
-            { email: { endsWith: TEST_USER_DOMAIN } },
+            {
+              email: { endsWith: TEST_USER_DOMAIN },
+              createdAt: { lt: e2eCutoff },
+            },
             {
               email: {
                 startsWith: FIXTURE_USER_EMAIL_PREFIX,
                 endsWith: FIXTURE_USER_EMAIL_DOMAIN,
               },
+              createdAt: { lt: fixtureCutoff },
             },
           ],
-          createdAt: { lt: cutoff },
         },
         select: { id: true, email: true },
       })
@@ -1105,60 +1117,69 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         }
       }
 
-      // 2. Delete Clerk users. Page through users oldest-first, deleting any
-      // on the test domain created before the cutoff. Clerk's SDK has no
-      // server-side created-at or email-domain filter, so we filter both
-      // client-side and advance `offset` past the users we leave behind each
-      // page (non-test users and any failed deletes) while deleted users drop
-      // out of the list. This drains the entire backlog across passes rather
-      // than only ever inspecting the most recent page — the old `query`
-      // search never surfaced the bulk of the backlog.
-      const cutoffMs = cutoff.getTime()
+      // 2. Delete Clerk users. Clerk's `query` filters server-side, so a
+      // pass pages only through matching users, oldest-first, rather than
+      // the whole instance; walking the whole instance outran the dev
+      // deploys that kill a running pass. Matches are re-checked
+      // client-side (`qa-` also hits e2e addresses) and `offset` advances
+      // past the ones left behind, while deleted users drop out of the list.
+      const clerkSearches = [
+        {
+          query: TEST_USER_DOMAIN,
+          cutoffMs: e2eCutoff.getTime(),
+          matches: (email: string) => email.endsWith(TEST_USER_DOMAIN),
+        },
+        {
+          query: FIXTURE_USER_EMAIL_PREFIX,
+          cutoffMs: fixtureCutoff.getTime(),
+          matches: (email: string) => FIXTURE_USER_EMAIL_PATTERN.test(email),
+        },
+      ]
       let clerkDeleted = 0
-      let offset = 0
-      for (;;) {
-        const { data: page } = await clerkThrottle(() =>
-          this.clerkClient.users.getUserList({
-            limit: CLERK_PAGE_SIZE,
-            offset,
-            orderBy: '+created_at',
-          }),
-        )
-        if (page.length === 0) break
+      for (const { query, cutoffMs, matches } of clerkSearches) {
+        let offset = 0
+        for (;;) {
+          const { data: page } = await clerkThrottle(() =>
+            this.clerkClient.users.getUserList({
+              query,
+              limit: CLERK_PAGE_SIZE,
+              offset,
+              orderBy: '+created_at',
+            }),
+          )
+          if (page.length === 0) break
 
-        const toDelete = page.filter(
-          (user) =>
-            user.createdAt < cutoffMs &&
-            user.emailAddresses.some((e) =>
-              isTestUser({ email: e.emailAddress }),
-            ),
-        )
+          const stale = page.filter((user) => user.createdAt < cutoffMs)
+          const toDelete = stale.filter((user) =>
+            user.emailAddresses.some((e) => matches(e.emailAddress)),
+          )
 
-        let deletedThisPage = 0
-        for (const clerkUser of toDelete) {
-          try {
-            await clerkThrottle(() =>
-              this.clerkClient.users.deleteUser(clerkUser.id),
-            )
-            clerkDeleted++
-            deletedThisPage++
-            this.logger.info(
-              { userId: clerkUser.id },
-              'Deleted Clerk test user',
-            )
-          } catch (err) {
-            this.logger.error(
-              { err, userId: clerkUser.id },
-              'Failed to delete Clerk test user, skipping',
-            )
+          let deletedThisPage = 0
+          for (const clerkUser of toDelete) {
+            try {
+              await clerkThrottle(() =>
+                this.clerkClient.users.deleteUser(clerkUser.id),
+              )
+              clerkDeleted++
+              deletedThisPage++
+              this.logger.info(
+                { userId: clerkUser.id },
+                'Deleted Clerk test user',
+              )
+            } catch (err) {
+              this.logger.error(
+                { err, userId: clerkUser.id },
+                'Failed to delete Clerk test user, skipping',
+              )
+            }
           }
-        }
 
-        // Oldest-first: once a page holds no users older than the cutoff,
-        // every later page is newer too, so there is nothing left to clean up.
-        if (!page.some((user) => user.createdAt < cutoffMs)) break
-        if (page.length < CLERK_PAGE_SIZE) break
-        offset += page.length - deletedThisPage
+          // Oldest-first: once a page reaches users newer than the cutoff,
+          // every later page is newer too.
+          if (stale.length < page.length) break
+          if (page.length < CLERK_PAGE_SIZE) break
+          offset += page.length - deletedThisPage
+        }
       }
 
       this.logger.info(

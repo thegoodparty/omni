@@ -36,16 +36,21 @@ class GpApiAgentExperimentResultData(BaseModel):
 
     runId: str
     status: Literal["success", "failed", "contract_violation"]
-    artifactKey: str | None = None
-    artifactBucket: str | None = None
-    durationSeconds: float | None = None
-    error: str | None = None
-    # Mirrors zod's `costUsd: z.number().optional()`, whose exact semantics are
-    # load-bearing for the broker: a MISSING key parses, an explicit NULL does
-    # not. A bare `float` with a default reproduces both halves in pydantic
-    # (missing takes the default; None fails the type), which `float | None`
-    # would not. The default itself is never read — the broker omits the key
-    # when it has no cost to report rather than sending one.
+    # EVERY optional field below mirrors a zod `.optional()`, whose exact
+    # semantics are load-bearing for the broker: a MISSING key parses, an
+    # explicit NULL does not. A bare type with a default reproduces both
+    # halves in pydantic (missing takes the default; None fails the type),
+    # which `X | None` would not. The defaults are never read.
+    #
+    # Only costUsd used to be written this way; the other four were
+    # `X | None = None`, which ACCEPTS null — so a null that gp-api would
+    # dead-letter passed this mirror. durationSeconds is the one that
+    # mattered: the broker now omits it when unmeasured, exactly as it does
+    # cost, and this mirror has to be able to tell an omission from a null.
+    artifactKey: str = ""
+    artifactBucket: str = ""
+    durationSeconds: float = 0.0
+    error: str = ""
     costUsd: float = 0.0
 
     model_config = ConfigDict(extra="allow")
@@ -149,6 +154,10 @@ class TestUnmeasuredCostParsesAtGpApi:
             detail="Agent exceeded 600s limit",
             cost_usd=0.0,
         )
+        # A measured $0.00 equals the mirror's default, so the value alone
+        # cannot tell a sent zero from an omitted key — which is the exact
+        # distinction this field exists to carry. Assert it was SENT.
+        assert "costUsd" in msg.data.model_fields_set
         assert msg.data.costUsd == 0.0
 
 
@@ -211,3 +220,36 @@ class TestSchemaRejectsInvalid:
                     "data": {"status": "success"},  # missing runId
                 }
             )
+
+
+class TestTheMirrorRejectsWhatGpApiRejects:
+    """The mirror is only worth anything if it is as strict as gp-api. Four of
+    its optional fields used to be `X | None = None`, which accepts a null that
+    gp-api's `.optional()` dead-letters — so a null would pass here and fail in
+    production. These pin the strictness itself, independent of any sender."""
+
+    BASE = {"runId": "r", "status": "failed"}
+
+    @pytest.mark.parametrize("field", ["artifactKey", "artifactBucket", "durationSeconds", "error", "costUsd"])
+    def test_an_explicit_null_is_rejected(self, field):
+        with pytest.raises(ValidationError):
+            GpApiAgentExperimentResultData.model_validate({**self.BASE, field: None})
+
+    def test_every_optional_key_may_be_missing(self):
+        """BASE omits all five at once, so one parse covers each of them —
+        and every one of them is genuinely absent, not filled from a default
+        that a later assertion might mistake for a value."""
+        data = GpApiAgentExperimentResultData.model_validate(self.BASE)
+        assert data.model_fields_set == {"runId", "status"}
+
+    def test_a_terminal_status_with_no_duration_omits_the_key_on_the_wire(self):
+        """Read off the RAW body, not the parsed model: the mirror defaults the
+        field to 0.0, so a parsed model cannot tell an omitted duration from
+        the old behaviour of sending 0 — which is the whole defect. And then
+        parsed too, so the omission is shown to be one gp-api accepts."""
+        sqs = MagicMock()
+        sender = CallbackSender(sqs_client=sqs, queue_url="https://sqs.example.com/q.fifo")
+        sender.send_result(run_id="r", organization_slug="o", experiment_id="e", status="failed")
+        body = json.loads(sqs.send_message.call_args[1]["MessageBody"])
+        assert "durationSeconds" not in body["data"]
+        GpApiAgentExperimentResultMessage.model_validate(body)

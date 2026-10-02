@@ -89,6 +89,22 @@ def test_build_flag_queue_groups_by_cause_and_keeps_the_digest_key():
     assert all(item["queue"] == "flags" for item in queue)
 
 
+def test_build_flag_queue_leads_with_the_cause_holding_an_okr_break():
+    """The digest posts an OKR break as its one red item every run; the console must not
+    bury it under worse-ranked causes (2026-10-01: SMS Poll Sent sat tenth of twelve)."""
+    report = {"flagged": [
+        _record(event_type="A", rank=0, status="active", call_site_count=0),
+        _record(event_type="B", rank=2, status="dormant",
+                call_site_count=0, call_site_retired_date="2026-09-01"),
+        _record(event_type="OKR", rank=6, elevated=True, okr="activated_serve_users"),
+        _record(event_type="D", rank=6, elevated=True),
+    ], "dismissed_causes": {}}
+    queue = gcs.build_flag_queue(report)
+    assert queue[0]["okr_break"] == ["OKR"]
+    assert all(item["okr_break"] == [] for item in queue[1:])
+    assert [item["rank"] for item in queue[1:]] == sorted(item["rank"] for item in queue[1:])
+
+
 def test_build_flag_queue_marks_undismissable_causes():
     report = {"flagged": [
         _record(event_type="Counter", rank=0, status="active",

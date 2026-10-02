@@ -2,9 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { SOCIAL_TONE_VALUES, type SocialTone } from '@goodparty_org/contracts'
 import { grammarizeOfficeName } from 'app/polls/onboarding/utils/grammarizeOfficeName'
 import {
+  composeScript,
+  ensureSmsIdentification,
   identificationIntro,
+  openWithSmsIdentification,
+  OPT_OUT_FOOTER,
   SERVE_SMS_IDENTIFICATION_FALLBACK,
   serveIdentificationIntro,
+  unfilledBrackets,
+  upgradeScriptFooter,
 } from './smsCompose.util'
 
 // The identification sentence is the one piece of Serve copy that could not
@@ -72,5 +78,178 @@ describe('identificationIntro (Win, unchanged)', () => {
 
   it.each(SOCIAL_TONE_VALUES)('still frames a candidacy (%s)', (tone) => {
     expect(identificationIntro(tone, 'Jane', 'City Council')).toBe(cases[tone])
+  })
+})
+
+// A build-mode draft is composed with no committee, and resume carries the
+// saved script verbatim -- the footer upgrade is the one edit allowed, so
+// it is pinned tight: insert exactly the missing line, touch nothing else.
+describe('upgradeScriptFooter', () => {
+  const draftScript = composeScript('this is Jane, candidate for Mayor.', null)
+
+  it('inserts the paid-for-by line above the opt-out footer', () => {
+    expect(upgradeScriptFooter(draftScript, 'Jane for Mayor')).toBe(
+      composeScript('this is Jane, candidate for Mayor.', 'Jane for Mayor'),
+    )
+  })
+
+  it('returns the script unchanged with no committee', () => {
+    expect(upgradeScriptFooter(draftScript, null)).toBe(draftScript)
+  })
+
+  it('never doubles an existing paid-for-by line', () => {
+    const verified = composeScript('body', 'Jane for Mayor')
+    expect(upgradeScriptFooter(verified, 'Jane for Mayor')).toBe(verified)
+    expect(upgradeScriptFooter(verified, 'Another Committee')).toBe(verified)
+  })
+
+  // The delegate-caught case: the guard must be structural, because a body
+  // can legitimately say "paid for by" without being the system footer.
+  it('still upgrades when the body itself says "paid for by"', () => {
+    const script = composeScript(
+      'this is Jane, candidate for Mayor. This run is paid for by ' +
+        'neighbors like you.',
+      null,
+    )
+    expect(upgradeScriptFooter(script, 'Jane for Mayor')).toBe(
+      composeScript(
+        'this is Jane, candidate for Mayor. This run is paid for by ' +
+          'neighbors like you.',
+        'Jane for Mayor',
+      ),
+    )
+  })
+
+  it('leaves a script that does not end with the system footer alone', () => {
+    const edited = `${draftScript} PS vote early`
+    expect(upgradeScriptFooter(edited, 'Jane for Mayor')).toBe(edited)
+    expect(edited.includes(OPT_OUT_FOOTER)).toBe(true)
+  })
+})
+
+describe('ensureSmsIdentification', () => {
+  const serveIntro = 'this is Bryan, your Asheville City Council Member.'
+  const serve = {
+    intro: serveIntro,
+    firstName: 'Bryan',
+    candidateNames: ['Bryan Levine'],
+  }
+
+  it('repairs the body that reached the P2P queue with two introductions', () => {
+    // Composed, this read "Hello Sam, this is Bryan, your Asheville City
+    // Council Member. Hi, this is [Your Name] from the City of Asheville. ..."
+    const body =
+      "this is Bryan, your Asheville City Council Member. Hi, this is [Your Name] from the City of Asheville. We're working on the budget."
+    expect(ensureSmsIdentification(body, serve)).toBe(
+      `${serveIntro} We're working on the budget.`,
+    )
+  })
+
+  it('replaces an opener that names the council instead of the person', () => {
+    expect(
+      ensureSmsIdentification(
+        'Hi, this is the Asheville City Council. We want your input on parks.',
+        serve,
+      ),
+    ).toBe(`${serveIntro} We want your input on parks.`)
+  })
+
+  it('replaces a placeholder opener and its "from the City" phrase', () => {
+    expect(
+      ensureSmsIdentification(
+        'Hi, this is [Your Name] from the City of Asheville. Budget hearing Tuesday.',
+        serve,
+      ),
+    ).toBe(`${serveIntro} Budget hearing Tuesday.`)
+  })
+
+  it('prepends the intro to a body with no introduction, dropping its own greeting', () => {
+    expect(
+      ensureSmsIdentification('Hi! Early voting starts Monday.', {
+        intro: identificationIntro('warm', 'Jane', 'City Council'),
+        firstName: 'Jane',
+        candidateNames: ['Jane Doe'],
+      }),
+    ).toBe(
+      'this is Jane, candidate for City Council. Early voting starts Monday.',
+    )
+  })
+
+  it('keeps a sentence that only looks like an opener', () => {
+    expect(
+      ensureSmsIdentification(
+        'This is the last week to vote in our city.',
+        serve,
+      ),
+    ).toBe(`${serveIntro} This is the last week to vote in our city.`)
+  })
+
+  it('fills a sender placeholder in a body that already names the sender', () => {
+    expect(
+      ensureSmsIdentification(
+        `${serveIntro} Reply to reach me. [your name]`,
+        serve,
+      ),
+    ).toBe(`${serveIntro} Reply to reach me. Bryan`)
+  })
+
+  it('reads a bare [Name] as the sender only beside a self-introduction', () => {
+    expect(
+      ensureSmsIdentification("It's [Name] here. Town hall Thursday.", serve),
+    ).toBe(`${serveIntro} Town hall Thursday.`)
+    expect(
+      ensureSmsIdentification(
+        `${serveIntro} Thanks, [Name], for writing in.`,
+        serve,
+      ),
+    ).toBe(`${serveIntro} Thanks, [Name], for writing in.`)
+  })
+
+  it('leaves a body that already passes untouched', () => {
+    const body = 'Hey, Bryan here. Town hall Thursday at [time].'
+    expect(ensureSmsIdentification(body, serve)).toBe(body)
+  })
+
+  it('leaves everything alone with no name to check against', () => {
+    const body = 'Hi, this is [Your Name].'
+    expect(
+      ensureSmsIdentification(body, { ...serve, candidateNames: [] }),
+    ).toBe(body)
+  })
+
+  it('never stacks a second intro on a repeat pass', () => {
+    const once = ensureSmsIdentification('Early voting starts Monday.', serve)
+    expect(ensureSmsIdentification(once, serve)).toBe(once)
+  })
+})
+
+describe('unfilledBrackets', () => {
+  it('lists each bracket once', () => {
+    expect(
+      unfilledBrackets('📅 [Date] | 🕐 [Time] at [Date] | {first_name}'),
+    ).toEqual(['[Date]', '[Time]'])
+  })
+})
+
+describe('openWithSmsIdentification', () => {
+  const win = {
+    intro: identificationIntro('direct', 'Jane', 'City Council'),
+    firstName: 'Jane',
+    candidateNames: ['Jane Doe'],
+  }
+
+  it("replaces the model's own introduction instead of stacking under it", () => {
+    expect(
+      openWithSmsIdentification(
+        'Hi, this is Jane, running for City Council. Vote early.',
+        win,
+      ),
+    ).toBe('Jane here, candidate for City Council. Vote early.')
+  })
+
+  it('opens a plain body on the intro', () => {
+    expect(openWithSmsIdentification('Vote early.', win)).toBe(
+      'Jane here, candidate for City Council. Vote early.',
+    )
   })
 })
