@@ -166,8 +166,10 @@ export const capturableAgents = (
     // cannot resolve is refused outright by captureArm, so it can never be
     // in a manifest and must not be expected there.
     if (entry === undefined) return false
-    if (refusedBeforeSpend(entry, env, casesFor)) return false
-    return entry.cases !== null && entry.status !== 'blocked'
+    // Before the refusal check, which reads the list: a blocked agent or one
+    // with no list was never going to be captured either way.
+    if (entry.cases === null || entry.status === 'blocked') return false
+    return !refusedBeforeSpend(entry, env, casesFor)
   })
 
 export const backgroundRunInputFor = (

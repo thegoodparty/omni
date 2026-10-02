@@ -1085,6 +1085,13 @@ describe('refusedBeforeSpend', () => {
       ).toBe(false)
     })
 
+    // No list, no reason: answered without reading any file.
+    it('reads no list for an agent that has none', () => {
+      expect(refusedBeforeSpend({ ...background, cases: null }, noRace)).toBe(
+        false,
+      )
+    })
+
     // An unknown token is a broken list, not a missing value: still red.
     it('does not excuse a token outside the vocabulary', () => {
       const broken = [{ caseId: 'c1', params: { x: '{judgeTypo}' } }]

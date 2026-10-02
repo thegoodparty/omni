@@ -205,20 +205,35 @@ export const assertNoPlaceholders = (
   )
 }
 
-// The known placeholders a list uses that the sweep has no value for. Not
-// the unknown ones: a token outside the vocabulary is a broken list, and a
-// caller deciding whether a refusal was by design must not excuse it.
+// The known placeholders a list uses that the sweep has no value for, so a
+// refusal for that reason can be told from a broken list. A list that is
+// broken anyway names none, so nothing excuses it: a token outside the
+// vocabulary, or any token in a KEY, which substitution never rewrites.
 export const missingValues = (
   cases: readonly Pick<BackgroundCase, 'params'>[],
   values: PlaceholderValues,
 ): PlaceholderName[] => {
-  const found: Finding[] = []
-  for (const one of cases) findPlaceholders(one.params, '', found)
-  const used = new Set(found.map((one) => one.token))
+  const all: Finding[] = []
+  for (const one of cases) findPlaceholders(one.params, '', all)
+  const inValues = cases.flatMap((one) => tokensInValues(one.params))
+  const known = new Set<string>(Object.values(JUDGE_PLACEHOLDERS))
+  const broken =
+    all.length > inValues.length || inValues.some((token) => !known.has(token))
+  if (broken) return []
+  const used = new Set(inValues)
   return PLACEHOLDER_NAMES.filter(
     (name) => used.has(JUDGE_PLACEHOLDERS[name]) && values[name] === undefined,
   )
 }
+
+const tokensInValues = (value: JsonValue): string[] =>
+  typeof value === 'string'
+    ? tokensIn(value)
+    : Array.isArray(value)
+      ? value.flatMap(tokensInValues)
+      : value !== null && typeof value === 'object'
+        ? Object.values(value).flatMap(tokensInValues)
+        : []
 
 // The loader's own shape, narrowed to the two fields substitution touches, so
 // this is not a third declaration of "a background case". `Pick` rather than

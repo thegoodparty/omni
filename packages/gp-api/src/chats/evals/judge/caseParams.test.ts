@@ -232,7 +232,7 @@ describe('substituteBackgroundCases', () => {
 describe('missingValues', () => {
   const cases: { params: Record<string, JsonValue> }[] = [
     { params: { race_id: '{judgeRaceId}', nested: ['{judgeUserEmail}'] } },
-    { params: { organization_slug: '{judgeOrgSlug}', typo: '{judgeTypo}' } },
+    { params: { organization_slug: '{judgeOrgSlug}' } },
   ]
 
   it('names each known token the sweep has no value for', () => {
@@ -249,5 +249,26 @@ describe('missingValues', () => {
   // An unknown token is a broken list, which this must not excuse.
   it('never names a token outside the vocabulary', () => {
     expect(missingValues([{ params: { x: '{judgeTypo}' } }], {})).toEqual([])
+  })
+
+  // A list that is broken anyway names nothing, even beside a value that is
+  // really missing: excused, the break would hide until the value came back.
+  it('names nothing for a list with an unknown token as well', () => {
+    expect(
+      missingValues(
+        [{ params: { race_id: '{judgeRaceId}', x: '{judgeTypo}' } }],
+        {},
+      ),
+    ).toEqual([])
+  })
+
+  // Substitution never rewrites a key, so a token there is broken whatever
+  // the values; it must not read as a value the sweep lacks.
+  it('names nothing for a token in a key', () => {
+    // The value's token really is missing; the key's makes the list broken
+    // anyway, so the missing value must not excuse it.
+    expect(
+      missingValues([{ params: { '{judgeRaceId}': '{judgeOrgSlug}' } }], {}),
+    ).toEqual([])
   })
 })
