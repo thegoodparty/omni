@@ -466,6 +466,38 @@ describe('finalize endpoint', () => {
     expect(row?.failureReason).toBe('content_type_mismatch')
   })
 
+  it('returns 400 unreadable_pdf when a %PDF- file fails to parse', async () => {
+    const conv = await seedConversation(orgSlug)
+    const key = `chat-attachments/${service.user.id}/att-corrupt-pdf`
+    await service.prisma.chatAttachment.create({
+      data: {
+        conversationId: conv.id,
+        ownerUserId: service.user.id,
+        source: ChatAttachmentSource.UPLOAD,
+        storageKey: key,
+        fileName: 'corrupt.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 1024,
+        status: ChatAttachmentStatus.pending,
+      },
+    })
+    fileBytesSpy.mockResolvedValue(Buffer.from('%PDF-1.4 not really a pdf'))
+
+    const res = await service.client.post(
+      `/v1/chats/${conv.id}/attachments`,
+      { storageKey: key },
+      header,
+    )
+    expect(res.status).toBe(400)
+    expect(JSON.stringify(res.data)).toContain('unreadable_pdf')
+
+    const row = await service.prisma.chatAttachment.findFirst({
+      where: { storageKey: key },
+    })
+    expect(row?.status).toBe(ChatAttachmentStatus.failed)
+    expect(row?.failureReason).toBe('unreadable_pdf')
+  })
+
   it('sets status ready for JPEG with matching magic bytes', async () => {
     const conv = await seedConversation(orgSlug)
     const key = `chat-attachments/${service.user.id}/att-jpeg`
