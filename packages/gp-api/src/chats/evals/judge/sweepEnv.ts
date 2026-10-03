@@ -19,6 +19,7 @@ import {
   type RecordStore,
 } from './records'
 import { S3Client } from '@aws-sdk/client-s3'
+import { judgeAwsClientConfig } from './awsCredentials'
 
 // THE SWEEP IS CONFIGURED FROM THE ENVIRONMENT, NOT FROM ARGV, and that is
 // forced rather than chosen. The arm capture has to run under vitest, because
@@ -210,8 +211,10 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   // empty string, so "admitted nothing" and "never resolved" would otherwise
   // read the same.
   JUDGE_BACKGROUND_ADMITTED: BLANK_IS_UNSET,
-  // Why each refused agent was refused, as one JSON object — display only,
-  // so the report can say what the resolver decided. JSON rather than a
+  // Why each refused agent was refused, as one JSON object, so the report
+  // can say what the resolver decided. Display only for a background agent,
+  // which ADMITTED decides; for a chat agent, being named here is the
+  // refusal, since chat agents are walked by default. JSON rather than a
   // delimited list because a reason can carry anything, including a
   // multi-line zod message; JSON.stringify keeps it to the single line
   // $GITHUB_OUTPUT needs.
@@ -606,7 +609,7 @@ export const storeFromEnv = (env: SweepEnv): RecordStore => {
   if (env.recordsBucket !== undefined) {
     const bucket = env.recordsBucket
     return createS3RecordStore(
-      s3PortFromClient(new S3Client({}), bucket),
+      s3PortFromClient(new S3Client(judgeAwsClientConfig()), bucket),
       bucket,
     )
   }

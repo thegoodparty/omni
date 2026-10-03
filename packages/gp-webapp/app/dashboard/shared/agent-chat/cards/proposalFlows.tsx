@@ -132,6 +132,7 @@ export const ProposalFlowsProvider = ({
               ...transformVoterFileFiltersForBackend(audience.filters),
               supportStatus: audience.supportStatus,
               precincts: audience.precincts,
+              ...(audience.sample && { sample: audience.sample }),
             },
           )
           listId = data.id

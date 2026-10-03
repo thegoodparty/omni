@@ -8,16 +8,16 @@ they see the whole path rather than only the step they are on.
 
 ## Files
 
-| File                                | Role                                                                                      |
-| ----------------------------------- | ----------------------------------------------------------------------------------------- |
-| `page.tsx`                          | Server component. Loads the priority and its status, passes `hideChatDock`                |
-| `components/PriorityWorkspace.tsx`  | The client orchestrator: conversation, rail, live status, cards                           |
-| `components/PriorityStatusRail.tsx` | The seven steps, their states, and a step's detail view                                   |
-| `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                            |
-| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy        |
-| `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers         |
-| `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                             |
-| `data/toolLabels.ts`                | Which tools show a pill, and what it says                                                 |
+| File                                | Role                                                                               |
+| ----------------------------------- | ---------------------------------------------------------------------------------- |
+| `page.tsx`                          | Server component. Loads the priority and its status, passes `hideChatDock`         |
+| `components/PriorityWorkspace.tsx`  | The client orchestrator: conversation, rail, live status, cards                    |
+| `components/PriorityStatusRail.tsx` | The seven steps, their states, and a step's detail view                            |
+| `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                     |
+| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy |
+| `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers  |
+| `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                      |
+| `data/toolLabels.ts`                | Which tools show a pill, and what it says                                          |
 
 ## It is the shared chat kit, not a new one
 
@@ -163,6 +163,42 @@ records it with `record_check_reminder`, a narrow write in
 check and spends the same raise counter, so the two surfaces never nag
 separately.
 
+## A check asks a sample, not everyone
+
+A check is a directional read, so the agent proposes a random sample of each
+side's audience rather than the whole of it. Texting 58,520 people, about
+$2,050, for a read that needs about 100 replies is what this exists to stop.
+The rules live in the prompt (`buildSamplingBlock` and
+`buildReadingRepliesBlock` in `priorityFlow.prompt.ts`):
+
+- **Text** is sized from `CHECK_TARGET_REPLIES` (100) over the office's own
+  reply rate (`replyRate` on `read_past_outreach` rows), or
+  `DEFAULT_TEXT_REPLY_RATE` (2.5%) without one. **Phone banking and door
+  knocking** are sized by what the official can actually work, and the agent
+  says what it chose. Each side gets its own sample.
+- **The proposal carries it** (`OutreachProposalSchema` in contracts):
+  `count` stays the whole audience; `sampleSize`, `targetResponses`,
+  `assumedReplyRate` and `widensOutreachIds` are optional and append-only, so
+  cards persisted before them still parse. A `sampleSize` no smaller than
+  `count` means the whole audience everywhere: the card, the tool result
+  (`wholeAudience`), and the server's draw.
+- **The card says it**: `proposalSampleLine` reads "Text 4,000 of 58,520,
+  picked at random" in place of the channel and count. The list saved from
+  the proposal is drawn as `proposalListSample` (keyed on the proposal, so
+  saving it twice draws the same people; see "Random samples" in
+  `gp-api/src/peopleDb/AGENTS.md` and `VoterFileFilterSampleMember` in
+  `gp-api/src/contacts/AGENTS.md`).
+- **A thin read is not an answer.** Under `CHECK_MIN_REPLIES` (75, the polls
+  high-confidence bar) the agent says the read is thin, does not record the
+  side confirmed or revised, and offers to widen: a new proposal to the same
+  audience with `widensOutreachIds`, whose list leaves out whoever the
+  earlier samples drew. A side already sent is otherwise never offered again
+  (`checkProposalRefusal`); a widen gets through only when the server finds
+  every named send put out that same side of this priority's check
+  (`PriorityFlowOutreachService.allPutOutCheck`). A proposal whose audience
+  counted nobody is refused outright. Nothing calls a result statistically proven; the 2 or
+  3 in 100 who reply choose themselves.
+
 ## Cards are keyed, not trusted
 
 A card is a tool call rendered inline through `shared/agent-chat/cards/ChatCardRenderer`.
@@ -209,6 +245,12 @@ answered in an earlier session reloads with that choice checked, or with a
 written-in answer shown as written. The widget always adds its own "Or write your
 own..." option, which is the bail-out back to free chat, so the agent never
 writes one.
+
+The widget shows its own question, so the agent never writes it as chat text
+and never ends a message with an either/or in prose (a "Yes" back to "this, or
+that?" answers nothing). The prompt says so, and the shared `turnBlocks`
+backstops it: a question closing the text right above the widget is dropped
+(see `shared/agent-chat/AGENTS.md`).
 
 A question where more than one answer can be true sets `multiSelect`. The
 options step always does: each option is a checkbox with its tradeoff as the

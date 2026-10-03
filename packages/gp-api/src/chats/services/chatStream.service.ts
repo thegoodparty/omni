@@ -5,6 +5,7 @@ import {
   ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
+  ChatScope,
   Prisma,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
@@ -20,10 +21,7 @@ import {
 } from '@/llm/services/llm.service'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import { ChatStoreService, PersistedSegment } from './chatStore.prisma'
-import {
-  ChatAttachmentsService,
-  SERVE_CHAT_ATTACHMENTS_FLAG,
-} from './chatAttachments.service'
+import { ChatAttachmentsService } from './chatAttachments.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
@@ -95,6 +93,14 @@ export interface StreamArgs {
   // Subset of attachment IDs the client wants injected on this turn. When
   // omitted all ready attachments for the conversation are injected.
   attachmentIds?: string[]
+  // The caller's scope-specific attachment flag (ATTACHMENT_FLAG_BY_SCOPE).
+  // Omitted for scopes with no attachment support (e.g. briefing chats),
+  // which keeps injection off regardless of any flag's state.
+  attachmentsFlag?: string
+  // The caller's chat scope. This service is shared across scopes, so the
+  // AttachedDocumentQueried analytics event needs it to attribute a citation
+  // to the right product (Win vs Serve) instead of always reading Serve.
+  scope?: ChatScope
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -425,15 +431,17 @@ export class ChatStreamService {
   private async loadAttachmentBlocks(
     conversationId: string,
     ownerUserId: number,
+    attachmentsFlag?: string,
     attachmentIds?: string[],
   ): Promise<{
     fileParts: LlmFilePart[]
     attachments: AttachedDocMeta[]
   } | null> {
     if (!this.chatAttachments || !this.s3 || !this.features) return null
+    if (!attachmentsFlag) return null
     const enabled = await this.features.isFeatureEnabled({
       user: ownerUserId,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
+      feature: attachmentsFlag,
     })
     if (!enabled) return null
 
@@ -541,6 +549,7 @@ export class ChatStreamService {
     const attachmentResult = await this.loadAttachmentBlocks(
       args.conversationId,
       args.ownerUserId,
+      args.attachmentsFlag,
       args.attachmentIds,
     )
 
@@ -883,7 +892,11 @@ export class ChatStreamService {
               .track(
                 args.ownerUserId,
                 EVENTS.ChiefOfStaff.AttachedDocumentQueried,
-                { documentId: firstAttachmentId, turnIndex },
+                {
+                  documentId: firstAttachmentId,
+                  turnIndex,
+                  ...(args.scope && { scope: args.scope }),
+                },
               )
               .catch((err: unknown) => {
                 this.logger.error(

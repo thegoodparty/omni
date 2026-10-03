@@ -495,18 +495,23 @@ describe('SmsFlow serve send path', () => {
     // "City Council - District 3" -> "City Council Member": the district
     // suffix is dropped and the noun is made a person, by polls' own
     // grammarizeOfficeName rather than by anything re-derived here.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/this is Jane, your City Council Member\./),
+    )
     expect(
-      await screen.findByText(/this is Jane, your City Council Member\./),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/candidate for/)).toBeNull()
-    expect(screen.queryByText(/District 3/)).toBeNull()
+      screen.getByRole('textbox', { name: 'Message body' }),
+    ).not.toHaveTextContent(/candidate for|District 3/)
 
     // A second tone, to prove the wiring is tone-keyed and not a constant.
     // (All four are pinned in smsCompose.util.test.ts.)
     await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
-    expect(
-      await screen.findByText(/Jane here, your City Council Member\./),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/Jane here, your City Council Member\./),
+    )
   })
 })
 
@@ -591,9 +596,11 @@ describe('SmsFlow win send path (unchanged)', () => {
     await userEvent.click(await screen.findByRole('button', { name: WIN_DAY }))
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByText(/this is Jane, candidate for City Council\./),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+    )
     await attachImage()
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),

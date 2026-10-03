@@ -6,6 +6,7 @@ import { ciContextFromEnv, runChatCase } from './runners/chat'
 import { seedChatOrg, seedOptionsFor } from './runners/seedChatOrg'
 import { captureArm, unjudgeableRecords, type ArmCaseRequest } from './sweepArm'
 import { restoreRealModelKey } from './modelKey'
+import { judgeAwsClientConfig } from './awsCredentials'
 import { S3Client } from '@aws-sdk/client-s3'
 import { SQSClient } from '@aws-sdk/client-sqs'
 import {
@@ -109,9 +110,9 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
       let ports: BackgroundRunnerDeps | undefined
       const backgroundPorts = (): BackgroundRunnerDeps => {
         ports ??= {
-          store: s3ObjectStore(new S3Client({})),
+          store: s3ObjectStore(new S3Client(judgeAwsClientConfig())),
           queue: sqsDispatchQueue(
-            new SQSClient({}),
+            new SQSClient(judgeAwsClientConfig()),
             backgroundDestinationFrom(env).dispatchQueueUrl,
           ),
           clock: realClock,
@@ -235,7 +236,7 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
       // A skip here means paid work that did not happen, and the reason is in
       // the manifest — this assertion is what turns that into a red job
       // rather than a quiet coverage gap.
-      const capturable = capturableAgents(requested, env, findAgent)
+      const capturable = capturableAgents(requested, env, findAgent, config)
       expect(
         manifest.agents.map((a) => a.agentId).sort(),
         `skipped: ${JSON.stringify(manifest.skipped)}`,

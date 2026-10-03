@@ -13,6 +13,7 @@ const COMPOSE_HANDOFF_CHANNEL_LABEL: Record<
   string
 > = {
   serve_social: 'Social Post',
+  win_social: 'Social Post',
 }
 
 // A CTA card rendered when the agent returns a compose_handoff tool segment.

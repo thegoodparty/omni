@@ -1,13 +1,22 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
 import { budgetOutputLines } from './armBudget'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
+import { DEFAULT_JUDGE_CONFIG } from './config'
 import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
+import { ARM_AWS_ENV } from './awsCredentials'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
 // The sweep's three processes each read their spend switch from their own
@@ -53,8 +62,16 @@ const setsEnv = (body: string, name: string): boolean =>
 // The VALUE of a step's env entry, not just whether it is there. Two arms that
 // each set a data version from a different expression would satisfy `setsEnv`
 // and still read two different snapshots of the mart.
+//
+// Read from the step's `env:` block only: a `run: |` line sits at the same
+// indent, so a value moved into the script would otherwise still match.
+const envBlockOf = (body: string): string =>
+  /^ {8}env:\n((?: {10}.*\n|\s*\n)*)/m.exec(body)?.[1] ?? ''
+
 const envValue = (body: string, name: string): string | null =>
-  new RegExp(`^ {${ENV_ENTRY}}${name}: (.*)$`, 'm').exec(body)?.[1] ?? null
+  new RegExp(`^ {${ENV_ENTRY}}${name}: (.*)$`, 'm').exec(
+    envBlockOf(body),
+  )?.[1] ?? null
 
 const spendsLive = (body: string): boolean =>
   new RegExp(`^ {${ENV_ENTRY}}JUDGE_SPEND: 'true'$`, 'm').test(body)
@@ -335,7 +352,7 @@ describe('judge.yml tells every judge process who asked', () => {
   })
 
   // The price and the guard state belong in the same comment: a reader
-  // approving ~$264 of sweep should be able to see whether two arms that hash
+  // approving ~$632 of sweep should be able to see whether two arms that hash
   // alike will be judged or refused.
   it('says in the plan comment which mode the request is in', () => {
     const estimate = steps.find(
@@ -845,6 +862,48 @@ describe('the judge role trusts exactly judge.yml on main', () => {
   })
 })
 
+// WHAT judge.yml ASKS AWS FOR, THE POLICY HAS TO GRANT. The first live
+// background sweep assumed the role and then could not look the dispatch queue
+// up, because the policy granted SendMessage and not GetQueueUrl, so every
+// background agent was refused. Pinned from both files, so neither can drift.
+describe('the judge policy grants what the sweep job calls', () => {
+  const POLICY = path.resolve(
+    __dirname,
+    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
+  )
+  const tf = readFileSync(POLICY, 'utf8')
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const statement = (sid: string): string => {
+    // Alignment is terraform fmt's, so it moves with the neighbouring keys.
+    const at = tf.search(new RegExp(`Sid\\s*=\\s*"${sid}"`))
+    expect(at, `no ${sid} statement`).toBeGreaterThan(-1)
+    // To the end of the Resource list: an ARN interpolates `${...}`, so the
+    // first `}` is inside it, not the statement's end.
+    return tf.slice(at, tf.indexOf(']', tf.indexOf('Resource', at)) + 1)
+  }
+  const actions = (sid: string): string[] =>
+    [
+      ...(/Action\s*=\s*\[([^\]]*)\]/.exec(statement(sid))?.[1] ?? '').matchAll(
+        /"([^"]+)"/g,
+      ),
+    ].map((match) => match[1] ?? '')
+
+  it('grants the queue lookup the sweep job runs', () => {
+    expect(yaml).toContain('aws sqs get-queue-url --queue-name "$queue"')
+    expect(actions('DispatchJudgeRuns')).toContain('sqs:GetQueueUrl')
+  })
+
+  // Send and look up, nothing else: receiving or deleting would let a sweep
+  // consume the queue the platform dispatches real runs from.
+  it('grants the dispatch queue nothing but send and look up', () => {
+    expect(actions('DispatchJudgeRuns').sort()).toEqual([
+      'sqs:GetQueueUrl',
+      'sqs:SendMessage',
+    ])
+    expect(statement('DispatchJudgeRuns')).toContain('${local.dispatch_queue}')
+  })
+})
+
 // ONE BACKGROUND BUDGET, AND ONE ADMITTED LIST, FOR BOTH ARMS. The base arm
 // reads the base ref's config.ts and manifests, so a budget or an admission
 // each arm decided for itself would differ whenever a branch changed either.
@@ -1254,5 +1313,200 @@ describe('judge.yml links the commits, the base and the case lists', () => {
     ])('leaves %j as a code span', (value) => {
       expect(cell(value)).toBe(`\`${value}\``)
     })
+  })
+})
+
+// THE BACKGROUND PRICE IS A FUNCTION OF THE BACKGROUND BUDGET. It was a bare
+// $13 that outlived the budget it priced, so it is recomputed here from
+// config.background: a change to the budget that does not reach the workflow
+// fails this rather than quietly mispricing every plan comment.
+describe('judge.yml prices a background agent from config.background', () => {
+  const estimate = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
+    (step) => step.name === 'Estimate the cost and case count',
+  )
+  const script = runBlockOf(estimate?.body ?? '')
+
+  // Rounded up from the worst measured mean, meeting_briefing's ~$7.74.
+  const RUN_CENTS = 800
+  // The base-arm cache is not read by the sweep yet, so both arms run.
+  const ARMS = 2
+  // A chat agent other than ordinance_flow, from the design doc.
+  const CHAT_CENTS = 700
+
+  it('matches arms x cases x attempts x the per-run cost', () => {
+    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
+    expect(maxCases).toBeDefined()
+    const assigned = [...script.matchAll(/^background_cents=(\d+)$/gm)]
+    expect(assigned).toHaveLength(1)
+    expect(Number(assigned[0]?.[1])).toBe(
+      ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS,
+    )
+  })
+
+  // Run, not read: the step is `set -u`, so a constant that is right but
+  // assigned after the loop that reads it matches every text check above and
+  // kills the step on the first background row. The WHOLE run block, with a
+  // fake `npx` standing in for the CLI, so no slice boundary decides what is
+  // tested.
+  it('prices a chat and a background row, run through bash', () => {
+    expect(script.split('\n')[0]).toBe('set -euo pipefail')
+    const dir = mkdtempSync(path.join(tmpdir(), 'judge-estimate-'))
+    const bin = path.join(dir, 'bin')
+    execFileSync('mkdir', [bin])
+    writeFileSync(
+      path.join(dir, 'plan.fixture'),
+      'Universal Judge — plan (2 agents)\n\n' +
+        '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
+        '  self_research  [background]  cases: self_research.json\n',
+    )
+    writeFileSync(
+      path.join(bin, 'npx'),
+      `#!/bin/bash\ncat "${path.join(dir, 'plan.fixture')}"\n`,
+    )
+    chmodSync(path.join(bin, 'npx'), 0o755)
+    const output = path.join(dir, 'output')
+    const summary = path.join(dir, 'summary')
+    writeFileSync(output, '')
+    writeFileSync(summary, '')
+    execFileSync('bash', ['--noprofile', '--norc', '-c', script], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        RUNNER_TEMP: dir,
+        GITHUB_OUTPUT: output,
+        GITHUB_STEP_SUMMARY: summary,
+        GITHUB_SERVER_URL: 'https://github.com',
+        GITHUB_REPOSITORY: 'thegoodparty/omni',
+        WORKSPACE: 'packages/gp-api',
+        CLI: 'src/chats/evals/judge/cli.ts',
+        AGENTS: 'chief_of_staff,self_research',
+        REQUESTED: 'chief_of_staff,self_research',
+        SELECTION: EXPLICIT_SELECTION,
+        LIVE: 'false',
+        SWEEP_CAPABLE: 'true',
+        REQUESTED_BY: 'octocat',
+        CANDIDATE_SHA: 'a'.repeat(40),
+        BASE_REF: 'main',
+        PR_NUMBER: '1',
+        RUN_URL: 'https://github.com/thegoodparty/omni/actions/runs/1',
+      },
+    })
+    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
+    const background = ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS
+    const dollars = (cents: number) =>
+      `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
+    const outputs = readFileSync(output, 'utf8')
+    expect(outputs).toMatch(
+      new RegExp(`^usd=${dollars(CHAT_CENTS + background)}$`, 'm'),
+    )
+    expect(outputs).toMatch(/^sweep_agents=chief_of_staff,self_research$/m)
+    const comment = readFileSync(path.join(dir, 'plan-comment.md'), 'utf8')
+    const row = (id: string, shape: string, cents: number) =>
+      new RegExp(
+        `^\\| ${id} \\| ${shape} \\| .* \\| ~${dollars(cents)} \\|$`,
+        'm',
+      )
+    expect(comment).toMatch(row('chief_of_staff', 'chat', CHAT_CENTS))
+    expect(comment).toMatch(row('self_research', 'background', background))
+  })
+})
+
+// THE SECOND KEY `.env.test` SHADOWS. The first live background sweep that got
+// past the queue lookup assumed the role, then signed with `.env.test`'s stub
+// access key beside the role's real session token, and AWS refused the key
+// before anything was staged. Pinned on both sides: the workflow passes the
+// three names, and the arm suite and the store build their clients from them.
+describe('the arms reach AWS on the role, not on the stub', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const arms = stepsOf(yaml).filter((step) =>
+    step.name.startsWith('Capture the '),
+  )
+
+  it.each(Object.entries(ARM_AWS_ENV))(
+    'passes the %s to both arms under the arm name',
+    (_field, name) => {
+      expect(arms).toHaveLength(2)
+      const sdkName = name.replace(/^JUDGE_/, '')
+      expect(arms.map((step) => envValue(step.body, name))).toEqual([
+        `\${{ env.${sdkName} }}`,
+        `\${{ env.${sdkName} }}`,
+      ])
+    },
+  )
+
+  it('the credentials step exports the role to env, before both arms', () => {
+    const steps = stepsOf(yaml)
+    const names = steps.map((step) => step.name)
+    const credentials = steps.find(
+      (step) => step.name === 'Get credentials for staging and dispatching',
+    )
+    expect(credentials?.body).toContain(
+      'uses: aws-actions/configure-aws-credentials@',
+    )
+    // Absent, not merely not `false`: `'false'` and `${{ false }}` turn the
+    // export off just as well, and the action's default is the one we want.
+    expect(credentials?.body).not.toMatch(/output-env-credentials:/)
+    expect(names.indexOf(credentials?.name ?? '')).toBeGreaterThan(-1)
+    expect(names.indexOf(credentials?.name ?? '')).toBeLessThan(
+      names.indexOf('Capture the base arm'),
+    )
+  })
+
+  // Every file in the judge, not a list of the ones that have clients today:
+  // a client added anywhere else would sign with the stub. Unit tests are
+  // skipped, because records.test.ts builds a mocked client on purpose.
+  //
+  // Line comments go first: a `/*` inside one (background.ts has
+  // ``_judge/*``) would otherwise open a block that swallows real code up to
+  // the next `*/`. `(^|[^:])` keeps a URL's `//` from eating its line.
+  const strip = (source: string): string =>
+    source.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '')
+  // Every client this file imports from the SDK, not only S3 and SQS: any
+  // AWS client the judge builds would sign with the stub.
+  const sdkClients = (source: string): Set<string> =>
+    new Set(
+      [...source.matchAll(/import\s*\{([^}]*)\}\s*from\s*'@aws-sdk\/[^']+'/g)]
+        .flatMap((match) => (match[1] ?? '').split(','))
+        .map((name) => name.trim().split(/\s+as\s+/))
+        // The imported name says it is a client; the local name, which an
+        // alias can make anything, is what `new` is called on.
+        .filter(([imported]) => imported?.endsWith('Client') === true)
+        .map((names) => names[names.length - 1] ?? ''),
+    )
+  const built = (source: string, pattern: RegExp): number =>
+    [...source.matchAll(pattern)].filter((match) =>
+      sdkClients(source).has(match[1] ?? ''),
+    ).length
+  const tsFiles = (dir: string): string[] =>
+    readdirSync(dir).flatMap((entry) => {
+      const full = path.join(dir, entry)
+      if (statSync(full).isDirectory()) return tsFiles(full)
+      const unit = full.endsWith('.test.ts') && !full.endsWith('.eval.test.ts')
+      return full.endsWith('.ts') && !unit ? [full] : []
+    })
+
+  it('builds every AWS client from judgeAwsClientConfig()', () => {
+    const found = tsFiles(__dirname)
+      .map((file) => {
+        const source = strip(readFileSync(file, 'utf8'))
+        return {
+          file: path.relative(__dirname, file),
+          any: built(source, /new\s*\(?\s*(\w+)\b/g),
+          exact: built(
+            source,
+            /new (\w+)\(\s*judgeAwsClientConfig\(\),?\s*\)/g,
+          ),
+        }
+      })
+      .filter((client) => client.any > 0)
+    expect(found).toEqual([
+      { file: 'sweep.eval.test.ts', any: 2, exact: 2 },
+      { file: 'sweepEnv.ts', any: 1, exact: 1 },
+    ])
+  })
+
+  const readme = readFileSync(path.resolve(__dirname, 'README.md'), 'utf8')
+  it.each(Object.values(ARM_AWS_ENV))('the env table documents %s', (name) => {
+    expect(readme).toMatch(new RegExp(`^\\| .*\`${name}\``, 'm'))
   })
 })

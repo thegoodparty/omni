@@ -2057,7 +2057,7 @@ describe('an unreadable base-arm cache', () => {
     expect(result.record.status).toBe('produced')
     expect(result.record.arm).toBe('base')
     expect(queue.sent).toHaveLength(1)
-    // Stored, so the next sweep is a hit rather than another ~$13.
+    // Stored, so the next sweep is a hit rather than another ~$8.
     expect(store.puts.map((p) => p.key)).toContain(
       baseArmCacheKey(AGENT, digest(), input.agentCase.caseId),
     )

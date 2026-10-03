@@ -30,7 +30,16 @@ vi.mock('app/dashboard/shared/DashboardLayout', () => ({
 vi.mock('./ChannelTileGrid', () => ({
   ChannelTileGrid: () => null,
 }))
-vi.mock('./social/SocialFlow', () => ({ SocialFlow: () => null }))
+interface SocialFlowStubProps {
+  open: boolean
+  prefill?: { draftText: string; purpose?: string | null }
+}
+vi.mock('./social/SocialFlow', () => ({
+  SocialFlow: ({ open, prefill }: SocialFlowStubProps) =>
+    open ? (
+      <div data-testid="social-flow">{prefill?.draftText ?? 'fresh'}</div>
+    ) : null,
+}))
 vi.mock('./phone-banking/PhoneBankingFlow', () => ({
   PhoneBankingFlow: () => null,
 }))
@@ -108,6 +117,21 @@ vi.mock('app/dashboard/outreach/components/OutreachComposeDeepLink', () => ({
         onClick={() => onCompose({ type: 'text', source: 'campaign_tracker' })}
       >
         compose text from the plan
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onCompose({
+            type: 'socialMedia',
+            source: 'campaign_manager',
+            socialPrefill: {
+              draftText: 'The pothole crew starts Monday.',
+              purpose: 'event_invite',
+            },
+          })
+        }
+      >
+        compose social from the manager
       </button>
     </>
   ),
@@ -482,5 +506,20 @@ describe('OutreachHubPage flow source', () => {
     const flow = await screen.findByTestId('sms-flow')
     expect(flow).toHaveAttribute('data-source', 'campaign_plan')
     expect(flow).not.toHaveAttribute('data-cta')
+  })
+
+  // A Campaign Manager compose_handoff: the deep link resolves the
+  // sessionStorage nonce into `ComposeRequest.socialPrefill`, and the hub
+  // hands it straight to SocialFlow's own `prefill` prop.
+  it('passes a compose_handoff socialPrefill through to SocialFlow', async () => {
+    renderHub([sentRow])
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'compose social from the manager' }),
+    )
+
+    expect(await screen.findByTestId('social-flow')).toHaveTextContent(
+      'The pothole crew starts Monday.',
+    )
   })
 })

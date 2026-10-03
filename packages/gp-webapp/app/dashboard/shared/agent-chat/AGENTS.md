@@ -14,7 +14,7 @@ nearest reference wrapper.
 | File | What it is |
 |------|------------|
 | `useStreamingTurn.ts` | **The engine.** Drives one turn: optimistic user push, the `streamMessage` event loop, interleaved text/tool `liveSegments`, smooth reveal, the idle watchdog, the late-persistence commit poll, and abort-on-unmount. This is the only streaming loop — there is no second one. |
-| `chatUI.tsx` | **The display kit.** `AssistantRow`, `UserBubble`, `InlineSegments` (text + inline tool pills in stream order), `ThinkingRow`, `ChatComposer` (pill composer; pass `dictation` for the mic variant, `leadingSlot` for a history popover, `ariaLabel` for the input's name; with the attachment props the ghost paperclip opens the file picker directly and pasted http(s) URLs call `onAttachLink` — no URL form; drag-and-drop lives in `ChiefOfStaffChatBody`, not here), plus `AssistantMarkdown` / `ToolPillRow` for bespoke layouts. |
+| `chatUI.tsx` | **The display kit.** `AssistantRow`, `UserBubble`, `InlineSegments` (text + inline tool pills in stream order), `ThinkingRow`, `ChatComposer` (pill composer; pass `dictation` for the mic variant, `leadingSlot` for a history popover, `ariaLabel` for the input's name; with the attachment props the ghost paperclip opens the file picker directly and pasted http(s) URLs call `onAttachLink` — no URL form; drag-and-drop lives in `ChiefOfStaffChatBody`, not here. Gated per scope by `useAttachmentsEnabled`: `chief_of_staff` reads `serve-chat-attachments`, `campaign_assistant` reads `win-chat-attachments`), plus `AssistantMarkdown` / `ToolPillRow` for bespoke layouts. |
 | `streaming.ts` | `LiveSegment` + `segmentsToLive` (project a persisted turn into segments for rendering) + `useSmoothReveal`. |
 | `chatClient.ts` | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface, and this one also implements the optional `setMessageFeedback` / `clearMessageFeedback` calls. |
 | `chatTypes.ts` | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat. |
@@ -86,6 +86,21 @@ registry existed, and they had started to drift.
    point in the text where its tool fired, with prose above and below it, and a
    reload renders the same order it streamed in.
 
+**A question written right above the clarify widget is dropped.** The widget
+shows its own question, so prose that also asks it puts it on screen twice.
+Both `liveTurnBlocks` and `persistedTurnBlocks` strip the closing question of
+the text block directly before an `ask_clarify_question` widget
+(`withoutTrailingQuestion`), and the whole block if that was all it held. It
+touches nothing else: a pill between the text and the widget, or any other
+widget, leaves the prose alone. The prompts forbid the duplicate too; this is
+the backstop for when the model slips. On the live turn the question can show
+for a beat before the widget lands, since the widget appears only once the
+reveal reaches its seam. A surface that renders its live clarify widget below
+the turn blocks instead of as one of them (the ordinance flow) applies
+`dropTrailingQuestion` to the live blocks while a clarify call is pending. A
+short capitalized word or a dotted one before a period ("Dr.", "U.S.") is read
+as an abbreviation, not a sentence break, so a cut never leaves a fragment.
+
 A block whose data is not in the tool args (the Priorities status marker reads
 a replay held in state) is not a registry entry. Hand it to
 `persistedTurnBlocks` as `surfaceWidget` and build its live instance yourself.
@@ -94,6 +109,22 @@ a replay held in state) is not a registry entry. Hand it to
 must return null for it from `toolLabel`.** `InlineSegments` treats it like any
 other tool, and a label map that falls back to the raw tool name would put
 `compose_handoff` on a pill. `AiChatBody` and `AskAiChatBody` do this.
+
+**`ChiefOfStaffChatBody` is the one surface that registers it, and it is
+shared by both products** — Serve's Chief of Staff and Win's Campaign Manager
+both mount this body, so its `handleComposeHandoff` routes on the payload's
+own `channel` rather than on which product opened the chat. Either way the
+payload is written to `sessionStorage` under `cos-handoff-<nonce>` (never the
+URL, which would expose the draft text) and the nonce rides a `?handoff=`
+query param. `serve_social` pushes
+`/dashboard/constituent-outreach?compose=social&handoff=<nonce>`;
+`win_social` (ENG-11218) pushes
+`/dashboard/outreach?compose=social&source=campaign_manager&handoff=<nonce>`.
+Each hub's own consumer resolves the nonce back into a prefill once, on
+arrival — `ConstituentOutreachPage.tsx` for Serve,
+`outreach/components/OutreachComposeDeepLink.tsx` for Win — and a payload
+whose channel doesn't match that hub (or a missing/expired/malformed nonce)
+is silently ignored rather than erroring.
 
 `ordinances/components/stepWidgets.tsx` is the reference registry. Chief of
 Staff's `show_list_map` is deliberately not on one: its map renders after the
@@ -148,7 +179,9 @@ there is the agent's to say, once, in its message; no card repeats it.
   guard need, since they still carry "Hi, this is [Your Name]..."), phone
   banking's name, and the audience. A card from before `audienceFilters` points at a saved list; a
   current one carries the filter the agent counted with, and the flow opens
-  its builder already filled in (`proposedAudience`) and saves the list when
+  its builder already filled in (`proposedAudience`, with the proposal's
+  sample when it asks one: "Text 4,000 of 58,520, picked at random" on the
+  card, the frozen draw in the saved list) and saves the list when
   the official confirms and names it. Door knocking is the exception: its
   create flow is drawn on its own map page and takes only a saved list, so the
   card saves the list at the click, the latest point it can, and goes there,

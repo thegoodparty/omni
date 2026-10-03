@@ -210,6 +210,28 @@ const CHAT_SUGGESTIONS = [
   'What are constituents saying?',
 ]
 
+// The first-attach safety notice, keyed by scope: Chief of Staff and Campaign
+// Manager handle different kinds of sensitive material, so each gets its own
+// toast copy and its own once-per-browser storage key.
+const UPLOAD_GUARD_COPY: Record<
+  'chief_of_staff' | 'campaign_assistant',
+  { key: string; message: string }
+> = {
+  chief_of_staff: {
+    key: 'serve-chat-attachments-guard',
+    message:
+      "Don't upload closed-session, privileged, or active-litigation material.",
+  },
+  campaign_assistant: {
+    key: 'win-chat-attachments-guard',
+    // chief-of-staff/ is Serve-only by convention, but Campaign Manager
+    // mounts this same body under campaign_assistant, so this branch is
+    // read only by a Win candidate.
+    message:
+      "Don't upload voter files, donor records, or anything you're not allowed to share.", // serve-vocabulary-allow: Win copy in a Serve-only-by-convention file
+  },
+}
+
 /**
  * The reusable Chief of Staff chat surface body — separate from the briefing
  * `AskAiChatBody`. Streaming, smooth reveal, inline tool pills, and the
@@ -358,20 +380,23 @@ function ChiefOfStaffChatThread({
 
   // The safety notice fires as a toast after the first successful attach,
   // once per user (per browser). localStorage failure means the toast repeats
-  // on later attaches, which errs toward showing the notice.
-  const GUARD_KEY = 'serve-chat-attachments-guard'
+  // on later attaches, which errs toward showing the notice. Falls back to the
+  // Chief of Staff copy for a scope with no attachment support at all (where
+  // attachmentsEnabled.enabled is already false, so this never fires).
+  const guardCopy =
+    scope === 'campaign_assistant'
+      ? UPLOAD_GUARD_COPY.campaign_assistant
+      : UPLOAD_GUARD_COPY.chief_of_staff
   const maybeShowUploadGuard = useCallback((): void => {
     try {
-      if (window.localStorage.getItem(GUARD_KEY) === '1') return
-      window.localStorage.setItem(GUARD_KEY, '1')
+      if (window.localStorage.getItem(guardCopy.key) === '1') return
+      window.localStorage.setItem(guardCopy.key, '1')
     } catch {
       // private mode / storage disabled
     }
-    toast(
-      "Don't upload closed-session, privileged, or active-litigation material.",
-    )
-    void trackEvent(EVENTS.ChiefOfStaff.UploadGuardShown, {})
-  }, [])
+    toast(guardCopy.message)
+    void trackEvent(EVENTS.ChiefOfStaff.UploadGuardShown, { scope })
+  }, [guardCopy, scope])
 
   const reportedFailedIdsRef = useRef(new Set<string>())
   useEffect(() => {
@@ -383,10 +408,11 @@ function ChiefOfStaffChatThread({
         reportedFailedIdsRef.current.add(attachment.id)
         void trackEvent(EVENTS.ChiefOfStaff.SourceUnreachablePromptShown, {
           promptContext: attachment.failureReason ?? 'unknown',
+          scope,
         })
       }
     }
-  }, [attachments])
+  }, [attachments, scope])
 
   const toolLabel = useCallback(
     (name: string): string => toolDisplayName(name),
@@ -740,6 +766,7 @@ function ChiefOfStaffChatThread({
           fileType: file.type || (file.name.split('.').pop() ?? ''),
           byteSize: file.size,
           pageCount: result.pageCount ?? null,
+          scope,
         })
       } catch (err) {
         reportErrorToSentry(err, {
@@ -755,7 +782,7 @@ function ChiefOfStaffChatThread({
         )
       }
     },
-    [conversationId, ensureConversationId, maybeShowUploadGuard],
+    [conversationId, ensureConversationId, maybeShowUploadGuard, scope],
   )
 
   const handleAttachLink = useCallback(
@@ -797,6 +824,7 @@ function ChiefOfStaffChatThread({
           void trackEvent(EVENTS.ChiefOfStaff.LinkSubmitted, {
             linkHost,
             fetchSucceeded: true,
+            scope,
           })
         } else {
           setAttachments((prev) =>
@@ -813,6 +841,7 @@ function ChiefOfStaffChatThread({
           void trackEvent(EVENTS.ChiefOfStaff.LinkFetchFailed, {
             linkHost,
             failureReason: result.error,
+            scope,
           })
         }
       } catch (err) {
@@ -834,10 +863,11 @@ function ChiefOfStaffChatThread({
         void trackEvent(EVENTS.ChiefOfStaff.LinkFetchFailed, {
           linkHost,
           failureReason: 'network_error',
+          scope,
         })
       }
     },
-    [conversationId, ensureConversationId, maybeShowUploadGuard],
+    [conversationId, ensureConversationId, maybeShowUploadGuard, scope],
   )
 
   // Drag-and-drop anywhere on the chat surface attaches the dropped files
@@ -903,6 +933,7 @@ function ChiefOfStaffChatThread({
       void trackEvent(EVENTS.ChiefOfStaff.CitationOpened, {
         documentId: attachmentId,
         pageNumber: page ?? null,
+        scope,
       })
       // Open the tab immediately while the user gesture is still live so browsers
       // don't block the popup. Navigate it to the presigned URL once fetched.
@@ -920,22 +951,26 @@ function ChiefOfStaffChatThread({
         toast.error('Allow pop-ups in your browser to open sources')
       }
     },
-    [conversationId],
+    [conversationId, scope],
   )
 
-  // Chief of staff users are Serve (elected officials): /dashboard/outreach is
-  // the Win hub behind candidateAccess() and bounces them to the marketing
-  // site. The nonce is written to sessionStorage so the payload survives the
-  // navigation without riding the URL (which would expose the draft text).
+  // This body is shared by Serve's Chief of Staff and Win's Campaign Manager,
+  // so a handoff routes on the payload's own channel rather than which
+  // surface mounted it. serve_social keeps the original route (Serve users
+  // are elected officials: /dashboard/outreach is the Win hub behind
+  // candidateAccess() and bounces them to the marketing site). The nonce is
+  // written to sessionStorage so the payload survives the navigation without
+  // riding the URL (which would expose the draft text).
   const handleComposeHandoff = useCallback(
     (payload: ComposeHandoffPayload): void => {
-      const prefilledFields: string[] =
-        payload.channel === 'serve_social'
-          ? ['draftText', ...(payload.purpose ? ['purpose'] : [])]
-          : []
+      const prefilledFields: string[] = [
+        'draftText',
+        ...(payload.purpose ? ['purpose'] : []),
+      ]
       void trackEvent(EVENTS.ChiefOfStaff.ComposeHandoffOpened, {
         channel: payload.channel,
         prefilledFields,
+        scope,
       })
       let nonce: string
       try {
@@ -944,14 +979,20 @@ function ChiefOfStaffChatThread({
       } catch {
         // sessionStorage unavailable (private browsing, quota exceeded):
         // navigate without prefill rather than failing the handoff entirely.
-        router.push('/dashboard/constituent-outreach')
+        router.push(
+          payload.channel === 'win_social'
+            ? '/dashboard/outreach?compose=social&source=campaign_manager'
+            : '/dashboard/constituent-outreach',
+        )
         return
       }
       router.push(
-        `/dashboard/constituent-outreach?compose=social&handoff=${nonce}`,
+        payload.channel === 'win_social'
+          ? `/dashboard/outreach?compose=social&source=campaign_manager&handoff=${nonce}`
+          : `/dashboard/constituent-outreach?compose=social&handoff=${nonce}`,
       )
     },
-    [router],
+    [router, scope],
   )
 
   // The shared send path. `hidden` skips the optimistic user bubble AND drops

@@ -16,6 +16,7 @@ import {
   SERVE_PROPOSAL_CTA,
   outreachDetailHref,
   peopleCount,
+  proposalSampleLine,
 } from './proposalPresentation'
 
 export const SERVE_OUTREACH_PROPOSAL_COPY = {
@@ -64,12 +65,14 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
     )
   }
 
-  const channelLine = [
-    getChannelLabel(PROPOSAL_OUTREACH_TYPE[proposal.channel]),
-    proposal.channel === 'social' ? '' : peopleCount(proposal.count),
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  const channelLine =
+    proposalSampleLine(proposal) ??
+    [
+      getChannelLabel(PROPOSAL_OUTREACH_TYPE[proposal.channel]),
+      proposal.channel === 'social' ? '' : peopleCount(proposal.count),
+    ]
+      .filter(Boolean)
+      .join(' · ')
 
   // The text flow is not mounted while SMS is off, so there is nothing to
   // open. Say so rather than offer a button that does nothing.

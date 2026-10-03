@@ -829,6 +829,8 @@ export {
 export {
   ComposeHandoffPayloadSchema,
   type ComposeHandoffPayload,
+  type ComposeHandoffChannel,
+  COMPOSE_HANDOFF_CHANNEL_SCHEMAS,
 } from './chats/ComposeHandoff.schema'
 
 export {
@@ -993,6 +995,12 @@ export {
   RobocallScriptDraftResponseSchema,
   type RobocallScriptDraftResponse,
 } from './outreach/RobocallScript.schema'
+export {
+  deriveRobocallProtectedParts,
+  formatRobocallCallbackNumber,
+  robocallDisclosureLine,
+  type RobocallProtectedPart,
+} from './outreach/RobocallProtectedParts'
 export {
   RobocallNumberResponseSchema,
   type RobocallNumberResponse,
@@ -1179,6 +1187,12 @@ export {
   PeopleOverlapCountResponseSchema,
   type PeopleOverlapCountResponse,
 } from './people/PeopleOverlapCount.schema'
+
+export {
+  MAX_LIST_SAMPLE_SIZE,
+  ListSampleSchema,
+  type ListSample,
+} from './people/ListSample.schema'
 
 export {
   DoorKnockingEvaluateRequestSchema,

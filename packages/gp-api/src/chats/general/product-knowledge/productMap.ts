@@ -113,6 +113,10 @@ const SHARED_AREAS: ProductArea[] = [
   },
 ]
 
+const CHAT_ATTACHMENTS_GATE =
+  'Attaching a file to a message, and turning a reply into a social post, ' +
+  'are being rolled out, so they are not on every account yet.'
+
 // Win: the candidate product. Campaign Manager is the home tab.
 const WIN_AREAS: ProductArea[] = [
   {
@@ -126,7 +130,12 @@ const WIN_AREAS: ProductArea[] = [
       'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
+      'The paperclip in the message box attaches a PDF, Word document, image, or text file to the message; dragging a file onto the chat does the same',
+      'Pasting a link attaches it as a source the assistant can read',
+      'A citation in a reply opens the document it points to, to the cited page when there is one',
+      'Asking to turn a reply into a social post opens Voter Outreach’s social flow with the draft already written in, to review before you post it',
     ],
+    gate: CHAT_ATTACHMENTS_GATE,
   },
   {
     navId: 'campaign-story-dashboard',
@@ -144,8 +153,8 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Campaign Plan',
     path: '/dashboard/campaign-plan',
     modes: ['win'],
-    does: 'The generated campaign plan and the week-by-week task list built from the Campaign Story.',
-    gate: 'Generated from a finished Campaign Story, so it is empty until the story is complete.',
+    does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
+    gate: 'No gate. A candidate with no Campaign Story still gets a plan and tracker, just a generic one, and completing the story regenerates it from their own answers.',
   },
   {
     navId: 'outreach-dashboard',
@@ -270,7 +279,12 @@ const SERVE_AREAS: ProductArea[] = [
       'The chat can leave cards in the conversation: a finished piece of outreach, past sends and how they did, and someone outside your records to call, with a script',
       'A phone banking outreach card is sent from its Send button without leaving the chat; a text or social one opens its outreach flow to finish there',
       'When there is a choice to make, the chat asks it as a multiple-choice question, with room to write your own answer',
+      'The paperclip in the message box attaches a PDF, Word document, image, or text file to the message; dragging a file onto the chat does the same',
+      'Pasting a link attaches it as a source the assistant can read',
+      'A citation in a reply opens the document it points to, to the cited page when there is one',
+      'Asking to turn a reply into a social post opens Constituent Outreach’s social flow with the draft already written in, to review before you post it',
     ],
+    gate: CHAT_ATTACHMENTS_GATE,
   },
   {
     navId: 'briefings-dashboard',
@@ -406,7 +420,7 @@ export const areasForMode = (mode: ProductMode): ProductArea[] =>
 // nothing to do with it.
 export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
   win: [
-    'The Campaign Story you write with me is saved to Your Story, and finishing it is what generates the campaign plan and tracker.',
+    'The Campaign Story you write with me is saved to Your Story. A campaign plan and tracker do not wait on it: every candidate gets one, and finishing the story is what personalizes it with your own answers.',
     'Your Public Profile is separate. It has its own "Why I’m running" on the Public Profile page, and writing your story here does not change it. If someone wants their story on their public page, say plainly that it has to be entered there and point them at the tab.',
     'Saved lists I create are real, and appear under Voter Data.',
     'I cannot edit the campaign plan, the tracker, your public page, your website, your account, or your billing. I also cannot export a list, a script, or a draft to a file.',

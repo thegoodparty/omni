@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { Editor } from '@tiptap/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type {
@@ -17,6 +18,20 @@ import {
   SocialFlow,
   type SocialFlowPrefill,
 } from './SocialFlow'
+
+// The draft field is a TokenField: its text lives in the editor TipTap hangs
+// on the textbox, not in a `value`.
+const draftEditor = () =>
+  (
+    screen.getByRole('textbox', { name: 'Draft message' }) as HTMLElement & {
+      editor: Editor
+    }
+  ).editor
+const draftText = () => draftEditor().getText({ blockSeparator: '\n' })
+const typeDraft = (text: string) =>
+  act(() => {
+    draftEditor().commands.setContent(text)
+  })
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -151,9 +166,7 @@ const awaitComposeDraft = async (expected: string) => {
   expect(
     (await screen.findAllByText('What do you want to say?')).length,
   ).toBeGreaterThan(0)
-  await waitFor(() =>
-    expect(screen.getByLabelText('Draft message')).toHaveValue(expected),
-  )
+  await waitFor(() => expect(draftText()).toBe(expected))
 }
 
 const advanceToPlatforms = async () => {
@@ -224,7 +237,7 @@ describe('SocialFlow', () => {
     await user.click(screen.getByText('Write my own message'))
     await screen.findAllByText('What do you want to say?')
 
-    await user.type(screen.getByLabelText('Draft message'), 'Entirely my words')
+    typeDraft('Entirely my words')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText('Where do you want to share it?')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -384,7 +397,7 @@ describe('SocialFlow', () => {
     // Tone-preset-only interaction: a fresh draft for that tone, no Undo.
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
+      expect(draftText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
       ),
     )
@@ -399,18 +412,16 @@ describe('SocialFlow', () => {
     // Manual typing, then a NEWLY GENERATED tone draft replaces it: Undo
     // appears + restores. (An uncached tone — cached switches restore from
     // memory and never clobber, so they never need Undo.)
-    const textarea = screen.getByLabelText('Draft message')
-    await user.clear(textarea)
-    await user.type(textarea, 'My own words')
+    typeDraft('My own words')
     await user.click(screen.getByRole('radio', { name: /Urgent/ }))
     const undo = await screen.findByRole('button', { name: 'Undo' })
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
+      expect(draftText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'urgent' }),
       ),
     )
     await user.click(undo)
-    expect(screen.getByLabelText('Draft message')).toHaveValue('My own words')
+    expect(draftText()).toBe('My own words')
   })
 
   it('restores previously generated tones from memory; only Regenerate refetches', async () => {
@@ -423,7 +434,7 @@ describe('SocialFlow', () => {
 
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
+      expect(draftText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
       ),
     )
@@ -431,19 +442,17 @@ describe('SocialFlow', () => {
 
     // Back to warm: served from memory, no third call.
     await user.click(screen.getByRole('radio', { name: /Warm/ }))
-    expect(screen.getByLabelText('Draft message')).toHaveValue(
+    expect(draftText()).toBe(
       draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
     )
     expect(draftCalls).toHaveLength(2)
 
     // Manual edits are part of the tone's memory when switching away.
-    const textarea = screen.getByLabelText('Draft message')
-    await user.clear(textarea)
-    await user.type(textarea, 'Warm but mine')
+    typeDraft('Warm but mine')
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     expect(draftCalls).toHaveLength(2)
     await user.click(screen.getByRole('radio', { name: /Warm/ }))
-    expect(screen.getByLabelText('Draft message')).toHaveValue('Warm but mine')
+    expect(draftText()).toBe('Warm but mine')
     expect(draftCalls).toHaveLength(2)
 
     // Regenerate is the only path that refetches an already-drafted tone.
@@ -461,16 +470,13 @@ describe('SocialFlow', () => {
     await user.click(screen.getByText('Write my own message'))
     await screen.findAllByText('What do you want to say?')
 
-    const textarea = screen.getByLabelText('Draft message')
-    expect(textarea).toHaveValue('')
-    await user.type(textarea, 'Entirely my words')
+    expect(draftText()).toBe('')
+    typeDraft('Entirely my words')
 
     // Tone pills stay visible but must not fire a call or replace the text.
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     expect(draftCalls).toHaveLength(0)
-    expect(screen.getByLabelText('Draft message')).toHaveValue(
-      'Entirely my words',
-    )
+    expect(draftText()).toBe('Entirely my words')
     expect(
       screen.queryByRole('button', { name: 'Regenerate' }),
     ).not.toBeInTheDocument()
@@ -492,7 +498,7 @@ describe('SocialFlow', () => {
     const draftCalls = mockDraft()
     await user.click(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
+      expect(draftText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
       ),
     )
@@ -511,8 +517,7 @@ describe('SocialFlow', () => {
       await screen.findByText(/couldn't draft your message/),
     ).toBeInTheDocument()
 
-    const textarea = screen.getByLabelText('Draft message')
-    await user.type(textarea, 'Manual fallback message')
+    typeDraft('Manual fallback message')
     expect(
       screen.queryByText(/couldn't draft your message/),
     ).not.toBeInTheDocument()
@@ -533,7 +538,7 @@ describe('SocialFlow', () => {
     ).not.toBeInTheDocument()
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
+      expect(draftText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
       ),
     )
@@ -541,17 +546,13 @@ describe('SocialFlow', () => {
       screen.queryByRole('button', { name: /Improve with AI/ }),
     ).not.toBeInTheDocument()
 
-    const textarea = screen.getByLabelText('Draft message')
-    await user.clear(textarea)
-    await user.type(textarea, 'My own words')
+    typeDraft('My own words')
     await user.click(
       await screen.findByRole('button', { name: /Improve with AI/ }),
     )
 
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
-        'Improved (direct): My own words',
-      ),
+      expect(draftText()).toBe('Improved (direct): My own words'),
     )
     expect(draftCalls[2]).toEqual({
       purpose: 'introduce_myself',
@@ -568,18 +569,16 @@ describe('SocialFlow', () => {
     // The polish fed the current tone's memory: leaving and returning
     // restores it without another call.
     await user.click(screen.getByRole('radio', { name: /Warm/ }))
-    expect(screen.getByLabelText('Draft message')).toHaveValue(
+    expect(draftText()).toBe(
       draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
     )
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
-    expect(screen.getByLabelText('Draft message')).toHaveValue(
-      'Improved (direct): My own words',
-    )
+    expect(draftText()).toBe('Improved (direct): My own words')
     expect(draftCalls).toHaveLength(3)
 
     // Undo still holds the pre-improve manual words.
     await user.click(screen.getByRole('button', { name: 'Undo' }))
-    expect(screen.getByLabelText('Draft message')).toHaveValue('My own words')
+    expect(draftText()).toBe('My own words')
     expect(
       screen.getByRole('button', { name: /Improve with AI/ }),
     ).toBeInTheDocument()
@@ -603,14 +602,12 @@ describe('SocialFlow', () => {
     expect(
       screen.queryByText(/couldn't draft your message/),
     ).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Draft message')).toHaveValue('Spoken opener')
+    expect(draftText()).toBe('Spoken opener')
 
     const draftCalls = mockDraft()
     await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
-        'Improved (warm): Spoken opener',
-      ),
+      expect(draftText()).toBe('Improved (warm): Spoken opener'),
     )
     expect(draftCalls).toEqual([
       {
@@ -634,19 +631,19 @@ describe('SocialFlow', () => {
       purpose: 'introduce_myself',
       tone: 'warm',
     })} Also spoken`
-    expect(screen.getByLabelText('Draft message')).toHaveValue(dictated)
+    expect(draftText()).toBe(dictated)
 
     // Dictated words are manual: the generated direct draft snapshots Undo.
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
+      expect(draftText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
       ),
     )
     expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('radio', { name: /Warm/ }))
-    expect(screen.getByLabelText('Draft message')).toHaveValue(dictated)
+    expect(draftText()).toBe(dictated)
     expect(draftCalls).toHaveLength(2)
   })
 
@@ -656,14 +653,12 @@ describe('SocialFlow', () => {
     await user.click(screen.getByText('Write my own message'))
     await screen.findAllByText('What do you want to say?')
 
-    await user.type(screen.getByLabelText('Draft message'), 'Entirely my words')
+    typeDraft('Entirely my words')
     expect(draftCalls).toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
-        'Improved (warm): Entirely my words',
-      ),
+      expect(draftText()).toBe('Improved (warm): Entirely my words'),
     )
     expect(draftCalls).toEqual([
       { purpose: 'custom', tone: 'warm', currentDraft: 'Entirely my words' },
@@ -674,9 +669,7 @@ describe('SocialFlow', () => {
       screen.queryByRole('button', { name: /Regenerate/ }),
     ).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Undo' }))
-    expect(screen.getByLabelText('Draft message')).toHaveValue(
-      'Entirely my words',
-    )
+    expect(draftText()).toBe('Entirely my words')
   })
 
   it('retries a failed custom-purpose improve through the error card', async () => {
@@ -685,7 +678,7 @@ describe('SocialFlow', () => {
     await user.click(screen.getByText('Write my own message'))
     await screen.findAllByText('What do you want to say?')
 
-    await user.type(screen.getByLabelText('Draft message'), 'Rough words')
+    typeDraft('Rough words')
     await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
     expect(
       await screen.findByText(/couldn't draft your message/),
@@ -694,9 +687,7 @@ describe('SocialFlow', () => {
     const draftCalls = mockDraft()
     await user.click(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
-        'Improved (warm): Rough words',
-      ),
+      expect(draftText()).toBe('Improved (warm): Rough words'),
     )
     expect(draftCalls).toEqual([
       { purpose: 'custom', tone: 'warm', currentDraft: 'Rough words' },
@@ -731,9 +722,7 @@ describe('SocialFlow prefill seam', () => {
     expect(
       screen.getAllByText('What do you want to say?').length,
     ).toBeGreaterThan(0)
-    expect(screen.getByLabelText('Draft message')).toHaveValue(
-      'Pre-filled text',
-    )
+    expect(draftText()).toBe('Pre-filled text')
   })
 
   it('opens on the platforms step when given draftText and a valid serve purpose', () => {
@@ -754,9 +743,7 @@ describe('SocialFlow prefill seam', () => {
     expect(
       screen.getAllByText('What do you want to say?').length,
     ).toBeGreaterThan(0)
-    expect(screen.getByLabelText('Draft message')).toHaveValue(
-      'Pre-filled text',
-    )
+    expect(draftText()).toBe('Pre-filled text')
   })
 })
 
@@ -861,7 +848,7 @@ describe('SocialFlow with the serve surface', () => {
 
     await user.click(screen.getByText('Write my own message'))
     await screen.findAllByText('What do you want to say?')
-    await user.type(screen.getByLabelText('Draft message'), 'My own words')
+    typeDraft('My own words')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText('Where do you want to share it?')
     await user.click(screen.getByRole('button', { name: 'Continue' }))

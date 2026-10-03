@@ -10,6 +10,7 @@ import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { useTestService } from '@/test-service'
 import {
   SERVE_CHAT_ATTACHMENTS_FLAG,
+  WIN_CHAT_ATTACHMENTS_FLAG,
   ChatAttachmentsService,
 } from './chatAttachments.service'
 
@@ -68,7 +69,7 @@ const mockS3 = () => {
   }
 }
 
-describe('serve-chat-attachments flag gate', () => {
+describe('attachment scope + flag gating', () => {
   let orgSlug: string
   let header: ReturnType<typeof orgHeader>
 
@@ -77,27 +78,24 @@ describe('serve-chat-attachments flag gate', () => {
     header = orgHeader(orgSlug)
   })
 
-  const conversationId = 'conv-stub-123'
+  const presignBody = {
+    fileName: 'test.pdf',
+    mimeType: 'application/pdf',
+    sizeBytes: 1024,
+  }
 
-  const routes = [
+  const routesFor = (conversationId: string) =>
     [
-      'POST',
-      `/v1/chats/${conversationId}/attachments/presign`,
-      {
-        fileName: 'test.pdf',
-        mimeType: 'application/pdf',
-        sizeBytes: 1024,
-      },
-    ],
-    [
-      'POST',
-      `/v1/chats/${conversationId}/attachments`,
-      { storageKey: 'chat-attachments/123/att-stub' },
-    ],
-    ['POST', `/v1/chats/${conversationId}/attachments/link`, {}],
-  ] as const
+      ['POST', `/v1/chats/${conversationId}/attachments/presign`, presignBody],
+      [
+        'POST',
+        `/v1/chats/${conversationId}/attachments`,
+        { storageKey: 'chat-attachments/123/att-stub' },
+      ],
+      ['POST', `/v1/chats/${conversationId}/attachments/link`, {}],
+    ] as const
 
-  describe('flag off → 404', () => {
+  describe('chief_of_staff conversation, win on / serve off', () => {
     let flagSpy: ReturnType<typeof vi.spyOn>
 
     beforeEach(() => {
@@ -112,22 +110,122 @@ describe('serve-chat-attachments flag gate', () => {
       flagSpy.mockRestore()
     })
 
-    for (const [method, path, body] of routes) {
-      it(`${method} ${path} → 404`, async () => {
+    it('presign/finalize/link all 404 (independent flags)', async () => {
+      const conv = await seedConversation(orgSlug)
+      for (const [, path, body] of routesFor(conv.id)) {
         const res = await service.client.post(path, body, header)
         expect(res.status).toBe(404)
-      })
-    }
+      }
+    })
   })
 
-  describe('flag on → validates link url', () => {
-    it('POST .../attachments/link → 400 when url missing', async () => {
+  describe('chief_of_staff conversation, serve on', () => {
+    it('validates link url (400 when missing)', async () => {
+      const conv = await seedConversation(orgSlug)
       const res = await service.client.post(
-        `/v1/chats/${conversationId}/attachments/link`,
+        `/v1/chats/${conv.id}/attachments/link`,
         {},
         header,
       )
       expect(res.status).toBe(400)
+    })
+  })
+
+  describe('campaign_assistant conversation, serve on / win off', () => {
+    let flagSpy: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      flagSpy = vi
+        .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+        .mockImplementation(
+          async ({ feature }) => feature !== WIN_CHAT_ATTACHMENTS_FLAG,
+        )
+    })
+
+    afterEach(() => {
+      flagSpy.mockRestore()
+    })
+
+    it('presign and link 404 (independent flags)', async () => {
+      const conv = await seedConversation(orgSlug, ChatScope.campaign_assistant)
+      const presignRes = await service.client.post(
+        `/v1/chats/${conv.id}/attachments/presign`,
+        presignBody,
+        header,
+      )
+      expect(presignRes.status).toBe(404)
+
+      const linkRes = await service.client.post(
+        `/v1/chats/${conv.id}/attachments/link`,
+        {},
+        header,
+      )
+      expect(linkRes.status).toBe(404)
+    })
+  })
+
+  describe('campaign_assistant conversation, win on', () => {
+    it('presign succeeds', async () => {
+      const conv = await seedConversation(orgSlug, ChatScope.campaign_assistant)
+      const presignSpy = vi
+        .spyOn(service.app.get(S3Service), 'createPresignedUpload')
+        .mockResolvedValue({
+          url: 'https://s3.example.com/upload',
+          fields: { 'Content-Type': 'image/jpeg' },
+        })
+
+      const res = await service.client.post(
+        `/v1/chats/${conv.id}/attachments/presign`,
+        { fileName: 'photo.jpg', mimeType: 'image/jpeg', sizeBytes: 1024 },
+        header,
+      )
+      expect(res.status).toBe(201)
+      presignSpy.mockRestore()
+    })
+
+    it('finalize produces a ready attachment, which the next turn can inject', async () => {
+      const conv = await seedConversation(orgSlug, ChatScope.campaign_assistant)
+      const key = `chat-attachments/${service.user.id}/att-win-jpeg`
+      await service.prisma.chatAttachment.create({
+        data: {
+          conversationId: conv.id,
+          ownerUserId: service.user.id,
+          source: ChatAttachmentSource.UPLOAD,
+          storageKey: key,
+          fileName: 'photo.jpg',
+          mimeType: 'image/jpeg',
+          sizeBytes: 1024,
+          status: ChatAttachmentStatus.pending,
+        },
+      })
+      const s3 = service.app.get(S3Service)
+      vi.spyOn(s3, 'headObject').mockResolvedValue({ contentLength: 1024 })
+      vi.spyOn(s3, 'getRangeBytes').mockResolvedValue(
+        Buffer.from([0xff, 0xd8, 0xff]),
+      )
+
+      const res = await service.client.post(
+        `/v1/chats/${conv.id}/attachments`,
+        { storageKey: key },
+        header,
+      )
+      expect(res.status).toBe(201)
+      expect(res.data.status).toBe(ChatAttachmentStatus.ready)
+    })
+  })
+
+  describe('unmapped scope (briefing_annotation)', () => {
+    it('link attach 404s', async () => {
+      const conv = await seedConversation(
+        orgSlug,
+        ChatScope.briefing_annotation,
+      )
+      const res = await service.client.post(
+        `/v1/chats/${conv.id}/attachments/link`,
+        {},
+        header,
+      )
+      expect(res.status).toBe(404)
     })
   })
 })
@@ -615,8 +713,21 @@ describe('GET /v1/chats/:conversationId/attachments', () => {
     expect(att).not.toHaveProperty('extractedText')
   })
 
-  it('returns 404 for a non-chief_of_staff conversation', async () => {
+  it('still works for a campaign_assistant conversation (list is ungated)', async () => {
     const conv = await seedConversation(orgSlug, ChatScope.campaign_assistant)
+    await seedAttachment(conv.id, service.user.id)
+
+    const res = await service.client.get(
+      `/v1/chats/${conv.id}/attachments`,
+      header,
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.data.attachments).toHaveLength(1)
+  })
+
+  it('returns 404 for an unmapped scope (briefing_annotation)', async () => {
+    const conv = await seedConversation(orgSlug, ChatScope.briefing_annotation)
 
     const res = await service.client.get(
       `/v1/chats/${conv.id}/attachments`,
