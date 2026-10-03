@@ -133,6 +133,29 @@ describe('product knowledge blocks', () => {
     expect(render('win')).toMatch(/Public Profile is separate/)
   })
 
+  // ENG-11220: candidates and elected officials asking "can I attach a
+  // document?" get a guess unless the map describes the paperclip, drag and
+  // drop, pasting a link, citations, and the social-post handoff.
+  it('describes chat attachments and the social-post handoff, in both products', () => {
+    for (const mode of ['win', 'serve'] as const) {
+      const prompt = render(mode)
+      expect(prompt, mode).toMatch(/paperclip/)
+      expect(prompt, mode).toMatch(/dragging a file onto the chat/)
+      expect(prompt, mode).toMatch(/Pasting a link attaches it as a source/)
+      expect(prompt, mode).toMatch(/A citation in a reply opens the document/)
+      expect(prompt, mode).toMatch(/turn a reply into a social post/)
+      expect(prompt, mode).toMatch(
+        /turning a reply into a social post, are being rolled out/,
+      )
+    }
+    const win = render('win')
+    const serve = render('serve')
+    expect(win).toContain('Voter Outreach’s social flow')
+    expect(win).not.toContain('Constituent Outreach’s social flow')
+    expect(serve).toContain('Constituent Outreach’s social flow')
+    expect(serve).not.toContain('Voter Outreach’s social flow')
+  })
+
   // The prompt must never advertise a tool that did not register, same rule
   // as every other block in these two prompts.
   describe('help center gating', () => {
