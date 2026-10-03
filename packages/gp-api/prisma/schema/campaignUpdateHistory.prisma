@@ -13,16 +13,16 @@ enum CampaignUpdateHistoryType {
 }
 
 model CampaignUpdateHistory {
-  id         Int                       @id @default(autoincrement())
-  createdAt  DateTime                  @default(now()) @map("created_at")
-  updatedAt  DateTime                  @updatedAt @map("updated_at")
-  campaign   Campaign                  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  campaignId Int                       @map("campaign_id")
-  user       User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId     Int                       @map("user_id")
-  type       CampaignUpdateHistoryType
-  quantity   Int
-  campaignTask CampaignTask?
+  id                  Int                       @id @default(autoincrement())
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
+  campaign            Campaign                  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId          Int                       @map("campaign_id")
+  user                User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId              Int                       @map("user_id")
+  type                CampaignUpdateHistoryType
+  quantity            Int
+  campaignTask        CampaignTask?
   campaignTrackerTask CampaignTrackerTask?
 
   @@index([campaignId])

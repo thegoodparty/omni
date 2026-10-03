@@ -7,9 +7,9 @@ model Priority {
   description String @db.Text
 
   source                   PrioritySource
-  sourceCampaignPositionId Int?           @map("source_campaign_position_id")
-  sourceCommunityIssueId String?      @unique @map("source_community_issue_id")
-  sourceCommunityIssue   CommunityIssue? @relation(fields: [sourceCommunityIssueId], references: [id])
+  sourceCampaignPositionId Int?            @map("source_campaign_position_id")
+  sourceCommunityIssueId   String?         @unique @map("source_community_issue_id")
+  sourceCommunityIssue     CommunityIssue? @relation(fields: [sourceCommunityIssueId], references: [id])
 
   archivedAt DateTime? @map("archived_at")
 
@@ -17,7 +17,7 @@ model Priority {
   // Shape + parser live in @goodparty_org/contracts (PriorityStatus.schema.ts),
   // which is APPEND-ONLY so rows written by an older build keep parsing. Never
   // read this column without going through parsePriorityStatus().
-  status Json?
+  status      Json?
   // Derived from `status` by the one service that writes it, so the list page
   // can sort and filter without parsing JSON. Never set these independently.
   currentStep String? @map("current_step")

@@ -77,7 +77,11 @@ import {
   PeerlyBillingException,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../../../vendors/peerly/utils/peerlyBillingError.util'
-import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
+import {
+  PeerlyCvRefusalException,
+  PeerlyCvRejectionException,
+  PeerlyCvTemporaryRefusalException,
+} from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 import { CampaignVerifyPinNotIssuedException } from '../utils/campaignVerifyPinNotIssued.util'
 import { CvPreSubmissionValidationException } from '../utils/cvPreSubmissionValidation.util'
 import { CvPreSubmissionValidationService } from './cvPreSubmissionValidation.service'
@@ -127,6 +131,15 @@ const AGENTIC_DISPATCH_CLAIM_TTL_MINUTES = 5
 // it elapses the next attempt probes again (and re-alerts if still failing), so
 // registrations resume automatically once billing clears.
 export const PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES = 6 * 60
+
+// How long a Campaign Verify refusal is worth waiting out before the flow
+// stops and asks staff to raise it with Peerly. CV's refusals are not
+// permanent: on 2026-10-02 campaign 327336 was refused about a dozen times
+// between 22:55Z and 23:52Z and then went through with nothing changed on our
+// side, while four other candidates refused in the same hour did not. Two
+// hours comfortably covers that, and a record still refused after two hours is
+// not something more retrying fixes.
+const CV_REFUSAL_RETRY_WINDOW_MINUTES = 2 * 60
 
 const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
 
@@ -1493,6 +1506,43 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       )
     }
 
+    // Campaign Verify refusal, past the point where waiting helps. Inside the
+    // window the refusal is retried (see the catch below), so reaching here
+    // means CV has been refusing this record for over two hours: stop before
+    // touching Peerly, so a resume or re-dispatch cannot restart the storm.
+    // Staff were alerted when the window closed.
+    if (
+      existing.peerlyCvRefusedSince &&
+      !isAfter(
+        existing.peerlyCvRefusedSince,
+        subMinutes(new Date(), CV_REFUSAL_RETRY_WINDOW_MINUTES),
+      )
+    ) {
+      // Tell staff once, on the first attempt to land here: by now Campaign
+      // Verify has refused this candidate for two hours with nothing to
+      // correct, and only Peerly can ask CV why. The stamp is the claim, so
+      // neither replica nor a later retry posts it twice.
+      const claimed = await this.model.updateMany({
+        where: { id: existing.id, peerlyCvRefusalAlertedAt: null },
+        data: { peerlyCvRefusalAlertedAt: new Date() },
+      })
+      if (claimed.count > 0) {
+        await this.alertCampaignVerifyRefusal(
+          user,
+          campaign,
+          existing,
+          existing.peerlyCvRefusedSince,
+        )
+      }
+      throw new PeerlyCvRefusalException(
+        'Campaign Verify has refused this candidate\u2019s submission since ' +
+          `${existing.peerlyCvRefusedSince.toISOString()} and is still ` +
+          'refusing it. It named nothing to correct, so resubmitting will be ' +
+          'refused the same way; Good Party staff have been asked to raise ' +
+          'it with Peerly.',
+      )
+    }
+
     // Stage gate: only proceed when the candidate's website is live + the
     // domain is registered. Reject all earlier stages so an agent can't kick a
     // Peerly brand submission for an unverified/unregistered domain.
@@ -1680,6 +1730,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // next resume would then find no cooldown, bypass the guard, and re-storm
       // Peerly, which is exactly what the hold prevents.
       let rejectedStamped = false
+      // One timestamp for both the stamp and the window test, so a refusal
+      // that straddles a boundary cannot be stamped as older than it is.
+      const refusedSince = existing.peerlyCvRefusedSince ?? new Date()
       try {
         let ownedClaim = false
         await this.client.$transaction(async (tx) => {
@@ -1703,6 +1756,19 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             await tx.tcrCompliance.update({
               where: { id: existing.id },
               data: { peerlyBillingBlockedAt: new Date() },
+            })
+          }
+          if (
+            error instanceof PeerlyCvRefusalException &&
+            !existing.peerlyCvRefusedSince
+          ) {
+            // First refusal on this record: start its clock. In the same
+            // transaction as the claim rollback for the same reason the
+            // billing hold is — a crash between the two would lose the clock
+            // and let the retrying run unbounded, which is the storm.
+            await tx.tcrCompliance.update({
+              where: { id: existing.id },
+              data: { peerlyCvRefusedSince: refusedSince },
             })
           }
           if (error instanceof PeerlyCvRejectionException && ownedClaim) {
@@ -1754,6 +1820,27 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           )
         }
       }
+      // Campaign Verify refused, and the vendor layer deliberately left the
+      // retry decision here: it reports what CV said, this owns how long the
+      // record has been refused. Inside the window, answer 429 so the agent
+      // (or the candidate's own retry) comes back in a few minutes without
+      // waking the on-call on every attempt — the refusals do clear. Once the
+      // window has closed, stop with a 400 and ask staff to raise it with
+      // Peerly, once.
+      if (error instanceof PeerlyCvRefusalException) {
+        const windowOpen = isAfter(
+          refusedSince,
+          subMinutes(new Date(), CV_REFUSAL_RETRY_WINDOW_MINUTES),
+        )
+        if (windowOpen) {
+          throw new PeerlyCvTemporaryRefusalException(
+            `${error.message} Campaign Verify has been refusing this ` +
+              `submission since ${refusedSince.toISOString()}; these ` +
+              'refusals usually clear, so this will be retried ' +
+              'automatically. Nothing for the candidate to fix.',
+          )
+        }
+      }
       throw error
     }
 
@@ -1781,6 +1868,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           peerlyResult.cvVerificationId ?? existing.peerlyCvVerificationId,
         // Submission succeeded — clear any prior billing hold.
         peerlyBillingBlockedAt: null,
+        // …and any Campaign Verify refusal clock plus its alert stamp, so a
+        // future refusal starts its own window and can alert again.
+        peerlyCvRefusedSince: null,
+        peerlyCvRefusalAlertedAt: null,
       },
     })
 
@@ -1791,6 +1882,58 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     )
 
     return this.buildSubmitToPeerlyResponse(updated)
+  }
+
+  // Fired once per record, on the attempt that crosses the retry window: by
+  // then Campaign Verify has been refusing this candidate for two hours with
+  // nothing to correct, and only Peerly can ask CV why. Deliberately not sent
+  // on the first refusal — on 2026-10-02 that would have been five alerts for
+  // four candidates whose refusals were still clearing on their own.
+  private async alertCampaignVerifyRefusal(
+    user: User,
+    campaign: Campaign,
+    existing: TcrCompliance,
+    refusedSince: Date,
+  ): Promise<void> {
+    try {
+      const candidate = `${getUserFullName(user)} (${user.email})`
+      await this.slack.message(
+        {
+          blocks: [
+            {
+              type: SlackMessageType.HEADER,
+              text: {
+                type: SlackMessageType.PLAIN_TEXT,
+                text: '🚫 Campaign Verify keeps refusing a 10DLC submission',
+                emoji: true,
+              },
+            },
+            {
+              type: SlackMessageType.SECTION,
+              text: {
+                type: SlackMessageType.MRKDWN,
+                text:
+                  'Campaign Verify has refused this candidate\u2019s 10DLC ' +
+                  `registration since ${refusedSince.toISOString()} and ` +
+                  'named nothing to correct, so no PIN is coming and ' +
+                  'retrying has stopped. Ask Peerly why CV is refusing this ' +
+                  'request.\n' +
+                  `*Candidate:* ${candidate}\n` +
+                  `*Campaign:* campaignId=${campaign.id}\n` +
+                  `*Peerly identity:* ${existing.peerlyIdentityId ?? 'N/A'}`,
+              },
+            },
+          ],
+        },
+        SlackChannel.bot10DlcCompliance,
+      )
+    } catch (err) {
+      // Never let the alert swallow the refusal the caller must still see.
+      this.logger.error(
+        { err, campaignId: campaign.id, tcrComplianceId: existing.id },
+        '[TCR Compliance] Failed to post the Campaign Verify refusal alert',
+      )
+    }
   }
 
   private async buildSubmitToPeerlyResponse(

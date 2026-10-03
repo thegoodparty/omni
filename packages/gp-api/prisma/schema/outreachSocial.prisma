@@ -1,11 +1,11 @@
 model OutreachSocial {
-  id           Int      @id @default(autoincrement())
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  outreach     Outreach @relation(fields: [outreachId], references: [id], onDelete: Cascade)
-  outreachId   Int      @unique @map("outreach_id")
+  id           Int                   @id @default(autoincrement())
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+  outreach     Outreach              @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  outreachId   Int                   @unique @map("outreach_id")
   purpose      String
-  draftMessage String   @db.Text @map("draft_message")
+  draftMessage String                @map("draft_message") @db.Text
   assets       OutreachSocialAsset[]
 
   @@map("outreach_social")

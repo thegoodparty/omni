@@ -3,13 +3,18 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  HttpException,
   NotFoundException,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { subMinutes } from 'date-fns'
 import { PeerlyBillingException } from '../../../vendors/peerly/utils/peerlyBillingError.util'
-import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
+import {
+  PeerlyCvRefusalException,
+  PeerlyCvRejectionException,
+  PeerlyCvTemporaryRefusalException,
+} from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 import { CvPreSubmissionValidationException } from '../utils/cvPreSubmissionValidation.util'
 import {
   CommitteeType,
@@ -2584,6 +2589,124 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(mockTcrModel.update).toHaveBeenCalledWith({
       where: { id: existingRecord.id },
       data: expect.objectContaining({ peerlyBillingBlockedAt: null }),
+    })
+  })
+
+  // Incident 103: Campaign Verify's bare 403 refusals come and go. Campaign
+  // 327336 was refused about a dozen times across an hour on 2026-10-02 and
+  // then went through unchanged, so a refusal is worth waiting out for a
+  // while — but not forever, and not while paging the on-call on every try.
+  describe('Campaign Verify refusal', () => {
+    const refusal = () =>
+      new PeerlyCvRefusalException(
+        'Campaign Verify refused the request (CV returned 403): 403 Forbidden',
+      )
+
+    it('starts the clock and asks the caller to come back later on the first refusal', async () => {
+      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(refusal())
+
+      const thrown = await service
+        .submitToPeerlyForAgent(user, campaign)
+        .catch((error: unknown) => error)
+
+      // A 429, not the old 502: the agent still retries, but this route's
+      // page counts server errors only, so the on-call is not woken once per
+      // attempt for a refusal that usually clears itself.
+      expect(thrown).toBeInstanceOf(PeerlyCvTemporaryRefusalException)
+      expect((thrown as HttpException).getStatus()).toBe(429)
+      expect((thrown as Error).message).toContain('retried automatically')
+      expect(mockTcrModel.update).toHaveBeenCalledWith({
+        where: { id: existingRecord.id },
+        data: { peerlyCvRefusedSince: expect.any(Date) },
+      })
+      // Nothing for staff yet — the refusal may well clear on its own.
+      expect(mockSlack.message).not.toHaveBeenCalled()
+    })
+
+    it('keeps retrying, without restamping, while the refusal is recent', async () => {
+      const refusedSince = subMinutes(new Date(), 30)
+      mockTcrModel.findUnique.mockResolvedValueOnce({
+        ...existingRecord,
+        peerlyCvRefusedSince: refusedSince,
+      })
+      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(refusal())
+
+      const thrown = await service
+        .submitToPeerlyForAgent(user, campaign)
+        .catch((error: unknown) => error)
+
+      expect(thrown).toBeInstanceOf(PeerlyCvTemporaryRefusalException)
+      expect((thrown as Error).message).toContain(refusedSince.toISOString())
+      // The clock keeps its original start, or the window would never close.
+      expect(mockTcrModel.update).not.toHaveBeenCalledWith({
+        where: { id: existingRecord.id },
+        data: { peerlyCvRefusedSince: expect.any(Date) },
+      })
+      expect(mockSlack.message).not.toHaveBeenCalled()
+    })
+
+    it('stops with a refusal and one staff alert once the window has closed', async () => {
+      const refusedSince = subMinutes(new Date(), 2 * 60 + 1)
+      mockTcrModel.findUnique.mockResolvedValueOnce({
+        ...existingRecord,
+        peerlyCvRefusedSince: refusedSince,
+        peerlyCvRefusalAlertedAt: null,
+      })
+      mockTcrModel.updateMany.mockResolvedValueOnce({ count: 1 })
+
+      const thrown = await service
+        .submitToPeerlyForAgent(user, campaign)
+        .catch((error: unknown) => error)
+
+      // Back to a 4xx: two hours of refusals is not something more retrying
+      // fixes, so the flow stops instead of grinding — and it stops before
+      // touching Peerly, so a resume cannot restart the storm.
+      expect(thrown).toBeInstanceOf(PeerlyCvRefusalException)
+      expect(thrown).not.toBeInstanceOf(PeerlyCvTemporaryRefusalException)
+      expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
+      expect(mockSlack.message).toHaveBeenCalledTimes(1)
+      const alert = JSON.stringify(
+        firstOrThrow(mockSlack.message.mock.calls)[0],
+      )
+      expect(alert).toContain('Campaign Verify keeps refusing')
+      expect(alert).toContain('Ask Peerly')
+      expect(alert).toContain(refusedSince.toISOString())
+      // The alert stamp is the claim that keeps it to one message.
+      expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+        where: { id: existingRecord.id, peerlyCvRefusalAlertedAt: null },
+        data: { peerlyCvRefusalAlertedAt: expect.any(Date) },
+      })
+    })
+
+    it('does not alert staff a second time for the same refusal', async () => {
+      mockTcrModel.findUnique.mockResolvedValueOnce({
+        ...existingRecord,
+        peerlyCvRefusedSince: subMinutes(new Date(), 5 * 60),
+        peerlyCvRefusalAlertedAt: subMinutes(new Date(), 3 * 60),
+      })
+      // Nobody wins the alert claim the second time around.
+      mockTcrModel.updateMany.mockResolvedValueOnce({ count: 0 })
+
+      await expect(
+        service.submitToPeerlyForAgent(user, campaign),
+      ).rejects.toThrow(PeerlyCvRefusalException)
+
+      expect(mockSlack.message).not.toHaveBeenCalled()
+      expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+    })
+
+    it('clears the clock when a submission finally succeeds', async () => {
+      mockTcrModel.findUnique.mockResolvedValueOnce({
+        ...existingRecord,
+        peerlyCvRefusedSince: subMinutes(new Date(), 45),
+      })
+
+      await service.submitToPeerlyForAgent(user, campaign)
+
+      expect(mockTcrModel.update).toHaveBeenCalledWith({
+        where: { id: existingRecord.id },
+        data: expect.objectContaining({ peerlyCvRefusedSince: null }),
+      })
     })
   })
 
