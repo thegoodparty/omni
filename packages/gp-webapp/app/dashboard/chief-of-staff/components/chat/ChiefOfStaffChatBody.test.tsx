@@ -2252,6 +2252,72 @@ describe('<ChiefOfStaffChatBody> link attachments', () => {
       ),
     )
   })
+
+  it('fires LinkSubmitted with the campaign_assistant scope on a successful link attach', async () => {
+    winAttachmentsOn = true
+    linkAttachmentMock.mockResolvedValue({
+      ok: true,
+      attachment: {
+        id: 'link-2',
+        fileName: 'https://example.com/flyer.pdf',
+        status: 'ready',
+        pageCount: null,
+        failureReason: null,
+      },
+    })
+    renderBody('campaign_assistant')
+
+    await pasteLink('see https://example.com/flyer.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkSubmitted,
+        {
+          linkHost: 'example.com',
+          fetchSucceeded: true,
+          scope: 'campaign_assistant',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkFetchFailed with the chief_of_staff scope when the server reports a fetch error', async () => {
+    attachmentsOn = true
+    linkAttachmentMock.mockResolvedValue({ ok: false, error: 'unreachable' })
+    renderBody()
+
+    await pasteLink('see https://example.org/budget.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.org',
+          failureReason: 'unreachable',
+          scope: 'chief_of_staff',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkFetchFailed with the chief_of_staff scope when the link attach throws', async () => {
+    attachmentsOn = true
+    linkAttachmentMock.mockRejectedValue(new Error('network down'))
+    renderBody()
+
+    await pasteLink('see https://example.net/contract.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.net',
+          failureReason: 'network_error',
+          scope: 'chief_of_staff',
+        },
+      ),
+    )
+  })
 })
 
 // Ported from the deleted AssistantDrawer.test.tsx: the contacts assistant used
