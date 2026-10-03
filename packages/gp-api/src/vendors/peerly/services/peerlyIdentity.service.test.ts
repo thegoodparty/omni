@@ -28,7 +28,10 @@ import {
   PeerlyBillingException,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../utils/peerlyBillingError.util'
-import { PeerlyCvRejectionException } from '../utils/peerlyCvRejection.util'
+import {
+  PeerlyCvRefusalException,
+  PeerlyCvRejectionException,
+} from '../utils/peerlyCvRejection.util'
 import { SlackService } from '../../slack/services/slack.service'
 import { SlackChannel } from '../../slack/slackService.types'
 import { UsersService } from '../../../users/services/users.service'
@@ -824,6 +827,95 @@ describe('PeerlyIdentityService', () => {
       )
     })
 
+    it('reports a Campaign Verify refusal (nested 403) as a refusal rather than a gateway fault, and leaves the retry decision to the caller', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      const requestConfig = {
+        url: '/v2/tdlc/peerly-cv-403/submit_cv',
+        method: 'POST',
+        headers: new AxiosHeaders(),
+      }
+      // The body Peerly relayed for campaign 327336 on 2026-10-02: CV's edge
+      // refused the request with an HTML 403 page and named nothing to fix.
+      httpService.post = vi.fn().mockRejectedValue(
+        new AxiosError(
+          'Request failed with status code 400',
+          'ERR_BAD_REQUEST',
+          requestConfig as AxiosError['config'],
+          {},
+          {
+            data: {
+              Error: 'Campaign Verify API request failed.',
+              status_code: 403,
+              details:
+                '<html>\r\n<head><title>403 Forbidden</title></head>\r\n' +
+                '<body>\r\n<center><h1>403 Forbidden</h1></center>\r\n' +
+                '</body>\r\n</html>\r\n',
+            },
+            status: 400,
+            statusText: 'Bad Request',
+            headers: {},
+            config: requestConfig,
+          } as AxiosError['response'],
+        ),
+      )
+      errorHandling.handleApiError = vi
+        .fn()
+        .mockImplementation((info: { context?: PeerlyApiErrorContext }) => {
+          const ExceptionClass =
+            info.context?.httpExceptionClass ?? BadGatewayException
+          throw new ExceptionClass(
+            info.context?.customMessage ?? 'Peerly API ERROR',
+          )
+        })
+
+      const submission = service.submitCampaignVerifyRequest(
+        {
+          email: 'candidate@example.com',
+          ein: '12-3456789',
+          phone: '15551234567',
+          peerlyIdentityId: 'peerly-cv-403',
+          filingUrl: 'https://example.gov/elections',
+          officeLevel: OfficeLevel.state,
+          fecCommitteeId: null,
+          committeeType: CommitteeType.CANDIDATE,
+        },
+        baseUser,
+        createMockCampaign(),
+        baseDomainName,
+      )
+      // A 4xx is what makes the compliance agent stop re-dispatching, and the
+      // class must NOT be the data-rejection one: nothing here says the
+      // candidate's filing details are wrong, so the record must not be
+      // stamped rejected nor the candidate emailed a rejection.
+      const thrown = await submission.catch((error: unknown) => error)
+      expect(thrown).toBeInstanceOf(PeerlyCvRefusalException)
+      expect(thrown).not.toBeInstanceOf(PeerlyCvRejectionException)
+      expect((thrown as Error).message).toContain(
+        'Campaign Verify refused the request (CV returned 403)',
+      )
+      // CV's reason reaches the caller as one line, not as a web page.
+      expect((thrown as Error).message).toContain('403 Forbidden')
+      expect((thrown as Error).message).not.toContain('<html>')
+
+      expect(errorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: expect.objectContaining({
+            httpExceptionClass: PeerlyCvRefusalException,
+            suppressSlackAlert: true,
+          }),
+        }),
+      )
+      // No alert from here. These refusals clear on their own — campaign
+      // 327336 was refused about a dozen times and then went through — so
+      // staff are told only once the compliance service has watched one
+      // record stay refused past its retry window, not on every refusal.
+      expect(slackService.message).not.toHaveBeenCalled()
+    })
+
     it('routes a transient 500 through handleApiError (still retryable)', async () => {
       const httpService = module.get(PeerlyHttpService)
       const errorHandling = module.get(PeerlyErrorHandlingService)
@@ -1345,6 +1437,68 @@ describe('PeerlyIdentityService', () => {
       await service.retrieveCampaignVerifyStatus('peerly-500', campaign)
 
       expect(errorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
+
+  describe('getCampaignVerifyRequest', () => {
+    const campaign = campaignFactory({ id: 1 }) as Campaign
+
+    it('fails the registration flow non-retryably when CV refuses the read (nested 403)', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      const requestConfig = {
+        url: '/v2/tdlc/peerly-cv-403/retrieve_cv',
+        method: 'GET',
+        headers: new AxiosHeaders(),
+      }
+      httpService.get = vi.fn().mockRejectedValueOnce(
+        new AxiosError(
+          'Request failed with status code 400',
+          'ERR_BAD_REQUEST',
+          requestConfig as AxiosError['config'],
+          {},
+          {
+            data: {
+              Error: 'Campaign Verify Retrieve API request failed.',
+              status_code: 403,
+            },
+            status: 400,
+            statusText: 'Bad Request',
+            headers: {},
+            config: requestConfig,
+          } as AxiosError['response'],
+        ),
+      )
+      errorHandling.handleApiError = vi
+        .fn()
+        .mockImplementation((info: { context?: PeerlyApiErrorContext }) => {
+          const ExceptionClass =
+            info.context?.httpExceptionClass ?? BadGatewayException
+          throw new ExceptionClass(
+            info.context?.customMessage ?? 'Peerly API ERROR',
+          )
+        })
+
+      await expect(
+        service.getCampaignVerifyRequest('peerly-cv-403', campaign),
+      ).rejects.toBeInstanceOf(PeerlyCvRefusalException)
+    })
+
+    it('still returns null for the nested-404 "no CV request yet" answer', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      httpService.get = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 400,
+        response: { status: 400, data: { status_code: 404 } },
+      })
+
+      await expect(
+        service.getCampaignVerifyRequest('peerly-no-cv', campaign),
+      ).resolves.toBeNull()
+      expect(errorHandling.handleApiError).not.toHaveBeenCalled()
     })
   })
 

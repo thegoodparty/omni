@@ -5,11 +5,11 @@ model LocalNewsCache {
   // Normalized to "" (never null) so the (office, city, state) compound
   // unique behaves as a real key — Postgres treats NULLs as distinct, which
   // would let duplicate city-less rows slip past the constraint.
-  city  String @default("")
-  state String
+  city   String @default("")
+  state  String
 
   // 'pending' | 'ready'
-  status String
+  status    String
   // Epoch ms when the pending fetch was claimed; powers the pending TTL.
   // Null once the row is 'ready'.
   startedAt BigInt? @map("started_at")

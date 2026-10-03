@@ -5,68 +5,68 @@ enum CampaignTier {
 }
 
 model Campaign {
-  id                       Int                     @id @default(autoincrement())
-  organizationSlug         String                  @unique @map("organization_slug")
-  organization             Organization            @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
-  createdAt                DateTime                @default(now()) @map("created_at")
-  updatedAt                DateTime                @updatedAt @map("updated_at")
-  slug                     String                  @unique
-  isActive                 Boolean                 @default(false) @map("is_active")
-  isVerified               Boolean?                @map("is_verified")
-  isPro                    Boolean?                @default(false) @map("is_pro")
-  isDemo                   Boolean                 @default(false) @map("is_demo")
-  didWin                   Boolean?                @map("did_win")
-  primaryResult            String?                 @map("primary_result")
+  id                          Int                          @id @default(autoincrement())
+  organizationSlug            String                       @unique @map("organization_slug")
+  organization                Organization                 @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  createdAt                   DateTime                     @default(now()) @map("created_at")
+  updatedAt                   DateTime                     @updatedAt @map("updated_at")
+  slug                        String                       @unique
+  isActive                    Boolean                      @default(false) @map("is_active")
+  isVerified                  Boolean?                     @map("is_verified")
+  isPro                       Boolean?                     @default(false) @map("is_pro")
+  isDemo                      Boolean                      @default(false) @map("is_demo")
+  didWin                      Boolean?                     @map("did_win")
+  primaryResult               String?                      @map("primary_result")
   // Onboarding's "Are you already on the ballot?" answer. A column, not a
   // details key: the details allowlist strips anything it does not name, so a
   // JSONB write fails silently while a missing column fails loudly.
-  ballotStatus             String?                 @map("ballot_status")
+  ballotStatus                String?                      @map("ballot_status")
   // Onboarding's "What do you most want help with?" answer — the primary
   // reason the candidate signed up, used to personalize what we surface after
   // onboarding. A column for the same reason as ballotStatus above.
-  signupGoal               String?                 @map("signup_goal")
-  dateVerified             DateTime?               @map("date_verified")
-  tier                     CampaignTier?
-  formattedAddress         String?                 @map("formatted_address")
-  placeId                  String?                 @map("place_id")
-  campaignEmail            String?                 @map("campaign_email")
+  signupGoal                  String?                      @map("signup_goal")
+  dateVerified                DateTime?                    @map("date_verified")
+  tier                        CampaignTier?
+  formattedAddress            String?                      @map("formatted_address")
+  placeId                     String?                      @map("place_id")
+  campaignEmail               String?                      @map("campaign_email")
   /// [CampaignData]
-  data                     Json                    @default("{}") @db.JsonB
+  data                        Json                         @default("{}") @db.JsonB
   /// [CampaignDetails]
-  details                  Json                    @default("{}") @db.JsonB
+  details                     Json                         @default("{}") @db.JsonB
   /// [CampaignAiContent]
-  aiContent                Json                    @default("{}") @map("ai_content") @db.JsonB
-  vendorTsData             Json                    @default("{}") @map("vendor_ts_data") @db.JsonB
-  campaignUpdateHistory    CampaignUpdateHistory[]
-  user                     User?                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId                   Int                     @map("user_id")
-  canDownloadFederal       Boolean                 @default(false) @map("can_download_federal")
-  topIssues                TopIssue[]
-  campaignPositions        CampaignPosition[]
-  campaignPlanVersion      CampaignPlanVersion?
-  aiChats                  AiChat[]
-  completedTaskIds         String[]                @default([]) @map("completed_task_ids")
-  hasFreeTextsOffer        Boolean                 @default(false) @map("has_free_texts_offer")
-  freeTextsOfferRedeemedAt DateTime?               @map("free_texts_offer_redeemed_at")
-  ScheduledMessage         ScheduledMessage[]
-  tcrCompliance            TcrCompliance?
-  website                  Website?
-  outreach                 Outreach[]
-  campaignTasks            CampaignTask[]
-  campaignTrackerTasks     CampaignTrackerTask[]
-  campaignPlan             CampaignPlan?
-  campaignStrategy         CampaignStrategy?
-  campaignStory            CampaignStory?
-  campaignIdeology         CampaignIdeology?
-  electedOffices           ElectedOffice[]
-  voterOutreachActivities  VoterOutreachActivity[]
-  raceOpponents            RaceOpponent[]
-  raceOpponentResearch     RaceOpponentResearch[]
-  raceOpponentContrasts    RaceOpponentContrast[]
-  raceOpponentSummaries    RaceOpponentSummary[]
-  raceOpponentFieldAnalysis RaceOpponentFieldAnalysis?
+  aiContent                   Json                         @default("{}") @map("ai_content") @db.JsonB
+  vendorTsData                Json                         @default("{}") @map("vendor_ts_data") @db.JsonB
+  campaignUpdateHistory       CampaignUpdateHistory[]
+  user                        User?                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                      Int                          @map("user_id")
+  canDownloadFederal          Boolean                      @default(false) @map("can_download_federal")
+  topIssues                   TopIssue[]
+  campaignPositions           CampaignPosition[]
+  campaignPlanVersion         CampaignPlanVersion?
+  aiChats                     AiChat[]
+  completedTaskIds            String[]                     @default([]) @map("completed_task_ids")
+  hasFreeTextsOffer           Boolean                      @default(false) @map("has_free_texts_offer")
+  freeTextsOfferRedeemedAt    DateTime?                    @map("free_texts_offer_redeemed_at")
+  ScheduledMessage            ScheduledMessage[]
+  tcrCompliance               TcrCompliance?
+  website                     Website?
+  outreach                    Outreach[]
+  campaignTasks               CampaignTask[]
+  campaignTrackerTasks        CampaignTrackerTask[]
+  campaignPlan                CampaignPlan?
+  campaignStrategy            CampaignStrategy?
+  campaignStory               CampaignStory?
+  campaignIdeology            CampaignIdeology?
+  electedOffices              ElectedOffice[]
+  voterOutreachActivities     VoterOutreachActivity[]
+  raceOpponents               RaceOpponent[]
+  raceOpponentResearch        RaceOpponentResearch[]
+  raceOpponentContrasts       RaceOpponentContrast[]
+  raceOpponentSummaries       RaceOpponentSummary[]
+  raceOpponentFieldAnalysis   RaceOpponentFieldAnalysis?
   raceOpponentStandoutActions RaceOpponentStandoutAction[]
-  peerlyPhoneLists          PeerlyPhoneList[]
+  peerlyPhoneLists            PeerlyPhoneList[]
 
   @@index([userId])
   @@map("campaign")
