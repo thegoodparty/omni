@@ -126,7 +126,10 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
   private async resolvePeerlyCvState(
     stage: ComplianceStage,
     campaign: Campaign,
-    tcrCompliance: Pick<TcrCompliance, 'peerlyIdentityId'> | null,
+    tcrCompliance: Pick<
+      TcrCompliance,
+      'peerlyIdentityId' | 'peerlyCvStatus'
+    > | null,
   ): Promise<Pick<ComplianceStateOutput, 'peerlyCvStatus' | 'pinDelivery'>> {
     if (stage !== ComplianceStage.awaiting_pin) {
       return { peerlyCvStatus: null, pinDelivery: null }
@@ -161,13 +164,29 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
     } catch (e) {
       // A non-404 Peerly error (5xx / auth / timeout) makes retrieve throw a
       // BadGatewayException; without this guard it would 502 the whole
-      // compliance-state read (agent + FE). Degrade to the in-progress state.
+      // compliance-state read (agent + FE).
+      //
+      // Fall back to the status the CV scan last observed and persisted rather
+      // than to null. Null reads as "verification still in progress", which
+      // hides the PIN screen from a candidate whose PIN was already issued and
+      // is in their hand — so an unreadable vendor turned a working flow into a
+      // dead end (2026-09-30: Campaign Verify answered 403 to every status read
+      // for hours). The mirror is at worst one poll behind, and the PIN itself
+      // is still checked against Peerly on submission, so nothing here decides
+      // whether a PIN is accepted.
+      const lastObserved = PeerlyCvVerificationStatusSchema.safeParse(
+        tcrCompliance?.peerlyCvStatus,
+      )
       this.logger.error(
         { e },
         `Failed to retrieve Peerly CV details for identity ` +
-          `${peerlyIdentityId}; degrading to null`,
+          `${peerlyIdentityId}; falling back to the last observed status ` +
+          `${lastObserved.success ? lastObserved.data : 'none'}`,
       )
-      return { peerlyCvStatus: null, pinDelivery: null }
+      return {
+        peerlyCvStatus: lastObserved.success ? lastObserved.data : null,
+        pinDelivery: null,
+      }
     }
     // Peerly's `verification_status` is not yet a hardened enum on their side;
     // parse defensively so an unrecognized value degrades to the in-progress
