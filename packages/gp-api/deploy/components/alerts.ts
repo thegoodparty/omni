@@ -2,6 +2,7 @@ import { ControllerName } from '../../src/generated/route-types'
 import { Alert, SlackGroup } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
 import { doorKnockingCredits } from './alerting/door-knocking-spend'
+import { logSignalTotal } from './alerting/log-signals'
 
 /**
  * Which product's users each controller serves, and therefore who hears about
@@ -308,6 +309,63 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
  * fires on a single query is a budget alert nobody keeps. An hour turned out
  * not to be enough of that smoothing — see the window note on the 50% rule.
  */
+/**
+ * The two halves of each error-ratio rule, named once.
+ *
+ * Both rules state their denominator twice — once under the ratio and once as
+ * the volume floor — and while they read Loki that repetition was a third of
+ * their cost, because the engine evaluated each occurrence against the stream.
+ * Over a recorded metric it costs nothing, but naming the halves keeps the two
+ * occurrences provably identical: a floor that guarded a different population
+ * from the ratio it qualifies is the specific bug the null-status clause was
+ * added to both halves to avoid.
+ */
+const ERRORS_10M = logSignalTotal(
+  'gp_api:public_campaign_lookup_errors:count1m',
+  '10m',
+)
+const RESOLVABLE_10M = logSignalTotal(
+  'gp_api:public_campaign_lookups_resolvable:count1m',
+  '10m',
+)
+// The per-route halves of the profile ratio, which cannot be recorded.
+//
+// WHY THIS ONE RULE STILL READS LOKI. Grafana's recording-rule writer only
+// accepts a single unlabelled series, and these are `sum by (request_endpoint)`
+// — one series per route, which it rejects silently (see the header of
+// alerting/provisioned-alerts.ts, and the 168 rules that went blind for a day
+// learning it). Recording them would take this rule, which exists because
+// voter-density answered 1,498,324 consecutive requests with a 500 and paged
+// nobody, blind in exactly that way.
+//
+// What makes reading Loki affordable instead is the shape route-alerts.ts uses:
+// a fetch window equal to the evaluation interval. A rule's daily read volume
+// as a multiple of ingest is window / interval, so at 1:1 each log line is read
+// once, which is the floor — the same floor a recording rule sits at. This rule
+// was 10 minutes on the 60s default, so 10x per leg and 30x for the three legs
+// below; at 1:1 it is 3x. The price is detection latency, not coverage:
+// consecutive 10-minute windows tile the same timeline, so no request falls
+// between two evaluations.
+const PROFILE_WINDOW = '10m'
+const PROFILE_WINDOW_SECONDS = 600
+
+const profileLeg = (statusFilter: string) =>
+  [
+    'sum by (request_endpoint) (count_over_time(',
+    '{service_name="gp-api", deployment_environment_name="$ENV"}',
+    '|= "Request completed"',
+    '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
+    `| ${statusFilter}`,
+    `[${PROFILE_WINDOW}]))`,
+  ].join(' ')
+
+const PROFILE_ERRORS_10M = profileLeg(
+  '( response_statusCode >= 500 ) or ( response_statusCode = "" )',
+)
+const PROFILE_RESOLVABLE_10M = profileLeg(
+  '( response_statusCode != 404 ) or ( response_statusCode = "" )',
+)
+
 const LOKI_QUERY_BUDGET_RATIO = [
   'sum(avg_over_time(grafanacloud_logs_instance_query_bytes:rate5m[6h]))',
   '/',
@@ -375,12 +433,11 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'serve-background-job-failed',
     name: '[Serve] Background job failed',
-    type: 'log',
-    // Poll-job failures only. The consumer logs the SQS message in
-    // message_Body; match its `type` (pollCreation / pollExpansion /
-    // pollAnalysisComplete) so sibling jobs that share the consumer (AI
-    // content, websites) don't page the serve-bugs group.
-    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [5m]))',
+    type: 'metric',
+    // Poll-job failures only, which is a property of the recorded signal now:
+    // see `queue-poll-job-failures` in alerting/log-signals.ts for the filter
+    // and for why nothing here reads Loki directly any more.
+    expr: logSignalTotal('gp_api:queue_poll_job_failures:count1m', '5m'),
     threshold: 0,
     for: '0m',
     message: [
@@ -393,27 +450,19 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'win-peerly-warnings',
     name: '[Win] Peerly endpoint errors detected',
-    type: 'log',
-    expr: [
-      'sum(count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      // Scope to genuine Peerly vendor API errors only. Keying off
-      // request_endpoint matched every error logged during a p2p/tcr/outreach
-      // request (LLM, election-api, etc.), not Peerly — 5/5 fires were collateral.
-      '|= "Peerly API ERROR"',
-      '| json',
-      '| detected_level = "error"',
-      '| context =~ "Peerly.+Service"',
-      '[15m]))',
-    ].join(' '),
+    type: 'metric',
+    // Genuine Peerly vendor API errors only — the filter lives on the
+    // `peerly-api-errors` signal in alerting/log-signals.ts.
+    //
+    // TEN MINUTES, WRITTEN AS TEN. The query said `[15m]` and the engine
+    // fetched 600s, so the vector was silently truncated and this rule has
+    // always judged a 10-minute window. That was pinned deliberately rather
+    // than fixed, because widening it lengthens re-firing after a transient
+    // burst. The window is now stated as the one it actually uses, so the trap
+    // is gone and the behaviour is unchanged.
+    expr: logSignalTotal('gp_api:peerly_api_errors:count1m', '10m'),
     threshold: 0,
     for: '1m',
-    // Explicitly pins the pre-timeRangeSeconds default. The 600s fetch caps
-    // the [15m] vector to an effective 10-minute window; that has always been
-    // this alert's firing behavior and is kept as-is — widening it would
-    // lengthen re-firing after a transient error burst. Retune deliberately.
-    // The message quotes the effective window, not the vector, so nobody
-    // triaging this searches a span the query never covered.
     timeRangeSeconds: 600,
     message: [
       'Peerly-related endpoint errors detected in the last 10 minutes.',
@@ -424,7 +473,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'win-outreach-paid-not-scheduled-warning',
     name: '[Win] P2P outreach paid but not scheduled',
-    type: 'log',
+    type: 'metric',
     // Draft-first outreach: the campaign is persisted as a pending_payment
     // draft before checkout and finalized (Peerly + Slack) by the post-purchase
     // handler after payment. This fires when that finalize fails AFTER money
@@ -433,25 +482,20 @@ export const GLOBAL_ALERTS: Alert[] = [
     // which keyed off webhook-path free-texts redemption; that signal is
     // healthy behavior under draft-first (async payments and recovered
     // client drops finalize via webhook by design).
-    expr: [
-      'sum(count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "P2P outreach finalize failed after payment"',
-      '[1h]))',
-    ].join(' '),
+    expr: logSignalTotal(
+      'gp_api:p2p_finalize_after_payment_failures:count1m',
+      '1h',
+    ),
     threshold: 0,
     for: '5m',
     // The [1h] range vector needs a matching fetch window; the default 600s
-    // would let the engine see only 10 minutes of logs and miss this
-    // low-frequency event.
+    // would let the engine see only 10 minutes and miss this low-frequency
+    // event. Reading an hour of Prometheus is not metered by bytes.
     timeRangeSeconds: 3600,
-    // An hour of logs on the 60s default re-read the same hour 1,440 times a
-    // day — 60x our ingest for one rule, against a query allowance of 100x that
-    // every rule and both environments share. At 5m it is 12x. `for` is 5m, so
-    // the rule still fires on its first evaluation past the threshold and the
-    // worst case is ~5 minutes later than before, on an event whose remedy is
-    // a human reading a log line.
-    evaluationIntervalSeconds: 300,
+    // Back to the 60s default, where it was before the read cost forced it to
+    // 5 minutes. Nothing about a recorded metric gets cheaper by evaluating it
+    // less often, so there is no reason to delay this page.
+    evaluationIntervalSeconds: 60,
     message: [
       'A paid P2P outreach draft failed to submit to Peerly in the last hour. The candidate has been charged and no texts are scheduled.',
       'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId, the campaignId, the checkout session that paid (`chargeRef`) and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
@@ -463,7 +507,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'win-robocall-critical',
     name: '[Win] Robocall send/settlement CRITICAL',
-    type: 'log',
+    type: 'metric',
     // The robocall send + settlement chain (staging, dial, capture,
     // fresh-charge, completion poll, hold recovery) logs `CRITICAL robocall ...`
     // on every exceptional path a human must look at: a permanently-failed send
@@ -474,22 +518,16 @@ export const GLOBAL_ALERTS: Alert[] = [
     // orphaned-hold cancel. Every one shares the `CRITICAL robocall` prefix, so a
     // single line filter catches every path. They should almost never fire; each
     // is a money- or delivery-integrity event, not routine error noise.
-    expr: [
-      'sum(count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "CRITICAL robocall"',
-      '[1h]))',
-    ].join(' '),
+    expr: logSignalTotal('gp_api:robocall_critical_events:count1m', '1h'),
     threshold: 0,
     for: '5m',
     // A rare event matched on a [1h] range vector; the default 600s fetch would
     // see only 10 minutes and miss it (same reason as the paid-not-scheduled
     // alert above).
     timeRangeSeconds: 3600,
-    // 12x ingest rather than 60x, for the reason given on the sibling above.
-    // These events are money-integrity ones that need a human, not a rollback,
-    // so ~5 minutes of extra detection latency costs nothing real.
-    evaluationIntervalSeconds: 300,
+    // Back to the 60s default, as on the sibling above: these are
+    // money-integrity events and nothing is saved by hearing about them later.
+    evaluationIntervalSeconds: 60,
     message: [
       'A robocall send/settlement CRITICAL was logged in the last hour — a money- or delivery-integrity event that needs a human.',
       'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / uncollectable capture / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run we could not capture, or a campaign that may be dialing with no record.',
@@ -570,7 +608,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'door-knocking-pack-build-failed',
     name: '[Win] Door-knocking pack build failed mid-response',
-    type: 'log',
+    type: 'metric',
     // GET /v1/door-knocking/pack commits a 200 and starts writing before it
     // begins building, so the connection is never idle long enough for the
     // gateway to kill it. The cost of that trade is that a build which fails
@@ -580,15 +618,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     //
     // Not folded into the route alert: that one keys on response_statusCode,
     // and by construction this failure has a successful one.
-    expr: [
-      'sum(count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      // Cheap line filter before | json, as the sibling log alerts do.
-      '|= "DoorKnockingPackBuildFailed"',
-      '| json',
-      '| event = "DoorKnockingPackBuildFailed"',
-      '[10m]))',
-    ].join(' '),
+    expr: logSignalTotal(
+      'gp_api:door_knocking_pack_build_failures:count1m',
+      '10m',
+    ),
     threshold: 0,
     for: '1m',
     message: [
@@ -702,7 +735,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'people-person-contact-email-lookup-failing',
     name: '[People] Person contact email lookup failing',
-    type: 'log',
+    type: 'metric',
     // REPLACES `people-completion-request-no-email-ratio`, which was deleted
     // rather than retuned because both halves of it were unsound:
     //
@@ -723,10 +756,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // for a genuine fault — M2M auth, a 5xx, or election-api unreachable. That
     // is the actionable signal. Address coverage is a data question and belongs
     // on the dashboard, not in #dev-alerts.
-    expr: [
-      'count_over_time({service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "Person contact email lookup failed" [5m])',
-    ].join(' '),
+    expr: logSignalTotal(
+      'gp_api:person_contact_email_lookup_failures:count1m',
+      '5m',
+    ),
     threshold: 0,
     for: '15m',
     message: [
@@ -738,7 +771,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'people-person-id-repoint-collision',
     name: '[People] Person id repoint blocked, left for manual resolution',
-    type: 'log',
+    type: 'metric',
     // The one drift outcome that ASKS FOR A HUMAN BY NAME and, until this
     // rule, told none. `resyncLinkedUser` ends in exactly five ways; four are
     // self-correcting (`repointed` fixed it, `unchanged` had nothing to fix,
@@ -762,14 +795,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     //
     // Both collision branches: the pre-check in `repoint` and the unique
     // violation that loses a race to a concurrent write. Same situation, found
-    // at different moments, same manual fix.
-    expr: [
-      'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"}',
-      // Cheap line filter before the alternation, as every sibling log alert does.
-      '|= "person_id"',
-      '|~ "destination id is already occupied|lost a race to a concurrent write"',
-      '[6h]))',
-    ].join(' '),
+    // at different moments, same manual fix. Both live on the
+    // `person-id-repoint-collisions` signal in alerting/log-signals.ts.
+    expr: logSignalTotal('gp_api:person_id_repoint_collisions:count1m', '6h'),
     threshold: 0,
     // No grace period, and none is wanted. The sweep is `0 4 * * *`, so this is
     // one burst a day rather than a signal that can flap across a boundary —
@@ -778,13 +806,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     // >= the [6h] vector, or the engine's default ten minutes means a rule that
     // only ever sees 03:54-04:04 and reports zero the rest of the day.
     timeRangeSeconds: 21600,
-    // 12 re-reads a day. A `0 4 * * *` sweep does not need minute resolution,
-    // and a 6h window on the 60s default would re-read those hours 360 times —
-    // 360x our ingest for one rule, against an allowance of 100x shared by
-    // every rule in both environments. `for` is 0m and nothing retries this, so
-    // the only cost is that the page can arrive up to 30 minutes after the
-    // nightly sweep emitted the line, on a finding whose remedy is manual.
-    evaluationIntervalSeconds: 1800,
+    // Back to the 60s default. Six hours of Prometheus costs nothing to read,
+    // so the 30-minute interval that the Loki read forced on this — and with it
+    // up to half an hour between the sweep emitting the line and the page — is
+    // no longer something we have to pay for.
+    evaluationIntervalSeconds: 60,
     message: [
       'The nightly person-id sweep found a user whose civics id has moved, and could not follow it: the destination id already holds another user’s rows. The link was left stale deliberately, for a human.',
       'Nothing retries this. The stale link survives every subsequent sweep, so the symptom persists until someone acts — that user’s public /people page renders the unclaimed civics spine (wrong name, wrong headshot, no bio) instead of their profile, and if they are under a takedown it silently stops being enforced, because `isRemoved` matches on an id they no longer render under.',
@@ -796,7 +822,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'public-campaigns-lookup-error-ratio',
     name: '[People] Public campaign lookup failing',
-    type: 'log',
+    type: 'metric',
     // Written when `public-campaigns` was not in ALERT_OWNERSHIP and its
     // generated per-route alert was therefore provisioned `disabled` — which
     // is why 5k+ daily 500s on a public endpoint paged nobody. It was left out
@@ -838,28 +864,19 @@ export const GLOBAL_ALERTS: Alert[] = [
     // firing profile of a live rule, and the numbers quoted above were
     // measured against the narrow expression; it wants its own replay over
     // real traffic rather than being changed in passing here.
+    //
+    // Two recorded signals rather than one Loki query evaluated three times:
+    // `public-campaign-lookup-errors` and `public-campaign-lookups-resolvable`
+    // in alerting/log-signals.ts. The ratio and the floor read the same
+    // denominator series, so the expression that used to scan a 10-minute
+    // window of the whole gp-api stream three times an evaluation now scans it
+    // twice a minute for one minute each. `and` matches on the labels both
+    // sides carry, which after `sum_over_time` drops `__name__` is just
+    // `environment`.
     expr: [
-      '( sum(count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      // Cheap line filter before | json, as the sibling log alerts do.
-      '|= "Request completed" | json',
-      '| request_endpoint = "GET /v1/public-campaigns"',
-      '| response_statusCode >= 500',
-      '[10m]))',
-      '/',
-      'sum(count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "Request completed" | json',
-      '| request_endpoint = "GET /v1/public-campaigns"',
-      '| response_statusCode != 404',
-      '[10m])) )',
+      `( ${ERRORS_10M} / ${RESOLVABLE_10M} )`,
       'and',
-      '( sum(count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "Request completed" | json',
-      '| request_endpoint = "GET /v1/public-campaigns"',
-      '| response_statusCode != 404',
-      '[10m])) > 20 )',
+      `( ${RESOLVABLE_10M} > 20 )`,
     ].join(' '),
     threshold: 0.1,
     for: '10m',
@@ -895,15 +912,16 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'admin-impersonation-email-fallback-spike',
     name: '[Admin] Impersonation falling back to email actor',
-    type: 'log',
-    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Actor has no gp-api Clerk account" [15m]))',
+    type: 'metric',
+    // TEN MINUTES, WRITTEN AS TEN. The query said `[15m]` and the engine
+    // fetched 600s, so the vector was truncated and this rule has always judged
+    // >5 events per 10 minutes — its firing behaviour since it shipped. Stating
+    // the window it actually uses keeps that behaviour and removes the trap;
+    // widening it to 15 minutes would make the rule more sensitive and is a
+    // retune to do deliberately.
+    expr: logSignalTotal('gp_api:impersonation_email_fallback:count1m', '10m'),
     threshold: 5,
     for: '5m',
-    // Explicitly pins the pre-timeRangeSeconds default: effectively >5 events
-    // per 10 minutes, this alert's firing behavior since it shipped. Kept
-    // as-is; raising to 900 would make it more sensitive. Retune deliberately.
-    // The message quotes the effective window, not the vector, so nobody
-    // triaging this searches a span the query never covered.
     timeRangeSeconds: 600,
     message: [
       'More than 5 admin impersonations have used the email-as-actor.sub fallback in the last 10 minutes.',
@@ -1116,29 +1134,22 @@ export const GLOBAL_ALERTS: Alert[] = [
     // would read over 100% during a pure timeout wave, and the volume floor
     // would be measuring a smaller population than the ratio it guards.
     expr: [
-      '( sum by (request_endpoint) (count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "Request completed" | json',
-      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
-      '| ( response_statusCode >= 500 ) or ( response_statusCode = "" )',
-      '[10m]))',
-      '/',
-      'sum by (request_endpoint) (count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "Request completed" | json',
-      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
-      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
-      '[10m])) )',
+      `( ${PROFILE_ERRORS_10M} / ${PROFILE_RESOLVABLE_10M} )`,
       'and',
-      '( sum by (request_endpoint) (count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "Request completed" | json',
-      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
-      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
-      '[10m])) > 20 )',
+      `( ${PROFILE_RESOLVABLE_10M} > 20 )`,
     ].join(' '),
     threshold: 0.1,
     for: '10m',
+    // Window equal to interval, which is the 1x floor and the reason this rule
+    // can stay on Loki at all. See PROFILE_WINDOW above.
+    timeRangeSeconds: PROFILE_WINDOW_SECONDS,
+    evaluationIntervalSeconds: PROFILE_WINDOW_SECONDS,
+    // Logs reach Loki a few seconds behind the request. Consecutive windows
+    // tile without overlap, so a window ending at `now` loses the newest lines
+    // to no evaluation at all; shifting the whole window back keeps the tiling
+    // and costs 30 seconds of detection latency. Same reasoning as the route
+    // alerts — see MINUTE_WINDOW in alerting/route-alerts.ts.
+    timeRangeOffsetSeconds: 30,
     summaryDetail: '`{{ $labels.request_endpoint }}`',
     message: [
       'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',
