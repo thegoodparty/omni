@@ -899,8 +899,16 @@ flow_prefixes:
   - Navigation
   - Navigation Top
   - Org Switcher
-  - Win
 prefix_areas:
   Serve Onboarding: onboarding
+  Onboarding V2: candidate-onboarding
+  Candidacy: election-result
 relabels:
+  - {event: "Win - Opponent Activity Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Activity Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Profile Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Profile Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Research Started", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Research Started", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Standout Action Clicked", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Standout Action Clicked", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Standout Actions Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Standout Actions Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Upgrade Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Upgrade Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponents Manually Added", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponents Manually Added", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
 intents:
