@@ -559,6 +559,23 @@ section removed their contribution to `stuckCount` along with it.
     `win-peerly-warnings` — that is what detects the refusals while the 429s are quiet.
   - CV's `details` is summarised (markup stripped, capped at 300 chars) because a
     refusal body is an HTML page, not CV's usual JSON.
+  - After the window closes the record rests `CV_REFUSAL_COOLOFF_MINUTES` (6h, the
+    billing hold's cadence) and then gets a fresh window: the guard clears both columns
+    and lets the submission through. Stopping for ever would leave the candidate waiting
+    on a person, and CV's refusals clear on their own. One staff message per episode, so
+    a record CV never accepts costs roughly one message and a few dozen Peerly calls per
+    8h cycle.
+  - `sweepStalledPeerlyRegistrations` (hourly `@Cron` at `:41` behind the hourly cron
+    lock, `STALLED_REGISTRATION_*`) is what drives those later attempts. It re-enqueues
+    the agentic kickoff for any record still `submitted` with `peerlyIdentityId: null`,
+    no submission in flight, a `kickoffSentAt` older than 2h, created within 14 days, on
+    a Pro campaign — capped at 25 per pass, and skipping records inside a live refusal
+    episode (window + cool-off) because those would be refused before Peerly is touched.
+    The stranded-kickoff `@Interval` sweep above covers records whose kickoff was never
+    sent; this one covers the opposite case, a kickoff that was sent and whose run ended
+    with the registration unfinished — which on 2026-10-02 left five candidates waiting
+    for a person to press the button again. Re-stamping `kickoffSentAt` on dispatch is
+    what spaces the next attempt.
 - Strips leading `www.` from `Domain.name` so Peerly's brand `website`/`email` use the
   apex domain, matching the legacy `create()` path.
 - **`filing_url` must be an official election filing.** CampaignVerify verifies the

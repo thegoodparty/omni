@@ -9,7 +9,14 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { Cron, Interval } from '@nestjs/schedule'
-import { formatISO, isAfter, isValid, parseISO, subMinutes } from 'date-fns'
+import {
+  formatISO,
+  isAfter,
+  isValid,
+  parseISO,
+  subDays,
+  subMinutes,
+} from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import {
   Campaign,
@@ -140,6 +147,33 @@ export const PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES = 6 * 60
 // hours comfortably covers that, and a record still refused after two hours is
 // not something more retrying fixes.
 const CV_REFUSAL_RETRY_WINDOW_MINUTES = 2 * 60
+
+// After the window closes the record rests this long, then gets one more
+// window of attempts. Campaign Verify's refusals are not verdicts — on
+// 2026-10-02 the same campaign was refused for an hour and then accepted
+// unchanged — so a record that stops forever waits on a person who may never
+// come. Resting six hours (the billing hold's cadence) keeps the cost to a
+// few dozen Peerly calls and one staff message per record per cycle, while
+// the candidate's registration finishes by itself the moment CV relents.
+const CV_REFUSAL_COOLOFF_MINUTES = 6 * 60
+
+// How long a kickoff may sit with the registration unfinished before the
+// stalled-registration sweep dispatches it again. Longer than the in-run
+// retry budget of a compliance agent, so a live run is never duplicated.
+const STALLED_REGISTRATION_MINUTES = 2 * 60
+
+// Records older than this are not re-dispatched: by then the candidate's
+// details may have moved on, and a fortnight of automatic attempts without a
+// registration is something a person should look at, not a loop.
+const STALLED_REGISTRATION_MAX_AGE_DAYS = 14
+
+// Belt and braces on the fan-out: a dispatch is cheap, but a query fault that
+// matched every submitted record must not enqueue hundreds of agent runs.
+const STALLED_REGISTRATION_BATCH_LIMIT = 25
+
+const STALLED_REGISTRATION_SWEEP_CRON = '41 * * * *'
+
+const STALLED_REGISTRATION_SWEEP_CRON_JOB = 'tcrStalledRegistrationSweep'
 
 const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
 
@@ -322,6 +356,124 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           '[TCR Compliance] Failed to re-enqueue stranded agentic kickoff',
         )
       }
+    }
+  }
+
+  // A registration that stops half-way used to wait for a person. On
+  // 2026-10-02 five candidates sat with a Peerly identity never minted and no
+  // Campaign Verify request because their agent runs ended on refusals, and
+  // nothing in the product tried again: the stranded-kickoff sweep above only
+  // looks at records whose kickoff was never sent, and all five had one
+  // stamped. This sweep covers the other half — a kickoff was sent, the run
+  // has long since ended, and the registration is still not done — and
+  // dispatches it again. It is what makes an intermittent vendor refusal
+  // self-healing instead of a support ticket.
+  //
+  // Everything that should stop a retry still stops it: the billing hold and
+  // the Campaign Verify refusal window are enforced in submitToPeerly itself,
+  // so a record inside either simply refuses again at no vendor cost, and the
+  // refusal cool-off decides when another attempt is worth making. A fixed
+  // @Cron behind the hourly cron lock, not an @Interval, because prod runs two
+  // replicas and two dispatches for one record would race for the submission
+  // claim.
+  @Cron(STALLED_REGISTRATION_SWEEP_CRON, {
+    name: STALLED_REGISTRATION_SWEEP_CRON_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async sweepStalledPeerlyRegistrations() {
+    const now = new Date()
+    const claimed = await this.cronLock.tryClaimHourlyRun(
+      STALLED_REGISTRATION_SWEEP_CRON_JOB,
+      now,
+    )
+    if (!claimed) return
+
+    try {
+      const stalledBefore = subMinutes(now, STALLED_REGISTRATION_MINUTES)
+      const stalled = await this.model.findMany({
+        where: {
+          status: TcrComplianceStatus.submitted,
+          // No identity means the registration never completed; a record that
+          // has one is past this stage and owned by the PIN flow.
+          peerlyIdentityId: null,
+          kickoffSentAt: { lt: stalledBefore },
+          createdAt: { gt: subDays(now, STALLED_REGISTRATION_MAX_AGE_DAYS) },
+          // Never while a submission is in flight.
+          peerlySubmissionStartedAt: null,
+          campaign: { isPro: true },
+        },
+        include: {
+          campaign: { include: { user: true } },
+        },
+        orderBy: { kickoffSentAt: 'asc' },
+        take: STALLED_REGISTRATION_BATCH_LIMIT,
+      })
+
+      const dispatchable = stalled.filter((record) => {
+        const clerkId = record.campaign?.user?.clerkId
+        if (!clerkId) return false
+        // Inside an active Campaign Verify refusal episode there is nothing to
+        // gain: submitToPeerly would refuse before calling Peerly until the
+        // cool-off passes.
+        if (record.peerlyCvRefusedSince) {
+          return !isAfter(
+            record.peerlyCvRefusedSince,
+            subMinutes(
+              now,
+              CV_REFUSAL_RETRY_WINDOW_MINUTES + CV_REFUSAL_COOLOFF_MINUTES,
+            ),
+          )
+        }
+        return true
+      })
+
+      if (!dispatchable.length) return
+
+      this.logger.warn(
+        { count: dispatchable.length },
+        `[TCR Compliance] Re-dispatching ${dispatchable.length} stalled ` +
+          'Peerly registration(s)',
+      )
+
+      for (const record of dispatchable) {
+        const clerkUserId = record.campaign?.user?.clerkId
+        if (!clerkUserId) continue
+        try {
+          await this.queueService.sendMessage(
+            {
+              type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
+              data: {
+                campaignId: record.campaignId,
+                tcrComplianceId: record.id,
+                clerkUserId,
+              },
+            },
+            `${MessageGroup.agenticComplianceKickoff}-${record.campaignId}`,
+            {
+              deduplicationId: `agentic-compliance-${record.id}-stalled-${now.getTime()}`,
+              throwOnError: true,
+            },
+          )
+          // Restamping the kickoff is what spaces the next attempt: this
+          // record cannot be swept again until it has been stalled for
+          // another two hours.
+          await this.model.update({
+            where: { id: record.id },
+            data: { kickoffSentAt: new Date() },
+          })
+        } catch (err) {
+          this.logger.error(
+            { err, tcrComplianceId: record.id },
+            '[TCR Compliance] Failed to re-dispatch stalled Peerly ' +
+              'registration',
+          )
+        }
+      }
+    } finally {
+      await this.cronLock.markHourlyCompleted(
+        STALLED_REGISTRATION_SWEEP_CRON_JOB,
+        now,
+      )
     }
   }
 
@@ -1474,7 +1626,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     user: User,
     campaign: Campaign,
   ): Promise<SubmitToPeerlyOutput> {
-    const existing = await this.fetchByCampaignId(campaign.id)
+    let existing = await this.fetchByCampaignId(campaign.id)
     if (!existing) {
       throw new NotFoundException(
         `TcrCompliance record not found for campaignId=${campaign.id}; ` +
@@ -1511,6 +1663,39 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // means CV has been refusing this record for over two hours: stop before
     // touching Peerly, so a resume or re-dispatch cannot restart the storm.
     // Staff were alerted when the window closed.
+    const cvRefusalRested =
+      existing.peerlyCvRefusedSince &&
+      !isAfter(
+        existing.peerlyCvRefusedSince,
+        subMinutes(
+          new Date(),
+          CV_REFUSAL_RETRY_WINDOW_MINUTES + CV_REFUSAL_COOLOFF_MINUTES,
+        ),
+      )
+    if (cvRefusalRested && existing.peerlyCvRefusedSince) {
+      // The record has rested long enough: start a fresh episode rather than
+      // refusing for ever. Campaign Verify's refusals clear on their own, and
+      // a candidate must not need a person to press the button again.
+      this.logger.warn(
+        {
+          tcrComplianceId: existing.id,
+          campaignId: campaign.id,
+          refusedSince: existing.peerlyCvRefusedSince.toISOString(),
+        },
+        '[TCR Compliance] Campaign Verify refusal has rested; retrying this ' +
+          'submission with a fresh window',
+      )
+      await this.model.update({
+        where: { id: existing.id },
+        data: { peerlyCvRefusedSince: null, peerlyCvRefusalAlertedAt: null },
+      })
+      existing = {
+        ...existing,
+        peerlyCvRefusedSince: null,
+        peerlyCvRefusalAlertedAt: null,
+      }
+    }
+
     if (
       existing.peerlyCvRefusedSince &&
       !isAfter(

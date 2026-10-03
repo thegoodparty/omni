@@ -2695,6 +2695,26 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
     })
 
+    it('tries again with a fresh window once the refusal has rested', async () => {
+      // Without this the record would refuse for ever and wait on a person
+      // who may never come — and Campaign Verify's refusals do clear.
+      mockTcrModel.findUnique.mockResolvedValueOnce({
+        ...existingRecord,
+        peerlyCvRefusedSince: subMinutes(new Date(), 8 * 60 + 1),
+        peerlyCvRefusalAlertedAt: subMinutes(new Date(), 6 * 60),
+      })
+
+      await service.submitToPeerlyForAgent(user, campaign)
+
+      // The episode is wiped first, so this attempt starts its own window and
+      // can raise its own alert if CV is still refusing.
+      expect(mockTcrModel.update).toHaveBeenCalledWith({
+        where: { id: existingRecord.id },
+        data: { peerlyCvRefusedSince: null, peerlyCvRefusalAlertedAt: null },
+      })
+      expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
+    })
+
     it('clears the clock when a submission finally succeeds', async () => {
       mockTcrModel.findUnique.mockResolvedValueOnce({
         ...existingRecord,
@@ -4225,6 +4245,219 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       mockCronLock.markHourlyCompleted.mock.calls,
     )[1]
     expect(completeAt).toBe(claimAt)
+  })
+})
+
+// Incident 103: five candidates sat with their registration half-done because
+// their agent runs ended on Campaign Verify refusals and nothing in the
+// product tried again — the stranded-kickoff sweep only looks at records whose
+// kickoff was never sent. This sweep is the other half.
+describe('CampaignTcrComplianceService - sweepStalledPeerlyRegistrations', () => {
+  let service: CampaignTcrComplianceService
+  let mockModel: {
+    findMany: ReturnType<typeof vi.fn>
+    update: ReturnType<typeof vi.fn>
+  }
+  let mockQueue: { sendMessage: ReturnType<typeof vi.fn> }
+  let mockCronLock: {
+    tryClaimHourlyRun: ReturnType<typeof vi.fn>
+    markHourlyCompleted: ReturnType<typeof vi.fn>
+  }
+
+  const stalled = (overrides: Record<string, unknown> = {}) => ({
+    id: 'tcr-stalled',
+    campaignId: 327272,
+    status: TcrComplianceStatus.submitted,
+    peerlyIdentityId: null,
+    kickoffSentAt: subMinutes(new Date(), 5 * 60),
+    peerlyCvRefusedSince: null,
+    campaign: { user: { clerkId: 'clerk_stalled' } },
+    ...overrides,
+  })
+
+  const sweep = (svc: CampaignTcrComplianceService) =>
+    (
+      svc as unknown as {
+        sweepStalledPeerlyRegistrations: () => Promise<void>
+      }
+    ).sweepStalledPeerlyRegistrations()
+
+  beforeEach(async () => {
+    mockModel = {
+      findMany: vi.fn().mockResolvedValue([]),
+      update: vi.fn().mockResolvedValue(undefined),
+    }
+    mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
+    const claimedSlots = new Set<string>()
+    mockCronLock = {
+      tryClaimHourlyRun: vi.fn(async (jobName: string, now: Date) => {
+        const slot = `${jobName}-${now.toISOString().slice(0, 13)}`
+        if (claimedSlots.has(slot)) return false
+        claimedSlots.add(slot)
+        return true
+      }),
+      markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        {
+          provide: PrismaService,
+          useValue: { tcrCompliance: mockModel },
+        },
+        { provide: PeerlyIdentityService, useValue: {} },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: { findUnique: vi.fn() } },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: mockQueue },
+        {
+          provide: ExperimentRunsService,
+          useValue: { findFirst: vi.fn(), dispatchRun: vi.fn() },
+        },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: AnalyticsService, useValue: { track: vi.fn() } },
+        {
+          provide: SlackService,
+          useValue: { message: vi.fn(), errorMessage: vi.fn() },
+        },
+        {
+          provide: CvPreSubmissionValidationService,
+          useValue: { validate: vi.fn() },
+        },
+        { provide: CronLockService, useValue: mockCronLock },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn() },
+        },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('re-dispatches a registration left half-done, and restamps the kickoff', async () => {
+    mockModel.findMany.mockResolvedValueOnce([stalled()])
+
+    await sweep(service)
+
+    // Only records with no Peerly identity, no submission in flight, a
+    // kickoff that has gone stale, and a paying campaign.
+    const query = firstOrThrow(mockModel.findMany.mock.calls)[0]
+    expect(query.where).toEqual(
+      expect.objectContaining({
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        peerlySubmissionStartedAt: null,
+        kickoffSentAt: { lt: expect.any(Date) },
+        createdAt: { gt: expect.any(Date) },
+        campaign: { isPro: true },
+      }),
+    )
+    expect(query.take).toBe(25)
+
+    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+    const [message, group, options] = firstOrThrow(
+      mockQueue.sendMessage.mock.calls,
+    )
+    expect(message).toEqual({
+      type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
+      data: {
+        campaignId: 327272,
+        tcrComplianceId: 'tcr-stalled',
+        clerkUserId: 'clerk_stalled',
+      },
+    })
+    expect(group).toBe(`${MessageGroup.agenticComplianceKickoff}-327272`)
+    expect(options.throwOnError).toBe(true)
+    // Restamping the kickoff is what spaces the next attempt.
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-stalled' },
+      data: { kickoffSentAt: expect.any(Date) },
+    })
+  })
+
+  it('leaves a record alone while its Campaign Verify refusal is still live', async () => {
+    // Inside the window, or inside the cool-off after it, another dispatch
+    // would be refused before Peerly is touched — so it is pointless churn.
+    mockModel.findMany.mockResolvedValueOnce([
+      stalled({ peerlyCvRefusedSince: subMinutes(new Date(), 30) }),
+      stalled({
+        id: 'tcr-cooling',
+        peerlyCvRefusedSince: subMinutes(new Date(), 4 * 60),
+      }),
+    ])
+
+    await sweep(service)
+
+    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
+  it('re-dispatches once the refusal has rested past the cool-off', async () => {
+    mockModel.findMany.mockResolvedValueOnce([
+      stalled({ peerlyCvRefusedSince: subMinutes(new Date(), 8 * 60 + 1) }),
+    ])
+
+    await sweep(service)
+
+    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips a campaign with no Clerk user and keeps going', async () => {
+    mockModel.findMany.mockResolvedValueOnce([
+      stalled({ id: 'tcr-no-clerk', campaign: { user: { clerkId: null } } }),
+      stalled({ id: 'tcr-ok', campaignId: 327311 }),
+    ])
+
+    await sweep(service)
+
+    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-ok' },
+      data: { kickoffSentAt: expect.any(Date) },
+    })
+  })
+
+  it('continues after one dispatch fails, and does not restamp that record', async () => {
+    mockModel.findMany.mockResolvedValueOnce([
+      stalled({ id: 'tcr-a', campaignId: 1 }),
+      stalled({ id: 'tcr-b', campaignId: 2 }),
+    ])
+    mockQueue.sendMessage
+      .mockRejectedValueOnce(new Error('SQS hiccup'))
+      .mockResolvedValueOnce(undefined)
+
+    await sweep(service)
+
+    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(2)
+    expect(mockModel.update).toHaveBeenCalledTimes(1)
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-b' },
+      data: { kickoffSentAt: expect.any(Date) },
+    })
+  })
+
+  it('runs one pass when both replicas fire in the same hour', async () => {
+    mockModel.findMany.mockResolvedValue([stalled()])
+
+    await Promise.all([sweep(service), sweep(service)])
+
+    expect(mockCronLock.tryClaimHourlyRun).toHaveBeenCalledTimes(2)
+    expect(mockModel.findMany).toHaveBeenCalledTimes(1)
+    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('does no work when the claim is lost, and seals the claim when the pass throws', async () => {
+    mockCronLock.tryClaimHourlyRun.mockResolvedValueOnce(false)
+    await sweep(service)
+    expect(mockModel.findMany).not.toHaveBeenCalled()
+    expect(mockCronLock.markHourlyCompleted).not.toHaveBeenCalled()
+
+    mockModel.findMany.mockRejectedValueOnce(new Error('db down'))
+    await expect(sweep(service)).rejects.toThrow('db down')
+    expect(mockCronLock.markHourlyCompleted).toHaveBeenCalledTimes(1)
   })
 })
 
