@@ -3563,10 +3563,18 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       peerlyCvStatus: 'VERIFIED',
       campaign: { id: 1, user: null },
     })
-    mockPeerly.retrieveCampaignVerifyDetails.mockRejectedValueOnce(
-      new BadGatewayException('Peerly API error: Campaign Verify Retrieve'),
-    )
+    mockPeerly.retrieveCampaignVerifyDetails
+      .mockRejectedValueOnce(
+        new BadGatewayException('Peerly API error: Campaign Verify Retrieve'),
+      )
+      .mockResolvedValueOnce({
+        status: 'VERIFIED',
+        pinDelivery: { method: 'text', destination: '3125550000' },
+      })
     mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+    const detectSpy = vi
+      .spyOn(service, 'applyCvDetection')
+      .mockResolvedValue(undefined)
 
     await withEnv('prod', async () => {
       const token = await service.retrieveCampaignVerifyToken(
@@ -3581,6 +3589,18 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         { id: 1, user: null },
       )
     })
+    // The other half of the branch: the fallback carried no delivery channel,
+    // so the detached re-read runs here too and is what feeds detection.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(mockPeerly.retrieveCampaignVerifyDetails).toHaveBeenCalledTimes(2)
+    expect(detectSpy).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: 'tcr-2' }),
+      { id: 1, user: null },
+      {
+        status: 'VERIFIED',
+        pinDelivery: { method: 'text', destination: '3125550000' },
+      },
+    )
   })
 
   // From REQUESTED, IN_REVIEW or nothing at all we do not know whether a PIN
