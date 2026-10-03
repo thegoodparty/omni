@@ -395,8 +395,8 @@ function ChiefOfStaffChatThread({
       // private mode / storage disabled
     }
     toast(guardCopy.message)
-    void trackEvent(EVENTS.ChiefOfStaff.UploadGuardShown, {})
-  }, [guardCopy])
+    void trackEvent(EVENTS.ChiefOfStaff.UploadGuardShown, { scope })
+  }, [guardCopy, scope])
 
   const reportedFailedIdsRef = useRef(new Set<string>())
   useEffect(() => {
@@ -408,10 +408,11 @@ function ChiefOfStaffChatThread({
         reportedFailedIdsRef.current.add(attachment.id)
         void trackEvent(EVENTS.ChiefOfStaff.SourceUnreachablePromptShown, {
           promptContext: attachment.failureReason ?? 'unknown',
+          scope,
         })
       }
     }
-  }, [attachments])
+  }, [attachments, scope])
 
   const toolLabel = useCallback(
     (name: string): string => toolDisplayName(name),
@@ -765,6 +766,7 @@ function ChiefOfStaffChatThread({
           fileType: file.type || (file.name.split('.').pop() ?? ''),
           byteSize: file.size,
           pageCount: result.pageCount ?? null,
+          scope,
         })
       } catch (err) {
         reportErrorToSentry(err, {
@@ -780,7 +782,7 @@ function ChiefOfStaffChatThread({
         )
       }
     },
-    [conversationId, ensureConversationId, maybeShowUploadGuard],
+    [conversationId, ensureConversationId, maybeShowUploadGuard, scope],
   )
 
   const handleAttachLink = useCallback(
@@ -822,6 +824,7 @@ function ChiefOfStaffChatThread({
           void trackEvent(EVENTS.ChiefOfStaff.LinkSubmitted, {
             linkHost,
             fetchSucceeded: true,
+            scope,
           })
         } else {
           setAttachments((prev) =>
@@ -838,6 +841,7 @@ function ChiefOfStaffChatThread({
           void trackEvent(EVENTS.ChiefOfStaff.LinkFetchFailed, {
             linkHost,
             failureReason: result.error,
+            scope,
           })
         }
       } catch (err) {
@@ -859,10 +863,11 @@ function ChiefOfStaffChatThread({
         void trackEvent(EVENTS.ChiefOfStaff.LinkFetchFailed, {
           linkHost,
           failureReason: 'network_error',
+          scope,
         })
       }
     },
-    [conversationId, ensureConversationId, maybeShowUploadGuard],
+    [conversationId, ensureConversationId, maybeShowUploadGuard, scope],
   )
 
   // Drag-and-drop anywhere on the chat surface attaches the dropped files
@@ -928,6 +933,7 @@ function ChiefOfStaffChatThread({
       void trackEvent(EVENTS.ChiefOfStaff.CitationOpened, {
         documentId: attachmentId,
         pageNumber: page ?? null,
+        scope,
       })
       // Open the tab immediately while the user gesture is still live so browsers
       // don't block the popup. Navigate it to the presigned URL once fetched.
@@ -945,7 +951,7 @@ function ChiefOfStaffChatThread({
         toast.error('Allow pop-ups in your browser to open sources')
       }
     },
-    [conversationId],
+    [conversationId, scope],
   )
 
   // This body is shared by Serve's Chief of Staff and Win's Campaign Manager,
@@ -964,6 +970,7 @@ function ChiefOfStaffChatThread({
       void trackEvent(EVENTS.ChiefOfStaff.ComposeHandoffOpened, {
         channel: payload.channel,
         prefilledFields,
+        scope,
       })
       let nonce: string
       try {
@@ -985,7 +992,7 @@ function ChiefOfStaffChatThread({
           : `/dashboard/constituent-outreach?compose=social&handoff=${nonce}`,
       )
     },
-    [router],
+    [router, scope],
   )
 
   // The shared send path. `hidden` skips the optimistic user bubble AND drops

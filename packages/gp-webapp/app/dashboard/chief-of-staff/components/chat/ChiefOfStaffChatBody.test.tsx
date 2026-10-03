@@ -431,7 +431,52 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() =>
       expect(trackEventMock).toHaveBeenCalledWith(
         EVENTS.ChiefOfStaff.CitationOpened,
-        { documentId: 'att-42', pageNumber: 3 },
+        { documentId: 'att-42', pageNumber: 3, scope: 'chief_of_staff' },
+      ),
+    )
+    openSpy.mockRestore()
+  })
+
+  // ENG-11219: Win's Campaign Manager mounts this same body under
+  // campaign_assistant, so citation events must carry that scope rather than
+  // the chief_of_staff default.
+  it('fires CitationOpened with scope campaign_assistant for the Campaign Manager', async () => {
+    winAttachmentsOn = true
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Per the resolution [1], the budget is set.', {
+        id: 'a-cite-win',
+        segments: [
+          { kind: 'text', text: 'Per the resolution ' },
+          {
+            kind: 'citation',
+            attachmentId: 'att-77',
+            page: 1,
+            quotedText: 'allocate $500K',
+          },
+          { kind: 'text', text: ', the budget is set.' },
+        ],
+      }),
+    ])
+    downloadAttachmentMock.mockResolvedValue(null)
+    const openSpy = vi
+      .spyOn(window, 'open')
+      .mockReturnValue(null as unknown as Window)
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_cite_win"
+        scope="campaign_assistant"
+      />,
+    )
+
+    const chip = await screen.findByRole('button', { name: 'Open source 1' })
+    fireEvent.click(chip)
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.CitationOpened,
+        { documentId: 'att-77', pageNumber: 1, scope: 'campaign_assistant' },
       ),
     )
     openSpy.mockRestore()
@@ -2026,7 +2071,14 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
     )
     expect(trackEventMock).toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.UploadGuardShown,
-      {},
+      { scope: 'chief_of_staff' },
+    )
+    // The attach event itself (not just the guard toast) must carry the
+    // Serve scope too — a regression that hardcoded DocumentAttached's scope
+    // would otherwise pass this suite (ENG-11219).
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.DocumentAttached,
+      expect.objectContaining({ scope: 'chief_of_staff' }),
     )
     expect(window.localStorage.getItem('serve-chat-attachments-guard')).toBe(
       '1',
@@ -2054,6 +2106,17 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
     expect(
       window.localStorage.getItem('serve-chat-attachments-guard'),
     ).toBeNull()
+    // The Campaign Manager mounts this same body under campaign_assistant, so
+    // the attach and guard events must carry that scope rather than the
+    // chief_of_staff default (ENG-11219).
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.DocumentAttached,
+      expect.objectContaining({ scope: 'campaign_assistant' }),
+    )
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.UploadGuardShown,
+      { scope: 'campaign_assistant' },
+    )
 
     dropPdf(surface, 'minutes.pdf')
     await waitFor(() => expect(uploadAttachmentMock).toHaveBeenCalledTimes(2))
@@ -2071,7 +2134,7 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
     expect(toastMock).not.toHaveBeenCalled()
     expect(trackEventMock).not.toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.UploadGuardShown,
-      {},
+      { scope: 'chief_of_staff' },
     )
   })
 })
@@ -2386,6 +2449,66 @@ describe('<ChiefOfStaffChatBody> widgets', () => {
       const destination = vi.mocked(router.push!).mock.calls[0]?.[0] as string
       expect(destination).toMatch(
         /^\/dashboard\/constituent-outreach\?compose=social&handoff=.+$/,
+      )
+    })
+
+    // ENG-11219: the handoff event is one event shared by both products, so
+    // ComposeHandoffOpened must carry the mounting surface's scope rather than
+    // being inferred from the payload's own channel.
+    it('fires ComposeHandoffOpened with scope campaign_assistant for the Campaign Manager', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            {
+              kind: 'tool',
+              toolName: 'compose_handoff',
+              payload: {
+                channel: 'win_social',
+                draftText: 'The pothole crew starts Monday.',
+              },
+            },
+          ],
+        }),
+      ])
+
+      render(
+        <ChiefOfStaffChatBody
+          active
+          conversationIdOverride="conv_win_scope"
+          scope="campaign_assistant"
+        />,
+      )
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.ComposeHandoffOpened,
+        expect.objectContaining({ scope: 'campaign_assistant' }),
+      )
+    })
+
+    it('fires ComposeHandoffOpened with scope chief_of_staff for the chief of staff', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            { kind: 'tool', toolName: 'compose_handoff', payload: HANDOFF },
+          ],
+        }),
+      ])
+
+      render(
+        <ChiefOfStaffChatBody active conversationIdOverride="conv_cos_scope" />,
+      )
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.ComposeHandoffOpened,
+        expect.objectContaining({ scope: 'chief_of_staff' }),
       )
     })
   })
