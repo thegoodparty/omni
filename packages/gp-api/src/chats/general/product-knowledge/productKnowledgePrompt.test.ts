@@ -144,7 +144,16 @@ describe('product knowledge blocks', () => {
       expect(prompt, mode).toMatch(/Pasting a link attaches it as a source/)
       expect(prompt, mode).toMatch(/A citation in a reply opens the document/)
       expect(prompt, mode).toMatch(/turn a reply into a social post/)
+      expect(prompt, mode).toMatch(
+        /turning a reply into a social post, are being rolled out/,
+      )
     }
+    const win = render('win')
+    const serve = render('serve')
+    expect(win).toContain('Voter Outreach’s social flow')
+    expect(win).not.toContain('Constituent Outreach’s social flow')
+    expect(serve).toContain('Constituent Outreach’s social flow')
+    expect(serve).not.toContain('Voter Outreach’s social flow')
   })
 
   // The prompt must never advertise a tool that did not register, same rule
