@@ -173,6 +173,9 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    - `productHint` = `win | serve | shared` (from the nav area you used to name it),
    - `supersedes` = the event it replaces — **only** if this event explicitly replaces a named one. Never infer a supersession from an unrelated event being removed in the same change.
 
+   Include a `surface:` tag for every new event: the nav label, or the page title for a
+   page not in the nav, lower-kebab. It is part of done.
+
    Backend (`segment.types.ts`) events are out of scope for metadata for now (ClickUp 86aj7bdkp) — skip the handoff for them.
 
    If this change also **removes** a frontend `trackEvent` call, go to "When a change removes an event" below and complete the RETIRE handoff (including its CSV step), then complete steps 7–8.
@@ -232,7 +235,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 - It is a variation of an existing event — add a property instead of a new event.
 - It is a user attribute, not an action — use `identifyUser` (frontend) or `AnalyticsService.identify` (backend), not a track call.
 
-## The analytics guard (OKR events and dead listings)
+## The analytics guard
 
 A hook runs `governance_guard.py` after every edit to code that sends events, and the
 **Analytics guard** CI check runs it on every PR. It blocks two things:
@@ -252,6 +255,12 @@ A hook runs `governance_guard.py` after every edit to code that sends events, an
   and follow "When a change removes an event" below. If the event in fact still fires in
   a way the guard cannot see, add `- {event: "<name>", intent: not_a_change, reason: "<why>", date: "YYYY-MM-DD"}`
   (no `metric:`) to `intents:` instead; triage reviews it as a guard bug.
+- **An event now fires from a different place** (`surface_moved`, a warning, never a
+  block). The change stopped the event firing from an area it used to, for example by
+  turning its page into a redirect while another page still imports the component.
+  **Relabel, do not rename**: leave the event name in code alone and add the
+  `relabels:` row the warning prints to `monitored_events.yaml`, with the human's reason.
+  Triage writes it to Govern after merge.
 
 Before finishing any change that touches events, run it yourself:
 `cd packages/runbooks/scripts/python && uv run governance_guard.py check --base $(git merge-base origin/main HEAD)`.

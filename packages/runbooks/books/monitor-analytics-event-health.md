@@ -352,6 +352,88 @@ and is **non-fatal**: a Slack error prints a warning and never changes the monit
 code. Needs `SLACK_APP_BOT_TOKEN` + `SLACK_EVENT_LIFECYCLE_CHANNEL_ID` in `scripts/.env`;
 without them, `--slack` warns and skips while the monitor runs normally.
 
+## Surface drift (DATA-2531)
+
+A separate weekly detector, `surface_drift.py`, flags analytics events whose label (a
+`surface:` tag, or the name prefix before `" - "`) no longer matches where the code can
+fire them. It runs in the same `analytics-governance` job, right after the explorer
+snapshot (`event_explorer_snapshot.py`), because it reads that snapshot's `surface:` tags
+and `okr_metrics` and walks webapp routes through `event_reach.py`, the same module the
+PR-time guard's `surface_moved` warning uses. It writes
+`instrumentation_data/surface_drift.json`, which the event health console's surface queue
+and the triage skill's Queue D read. Nothing here writes to Amplitude; an accepted row is
+applied through the `event-metadata` skill's Mode: RELABEL.
+
+### Verdicts
+
+| Verdict | Condition | Goes to |
+| --- | --- | --- |
+| `moved` | Reachable areas exclude the area the label claims | Relabel proposal |
+| `stale_area_name` | Same area by route, but the label uses a name the nav no longer shows, or a `surface:` tag names an area that no longer exists while the code resolves to one area | Relabel proposal, batched per prefix, lower priority |
+| `dashboard_wide` | The event's code reaches 5 or more areas, or is mounted from the root or `/dashboard` layout | Reported, nothing proposed |
+| `moved_then_quiet` | `moved`, and zero fires in the last 30 days | A relabel proposal too, proposed confidence only; see below |
+| `unclear` | Walk has gaps or no call site | A human |
+| `consistent` | Otherwise | Nothing |
+
+`moved_then_quiet` is a relabel proposal, never a flag: a quiet event still reachable on a
+live page is usually a rare action, not a break, the same read as a dormant event
+elsewhere in this book.
+
+### Confidence
+
+`high` (arrives pre-checked in the console) requires all of:
+
+- a `moved` verdict, no walk gaps, exactly one reachable area;
+- the label's claimed area provably dead for this event, with the removal commit named;
+- the event is not counted by any semantic-layer metric (`okr_metrics` is empty);
+- the page-path signal agrees: at least 0.8 agreement, at least 10 attributed fires, at
+  least 0.5 attribution coverage, and at least 5 distinct users (`MIN_USERS`, added in
+  calibration: a signal can clear every other floor on two people).
+
+An area with more than one name (Win and Serve vocabulary for the same page) is never
+`high`: the row lists the names as `surface_options`, and the human picks one.
+
+The removal commit is the newest commit that net-removed an import of any component on
+the walk, not necessarily one under the label's area; the page-path and user gates are
+what keep that from pre-checking a wrong row.
+
+Everything else that is `moved` or `stale_area_name` is `proposed`: shown in the console,
+not pre-checked, with the options laid out.
+
+The page-path signal attributes each fire to the user's last `Viewed` event within 30
+minutes. A page that emits few `Viewed` events of its own (Account Settings is the
+measured case) reads low agreement and low coverage, which costs a missed `high` grade,
+never a false one, because attribution inherits the page the user came from and it never
+invents the reached area.
+
+### `meta.backend_not_examined` and `meta.unmapped_prefixes`
+
+Backend (gp-api) events are out of scope; `meta.backend_not_examined` is how many were
+skipped, so a clean run can be told from one that silently covered less.
+
+`meta.unmapped_prefixes` lists name prefixes the detector could not match to any area and
+that are not already a flow prefix (never guessed). For each, add a row in
+`monitored_events.yaml`: to `flow_prefixes:` if it names a flow rather than a place (Pro
+Upgrade, 10DLC, Navigation, …), or to `prefix_areas:` if it is a real surface the
+detector's own name matching misses. A `prefix_areas:` alias **adds** the area it names to
+the prefix's own name match, rather than replacing it, because one prefix can span pages
+with different area names: `Serve Onboarding` fires from both `/serve/onboarding`, whose
+area is named only `onboarding`, and `/polls/onboarding`, named
+`welcome-to-goodparty-org-serve-onboarding`; the alias covers the first without breaking
+the second.
+
+### Calibration (2026-10-02)
+
+Calibrated against 14 known positives (the 5 DATA-2525 stale-area-name events, the 8
+Running Against events, and the Settings upload event) and a 30-event sample of
+`consistent` events across 14 areas. All 14 positives landed on the expected verdict and
+zero negatives reached `high`. Two positives reached `high`: Settings - Personal Info:
+Click Upload (96 fires, 73 users) and Profile - Running Against: Click Save (33 fires, 33
+users). Median page-path coverage was 0.96 for positives and 0.94 for negatives;
+coverage was not the binding constraint, agreement was. The user floor (`MIN_USERS = 5`)
+was added during this pass: two Running Against events cleared every other floor on 14
+fires from 2 users.
+
 ## Troubleshooting
 
 - `Databricks profile resolved an empty host` / auth errors → run `databricks auth login`,
