@@ -60,6 +60,7 @@ vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
 }))
 
 const uploadAttachmentMock = vi.fn()
+const linkAttachmentMock = vi.fn()
 const downloadAttachmentMock = vi.fn()
 const trackEventMock = vi.fn()
 // Sonner's toast never renders in jsdom (no <Toaster> here), so the guard
@@ -73,6 +74,7 @@ vi.mock('@styleguide', async (importOriginal) => ({
 vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
   ...(await orig<object>()),
   uploadChatAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
+  linkChatAttachment: (...args: unknown[]) => linkAttachmentMock(...args),
   downloadChatAttachment: (...args: unknown[]) =>
     downloadAttachmentMock(...args),
 }))
@@ -176,6 +178,7 @@ beforeEach(() => {
   attachmentsOn = false
   winAttachmentsOn = false
   uploadAttachmentMock.mockReset()
+  linkAttachmentMock.mockReset()
   downloadAttachmentMock.mockReset()
   trackEventMock.mockReset()
   toastMock.mockReset()
@@ -2135,6 +2138,118 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
     expect(trackEventMock).not.toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.UploadGuardShown,
       { scope: 'chief_of_staff' },
+    )
+    // The failed-upload prompt event must still fire, carrying the Serve
+    // scope (ENG-11219).
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.SourceUnreachablePromptShown,
+        { promptContext: 'Upload failed', scope: 'chief_of_staff' },
+      ),
+    )
+  })
+
+  it('tags the source-unreachable prompt event with the campaign_assistant scope for a failed CM upload', async () => {
+    winAttachmentsOn = true
+    uploadAttachmentMock.mockRejectedValue(new Error('boom'))
+    const surface = renderBody('campaign_assistant')
+
+    dropPdf(surface, 'agenda.pdf')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.SourceUnreachablePromptShown,
+        { promptContext: 'Upload failed', scope: 'campaign_assistant' },
+      ),
+    )
+  })
+})
+
+describe('<ChiefOfStaffChatBody> link attachments', () => {
+  const renderBody = (scope?: 'chief_of_staff' | 'campaign_assistant') => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        {...(scope ? { scope } : {})}
+      />,
+    )
+  }
+
+  const pasteLink = async (url: string): Promise<void> => {
+    const input = await screen.findByLabelText(/ask a question/i)
+    fireEvent.paste(input, { clipboardData: { getData: () => url } })
+  }
+
+  it('fires LinkSubmitted with the chief_of_staff scope on a successful link attach', async () => {
+    attachmentsOn = true
+    linkAttachmentMock.mockResolvedValue({
+      ok: true,
+      attachment: {
+        id: 'link-1',
+        fileName: 'https://example.com/agenda.pdf',
+        status: 'ready',
+        pageCount: null,
+        failureReason: null,
+      },
+    })
+    renderBody()
+
+    await pasteLink('see https://example.com/agenda.pdf for details')
+
+    await waitFor(() =>
+      expect(linkAttachmentMock).toHaveBeenCalledWith(
+        'conv',
+        'https://example.com/agenda.pdf',
+      ),
+    )
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.LinkSubmitted,
+      {
+        linkHost: 'example.com',
+        fetchSucceeded: true,
+        scope: 'chief_of_staff',
+      },
+    )
+  })
+
+  it('fires LinkFetchFailed with the campaign_assistant scope when the server reports a fetch error', async () => {
+    winAttachmentsOn = true
+    linkAttachmentMock.mockResolvedValue({ ok: false, error: 'unreachable' })
+    renderBody('campaign_assistant')
+
+    await pasteLink('see https://example.org/minutes.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.org',
+          failureReason: 'unreachable',
+          scope: 'campaign_assistant',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkFetchFailed with the campaign_assistant scope when the link attach throws', async () => {
+    winAttachmentsOn = true
+    linkAttachmentMock.mockRejectedValue(new Error('network down'))
+    renderBody('campaign_assistant')
+
+    await pasteLink('see https://example.net/report.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.net',
+          failureReason: 'network_error',
+          scope: 'campaign_assistant',
+        },
+      ),
     )
   })
 })
