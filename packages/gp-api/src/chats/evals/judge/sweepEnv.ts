@@ -19,6 +19,7 @@ import {
   type RecordStore,
 } from './records'
 import { S3Client } from '@aws-sdk/client-s3'
+import { judgeAwsClientConfig } from './awsCredentials'
 
 // THE SWEEP IS CONFIGURED FROM THE ENVIRONMENT, NOT FROM ARGV, and that is
 // forced rather than chosen. The arm capture has to run under vitest, because
@@ -608,7 +609,7 @@ export const storeFromEnv = (env: SweepEnv): RecordStore => {
   if (env.recordsBucket !== undefined) {
     const bucket = env.recordsBucket
     return createS3RecordStore(
-      s3PortFromClient(new S3Client({}), bucket),
+      s3PortFromClient(new S3Client(judgeAwsClientConfig()), bucket),
       bucket,
     )
   }
