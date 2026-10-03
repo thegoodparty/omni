@@ -726,7 +726,19 @@ export class ChatAttachmentsService extends createPrismaBase(
         await this.markFailed(attachment.id, 'object_missing')
         throw new BadRequestException('object_missing')
       }
-      const { pages } = await parsePdfText(new Uint8Array(bytes))
+      // A file that starts with %PDF- passes the magic-byte check but can
+      // still be corrupt; pdf-parse throws on it.
+      let pages: number | null
+      try {
+        pages = (await parsePdfText(new Uint8Array(bytes))).pages
+      } catch (err) {
+        this.logger.warn(
+          { err, attachmentId: attachment.id },
+          'chat attachment PDF could not be parsed',
+        )
+        await this.markFailed(attachment.id, 'unreadable_pdf')
+        throw new BadRequestException('unreadable_pdf')
+      }
       if (pages === null || pages > CHAT_ATTACHMENT_MAX_PAGES) {
         await this.markFailed(attachment.id, 'too_many_pages')
         throw new BadRequestException('too_many_pages')

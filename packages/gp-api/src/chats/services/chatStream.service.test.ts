@@ -2025,13 +2025,49 @@ describe('ChatStreamService', () => {
         type: string
         mediaType?: string
         filename?: string
+        citationsEnabled?: boolean
       }>
       const filePart = parts.find((p) => p.type === 'file')
       expect(filePart).toBeDefined()
       expect(filePart?.mediaType).toBe('application/pdf')
       expect(filePart?.filename).toBe('att-pdf')
+      expect(filePart?.citationsEnabled).toBe(true)
       const textPart = parts.find((p) => p.type === 'text')
       expect(textPart).toBeDefined()
+    })
+
+    it('injects images without enabling citations', async () => {
+      const { fakeLlmSrc, svc } = buildAttachmentService({
+        flagEnabled: true,
+        rows: [
+          {
+            id: 'att-img',
+            storageKey: 'key-img',
+            fileName: 'flyer.png',
+            mimeType: 'image/png',
+            pageCount: null,
+            source: ChatAttachmentSource.UPLOAD,
+            sourceUrl: null,
+            status: ChatAttachmentStatus.ready,
+            extractedText: null,
+          },
+        ],
+        s3Bytes: new Map([['key-img', Buffer.from([0x89, 0x50, 0x4e, 0x47])]]),
+      })
+
+      fakeLlmSrc.setScript([{ kind: 'text', delta: 'a flyer' }])
+      await collect(svc.stream(attachmentArgs({ userMessage: 'what is it' })))
+
+      const { messages } = firstOrThrow(fakeLlmSrc.calls).options
+      const lastUser = messages.findLast((m) => m.role === 'user')
+      const parts = lastUser?.content as Array<{
+        type: string
+        mediaType?: string
+        citationsEnabled?: boolean
+      }>
+      const filePart = parts.find((p) => p.type === 'file')
+      expect(filePart?.mediaType).toBe('image/png')
+      expect(filePart?.citationsEnabled).toBeUndefined()
     })
 
     it('injects DOCX extracted text as citationsEnabled text/plain part', async () => {

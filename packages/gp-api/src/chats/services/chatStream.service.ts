@@ -506,6 +506,8 @@ export class ChatStreamService {
           data: new Uint8Array(bytes),
           mediaType: row.mimeType,
           filename: row.id,
+          // Images can't carry citations; only PDF document blocks do.
+          ...(isPdf && { citationsEnabled: true }),
         })
       } else {
         const text = row.extractedText
