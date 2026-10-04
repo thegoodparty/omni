@@ -21,9 +21,11 @@ import {
 } from '@/llm/services/llm.service'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import { ChatStoreService, PersistedSegment } from './chatStore.prisma'
-import { ChatAttachmentsService } from './chatAttachments.service'
+import {
+  ATTACHMENT_SCOPES,
+  ChatAttachmentsService,
+} from './chatAttachments.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { FeaturesService } from '@/features/services/features.service'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -93,13 +95,9 @@ export interface StreamArgs {
   // Subset of attachment IDs the client wants injected on this turn. When
   // omitted all ready attachments for the conversation are injected.
   attachmentIds?: string[]
-  // The caller's scope-specific attachment flag (ATTACHMENT_FLAG_BY_SCOPE).
-  // Omitted for scopes with no attachment support (e.g. briefing chats),
-  // which keeps injection off regardless of any flag's state.
-  attachmentsFlag?: string
-  // The caller's chat scope. This service is shared across scopes, so the
-  // AttachedDocumentQueried analytics event needs it to attribute a citation
-  // to the right product (Win vs Serve) instead of always reading Serve.
+  // The caller's chat scope. Attachments are injected only for a scope in
+  // ATTACHMENT_SCOPES, and the AttachedDocumentQueried analytics event needs
+  // it to attribute a citation to the right product (Win vs Serve).
   scope?: ChatScope
 }
 
@@ -416,7 +414,6 @@ export class ChatStreamService {
     @Optional() private readonly braintrust?: BraintrustService,
     @Optional() private readonly chatAttachments?: ChatAttachmentsService,
     @Optional() private readonly s3?: S3Service,
-    @Optional() private readonly features?: FeaturesService,
     @Optional() private readonly analytics?: AnalyticsService,
   ) {
     this.logger.setContext(ChatStreamService.name)
@@ -430,20 +427,14 @@ export class ChatStreamService {
 
   private async loadAttachmentBlocks(
     conversationId: string,
-    ownerUserId: number,
-    attachmentsFlag?: string,
+    scope?: ChatScope,
     attachmentIds?: string[],
   ): Promise<{
     fileParts: LlmFilePart[]
     attachments: AttachedDocMeta[]
   } | null> {
-    if (!this.chatAttachments || !this.s3 || !this.features) return null
-    if (!attachmentsFlag) return null
-    const enabled = await this.features.isFeatureEnabled({
-      user: ownerUserId,
-      feature: attachmentsFlag,
-    })
-    if (!enabled) return null
+    if (!this.chatAttachments || !this.s3) return null
+    if (!scope || !ATTACHMENT_SCOPES.has(scope)) return null
 
     const rows = await this.chatAttachments.model.findMany({
       where: {
@@ -550,8 +541,7 @@ export class ChatStreamService {
 
     const attachmentResult = await this.loadAttachmentBlocks(
       args.conversationId,
-      args.ownerUserId,
-      args.attachmentsFlag,
+      args.scope,
       args.attachmentIds,
     )
 

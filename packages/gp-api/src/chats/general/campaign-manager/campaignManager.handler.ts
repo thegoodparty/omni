@@ -54,11 +54,6 @@ import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildComposeHandoffTool } from '../chief-of-staff/services/composeHandoff.tool'
-import { FeaturesService } from '@/features/services/features.service'
-import {
-  AttachmentsFlagCache,
-  WIN_CHAT_ATTACHMENTS_FLAG,
-} from '@/chats/services/chatAttachments.service'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -203,7 +198,6 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   webSearchEnabled: false,
   story: null,
   plan: null,
-  attachmentsEnabled: false,
 }
 
 @Injectable()
@@ -211,8 +205,6 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   readonly scope = ChatScope.campaign_assistant
   readonly isSensitive = true
   readonly models = [...CAMPAIGN_MANAGER_MODELS]
-
-  private readonly attachmentsFlag: AttachmentsFlagCache
 
   constructor(
     private readonly store: GeneralChatStoreService,
@@ -235,16 +227,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly elections?: ElectionsService,
     @Optional()
     private readonly helpCenter?: HelpCenterSearchService,
-    @Optional()
-    features?: FeaturesService,
-  ) {
-    // Absent FeaturesService treats the flag as off, same as an absent
-    // optional dependency does for every other tool gate in this handler.
-    this.attachmentsFlag = new AttachmentsFlagCache(
-      features,
-      WIN_CHAT_ATTACHMENTS_FLAG,
-    )
-  }
+  ) {}
 
   // The manager runs the shared session model (one fresh conversation per
   // open, resume by opening a past one from history), so it has no
@@ -356,8 +339,6 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // on one signal, same as crmToolsEnabled itself.
     const savedFilterToolsEnabled = crmToolsEnabled && !!this.voterFileFilters
 
-    const attachmentsEnabled = await this.attachmentsFlag.resolve(userId)
-
     return {
       candidateFirstName: campaign.user?.firstName ?? null,
       candidateName,
@@ -391,7 +372,6 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       helpCenterToolEnabled: !!this.helpCenter,
       story,
       plan,
-      attachmentsEnabled,
     }
   }
 
@@ -455,12 +435,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     }
 
     // Compose handoff: drafts a social post for the candidate to review in
-    // a prefilled Win social-flow compose drawer. Gated on the same flag the
-    // prompt's COMPOSE HANDOFF RULES block reads, so the two can never
-    // disagree about whether this is live.
-    if (ctx.attachmentsEnabled) {
-      tools.compose_handoff = buildComposeHandoffTool('win_social')
-    }
+    // a prefilled Win social-flow compose drawer.
+    tools.compose_handoff = buildComposeHandoffTool('win_social')
 
     // Campaign Story intake: read/elaborate/save the candidate's story and,
     // once complete, kick off plan + tracker generation. Registered whenever

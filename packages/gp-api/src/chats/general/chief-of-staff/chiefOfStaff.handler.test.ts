@@ -86,7 +86,6 @@ describe('ChiefOfStaffHandler', () => {
           anchor: null,
           districtFilters: null,
           constituentToolEnabled: false,
-          attachmentsEnabled: false,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -123,6 +122,7 @@ describe('ChiefOfStaffHandler', () => {
     // layer on ANTHROPIC_API_KEY, not on an injected provider).
     expect(Object.keys(tools).sort()).toEqual([
       'ask_clarify_question',
+      'compose_handoff',
       'crud_priorities',
       'get_briefing',
       'list_briefings',
@@ -243,7 +243,6 @@ describe('ChiefOfStaffHandler', () => {
             anchor: ANCHOR,
             districtFilters: null,
             constituentToolEnabled: false,
-            attachmentsEnabled: false,
           }),
         ),
       } as unknown as ChiefOfStaffContextService
@@ -287,7 +286,6 @@ describe('ChiefOfStaffHandler', () => {
             anchor: anchorWithHighlight,
             districtFilters: null,
             constituentToolEnabled: false,
-            attachmentsEnabled: false,
           }),
         ),
       } as unknown as ChiefOfStaffContextService
@@ -653,8 +651,8 @@ describe('ChiefOfStaffHandler', () => {
     })
   })
 
-  describe('serve-chat-attachments flag gate (compose_handoff tool)', () => {
-    const buildCtxWith = (attachmentsEnabled: boolean) =>
+  describe('compose_handoff tool', () => {
+    const buildCtx = () =>
       ({
         load: vi.fn(() =>
           Promise.resolve({
@@ -676,33 +674,19 @@ describe('ChiefOfStaffHandler', () => {
             anchor: null,
             districtFilters: null,
             constituentToolEnabled: false,
-            attachmentsEnabled,
           }),
         ),
       }) as unknown as ChiefOfStaffContextService
 
-    it('registers compose_handoff when the flag is on', async () => {
+    it('registers compose_handoff', async () => {
       const handler = new ChiefOfStaffHandler(
-        buildCtxWith(true),
+        buildCtx(),
         buildBriefings(),
         port,
         [],
       )
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(Object.keys(handler.buildTools(ctx))).toContain('compose_handoff')
-    })
-
-    it('omits compose_handoff when the flag is off', async () => {
-      const handler = new ChiefOfStaffHandler(
-        buildCtxWith(false),
-        buildBriefings(),
-        port,
-        [],
-      )
-      const ctx = await handler.loadContext('c1', USER_ID)
-      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
-        'compose_handoff',
-      )
     })
 
     it('inputSchema converts to a top-level object json schema (Anthropic rejects anyOf roots)', async () => {

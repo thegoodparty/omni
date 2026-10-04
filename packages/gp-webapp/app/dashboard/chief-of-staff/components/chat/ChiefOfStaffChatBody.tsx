@@ -72,7 +72,7 @@ import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
 import ChatListMap from './ChatListMap'
 import ChatBoundaryDrawer from './ChatBoundaryDrawer'
 import { boundarySavedMessage } from './boundarySavedMessage'
-import { useAttachmentsEnabled } from '../../../shared/agent-chat/hooks/useAttachmentsEnabled'
+import { supportsAttachments } from '../../../shared/agent-chat/attachmentScopes'
 import type { ChatScope } from '../../../shared/agent-chat/chatClient'
 import {
   uploadChatAttachment,
@@ -374,7 +374,7 @@ function ChiefOfStaffChatThread({
     [composerRef],
   )
 
-  const attachmentsEnabled = useAttachmentsEnabled(scope)
+  const attachmentsEnabled = supportsAttachments(scope)
 
   const [attachments, setAttachments] = useState<ChatAttachmentState[]>([])
 
@@ -382,7 +382,7 @@ function ChiefOfStaffChatThread({
   // once per user (per browser). localStorage failure means the toast repeats
   // on later attaches, which errs toward showing the notice. Falls back to the
   // Chief of Staff copy for a scope with no attachment support at all (where
-  // attachmentsEnabled.enabled is already false, so this never fires).
+  // attachmentsEnabled is already false, so this never fires).
   const guardCopy =
     scope === 'campaign_assistant'
       ? UPLOAD_GUARD_COPY.campaign_assistant
@@ -506,7 +506,7 @@ function ChiefOfStaffChatThread({
     (a) => a.status === 'pending' || a.status === 'processing',
   )
   useEffect(() => {
-    if (!attachmentsEnabled.enabled) return
+    if (!attachmentsEnabled) return
     if (!conversationId) return
     if (!hasPending) return
     let cancelled = false
@@ -533,7 +533,7 @@ function ChiefOfStaffChatThread({
       cancelled = true
       clearInterval(id)
     }
-  }, [attachmentsEnabled.enabled, conversationId, hasPending])
+  }, [attachmentsEnabled, conversationId, hasPending])
 
   const handleRemoveAttachment = useCallback(
     async (id: string): Promise<void> => {
@@ -882,21 +882,21 @@ function ChiefOfStaffChatThread({
 
   const handleDragEnter = useCallback(
     (e: React.DragEvent): void => {
-      if (!attachmentsEnabled.enabled || !dragHasFiles(e)) return
+      if (!attachmentsEnabled || !dragHasFiles(e)) return
       e.preventDefault()
       dragDepthRef.current += 1
       setDragActive(true)
     },
-    [attachmentsEnabled.enabled],
+    [attachmentsEnabled],
   )
 
   const handleDragOver = useCallback(
     (e: React.DragEvent): void => {
-      if (!attachmentsEnabled.enabled || !dragHasFiles(e)) return
+      if (!attachmentsEnabled || !dragHasFiles(e)) return
       // preventDefault is what makes the surface a valid drop target.
       e.preventDefault()
     },
-    [attachmentsEnabled.enabled],
+    [attachmentsEnabled],
   )
 
   const handleDragLeave = useCallback((e: React.DragEvent): void => {
@@ -907,7 +907,7 @@ function ChiefOfStaffChatThread({
 
   const handleDrop = useCallback(
     (e: React.DragEvent): void => {
-      if (!attachmentsEnabled.enabled) return
+      if (!attachmentsEnabled) return
       e.preventDefault()
       dragDepthRef.current = 0
       setDragActive(false)
@@ -921,7 +921,7 @@ function ChiefOfStaffChatThread({
         }
       }
     },
-    [attachmentsEnabled.enabled, handleAttachFile],
+    [attachmentsEnabled, handleAttachFile],
   )
 
   const handleCitationClick = useCallback(
@@ -1426,7 +1426,7 @@ function ChiefOfStaffChatThread({
                   onComposeHandoff: handleComposeHandoff,
                 }}
                 onCitationClick={
-                  attachmentsEnabled.enabled && conversationId
+                  attachmentsEnabled && conversationId
                     ? handleCitationClick
                     : undefined
                 }
@@ -1467,7 +1467,7 @@ function ChiefOfStaffChatThread({
                 onComposeHandoff: handleComposeHandoff,
               }}
               onCitationClick={
-                attachmentsEnabled.enabled && conversationId
+                attachmentsEnabled && conversationId
                   ? handleCitationClick
                   : undefined
               }
@@ -1592,7 +1592,7 @@ function ChiefOfStaffChatThread({
                 />
               ) : undefined
             }
-            {...(attachmentsEnabled.enabled
+            {...(attachmentsEnabled
               ? {
                   attachments,
                   onAttachFile: (file) => void handleAttachFile(file),
@@ -1602,7 +1602,7 @@ function ChiefOfStaffChatThread({
               : {})}
           />
         </div>
-        {attachmentsEnabled.enabled &&
+        {attachmentsEnabled &&
           attachments.filter((a) => a.status === 'ready').length > 0 && (
             <p className="mx-auto mt-1 w-full max-w-[608px] text-center text-[11px] text-muted-foreground">
               Reading:{' '}

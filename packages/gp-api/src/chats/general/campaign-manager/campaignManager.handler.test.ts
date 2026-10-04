@@ -27,7 +27,6 @@ import type { ElectionsService } from '@/elections/services/elections.service'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import { LEGAL_LINE } from './campaignManagerPrompt'
-import type { FeaturesService } from '@/features/services/features.service'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -75,7 +74,6 @@ const ctxWith = (
   isPro: null,
   story: null,
   plan: null,
-  attachmentsEnabled: false,
   ...over,
 })
 
@@ -432,25 +430,14 @@ describe('CampaignManagerHandler.buildTools — help center tool', () => {
   })
 })
 
-describe('CampaignManagerHandler.buildTools — compose_handoff (win-chat-attachments)', () => {
-  it('registers compose_handoff bound to win_social when the flag is on', () => {
-    const tools = buildHandler().buildTools(
-      ctxWith({ attachmentsEnabled: true }),
-    )
+describe('CampaignManagerHandler.buildTools — compose_handoff', () => {
+  it('registers compose_handoff', () => {
+    const tools = buildHandler().buildTools(ctxWith({}))
     expect(Object.keys(tools)).toContain('compose_handoff')
   })
 
-  it('omits compose_handoff when the flag is off', () => {
-    const tools = buildHandler().buildTools(
-      ctxWith({ attachmentsEnabled: false }),
-    )
-    expect(Object.keys(tools)).not.toContain('compose_handoff')
-  })
-
   it("the registered tool's input schema accepts only win_social", async () => {
-    const tools = buildHandler().buildTools(
-      ctxWith({ attachmentsEnabled: true }),
-    )
+    const tools = buildHandler().buildTools(ctxWith({}))
     const tool = tools.compose_handoff
     if (!tool || !('execute' in tool)) {
       throw new Error('expected compose_handoff to register with execute')
@@ -469,83 +456,6 @@ describe('CampaignManagerHandler.buildTools — compose_handoff (win-chat-attach
         draftText: 'hello constituents',
       }),
     ).toThrow()
-  })
-})
-
-describe('CampaignManagerHandler.loadContext — attachmentsEnabled (win-chat-attachments flag)', () => {
-  const ORG_SLUG = 'win-campaign'
-
-  const buildAttachmentsContextHandler = (
-    features?: FeaturesService,
-  ): CampaignManagerHandler => {
-    const store = {
-      findFirst: vi.fn(() =>
-        Promise.resolve({ id: 'c1', organizationSlug: ORG_SLUG }),
-      ),
-    } as unknown as GeneralChatStoreService
-    const campaigns = {
-      client: {
-        campaign: {
-          findFirst: vi.fn(() =>
-            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
-          ),
-        },
-        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
-        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
-      },
-    } as unknown as CampaignsService
-    return new CampaignManagerHandler(
-      store,
-      campaigns,
-      {} as ChatStoreService,
-      WIN_CONSTITUENT_TABLES,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      features,
-    )
-  }
-
-  it('resolves attachmentsEnabled true when the flag is on for the user', async () => {
-    const features = {
-      isFeatureEnabled: vi.fn(() => Promise.resolve(true)),
-    } as unknown as FeaturesService
-    const handler = buildAttachmentsContextHandler(features)
-    const ctx = await handler.loadContext('c1', 7)
-    expect(ctx.attachmentsEnabled).toBe(true)
-    expect(features.isFeatureEnabled).toHaveBeenCalledWith({
-      user: 7,
-      feature: 'win-chat-attachments',
-    })
-  })
-
-  it('resolves attachmentsEnabled false when the flag is off for the user', async () => {
-    const features = {
-      isFeatureEnabled: vi.fn(() => Promise.resolve(false)),
-    } as unknown as FeaturesService
-    const handler = buildAttachmentsContextHandler(features)
-    const ctx = await handler.loadContext('c1', 7)
-    expect(ctx.attachmentsEnabled).toBe(false)
-  })
-
-  it('treats the flag as off when FeaturesService is not injected', async () => {
-    const handler = buildAttachmentsContextHandler(undefined)
-    const ctx = await handler.loadContext('c1', 7)
-    expect(ctx.attachmentsEnabled).toBe(false)
-  })
-
-  it('caches the flag per user so a second turn does not refetch it', async () => {
-    const features = {
-      isFeatureEnabled: vi.fn(() => Promise.resolve(true)),
-    } as unknown as FeaturesService
-    const handler = buildAttachmentsContextHandler(features)
-    await handler.loadContext('c1', 7)
-    await handler.loadContext('c1', 7)
-    expect(features.isFeatureEnabled).toHaveBeenCalledTimes(1)
   })
 })
 

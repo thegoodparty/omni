@@ -288,9 +288,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       }
     }
 
-    if (ctx.attachmentsEnabled) {
-      tools.compose_handoff = buildComposeHandoffTool('serve_social')
-    }
+    tools.compose_handoff = buildComposeHandoffTool('serve_social')
 
     return tools
   }

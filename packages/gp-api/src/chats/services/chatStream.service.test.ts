@@ -29,7 +29,6 @@ import type { ChatStoreService, PersistedSegment } from './chatStore.prisma'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import type { ChatAttachmentsService } from './chatAttachments.service'
 import type { S3Service } from '@/vendors/aws/services/s3.service'
-import type { FeaturesService } from '@/features/services/features.service'
 
 const DEFAULT_SYS = 'sys'
 const SAMPLE_USER = 'q'
@@ -363,7 +362,6 @@ const baseStreamArgs = (
     clientMessageId: string
     maxSteps: number
     attachmentIds: string[]
-    attachmentsFlag: string
     scope: ChatScope
   }> = {},
 ) => ({
@@ -379,9 +377,6 @@ const baseStreamArgs = (
   ...(overrides.maxSteps !== undefined && { maxSteps: overrides.maxSteps }),
   ...(overrides.attachmentIds !== undefined && {
     attachmentIds: overrides.attachmentIds,
-  }),
-  ...(overrides.attachmentsFlag !== undefined && {
-    attachmentsFlag: overrides.attachmentsFlag,
   }),
   ...(overrides.scope !== undefined && { scope: overrides.scope }),
 })
@@ -1821,37 +1816,14 @@ describe('ChatStreamService', () => {
       }
     }
 
-    class FakeFeaturesService {
-      public enabled = true
-      public calls: Array<{ user: number; feature: string }> = []
-
-      isFeatureEnabled(params: {
-        user: number
-        feature: string
-      }): Promise<boolean> {
-        this.calls.push(params)
-        return Promise.resolve(this.enabled)
-      }
-
-      asService(): FeaturesService {
-        return this as unknown as FeaturesService
-      }
-    }
-
-    // chatStream doesn't care which scope's flag it was handed — it just
-    // evaluates whatever string the caller (general-chats.service) resolved
-    // from ATTACHMENT_FLAG_BY_SCOPE. A flag name unrelated to any real scope
-    // proves that genericity.
-    const TEST_ATTACHMENTS_FLAG = 'test-attachments-flag'
-
+    // Attachments are injected only for a scope in ATTACHMENT_SCOPES; the
+    // chief of staff is the default here, tests that need Win pass its scope.
     const attachmentArgs = (
       overrides: Parameters<typeof baseStreamArgs>[0] = {},
-    ) =>
-      baseStreamArgs({ attachmentsFlag: TEST_ATTACHMENTS_FLAG, ...overrides })
+    ) => baseStreamArgs({ scope: ChatScope.chief_of_staff, ...overrides })
 
     const buildAttachmentService = (
       opts: {
-        flagEnabled?: boolean
         rows?: AttachmentRow[]
         s3Bytes?: Map<string, Buffer>
       } = {},
@@ -1868,10 +1840,6 @@ describe('ChatStreamService', () => {
       const fakeS3 = new FakeS3Service()
       if (opts.s3Bytes) fakeS3.fetchMap = opts.s3Bytes
 
-      const fakeFeatures = new FakeFeaturesService()
-      if (opts.flagEnabled !== undefined)
-        fakeFeatures.enabled = opts.flagEnabled
-
       const fakeLlmSrc = new FakeLlmServiceWithSource()
 
       const analyticsTrack = vi.fn().mockResolvedValue(undefined)
@@ -1886,7 +1854,6 @@ describe('ChatStreamService', () => {
         undefined,
         fakeChatAttachments.asService(),
         fakeS3.asService(),
-        fakeFeatures.asService(),
         fakeAnalytics,
       )
 
@@ -1894,16 +1861,14 @@ describe('ChatStreamService', () => {
         attachmentsStore,
         fakeChatAttachments,
         fakeS3,
-        fakeFeatures,
         fakeLlmSrc,
         svc,
         analyticsTrack,
       }
     }
 
-    it('skips attachment loading when flag is off', async () => {
+    it('skips attachment loading for a scope without attachment support', async () => {
       const { fakeLlmSrc, svc, attachmentsStore } = buildAttachmentService({
-        flagEnabled: false,
         rows: [
           {
             id: 'att-1',
@@ -1921,20 +1886,21 @@ describe('ChatStreamService', () => {
       })
 
       fakeLlmSrc.setScript([{ kind: 'text', delta: 'answer' }])
-      await collect(svc.stream(attachmentArgs()))
+      await collect(
+        svc.stream(attachmentArgs({ scope: ChatScope.ordinance_flow })),
+      )
 
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
       const lastUser = messages.findLast((m) => m.role === 'user')
-      // When flag is off, the user turn stays a plain string (no file parts)
+      // Outside ATTACHMENT_SCOPES the user turn stays a plain string
       expect(typeof lastUser?.content).toBe('string')
       // No <attached_documents> block in system prompt
       expect(String(messages[0]?.content)).not.toContain('<attached_documents>')
       void attachmentsStore
     })
 
-    it('skips attachment loading when attachmentsFlag is absent (e.g. briefing chats)', async () => {
-      const { fakeLlmSrc, svc, fakeFeatures } = buildAttachmentService({
-        flagEnabled: true,
+    it('skips attachment loading when no scope is passed (e.g. briefing chats)', async () => {
+      const { fakeLlmSrc, svc } = buildAttachmentService({
         rows: [
           {
             id: 'att-1',
@@ -1952,21 +1918,16 @@ describe('ChatStreamService', () => {
       })
 
       fakeLlmSrc.setScript([{ kind: 'text', delta: 'answer' }])
-      // No attachmentsFlag override — a scope with no entry in
-      // ATTACHMENT_FLAG_BY_SCOPE passes none, so injection must stay off.
       await collect(svc.stream(baseStreamArgs()))
 
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
       const lastUser = messages.findLast((m) => m.role === 'user')
       expect(typeof lastUser?.content).toBe('string')
       expect(String(messages[0]?.content)).not.toContain('<attached_documents>')
-      // No flag to evaluate means no Amplitude round trip at all.
-      expect(fakeFeatures.calls).toHaveLength(0)
     })
 
-    it('evaluates the attachmentsFlag it was passed', async () => {
-      const { fakeLlmSrc, svc, fakeFeatures } = buildAttachmentService({
-        flagEnabled: true,
+    it('injects attachments on the campaign_assistant scope', async () => {
+      const { fakeLlmSrc, svc } = buildAttachmentService({
         rows: [
           {
             id: 'att-win',
@@ -1984,12 +1945,9 @@ describe('ChatStreamService', () => {
 
       fakeLlmSrc.setScript([{ kind: 'text', delta: 'ok' }])
       await collect(
-        svc.stream(baseStreamArgs({ attachmentsFlag: 'win-chat-attachments' })),
+        svc.stream(attachmentArgs({ scope: ChatScope.campaign_assistant })),
       )
 
-      expect(fakeFeatures.calls).toEqual([
-        { user: OWNER_ID, feature: 'win-chat-attachments' },
-      ])
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
       const lastUser = messages.findLast((m) => m.role === 'user')
       expect(Array.isArray(lastUser?.content)).toBe(true)
@@ -1998,7 +1956,6 @@ describe('ChatStreamService', () => {
     it('injects PDF bytes as file part on latest user turn', async () => {
       const pdfBytes = Buffer.from('%PDF-1.4 fake pdf bytes')
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-pdf',
@@ -2038,7 +1995,6 @@ describe('ChatStreamService', () => {
 
     it('injects images without enabling citations', async () => {
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-img',
@@ -2072,7 +2028,6 @@ describe('ChatStreamService', () => {
 
     it('injects DOCX extracted text as citationsEnabled text/plain part', async () => {
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-docx',
@@ -2114,7 +2069,6 @@ describe('ChatStreamService', () => {
 
     it('leaves historical turns as strings and only injects on latest user turn', async () => {
       const { fakeLlmSrc, svc, attachmentsStore } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-hist',
@@ -2160,7 +2114,6 @@ describe('ChatStreamService', () => {
 
     it('appends <attached_documents> block to system prompt', async () => {
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-sys',
@@ -2189,7 +2142,6 @@ describe('ChatStreamService', () => {
 
     it('pushes citation chunks to the stream and persists segments', async () => {
       const { fakeLlmSrc, svc, attachmentsStore } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-cite',
@@ -2265,7 +2217,6 @@ describe('ChatStreamService', () => {
         extractedText: 'The council resolves to allocate $500K.',
       })
       const { fakeLlmSrc, svc, analyticsTrack } = buildAttachmentService({
-        flagEnabled: true,
         rows: [row('att-a', 'key-a'), row('att-b', 'key-b')],
       })
 
@@ -2307,7 +2258,11 @@ describe('ChatStreamService', () => {
       expect(analyticsTrack).toHaveBeenCalledWith(
         OWNER_ID,
         EVENTS.ChiefOfStaff.AttachedDocumentQueried,
-        { documentId: 'att-a', turnIndex: expect.any(Number) },
+        {
+          documentId: 'att-a',
+          turnIndex: expect.any(Number),
+          scope: ChatScope.chief_of_staff,
+        },
       )
     })
 
@@ -2324,7 +2279,6 @@ describe('ChatStreamService', () => {
         extractedText: 'The council resolves to allocate $500K.',
       })
       const { fakeLlmSrc, svc, analyticsTrack } = buildAttachmentService({
-        flagEnabled: true,
         rows: [row('att-a', 'key-a')],
       })
 
@@ -2363,7 +2317,6 @@ describe('ChatStreamService', () => {
 
     it('does not track AttachedDocumentQueried for a turn without citations', async () => {
       const { fakeLlmSrc, svc, analyticsTrack } = buildAttachmentService({
-        flagEnabled: true,
         rows: [],
       })
 
@@ -2377,7 +2330,6 @@ describe('ChatStreamService', () => {
 
     it('injects only the requested attachment IDs when attachmentIds is set', async () => {
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-included',
@@ -2425,7 +2377,6 @@ describe('ChatStreamService', () => {
 
     it('preserves greeting fold when attachments are present', async () => {
       const { fakeLlmSrc, svc, attachmentsStore } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-greet',
@@ -2465,7 +2416,6 @@ describe('ChatStreamService', () => {
 
     it('skips attachments with no extractedText for non-binary types', async () => {
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-notext',

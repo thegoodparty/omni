@@ -43,7 +43,6 @@ const ctx = (
   isPro: null,
   story: null,
   plan: null,
-  attachmentsEnabled: false,
   ...over,
 })
 
@@ -616,25 +615,14 @@ describe('buildCampaignManagerSystemPrompt', () => {
   })
 
   describe('compose-handoff rules (win_social)', () => {
-    it('includes the rules when attachmentsEnabled is true', () => {
-      const prompt = buildCampaignManagerSystemPrompt(
-        ctx({ attachmentsEnabled: true }),
-      )
+    it('includes the rules', () => {
+      const prompt = buildCampaignManagerSystemPrompt(ctx({}))
       expect(prompt).toContain('COMPOSE HANDOFF RULES')
       expect(prompt).toContain('persuade_voters')
     })
 
-    it('omits the rules when attachmentsEnabled is false', () => {
-      const prompt = buildCampaignManagerSystemPrompt(
-        ctx({ attachmentsEnabled: false }),
-      )
-      expect(prompt).not.toContain('COMPOSE HANDOFF RULES')
-    })
-
     it('says "candidate", never "official" (candidate vocabulary)', () => {
-      const prompt = buildCampaignManagerSystemPrompt(
-        ctx({ attachmentsEnabled: true }),
-      )
+      const prompt = buildCampaignManagerSystemPrompt(ctx({}))
       expect(prompt).toContain('the candidate clearly wants')
       expect(prompt).not.toContain('the official')
     })

@@ -400,9 +400,8 @@ export const extractHttpUrls = (text: string): string[] => {
 // and the composer is plain — no mic, send arrow, simple border.
 //
 // Pass `attachments`, `onAttachFile`, `onAttachLink`, and `onRemoveAttachment`
-// to enable attachments (the caller gates this per scope via
-// useAttachmentsEnabled — chief_of_staff on serve-chat-attachments,
-// campaign_assistant on win-chat-attachments): the paperclip opens the system
+// to enable attachments (the caller passes them only for a scope where
+// supportsAttachments is true): the paperclip opens the system
 // file picker directly, and pasting text that contains a URL attaches each
 // link — there is no separate URL form.
 export function ChatComposer({

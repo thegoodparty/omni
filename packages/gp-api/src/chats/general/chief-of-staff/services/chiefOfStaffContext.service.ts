@@ -4,11 +4,6 @@ import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ChatAnchorSchema, type ChatAnchor } from '@goodparty_org/contracts'
 import { PrioritiesToolPort, PriorityRecord } from './prioritiesPort'
-import { FeaturesService } from '@/features/services/features.service'
-import {
-  AttachmentsFlagCache,
-  SERVE_CHAT_ATTACHMENTS_FLAG,
-} from '@/chats/services/chatAttachments.service'
 
 export interface ChiefOfStaffContext {
   conversationId: string
@@ -43,10 +38,6 @@ export interface ChiefOfStaffContext {
   // table configured). The context service defaults it false; the handler
   // resolves the real value from the provider + table allowlist.
   constituentToolEnabled: boolean
-  // Whether the serve-chat-attachments flag is on for this user. Cached
-  // per user for 60 s to avoid an Amplitude fetchV2 round-trip on every
-  // turn; a flag flip takes effect within that window.
-  attachmentsEnabled: boolean
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -55,16 +46,6 @@ export interface ChiefOfStaffContext {
 export class ChiefOfStaffContextService extends createPrismaBase(
   MODELS.ChatConversation,
 ) {
-  private readonly attachmentsFlag: AttachmentsFlagCache
-
-  constructor(features: FeaturesService) {
-    super()
-    this.attachmentsFlag = new AttachmentsFlagCache(
-      features,
-      SERVE_CHAT_ATTACHMENTS_FLAG,
-    )
-  }
-
   async load(
     conversationId: string,
     userId: number,
@@ -91,8 +72,6 @@ export class ChiefOfStaffContextService extends createPrismaBase(
     }
 
     const priorities = await port.listActive(electedOffice.id)
-
-    const attachmentsEnabled = await this.attachmentsFlag.resolve(userId)
 
     // "First conversation" means they have never actually talked to their
     // chief of staff, so this counts PRIOR conversations that hold at least
@@ -147,7 +126,6 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
-      attachmentsEnabled,
     }
   }
 }

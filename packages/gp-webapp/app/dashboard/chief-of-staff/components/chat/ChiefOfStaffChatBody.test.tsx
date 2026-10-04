@@ -41,24 +41,6 @@ vi.mock('helpers/analyticsHelper', async (orig) => ({
   trackEvent: (...args: unknown[]) => trackEventMock(...args),
 }))
 
-// Attachments are flag-gated per scope; the toggles let the drag-and-drop
-// block turn them on without flipping the flag under every other test in this
-// file. The mock respects scope so the paperclip scope regression tests work
-// without touching the real GrowthBook client. `attachmentsOn` keeps its
-// original name/behavior (chief_of_staff only) since most tests in this file
-// render the default scope; `winAttachmentsOn` is the campaign_assistant
-// counterpart, used by the scope-matrix and guard-toast tests.
-let attachmentsOn = false
-let winAttachmentsOn = false
-vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
-  useAttachmentsEnabled: (scope: string) => ({
-    ready: true,
-    enabled:
-      (scope === 'chief_of_staff' && attachmentsOn) ||
-      (scope === 'campaign_assistant' && winAttachmentsOn),
-  }),
-}))
-
 const uploadAttachmentMock = vi.fn()
 const linkAttachmentMock = vi.fn()
 const downloadAttachmentMock = vi.fn()
@@ -175,8 +157,6 @@ beforeEach(() => {
   // client; tests that assert the committed transcript override this.
   listMessagesMock.mockResolvedValue([])
   seq = 0
-  attachmentsOn = false
-  winAttachmentsOn = false
   uploadAttachmentMock.mockReset()
   linkAttachmentMock.mockReset()
   downloadAttachmentMock.mockReset()
@@ -405,7 +385,6 @@ describe('<ChiefOfStaffChatBody>', () => {
   })
 
   it('fires CitationOpened when a citation chip is clicked', async () => {
-    attachmentsOn = true
     listMessagesMock.mockResolvedValue([
       msg('assistant', 'Per the resolution [1], the budget is set.', {
         id: 'a-cite',
@@ -444,7 +423,6 @@ describe('<ChiefOfStaffChatBody>', () => {
   // campaign_assistant, so citation events must carry that scope rather than
   // the chief_of_staff default.
   it('fires CitationOpened with scope campaign_assistant for the Campaign Manager', async () => {
-    winAttachmentsOn = true
     listMessagesMock.mockResolvedValue([
       msg('assistant', 'Per the resolution [1], the budget is set.', {
         id: 'a-cite-win',
@@ -1920,31 +1898,18 @@ describe('<ChiefOfStaffChatBody> attachment scope', () => {
     listMessagesMock.mockResolvedValue([])
   })
 
-  it('shows the paperclip for campaign_assistant scope when its own flag is on', () => {
-    winAttachmentsOn = true
-    render(<ChiefOfStaffChatBody active scope="campaign_assistant" />)
-    expect(screen.getByRole('button', { name: /attach/i })).toBeInTheDocument()
-  })
+  it.each(['campaign_assistant', 'chief_of_staff'] as const)(
+    'shows the paperclip for the %s scope',
+    (scope) => {
+      render(<ChiefOfStaffChatBody active scope={scope} />)
+      expect(
+        screen.getByRole('button', { name: /attach/i }),
+      ).toBeInTheDocument()
+    },
+  )
 
-  it('hides the paperclip for campaign_assistant scope when its flag is off, even if chief_of_staff is on', () => {
-    attachmentsOn = true
-    render(<ChiefOfStaffChatBody active scope="campaign_assistant" />)
-    // ChatComposer only renders the attachment trigger when attachmentsEnabled.enabled.
-    // campaign_assistant follows win-chat-attachments only, not serve-chat-attachments.
-    expect(
-      screen.queryByRole('button', { name: /attach/i }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('shows the paperclip for chief_of_staff scope when the flag is on', () => {
-    attachmentsOn = true
-    render(<ChiefOfStaffChatBody active scope="chief_of_staff" />)
-    expect(screen.getByRole('button', { name: /attach/i })).toBeInTheDocument()
-  })
-
-  it('hides the paperclip for chief_of_staff scope when its flag is off, even if campaign_assistant is on', () => {
-    winAttachmentsOn = true
-    render(<ChiefOfStaffChatBody active scope="chief_of_staff" />)
+  it('hides the paperclip for a scope without attachment support', () => {
+    render(<ChiefOfStaffChatBody active scope="ordinance_flow" />)
     expect(
       screen.queryByRole('button', { name: /attach/i }),
     ).not.toBeInTheDocument()
@@ -1956,17 +1921,20 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
     dataTransfer: { types: ['Files'], files },
   })
 
-  const renderBody = () => {
+  const renderBody = (scope?: 'ordinance_flow') => {
     listConversationsMock.mockResolvedValue([])
     listMessagesMock.mockResolvedValue([])
     const { container } = render(
-      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        {...(scope && { scope })}
+      />,
     )
     return container.firstElementChild as HTMLElement
   }
 
   it('shows the drop overlay while dragging files and hides it on leave', () => {
-    attachmentsOn = true
     const surface = renderBody()
 
     fireEvent.dragEnter(surface, dragPayload([]))
@@ -1979,7 +1947,6 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
   })
 
   it('uploads a supported dropped file through the attach path', async () => {
-    attachmentsOn = true
     uploadAttachmentMock.mockResolvedValue({
       id: 'att-1',
       fileName: 'agenda.pdf',
@@ -2001,7 +1968,6 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
   })
 
   it('does not upload an unsupported dropped file', async () => {
-    attachmentsOn = true
     const surface = renderBody()
     const file = new File(['x'], 'malware.exe', {
       type: 'application/x-msdownload',
@@ -2013,8 +1979,8 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
     expect(uploadAttachmentMock).not.toHaveBeenCalled()
   })
 
-  it('ignores drops while attachments are disabled', async () => {
-    const surface = renderBody()
+  it('ignores drops on a scope without attachment support', async () => {
+    const surface = renderBody('ordinance_flow')
     const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
 
     fireEvent.dragEnter(surface, dragPayload([file]))
@@ -2058,7 +2024,6 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
     )
 
   it('shows the Serve guard toast once after the first successful CoS upload, keyed serve-chat-attachments-guard', async () => {
-    attachmentsOn = true
     uploadAttachmentMock.mockResolvedValue({
       id: 'att-1',
       fileName: 'agenda.pdf',
@@ -2093,7 +2058,6 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
   })
 
   it('shows the Win guard toast once after the first successful CM upload, keyed win-chat-attachments-guard', async () => {
-    winAttachmentsOn = true
     uploadAttachmentMock.mockResolvedValue({
       id: 'att-1',
       fileName: 'agenda.pdf',
@@ -2127,7 +2091,6 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
   })
 
   it('does not show the guard toast when the upload fails', async () => {
-    attachmentsOn = true
     uploadAttachmentMock.mockRejectedValue(new Error('boom'))
     const surface = renderBody()
 
@@ -2150,7 +2113,6 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
   })
 
   it('tags the source-unreachable prompt event with the campaign_assistant scope for a failed CM upload', async () => {
-    winAttachmentsOn = true
     uploadAttachmentMock.mockRejectedValue(new Error('boom'))
     const surface = renderBody('campaign_assistant')
 
@@ -2184,7 +2146,6 @@ describe('<ChiefOfStaffChatBody> link attachments', () => {
   }
 
   it('fires LinkSubmitted with the chief_of_staff scope on a successful link attach', async () => {
-    attachmentsOn = true
     linkAttachmentMock.mockResolvedValue({
       ok: true,
       attachment: {
@@ -2216,7 +2177,6 @@ describe('<ChiefOfStaffChatBody> link attachments', () => {
   })
 
   it('fires LinkFetchFailed with the campaign_assistant scope when the server reports a fetch error', async () => {
-    winAttachmentsOn = true
     linkAttachmentMock.mockResolvedValue({ ok: false, error: 'unreachable' })
     renderBody('campaign_assistant')
 
@@ -2235,7 +2195,6 @@ describe('<ChiefOfStaffChatBody> link attachments', () => {
   })
 
   it('fires LinkFetchFailed with the campaign_assistant scope when the link attach throws', async () => {
-    winAttachmentsOn = true
     linkAttachmentMock.mockRejectedValue(new Error('network down'))
     renderBody('campaign_assistant')
 
@@ -2254,7 +2213,6 @@ describe('<ChiefOfStaffChatBody> link attachments', () => {
   })
 
   it('fires LinkSubmitted with the campaign_assistant scope on a successful link attach', async () => {
-    winAttachmentsOn = true
     linkAttachmentMock.mockResolvedValue({
       ok: true,
       attachment: {
@@ -2282,7 +2240,6 @@ describe('<ChiefOfStaffChatBody> link attachments', () => {
   })
 
   it('fires LinkFetchFailed with the chief_of_staff scope when the server reports a fetch error', async () => {
-    attachmentsOn = true
     linkAttachmentMock.mockResolvedValue({ ok: false, error: 'unreachable' })
     renderBody()
 
@@ -2301,7 +2258,6 @@ describe('<ChiefOfStaffChatBody> link attachments', () => {
   })
 
   it('fires LinkFetchFailed with the chief_of_staff scope when the link attach throws', async () => {
-    attachmentsOn = true
     linkAttachmentMock.mockRejectedValue(new Error('network down'))
     renderBody()
 
