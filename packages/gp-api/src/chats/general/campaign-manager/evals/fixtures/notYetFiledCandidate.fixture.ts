@@ -31,7 +31,6 @@ export const NOT_YET_FILED_FIXTURE: CampaignManagerContext = {
   isPro: null,
   story: null,
   plan: null,
-  attachmentsEnabled: false,
 }
 
 // BallotReady returning a full filing record for the race.

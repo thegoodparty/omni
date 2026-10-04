@@ -127,6 +127,22 @@ candidate). A handler overrides it only for a genuinely different model:
 that needs something already in a new transcript implements `seedConversation`
 instead — Campaign Manager uses it to seed its greeting.
 
+### Attachments (documents and links)
+
+`chief_of_staff` and `campaign_assistant` let the user attach files (PDF, DOCX,
+image, plain text) and links to a conversation; every other scope 404s the
+write routes. `ATTACHMENT_SCOPES` in `src/chats/services/chatAttachments.service.ts`
+is the one list, and the webapp mirrors it in `supportsAttachments`
+(`app/dashboard/shared/agent-chat/attachmentScopes.ts`). Uploads are
+presign → browser POST to S3 → finalize (magic-byte check, PDF page count;
+DOCX and text extract on the queue); links are fetched once at attach time
+behind the SSRF guard. On each turn `ChatStreamService` injects the
+conversation's ready attachments into the latest user message as Anthropic
+document blocks with citations on, and maps the returned citations to
+citation segments the webapp renders as clickable chips. Both handlers also
+register `compose_handoff`, which turns a reply into a prefilled social post
+on the product's own outreach page (`win_social` or `serve_social`).
+
 ## Tools / function calling
 
 The briefing, Chief of Staff, and ordinance flow surfaces register tools; campaign

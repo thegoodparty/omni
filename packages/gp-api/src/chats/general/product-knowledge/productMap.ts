@@ -113,10 +113,6 @@ const SHARED_AREAS: ProductArea[] = [
   },
 ]
 
-const CHAT_ATTACHMENTS_GATE =
-  'Attaching a file to a message, and turning a reply into a social post, ' +
-  'are being rolled out, so they are not on every account yet.'
-
 // Win: the candidate product. Campaign Manager is the home tab.
 const WIN_AREAS: ProductArea[] = [
   {
@@ -135,7 +131,6 @@ const WIN_AREAS: ProductArea[] = [
       'A citation in a reply opens the document it points to, to the cited page when there is one',
       'Asking to turn a reply into a social post opens Voter Outreach’s social flow with the draft already written in, to review before you post it',
     ],
-    gate: CHAT_ATTACHMENTS_GATE,
   },
   {
     navId: 'campaign-story-dashboard',
@@ -284,7 +279,6 @@ const SERVE_AREAS: ProductArea[] = [
       'A citation in a reply opens the document it points to, to the cited page when there is one',
       'Asking to turn a reply into a social post opens Constituent Outreach’s social flow with the draft already written in, to review before you post it',
     ],
-    gate: CHAT_ATTACHMENTS_GATE,
   },
   {
     navId: 'briefings-dashboard',

@@ -3,10 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
-import {
-  SERVE_CHAT_ATTACHMENTS_FLAG,
-  WIN_CHAT_ATTACHMENTS_FLAG,
-} from '@/chats/services/chatAttachments.service'
 import { GeneralChatsService } from './general-chats.service'
 import { ChatScopeRegistry } from './chatScopeRegistry.service'
 import { GeneralChatStoreService } from './generalChatStore.prisma'
@@ -304,28 +300,16 @@ describe('GeneralChatsService', () => {
         conversationId: 'c1',
         systemPrompt: 'system',
         models: ['claude-sonnet-4-6'],
-        attachmentsFlag: SERVE_CHAT_ATTACHMENTS_FLAG,
       })
     },
   )
 
-  it('resolves attachmentsFlag from the scope→flag map per handler scope', async () => {
-    const scenarios: Array<{
-      scope: ChatScope
-      expectedFlag: string | undefined
-    }> = [
-      {
-        scope: ChatScope.chief_of_staff,
-        expectedFlag: SERVE_CHAT_ATTACHMENTS_FLAG,
-      },
-      {
-        scope: ChatScope.campaign_assistant,
-        expectedFlag: WIN_CHAT_ATTACHMENTS_FLAG,
-      },
-      { scope: ChatScope.ordinance_flow, expectedFlag: undefined },
-    ]
-
-    for (const { scope, expectedFlag } of scenarios) {
+  it('passes the handler scope to the chat stream', async () => {
+    for (const scope of [
+      ChatScope.chief_of_staff,
+      ChatScope.campaign_assistant,
+      ChatScope.ordinance_flow,
+    ]) {
       const scopedHandler = buildHandler({ scope })
       const scopedStore = buildStore({
         findOwnedConversation: vi.fn(() =>
@@ -359,15 +343,8 @@ describe('GeneralChatsService', () => {
           userMessage: 'hi',
         }),
       )
-      if (expectedFlag === undefined) {
-        expect(streamArgs.value).not.toHaveProperty('attachmentsFlag')
-      } else {
-        expect(streamArgs.value).toMatchObject({
-          attachmentsFlag: expectedFlag,
-        })
-      }
-      // scope travels alongside the resolved flag so the shared
-      // ChatStreamService can attribute AttachedDocumentQueried correctly.
+      // The shared ChatStreamService gates attachment injection and
+      // attributes AttachedDocumentQueried on this scope.
       expect(streamArgs.value).toMatchObject({ scope })
     }
   })

@@ -144,9 +144,7 @@ describe('product knowledge blocks', () => {
       expect(prompt, mode).toMatch(/Pasting a link attaches it as a source/)
       expect(prompt, mode).toMatch(/A citation in a reply opens the document/)
       expect(prompt, mode).toMatch(/turn a reply into a social post/)
-      expect(prompt, mode).toMatch(
-        /turning a reply into a social post, are being rolled out/,
-      )
+      expect(prompt, mode).not.toMatch(/being rolled out, so they are not/)
     }
     const win = render('win')
     const serve = render('serve')
