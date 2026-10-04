@@ -1,15 +1,25 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { statementIdCollector } from './peopleDbxStatement.client'
+import {
+  type DbxStatementRecord,
+  statementCollector,
+} from './peopleDbxStatement.client'
 
 // One log line per voter read, at a stable message so a Loki query can
 // aggregate a week of them. Flat rather than nested because LogQL cannot
 // unwrap nested json without a parser expression per field.
+//
+// statementBytes is how much SQL we sent, per statement. Id sets are inlined
+// rather than bound, so two reads of the same route can differ by four orders
+// of magnitude in planning cost with nothing else to tell them apart — a slow
+// read is either a big statement or a slow warehouse, and until this field
+// existed the line could not say which.
 type VoterReadLog = {
   op: string
   districtId: string
   dbxMs: number
   statementIds: string[]
+  statementBytes: number[]
 }
 
 export const VOTER_READ_MESSAGE = 'people-db voter read'
@@ -36,15 +46,13 @@ export class VoterReadLogService {
     const startedAt = performance.now()
     // Collected per operation, not per statement: `list` issues a count and a
     // page, and an export issues a submit plus its chunk fetches.
-    const statementIds: string[] = []
+    const statements: DbxStatementRecord[] = []
     try {
-      const value = await statementIdCollector.run(statementIds, () =>
-        args.read(),
-      )
-      this.log(args, startedAt, statementIds)
+      const value = await statementCollector.run(statements, () => args.read())
+      this.log(args, startedAt, statements)
       return value
     } catch (err) {
-      this.log(args, startedAt, statementIds, err)
+      this.log(args, startedAt, statements, err)
       throw err
     }
   }
@@ -52,14 +60,15 @@ export class VoterReadLogService {
   private log(
     args: { op: string; districtId: string },
     startedAt: number,
-    statementIds: string[],
+    statements: DbxStatementRecord[],
     err?: unknown,
   ): void {
     const entry: VoterReadLog = {
       op: args.op,
       districtId: args.districtId,
       dbxMs: Math.round(performance.now() - startedAt),
-      statementIds,
+      statementIds: statements.map((statement) => statement.id),
+      statementBytes: statements.map((statement) => statement.bytes),
     }
     if (err === undefined) {
       this.logger.info(entry, VOTER_READ_MESSAGE)

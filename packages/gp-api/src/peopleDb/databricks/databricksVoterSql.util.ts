@@ -86,16 +86,30 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // STRING and compares byte-exact, where Postgres compared as `uuid` and
 // normalized case — an exclude set that matches nothing silently WIDENS an
 // audience.
+const normalizeIds = (values: ReadonlyArray<string | number>): string[] => {
+  const ids = values.map((value) => {
+    const id = String(value).toLowerCase()
+    if (!UUID_RE.test(id)) {
+      throw new Error(`Refusing to inline a non-uuid id: ${String(value)}`)
+    }
+    return id
+  })
+  // SORTED, which is not cosmetic: the warehouse serves a repeat of a
+  // byte-identical statement out of its result cache in well under a second,
+  // and a statement carrying thousands of inlined ids costs tens of seconds to
+  // plan when it misses. These sets arrive as `Set` iteration order over
+  // Postgres `GROUP BY` output, which is not stable across tasks or plans, so
+  // unsorted ids meant two gp-api tasks resolving the SAME membership emitted
+  // different text and each paid full price (incident 105: the same saved list
+  // read 0.6s, 21s and 64s within three hours).
+  return ids.sort()
+}
+
+const quoteIds = (ids: ReadonlyArray<string>): string =>
+  ids.map((id) => `'${id}'`).join(', ')
+
 const idList = (values: ReadonlyArray<string | number>): string =>
-  values
-    .map((value) => {
-      const id = String(value).toLowerCase()
-      if (!UUID_RE.test(id)) {
-        throw new Error(`Refusing to inline a non-uuid id: ${String(value)}`)
-      }
-      return `'${id}'`
-    })
-    .join(', ')
+  quoteIds(normalizeIds(values))
 
 const num = (value: string | number): number => {
   const parsed = Number(value)
@@ -488,16 +502,38 @@ const buildIdFilter = (op?: FilterOperator): string | null => {
 // The override pair wraps ONLY the clause it is scoped to, never the whole
 // conjunction, so every other filter still applies to an override-included
 // person.
+//
+// Both sides are minimized first, because every id that survives here is
+// inlined into the statement text and the warehouse's planning cost scales
+// with how many there are:
+//   - an id on BOTH sides is included either way (the OR wins), so dropping it
+//     from the exclude side cannot change who matches;
+//   - with no base clause the base is TRUE, so once the sides are disjoint
+//     every included id already satisfies `NOT IN exclude` and the include
+//     disjunct is dead weight. That is the contacts-made shape: selecting
+//     "0 contacts" plus some non-zero buckets sent every contacted person
+//     TWICE, and selecting every bucket sent them twice to express no
+//     constraint at all.
+// Returns null when nothing is left to constrain, so the caller omits the
+// clause instead of AND-ing `TRUE`.
 const composeIdOverridesClause = (
   baseClause: string | null,
   idOverrides: IdOverrides,
-): string => {
-  const base = baseClause ?? 'TRUE'
-  const scoped = idOverrides.exclude?.length
-    ? `(${base} AND ${col('id')} NOT IN (${idList(idOverrides.exclude)}))`
-    : base
-  return idOverrides.include?.length
-    ? `(${scoped} OR ${col('id')} IN (${idList(idOverrides.include)}))`
+): string | null => {
+  const include = normalizeIds(idOverrides.include ?? [])
+  const includeSet = new Set(include)
+  const exclude = normalizeIds(idOverrides.exclude ?? []).filter(
+    (id) => !includeSet.has(id),
+  )
+
+  if (baseClause === null) {
+    return exclude.length ? `${col('id')} NOT IN (${quoteIds(exclude)})` : null
+  }
+  const scoped = exclude.length
+    ? `(${baseClause} AND ${col('id')} NOT IN (${quoteIds(exclude)}))`
+    : baseClause
+  return include.length
+    ? `(${scoped} OR ${col('id')} IN (${quoteIds(include)}))`
     : scoped
 }
 
@@ -511,7 +547,8 @@ export const buildVoterFiltersSql = (
   const andClauses: string[] = []
 
   if (hasIdOverrides(contactsMadeIdOverrides)) {
-    andClauses.push(composeIdOverridesClause(null, contactsMadeIdOverrides))
+    const clause = composeIdOverridesClause(null, contactsMadeIdOverrides)
+    if (clause) andClauses.push(clause)
   }
 
   for (const filter of filters) {
