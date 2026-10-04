@@ -59,9 +59,7 @@ const CampaignTrackerHero = ({
           <DownloadIcon className="size-4" aria-hidden />
         </IconButton>
       </DashboardNavHeaderAction>
-      <h1 className="text-foreground text-3xl font-bold sm:text-4xl">
-        {headline}
-      </h1>
+      <h1 className="text-2xl font-semibold text-foreground">{headline}</h1>
       {metaLine && (
         <p className="text-muted-foreground mt-1 text-base">{metaLine}</p>
       )}

@@ -65,7 +65,7 @@ const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   link: null,
   flowType: null,
   week: 2,
-  // Far future so its phase is the current ("active") one and opens by default.
+  // Far future so its phase is the current ("active") one.
   date: '2099-11-03T00:00:00.000Z',
   completed: false,
   phase: 'launch',
@@ -73,6 +73,10 @@ const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   isDefaultTask: false,
   ...over,
 })
+
+// Phases start closed, so a test reaches a task row by opening its phase.
+const openLaunch = (user: ReturnType<typeof userEvent.setup>) =>
+  user.click(screen.getByRole('button', { name: /^Launch/ }))
 
 const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
   tasks,
@@ -96,6 +100,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
+    await openLaunch(user)
 
     await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
     expect(mockToggle).not.toHaveBeenCalled()
@@ -125,6 +130,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
+    await openLaunch(user)
 
     await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
     // Still pending the count, so nothing is reported yet — the candidate can
@@ -174,6 +180,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
+    await openLaunch(user)
 
     await user.click(
       screen.getByRole('button', { name: 'Mark task incomplete' }),
@@ -195,6 +202,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
+    await openLaunch(user)
 
     await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
     expect(mockToggle).toHaveBeenCalledWith({ id: 't2', completed: true })

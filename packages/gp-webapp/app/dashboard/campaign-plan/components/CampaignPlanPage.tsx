@@ -17,7 +17,7 @@ export default function CampaignPlanPage({
   navHeader,
 }: CampaignPlanPageProps): React.JSX.Element {
   return (
-    <DashboardLayout navHeader={navHeader}>
+    <DashboardLayout navHeader={navHeader} wrapperClassName="!p-0">
       <InvalidateCampaignOnMount />
       <CampaignPlanView initialUser={initialUser} />
     </DashboardLayout>

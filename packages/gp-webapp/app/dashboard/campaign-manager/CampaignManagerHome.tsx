@@ -3,11 +3,13 @@
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
 import CampaignManagerTasks from './CampaignManagerTasks'
+import NextTaskCard from '../campaign-plan/components/campaignStrategy/NextTaskCard'
 import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
 import ProUpgrade3ComplianceCard from '../components/campaignManager/ProUpgrade3ComplianceCard'
 import ProgressSection from '../components/campaignManager/ProgressSection'
 import { useCampaignManagerChat } from './CampaignManagerChatProvider'
+import { useUser } from '@shared/hooks/useUser'
 import type { TcrCompliance } from 'helpers/types'
 
 /**
@@ -34,10 +36,20 @@ export default function CampaignManagerHome({
   tcrCompliance: TcrCompliance | null
 }): React.JSX.Element {
   const chat = useCampaignManagerChat()
+  const [user] = useUser()
+  const firstName = user?.firstName
 
   return (
     <div className="flex min-h-screen flex-col bg-muted">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
+        <NextTaskCard
+          surface="manager"
+          heading={firstName ? `Welcome back, ${firstName}!` : 'Welcome back!'}
+          subheading="Here’s what to do next"
+        />
+        <h2 className="mt-4 text-lg font-medium text-foreground">
+          Latest updates
+        </h2>
         <ProUpgradeBanner />
         <TextingSetupBanner tcrCompliance={tcrCompliance} />
         <ProUpgrade3ComplianceCard tcrCompliance={tcrCompliance} />

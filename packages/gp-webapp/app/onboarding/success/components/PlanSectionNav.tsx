@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
+  FilterPill,
+  FilterPillGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -18,6 +20,9 @@ interface PlanSectionNavProps {
   sections: PlanSectionRef[]
   onStuckChange?: (stuck: boolean) => void
   stuckClassName?: string
+  // 'pills' lays the sections out as filter pills, for a host that shows the
+  // plan inside a card where a sticky dropdown has nowhere to stick.
+  variant?: 'select' | 'pills'
 }
 
 // Activate a section when its top sits in the upper half of the viewport,
@@ -34,6 +39,7 @@ const PlanSectionNav = ({
   sections,
   onStuckChange,
   stuckClassName = DEFAULT_STUCK_CLASSNAME,
+  variant = 'select',
 }: PlanSectionNavProps): React.JSX.Element => {
   const [activeId, setActiveId] = useState<string>(sections[0]?.id ?? '')
   const [isStuck, setIsStuck] = useState(false)
@@ -106,6 +112,26 @@ const PlanSectionNav = ({
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
+  }
+
+  if (variant === 'pills') {
+    return (
+      <FilterPillGroup
+        value={activeId}
+        onValueChange={(value) => {
+          // Radix single-toggle emits '' on re-pressing the active pill; jump
+          // back to that section rather than clearing the selection.
+          handleChange(value || activeId)
+        }}
+        aria-label="Jump to a section"
+      >
+        {sections.map((s) => (
+          <FilterPill key={s.id} value={s.id}>
+            {s.label}
+          </FilterPill>
+        ))}
+      </FilterPillGroup>
+    )
   }
 
   return (

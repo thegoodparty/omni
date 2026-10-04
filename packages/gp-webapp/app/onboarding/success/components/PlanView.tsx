@@ -46,6 +46,12 @@ interface PlanViewProps {
   bottomBarClassName?: string
   // Forwarded to PlanSectionNav's stuck state, same caller contract.
   navStuckClassName?: string
+  // How the section nav renders; see PlanSectionNav's `variant`.
+  navVariant?: 'select' | 'pills'
+  // Onboarding opens the plan as its own screen, so it starts at the top. A
+  // host that mounts the plan in place (opening a card) passes false, or the
+  // page would jump away from what was just opened.
+  scrollToTopOnMount?: boolean
   // Root background override. Defaults to the standalone white surface;
   // the dashboard passes a transparent value so the plan sits on the same
   // page background as the campaign strategy section above it.
@@ -84,6 +90,8 @@ const PlanView = ({
   showConfetti = true,
   bottomBarClassName = 'fixed inset-x-0 bottom-0 z-40',
   navStuckClassName,
+  navVariant,
+  scrollToTopOnMount = true,
   rootClassName,
   contentClassName,
   showHero = true,
@@ -96,7 +104,7 @@ const PlanView = ({
   const [reminderOpen, setReminderOpen] = useState(false)
 
   useEffect(() => {
-    window.scrollTo(0, 0)
+    if (scrollToTopOnMount) window.scrollTo(0, 0)
   }, [])
 
   const liveUrl = typeof window !== 'undefined' ? window.location.href : ''
@@ -215,6 +223,7 @@ const PlanView = ({
             pressOutletsState={pressOutletsState}
             voterInsightsContext={voterInsightsContext}
             navStuckClassName={navStuckClassName}
+            navVariant={navVariant}
           />
         </div>
 

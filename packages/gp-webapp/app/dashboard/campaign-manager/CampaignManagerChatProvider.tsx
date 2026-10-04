@@ -58,6 +58,10 @@ interface CampaignManagerChatContextValue {
   // Open the manager and ask how to get on the ballot (the ballot-access home
   // card). Does NOT dismiss the meet card.
   startBallotAccess: () => void
+  // Open the manager on a new chat that starts with the given message, e.g. a
+  // tracker task the candidate wants to talk through. Does NOT dismiss the
+  // meet card.
+  discussTask: (message: string) => void
   // First-run meet-card visibility, shared so the home card and a manager open
   // stay in sync across the (layout-level) dock and the (page-level) card.
   meetDismissed: boolean
@@ -255,6 +259,13 @@ export function CampaignManagerChatProvider({
     openNewChat(CAMPAIGN_MANAGER_BALLOT_KICKOFF)
   }, [openNewChat])
 
+  const discussTask = useCallback(
+    (message: string) => {
+      openNewChat(message)
+    },
+    [openNewChat],
+  )
+
   // The personalize deep link (`/dashboard?personalize=1`) is how the plan-tab
   // story gate's "Open"/"Edit in campaign manager" links start the same story
   // flow as the manager home's own card. Read from the URL directly (not
@@ -295,6 +306,7 @@ export function CampaignManagerChatProvider({
       openConversation,
       startStory,
       startBallotAccess,
+      discussTask,
       meetDismissed,
       dismissMeetCard,
     }),
@@ -303,6 +315,7 @@ export function CampaignManagerChatProvider({
       openConversation,
       startStory,
       startBallotAccess,
+      discussTask,
       meetDismissed,
       dismissMeetCard,
     ],

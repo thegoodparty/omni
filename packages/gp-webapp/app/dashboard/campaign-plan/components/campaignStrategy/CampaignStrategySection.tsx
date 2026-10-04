@@ -1,27 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { Accordion, Button, Card } from '@styleguide'
-import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import { IS_PROD } from 'appEnv'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
-import {
-  isVoterContactFlowType,
-  useGenerateTrackerTasks,
-  useToggleTrackerTaskComplete,
-  useTrackerTasks,
-} from './useTrackerTasks'
+import { useGenerateTrackerTasks, useTrackerTasks } from './useTrackerTasks'
+import { trackerOrigin, useCompleteTrackerTask } from './useCompleteTrackerTask'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
-import CountModal from '../../../components/tasks/CountModal'
 import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
-import {
-  outreachChannel,
-  outreachEventProps,
-  type OutreachTrackerOrigin,
-} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
 
 // The "Campaign Tracker" section on the campaign plan page: the persisted
@@ -30,24 +19,10 @@ import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
 // has gone through campaign story, so this section is rendered only for the
 // story cohort (see CampaignPlanView) — there is no client-catalog fallback.
 // While the tracker is bootstrapping (no rows yet) it shows a setup state.
-// Both halves or neither — a phase with no task id names nothing joinable.
-// `phase` is a free `String?` on the row, so it is parsed against the contract
-// rather than trusted.
-const trackerOrigin = (
-  taskId: string,
-  phase: string | null | undefined,
-): OutreachTrackerOrigin | undefined => {
-  const parsed = CampaignStrategyPhaseKeySchema.safeParse(phase)
-  return parsed.success
-    ? { trackerTaskId: taskId, phase: parsed.data }
-    : undefined
-}
-
 const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const { generate, isGenerating } = useGenerateTrackerTasks()
-  const toggleComplete = useToggleTrackerTaskComplete()
   const router = useRouter()
   // "Start outreach" links into the hub rather than opening a flow here: the
   // hub owns the one mount of each channel flow and the gate in front of it,
@@ -66,67 +41,7 @@ const CampaignStrategySection = (): React.JSX.Element => {
     },
     [router, tasks],
   )
-  // An outreach task pending its voter-contact count in the modal.
-  const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
-
-  // Completing an outreach/community-event task first asks how many voters were
-  // reached (legacy behavior); the count is recorded with the completion.
-  // Uncompleting, and completing anything else, goes straight through.
-  // Task completion is the primary activation metric and fired from nowhere
-  // between the legacy dashboard checklist's deletion and this: the tracker
-  // shipped with a completion toggle and no event at all. `trackerTaskId` is
-  // what joins a completed task to the outreach it produced — see
-  // docs/features/voter-outreach-analytics.md.
-  const trackTaskCompleted = (task: CampaignTrackerTask) => {
-    trackEvent(EVENTS.Dashboard.CampaignPlan.TaskCompleted, {
-      trackerTaskId: task.id,
-      medium: outreachChannel(task.flowType ?? ''),
-      ...(task.phase ? { phase: task.phase } : {}),
-    })
-  }
-
-  const onToggleComplete = (id: string, completed: boolean) => {
-    const task = tasks.find((t) => t.id === id)
-    if (completed && task && isVoterContactFlowType(task.flowType)) {
-      // The count modal is the rest of this completion, so the event rides
-      // `onCountSubmit` instead — firing here too would count the task twice,
-      // and once before the candidate can still cancel out of the modal.
-      setCountTask(task)
-      return
-    }
-    // Completion only. Un-completing is a correction, not an activation
-    // signal, and an event named Completed must not fire on one.
-    if (task && completed) trackTaskCompleted(task)
-    toggleComplete.mutate({ id, completed })
-  }
-
-  const onCountSubmit = (count: number) => {
-    if (!countTask?.flowType) return
-    trackTaskCompleted(countTask)
-    // The count modal is a manual outreach log: the candidate is reporting
-    // voters they reached offline on this task's channel. Same event the
-    // campaign-manager modal fires, so both manual paths land in one series.
-    // No `price` — nothing here captures a cost.
-    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
-      ...outreachEventProps({
-        channel: outreachChannel(countTask.flowType),
-        isServe: false,
-        recipientCount: count,
-        sendDate: new Date(),
-        ...(trackerOrigin(countTask.id, countTask.phase)
-          ? { tracker: trackerOrigin(countTask.id, countTask.phase) }
-          : {}),
-      }),
-      method: 'manual',
-    })
-    toggleComplete.mutate({
-      id: countTask.id,
-      completed: true,
-      type: countTask.flowType,
-      quantity: count,
-    })
-    setCountTask(null)
-  }
+  const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks)
 
   const metrics = campaign?.raceTargetMetrics
   const electionDateIso =
@@ -185,48 +100,42 @@ const CampaignStrategySection = (): React.JSX.Element => {
     })
   }, [strategy, campaign?.id])
 
-  // Open the phase(s) the candidate is in now; fall back to the first phase.
-  const autoOpenable = (strategy?.phases ?? []).filter(
-    (phase) => phase.key !== 'preLaunch',
+  // Every phase starts closed: the next-task card above already shows what to
+  // do now, so opening a phase here would only repeat it. A link can still
+  // open one by naming it (`?phase=preLaunch`), for a surface that sends the
+  // candidate to a specific phase.
+  const linkedPhase = CampaignStrategyPhaseKeySchema.safeParse(
+    typeof window === 'undefined'
+      ? null
+      : new URLSearchParams(window.location.search).get('phase'),
   )
-  const openPhases = autoOpenable
-    .filter((phase) => phase.status === 'active')
-    .map((phase) => phase.key)
   const defaultOpen =
-    openPhases.length > 0
-      ? openPhases
-      : autoOpenable[0]
-        ? [autoOpenable[0].key]
-        : []
+    linkedPhase.success &&
+    strategy?.phases.some((phase) => phase.key === linkedPhase.data)
+      ? [linkedPhase.data]
+      : []
 
   return (
     <section>
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold">Campaign Tracker</h2>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Everything you need to do, in order. We tell you what to do and
-            when, so you always know your next move.
-          </p>
+      {/* The section's title and intro sit above the progress card in
+          CampaignPlanView, so only this non-prod trigger is left here. Prod
+          generates via the weekly cron, but dev/qa have no cron, so this lets
+          us dispatch a run on demand. gp-api 404s the route in prod as a
+          backstop. */}
+      {!IS_PROD && (
+        <div className="mb-5 flex justify-start">
+          <Button
+            variant="outline"
+            size="small"
+            onClick={generate}
+            loading={isGenerating}
+            loadingText="Generating…"
+            disabled={isPending}
+          >
+            Generate tasks
+          </Button>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
-          {/* Non-prod-only manual trigger: prod generates via the weekly cron,
-              but dev/qa have no cron, so this lets us dispatch a run on demand.
-              gp-api 404s the route in prod as a backstop. */}
-          {!IS_PROD && (
-            <Button
-              variant="outline"
-              size="small"
-              onClick={generate}
-              loading={isGenerating}
-              loadingText="Generating…"
-              disabled={isPending}
-            >
-              Generate tasks
-            </Button>
-          )}
-        </div>
-      </div>
+      )}
       {isPending ? (
         <Card className="flex items-center gap-3 p-4">
           <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
@@ -277,16 +186,7 @@ const CampaignStrategySection = (): React.JSX.Element => {
         </>
       )}
 
-      {countTask && (
-        <CountModal
-          open
-          onOpenChange={(next) => {
-            if (!next) setCountTask(null)
-          }}
-          flowType={countTask.flowType ?? ''}
-          onSubmit={onCountSubmit}
-        />
-      )}
+      {countModal}
     </section>
   )
 }

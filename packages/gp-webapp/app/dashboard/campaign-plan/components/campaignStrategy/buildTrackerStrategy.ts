@@ -16,7 +16,7 @@ import type {
 // Active phase's Monday-Sunday week navigator (one week at a time, see
 // buildActiveWeeks), and "Do this next".
 
-const PHASE_META: {
+export const PHASE_META: {
   key: CampaignStrategyPhaseKey
   title: string
   summary: string
