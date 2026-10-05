@@ -284,7 +284,18 @@ export function createService({
     name: serviceName,
     cluster: cluster.arn,
     taskDefinition: taskDefinition.arn,
-    desiredCount: isProd ? 2 : 1,
+    // Each task is one vCPU and Node is single-threaded, so a task tops out
+    // around 100 requests a second on this read mix (~10ms of CPU per
+    // request, measured in prod). Two tasks meant a ceiling near 200/s, and a
+    // search-engine crawl of the /elections pages reaches 150-250/s on its
+    // own: on 2026-10-05 that pegged both tasks at 100% CPU for 15 minutes,
+    // stalled the event loop until Prisma could no longer cycle connections,
+    // and turned every read into a 20-second pool timeout. Scale-out cannot
+    // cover the first few minutes of a burst — ECS metrics are per-minute and
+    // a task takes ~2 minutes to reach the balancer — so the floor is what
+    // has to absorb it. Six tasks give ~600/s of ceiling and ~420/s of
+    // comfortable throughput against an observed peak of 250/s.
+    desiredCount: isProd ? 6 : 1,
     capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
     networkConfiguration: {
       subnets: privateSubnetIds,
