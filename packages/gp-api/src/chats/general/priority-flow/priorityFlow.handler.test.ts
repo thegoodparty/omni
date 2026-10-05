@@ -423,13 +423,16 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
-  it('lets the official choose the route before any outreach', () => {
+  it('previews the path by rail step before any workflow', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
-    expect(prompt).toContain('LET THEM CHOOSE THE ROUTE')
+    expect(prompt).toContain('PREVIEW THE PATH BEFORE THE WORK')
+    expect(prompt).toContain('by the names the rail shows')
     expect(prompt).toContain('like Public Works')
     expect(prompt).toContain('one multiSelect ask_clarify_question')
+    expect(prompt).toContain('say in one line which step it is for')
     expect(prompt).toContain('unless they picked hearing from them')
-    expect(prompt.indexOf('LET THEM CHOOSE THE ROUTE')).toBeLessThan(
+    expect(prompt).toContain('preview the affected steps again, once')
+    expect(prompt.indexOf('PREVIEW THE PATH BEFORE THE WORK')).toBeLessThan(
       prompt.indexOf('CHECKING A STEP WITH THE PEOPLE IT LANDS ON'),
     )
   })

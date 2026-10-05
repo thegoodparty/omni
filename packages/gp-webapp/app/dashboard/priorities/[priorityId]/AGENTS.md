@@ -199,15 +199,17 @@ The rules live in the prompt (`buildSamplingBlock` and
   counted nobody is refused outright. Nothing calls a result statistically proven; the 2 or
   3 in 100 who reply choose themselves.
 
-## The official picks the route before the work
+## The agent previews the path before the work
 
-Once the problem is defined, and when a new gap opens, the agent lays out the
-routes that fit (the public record, the department that runs it, hearing from
-constituents, how other places did it) and asks which are useful as one
-multi-select question (`ROUTE_BLOCK` in `priorityFlow.prompt.ts`). It works
-only the routes picked and builds no constituent outreach unless that route
-was chosen, because jumping straight into a texting campaign read as the
-agent deciding for them.
+The rail already shows the steps, so once the problem is defined the agent
+goes through the steps ahead by those names and says what each would take:
+research, staff, constituents, or a workflow it can start here (an outreach
+or contact card). The official picks the work as one multi-select question
+(`ROUTE_BLOCK` in `priorityFlow.prompt.ts`). Before starting a workflow the
+agent names the step it serves and that it was picked, and asks first if it
+was not. It previews again when a step goes back or something new changes
+what is ahead. Jumping straight into a texting campaign read as the agent
+deciding for them.
 
 ## What it brings in carries its source
 
