@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   IconButton,
+  MessageSquareIcon,
   MoreHorizontalIcon,
 } from '@styleguide'
 import {
@@ -271,115 +272,122 @@ export default function NextThingCard(): React.JSX.Element {
 
   return (
     <NextThingSection headline={headline}>
-      <Card className="gap-4 rounded-2xl border border-grayscale-300 p-4 lg:p-6">
-        <div className="flex flex-col gap-2">
-          {reasonTag && (
-            <span className="self-start rounded-full bg-primary-light px-2.5 py-0.5 text-xs font-semibold text-primary-dark">
-              {reasonTag}
-            </span>
-          )}
-          <h3 className="text-xl font-semibold text-card-foreground">
-            {next.title}
-          </h3>
-          {next.description && (
-            <p className="text-sm text-muted-foreground">{next.description}</p>
-          )}
-        </div>
+      {/* The card sits in a tray that holds its questions, so the two read as
+          one object: the card's border overlaps the tray's top and sides, and
+          the questions sit in the strip below it. */}
+      <div className="rounded-2xl border border-grayscale-300 bg-muted">
+        <Card className="-m-px gap-4 rounded-2xl border border-grayscale-300 p-4 lg:p-6">
+          <div className="flex flex-col gap-2">
+            {reasonTag && (
+              <span className="self-start rounded-full bg-primary-light px-2.5 py-0.5 text-xs font-semibold text-primary-dark">
+                {reasonTag}
+              </span>
+            )}
+            <h3 className="text-xl font-semibold text-card-foreground">
+              {next.title}
+            </h3>
+            {next.description && (
+              <p className="text-sm text-muted-foreground">
+                {next.description}
+              </p>
+            )}
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {action.kind === 'filing' && (
+          <div className="flex flex-wrap items-center gap-2">
+            {action.kind === 'filing' && (
+              <Button
+                type="button"
+                onClick={() => {
+                  onStarted('cta')
+                  setFilingOpen(true)
+                }}
+              >
+                {action.label}
+              </Button>
+            )}
+            {action.kind === 'link' && (
+              <Button asChild>
+                {isExternalHref(action.href) ? (
+                  <a
+                    href={action.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => onStarted('cta')}
+                  >
+                    {action.label}
+                  </a>
+                ) : (
+                  <Link href={action.href} onClick={() => onStarted('cta')}>
+                    {action.label}
+                  </Link>
+                )}
+              </Button>
+            )}
             <Button
               type="button"
-              onClick={() => {
-                onStarted('cta')
-                setFilingOpen(true)
-              }}
+              variant={action.kind === 'none' ? 'default' : 'ghost'}
+              disabled={busy}
+              onClick={() => onMarkDone(next)}
             >
-              {action.label}
+              <CircleCheckIcon className="size-4" aria-hidden />
+              Mark done
             </Button>
-          )}
-          {action.kind === 'link' && (
-            <Button asChild>
-              {isExternalHref(action.href) ? (
-                <a
-                  href={action.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => onStarted('cta')}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <IconButton
+                  type="button"
+                  variant="ghost"
+                  className="ml-auto"
+                  disabled={busy}
+                  aria-label="More options"
                 >
-                  {action.label}
-                </a>
-              ) : (
-                <Link href={action.href} onClick={() => onStarted('cta')}>
-                  {action.label}
-                </Link>
-              )}
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant={action.kind === 'none' ? 'default' : 'ghost'}
-            disabled={busy}
-            onClick={() => onMarkDone(next)}
-          >
-            <CircleCheckIcon className="size-4" aria-hidden />
-            Mark done
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <IconButton
+                  <MoreHorizontalIcon className="size-5" aria-hidden />
+                </IconButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {SKIP_OPTIONS.map((option) => (
+                  <DropdownMenuItem
+                    key={option.reason}
+                    onSelect={() => onSkip(next, option.reason)}
+                    className="flex flex-col items-start gap-0"
+                  >
+                    <span className="font-medium">{option.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {option.caption}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                {/* The sidebar's Campaign Plan covers desktop; this keeps the
+                  plan one tap away on a phone, where the sidebar is a drawer. */}
+                <DropdownMenuItem asChild>
+                  <Link href="/campaign-plan">See it in your plan</Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </Card>
+        {chat && (
+          <div className="flex flex-col items-start px-2 py-1.5 lg:px-4">
+            {questionsFor(next, needsFiling).map((question) => (
+              <Button
+                key={question}
                 type="button"
                 variant="ghost"
-                className="ml-auto"
-                disabled={busy}
-                aria-label="More options"
+                size="small"
+                className="gap-1.5 px-2 font-normal text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  onStarted('chat')
+                  chat.sendFromComposer(askAboutStep(next.title, question))
+                }}
               >
-                <MoreHorizontalIcon className="size-5" aria-hidden />
-              </IconButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {SKIP_OPTIONS.map((option) => (
-                <DropdownMenuItem
-                  key={option.reason}
-                  onSelect={() => onSkip(next, option.reason)}
-                  className="flex flex-col items-start gap-0"
-                >
-                  <span className="font-medium">{option.label}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {option.caption}
-                  </span>
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              {/* The sidebar's Campaign Plan covers desktop; this keeps the
-                  plan one tap away on a phone, where the sidebar is a drawer. */}
-              <DropdownMenuItem asChild>
-                <Link href="/campaign-plan">See it in your plan</Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </Card>
-
-      {chat && (
-        <div className="flex flex-wrap gap-2">
-          {questionsFor(next, needsFiling).map((question) => (
-            <Button
-              key={question}
-              type="button"
-              variant="outline"
-              size="small"
-              className="rounded-full"
-              onClick={() => {
-                onStarted('chat')
-                chat.sendFromComposer(askAboutStep(next.title, question))
-              }}
-            >
-              {question}
-            </Button>
-          ))}
-        </div>
-      )}
+                <MessageSquareIcon className="size-4" aria-hidden />
+                {question}
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <Dialog open={filingOpen} onOpenChange={setFilingOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
