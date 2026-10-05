@@ -115,8 +115,11 @@ export interface ExclusionCounts {
   ungradedReasons: readonly string[]
   // The same treatment for tool-error exclusions, which had only a count.
   // Grouped so nine pairs failing one way read as one line, not nine.
-  // Only a chat pair is ever excluded for a tool error, so this is empty for
-  // a background agent; its causes are in `scoredToolErrorCauses`.
+  // Covers the pairs excluded for a tool error (chat only) and the pairs
+  // excluded as identicalConfig whose arms hit tool errors anyway: before
+  // background tool errors were scored, those were tool-error exclusions and
+  // listed here, and moving them to another reason must not hide what failed.
+  // A judged background pair's causes are in `scoredToolErrorCauses`.
   toolErrorCauses: readonly ToolErrorCause[]
 }
 
@@ -616,22 +619,51 @@ const floorVerdicts = (
 // tool-error exclusion.
 const UNRECORDED = 'unrecorded'
 
-// Built from errorClass and publicToolName only, never from the message:
-// this is what reaches the public report. See toolErrorDetails.ts.
-// Judged pairs where either arm hit a tool error, naming those arms. Empty for
-// a chat agent, whose tool-error pairs never reach `judgeable`.
-const scoredWithToolErrors = (normalized: NormalizedAgent): ToolErrorPair[] =>
-  normalized.judgeable.flatMap(({ records }) => {
-    const arms = ArmSchema.options.filter(
-      (arm) => records[arm].telemetry.toolErrors > 0,
-    )
+const armsWithToolErrors = (records: {
+  base: RunRecord
+  candidate: RunRecord
+}): Arm[] =>
+  ArmSchema.options.filter((arm) => records[arm].telemetry.toolErrors > 0)
+
+// SCORED means a graded judgment exists for the pair. A pair whose every
+// judge call failed is ungraded and counted apart, so listing it here would
+// say it was scored when it was not. Empty for a chat agent, whose tool-error
+// pairs never reach `judgeable`.
+const scoredWithToolErrors = (
+  normalized: NormalizedAgent,
+  gradedJudgments: readonly GradedJudgment[],
+): ToolErrorPair[] => {
+  const gradedPairs = new Set(
+    gradedJudgments.map((j) => pairKey(j.key.caseId, j.key.attempt)),
+  )
+  return normalized.judgeable.flatMap(({ caseId, attempt, records }) => {
+    if (!gradedPairs.has(pairKey(caseId, attempt))) return []
+    const arms = armsWithToolErrors(records)
     return arms.length > 0 ? [{ arms, records }] : []
+  })
+}
+
+// Excluded pairs whose tool errors the report should name: every tool-error
+// exclusion, and an identicalConfig exclusion whose arms hit tool errors. The
+// second is a background pair; it was a tool-error exclusion before tool
+// errors stopped excluding background pairs, and its causes must not vanish.
+// An infraError pair is left out, as it always was: a run that died never got
+// far enough for a tool error to mean anything about it.
+const excludedWithToolErrors = (normalized: NormalizedAgent): ToolErrorPair[] =>
+  normalized.excluded.flatMap(({ reason, arms, records }) => {
+    if (reason === 'toolError') return [{ arms, records }]
+    if (reason !== 'identicalConfig') return []
+    const hit = armsWithToolErrors(records)
+    return hit.length > 0 ? [{ arms: hit, records }] : []
   })
 
 interface ToolErrorPair {
   arms: readonly Arm[]
   records: { base: RunRecord; candidate: RunRecord }
 }
+
+// Built from errorClass and publicToolName only, never from the message:
+// this is what reaches the public report. See toolErrorDetails.ts.
 
 const toolErrorCauses = (pairs: readonly ToolErrorPair[]): ToolErrorCause[] => {
   const causes = new Map<
@@ -783,11 +815,11 @@ export const scoreAgent = (
           judgments.filter((j) => j.kind === 'ungraded').map((j) => j.reason),
         ),
       ],
-      toolErrorCauses: toolErrorCauses(
-        normalized.excluded.filter((e) => e.reason === 'toolError'),
-      ),
+      toolErrorCauses: toolErrorCauses(excludedWithToolErrors(normalized)),
     },
-    scoredToolErrorCauses: toolErrorCauses(scoredWithToolErrors(normalized)),
+    scoredToolErrorCauses: toolErrorCauses(
+      scoredWithToolErrors(normalized, gradedJudgments),
+    ),
     positionConsistency,
     swappedPairs: swappedPairs.length,
     orderUnstablePairs: overallResult.pairs

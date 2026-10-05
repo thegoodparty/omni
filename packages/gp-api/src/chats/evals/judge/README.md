@@ -846,11 +846,14 @@ lets a name through whenever it has the right shape (`MariaGonzalezError`,
   `other`. To name a new one, add it to the list in `toolErrorDetails.ts`.
 
 Causes are grouped by tool and class under the "Excluded pairs" line, with the
-pair count and the arms hit. Only a chat pair is ever excluded for a tool
-error, so for a background agent that list is empty and the causes come after
-it under **Tool errors (scored, not excluded):**, covering every judged pair
-where either arm hit one. The two lists never mix, so a reader cannot take a
-scored pair for an excluded one. A record written before the field existed shows
+pair count and the arms hit. That list covers every pair excluded for a tool
+error (only a chat pair is) and every pair excluded as identical config whose
+arms hit a tool error anyway, so a background pair that moved from one reason
+to the other still shows what failed. For a background agent, the causes on
+pairs the judge actually graded come after it under **Tool errors (scored, not
+excluded):**. A pair whose judge call failed is ungraded and is not listed
+there. The two lists never mix, so a reader cannot take a scored pair for an
+excluded one. A record written before the field existed shows
 as `unknown`, `unrecorded`. Anything new that renders a tool error publicly must
 go through `errorClass` and `publicToolName`, never the record's text.
 
