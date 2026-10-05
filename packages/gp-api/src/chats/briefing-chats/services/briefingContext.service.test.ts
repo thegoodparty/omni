@@ -219,6 +219,32 @@ describe('BriefingContextService', () => {
       ).rejects.toBeInstanceOf(BadRequestException)
     })
 
+    // The resourceId is a briefing the caller owns, so only the resourceType
+    // check stands between this annotation and a fully loaded context.
+    it('throws BadRequestException when resourceType is not briefing', async () => {
+      const { electedOffice } = await createOrgAndElectedOffice(service.user.id)
+      const run = await createExperimentRun(electedOffice.organizationSlug)
+      const briefing = await createBriefing({
+        electedOfficeId: electedOffice.id,
+        experimentRunId: run.runId,
+        artifactBucket: 'bucket-a',
+        artifactKey: 'key-a',
+      })
+      s3.seed('bucket-a', 'key-a', 'owned briefing body')
+      const convo = await createConversation(service.user.id)
+      const annotation = await createAnnotation({
+        authorUserId: service.user.id,
+        kind: AnnotationKind.chat,
+        resourceId: briefing.id,
+        resourceType: AnnotationResourceType.ordinance,
+        chatConversationId: convo.id,
+      })
+
+      await expect(
+        ctx.loadContext(annotation.id, service.user.id),
+      ).rejects.toBeInstanceOf(BadRequestException)
+    })
+
     it('throws NotFoundException when annotation.chatConversationId is null', async () => {
       const { electedOffice } = await createOrgAndElectedOffice(service.user.id)
       const run = await createExperimentRun(electedOffice.organizationSlug)

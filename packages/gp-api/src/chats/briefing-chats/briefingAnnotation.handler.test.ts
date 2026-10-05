@@ -1,6 +1,14 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { ChatScope } from '../../generated/prisma'
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   BriefingAnnotationHandler,
@@ -206,6 +214,34 @@ describe('BriefingAnnotationHandler', () => {
     ).loadContext(CONVERSATION_ID, USER_ID)
     expect(resolverOnly.resolveByUserId).not.toHaveBeenCalled()
     expect(withoutProvider.districtFilters).toBeNull()
+  })
+
+  describe('today', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    // 02:00 UTC on May 15 is still the evening of May 14 in New York, so a
+    // date taken in UTC (or the server's zone) would be a day ahead of the
+    // meeting's local calendar.
+    it("is the meeting timezone's calendar date, not UTC's", async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-05-15T02:00:00Z'))
+      expect(HENDERSONVILLE_FIXTURE.briefing.meetingTimezone).toBe(
+        'America/New_York',
+      )
+
+      const ctx = await buildHandler().loadContext(CONVERSATION_ID, USER_ID)
+
+      expect(ctx.today).toBe('2026-05-14')
+    })
+  })
+
+  it('offers no district tools without a warehouse provider', () => {
+    // Filters present, provider absent: the provider gate alone must hold.
+    const tools = buildHandler().buildTools(fixtureContext())
+    expect(tools).not.toHaveProperty('district_insights')
+    expect(tools).not.toHaveProperty('list_district_topics')
   })
 
   it('registers get_my_notes only when the user has notes', async () => {

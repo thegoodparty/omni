@@ -9,8 +9,10 @@ import {
   ElectedOffice,
   ExperimentRunStatus,
   MeetingBriefing,
+  OrganizationRole,
   User,
 } from '../../../generated/prisma'
+import jwt from 'jsonwebtoken'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ChatStreamChunk,
@@ -554,6 +556,112 @@ describe('BriefingChatsController (integration)', () => {
         headers,
       )
       expect(fresh.status).toBe(HttpStatus.OK)
+    })
+  })
+
+  // Registering the handler opens /v1/chats to briefing_annotation, where
+  // ownership is (owner, scope, organizationSlug). Passing the org guard must
+  // not be enough to reach someone else's briefing chat, and the owner must
+  // not reach it under a different org of theirs.
+  describe('registry route ownership (/v1/chats, briefing_annotation)', () => {
+    const createNewChat = async (): Promise<string> => {
+      const res = await service.client.post('/v1/briefing-chats', {
+        meetingDate: MEETING_DATE,
+        anchor: { jsonPath: '$.a', start: 1, end: 5 },
+      })
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const conversationId = res.data.conversationId as string
+      const row = await service.prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+      })
+      expect(row?.organizationSlug).toBe(fixtures.slug)
+      return conversationId
+    }
+
+    const expectUntouched = async (conversationId: string) => {
+      const row = await service.prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+      })
+      expect(row?.deletedAt).toBeNull()
+      expect(
+        await service.prisma.chatMessage.count({ where: { conversationId } }),
+      ).toBe(0)
+    }
+
+    const expectAll404 = async (
+      conversationId: string,
+      config: { headers: Record<string, string> },
+    ) => {
+      const path = `/v1/chats/${conversationId}`
+      const query = '?scope=briefing_annotation'
+      const got = await service.client.get(`${path}${query}`, config)
+      expect(got.status).toBe(HttpStatus.NOT_FOUND)
+      const sent = await service.client.post(
+        `${path}/messages${query}`,
+        { content: 'not yours' },
+        config,
+      )
+      expect(sent.status).toBe(HttpStatus.NOT_FOUND)
+      const deleted = await service.client.delete(`${path}${query}`, config)
+      expect(deleted.status).toBe(HttpStatus.NOT_FOUND)
+      await expectUntouched(conversationId)
+    }
+
+    it('404s another member of the same organization', async () => {
+      const conversationId = await createNewChat()
+      const clerkId = `user_briefing_member_${Math.random().toString(36).slice(2, 10)}`
+      const member = await service.prisma.user.create({
+        data: {
+          email: `${clerkId}@goodparty.org`,
+          clerkId,
+          firstName: 'Member',
+          lastName: 'Other',
+        },
+      })
+      await service.prisma.organizationMembership.create({
+        data: {
+          organizationSlug: fixtures.slug,
+          userId: member.id,
+          role: OrganizationRole.campaignAdmin,
+        },
+      })
+      const asMember = {
+        headers: {
+          'X-Organization-Slug': fixtures.slug,
+          Authorization: `Bearer ${jwt.sign(
+            { sub: clerkId },
+            process.env.AUTH_SECRET!,
+            { expiresIn: '1h' },
+          )}`,
+        },
+      }
+
+      // Control: the member does pass the org guard on this route.
+      const listed = await service.client.get(
+        '/v1/chats?scope=briefing_annotation',
+        asMember,
+      )
+      expect(listed.status).toBe(HttpStatus.OK)
+
+      await expectAll404(conversationId, asMember)
+    })
+
+    it("404s the owner under another of the owner's organizations", async () => {
+      const conversationId = await createNewChat()
+      const { slug: otherSlug } = await createOrgAndElectedOffice(
+        service.user.id,
+      )
+
+      await expectAll404(conversationId, {
+        headers: { 'X-Organization-Slug': otherSlug },
+      })
+
+      // Control: the same calls succeed under the conversation's own org.
+      const own = await service.client.get(
+        `/v1/chats/${conversationId}?scope=briefing_annotation`,
+        { headers: { 'X-Organization-Slug': fixtures.slug } },
+      )
+      expect(own.status).toBe(HttpStatus.OK)
     })
   })
 
