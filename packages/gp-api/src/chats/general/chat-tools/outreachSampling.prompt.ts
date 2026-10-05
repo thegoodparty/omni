@@ -6,8 +6,10 @@ import {
 
 const pct = (fraction: number): string => `${fraction * 100}%`
 const people = (n: number): string => n.toLocaleString('en-US')
-const EXAMPLE_AUDIENCE = 58_520
-const EXAMPLE_SAMPLE = recommendedSampleSize({ audience: EXAMPLE_AUDIENCE })
+export const EXAMPLE_AUDIENCE = 58_520
+export const EXAMPLE_SAMPLE = recommendedSampleSize({
+  audience: EXAMPLE_AUDIENCE,
+})
 
 // How every assistant that proposes outreach sizes a random sample. The
 // numbers come from size_outreach_sample, never from the model, so these
@@ -25,6 +27,6 @@ export const buildSampleSizingRules = (args: {
     : `- Leave replyRate out, and ${pct(DEFAULT_TEXT_REPLY_RATE)} is assumed.`,
   '- Never sample more people than the audience holds. When wholeAudience comes back true, send to all of it, leave sampleSize out, and say so.',
   `- A phone bank is sized by the calls ${args.sender} or their volunteers can realistically make, not by a reply rate. Use judgment from what you know of them, and say what you chose and why. Door knocking the same way, by the doors they can walk. A social post has no audience to sample.`,
-  '- On the card, count stays the whole audience. For a text, set sampleSize, targetResponses and assumedReplyRate to the sampleSize, targetReplies and replyRate that size_outreach_sample returned. For a phone bank or door knocking, set sampleSize to what you chose.',
+  '- On the card, count stays the whole audience. For a text to a sample, set sampleSize, targetResponses and assumedReplyRate to the sampleSize, targetReplies and replyRate that size_outreach_sample returned. For a text to everyone, leave all three out. For a phone bank or door knocking, set sampleSize to what you chose.',
   `- Explain the number once, in one line, in your message: "I'd text ${people(EXAMPLE_SAMPLE)} of the ${people(EXAMPLE_AUDIENCE)}, picked at random. About ${SAMPLE_TARGET_REPLIES} replies is enough to tell ${args.replyGoal}." Never call it statistically proven or representative. It is directional, because the 3 in 100 who reply choose themselves.`,
 ]
