@@ -208,7 +208,7 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'A free campaign website: pick a theme, edit it section by section, and connect a custom domain.',
     inside: [
-      'Reached from the dashboard rather than the left rail',
+      'Not in the left rail, and no dashboard link reaches it: give them the address, app.goodparty.org/dashboard/website',
       'Custom domain setup and its DNS instructions are under the site’s Domain settings',
     ],
   },
