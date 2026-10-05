@@ -423,6 +423,16 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('lets the outreach cards be the choice, never asked about or rebuilt', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'The cards are the choice, so never ask about them',
+    )
+    expect(prompt).toContain('The one exception is a card already on screen')
+    expect(prompt).toContain('Never present it again unless they ask')
+    expect(prompt).not.toContain('ask both groups, just the most affected')
+  })
+
   it('asks every question as a card, open ones included', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain(

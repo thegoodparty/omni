@@ -112,7 +112,9 @@ work already done through `present_outreach_proposal` on whichever channel
 those people answer on, door knocking included. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
 inverted, same gates), each on its own card. The official can take both, one,
-or neither. The check is the ask for its stage. `listen_problem` and
+or neither, from the cards' own buttons: the agent asks no follow-up question
+about them and never rebuilds a card already in the thread, because a second
+ask and a second set of cards read as redundant. The check is the ask for its stage. `listen_problem` and
 `listen_options` never ask again: they are where the answers to the `define`
 and `options` checks land, and with no check on their gate they close on what
 the official and the record already show (`isCheckAnswered` reads no check as
