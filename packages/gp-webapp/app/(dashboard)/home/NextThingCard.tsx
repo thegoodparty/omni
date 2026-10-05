@@ -43,7 +43,8 @@ import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatP
 import CountModal from '../components/tasks/CountModal'
 import FilingInstructionsDetails from '../shared/FilingInstructionsDetails'
 import { useNextThing } from './useNextThing'
-import { questionsFor } from './nextThingCopy'
+import { useCampaign } from '@shared/hooks/useCampaign'
+import { eyebrowFor, questionsFor } from './nextThingCopy'
 import { useSessionHeadline } from './useSessionHeadline'
 
 // A task's own action link, if it has a non-empty one. Trimmed so an empty or
@@ -124,22 +125,28 @@ const reasonTagFor = (task: CampaignTrackerTask): string | null =>
   isTimeBoundTask(task) ? `Deadline ${formatDay(task.date)}` : null
 
 // The headline is the section's heading in every state (loading, error,
-// caught up), so Home always has one stable landmark.
+// caught up), so Home always has one stable landmark. Centered with room
+// below it, it greets the page rather than titling the card.
 const NextThingSection = ({
   headline,
+  eyebrow,
   children,
 }: {
   headline: string | null
+  eyebrow: string | null
   children: React.ReactNode
 }): React.JSX.Element => (
   <section className="flex flex-col gap-5" aria-labelledby="next-thing-heading">
-    <h2
-      id="next-thing-heading"
-      className="text-balance text-2xl font-semibold text-foreground lg:text-3xl"
-    >
-      {/* A blank line holds the height until the session's line arrives. */}
-      {headline ?? '\u00a0'}
-    </h2>
+    {/* Blank lines hold the height until the client fills them in. */}
+    <div className="flex flex-col items-center gap-1 pb-3 pt-2 text-center lg:pt-6">
+      <p className="text-sm text-muted-foreground">{eyebrow ?? '\u00a0'}</p>
+      <h2
+        id="next-thing-heading"
+        className="text-balance text-2xl font-semibold text-foreground lg:text-3xl"
+      >
+        {headline ?? '\u00a0'}
+      </h2>
+    </div>
     {children}
   </section>
 )
@@ -162,6 +169,10 @@ export default function NextThingCard(): React.JSX.Element {
   const [filingOpen, setFilingOpen] = useState(false)
 
   const headline = useSessionHeadline()
+  const [campaign] = useCampaign()
+  // Today is the browser's, so the line waits for the client like the
+  // headline does; the server's clock and time zone would mismatch.
+  const eyebrow = headline === null ? null : eyebrowFor(campaign, new Date())
 
   // Once per task shown, not per render: the tracker query polls.
   const nextId = next?.id ?? null
@@ -220,7 +231,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (isPending) {
     return (
-      <NextThingSection headline={headline}>
+      <NextThingSection headline={headline} eyebrow={eyebrow}>
         <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
           <p className="text-sm text-muted-foreground">
             Loading your next step.
@@ -232,7 +243,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (isError) {
     return (
-      <NextThingSection headline={headline}>
+      <NextThingSection headline={headline} eyebrow={eyebrow}>
         <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
           <p className="text-sm text-muted-foreground">
             We could not load your next step. Refresh to try again.
@@ -244,7 +255,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (!next) {
     return (
-      <NextThingSection headline={headline}>
+      <NextThingSection headline={headline} eyebrow={eyebrow}>
         {tasks.length === 0 ? (
           <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
             <p className="text-sm text-muted-foreground">
@@ -272,7 +283,7 @@ export default function NextThingCard(): React.JSX.Element {
   const reasonTag = reasonTagFor(next)
 
   return (
-    <NextThingSection headline={headline}>
+    <NextThingSection headline={headline} eyebrow={eyebrow}>
       {/* The card sits in a tray, so the two read as one object: the card's
           border overlaps the tray's top and sides, and "Chat about this" sits
           in the strip below it. The questions about the task open in the

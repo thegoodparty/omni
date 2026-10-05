@@ -1,4 +1,7 @@
+import { differenceInCalendarDays, format } from 'date-fns'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
+import { getNextElection } from 'helpers/campaignHelper'
+import type { Campaign } from 'helpers/types'
 
 // Home's words: the headline above the card, and the two questions "Chat
 // about this" offers, keyed on the kind of task.
@@ -55,3 +58,34 @@ export const questionsFor = (
   task: CampaignTrackerTask,
   needsFiling: boolean,
 ): [string, string] => QUESTIONS[kindOf(task, needsFiling)]
+
+const countdownFor = (
+  campaign: Campaign | null,
+  today: Date,
+): string | null => {
+  const election = getNextElection(campaign)
+  if (!election) return null
+  const days = differenceInCalendarDays(
+    new Date(election.nextElectionDate.replace(/-/g, '/')),
+    today,
+  )
+  const name = election.isPrimary ? 'your primary' : 'Election Day'
+  if (days < 0) return null
+  if (days === 0)
+    return election.isPrimary
+      ? 'Your primary is today'
+      : 'Election Day is today'
+  if (days === 1)
+    return election.isPrimary
+      ? 'Your primary is tomorrow'
+      : 'Election Day is tomorrow'
+  return `${days} days to ${name}`
+}
+
+// The quiet line above the headline: today, and how far off the next election
+// is when we know it.
+export const eyebrowFor = (campaign: Campaign | null, today: Date): string => {
+  const date = format(today, 'EEEE, MMMM d')
+  const countdown = countdownFor(campaign, today)
+  return countdown ? `${date} · ${countdown}` : date
+}
