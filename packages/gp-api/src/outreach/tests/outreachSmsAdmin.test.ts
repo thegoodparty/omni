@@ -919,6 +919,28 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       )
       expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     })
+
+    // Peerly refuses a shortened link outright, and the template update is a
+    // destructive overwrite of a live job — so an edit carrying one has to be
+    // refused here, before the vendor write, in our own words.
+    it('400s a script carrying a shortened link, before any vendor write', async () => {
+      const row = await seedOutreach()
+      const updateJob = await withImage(row.id)
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        {
+          script:
+            'Hi {first_name}, donate at bit.ly/47ri12e. Paid for by Friends ' +
+            'of Jane. Reply STOP to opt out.',
+          editedBy: 'cas@goodparty.org',
+        },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain('shortener')
+      expect(updateJob).not.toHaveBeenCalled()
+    })
   })
 
   describe('PATCH /v1/outreach/admin/sms/:id/date (staff date edit)', () => {

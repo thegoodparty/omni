@@ -497,6 +497,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
           )
         }
       }
+      await this.returnStrandedCharge(outreachId, campaign.id, chargeRef, err)
       throw err
     }
 
@@ -621,6 +622,23 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         { outreachId, campaignId, observed, chargeRef },
         'P2P outreach finalize failed after payment',
       )
+      // A captured payment naming a draft this campaign does not own is money
+      // we are holding for a send that cannot be scheduled, and no retry will
+      // change that — but it is the one stranded charge we must NOT refund
+      // automatically. `missing` also covers "the id belongs to another
+      // campaign", where that draft may well have been finalized and sent, and
+      // it cannot be recorded in outreach_stranded_charge either: that row
+      // references the draft, and there is no draft here. So it gets its own
+      // line, loud, and a person decides.
+      if (observed === 'missing' && chargeRef?.startsWith('cs_')) {
+        this.logger.error(
+          { outreachId, campaignId, chargeRef },
+          'CRITICAL P2P stranded charge needs review: a captured payment ' +
+            'names a draft this campaign does not own, so no send can be ' +
+            'scheduled and an automatic refund is not safe. Refund the ' +
+            'session by hand, or correct the draft it should have paid for.',
+        )
+      }
       throw new OutreachStepError(
         'peerlyJobCreation',
         new Error(
@@ -631,6 +649,91 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
                 ? 'a concurrent finalize failed and the retake lost the claim too'
                 : 'a concurrent finalize is still in flight'),
         ),
+      )
+    }
+  }
+
+  /**
+   * Gives a captured payment back when the send it paid for can never happen.
+   *
+   * Only for a permanent refusal, and the test for permanence is deliberately
+   * the same one the payment layer uses to decide it will not redeliver the
+   * webhook: a BadRequestException is the vendor declining the candidate's
+   * content, and no retry of ours gets past it. Anything else may still
+   * schedule on a redelivery, so the money stays where it is.
+   *
+   * Why refund here rather than when the candidate tries again: they cannot fix
+   * this draft: the message has to be edited and scheduled afresh, which takes
+   * a second payment. One candidate did exactly that and paid twice for one
+   * send (2026-09-30), and nothing in the product could find the first charge
+   * to give it back, because a payment is only ever written onto the draft once
+   * a send has scheduled. Recording the charge before refunding it means an
+   * unrefundable one is a row somebody can act on rather than a lost log line.
+   *
+   * Never throws. The caller's error is the one that has to reach the payment
+   * layer; a failure in here must not turn a permanent refusal into a retry.
+   */
+  private async returnStrandedCharge(
+    outreachId: number,
+    campaignId: number,
+    chargeRef: string | undefined,
+    err: unknown,
+  ): Promise<void> {
+    // Only a real Stripe checkout session holds money. The zero-amount path
+    // mints a free_confirmed_* marker, and there is nothing to give back.
+    if (!chargeRef?.startsWith('cs_')) return
+    if (!(err instanceof BadRequestException)) return
+
+    const reason = err.message
+    try {
+      await this.client.outreachStrandedCharge.upsert({
+        where: { checkoutSessionId: chargeRef },
+        create: {
+          outreachId,
+          campaignId,
+          checkoutSessionId: chargeRef,
+          reason,
+        },
+        update: { reason },
+      })
+    } catch (recordErr) {
+      // Still try the refund: the candidate's money matters more than our
+      // bookkeeping, and the log line below names the session either way.
+      this.logger.error(
+        { err: recordErr, outreachId, campaignId, chargeRef },
+        'Could not record the stranded charge for a permanently refused send',
+      )
+    }
+
+    try {
+      const session =
+        await this.stripeService.retrieveCheckoutSession(chargeRef)
+      const paymentIntentId =
+        typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          : session.payment_intent?.id
+      if (!paymentIntentId) {
+        throw new Error('checkout session has no payment intent to refund')
+      }
+      // Keyed on the session, so the browser and the webhook both arriving at
+      // the same refusal refund once.
+      await this.stripeService.refundPaymentIntent(
+        paymentIntentId,
+        `outreach-stranded-${chargeRef}`,
+      )
+      await this.client.outreachStrandedCharge.updateMany({
+        where: { checkoutSessionId: chargeRef, refundedAt: null },
+        data: { refundedAt: new Date() },
+      })
+      this.logger.info(
+        { outreachId, campaignId, chargeRef },
+        'Refunded a payment for a permanently refused P2P send',
+      )
+    } catch (refundErr) {
+      this.logger.error(
+        { err: refundErr, outreachId, campaignId, chargeRef, reason },
+        'CRITICAL P2P stranded charge not refunded: money was captured for a ' +
+          'send the vendor permanently refused and the automatic refund failed',
       )
     }
   }
