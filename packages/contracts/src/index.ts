@@ -824,6 +824,8 @@ export {
 export {
   ShowListMapSchema,
   type ShowListMap,
+  ListProposalSchema,
+  type ListProposal,
 } from './chats/ChiefOfStaffWidgets.schema'
 
 export {

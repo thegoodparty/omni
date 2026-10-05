@@ -1364,6 +1364,12 @@ export type APIEndpoints = {
     } & Record<string, unknown>
     Response: SegmentResponse
   }
+  // The list a chat card created, by the key the card derives. 404 means
+  // the card has not been pressed yet.
+  'GET /v1/voters/voter-file/filter/by-proposal-key/:proposalKey': {
+    Request: { proposalKey: string }
+    Response: SegmentResponse
+  }
   'GET /v1/voters/voter-file/filters': {
     Request: {}
     Response: SegmentResponse[]

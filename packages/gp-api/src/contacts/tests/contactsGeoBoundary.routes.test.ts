@@ -406,6 +406,40 @@ describe('saved list boundaries', () => {
     expect(await geoMemberIds(created.data.id)).toEqual([second])
   })
 
+  // A list proposed in the chat is created from its card. The card has to
+  // know whether it already was, after a reload, and a second press has to
+  // be the same list rather than a twin.
+  describe('lists created from a chat card', () => {
+    const KEY = randomUUID()
+
+    const byKey = (slug: string, key: string) =>
+      service.client.get(
+        `/v1/voters/voter-file/filter/by-proposal-key/${key}`,
+        { headers: { [ORG_SLUG_HEADER]: slug }, validateStatus: () => true },
+      )
+
+    it('404s for a card whose list has not been created', async () => {
+      const slug = await setupServeOrg('card-none')
+
+      expect((await byKey(slug, randomUUID())).status).toBe(404)
+    })
+
+    it('returns the first list when the same card creates again', async () => {
+      const slug = await setupServeOrg('card-twice')
+      const body = { name: 'Homeowners', homeownerYes: true, proposalKey: KEY }
+
+      const first = await createFilter(slug, body)
+      const second = await createFilter(slug, body)
+
+      expect(second.data.id).toBe(first.data.id)
+      expect((await byKey(slug, KEY)).data.id).toBe(first.data.id)
+      const rows = await service.prisma.voterFileFilter.findMany({
+        where: { organizationSlug: slug },
+      })
+      expect(rows).toHaveLength(1)
+    })
+  })
+
   describe('shape names', () => {
     const LABELS = [
       { name: 'Downtown', color: '#2563eb' },

@@ -10,6 +10,7 @@ import {
   NotFoundException,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Post,
   Put,
   Query,
@@ -130,6 +131,25 @@ export class VoterFileController {
     return this.voterFileFilterService.findUsableByOrganizationSlug(
       organization,
     )
+  }
+
+  // Whether a chat card's list has been created yet, so the card can render
+  // as the list once it has. 404 is the ordinary "not yet" answer.
+  @Get('filter/by-proposal-key/:proposalKey')
+  @UseOrganization()
+  async getVoterFileFilterByProposalKey(
+    @Param('proposalKey', ParseUUIDPipe) proposalKey: string,
+    @ReqOrganization() organization: Organization,
+  ) {
+    const filter =
+      await this.voterFileFilterService.findByProposalKeyAndOrganizationSlug(
+        proposalKey,
+        organization.slug,
+      )
+    if (!filter) {
+      throw new NotFoundException('Voter file filter not found')
+    }
+    return filter
   }
 
   @Get('filter/:id')

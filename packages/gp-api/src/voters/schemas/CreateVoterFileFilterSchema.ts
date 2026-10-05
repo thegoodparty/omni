@@ -34,6 +34,9 @@ export class CreateVoterFileFilterSchema extends createZodDto(
     geoPoly: GeoJsonShapeSchema.nullable().optional(),
     // One name and colour per part of `geoPoly`, in the same order.
     geoPolyLabels: GeoShapeLabelsSchema.nullable().optional(),
+    // The chat card this list is being created from, if any. A second
+    // create under the same key returns the first list instead of a twin.
+    proposalKey: z.string().uuid().optional(),
     // Create-only: a sample is drawn once, when the list is saved, and the
     // update schema has nothing to redraw it with.
     sample: ListSampleSchema.optional(),
