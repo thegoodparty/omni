@@ -170,8 +170,9 @@ cached base arm already gets, so it is consistent rather than a special case.
 The report ends with `**Coverage: N of M agents wired (P on placeholder
 inputs).**` M is every registry entry except the blocked ones. N counts the
 `wired` entries, and **an agent is wired once a live sweep from main has
-judged at least one of its pairs.** A case list, a dry run, or a sweep from a
-branch does not count.
+judged at least one of its pairs.** "From main" means the run was dispatched
+from main (its `headBranch` is `main`); the candidate arm is a PR as always. A
+case list or a dry run does not count.
 
 To mark one, set it in `WIRED_BY` in `agents.ts` with the evidence: the
 sweep's run URL (`https://github.com/thegoodparty/omni/actions/runs/<id>`)

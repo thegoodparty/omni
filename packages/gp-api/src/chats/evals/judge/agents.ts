@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { loadCaseList } from './cases'
+import { CaseListError, loadCaseList } from './cases'
 import { AgentShapeSchema } from './record'
 
 // Every agent the judge is meant to cover, wired or not. This file is the
@@ -263,10 +263,21 @@ export interface Coverage {
   blocked: readonly AgentEntry[]
 }
 
+// A list that will not load counts as placeholder inputs: the conservative
+// reading, and one agent's broken file must not fail the plan or the report
+// of a sweep that never touches it. The case-list tests fail that PR anyway.
+export const placeholderOrUnreadable = (agent: AgentEntry): boolean => {
+  try {
+    return loadCaseList(agent).placeholder
+  } catch (err) {
+    if (err instanceof CaseListError) return true
+    throw err
+  }
+}
+
 export const coverage = (
   agents: readonly AgentEntry[] = AGENTS,
-  isPlaceholder: (agent: AgentEntry) => boolean = (agent) =>
-    loadCaseList(agent).placeholder,
+  isPlaceholder: (agent: AgentEntry) => boolean = placeholderOrUnreadable,
 ): Coverage => {
   const blocked = agents.filter((a) => a.status === 'blocked')
   const wired = agents.filter((a) => a.status === 'wired')

@@ -173,6 +173,23 @@ describe('the coverage line', () => {
     )
   })
 
+  // Wired and placeholder differ here, so the parenthetical cannot be
+  // printing the wired count by mistake.
+  it('counts placeholder inputs apart from wired', () => {
+    const mixed: readonly AgentEntry[] = [
+      ...REGISTRY,
+      {
+        agentId: 'race_opponent_summary',
+        shape: 'background',
+        cases: 'race_opponent_summary.json',
+        status: 'wired',
+      },
+    ]
+    expect(coverageLines(mixed)[0]).toBe(
+      '**Coverage: 2 of 3 agents wired (1 on placeholder inputs).**',
+    )
+  })
+
   it('names every blocked agent and its reason', () => {
     expect(coverageLines(REGISTRY).slice(1)).toEqual([
       '- blocked: briefing_annotation — no ChatScopeHandler yet',

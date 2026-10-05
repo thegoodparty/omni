@@ -93,6 +93,7 @@ describe('the agent registry', () => {
     'https://github.com/thegoodparty/omni/pull/123',
     'http://github.com/thegoodparty/omni/actions/runs/123',
     'https://github.com/thegoodparty/omni/actions/runs/123/job/4',
+    'xhttps://github.com/thegoodparty/omni/actions/runs/123',
   ])('refuses evidence that is not an omni run URL: %s', (runUrl) => {
     const bad = AgentEntrySchema.safeParse({
       ...WIRED,
@@ -244,6 +245,16 @@ describe('coverage', () => {
       wiredBy: WIRED.wiredBy,
     } as const
     expect(coverage([real]).placeholder).toBe(0)
+  })
+
+  // One agent's broken list must not fail the plan or report of a sweep
+  // that never touches it, so it counts as placeholder instead of throwing.
+  it('counts a wired agent whose list will not load as placeholder', () => {
+    const broken = {
+      ...requireAgent('chief_of_staff'),
+      cases: 'no-such-list.json',
+    }
+    expect(coverage([broken]).placeholder).toBe(1)
   })
 })
 
