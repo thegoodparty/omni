@@ -424,7 +424,8 @@ describe('buildPlanData seat-aware win number copy', () => {
       }),
     )
 
-    expect(plan.winNumberClause).toBe('enough to finish in the top 3')
+    expect(plan.votesCast).toBe(71828)
+    expect(plan.winNumberGoal).toBe('to secure a finish in the top 3')
     expect(winNumberSource(plan)).toBe(
       'Projecting enough votes to finish in the top 3.',
     )
@@ -435,7 +436,8 @@ describe('buildPlanData seat-aware win number copy', () => {
       makeInput({ projectedTurnout: 2000, winNumber: 1001, numberOfSeats: 1 }),
     )
 
-    expect(plan.winNumberClause).toBe('more than half of the votes cast')
+    expect(plan.votesCast).toBe(2000)
+    expect(plan.winNumberGoal).toBe('you need to win the race')
     expect(winNumberSource(plan)).toBe(
       'Projecting more than half of the votes cast.',
     )
@@ -446,7 +448,8 @@ describe('buildPlanData seat-aware win number copy', () => {
       makeInput({ projectedTurnout: 2000, winNumber: 1001 }),
     )
 
-    expect(plan.winNumberClause).toBeNull()
+    expect(plan.votesCast).toBeNull()
+    expect(plan.winNumberGoal).toBe('you need to win your election')
     expect(winNumberSource(plan)).toBe(
       'Projecting from the voters we expect to cast a ballot.',
     )
@@ -457,6 +460,6 @@ describe('buildPlanData seat-aware win number copy', () => {
     // wouldn't be.
     const plan = buildPlanData(makeInput({ numberOfSeats: 3 }))
 
-    expect(plan.winNumberClause).toBeNull()
+    expect(plan.votesCast).toBeNull()
   })
 })

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  planVotesCast,
+  planWinGoal,
   resolveSeatContext,
   votesProjectedInRace,
   votesProjectedStepDescription,
@@ -165,5 +167,21 @@ describe('plan and pop-up copy', () => {
       'To win 1 of 3 seats',
     )
     expect(winNumberModalLead({ kind: 'unknown' })).toBe('To win')
+  })
+
+  it('leads the plan summary with votes cast, or turnout when seats are unknown', () => {
+    expect(planVotesCast({ kind: 'multi', seats: 3 }, 6042)).toBe(12084)
+    expect(planVotesCast({ kind: 'single' }, 6042)).toBe(6042)
+    expect(planVotesCast({ kind: 'unknown' }, 6042)).toBeNull()
+  })
+
+  it('states the plan goal by seat context', () => {
+    expect(planWinGoal({ kind: 'multi', seats: 3 })).toBe(
+      'to secure a finish in the top 3',
+    )
+    expect(planWinGoal({ kind: 'single' })).toBe('you need to win the race')
+    expect(planWinGoal({ kind: 'unknown' })).toBe(
+      'you need to win your election',
+    )
   })
 })

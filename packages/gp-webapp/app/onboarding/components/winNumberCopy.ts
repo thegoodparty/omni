@@ -104,6 +104,36 @@ export const winNumberPlanSource = (seatContext: SeatContext): string => {
   }
 }
 
+// The campaign plan's "Projected Votes Needed to Win" summary leads with the
+// votes cast in the race rather than turnout, so it never has to explain how
+// voters become votes. Null when seats are unknown: the summary then falls
+// back to turnout. One voter casts one vote in a single-seat race.
+export const planVotesCast = (
+  seatContext: SeatContext,
+  projectedTurnout: number,
+): number | null => {
+  switch (seatContext.kind) {
+    case 'multi':
+      return votesProjectedInRace(projectedTurnout, seatContext.seats)
+    case 'single':
+      return projectedTurnout
+    case 'unknown':
+      return null
+  }
+}
+
+// Completes "This is the lowest amount of votes we project ...".
+export const planWinGoal = (seatContext: SeatContext): string => {
+  switch (seatContext.kind) {
+    case 'multi':
+      return `to secure a finish in the top ${seatContext.seats}`
+    case 'single':
+      return 'you need to win the race'
+    case 'unknown':
+      return 'you need to win your election'
+  }
+}
+
 export const winNumberModalIntro = (seatContext: SeatContext): string =>
   seatContext.kind === 'multi'
     ? `This is how many votes you need to win 1 of ${seatContext.seats} seats.`

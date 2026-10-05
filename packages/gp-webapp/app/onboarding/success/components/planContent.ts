@@ -18,9 +18,10 @@ import {
   resolveWeeksRemaining,
 } from '../../components/volunteerHours'
 import {
+  planVotesCast,
+  planWinGoal,
   resolveSeatContext,
   winNumberPlanSource,
-  winNumberShareClause,
 } from '../../components/winNumberCopy'
 import { VOTER_DEADLINES_2026 } from '../data/voterDeadlines2026'
 
@@ -240,9 +241,11 @@ export interface PlanData {
   projectedTurnout: number
   registeredVoters: number
   voterContactGoal: number
-  // Seat-aware phrase that follows the win number in prose ("enough to finish
-  // in the top 3"). Null when the seat count is unknown.
-  winNumberClause: string | null
+  // Seat-aware pieces of the "Projected Votes Needed to Win" summary (see
+  // winNumberCopy.ts). votesCast is null when the seat count is unknown, and
+  // the summary then states turnout instead.
+  votesCast: number | null
+  winNumberGoal: string
 
   opponentCount: number
   volunteerHourTarget: number
@@ -1194,7 +1197,8 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     projectedTurnout,
     registeredVoters,
     voterContactGoal,
-    winNumberClause: winNumberShareClause(seatContext),
+    votesCast: planVotesCast(seatContext, projectedTurnout),
+    winNumberGoal: planWinGoal(seatContext),
     opponentCount,
     volunteerHourTarget,
     totalBudget,
