@@ -56,8 +56,3 @@ export const questionsFor = (
   task: CampaignTrackerTask,
   needsFiling: boolean,
 ): [string, string] => QUESTIONS[kindOf(task, needsFiling)]
-
-// What chat receives for a question about the next step, so the answer is
-// about that task without the candidate having to say which one.
-export const askAboutStep = (title: string, question: string): string =>
-  `About my next step, "${title}": ${question}`

@@ -3,8 +3,6 @@
 import { useRef, useState } from 'react'
 import { IconButton, Textarea } from '@styleguide'
 import { PlusIcon, SendIcon } from '@styleguide/components/ui/icons'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useUser } from '@shared/hooks/useUser'
 import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
 import {
   CAMPAIGN_MANAGER_HISTORY_KEY,
@@ -14,21 +12,19 @@ import ChatHistoryPopover from '../chief-of-staff/components/chat/ChatHistoryPop
 import { DictationMicButton } from '../shared/dictation/DictationMicButton'
 import { useDictationAppend } from '../shared/dictation/useDictationAppend'
 import { DictationFeedback } from '../briefings/shared/DictationFeedback'
-import { useNextThing } from './useNextThing'
-import { askAboutStep } from './nextThingCopy'
 
 /**
  * Home's chat box, in the page under the next thing rather than in the fixed
- * footer bar the other pages use. Built like a place to work, not a search
- * field: room for a few lines, and a tool row with past chats, attach, voice
- * and send. A question sent here is framed as being about the step above (the
- * model can still answer anything), and opens the chat drawer with it as the
- * candidate's first turn.
+ * footer bar the other pages use. It is the open door for anything about the
+ * campaign; questions about the next thing go through the card's "Chat about
+ * this". Built like a place to work, not a search field: room for a few
+ * lines, and a tool row with attach, past chats, voice and send. Sending opens
+ * the chat drawer with the message as the candidate's first turn.
  */
+const PLACEHOLDER = 'Ask anything about your campaign'
+
 export default function HomeComposer(): React.JSX.Element | null {
   const chat = useCampaignManagerChat()
-  const [user] = useUser()
-  const { next, eventProps } = useNextThing()
   const [message, setMessage] = useState('')
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const dictation = useDictationAppend({
@@ -39,31 +35,13 @@ export default function HomeComposer(): React.JSX.Element | null {
 
   if (!chat) return null
 
-  const firstName = user?.firstName || undefined
-
   const send = (): void => {
     const text = message.trim()
     if (!text) return
     if (dictation.active) void dictation.stop()
-    if (next) {
-      if (eventProps) {
-        trackEvent(EVENTS.Dashboard.CampaignPlan.NextThingStarted, {
-          ...eventProps,
-          via: 'chat',
-        })
-      }
-      chat.sendFromComposer(askAboutStep(next.title, text))
-    } else {
-      chat.sendFromComposer(text)
-    }
+    chat.sendFromComposer(text)
     setMessage('')
   }
-
-  const placeholder = next
-    ? 'How can I help with this step?'
-    : firstName
-      ? `Hi ${firstName}, how can I help?`
-      : 'How can I help?'
 
   return (
     <div className="flex flex-col gap-2">
@@ -79,8 +57,8 @@ export default function HomeComposer(): React.JSX.Element | null {
           ref={inputRef}
           rows={3}
           value={message}
-          placeholder={placeholder}
-          aria-label={placeholder}
+          placeholder={PLACEHOLDER}
+          aria-label={PLACEHOLDER}
           className="min-h-[72px] resize-none border-0 bg-transparent p-1 text-base shadow-none md:text-base focus-visible:ring-0"
           onChange={(event) => setMessage(event.target.value)}
           onKeyDown={(event) => {
