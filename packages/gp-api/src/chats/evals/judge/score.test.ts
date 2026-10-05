@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import {
+  BACKGROUND_TOOL_ERROR_PAIR,
   BLOCKED_PAIR,
   CHAT_PAIR,
   INFRA_ERROR_PAIR,
@@ -1137,6 +1138,10 @@ describe('ungraded reasons reach the score', () => {
 
 // A COUNT WITHOUT A CAUSE. Two live sweeps excluded every pair for a tool
 // error and said only how many; naming the tool took a diagnostic branch.
+//
+// The records here are background-shaped, so their pairs are SCORED rather
+// than excluded and the causes land in `scoredToolErrorCauses`. The grouping
+// is the same function either way; the chat case below pins the other list.
 describe('tool error causes', () => {
   const TRACEBACK =
     "Exit code 1\nTraceback (most recent call last):\nKeyError: 'PARAMS_JSON'"
@@ -1160,6 +1165,19 @@ describe('tool error causes', () => {
     runId: `${record.arm}_${caseId}`,
   })
   const params = [{ tool: 'Bash', message: TRACEBACK }]
+  // A graded primary judgment for every judged pair, so each one counts as
+  // SCORED: the scored list names only pairs the judge actually graded.
+  const gradedAll = (agent: NormalizedAgent): Judgment[] =>
+    agent.judgeable.map((c) =>
+      judgment({
+        caseId: c.caseId,
+        attempt: c.attempt,
+        slotMap: c.slotMap,
+        verdict: 'tie',
+      }),
+    )
+  const scoreGraded = (agent: NormalizedAgent): AgentScore =>
+    score(gradedAll(agent), noFloor(), agent)
 
   it('groups by tool and error class, counting pairs and naming arms', () => {
     const agent = normalizeAgent(
@@ -1177,7 +1195,12 @@ describe('tool error causes', () => {
       () => 0,
     )
 
-    expect(score([], noFloor(), agent).exclusions.toolErrorCauses).toEqual([
+    const result = scoreGraded(agent)
+    // None of these pairs was excluded: a background tool error is evidence
+    // beside the verdict, not a reason to drop the pair.
+    expect(result.exclusions.toolError).toBe(0)
+    expect(result.exclusions.toolErrorCauses).toEqual([])
+    expect(result.scoredToolErrorCauses).toEqual([
       {
         tool: 'Bash',
         errorClass: 'KeyError',
@@ -1212,9 +1235,9 @@ describe('tool error causes', () => {
       ]),
       () => 0,
     )
-    expect(
-      score([], noFloor(), agent).exclusions.toolErrorCauses.map((c) => c.tool),
-    ).toEqual(['unknown'])
+    expect(scoreGraded(agent).scoredToolErrorCauses.map((c) => c.tool)).toEqual(
+      ['unknown'],
+    )
   })
 
   it('keeps a broker tool and a registered chat tool', () => {
@@ -1240,19 +1263,135 @@ describe('tool error causes', () => {
       ],
       () => 0,
     )
-    expect(
-      score([], noFloor(), agent)
-        .exclusions.toolErrorCauses.map((c) => c.tool)
-        .sort(),
-    ).toEqual([
+    const result = scoreGraded(agent)
+    // Each list on its own: merged, a cause routed to the wrong one would pass.
+    // The broker tool was on a background record, so it was scored.
+    expect(result.scoredToolErrorCauses.map((c) => c.tool)).toEqual([
       'mcp__broker__GET_community_issues',
-      'query_constituent_data',
-      'unknown',
     ])
+    // The chat records keep the old rule and are excluded.
+    expect(result.exclusions.toolErrorCauses.map((c) => c.tool).sort()).toEqual(
+      ['query_constituent_data', 'unknown'],
+    )
   })
 
   it('is empty when nothing was excluded for a tool error', () => {
     const agent = normalizeAgent(CHAT_PAIR, () => 0)
     expect(score([], noFloor(), agent).exclusions.toolErrorCauses).toEqual([])
+    expect(score([], noFloor(), agent).scoredToolErrorCauses).toEqual([])
+  })
+
+  // Chat keeps the old rule: its tool-error pair is excluded, so its cause is
+  // an exclusion cause and never a scored one.
+  it('keeps a chat tool error in the exclusion list only', () => {
+    const result = score(
+      [],
+      noFloor(),
+      normalizeAgent(TOOL_ERROR_PAIR, () => 0),
+    )
+    expect(result.exclusions.toolError).toBe(1)
+    expect(result.exclusions.toolErrorCauses.map((c) => c.tool)).toEqual([
+      'query_constituent_data',
+    ])
+    expect(result.scoredToolErrorCauses).toEqual([])
+  })
+
+  // The decision this rests on: a background pair whose arms hit a failing
+  // Bash snippet and recovered is judged on its artifact, and what failed is
+  // still measured and named beside the verdict.
+  it('scores a background tool-error pair and still measures it', () => {
+    const result = scoreGraded(
+      normalizeAgent(BACKGROUND_TOOL_ERROR_PAIR, () => 0),
+    )
+    expect(result.exclusions.toolError).toBe(0)
+    expect(result.evidence.pairs).toBe(1)
+    expect(result.evidence.toolErrors).toEqual({
+      base: 2,
+      candidate: 1,
+      delta: -1,
+    })
+    expect(result.scoredToolErrorCauses).toEqual([
+      {
+        tool: 'Bash',
+        errorClass: 'exit code 1',
+        pairs: 1,
+        arms: ['base', 'candidate'],
+      },
+      { tool: 'Bash', errorClass: 'ValueError', pairs: 1, arms: ['base'] },
+    ])
+  })
+
+  // A pair whose judge call failed is ungraded: it was never scored, so it
+  // must not appear under "scored, not excluded". Its tool errors are still
+  // in the measured delta, which is over every pair that produced a result.
+  it('leaves a pair the judge never graded out of the scored list', () => {
+    const agent = normalizeAgent(
+      [
+        failing(BASE, 'graded', params),
+        clean(CANDIDATE, 'graded'),
+        failing(BASE, 'ungraded', [{ tool: 'Read', message: 'boom' }]),
+        clean(CANDIDATE, 'ungraded'),
+      ],
+      () => 0,
+    )
+    const graded = gradedAll(agent).filter((j) => j.key.caseId === 'graded')
+    const ungraded: Judgment = {
+      kind: 'ungraded',
+      key: { caseId: 'ungraded', attempt: 1, order: 'primary' },
+      reason: 'every seat failed',
+    }
+    const result = score([...graded, ungraded], noFloor(), agent)
+    expect(result.scoredToolErrorCauses.map((c) => c.tool)).toEqual(['Bash'])
+    expect(result.exclusions.ungraded).toBe(1)
+    expect(result.evidence.toolErrors.base).toBe(1)
+  })
+
+  // A background pair with tool errors is no longer excluded for them, so
+  // when its arms share a config digest it is excluded as identicalConfig
+  // instead. Before, it was a tool-error exclusion and its causes were
+  // listed; they must still be, under the exclusion list, naming only the
+  // arms that actually failed.
+  it('lists the tool errors of an identical-config exclusion', () => {
+    const differs = [clean(BASE, 'differs'), clean(CANDIDATE, 'differs')]
+    const same = (record: RunRecord, details?: RunRecord['toolErrorDetails']) =>
+      ({
+        ...(details ? failing(record, 'same', details) : clean(record, 'same')),
+        variant: { ...record.variant, configDigest: 'same-digest' },
+      }) satisfies RunRecord
+    const agent = normalizeAgent(
+      [
+        ...differs,
+        same(BASE, [{ tool: 'Bash', message: 'exit code 1' }]),
+        same(CANDIDATE),
+      ],
+      () => 0,
+    )
+    expect(agent.excluded.map((e) => e.reason)).toEqual(['identicalConfig'])
+    const result = scoreGraded(agent)
+    expect(result.exclusions.toolErrorCauses).toEqual([
+      { tool: 'Bash', errorClass: 'exit code 1', pairs: 1, arms: ['base'] },
+    ])
+    expect(result.scoredToolErrorCauses).toEqual([])
+  })
+
+  // An identical-config exclusion with no tool error adds no cause line.
+  it('adds nothing for a clean identical-config exclusion', () => {
+    const agent = normalizeAgent(
+      [
+        clean(BASE, 'differs'),
+        clean(CANDIDATE, 'differs'),
+        {
+          ...clean(BASE, 'same'),
+          variant: { ...BASE.variant, configDigest: 'd' },
+        },
+        {
+          ...clean(CANDIDATE, 'same'),
+          variant: { ...CANDIDATE.variant, configDigest: 'd' },
+        },
+      ],
+      () => 0,
+    )
+    expect(agent.excluded.map((e) => e.reason)).toEqual(['identicalConfig'])
+    expect(scoreGraded(agent).exclusions.toolErrorCauses).toEqual([])
   })
 })

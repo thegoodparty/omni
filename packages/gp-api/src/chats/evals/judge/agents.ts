@@ -239,6 +239,10 @@ const WIRED_BY: Partial<Record<string, WiredBy>> = {
     runUrl: 'https://github.com/thegoodparty/omni/actions/runs/37161231631',
     date: '2026-10-03',
   },
+  race_opponent_summary: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/37355882821',
+    date: '2026-10-05',
+  },
 } satisfies Partial<Record<ChatAgentId | BackgroundAgentId, WiredBy>>
 
 const withWiring = (entry: AgentEntry): AgentEntry => {

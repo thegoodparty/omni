@@ -11,7 +11,12 @@ import {
 } from '../caseParams'
 import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
-import { RunRecordSchema, type Arm, type RunRecord } from '../record'
+import {
+  isComparable,
+  RunRecordSchema,
+  type Arm,
+  type RunRecord,
+} from '../record'
 import {
   artifactKey,
   backgroundConfigDigest,
@@ -20,6 +25,7 @@ import {
   CACHED_BASE_ARM_SCHEMA_VERSION,
   captureCostUsd,
   ciContext,
+  isCacheableBase,
   isJudgeRunId,
   JUDGE_RUN_ID_PREFIX,
   judgeRunId,
@@ -1631,6 +1637,9 @@ describe('runBackgroundBaseArm', () => {
     )
   })
 
+  // Comparable, so it is scored this sweep, but never cached: a base arm
+  // captured during a credential or broker outage would otherwise become the
+  // baseline for every later sweep of the digest.
   it('refuses to cache a base arm whose tools failed', async () => {
     const input = baseInput()
     const runId = idFor(input)
@@ -1654,7 +1663,39 @@ describe('runBackgroundBaseArm', () => {
     expect(result.record.toolErrorDetails).toEqual([
       { tool: 'Bash', message: 'no error text' },
     ])
+    expect(isComparable(result.record)).toBe(true)
     expect(result.cache).toBe('notCached')
+    expect(store.puts.map((p) => p.key)).not.toContain(
+      baseArmCacheKey(
+        AGENT,
+        backgroundConfigDigest(config),
+        input.agentCase.caseId,
+      ),
+    )
+  })
+
+  it('caches a clean background base arm', async () => {
+    const input = baseInput()
+    const store = completedRun(input, idFor(input))
+
+    const result = await runBackgroundBaseArm(
+      deps(store, fakeQueue(), fakeClock()),
+      input,
+      METADATA_BUCKET,
+    )
+
+    expect(result.record.agentShape).toBe('background')
+    expect(result.record.status).toBe('produced')
+    expect(result.record.telemetry.toolErrors).toBe(0)
+    expect(isCacheableBase(result.record)).toBe(true)
+    expect(result.cache).toBe('miss')
+    expect(store.puts.map((p) => p.key)).toContain(
+      baseArmCacheKey(
+        AGENT,
+        backgroundConfigDigest(config),
+        input.agentCase.caseId,
+      ),
+    )
   })
 
   it('treats a cache entry that no longer fits the contract as a miss', async () => {
@@ -1730,6 +1771,8 @@ describe('runBackgroundBaseArm', () => {
         ...honest,
         variant: { ...honest.variant, configDigest: 'a-different-digest' },
       },
+      { ...honest, status: 'infraError' as const, output: null },
+      // Comparable, but a base arm with tool errors is never a baseline.
       {
         ...honest,
         telemetry: { ...honest.telemetry, toolCalls: 1, toolErrors: 1 },
