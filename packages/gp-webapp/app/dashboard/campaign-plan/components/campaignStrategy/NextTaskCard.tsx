@@ -37,6 +37,8 @@ import { formatTaskDate } from './CampaignStrategyTaskRow'
 import { useCompleteTrackerTask } from './useCompleteTrackerTask'
 import { isVoterContactFlowType, useTrackerTasks } from './useTrackerTasks'
 import { selectTopDynamicTasks } from 'app/dashboard/campaign-manager/selectTopDynamicTasks'
+import { BALLOT_CARD_COPY } from 'app/dashboard/campaign-manager/GetOnBallotCard'
+import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 import type {
   CampaignStrategyData,
   CampaignStrategyPhase,
@@ -64,6 +66,9 @@ const findNextTask = (
 // shape and the stacked priorities from raw rows, so both narrow to this.
 type DeckTask = Pick<CampaignStrategyTask, 'id' | 'title' | 'description'> & {
   date: string | null
+  // Set for the Campaign Manager's own prompts (ballot, story, meet), which
+  // join the stack as cards with their one action instead of a task's.
+  prompt?: { ctaLabel: string; onCta: () => void }
 }
 
 // Sent as the candidate's first message, so the manager answers about this
@@ -212,6 +217,7 @@ const NextTaskCard = ({
   const [campaign] = useCampaign()
   const { tasks } = useTrackerTasks()
   const chat = useCampaignManagerChat()
+  const story = useCampaignStoryComplete(true)
   const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks)
   const [confirmTaskId, setConfirmTaskId] = useState<string | null>(null)
   // The plan's next step leads the page but can be folded away. The manager's
@@ -245,9 +251,70 @@ const NextTaskCard = ({
     return findNextTask(buildTrackerStrategy(tasks, { electionDate }))
   }, [tasks, electionDateIso])
 
+  // Every "do this now" card lives in this one stack, in the order the
+  // candidate needs them: get on the ballot, tell the story (which is what
+  // creates tracker tasks at all), the tasks themselves, then meeting the
+  // manager. Prompts need the chat dock, so they drop out without it.
+  const ballotCopy =
+    campaign?.ballotStatus === 'qualified-not-filed' ||
+    campaign?.ballotStatus === 'considering'
+      ? BALLOT_CARD_COPY[campaign.ballotStatus]
+      : null
+  const storyPending = !story.isLoading && !story.isError && !story.isComplete
+  const leadPrompts: DeckTask[] = chat
+    ? [
+        ...(ballotCopy
+          ? [
+              {
+                id: 'prompt-ballot',
+                title: ballotCopy.title,
+                description: ballotCopy.description,
+                date: null,
+                prompt: {
+                  ctaLabel: ballotCopy.ctaLabel,
+                  onCta: chat.startBallotAccess,
+                },
+              },
+            ]
+          : []),
+        ...(storyPending
+          ? [
+              {
+                id: 'prompt-story',
+                title: 'Tell us your campaign story',
+                description:
+                  'Share your why, your background, and the issues you care about to sharpen your plan.',
+                date: null,
+                prompt: {
+                  ctaLabel: 'Personalize your campaign',
+                  onCta: chat.startStory,
+                },
+              },
+            ]
+          : []),
+      ]
+    : []
+  const trailPrompts: DeckTask[] =
+    chat && !chat.meetDismissed
+      ? [
+          {
+            id: 'prompt-meet',
+            title: 'Meet your virtual Campaign Manager',
+            description:
+              'Introducing your Campaign Manager. Get a quick tour for how it can help.',
+            date: null,
+            prompt: {
+              ctaLabel: 'Meet your Campaign Manager',
+              onCta: chat.openManager,
+            },
+          },
+        ]
+      : []
   const deck: DeckTask[] = [
+    ...leadPrompts,
     ...(nextTask ? [nextTask] : []),
     ...selectTopDynamicTasks(tasks).filter((task) => task.id !== nextTask?.id),
+    ...trailPrompts,
   ]
   // Skipping sends a card to the back of the stack, in the order skipped. Only
   // for this visit: it reorders the stack, it does not reschedule the task.
@@ -261,10 +328,12 @@ const NextTaskCard = ({
   const frontPhase = tasks.find((row) => row.id === frontTask.id)?.phase
   const phaseTitle = PHASE_META.find((phase) => phase.key === frontPhase)?.title
   const dueDate = formatTaskDate(frontTask.date)
-  const action = taskAction(
-    tasks.find((row) => row.id === frontTask.id),
-    surface,
-  )
+  const action = frontTask.prompt
+    ? null
+    : taskAction(
+        tasks.find((row) => row.id === frontTask.id),
+        surface,
+      )
 
   return (
     <Collapsible
@@ -335,7 +404,11 @@ const NextTaskCard = ({
             )}
             <Card className="relative min-h-20 gap-0 overflow-hidden rounded-2xl border-components-input-border py-0">
               <div className="flex flex-col gap-1 px-6 py-5">
-                {phaseTitle && <Overline>{phaseTitle}</Overline>}
+                {frontTask.prompt ? (
+                  <Overline>Campaign Manager</Overline>
+                ) : (
+                  phaseTitle && <Overline>{phaseTitle}</Overline>
+                )}
                 <h3 className="font-opensans text-lg font-medium text-card-foreground">
                   {frontTask.title}
                 </h3>
@@ -346,48 +419,69 @@ const NextTaskCard = ({
                   {frontTask.description}
                 </p>
                 <div className="flex flex-wrap gap-2 pt-3">
-                  {action && (
-                    <Button asChild size="small">
-                      {action.external ? (
-                        <a href={action.href} target="_blank" rel="noreferrer">
-                          {action.label}
-                          <ExternalLinkIcon className="size-4" aria-hidden />
-                        </a>
-                      ) : (
-                        <Link href={action.href}>{action.label}</Link>
-                      )}
-                    </Button>
-                  )}
-                  {chat && (
+                  {frontTask.prompt ? (
                     <Button
                       type="button"
-                      variant={action ? 'outline' : 'default'}
                       size="small"
-                      onClick={() =>
-                        chat.discussTask(discussTaskMessage(frontTask))
-                      }
+                      onClick={frontTask.prompt.onCta}
                     >
-                      <MessageSquareIcon className="size-4" aria-hidden />
-                      Discuss in chat
+                      {frontTask.prompt.ctaLabel}
                     </Button>
+                  ) : (
+                    <>
+                      {action && (
+                        <Button asChild size="small">
+                          {action.external ? (
+                            <a
+                              href={action.href}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {action.label}
+                              <ExternalLinkIcon
+                                className="size-4"
+                                aria-hidden
+                              />
+                            </a>
+                          ) : (
+                            <Link href={action.href}>{action.label}</Link>
+                          )}
+                        </Button>
+                      )}
+                      {chat && (
+                        <Button
+                          type="button"
+                          variant={action ? 'outline' : 'default'}
+                          size="small"
+                          onClick={() =>
+                            chat.discussTask(discussTaskMessage(frontTask))
+                          }
+                        >
+                          <MessageSquareIcon className="size-4" aria-hidden />
+                          Discuss in chat
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant={action || chat ? 'outline' : 'default'}
+                        size="small"
+                        onClick={() => {
+                          const row = tasks.find(
+                            (task) => task.id === frontTask.id,
+                          )
+                          // The count modal already stands in front of these.
+                          if (isVoterContactFlowType(row?.flowType ?? null)) {
+                            onToggleComplete(frontTask.id, true)
+                            return
+                          }
+                          setConfirmTaskId(frontTask.id)
+                        }}
+                      >
+                        <CheckIcon className="size-4" aria-hidden />
+                        Mark as done
+                      </Button>
+                    </>
                   )}
-                  <Button
-                    type="button"
-                    variant={action || chat ? 'outline' : 'default'}
-                    size="small"
-                    onClick={() => {
-                      const row = tasks.find((task) => task.id === frontTask.id)
-                      // The count modal already stands in front of these.
-                      if (isVoterContactFlowType(row?.flowType ?? null)) {
-                        onToggleComplete(frontTask.id, true)
-                        return
-                      }
-                      setConfirmTaskId(frontTask.id)
-                    }}
-                  >
-                    <CheckIcon className="size-4" aria-hidden />
-                    Mark as done
-                  </Button>
                   {deck.length > 1 && (
                     <Button
                       type="button"

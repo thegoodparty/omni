@@ -2,13 +2,11 @@
 
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
-import CampaignManagerTasks from './CampaignManagerTasks'
 import NextTaskCard from '../campaign-plan/components/campaignStrategy/NextTaskCard'
 import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
 import ProUpgrade3ComplianceCard from '../components/campaignManager/ProUpgrade3ComplianceCard'
 import ProgressSection from '../components/campaignManager/ProgressSection'
-import { useCampaignManagerChat } from './CampaignManagerChatProvider'
 import { useUser } from '@shared/hooks/useUser'
 import type { TcrCompliance } from 'helpers/types'
 
@@ -35,7 +33,6 @@ export default function CampaignManagerHome({
 }: {
   tcrCompliance: TcrCompliance | null
 }): React.JSX.Element {
-  const chat = useCampaignManagerChat()
   const [user] = useUser()
   const firstName = user?.firstName
 
@@ -59,16 +56,6 @@ export default function CampaignManagerHome({
           </CampaignUpdateHistoryProvider>
         </VoterContactsProvider>
       </div>
-      {/* onMeetManager is a general open, so it dismisses the meet card.
-          onPersonalize launches the story-intake chat flow without dismissing
-          the meet card, same as the deep link the plan-tab gate links use. */}
-      <CampaignManagerTasks
-        showMeetCard={!chat?.meetDismissed}
-        onMeetManager={() => chat?.openManager()}
-        onSkipMeet={() => chat?.dismissMeetCard()}
-        onPersonalize={() => chat?.startStory()}
-        onGetOnBallot={() => chat?.startBallotAccess()}
-      />
     </div>
   )
 }

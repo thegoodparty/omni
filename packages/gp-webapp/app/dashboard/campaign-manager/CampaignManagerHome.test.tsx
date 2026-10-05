@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
@@ -191,6 +191,21 @@ beforeEach(() => {
   surfacePropsMock.mockClear()
 })
 
+// Every prompt now lives in the one next-task stack, and a fresh candidate's
+// stack leads with the story prompt. Skip forward until the named card is in
+// front. `hidden` so it still works behind an open (aria-hiding) chat drawer.
+async function bringToFront(title: string): Promise<void> {
+  for (let i = 0; i < 5; i += 1) {
+    if (screen.queryByRole('heading', { name: title, hidden: true })) return
+    // fireEvent, not user.click: an open drawer sets pointer-events: none on
+    // the page behind it, which user-event refuses to click through.
+    fireEvent.click(screen.getByRole('button', { name: 'Skip', hidden: true }))
+    await waitFor(() => undefined)
+  }
+}
+
+const MEET_TITLE = 'Meet your virtual Campaign Manager'
+
 // Opens the manager chat onto its seeded greeting: clicking "meet your
 // campaign manager" resolves the conversation, and listMessages returns the
 // server-seeded greeting as the sole assistant message (played back, then
@@ -209,6 +224,7 @@ async function openOnSeededGreeting(): Promise<void> {
 
   const user = userEvent.setup()
   renderHome()
+  await bringToFront(MEET_TITLE)
   await user.click(
     screen.getByRole('button', { name: /meet your campaign manager/i }),
   )
@@ -219,8 +235,9 @@ describe('CampaignManagerHome', () => {
   it('renders the tasks surface and campaign-manager chat entries', () => {
     renderHome()
 
+    // The stack leads with the story prompt for a candidate without one.
     expect(
-      screen.getByRole('button', { name: /meet your campaign manager/i }),
+      screen.getByRole('button', { name: 'Personalize your campaign' }),
     ).toBeInTheDocument()
     // The footer chat bar uses the campaign-manager open label, not CoS.
     expect(
@@ -519,13 +536,14 @@ describe('CampaignManagerHome meet-card dismissal', () => {
   // "present but behind the open chat" (not dismissed).
   const meetHeading = () =>
     screen.queryByRole('heading', {
-      name: 'Meet your virtual Campaign Manager',
-      level: 2,
+      name: MEET_TITLE,
+      level: 3,
       hidden: true,
     })
 
-  it('shows the meet card for a fresh candidate', () => {
+  it('shows the meet card for a fresh candidate', async () => {
     renderHome()
+    await bringToFront(MEET_TITLE)
     expect(meetHeading()).toBeInTheDocument()
   })
 
@@ -540,7 +558,6 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     )
     const user = userEvent.setup()
     renderHome()
-    expect(meetHeading()).toBeInTheDocument()
 
     await user.click(
       screen.getByRole('button', { name: 'Personalize your campaign' }),
@@ -552,6 +569,7 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     )
 
     // Starting the story is not "meeting the manager", so the card stays.
+    await bringToFront(MEET_TITLE)
     expect(meetHeading()).toBeInTheDocument()
   })
 
@@ -560,6 +578,7 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     listMessagesMock.mockResolvedValue([])
     const user = userEvent.setup()
     renderHome()
+    await bringToFront(MEET_TITLE)
     expect(meetHeading()).toBeInTheDocument()
 
     await user.click(
@@ -574,6 +593,7 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     listMessagesMock.mockResolvedValue([])
     const user = userEvent.setup()
     const { unmount } = renderHome()
+    await bringToFront(MEET_TITLE)
 
     await user.click(
       screen.getByRole('button', { name: /meet your campaign manager/i }),
