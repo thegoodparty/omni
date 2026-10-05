@@ -480,7 +480,7 @@ const NextTaskCard = ({
                   {frontTask.prompt ? (
                     <Button
                       type="button"
-                      size="small"
+                      size="medium"
                       className="w-full sm:w-auto"
                       onClick={frontTask.prompt.onCta}
                     >
@@ -491,7 +491,7 @@ const NextTaskCard = ({
                       {action && (
                         <Button
                           asChild
-                          size="small"
+                          size="medium"
                           className="w-full sm:w-auto"
                         >
                           {action.external ? (
@@ -515,7 +515,7 @@ const NextTaskCard = ({
                         <Button
                           type="button"
                           variant={action ? 'outline' : 'default'}
-                          size="small"
+                          size="medium"
                           className="w-full sm:w-auto"
                           onClick={() =>
                             chat.discussTask(discussTaskMessage(frontTask))
