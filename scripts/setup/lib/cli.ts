@@ -9,8 +9,10 @@
 //     values — this is the one place in the setup flow that touches real
 //     secrets, so it must not become the one place that leaks one).
 //
-//   npx tsx scripts/setup/lib/cli.ts build <pkg> <copiedEnvPath|-> <outPath>
-//     Merge copied values (or nothing, if `-`) with <pkg>'s local-only
+//   npx tsx scripts/setup/lib/cli.ts build <pkg> <copiedEnvPath|-> <outPath> \
+//       [<underEnvPath>]
+//     Merge copied values (or nothing, if `-`), laid over underEnvPath's
+//     values when given (an existing .env being refreshed), with <pkg>'s local-only
 //     defaults and its .env.example placeholders (buildMergedEnv's
 //     precedence), validate the result, and write it to outPath. Exits 1
 //     with missing var NAMES on stderr and writes nothing if the merged env
@@ -163,15 +165,19 @@ const runCheck = async (pkgName: string, envFilePath: string) => {
   process.exit(0)
 }
 
-const runBuild = async (
+export const runBuild = async (
   pkgName: string,
   copiedEnvPath: string,
   outPath: string,
+  underEnvPath?: string,
 ) => {
   const pkg = PACKAGES[pkgName] ?? fail(`unknown package "${pkgName}"`)
   const { envSchema, ENV_VAR_CONTRACT } = await loadSchemaModule(pkg)
 
-  const copied = copiedEnvPath === '-' ? {} : readEnvFile(copiedEnvPath)
+  const copied = {
+    ...(underEnvPath ? readEnvFile(underEnvPath) : {}),
+    ...(copiedEnvPath === '-' ? {} : readEnvFile(copiedEnvPath)),
+  }
   const placeholder = readEnvFile(join(REPO_ROOT, pkg.envExamplePath))
   const keys = Object.keys(ENV_VAR_CONTRACT)
   const merged = buildMergedEnv(keys, copied, pkg.localOnly, placeholder)
@@ -189,7 +195,8 @@ const runBuild = async (
   if (dark.length > 0) {
     console.error(
       `${pkgName}: these features stay off until their key is set ` +
-        `(ask an admin to add it to LOCAL_DEV_ENV, see docs/secrets.md):`,
+        `(ask an admin to add it to LOCAL_DEV_ENV, see docs/secrets.md, ` +
+        `then run npm run setup -- --secrets-only --refresh):`,
     )
     for (const line of dark) console.error(`  - ${line}`)
   }
@@ -323,7 +330,7 @@ const main = async () => {
     return
   }
   if (command === 'build' && argv[1] && argv[2] && argv[3]) {
-    await runBuild(argv[1], argv[2], argv[3])
+    await runBuild(argv[1], argv[2], argv[3], argv[4])
     return
   }
   // clientId (argv[1]) may legitimately be the empty string — that's the
@@ -358,7 +365,7 @@ const main = async () => {
     [
       'Usage:',
       '  cli.ts check <pkg> <envFilePath>',
-      '  cli.ts build <pkg> <copiedEnvPath|-> <outPath>',
+      '  cli.ts build <pkg> <copiedEnvPath|-> <outPath> [<underEnvPath>]',
       '  cli.ts device-flow <clientId> <apiUrl> <outDir> <pkg...>',
       '  cli.ts get-var <envFilePath> <varName>',
       '  cli.ts seed-login <userState>   (secret via env var',
