@@ -10,7 +10,7 @@ import HomeComposer from './HomeComposer'
  */
 export default function Home(): React.JSX.Element {
   return (
-    <div className="flex min-h-screen flex-col bg-muted">
+    <div className="flex min-h-screen flex-col">
       <div className="mx-auto flex w-full max-w-[640px] flex-col gap-5 px-4 pb-16 pt-10 lg:pt-16">
         <NextThingCard />
         <HomeComposer />

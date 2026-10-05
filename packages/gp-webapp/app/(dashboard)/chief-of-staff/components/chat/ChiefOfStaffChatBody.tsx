@@ -130,6 +130,13 @@ interface Props {
    * (the larger action cards). Omit for CoS / Community Issues.
    */
   quickPrompts?: string[]
+  /**
+   * Keep the quick prompts up after a hidden kickoff and its reply, until the
+   * user sends something themselves. For an entry that opens on the agent's
+   * own overview of a topic and offers questions about it (Home's "Chat about
+   * this"). Off by default: elsewhere any send, hidden or not, ends them.
+   */
+  keepQuickPromptsAfterKickoff?: boolean
   /** Composer placeholder. Defaults to the generic "How can I help?". */
   composerPlaceholder?: string
   /**
@@ -292,6 +299,7 @@ function ChiefOfStaffChatThread({
   suggestions,
   showSuggestionsWithGreeting = false,
   quickPrompts,
+  keepQuickPromptsAfterKickoff = false,
   composerPlaceholder = 'How can I help?',
   pendingKickoff,
   pendingMessage,
@@ -343,6 +351,8 @@ function ChiefOfStaffChatThread({
   // with-greeting starter chips off after a hidden kickoff (which adds no user
   // turn).
   const [hasSent, setHasSent] = useState(false)
+  // True once the user has sent a visible message this session.
+  const [hasSentVisible, setHasSentVisible] = useState(false)
   // Contents sent hidden this session; their persisted user turn is dropped from
   // the rendered transcript (the engine reconciles against the raw server
   // transcript, which includes the hidden turn).
@@ -1020,6 +1030,7 @@ function ChiefOfStaffChatThread({
         )
       } else {
         lastUserContentRef.current = trimmed
+        setHasSentVisible(true)
       }
       const id = await ensureConversationId()
       if (!id) {
@@ -1344,6 +1355,10 @@ function ChiefOfStaffChatThread({
       (showSuggestionsWithGreeting && isPristineGreeting)) &&
     !sending &&
     !streamError
+  const showQuickPrompts = keepQuickPromptsAfterKickoff
+    ? !hasSentVisible && !sending && !playback && !streamError
+    : showStarters
+
   const suggestionsAsCards = effectiveSuggestions.some((s) =>
     Boolean(s.description),
   )
@@ -1552,7 +1567,7 @@ function ChiefOfStaffChatThread({
       )}
 
       <div className="border-t border-border px-3 py-3">
-        {quickPrompts && quickPrompts.length > 0 && showStarters && (
+        {quickPrompts && quickPrompts.length > 0 && showQuickPrompts && (
           <div className="mx-auto mb-3 flex w-full max-w-[608px] flex-wrap gap-2">
             {quickPrompts.map((prompt) => (
               <Badge

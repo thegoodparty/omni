@@ -36,17 +36,20 @@ export const buildCampaignManagerIntro = (
 export const CAMPAIGN_MANAGER_BALLOT_KICKOFF =
   'How do I get on the ballot for my race?'
 
-// The next-thing card's "Ask in chat" kickoff. Same treatment as the ballot
-// kickoff: real English the model answers, sent hidden, read back as the
-// candidate's own question when the thread is replayed.
-export const buildAskAboutTaskKickoff = ({
+// Home's "Chat about this" kickoff. Same treatment as the ballot kickoff: real
+// English the model answers, sent hidden, read back as the candidate's own
+// question when the thread is replayed. The reply is the chat's opening, and
+// it gives the model the task for every question that follows.
+export const buildChatAboutTaskKickoff = ({
   title,
   description,
 }: {
   title: string
   description: string
 }): string =>
-  `Help me with this task: ${title}.${description ? ` ${description}` : ''}`
+  `I want to work on my next step: "${title}".` +
+  (description ? ` ${description}` : '') +
+  ' Give me a short overview of what it involves for my race, then ask what I want help with.'
 
 export const campaignManagerChatApi = createAgentChatClient(
   'campaign_assistant',

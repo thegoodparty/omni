@@ -40,6 +40,8 @@ interface Props {
   showSuggestionsWithGreeting?: boolean
   /** Quick-prompt pills threaded to the body (below the suggestions). */
   quickPrompts?: string[]
+  /** See ChiefOfStaffChatBody's `keepQuickPromptsAfterKickoff`. */
+  keepQuickPromptsAfterKickoff?: boolean
   /** Composer placeholder threaded to the body. */
   composerPlaceholder?: string
   /** One-shot kickoff message sent hidden on open. */
@@ -98,6 +100,7 @@ export default function ChiefOfStaffChatSurface({
   suggestions,
   showSuggestionsWithGreeting,
   quickPrompts,
+  keepQuickPromptsAfterKickoff,
   composerPlaceholder,
   pendingKickoff,
   pendingMessage,
@@ -175,6 +178,7 @@ export default function ChiefOfStaffChatSurface({
           suggestions={suggestions}
           showSuggestionsWithGreeting={showSuggestionsWithGreeting}
           quickPrompts={quickPrompts}
+          keepQuickPromptsAfterKickoff={keepQuickPromptsAfterKickoff}
           composerPlaceholder={composerPlaceholder}
           pendingKickoff={pendingKickoff}
           // Only while the surface is still on the fresh chat this was

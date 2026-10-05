@@ -43,7 +43,7 @@ import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatP
 import CountModal from '../components/tasks/CountModal'
 import FilingInstructionsDetails from '../shared/FilingInstructionsDetails'
 import { useNextThing } from './useNextThing'
-import { askAboutStep, headlineFor, questionsFor } from './nextThingCopy'
+import { headlineFor, questionsFor } from './nextThingCopy'
 
 // A task's own action link, if it has a non-empty one. Trimmed so an empty or
 // whitespace string (which the agent can emit) counts as "no link".
@@ -145,9 +145,8 @@ const NextThingSection = ({
 /**
  * The one thing a candidate should do next, chosen by the same
  * selectNextTrackerTask the campaign plan uses, under a friendly headline about
- * it. One filled action, a quiet "Mark done", rare choices (Later, Not for me)
- * in the "…" menu, and right under the card two small questions about the
- * task that open chat. It stays
+ * it. One filled action, a quiet "Mark done", rare choices in the "…" menu,
+ * and "Chat about this" in the tray under the card. It stays
  * until they do it, mark it done, skip it, or its date passes on a task that
  * only exists on that date.
  */
@@ -272,9 +271,10 @@ export default function NextThingCard(): React.JSX.Element {
 
   return (
     <NextThingSection headline={headline}>
-      {/* The card sits in a tray that holds its questions, so the two read as
-          one object: the card's border overlaps the tray's top and sides, and
-          the questions sit in the strip below it. */}
+      {/* The card sits in a tray, so the two read as one object: the card's
+          border overlaps the tray's top and sides, and "Chat about this" sits
+          in the strip below it. The questions about the task open in the
+          chat as quick prompts. */}
       <div className="rounded-2xl border border-grayscale-300 bg-muted">
         <Card className="-m-px gap-4 rounded-2xl border border-grayscale-300 p-4 lg:p-6">
           <div className="flex flex-col gap-2">
@@ -368,23 +368,20 @@ export default function NextThingCard(): React.JSX.Element {
           </div>
         </Card>
         {chat && (
-          <div className="flex flex-col items-start px-2 py-1.5 lg:px-4">
-            {questionsFor(next, needsFiling).map((question) => (
-              <Button
-                key={question}
-                type="button"
-                variant="ghost"
-                size="small"
-                className="gap-1.5 px-2 font-normal text-muted-foreground hover:text-foreground"
-                onClick={() => {
-                  onStarted('chat')
-                  chat.sendFromComposer(askAboutStep(next.title, question))
-                }}
-              >
-                <MessageSquareIcon className="size-4" aria-hidden />
-                {question}
-              </Button>
-            ))}
+          <div className="px-2 py-1.5 lg:px-4">
+            <Button
+              type="button"
+              variant="ghost"
+              size="small"
+              className="gap-1.5 px-2 font-normal text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                onStarted('chat')
+                chat.chatAboutTask(next, questionsFor(next, needsFiling))
+              }}
+            >
+              <MessageSquareIcon className="size-4" aria-hidden />
+              Chat about this
+            </Button>
           </div>
         )}
       </div>

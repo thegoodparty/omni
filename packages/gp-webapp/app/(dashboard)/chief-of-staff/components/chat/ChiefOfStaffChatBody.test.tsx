@@ -2701,3 +2701,62 @@ describe('<ChiefOfStaffChatBody> widgets', () => {
     })
   })
 })
+
+describe('<ChiefOfStaffChatBody> quick prompts after a kickoff', () => {
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_task' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Here is what this step involves.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+  })
+
+  it('keeps them up after the kickoff reply when asked to', async () => {
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingKickoff="__task_kickoff__"
+        quickPrompts={['How many signatures do I need?']}
+        keepQuickPromptsAfterKickoff
+      />,
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Here is what this step involves.'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.getByRole('button', { name: 'How many signatures do I need?' }),
+    ).toBeInTheDocument()
+  })
+
+  it('ends them once the user sends one', async () => {
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingKickoff="__task_kickoff__"
+        quickPrompts={['How many signatures do I need?']}
+        keepQuickPromptsAfterKickoff
+      />,
+    )
+
+    const prompt = await screen.findByRole('button', {
+      name: 'How many signatures do I need?',
+    })
+    await userEvent.click(prompt)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: 'How many signatures do I need?' }),
+      ),
+    )
+    expect(
+      screen.queryByRole('button', { name: 'How many signatures do I need?' }),
+    ).not.toBeInTheDocument()
+  })
+})

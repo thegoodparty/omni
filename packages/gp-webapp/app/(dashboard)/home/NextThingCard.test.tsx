@@ -30,9 +30,9 @@ vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 1, ballotStatus: mockBallotStatus, details: {} }],
 }))
 
-const mockSendFromComposer = vi.fn()
+const mockChatAboutTask = vi.fn()
 vi.mock('../campaign-manager/CampaignManagerChatProvider', () => ({
-  useCampaignManagerChat: () => ({ sendFromComposer: mockSendFromComposer }),
+  useCampaignManagerChat: () => ({ chatAboutTask: mockChatAboutTask }),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -81,7 +81,7 @@ beforeEach(() => {
   mockBallotStatus = 'on-ballot'
   mockToggle.mockClear()
   mockSkip.mockClear()
-  mockSendFromComposer.mockClear()
+  mockChatAboutTask.mockClear()
   vi.mocked(trackEvent).mockClear()
 })
 
@@ -226,17 +226,19 @@ describe('NextThingCard', () => {
     )
   })
 
-  it('sends a question about the task straight to chat', async () => {
-    mockResult.mockReturnValue(settled([task({})]))
+  it('opens a chat about the task, with questions about it to start from', async () => {
+    const shown = task({})
+    mockResult.mockReturnValue(settled([shown]))
     render(<NextThingCard />)
 
     await userEvent.click(
-      screen.getByRole('button', { name: 'Help me get this done' }),
+      screen.getByRole('button', { name: 'Chat about this' }),
     )
 
-    expect(mockSendFromComposer).toHaveBeenCalledWith(
-      'About my next step, "Plan your launch event": Help me get this done',
-    )
+    expect(mockChatAboutTask).toHaveBeenCalledWith(shown, [
+      'Help me get this done',
+      'Why does this matter for my race?',
+    ])
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Dashboard.CampaignPlan.NextThingStarted,
       expect.objectContaining({ via: 'chat' }),
@@ -273,12 +275,19 @@ describe('NextThingCard', () => {
       expect(await screen.findByText('filing-instructions')).toBeInTheDocument()
     })
 
-    it('offers ballot questions', () => {
+    it('starts the chat from ballot questions', async () => {
       render(<NextThingCard />)
 
-      expect(
-        screen.getByRole('button', { name: 'How many signatures do I need?' }),
-      ).toBeInTheDocument()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Chat about this' }),
+      )
+      expect(mockChatAboutTask).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'ballot' }),
+        [
+          'How many signatures do I need?',
+          'Where do I file, and what does it cost?',
+        ],
+      )
     })
   })
 

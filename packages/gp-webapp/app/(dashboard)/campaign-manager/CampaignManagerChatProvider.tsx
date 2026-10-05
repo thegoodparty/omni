@@ -24,7 +24,7 @@ import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfSt
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 import {
   CAMPAIGN_MANAGER_BALLOT_KICKOFF,
-  buildAskAboutTaskKickoff,
+  buildChatAboutTaskKickoff,
   CAMPAIGN_MANAGER_HISTORY_KEY,
   buildCampaignManagerIntro,
   campaignManagerChatApi,
@@ -47,6 +47,11 @@ const MEET_CARD_DISMISSED_KEY = 'campaign-manager-meet-dismissed'
 // stable across renders (the body keys an effect on it).
 const NO_INTRO: string[] = []
 
+const GENERAL_QUICK_PROMPTS = [
+  'What should I focus on to win?',
+  'Which voters should I reach this week?',
+]
+
 interface CampaignManagerChatContextValue {
   // Open the manager in general mode (meet card / footer) on a new chat.
   // Dismisses the first-run meet card.
@@ -58,9 +63,14 @@ interface CampaignManagerChatContextValue {
   // Open the manager and ask how to get on the ballot (the ballot-access home
   // card). Does NOT dismiss the meet card.
   startBallotAccess: () => void
-  // Open the manager on a new chat asking for help with one task (the
-  // next-thing card). Does NOT dismiss the meet card.
-  askAboutTask: (task: { title: string; description: string }) => void
+  // Open the manager on a new chat about one task (Home's "Chat about this"):
+  // the agent opens with an overview of it, and `questions` show as quick
+  // prompts until the candidate sends something. Does NOT dismiss the meet
+  // card.
+  chatAboutTask: (
+    task: { title: string; description: string },
+    questions: string[],
+  ) => void
   // Open the manager on a new chat with a message the candidate already typed
   // somewhere else (Home's chat box). Sent visibly, as their first message.
   sendFromComposer: (message: string) => void
@@ -117,6 +127,11 @@ export function CampaignManagerChatProvider({
   // plain reopen (e.g. the meet card) never replays it.
   const [pendingKickoff, setPendingKickoff] = useState<string | undefined>(
     undefined,
+  )
+  // Questions about the task a "Chat about this" entry opened on, shown as the
+  // chat's quick prompts in place of the general ones; cleared on close.
+  const [taskQuickPrompts, setTaskQuickPrompts] = useState<string[] | null>(
+    null,
   )
   // One-shot visible first message from Home's chat box; cleared on close.
   const [pendingMessage, setPendingMessage] = useState<string | undefined>(
@@ -226,6 +241,7 @@ export function CampaignManagerChatProvider({
   const openNewChat = useCallback((kickoff?: string) => {
     setPendingKickoff(kickoff)
     setPendingMessage(undefined)
+    setTaskQuickPrompts(null)
     setConversationId(null)
     setChatOpen(true)
   }, [])
@@ -280,9 +296,10 @@ export function CampaignManagerChatProvider({
     openNewChat(CAMPAIGN_MANAGER_BALLOT_KICKOFF)
   }, [openNewChat])
 
-  const askAboutTask = useCallback(
-    (task: { title: string; description: string }) => {
-      openNewChat(buildAskAboutTaskKickoff(task))
+  const chatAboutTask = useCallback(
+    (task: { title: string; description: string }, questions: string[]) => {
+      openNewChat(buildChatAboutTaskKickoff(task))
+      setTaskQuickPrompts(questions)
     },
     [openNewChat],
   )
@@ -330,7 +347,7 @@ export function CampaignManagerChatProvider({
       openConversation,
       startStory,
       startBallotAccess,
-      askAboutTask,
+      chatAboutTask,
       sendFromComposer,
       meetDismissed,
       dismissMeetCard,
@@ -340,7 +357,7 @@ export function CampaignManagerChatProvider({
       openConversation,
       startStory,
       startBallotAccess,
-      askAboutTask,
+      chatAboutTask,
       sendFromComposer,
       meetDismissed,
       dismissMeetCard,
@@ -381,6 +398,7 @@ export function CampaignManagerChatProvider({
           if (!next) {
             setPendingKickoff(undefined)
             setPendingMessage(undefined)
+            setTaskQuickPrompts(null)
           }
         }}
         initialConversationId={conversationId}
@@ -407,10 +425,8 @@ export function CampaignManagerChatProvider({
         defaultIntro={greetingOpener ?? NO_INTRO}
         suggestions={suggestions}
         showSuggestionsWithGreeting
-        quickPrompts={[
-          'What should I focus on to win?',
-          'Which voters should I reach this week?',
-        ]}
+        quickPrompts={taskQuickPrompts ?? GENERAL_QUICK_PROMPTS}
+        keepQuickPromptsAfterKickoff={taskQuickPrompts !== null}
         composerPlaceholder={
           firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'
         }
