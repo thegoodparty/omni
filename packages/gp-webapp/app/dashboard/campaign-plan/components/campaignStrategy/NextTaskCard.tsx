@@ -24,7 +24,6 @@ import {
   AlertDialogTitle,
   Button,
   Card,
-  CheckIcon,
   ExternalLinkIcon,
   MessageSquareIcon,
   Overline,
@@ -90,7 +89,7 @@ const discussTaskMessage = (task: DeckTask): string => {
 // channel opens that flow in the hub (with the due date and task attached,
 // like the rail's "Start outreach"). Static rows carry no channel, so the call
 // list is matched on its title. A task with nowhere to go returns null and
-// "Mark as done" leads instead.
+// "Discuss in chat" leads instead.
 const taskAction = (
   row: CampaignTrackerTask | undefined,
   surface: 'plan' | 'manager',
@@ -363,6 +362,31 @@ const NextTaskCard = ({
         surface,
       )
 
+  const markDone = () => {
+    const row = tasks.find((task) => task.id === frontTask.id)
+    // The count modal already stands in front of these.
+    if (isVoterContactFlowType(row?.flowType ?? null)) {
+      onToggleComplete(frontTask.id, true)
+      return
+    }
+    setConfirmTaskId(frontTask.id)
+  }
+  const menuItems = [
+    ...(frontTask.prompt ? [] : [{ label: 'Mark as done', onClick: markDone }]),
+    ...(deck.length > 1
+      ? [
+          {
+            label: 'Skip',
+            onClick: () =>
+              writeSkipped([
+                ...skippedIds.filter((id) => id !== frontTask.id),
+                frontTask.id,
+              ]),
+          },
+        ]
+      : []),
+  ]
+
   return (
     <Collapsible
       open={open}
@@ -438,22 +462,10 @@ const NextTaskCard = ({
                   ) : (
                     <Overline>{phaseTitle}</Overline>
                   )}
-                  {/* Skip is a quiet escape hatch, so it lives behind the
-                      menu rather than beside the actions. */}
-                  {deck.length > 1 && (
-                    <MoreMenu
-                      menuItems={[
-                        {
-                          label: 'Skip',
-                          onClick: () =>
-                            writeSkipped([
-                              ...skippedIds.filter((id) => id !== frontTask.id),
-                              frontTask.id,
-                            ]),
-                        },
-                      ]}
-                    />
-                  )}
+                  {/* Done and Skip close the card rather than do the task, so
+                      they sit behind the menu and the visible buttons stay on
+                      doing it. */}
+                  {menuItems.length > 0 && <MoreMenu menuItems={menuItems} />}
                 </div>
                 <h3 className="font-opensans text-lg font-medium text-card-foreground">
                   {frontTask.title}
@@ -494,31 +506,11 @@ const NextTaskCard = ({
                           )}
                         </Button>
                       )}
-                      <Button
-                        type="button"
-                        variant={action ? 'outline' : 'default'}
-                        size="small"
-                        onClick={() => {
-                          const row = tasks.find(
-                            (task) => task.id === frontTask.id,
-                          )
-                          // The count modal already stands in front of these.
-                          if (isVoterContactFlowType(row?.flowType ?? null)) {
-                            onToggleComplete(frontTask.id, true)
-                            return
-                          }
-                          setConfirmTaskId(frontTask.id)
-                        }}
-                      >
-                        <CheckIcon className="size-4" aria-hidden />
-                        Mark as done
-                      </Button>
                       {chat && (
                         <Button
                           type="button"
-                          variant="ghost"
+                          variant={action ? 'outline' : 'default'}
                           size="small"
-                          className="ml-auto"
                           onClick={() =>
                             chat.discussTask(discussTaskMessage(frontTask))
                           }
