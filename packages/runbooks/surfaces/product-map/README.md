@@ -6,7 +6,8 @@ shown as holes. Same facts as the analytics event explorer, organised by the sha
 product instead of by question. For the same audience: anyone who wants to know whether
 we measure something, arriving from their own memory of using the site.
 
-Ticket: DATA-2547, under the DATA-2580 epic. Published page:
+Tickets: DATA-2547 (first version), DATA-2586 (the flows drawn since, and the drift
+guard still owed), under the DATA-2580 epic. Published page:
 `https://claude.ai/artifact/1P4qyB56ZNPJ9VPaMjDLLZ` (republish to the same URL).
 
 ## One page with the explorer
@@ -51,8 +52,10 @@ reads as complete. Drawing one means replacing the placeholder with a surface co
 
 The node model (`TREE`, the surface constants) lives in `map.js` as code, because
 it carries judgement per step: which events belong, which branch rejoins where, what a
-note should say. Reading it out of the repo automatically is the DATA-2547 follow-up,
-and its refresh mechanism is the one `event_anchors.json` already uses.
+note should say. Nothing yet notices when a drawn flow's code changes: the drift guard
+in DATA-2586 records each surface's step ids and source files and flags one whose ids
+no longer appear. Reading steps out of the repo automatically would use the refresh
+mechanism `event_anchors.json` already uses.
 
 ## Data
 
@@ -86,6 +89,10 @@ declaration and kills tracking and the feedback button.
 The surfaces republish routine (`trig_01E8wipVnESi9uqoEBWZXFKY`, Mon and Thu 12:00 and
 13:00 UTC) republishes this page with the explorer and the console, under the same guard: only when the committed
 snapshot's `refreshed_at` is strictly newer than the live page's.
+
+The routine builds from `main`. A page republished by hand from an unmerged branch is
+overwritten by the next run, and a map change merged after a run is not live until the
+next run with a newer snapshot. Republish by hand after merging a map change.
 
 ## Shared with the other two pages
 
