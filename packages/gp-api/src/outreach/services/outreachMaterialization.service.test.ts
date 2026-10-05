@@ -307,6 +307,47 @@ describe('OutreachMaterializationService', () => {
     expect(findContacts.mock.calls[1]?.[0]).toMatchObject({ page: 2 })
   })
 
+  it('materializes every recipient with no per-launch cap, even past the former 100k ceiling', async () => {
+    const { campaign, outreach } = await seedOutreach({ slug: 'mat-no-cap' })
+    // One more than the former MAX_MATERIALIZED_VOTERS cap (100_000) — the
+    // old code stopped exactly there, warned, and silently dropped the
+    // rest. Pages are generated on the fly (no 100k-row fixture); only the
+    // resulting ContactInteractionText writes hit the real database.
+    const totalRecipients = 100_050
+    const pageSize = 1000
+    vi.spyOn(contacts, 'findContacts').mockImplementation(async (params) => {
+      const page = params.page ?? 1
+      const start = (page - 1) * pageSize
+      const ids = Array.from(
+        { length: Math.min(pageSize, Math.max(totalRecipients - start, 0)) },
+        (_, i) => `pid-${start + i}`,
+      )
+      return peoplePage(ids, {
+        totalResults: totalRecipients,
+        pageSize,
+        totalPages: Math.ceil(totalRecipients / pageSize),
+        currentPage: page,
+        hasNextPage: start + ids.length < totalRecipients,
+        hasPreviousPage: page > 1,
+      })
+    })
+    const warnSpy = vi
+      .spyOn(PinoLogger.prototype, 'warn')
+      .mockImplementation(() => undefined)
+
+    try {
+      await materialization.materializeOutreach(campaign, outreach)
+
+      const count = await service.prisma.contactInteractionText.count({
+        where: { outreachId: outreach.id },
+      })
+      expect(count).toBe(totalRecipients)
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  }, 30_000)
+
   it('propagates a people-api failure to the caller (best-effort lives in OutreachService)', async () => {
     const { campaign, outreach } = await seedOutreach({ slug: 'mat-fail' })
     vi.spyOn(contacts, 'findContacts').mockRejectedValue(
