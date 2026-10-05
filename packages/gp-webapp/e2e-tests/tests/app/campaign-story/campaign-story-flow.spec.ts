@@ -110,7 +110,7 @@ test.describe('campaign story flow', () => {
     })
   })
 
-  test('"Your Story" is in the account menu and the plan tab reads "Plan"', async ({
+  test('"Your Story" is in the account menu and the plan tab reads "Game Plan"', async ({
     page,
   }) => {
     await authenticateTestUser(page, { isolated: true })
@@ -118,7 +118,9 @@ test.describe('campaign story flow', () => {
     await page.goto('/home')
     await NavigationHelper.dismissOverlays(page)
 
-    await expect(page.locator('#campaign-plan-dashboard')).toHaveText(/^plan$/i)
+    await expect(page.locator('#campaign-plan-dashboard')).toHaveText(
+      /^game plan$/i,
+    )
     await page.getByText('Manage account').click()
     await expect(page.locator('#campaign-story-dashboard')).toBeVisible()
   })

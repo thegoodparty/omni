@@ -74,7 +74,7 @@ beforeEach(() => {
 describe('DashboardMenu current page (Win)', () => {
   it('marks only the current tab as the current page', () => {
     renderMenu('/campaign-plan')
-    expect(currentLinks()).toEqual(['Plan'])
+    expect(currentLinks()).toEqual(['Game Plan'])
   })
 
   it('keeps a tab current on its sub-pages', () => {

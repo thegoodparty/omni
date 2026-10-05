@@ -90,7 +90,7 @@ describe('product knowledge blocks', () => {
   it('shows Win its own tabs and none of Serve’s', () => {
     const prompt = render('win')
     expect(prompt).toContain('- Voters (/contacts)')
-    expect(prompt).toContain('- Plan (/campaign-plan)')
+    expect(prompt).toContain('- Game Plan (/campaign-plan)')
     expect(prompt).toContain('Know Your Opponent')
     expect(prompt).not.toContain('Briefing Assistant')
     expect(prompt).not.toContain('Community Issues')
@@ -103,7 +103,7 @@ describe('product knowledge blocks', () => {
     expect(prompt).toContain('Briefing Assistant')
     expect(prompt).toContain('Ordinances')
     expect(prompt).not.toContain('Know Your Opponent')
-    expect(prompt).not.toContain('- Plan (/campaign-plan)')
+    expect(prompt).not.toContain('- Game Plan (/campaign-plan)')
   })
 
   // The "where are my lists" session took six turns and ended with the

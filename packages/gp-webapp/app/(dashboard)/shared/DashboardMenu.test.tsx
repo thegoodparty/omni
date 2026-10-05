@@ -63,7 +63,7 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
 })
 
 describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
-  it('opens with Home, Plan, Outreach and Voters, then Your Story', () => {
+  it('opens with Home, Game Plan, Outreach and Voters, then Your Story', () => {
     const items = links()
     const campaignTabs = items
       .filter((i) => i.v2Category === 'campaign')
@@ -82,11 +82,11 @@ describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
   })
 })
 
-describe('getDashboardMenuItems — Plan tab label', () => {
-  it('always labels the item "Plan"', () => {
+describe('getDashboardMenuItems — Game Plan tab label', () => {
+  it('always labels the item "Game Plan"', () => {
     const items = links()
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
-    expect(planItem?.label).toBe('Plan')
+    expect(planItem?.label).toBe('Game Plan')
   })
 })
 
@@ -151,7 +151,7 @@ describe('getDashboardMenuItems — Community Issues nav gating', () => {
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
   })
 
-  it('still renders Plan alongside Community Issues for an elected office', () => {
+  it('still renders Game Plan alongside Community Issues for an elected office', () => {
     const items = links({
       isElectedOffice: true,
     })
@@ -202,7 +202,7 @@ describe('getDashboardMenuItems — Priorities tab gating', () => {
     expect(serveRail[1]?.id).toBe('priorities-dashboard')
   })
 
-  it('keeps Plan under Home when Priorities shows', () => {
+  it('keeps Game Plan under Home when Priorities shows', () => {
     const items = links({ isElectedOffice: true, prioritiesEnabled: true })
     const home = items.findIndex((i) => i.id === 'campaign-tracker-dashboard')
     expect(items[home + 1]?.id).toBe('campaign-plan-dashboard')

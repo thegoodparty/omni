@@ -150,7 +150,7 @@ const WIN_AREAS: ProductArea[] = [
   },
   {
     navId: 'campaign-plan-dashboard',
-    name: 'Plan',
+    name: 'Game Plan',
     path: '/campaign-plan',
     modes: ['win'],
     does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
