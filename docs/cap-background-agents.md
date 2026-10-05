@@ -121,6 +121,13 @@ at 36 characters and dispatch passes the run id through verbatim, so use `judgeR
 from `@goodparty_org/contracts`. Detail in
 `packages/gp-ai/pmf_engine/control_plane/README.md`.
 
+A judge dispatch omits `clerk_user_id`, so the broker's `/agent/mcp` proxy refuses
+the run, except for the three agents that read gp-api (`meeting_briefing`,
+`top_community_issues`, `trending_issues`). Those name a seeded dev account,
+`user_judge_fixture` on organization `judge-fixture`, which has no campaign so
+every campaign-scoped write tool 404s. See
+`packages/gp-api/src/chats/evals/judge/README.md`.
+
 `dispatchRun` is generic over `keyof AgentJobContracts`, and `params` is typed
 against `src/generated/agent-job-contracts.ts` — **generated from the per-experiment
 `manifest.json` files** in the `agent-experiment-metadata-dev` S3 bucket via
@@ -328,6 +335,12 @@ Python). The model comes from the manifest (`AGENT_MODEL`; default `sonnet`).
   params are never rendered into the system prompt** — they arrive in the first user
   message fenced in `<untrusted_data>` tags. This is the primary prompt-injection
   defense given the agent has `Bash` and bypass-permissions.
+- **Params for tools:** the harness also writes the params to `/workspace/params.json`
+  (read-only) and sets `PARAMS_FILE` to that path in the CLI's env, for both delivery
+  paths. Instructions and attachments should read params from that file rather
+  than `PARAMS_JSON`, which is absent whenever params went via the broker. The
+  file is left out of the uploaded workspace logs; `session.jsonl` already
+  carries the params, redacted.
 - **Researcher subagents** (opt-in via `manifest.runtime.max_parallel_subagents`):
   the harness registers a single `researcher` `AgentDefinition` and adds the SDK's
   `Agent` dispatch tool. The parent is told to dispatch one researcher per independent

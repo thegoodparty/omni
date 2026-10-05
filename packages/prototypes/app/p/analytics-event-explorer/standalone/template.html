@@ -564,6 +564,11 @@
   #usage {
     margin-top: 30px;
   }
+  /* About five rows, then scroll: these lists only grow. */
+  #usage .tablewrap {
+    max-height: 196px;
+    overflow: auto;
+  }
   /* Links only the page's owner should see: usage.js adds is-owner once it knows. */
   [data-owner-only] {
     display: none !important;

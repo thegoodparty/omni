@@ -13,6 +13,7 @@ import {
 import type { ArmCaseRequest } from '../sweepArm'
 import type { ArmEnv } from '../sweepEnv'
 import { armConfigFor, backgroundDestinationFrom } from '../sweepEnv'
+import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { agentConfigFor } from './agentConfig'
 import type { AgentConfig, BackgroundRunInput } from './background'
 
@@ -175,11 +176,16 @@ export const refusedBeforeSpend = (
     ? (env.backgroundAdmitted !== undefined &&
         !env.backgroundAdmitted.has(agent.agentId)) ||
       // Also what a resolution that silently produced nothing looks like, and
-      // it is meant to: that sweep still judges its chat agents.
-      env.fixtureValues.orgSlug === undefined ||
+      // it is meant to: that sweep still judges its chat agents. Read
+      // through fixtureValuesFor, so an agent that dispatches as the seeded
+      // fixture is judged on the values it actually uses, not the sweep's.
+      fixtureValuesFor(agent, env.fixtureValues).orgSlug === undefined ||
       env.dispatchQueueUrl === undefined ||
       (agent.cases !== null &&
-        missingValues(casesFor(agent), env.fixtureValues).length > 0)
+        missingValues(
+          casesFor(agent),
+          fixtureValuesFor(agent, env.fixtureValues),
+        ).length > 0)
     : env.backgroundRefused?.has(agent.agentId) === true
 
 // THE AGENTS AN ARM MUST HAVE CAPTURED, for the arm suite's final check. A
@@ -213,6 +219,19 @@ export const capturableAgents = (
   })
 }
 
+// THE PLACEHOLDER VALUES ONE AGENT'S CASES ARE FILLED FROM. An agent that
+// reads gp-api runs against the seeded fixture organization rather than the
+// per-sweep slug, and its params have to name the same organization the
+// dispatch does, or the artifact would echo one slug while the reads used
+// another.
+export const fixtureValuesFor = (
+  agent: Pick<AgentEntry, 'readsGpApi'>,
+  values: PlaceholderValues,
+): PlaceholderValues =>
+  agent.readsGpApi === true
+    ? { ...values, orgSlug: JUDGE_FIXTURE.orgSlug }
+    : values
+
 export const backgroundRunInputFor = (
   request: ArmCaseRequest,
   env: ArmEnv,
@@ -226,7 +245,7 @@ export const backgroundRunInputFor = (
     )
   }
   const destination = backgroundDestinationFrom(env)
-  const orgSlug = env.fixtureValues.orgSlug
+  const orgSlug = fixtureValuesFor(request.agent, env.fixtureValues).orgSlug
   // Refused by name BEFORE anything is staged or sent. The dispatch builder
   // enforces the `judge-` prefix itself, but its message is about a slug it
   // was handed; this one is about the sweep not having resolved its
@@ -251,7 +270,12 @@ export const backgroundRunInputFor = (
     // to touch.
     config,
     variant: { ...request.variant, model: modelOf(config) },
-    organizationSlug: orgSlug,
+    ...(request.agent.readsGpApi === true
+      ? {
+          organizationSlug: JUDGE_FIXTURE.orgSlug,
+          clerkUserId: JUDGE_FIXTURE.clerkUserId,
+        }
+      : { organizationSlug: orgSlug }),
     metadataBucket: destination.metadataBucket,
     artifactBucket: destination.artifactBucket,
     poll: { timeoutMs: pollTimeoutMs(config), intervalMs },
@@ -370,7 +394,7 @@ export const caseLoaderFor = (
     const all = loadBackground(agent)
     const cases = substituteBackgroundCases(
       maxCases === undefined ? all : all.slice(0, maxCases),
-      values,
+      fixtureValuesFor(agent, values),
     )
     const config = loadConfig(agent.agentId)
     // Reached here rather than at the dispatch, where a manifest naming no

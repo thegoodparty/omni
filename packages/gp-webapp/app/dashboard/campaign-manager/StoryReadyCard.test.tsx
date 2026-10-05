@@ -28,11 +28,9 @@ describe('StoryReadyCard', () => {
     mockHook.mockReturnValue(complete)
     render(<StoryReadyCard />)
 
+    expect(screen.getByText('Your campaign plan is ready')).toBeInTheDocument()
     expect(
-      screen.getByText('Your campaign tracker and plan are ready'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Review your campaign tracker' }),
+      screen.getByRole('button', { name: 'Review your campaign plan' }),
     ).toBeInTheDocument()
   })
 
@@ -56,20 +54,20 @@ describe('StoryReadyCard', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('routes to the campaign tracker and dismisses when the CTA is clicked', async () => {
+  it('routes to the campaign plan and dismisses when the CTA is clicked', async () => {
     mockHook.mockReturnValue(complete)
     const user = userEvent.setup()
     render(<StoryReadyCard />)
 
     await user.click(
-      screen.getByRole('button', { name: 'Review your campaign tracker' }),
+      screen.getByRole('button', { name: 'Review your campaign plan' }),
     )
 
     expect(mockPush).toHaveBeenCalledWith('/dashboard/campaign-plan')
     // Dismissed in place (card gone) and persisted.
     await waitFor(() =>
       expect(
-        screen.queryByText('Your campaign tracker and plan are ready'),
+        screen.queryByText('Your campaign plan is ready'),
       ).not.toBeInTheDocument(),
     )
     expect(window.localStorage.getItem(DISMISSED_KEY)).toBe('1')
@@ -85,7 +83,7 @@ describe('StoryReadyCard', () => {
 
     await waitFor(() =>
       expect(
-        screen.queryByText('Your campaign tracker and plan are ready'),
+        screen.queryByText('Your campaign plan is ready'),
       ).not.toBeInTheDocument(),
     )
     expect(window.localStorage.getItem(DISMISSED_KEY)).toBe('1')

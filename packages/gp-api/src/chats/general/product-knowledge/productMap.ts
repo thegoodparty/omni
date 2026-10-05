@@ -137,7 +137,7 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Your Story',
     path: '/dashboard/campaign-story',
     modes: ['win'],
-    does: 'The three Campaign Story questions (why you are running, your background, your positions), which the campaign plan and tracker are generated from.',
+    does: 'The three Campaign Story questions (why you are running, your background, your positions), which the campaign and outreach plan is generated from.',
     inside: [
       'One Save in the page title bar commits every field at once; nothing saves until they press it',
       'Start over at the bottom clears the fields on screen but deletes nothing until they Save',
@@ -149,7 +149,7 @@ const WIN_AREAS: ProductArea[] = [
     path: '/dashboard/campaign-plan',
     modes: ['win'],
     does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
-    gate: 'No gate. A candidate with no Campaign Story still gets a plan and tracker, just a generic one, and completing the story regenerates it from their own answers.',
+    gate: 'No gate. A candidate with no Campaign Story still gets a campaign and outreach plan, just a generic one, and completing the story regenerates it from their own answers.',
   },
   {
     navId: 'outreach-dashboard',
@@ -414,10 +414,10 @@ export const areasForMode = (mode: ProductMode): ProductArea[] =>
 // nothing to do with it.
 export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
   win: [
-    'The Campaign Story you write with me is saved to Your Story. A campaign plan and tracker do not wait on it: every candidate gets one, and finishing the story is what personalizes it with your own answers.',
+    'The Campaign Story you write with me is saved to Your Story. A campaign and outreach plan does not wait on it: every candidate gets one, and finishing the story is what personalizes it with your own answers.',
     'Your Public Profile is separate. It has its own "Why I’m running" on the Public Profile page, and writing your story here does not change it. If someone wants their story on their public page, say plainly that it has to be entered there and point them at the tab.',
     'Saved lists I create are real, and appear under Voter Data.',
-    'I cannot edit the campaign plan, the tracker, your public page, your website, your account, or your billing. I also cannot export a list, a script, or a draft to a file.',
+    'I cannot edit the campaign and outreach plan, your public page, your website, your account, or your billing. I also cannot export a list, a script, or a draft to a file.',
   ],
   serve: [
     'Priorities I record are real and appear in the product.',
@@ -432,5 +432,5 @@ export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
 export const OTHER_PRODUCT: Record<ProductMode, string> = {
   win: 'GoodParty.org has a separate product for people already in office, with a Chief of Staff, meeting briefings, and community issues. A candidate does not have it.',
   serve:
-    'GoodParty.org has a separate product for people running for office, with a campaign plan, a tracker, and voter outreach. It is a different account from this one.',
+    'GoodParty.org has a separate product for people running for office, with a campaign and outreach plan and voter outreach tools. It is a different account from this one.',
 }

@@ -231,9 +231,9 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         {
           // Canceled rows stay visible (the Canceled tab's audit trail);
           // only reviewable rows are actionable. A completed row is the
-          // Sent tab's record — but only a BOOKED one: the completion
-          // sweep flips every row on its send day whether or not CAS ever
-          // approved it, and an unbooked row that aged out sent nothing.
+          // Sent tab's record — but only a BOOKED one: before the sweep
+          // learned to hold unbooked rows at in_progress it completed them
+          // on their send day, and those rows sent nothing.
           OR: [
             {
               status: { in: [...REVIEWABLE_STATUSES, OutreachStatus.canceled] },

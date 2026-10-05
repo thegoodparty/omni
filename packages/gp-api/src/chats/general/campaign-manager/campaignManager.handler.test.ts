@@ -485,7 +485,7 @@ describe('buildStoryGreeting', () => {
     const greeting = buildStoryGreeting(
       story(['why', 'background', 'positions']),
     )
-    expect(greeting).toContain('Before I build your plan and tracker')
+    expect(greeting).toContain('Before I build your campaign and outreach plan')
     expect(greeting).toContain('First, your why')
     // No self-introduction: it must not re-greet after the general greeting on
     // the in-chat "Personalize" chip path.

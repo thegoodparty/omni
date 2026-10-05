@@ -7,8 +7,8 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { substituteBackgroundCases } from './caseParams'
 import { armEnvFor } from './fixtures/sweep'
+import { JUDGE_USER_EMAIL } from './judgeFixtureIdentity'
 import {
-  JUDGE_USER_EMAIL,
   identifierOutputLines,
   judgeOrgSlug,
   requireAllowedApi,
