@@ -83,8 +83,9 @@ const SHARED_AREAS: ProductArea[] = [
   {
     navId: 'nav-dash-support',
     name: 'Get help',
-    // Not a section: it ends the main nav on desktop and sits in the account
-    // group on mobile. See SUPPORT_ROUTE in productKnowledgePrompt.ts.
+    // Not a section: on desktop Win it sits right above the account menu, on
+    // desktop Serve it ends the main nav, and on mobile it is in the account
+    // group. See SUPPORT_ROUTE in productKnowledgePrompt.ts.
     path: 'the bottom of the left-hand menu',
     modes: ['win', 'serve'],
     does: 'Opens the support chat, where a person answers billing, account, and anything that needs changing on their behalf.',
@@ -142,6 +143,7 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'The three Campaign Story questions (why you are running, your background, your positions), which the campaign and outreach plan is generated from.',
     inside: [
+      'Not in the main left rail: it is in the account menu, opened from Manage account at the bottom of the left-hand menu',
       'One Save in the page title bar commits every field at once; nothing saves until they press it',
       'Start over at the bottom clears the fields on screen but deletes nothing until they Save',
     ],
@@ -195,6 +197,9 @@ const WIN_AREAS: ProductArea[] = [
     path: '/race-opponent',
     modes: ['win'],
     does: 'Opposition research on the other candidates in the race, starting with a pass on the candidate’s own public record.',
+    inside: [
+      'Not in the main left rail: it is in the account menu, opened from Manage account at the bottom of the left-hand menu',
+    ],
     gate: 'Pro only. The tab is visible without Pro but shows an upgrade view instead of the research.',
   },
   {
@@ -203,6 +208,9 @@ const WIN_AREAS: ProductArea[] = [
     path: '/public-profile',
     modes: ['win'],
     does: 'Edit the public page voters see, including its own "Why I’m running" and priorities.',
+    inside: [
+      'Not in the main left rail: it is in the account menu, opened from Manage account at the bottom of the left-hand menu',
+    ],
   },
   {
     navId: null,

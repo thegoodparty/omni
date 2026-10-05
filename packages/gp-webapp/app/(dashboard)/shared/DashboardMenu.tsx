@@ -446,6 +446,15 @@ export default function DashboardMenu({
 // from "Get help" at the bottom of this menu — pointing at an item that is not
 // there is the failure that map exists to prevent. Where the chat is not
 // loaded the click goes straight to email instead.
+// Win pages a candidate sets up once and returns to rarely. They live in the
+// account menu (Manage account) instead of the main nav, which keeps the rail
+// to the pages a candidate works in every day.
+const WIN_ACCOUNT_MENU_PAGE_IDS = new Set([
+  'campaign-story-dashboard',
+  'race-opponent-dashboard',
+  'public-profile-campaign',
+])
+
 const SUPPORT_MENU_ITEM = {
   label: 'Get help',
   icon: LifeBuoyIcon,
@@ -573,6 +582,61 @@ const NewNavMenu = ({
     </SidebarMenuItemComponent>
   )
 
+  const isWin = !organization?.electedOfficeId
+  const productItems = menuItems.filter((i) =>
+    isWin ? i.v2Category === 'campaign' : i.v2Category === 'elected-office',
+  )
+  const navItems = isWin
+    ? productItems.filter((i) => !WIN_ACCOUNT_MENU_PAGE_IDS.has(i.id))
+    : productItems
+  const accountPages = isWin
+    ? productItems.filter((i) => WIN_ACCOUNT_MENU_PAGE_IDS.has(i.id))
+    : []
+
+  const accountPageDropDownItem = (item: MenuItem) => {
+    const Icon = item.v2Icon
+    return (
+      <DropdownMenuItemComponent key={item.id} asChild className="h-10">
+        <Link
+          href={item.link}
+          id={item.id}
+          aria-current={pathname === item.link ? 'page' : undefined}
+          onClick={() => handleMenuItemClick(item)}
+        >
+          {Icon && <Icon size={16} className="text-foreground" />}
+          <span>{item.v2Name || item.label}</span>
+        </Link>
+      </DropdownMenuItemComponent>
+    )
+  }
+
+  const accountPageSidebarItem = (item: MenuItem) => {
+    const Icon = item.v2Icon
+    const isActive = pathname === item.link
+    return (
+      <SidebarMenuItemComponent key={item.id}>
+        <SidebarMenuButton
+          asChild
+          isActive={isActive}
+          className={cn(
+            'px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans',
+            WIN_ACTIVE_ITEM_CLASSES,
+          )}
+        >
+          <Link
+            href={item.link}
+            id={item.id}
+            aria-current={isActive ? 'page' : undefined}
+            onClick={() => handleMenuItemClick(item)}
+          >
+            {Icon && <Icon size={16} />}
+            <span>{item.v2Name || item.label}</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItemComponent>
+    )
+  }
+
   const dropDownItem = (item: AccountManagementItem) => (
     <DropdownMenuItemComponent asChild className="h-10">
       <Link
@@ -598,64 +662,51 @@ const NewNavMenu = ({
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems
-                .filter((i) =>
-                  organization?.electedOfficeId
-                    ? i.v2Category === 'elected-office'
-                    : i.v2Category === 'campaign',
-                )
-                .map((item) => {
-                  const {
-                    id,
-                    link,
-                    label,
-                    target,
-                    isNew,
-                    v2Icon: V2Icon,
-                  } = item
-                  const isWin = !organization?.electedOfficeId
-                  // Win keeps the tab lit on its sub-pages (a phone banking
-                  // list is still Voter Outreach); Serve matches exactly, as
-                  // before.
-                  const isActive =
-                    pathname === link ||
-                    (isWin && !!pathname?.startsWith(`${link}/`))
-                  return (
-                    <SidebarMenuItemComponent key={id}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        className={cn(
-                          'px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans',
-                          isWin && WIN_ACTIVE_ITEM_CLASSES,
-                        )}
-                      >
-                        <Link
-                          href={link}
-                          id={id}
-                          target={target}
-                          aria-current={isActive ? 'page' : undefined}
-                          onClick={() => handleMenuItemClick(item)}
-                        >
-                          {V2Icon && <V2Icon size={16} />}
-                          <span>{item.v2Name || label}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                      {isNew && (
-                        <SidebarMenuBadge className="bg-blue-500 text-white text-xs font-semibold rounded px-1.5 mt-1 mx-4">
-                          NEW
-                        </SidebarMenuBadge>
+              {navItems.map((item) => {
+                const { id, link, label, target, isNew, v2Icon: V2Icon } = item
+                // Win keeps the tab lit on its sub-pages (a phone banking
+                // list is still Voter Outreach); Serve matches exactly, as
+                // before.
+                const isActive =
+                  pathname === link ||
+                  (isWin && !!pathname?.startsWith(`${link}/`))
+                return (
+                  <SidebarMenuItemComponent key={id}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      className={cn(
+                        'px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans',
+                        isWin && WIN_ACTIVE_ITEM_CLASSES,
                       )}
-                    </SidebarMenuItemComponent>
-                  )
-                })}
-              {!isMobile && sidebarActionItem(SUPPORT_MENU_ITEM)}
+                    >
+                      <Link
+                        href={link}
+                        id={id}
+                        target={target}
+                        aria-current={isActive ? 'page' : undefined}
+                        onClick={() => handleMenuItemClick(item)}
+                      >
+                        {V2Icon && <V2Icon size={16} />}
+                        <span>{item.v2Name || label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                    {isNew && (
+                      <SidebarMenuBadge className="bg-blue-500 text-white text-xs font-semibold rounded px-1.5 mt-1 mx-4">
+                        NEW
+                      </SidebarMenuBadge>
+                    )}
+                  </SidebarMenuItemComponent>
+                )
+              })}
+              {!isMobile && !isWin && sidebarActionItem(SUPPORT_MENU_ITEM)}
               {isMobile && (
                 <>
                   <SidebarSeparator />
                   {sidebarActionItem(SUPPORT_MENU_ITEM)}
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
+                  {accountPages.map(accountPageSidebarItem)}
                   {sidebarItem(accountManagementMenuItems.profile)}
                   {showTeamAccountItem &&
                     sidebarItem(accountManagementMenuItems.team)}
@@ -674,6 +725,9 @@ const NewNavMenu = ({
         <SidebarFooter>
           <MembershipBanner />
           <SidebarMenu>
+            {/* Win puts Get help right above the account menu; Serve keeps it
+                at the end of the main nav. */}
+            {isWin && sidebarActionItem(SUPPORT_MENU_ITEM)}
             <SidebarMenuItemComponent>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -701,6 +755,12 @@ const NewNavMenu = ({
                   align="end"
                   sideOffset={4}
                 >
+                  {accountPages.length > 0 && (
+                    <>
+                      {accountPages.map(accountPageDropDownItem)}
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
                   {dropDownItem(accountManagementMenuItems.profile)}
                   {showTeamAccountItem &&
                     dropDownItem(accountManagementMenuItems.team)}
