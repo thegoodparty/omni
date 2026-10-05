@@ -28,6 +28,7 @@ import {
   type RunRecord,
   type RunStatus,
   type TokenUsage,
+  type ToolErrorDetail,
   type TraceStep,
 } from '../record'
 import { WIN_CONSTITUENT_TABLES } from '@/chats/general/campaign-manager/services/constituentDataScope'
@@ -267,6 +268,29 @@ interface CaseOutcome {
 const infraTrace = (message: string): TraceStep[] => [
   { index: 0, kind: 'error', error: message },
 ]
+
+// Only a name gp-api registered in code is kept. The model can name a tool
+// that does not exist, and the public report trusts what this stores.
+export const chatToolErrorDetails = (
+  steps: readonly TraceStep[],
+  registeredTools: readonly string[],
+): ToolErrorDetail[] => {
+  const registered = new Set(registeredTools)
+  return capToolErrorDetails(
+    steps.flatMap((step) =>
+      step.kind !== 'tool' || step.error === undefined
+        ? []
+        : [
+            toolErrorDetail(
+              step.tool !== undefined && registered.has(step.tool)
+                ? step.tool
+                : undefined,
+              step.error,
+            ),
+          ],
+    ),
+  )
+}
 
 const errorStep = (trace: TraceStep[], error: string): TraceStep[] => [
   ...trace,
@@ -816,10 +840,9 @@ export const runChatCase = async (
   const finalTrace =
     unpriceable === undefined ? trace : errorStep(trace, unpriceable)
   const toolSteps = finalTrace.filter((step) => step.kind === 'tool')
-  const toolErrorDetails = capToolErrorDetails(
-    toolSteps.flatMap((step) =>
-      step.error === undefined ? [] : [toolErrorDetail(step.tool, step.error)],
-    ),
+  const toolErrorDetails = chatToolErrorDetails(
+    toolSteps,
+    llm.capture.toolNames,
   )
 
   return RunRecordSchema.parse({

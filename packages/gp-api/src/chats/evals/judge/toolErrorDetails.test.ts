@@ -136,7 +136,16 @@ describe('errorClass', () => {
       'PeopleDbxUnavailableError: credential not configured',
       'PeopleDbxUnavailableError',
     ],
-    ['Traceback ...\nRuntimeWarning: overflow', 'RuntimeWarning'],
+    ['Traceback ...\nRuntimeWarning: overflow', 'other exception'],
+    ['Traceback ...\nModuleNotFoundError: no module', 'ModuleNotFoundError'],
+    ['httpx.HTTPStatusError: 502 Bad Gateway', 'HTTPStatusError'],
+    ['ReferenceError: x is not defined', 'ReferenceError'],
+    [
+      '[TABLE_OR_VIEW_NOT_FOUND] The table cannot be found',
+      'TABLE_OR_VIEW_NOT_FOUND',
+    ],
+    ['[DEADLINE_EXCEEDED] took too long', 'DEADLINE_EXCEEDED'],
+    ['[SOME_NEW_ERROR] whatever', 'other error code'],
     [
       '[PARSE_SYNTAX_ERROR] Syntax error at or near SELECT',
       'PARSE_SYNTAX_ERROR',
@@ -165,22 +174,54 @@ describe('errorClass', () => {
     // An exception-looking name must be one identifier.
     ['Jane Smith Error: x', 'other'],
     ['exit code 1; rm -rf', 'exit code 1'],
+    // A name in front of a real exception is not an identifier.
+    ['Voter Jane Doe KeyError: x', 'other'],
+    // Past the length cap, not an exception name at all.
+    [`${'A'.repeat(70)}Error: x`, 'other'],
+    // Exit codes are at most three digits; a longer number is data.
+    ['exit code 1234', 'other'],
+    // The right shape, but a person: printed only as the kind.
+    ['Traceback ...\nMariaGonzalezError: x', 'other exception'],
+    ['DoeException', 'other exception'],
+    ['[JOHN_SMITH_ERROR] at 12 Oak St', 'other error code'],
+    // An upper-case token that is not a code shape at all.
+    ["KeyError: 'PARAMS_JSON'", 'KeyError'],
+    ['missing JANE_DOE in params', 'other'],
   ])('does not leak from %j', (message, expected) => {
     expect(errorClass(message)).toBe(expected)
   })
 })
 
 describe('publicToolName', () => {
-  it('keeps an ordinary tool name', () => {
-    expect(publicToolName('mcp__databricks:query_v2')).toBe(
-      'mcp__databricks:query_v2',
-    )
+  it.each([
+    'Bash',
+    'WebSearch',
+    'Agent',
+    'mcp__broker__GET_community_issues',
+    'mcp__broker__POST_ordinances_slug_clarify_answers',
+  ])('keeps the background tool %s', (tool) => {
+    expect(publicToolName(tool, 'background')).toBe(tool)
   })
 
-  it.each(['Jane Smith', '<img src=x>', '`Bash`', '', 'x'.repeat(81)])(
-    'refuses %j',
-    (tool) => {
-      expect(publicToolName(tool)).toBe('unknown')
-    },
-  )
+  it.each([
+    'lookup_jane_doe',
+    'mcp__broker__jane_doe',
+    'mcp__broker__GET_Jane_Doe',
+    'mcp__broker__GET_jane doe',
+    'mcp__other__GET_x',
+    'bash',
+    'Jane Smith',
+    '<img src=x>',
+    '',
+  ])('refuses the background tool %j', (tool) => {
+    expect(publicToolName(tool, 'background')).toBe('unknown')
+  })
+
+  it('keeps a chat tool name and refuses anything else', () => {
+    expect(publicToolName('query_constituent_data', 'chat')).toBe(
+      'query_constituent_data',
+    )
+    expect(publicToolName('Jane Smith', 'chat')).toBe('unknown')
+    expect(publicToolName('x'.repeat(65), 'chat')).toBe('unknown')
+  })
 })

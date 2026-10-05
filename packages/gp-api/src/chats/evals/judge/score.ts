@@ -624,7 +624,7 @@ const toolErrorCauses = (
       const found =
         details.length > 0
           ? details.map((detail) => ({
-              tool: publicToolName(detail.tool),
+              tool: publicToolName(detail.tool, pair.records[arm].agentShape),
               errorClass: errorClass(detail.message),
             }))
           : [{ tool: 'unknown', errorClass: UNRECORDED }]

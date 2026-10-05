@@ -1147,6 +1147,7 @@ describe('tool error causes', () => {
     details?: RunRecord['toolErrorDetails'],
   ): RunRecord => ({
     ...record,
+    agentShape: 'background',
     caseId,
     runId: `${record.arm}_${caseId}`,
     telemetry: { ...record.telemetry, toolCalls: 1, toolErrors: 1 },
@@ -1154,6 +1155,7 @@ describe('tool error causes', () => {
   })
   const clean = (record: RunRecord, caseId: string): RunRecord => ({
     ...record,
+    agentShape: 'background',
     caseId,
     runId: `${record.arm}_${caseId}`,
   })
@@ -1192,17 +1194,59 @@ describe('tool error causes', () => {
     ])
   })
 
+  // A background tool name is whatever the model emitted. One it invented
+  // can be a person's name, and a failing call to it would print that name.
   it('never carries a tool name outside the allowlist', () => {
+    const invented = [
+      'Jane Smith <b>',
+      'lookup_jane_doe',
+      'mcp__broker__jane_doe',
+      'mcp__broker__GET_jane doe',
+    ]
     const agent = normalizeAgent(
-      [
-        failing(BASE, 'a', [{ tool: 'Jane Smith <b>', message: 'boom' }]),
-        clean(CANDIDATE, 'a'),
-      ],
+      invented.flatMap((tool, i) => [
+        failing(BASE, `t${i}`, [{ tool, message: 'boom' }]),
+        clean(CANDIDATE, `t${i}`),
+      ]),
       () => 0,
     )
     expect(
       score([], noFloor(), agent).exclusions.toolErrorCauses.map((c) => c.tool),
     ).toEqual(['unknown'])
+  })
+
+  it('keeps a broker tool and a registered chat tool', () => {
+    const agent = normalizeAgent(
+      [
+        failing(BASE, 'a', [
+          { tool: 'mcp__broker__GET_community_issues', message: 'boom' },
+        ]),
+        clean(CANDIDATE, 'a'),
+        {
+          ...failing(BASE, 'b', [
+            { tool: 'query_constituent_data', message: 'boom' },
+          ]),
+          agentShape: 'chat',
+        },
+        { ...clean(CANDIDATE, 'b'), agentShape: 'chat' },
+        // A built-in name on a chat record is not a chat tool.
+        {
+          ...failing(BASE, 'c', [{ tool: 'Bash', message: 'x' }]),
+          agentShape: 'chat',
+        },
+        { ...clean(CANDIDATE, 'c'), agentShape: 'chat' },
+      ],
+      () => 0,
+    )
+    expect(
+      score([], noFloor(), agent)
+        .exclusions.toolErrorCauses.map((c) => c.tool)
+        .sort(),
+    ).toEqual([
+      'mcp__broker__GET_community_issues',
+      'query_constituent_data',
+      'unknown',
+    ])
   })
 
   it('is empty when nothing was excluded for a tool error', () => {

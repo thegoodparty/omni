@@ -1,5 +1,6 @@
 import {
   MAX_TOOL_ERROR_CHARS,
+  type AgentShape,
   MAX_TOOL_ERROR_DETAILS,
   type ToolErrorDetail,
 } from './record'
@@ -87,10 +88,66 @@ export const capToolErrorDetails = (
 // clause, a KeyError keyed on a name — and redaction cannot recognise a name
 // or an address. So the public output is an allowlist: one of these fixed
 // classes, built only from the captured token, never from the message.
-// One identifier ending in Error, Exception or Warning, which covers every
-// builtin worth naming (KeyError, JSONDecodeError, TimeoutError, ...).
+//
+// Allowlisted, not pattern-matched. A pattern lets a name through whenever it
+// happens to have the right shape: `MariaGonzalezError` is an identifier
+// ending in Error, and L2 writes names in upper case, so `JOHN_SMITH_ERROR`
+// is a perfectly shaped error code. Only a token on these lists is printed;
+// anything else that merely looks like one prints as its kind.
+const KNOWN_EXCEPTIONS: ReadonlySet<string> = new Set([
+  // Python builtins
+  'KeyError',
+  'ValueError',
+  'TypeError',
+  'IndexError',
+  'AttributeError',
+  'NameError',
+  'RuntimeError',
+  'FileNotFoundError',
+  'PermissionError',
+  'TimeoutError',
+  'ConnectionError',
+  'OSError',
+  'ImportError',
+  'ModuleNotFoundError',
+  'AssertionError',
+  'ZeroDivisionError',
+  'NotImplementedError',
+  'UnicodeDecodeError',
+  'JSONDecodeError',
+  // Common libraries
+  'HTTPError',
+  'HTTPStatusError',
+  'ConnectError',
+  'ReadTimeout',
+  'ClientError',
+  'ValidationError',
+  // JavaScript
+  'ReferenceError',
+  'SyntaxError',
+  'RangeError',
+  // Ours: the chat seam's forced failure and the warehouse client
+  'ToolFailedError',
+  'PeopleDbxUnavailableError',
+])
+const KNOWN_CODES: ReadonlySet<string> = new Set([
+  'PARSE_SYNTAX_ERROR',
+  'TABLE_OR_VIEW_NOT_FOUND',
+  'UNRESOLVED_COLUMN',
+  'PERMISSION_DENIED',
+  'INSUFFICIENT_PERMISSIONS',
+  'DIVIDE_BY_ZERO',
+  'CAST_INVALID_INPUT',
+  'INVALID_PARAMETER_VALUE',
+  'RESOURCE_DOES_NOT_EXIST',
+  'TEMPORARILY_UNAVAILABLE',
+  'DEADLINE_EXCEEDED',
+])
+// The shape that marks the last line as an exception at all. Only decides
+// between a known name and `other exception`; it never prints what it saw.
 const EXCEPTION_NAME = /^[A-Z][A-Za-z0-9]{0,60}(?:Error|Exception|Warning)$/
-const ERROR_CODE = /\b([A-Z][A-Z_]{1,60}_(?:ERROR|EXCEPTION))\b/
+const UPPER_TOKEN = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g
+const CODE_SHAPE = /_(?:ERROR|EXCEPTION)$/
 const EXIT_CODE = /\bexit code (\d{1,3})\b/i
 const HTTP_STATUS =
   /\b(?:HTTP(?:\/\d(?:\.\d)?)?|status(?: code)?|response(?: code)?)[\s:=]*([45]\d\d)\b/i
@@ -103,18 +160,28 @@ const lastLine = (message: string): string =>
     .filter((line) => line !== '')
     .at(-1) ?? ''
 
-const exceptionName = (message: string): string | undefined => {
+const exceptionClass = (message: string): string | undefined => {
   // The type is everything before the first colon on the last line, minus a
   // dotted module path: `json.decoder.JSONDecodeError: ...`.
   const head = lastLine(message).split(':')[0]?.trim() ?? ''
   const name = head.split('.').at(-1) ?? ''
-  return EXCEPTION_NAME.test(name) ? name : undefined
+  if (KNOWN_EXCEPTIONS.has(name)) return name
+  return EXCEPTION_NAME.test(name) ? 'other exception' : undefined
+}
+
+const codeClass = (message: string): string | undefined => {
+  const tokens = message.match(UPPER_TOKEN) ?? []
+  const known = tokens.find((token) => KNOWN_CODES.has(token))
+  if (known !== undefined) return known
+  return tokens.some((token) => CODE_SHAPE.test(token))
+    ? 'other error code'
+    : undefined
 }
 
 export const errorClass = (message: string): string => {
-  const exception = exceptionName(message)
+  const exception = exceptionClass(message)
   if (exception !== undefined) return exception
-  const code = ERROR_CODE.exec(message)?.[1]
+  const code = codeClass(message)
   if (code !== undefined) return code
   const http = HTTP_STATUS.exec(message)?.[1]
   if (http !== undefined) return `HTTP ${http}`
@@ -124,7 +191,37 @@ export const errorClass = (message: string): string => {
   return 'other'
 }
 
-const SAFE_TOOL = /^[A-Za-z0-9_.:-]{1,80}$/
+// A background agent's tool name is whatever the model emitted, so a call
+// to an invented `lookup_jane_doe` that fails would print the name. Public
+// only if it is a harness built-in or a broker MCP tool, whose names
+// gp-api derives as METHOD_path (mcp/util/toolName.util.ts). Today every
+// @McpTool path is lower case; a future camelCase one prints as unknown,
+// which fails safe.
+const BACKGROUND_TOOLS: ReadonlySet<string> = new Set([
+  'Bash',
+  'Read',
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'Glob',
+  'Grep',
+  'LS',
+  'WebSearch',
+  'WebFetch',
+  'TodoWrite',
+  'NotebookEdit',
+  'Task',
+  'Agent',
+])
+const BROKER_TOOL = /^mcp__broker__(?:GET|POST|PUT|PATCH|DELETE)_[a-z0-9_]+$/
+// A chat tool name is one gp-api registered in code, which the chat runner
+// checks before it writes the record; this is the shape those names have.
+const CHAT_TOOL = /^[a-z][a-z0-9_]{0,63}$/
 
-export const publicToolName = (tool: string): string =>
-  SAFE_TOOL.test(tool) ? tool : 'unknown'
+export const publicToolName = (tool: string, shape: AgentShape): string => {
+  const known =
+    shape === 'chat'
+      ? CHAT_TOOL.test(tool)
+      : BACKGROUND_TOOLS.has(tool) || BROKER_TOOL.test(tool)
+  return known ? tool : 'unknown'
+}

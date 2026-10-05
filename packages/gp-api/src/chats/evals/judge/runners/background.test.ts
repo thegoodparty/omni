@@ -1063,6 +1063,24 @@ describe('parseTrace', () => {
     ])
   })
 
+  it('stores no tool name the model invented', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"lookup_jane_doe","input":{}},' +
+          '{"type":"tool_use","name":"mcp__broker__GET_community_issues",' +
+          '"input":{}}]}}',
+        '{"type":"tool_result","content":"no such tool","is_error":true}',
+        '{"type":"tool_result","content":"HTTP 503","is_error":true}',
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrorDetails.map((d) => d.tool)).toEqual([
+      'unknown',
+      'mcp__broker__GET_community_issues',
+    ])
+  })
+
   it('bounds the detail list and each message', () => {
     const calls = Array.from({ length: 12 }, (_, i) => [
       '{"type":"assistant","message":{"content":[' +
@@ -1077,7 +1095,8 @@ describe('parseTrace', () => {
 
     expect(summary.toolErrors).toBe(12)
     expect(summary.toolErrorDetails).toHaveLength(10)
-    expect(summary.toolErrorDetails[0]?.tool).toBe('Tool0')
+    // Invented names, so none is stored.
+    expect(summary.toolErrorDetails[0]?.tool).toBe('unknown')
     for (const detail of summary.toolErrorDetails) {
       expect(detail.message.length).toBeLessThanOrEqual(300)
     }

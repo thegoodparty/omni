@@ -1110,6 +1110,7 @@ describe('tool-error exclusions say which tool and why', () => {
         ...record,
         caseId: `leak-${i}`,
         runId: `run_${record.arm}_leak_${i}`,
+        agentShape: 'background' as const,
         telemetry: { ...record.telemetry, toolCalls: 1, toolErrors: 1 },
         toolErrorDetails: [{ tool: 'Bash', message }],
       })),

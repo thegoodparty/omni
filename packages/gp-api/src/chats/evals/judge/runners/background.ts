@@ -27,7 +27,7 @@ import {
   type TraceStep,
   type Variant,
 } from '../record'
-import { toolErrorDetail } from '../toolErrorDetails'
+import { publicToolName, toolErrorDetail } from '../toolErrorDetails'
 
 // The background half of the judge: 16 of the 20 agents.
 //
@@ -939,7 +939,10 @@ export const parseTrace = (jsonl: string): TraceSummary => {
     if (toolErrorDetails.length < MAX_TOOL_ERROR_DETAILS) {
       toolErrorDetails.push(
         toolErrorDetail(
-          step?.kind === 'tool' ? step.tool : undefined,
+          // The model names the tool, so an invented name is not stored.
+          step?.kind === 'tool' && step.tool !== undefined
+            ? publicToolName(step.tool, 'background')
+            : undefined,
           resultText(content),
         ),
       )
