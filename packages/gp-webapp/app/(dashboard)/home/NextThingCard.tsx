@@ -115,17 +115,11 @@ const primaryActionFor = (
   return { kind: 'none' }
 }
 
-// Why this task is first, when there is something true to say. A badge that
-// read "High priority" would show on every visit (the card is always the top
-// task) and so say nothing.
-const reasonTagFor = (
-  task: CampaignTrackerTask,
-  doneCount: number,
-): string | null => {
-  if (isTimeBoundTask(task)) return `Deadline ${formatDay(task.date)}`
-  if (doneCount === 0) return 'Start here'
-  return null
-}
+// Why this task is first, when there is something true to say: the date it
+// happens on. A standing label ("High priority", "Start here") would show on
+// every visit, since the card is always the next thing, and so say nothing.
+const reasonTagFor = (task: CampaignTrackerTask): string | null =>
+  isTimeBoundTask(task) ? `Deadline ${formatDay(task.date)}` : null
 
 // The headline is the section's heading in every state (loading, error,
 // caught up), so Home always has one stable landmark.
@@ -157,7 +151,7 @@ const NextThingSection = ({
  * only exists on that date.
  */
 export default function NextThingCard(): React.JSX.Element {
-  const { tasks, isPending, isError, next, progress, needsFiling, eventProps } =
+  const { tasks, isPending, isError, next, needsFiling, eventProps } =
     useNextThing()
   const chat = useCampaignManagerChat()
   const toggleComplete = useToggleTrackerTaskComplete()
@@ -273,7 +267,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   const action = primaryActionFor(next, needsFiling)
   const busy = toggleComplete.isPending || skipTask.isPending
-  const reasonTag = reasonTagFor(next, progress.done)
+  const reasonTag = reasonTagFor(next)
 
   return (
     <NextThingSection headline={headline}>

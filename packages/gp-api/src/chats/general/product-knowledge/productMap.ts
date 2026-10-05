@@ -123,8 +123,8 @@ const WIN_AREAS: ProductArea[] = [
     does: 'The home tab, and where this chat lives, alongside the one thing to do next.',
     inside: [
       'The Do this next card shows the single most important task right now, from the campaign plan; a candidate who is not on the ballot yet sees getting on the ballot first, with how to file',
-      'The card has one main button that starts the task, a Mark done button, and a menu (the three dots) with Later (it comes back in 3 days) and Not for me (it stays skipped until they undo it in the campaign plan). Under it, a count of how much of the plan is done links to the full plan',
-      'Two questions on the card, about that task, open this chat and ask it straight away. The chat box sits in the page under the card; every other page has it fixed at the bottom',
+      'The card has one main button that starts the task, a Mark done button, and a menu (the three dots) with Later (it comes back in 3 days), Not for me (it stays skipped until they undo it in the campaign plan), and See it in your plan',
+      'Two short questions right under the card, about that task, open this chat and ask it straight away. The chat box sits in the page below them; every other page has it fixed at the bottom',
       'Opening the chat resumes their most recent conversation; New chat in the chat header starts a fresh one',
       'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
       'Each reply carries a copy button and a thumbs up / thumbs down',

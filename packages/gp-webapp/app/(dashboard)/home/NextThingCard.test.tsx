@@ -138,17 +138,8 @@ describe('NextThingCard', () => {
       expect(screen.getByText('Deadline Nov 14')).toBeInTheDocument()
     })
 
-    it('says "Start here" before anything is done', () => {
+    it('shows no standing label when there is no date, not even before anything is done', () => {
       mockResult.mockReturnValue(settled([task({})]))
-      render(<NextThingCard />)
-
-      expect(screen.getByText('Start here')).toBeInTheDocument()
-    })
-
-    it('shows no tag when there is nothing true to say, and never "High priority"', () => {
-      mockResult.mockReturnValue(
-        settled([task({ id: 'done', completed: true }), task({ id: 'next' })]),
-      )
       render(<NextThingCard />)
 
       expect(screen.queryByText('Start here')).not.toBeInTheDocument()
