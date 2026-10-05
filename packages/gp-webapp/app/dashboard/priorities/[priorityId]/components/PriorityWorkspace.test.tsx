@@ -568,6 +568,28 @@ describe('PriorityWorkspace', () => {
     expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
   })
 
+  it('names the card it is writing once text is already on screen', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'The county runs this. ' },
+          { type: 'tool_input_start', toolName: 'present_outside_contact' },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(await screen.findByText(/The county runs this/)).toBeInTheDocument()
+    expect(
+      await screen.findByText('Looking up who to contact...'),
+    ).toBeInTheDocument()
+    gate.resolve()
+  })
+
   it('shows an ordinary tool as a quiet pill rather than a card', async () => {
     mocks.listMessages.mockResolvedValue([
       {

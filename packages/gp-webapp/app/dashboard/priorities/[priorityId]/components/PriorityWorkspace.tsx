@@ -79,6 +79,18 @@ import { StatusChangeMarker } from './StatusChangeMarker'
 const KICKOFF =
   "Let's begin. Tell me where this stands and what we should work on first."
 
+// While the model is still writing a card's arguments (tool_input_start, before
+// the call lands), name what it is working on. A contact card can take a while
+// to research and write, and with text already on screen the chat otherwise
+// looks stalled. Same signal the ordinance chat uses.
+const GENERATING_LABELS: Record<string, string> = {
+  [CLARIFY_TOOL]: 'Preparing your question...',
+  present_outside_contact: 'Looking up who to contact...',
+  present_outreach_proposal: 'Building the outreach...',
+  present_past_outreach: "Checking what you've sent...",
+  web_search: 'Searching the web...',
+}
+
 type Phase = 'loading' | 'ready' | 'error'
 
 type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
@@ -139,6 +151,7 @@ const PriorityWorkspaceBody = ({
   >([])
   const [composer, setComposer] = useState('')
   const [streamError, setStreamError] = useState<string | null>(null)
+  const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
@@ -159,6 +172,7 @@ const PriorityWorkspaceBody = ({
     messages,
     setMessages,
     visibleSegments,
+    liveSegments,
     sending,
     send: sendTurn,
   } = useStreamingTurn(priorityFlowChatApi, {
@@ -166,13 +180,20 @@ const PriorityWorkspaceBody = ({
     onTurnStart: () => {
       setStreamError(null)
       setLiveWidgets([])
+      setGeneratingTool(null)
     },
     onTurnSettle: () => {
       setLiveWidgets([])
+      setGeneratingTool(null)
       void reconcile()
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+      if (event.type === 'tool_input_start') {
+        setGeneratingTool(event.toolName)
+        return true
+      }
+      if (event.type === 'tool_call') setGeneratingTool(null)
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
         const update = parseStatusUpdate(event.args)
         if (!update) return true
@@ -377,8 +398,14 @@ const PriorityWorkspaceBody = ({
     revealedTextLength,
   )
   // Hold the shimmer until something has actually painted, so there is no
-  // empty flash between "Thinking..." and the first word.
-  const working = sending && blocks.length === 0
+  // empty flash between "Thinking..." and the first word. Once text is up it
+  // comes back while a card generates, gated on the reveal catching up so it
+  // never sits under text still typing out.
+  const revealDone = revealedTextLength >= segmentsTextLength(liveSegments)
+  const working =
+    sending && (blocks.length === 0 || (generatingTool !== null && revealDone))
+  const workingLabel =
+    (generatingTool && GENERATING_LABELS[generatingTool]) || 'Thinking...'
 
   if (phase === 'error') {
     return (
@@ -506,7 +533,7 @@ const PriorityWorkspaceBody = ({
                         onClarifyAnswer: answerClarify,
                       }}
                     />
-                    {working ? <ThinkingRow /> : null}
+                    {working ? <ThinkingRow label={workingLabel} /> : null}
                   </AssistantRow>
                 ) : null}
 

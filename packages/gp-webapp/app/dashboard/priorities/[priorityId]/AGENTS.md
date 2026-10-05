@@ -34,6 +34,12 @@ marker is the one block that is not a registry entry: what it shows comes from
 the replay in state, not from the tool args, so it goes in through
 `persistedTurnBlocks`' `surfaceWidget` and a hand-built live instance.
 
+The "Thinking..." shimmer covers the wait before anything paints, and comes
+back named ("Looking up who to contact...") while a card's arguments stream in
+(`tool_input_start`, the same signal the ordinance chat uses). A contact card
+can take a long while to research and write, and without it the chat looked
+stalled with text already on screen.
+
 The conversation is anchored, not scoped-per-step: `createConversation` gets a
 `priority` anchor and the server returns the one thread for that priority. A
 brand-new thread gets one hidden kickoff so the official arrives at a
