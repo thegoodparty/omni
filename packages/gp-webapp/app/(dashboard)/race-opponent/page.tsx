@@ -71,7 +71,7 @@ export default async function Page(): Promise<React.JSX.Element> {
         // This replaced the feature-local PageHeader bar.
         navHeader={{ icon: 'flag', label: NAV_LABELS.knowYourOpponent }}
       >
-        <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
+        <div className="flex-1 px-4 py-6 lg:px-8">
           <OpponentProLockedView />
         </div>
       </DashboardLayout>
@@ -110,7 +110,7 @@ export default async function Page(): Promise<React.JSX.Element> {
       // bar tracks that itself.
       navHeader={{ icon: 'flag', label: NAV_LABELS.knowYourOpponent }}
     >
-      <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
+      <div className="flex-1 px-4 py-6 lg:px-8">
         <RaceOpponentList
           initialData={initialData}
           raceContext={raceContext}
