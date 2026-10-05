@@ -133,3 +133,33 @@ describe('findAgent', () => {
     expect(findAgent('not_an_agent')).toBeUndefined()
   })
 })
+
+// The issue route requires `list`, and gp-api's MCP layer rejects a call
+// without it before the controller runs. Three instructions once told the
+// agent to call it bare, and each silently read an empty feed in production.
+describe('every experiment that reads the issue feed', () => {
+  it('names a list on each call it tells the agent to make', () => {
+    const dir = path.resolve(
+      __dirname,
+      '../../../../../..',
+      'packages/runbooks/experiments',
+    )
+    const calls = readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => path.join(dir, e.name, 'instruction.md'))
+      .filter((file) => existsSync(file))
+      .flatMap((file) =>
+        readFileSync(file, 'utf8')
+          .split('\n')
+          .map((line, index) => ({ at: `${file}:${index + 1}`, line })),
+      )
+      .filter(({ line }) =>
+        /Call `GET_community_issues`|GET \/v1\/community-issues\b/.test(line),
+      )
+
+    expect(calls.length).toBeGreaterThanOrEqual(7)
+    expect(
+      calls.filter(({ line }) => !/list[=:]/.test(line)).map(({ at }) => at),
+    ).toEqual([])
+  })
+})

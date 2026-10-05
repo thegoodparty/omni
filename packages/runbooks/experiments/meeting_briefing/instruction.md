@@ -239,7 +239,7 @@ All three are `@McpTool` endpoints; call them with the org's auth context. The c
 - `PRIORITIES` — array of `{ id, title, description }` objects (non-archived, active)
 - `COMMUNITY_ISSUES` — the `issues` from both list calls combined, an array of `{ id, title, summary, list, category }` objects (non-archived)
 
-If either call fails or returns empty, treat that pool as empty and proceed without it. Do not abort the run — Haystaq district data is the fallback.
+Each call contributes on its own. If the priorities call fails or returns empty, `PRIORITIES` is empty. If one community-issues list call fails or returns empty, keep the issues from the other; `COMMUNITY_ISSUES` is empty only when both list calls fail or return nothing. Do not abort the run — Haystaq district data is the fallback.
 
 ### Step 1c — Determine the triage hierarchy for this org
 
