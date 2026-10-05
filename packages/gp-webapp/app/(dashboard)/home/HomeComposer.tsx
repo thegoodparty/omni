@@ -81,7 +81,7 @@ export default function HomeComposer(): React.JSX.Element | null {
           value={message}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="min-h-[72px] resize-none border-0 bg-transparent p-1 text-base shadow-none focus-visible:ring-0"
+          className="min-h-[72px] resize-none border-0 bg-transparent p-1 text-base shadow-none md:text-base focus-visible:ring-0"
           onChange={(event) => setMessage(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
