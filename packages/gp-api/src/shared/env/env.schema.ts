@@ -164,6 +164,14 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     placeholder: 'some_key',
   },
 
+  // LlmService only checks presence, so the .env.example placeholder boots
+  // fine and every chat then 401s. Declaring it lets setup name the gap.
+  ANTHROPIC_API_KEY: {
+    tier: 'degradable',
+    feature: 'ai-chat',
+    placeholder: 'your-anthropic-key',
+  },
+
   L2_DATA_KEY: { tier: 'degradable', feature: 'voter-file-l2' },
 
   // Secrets Manager id of the curated local-dev bundle POST /v1/dev-env/
@@ -247,7 +255,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MAILGUN_INTERCEPT_EMAIL: { tier: 'optional' },
   TRACK_MAILGUN_EMAILS: { tier: 'optional', default: 'false' },
 
-  ANTHROPIC_API_KEY: { tier: 'optional' },
   AI_MODELS: { tier: 'optional' },
   AI_FALLBACK_MODEL: { tier: 'optional' },
   // Not read directly by our code; the `ai` SDK's provider registry checks

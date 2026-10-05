@@ -59,3 +59,22 @@ export const buildMergedEnv = (
   }
   return merged
 }
+
+type PlaceholderSpec = { tier: string; feature?: string; placeholder?: string }
+
+// Only vars that declare a `placeholder` are checked: those are the ones whose
+// .env.example value boots cleanly and then fails at first use. The rest of
+// the degradable tier (Slack channels, Peerly) is expected to stay dark on a
+// laptop, and listing it would bury the one line that matters.
+export const findPlaceholderFeatures = (
+  contract: Record<string, PlaceholderSpec>,
+  env: EnvMap,
+): string[] =>
+  Object.entries(contract)
+    .filter(
+      ([name, spec]) =>
+        spec.tier === 'degradable' &&
+        spec.placeholder !== undefined &&
+        (!env[name] || env[name] === spec.placeholder),
+    )
+    .map(([name, spec]) => `${spec.feature} (${name})`)

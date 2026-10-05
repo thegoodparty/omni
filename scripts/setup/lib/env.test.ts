@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildMergedEnv, parseEnvFile, serializeEnvFile } from './env'
+import {
+  buildMergedEnv,
+  findPlaceholderFeatures,
+  parseEnvFile,
+  serializeEnvFile,
+} from './env'
 
 describe('parseEnvFile', () => {
   it('parses KEY=value, KEY=, and quoted values, ignoring comments/blanks', () => {
@@ -100,5 +105,39 @@ describe('buildMergedEnv', () => {
       {},
     )
     expect(merged).toEqual({ ONLY_THIS: 'a' })
+  })
+})
+
+describe('findPlaceholderFeatures', () => {
+  const contract = {
+    ANTHROPIC_API_KEY: {
+      tier: 'degradable',
+      feature: 'ai-chat',
+      placeholder: 'your-anthropic-key',
+    },
+    SLACK_APP_ID: { tier: 'degradable', feature: 'slack-notifications' },
+    NODE_ENV: { tier: 'optional', placeholder: 'development' },
+  }
+
+  it('names a placeholder-declared feature left at its placeholder', () => {
+    expect(
+      findPlaceholderFeatures(contract, {
+        ANTHROPIC_API_KEY: 'your-anthropic-key',
+        SLACK_APP_ID: '',
+        NODE_ENV: 'development',
+      }),
+    ).toEqual(['ai-chat (ANTHROPIC_API_KEY)'])
+  })
+
+  it('names it when the value is empty', () => {
+    expect(
+      findPlaceholderFeatures(contract, { ANTHROPIC_API_KEY: '' }),
+    ).toEqual(['ai-chat (ANTHROPIC_API_KEY)'])
+  })
+
+  it('returns nothing once a real value is set', () => {
+    expect(
+      findPlaceholderFeatures(contract, { ANTHROPIC_API_KEY: 'sk-ant-real' }),
+    ).toEqual([])
   })
 })

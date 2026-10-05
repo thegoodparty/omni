@@ -22,6 +22,10 @@ gp-api and gp-webapp are both healthy. It's idempotent — re-run it any time;
 it skips whatever's already valid and prompts before wiping a non-empty local
 DB. When the device flow is denied or unavailable and no `--from` or existing
 env files exist, it fails closed rather than boot with nothing to work from.
+When a `degradable` var that declares a `placeholder` in its env contract
+(e.g. `ANTHROPIC_API_KEY` for AI chat) is still at that placeholder, the env
+step names the feature that will stay off; the fix is adding the key to
+`LOCAL_DEV_ENV`, not editing `.env` by hand.
 election-api and
 gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
 election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.

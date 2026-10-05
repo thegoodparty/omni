@@ -58,6 +58,7 @@ import {
 // below.
 import {
   buildMergedEnv,
+  findPlaceholderFeatures,
   parseEnvFile,
   serializeEnvFile,
   type EnvMap,
@@ -182,6 +183,15 @@ const runBuild = async (
   }
 
   writeFileSync(outPath, serializeEnvFile(merged, keys))
+
+  const dark = findPlaceholderFeatures(ENV_VAR_CONTRACT, merged)
+  if (dark.length > 0) {
+    console.error(
+      `${pkgName}: these features stay off until their key is set ` +
+        `(ask an admin to add it to LOCAL_DEV_ENV, see docs/secrets.md):`,
+    )
+    for (const line of dark) console.error(`  - ${line}`)
+  }
   process.exit(0)
 }
 
