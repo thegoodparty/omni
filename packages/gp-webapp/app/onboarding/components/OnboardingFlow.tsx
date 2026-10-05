@@ -1375,18 +1375,7 @@ export default function OnboardingFlow({
                     {activeStep.title}
                   </h1>
                   <p className="text-lg text-muted-foreground sm:text-base">
-                    {activeStep.id === 'path-to-victory' && p2vOfficeName ? (
-                      <>
-                        We use historical voter data and proprietary models to
-                        get the most accurate projections for{' '}
-                        <span className="font-semibold text-foreground">
-                          {p2vOfficeName}
-                        </span>
-                        .
-                      </>
-                    ) : (
-                      activeStep.description
-                    )}
+                    {activeStep.description}
                   </p>
                 </div>
               )}
