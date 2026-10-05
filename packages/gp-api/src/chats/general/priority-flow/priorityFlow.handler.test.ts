@@ -435,6 +435,7 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('widensOutreachIds')
     expect(prompt).toContain('repliesAlready set to the replies already in')
     expect(prompt).toContain('alreadyAsked set to how many people')
+    expect(prompt).toContain('audience set to the full count_contacts count')
   })
 
   it('says a sample no smaller than its audience goes to all of it', async () => {
