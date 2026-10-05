@@ -7,7 +7,7 @@ import {
   getMidnightForDate,
   parseIsoDateAsUTC,
 } from 'src/shared/util/date.util'
-import { Outreach, OutreachStatus } from '../../generated/prisma'
+import { Outreach, OutreachStatus, OutreachType } from '../../generated/prisma'
 import { PeerlyJob, PeerlyJobStatus } from '../../vendors/peerly/peerly.types'
 import { PeerlyP2pJobService } from '../../vendors/peerly/services/peerlyP2pJob.service'
 
@@ -196,7 +196,19 @@ export class OutreachCompletionService extends createPrismaBase(
     now: Date,
   ): Promise<void> {
     const job = await this.peerlyP2pJobService.getJob(projectId)
-    const nextStatus = mapPeerlyJobToOutreachStatus(job, now)
+    const mappedStatus = mapPeerlyJobToOutreachStatus(job, now)
+    // A p2p send only goes out once canvassers are booked (console approve,
+    // or by hand in Peerly). An unbooked row whose day passed sent nothing,
+    // and completing it hid it from the CAS console's Awaiting tab before
+    // anyone could reschedule it (Rendon + Johnson, 2026-10-04).
+    const isUnbookedP2p =
+      outreach.outreachType === OutreachType.p2p &&
+      outreach.canvassRequestedAt === null &&
+      !job.canvassers_schedule?.approved
+    const nextStatus =
+      mappedStatus === OutreachStatus.completed && isUnbookedP2p
+        ? OutreachStatus.in_progress
+        : mappedStatus
     if (!nextStatus) {
       this.logger.warn(
         { outreachId: outreach.id, projectId, peerlyStatus: job.status },
