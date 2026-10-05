@@ -206,9 +206,11 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Candidate website',
     path: '/dashboard/website',
     modes: ['win'],
-    does: 'A free campaign website: pick a theme, edit it section by section, and connect a custom domain.',
+    does: 'The build-your-own campaign website, which is being discontinued. It is no longer in the left rail and nothing on the dashboard links to it.',
     inside: [
-      'Not in the left rail, and no dashboard link reaches it: give them the address, app.goodparty.org/dashboard/website',
+      'Do not suggest starting a new site here. If they ask, say the feature is being discontinued',
+      'A candidate who bought a domain through us is asked to transfer it to another provider, from the notice on their dashboard and the Transfer button on Profile',
+      'An existing site can still be edited at app.goodparty.org/dashboard/website',
       'Custom domain setup and its DNS instructions are under the site’s Domain settings',
     ],
   },
