@@ -4,7 +4,7 @@ import NextThingCard from './NextThingCard'
 import HomeComposer from './HomeComposer'
 
 /**
- * Home is the one next thing, under a friendly headline about it, and a chat
+ * Home is the one next thing, under a short friendly headline, and a chat
  * box. The chat box lives in the page here; every other page keeps the fixed
  * footer bar (CampaignManagerChatProvider skips it on /home).
  */

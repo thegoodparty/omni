@@ -1,8 +1,20 @@
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 
-// Home's words for the next thing, keyed on the kind of task: the friendly
-// headline above the card and the two questions on it. One place, so the two
-// always describe the same task.
+// Home's words: the headline above the card, and the two questions "Chat
+// about this" offers, keyed on the kind of task.
+
+// The headline is general on purpose, so it reads right above any task. Home
+// shows one per browser session (useSessionHeadline): a candidate opens Home
+// often, and a line that changes each visit gets noticed, then tuned out.
+export const HOME_HEADLINES = [
+  'On the trail',
+  'Make it count',
+  'Earn every vote',
+  'Every vote counts',
+  "You've got this",
+  'Ready when you are',
+  "Let's get to work",
+] as const
 
 type TaskKind = 'ballot' | 'send' | 'event' | 'canvass' | 'other'
 
@@ -26,14 +38,6 @@ const kindOf = (
   }
 }
 
-const HEADLINES: Record<TaskKind, string> = {
-  ballot: "Let's get you on the ballot",
-  send: "Let's reach your voters",
-  event: "Let's get ready for your event",
-  canvass: "Let's meet your voters",
-  other: "Let's keep your campaign moving",
-}
-
 // Two, so they sit on one row on a phone. Each is a complete question, so a
 // tap sends it.
 const QUESTIONS: Record<TaskKind, [string, string]> = {
@@ -46,11 +50,6 @@ const QUESTIONS: Record<TaskKind, [string, string]> = {
   canvass: ['Write me a script', 'Which voters should I start with?'],
   other: ['Help me get this done', 'Why does this matter for my race?'],
 }
-
-export const headlineFor = (
-  task: CampaignTrackerTask | null,
-  needsFiling: boolean,
-): string => HEADLINES[kindOf(task, needsFiling)]
 
 export const questionsFor = (
   task: CampaignTrackerTask,

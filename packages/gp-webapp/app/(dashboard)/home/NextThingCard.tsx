@@ -43,7 +43,8 @@ import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatP
 import CountModal from '../components/tasks/CountModal'
 import FilingInstructionsDetails from '../shared/FilingInstructionsDetails'
 import { useNextThing } from './useNextThing'
-import { headlineFor, questionsFor } from './nextThingCopy'
+import { questionsFor } from './nextThingCopy'
+import { useSessionHeadline } from './useSessionHeadline'
 
 // A task's own action link, if it has a non-empty one. Trimmed so an empty or
 // whitespace string (which the agent can emit) counts as "no link".
@@ -128,7 +129,7 @@ const NextThingSection = ({
   headline,
   children,
 }: {
-  headline: string
+  headline: string | null
   children: React.ReactNode
 }): React.JSX.Element => (
   <section className="flex flex-col gap-5" aria-labelledby="next-thing-heading">
@@ -136,7 +137,8 @@ const NextThingSection = ({
       id="next-thing-heading"
       className="text-balance text-2xl font-semibold text-foreground lg:text-3xl"
     >
-      {headline}
+      {/* A blank line holds the height until the session's line arrives. */}
+      {headline ?? '\u00a0'}
     </h2>
     {children}
   </section>
@@ -144,8 +146,8 @@ const NextThingSection = ({
 
 /**
  * The one thing a candidate should do next, chosen by the same
- * selectNextTrackerTask the campaign plan uses, under a friendly headline about
- * it. One filled action, a quiet "Mark done", rare choices in the "…" menu,
+ * selectNextTrackerTask the campaign plan uses, under a short, friendly
+ * headline. One filled action, a quiet "Mark done", rare choices in the "…" menu,
  * and "Chat about this" in the tray under the card. It stays
  * until they do it, mark it done, skip it, or its date passes on a task that
  * only exists on that date.
@@ -159,7 +161,7 @@ export default function NextThingCard(): React.JSX.Element {
   const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
   const [filingOpen, setFilingOpen] = useState(false)
 
-  const headline = headlineFor(next, needsFiling)
+  const headline = useSessionHeadline()
 
   // Once per task shown, not per render: the tracker query polls.
   const nextId = next?.id ?? null

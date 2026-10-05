@@ -24,7 +24,7 @@ export const buildCampaignManagerIntro = (
   'How can I help today?',
 ]
 
-// The kickoff the "Let's get you on the ballot" home card fires. Unlike the
+// The kickoff the ballot-access home card fires. Unlike the
 // story and product-overview sentinels this is real English sent straight to the
 // model: the answer has to be specific to the candidate's office and state, so
 // it runs a normal LLM turn against the ballot-access guidance in the system
