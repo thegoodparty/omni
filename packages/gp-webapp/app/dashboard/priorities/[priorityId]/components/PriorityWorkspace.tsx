@@ -80,14 +80,18 @@ const KICKOFF =
   "Let's begin. Tell me where this stands and what we should work on first."
 
 // While the model is still writing a card's arguments (tool_input_start, before
-// the call lands), name what it is working on. A contact card can take a while
-// to research and write, and with text already on screen the chat otherwise
-// looks stalled. Same signal the ordinance chat uses.
+// the call lands), name what it is working on. Contact, outreach and list work
+// can take a while, and with text already on screen the chat otherwise looks
+// stalled. Same signal the ordinance chat uses; tools that end as a pill fall
+// back to their pill label.
 const GENERATING_LABELS: Record<string, string> = {
   [CLARIFY_TOOL]: 'Preparing your question...',
   present_outside_contact: 'Looking up who to contact...',
   present_outreach_proposal: 'Building the outreach...',
+  present_constituents: 'Pulling the list...',
+  present_contacts: 'Pulling the list...',
   present_past_outreach: "Checking what you've sent...",
+  [STATUS_TOOL]: 'Updating where this stands...',
   web_search: 'Searching the web...',
 }
 
@@ -398,14 +402,21 @@ const PriorityWorkspaceBody = ({
     revealedTextLength,
   )
   // Hold the shimmer until something has actually painted, so there is no
-  // empty flash between "Thinking..." and the first word. Once text is up it
-  // comes back while a card generates, gated on the reveal catching up so it
-  // never sits under text still typing out.
+  // empty flash between "Thinking..." and the first word. After that it
+  // comes back whenever the agent is working with nothing moving on screen:
+  // between tool calls, and while a card's arguments stream in. Gated on the
+  // reveal catching up so it never sits under text still typing out, and off
+  // while a tool's own pill is shimmering.
   const revealDone = revealedTextLength >= segmentsTextLength(liveSegments)
+  const pillRunning = liveSegments.some(
+    (segment) => segment.kind === 'tool' && segment.running,
+  )
   const working =
-    sending && (blocks.length === 0 || (generatingTool !== null && revealDone))
+    sending && (blocks.length === 0 || (revealDone && !pillRunning))
+  const pillLabel = generatingTool ? priorityToolLabel(generatingTool) : null
   const workingLabel =
-    (generatingTool && GENERATING_LABELS[generatingTool]) || 'Thinking...'
+    (generatingTool && GENERATING_LABELS[generatingTool]) ||
+    (pillLabel ? `${pillLabel}...` : 'Thinking...')
 
   if (phase === 'error') {
     return (

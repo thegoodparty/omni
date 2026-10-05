@@ -590,6 +590,51 @@ describe('PriorityWorkspace', () => {
     gate.resolve()
   })
 
+  it('names the question it is preparing once text is on screen', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'Two ways to read this. ' },
+          { type: 'tool_input_start', toolName: 'ask_clarify_question' },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(await screen.findByText(/Two ways to read this/)).toBeInTheDocument()
+    expect(
+      await screen.findByText('Preparing your question...'),
+    ).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('keeps showing work between tool calls once text is on screen', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'Pulling the renters on those blocks. ' },
+          { type: 'tool_call', toolName: 'count_contacts', args: {} },
+          { type: 'tool_result', toolName: 'count_contacts', result: {} },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/Pulling the renters on those blocks/),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('Thinking...')).toBeInTheDocument()
+    gate.resolve()
+  })
+
   it('shows an ordinary tool as a quiet pill rather than a card', async () => {
     mocks.listMessages.mockResolvedValue([
       {

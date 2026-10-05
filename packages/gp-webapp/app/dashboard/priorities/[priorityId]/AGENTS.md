@@ -35,9 +35,12 @@ the replay in state, not from the tool args, so it goes in through
 `persistedTurnBlocks`' `surfaceWidget` and a hand-built live instance.
 
 The "Thinking..." shimmer covers the wait before anything paints, and comes
-back named ("Looking up who to contact...") while a card's arguments stream in
-(`tool_input_start`, the same signal the ordinance chat uses). A contact card
-can take a long while to research and write, and without it the chat looked
+back whenever the agent is working with nothing moving on screen: between tool
+calls, and while any widget's arguments stream in (`tool_input_start`, the same
+signal the ordinance chat uses). It is named for the widget being written
+("Looking up who to contact...", "Preparing your question...") or falls back to
+the tool's pill label, and stays off while a pill is shimmering. Contact,
+outreach and list work can take a long while, and without it the chat looked
 stalled with text already on screen.
 
 The conversation is anchored, not scoped-per-step: `createConversation` gets a
