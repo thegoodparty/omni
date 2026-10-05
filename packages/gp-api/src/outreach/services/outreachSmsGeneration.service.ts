@@ -18,6 +18,8 @@ import { z } from 'zod'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import {
+  describeMarkerMiss,
+  improveCorrectionTurns,
   maskProtectedParts,
   PROTECTED_MARKER_RULE,
   restoreProtectedParts,
@@ -33,10 +35,33 @@ export interface SmsImproveProtection {
   ignoredRules: SmsStandardsRule[]
 }
 
-// One retry: a reply that drops or reorders a marker is usually a one-off,
-// and a second miss is better reported than looped on.
-const IMPROVE_ATTEMPTS = 2
 import { eventDetailsContext } from '../util/eventDetails.util'
+
+// Three tries: the first is the polish, and the two after it are corrections
+// that tell the model what its last reply got wrong. Each one costs the
+// candidate about two more seconds of spinner and only runs on a reply we
+// were going to refuse anyway, so the trade is a slower rare Improve against
+// an Improve that fails in their face.
+const IMPROVE_ATTEMPTS = 3
+
+// A correction wants obedience, not invention: the re-roll temperature that
+// makes Regenerate produce a different draft is what makes a corrected reply
+// drift off the instruction again.
+const IMPROVE_FIRST_TEMPERATURE = 0.8
+const IMPROVE_CORRECTION_TEMPERATURE = 0.2
+
+// What the model is told it broke, when a restored polish fails a compliance
+// rule the original passed. Rule ids are for us; this is for the model.
+const RULE_CORRECTIONS: Record<SmsStandardsRule, string> = {
+  opt_out_line: 'the message has to tell people how to opt out',
+  first_name_token: 'the message has to keep the first-name merge tag',
+  candidate_name: 'the message has to name who is sending it',
+  paid_for_by: 'the message has to keep the paid-for-by disclaimer',
+  length: 'the message is too long to send',
+  link_shortener:
+    'the message cannot contain a shortened link — write any web ' +
+    'address out in full',
+}
 
 // The per-surface voice a draft/improve request writes in. Win and Serve
 // share every other piece of this pipeline (the LLM call plumbing, the tone
@@ -408,7 +433,10 @@ export class OutreachSmsGenerationService {
         const { object } = await this.llm.jsonCompletion({
           messages,
           schema: DraftSchema,
-          temperature: 0.8,
+          temperature:
+            attempt === 1
+              ? IMPROVE_FIRST_TEMPERATURE
+              : IMPROVE_CORRECTION_TEMPERATURE,
           maxTokens: 512,
           userId,
         })
@@ -417,30 +445,90 @@ export class OutreachSmsGenerationService {
         this.logger.error({ err }, 'SMS draft generation failed')
         throw new BadGatewayException('SMS draft generation failed')
       }
-      const restored = restoreProtectedParts(reply, locked)
-      if (restored === null) {
-        this.logger.warn({ attempt }, 'SMS improve dropped a locked part')
-        continue
+      const verdict = this.judgeImprove(reply, {
+        locked,
+        attempt,
+        failingBefore,
+        standards,
+      })
+      if ('restored' in verdict) {
+        if (attempt > 1) {
+          // The one line that says a correction worked. Without it a
+          // recovered Improve looks exactly like one that never missed, and
+          // the only visible outcome of this loop is its 502.
+          this.logger.info(
+            { attempt },
+            'SMS improve recovered after a correction',
+          )
+        }
+        return verdict.restored
       }
-      // The markers are shorter than the text they hold, so a reply within
-      // the limit can come back over it once restored; the response schema
-      // would then fail the request with no message to show.
-      if (restored.length > SMS_COMPOSED_MAX_LENGTH) {
-        this.logger.warn({ attempt }, 'SMS improve came back over the limit')
-        continue
-      }
-      const newlyFailing = standards(restored).filter(
-        (rule) => !failingBefore.has(rule),
-      )
-      if (newlyFailing.length > 0) {
-        this.logger.warn(
-          { attempt, newlyFailing },
-          'SMS improve broke a compliance rule',
-        )
-        continue
-      }
-      return restored
+      // Whichever way the reply was unusable, the model is told which one it
+      // was and asked again. The same request sent twice is only the same
+      // dice rolled twice.
+      messages.push(...improveCorrectionTurns(reply, verdict.problem))
     }
     throw new BadGatewayException('SMS draft generation failed')
+  }
+
+  // Either the message to hand back, or why this reply cannot be used, in
+  // the words the model needs to hear to fix it. Each miss is logged here
+  // with what was actually wrong — marker positions and lengths, never the
+  // candidate's text — so the next one is diagnosable from the logs alone.
+  private judgeImprove(
+    reply: string,
+    {
+      locked,
+      attempt,
+      failingBefore,
+      standards,
+    }: {
+      locked: string[]
+      attempt: number
+      failingBefore: Set<SmsStandardsRule>
+      standards: (script: string) => SmsStandardsRule[]
+    },
+  ): { restored: string } | { problem: string } {
+    const markerMiss = describeMarkerMiss(reply, locked)
+    const restored = restoreProtectedParts(reply, locked)
+    if (markerMiss !== null || restored === null) {
+      this.logger.warn(
+        { attempt, markerMiss },
+        'SMS improve dropped a locked part',
+      )
+      return {
+        problem: markerMiss ?? 'the required text could not be put back in',
+      }
+    }
+    // The markers are shorter than the text they hold, so a reply within the
+    // limit can come back over it once restored; the response schema would
+    // then fail the request with no message to show.
+    if (restored.length > SMS_COMPOSED_MAX_LENGTH) {
+      this.logger.warn(
+        { attempt, restoredLength: restored.length },
+        'SMS improve came back over the limit',
+      )
+      return {
+        problem:
+          `with the required text put back it runs ${restored.length} ` +
+          `characters, over the ${SMS_COMPOSED_MAX_LENGTH} a message can ` +
+          'be — cut words you chose, never a marker',
+      }
+    }
+    const newlyFailing = standards(restored).filter(
+      (rule) => !failingBefore.has(rule),
+    )
+    if (newlyFailing.length > 0) {
+      this.logger.warn(
+        { attempt, newlyFailing },
+        'SMS improve broke a compliance rule',
+      )
+      return {
+        problem: newlyFailing
+          .map((rule) => RULE_CORRECTIONS[rule])
+          .join('; and '),
+      }
+    }
+    return { restored }
   }
 }

@@ -1,3 +1,5 @@
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
+
 // What the mask needs of a locked part, so an SMS part and a robocall part
 // (contracts' deriveSmsProtectedParts and deriveRobocallProtectedParts) both
 // fit. A token is masked everywhere it appears; a phrase where it starts.
@@ -97,10 +99,17 @@ export const maskProtectedParts = (
   return { masked: masked + script.slice(cursor), locked }
 }
 
-// Null unless the reply carries every marker exactly once, in order, and no
-// marker it was not given. Anything else means the model moved, dropped,
-// duplicated or invented locked text, and none of it is safe to send.
-export const restoreProtectedParts = (
+const markerList = (numbers: number[]): string =>
+  numbers.length === 0
+    ? 'no markers at all'
+    : numbers.map((number) => markerFor(number - 1)).join(' ')
+
+// Null when the reply carries every marker exactly once, in order, and no
+// marker it was not given. Otherwise a sentence naming what came back and
+// what should have, for the retry turn and for the log line: it is the one
+// question an operator asks when a polish is refused, and the markers are
+// positions, never the locked text itself, so it is safe to log.
+export const describeMarkerMiss = (
   reply: string,
   locked: string[],
 ): string | null => {
@@ -109,9 +118,26 @@ export const restoreProtectedParts = (
   )
   const expected = locked.map((_, index) => index + 1)
   if (
-    seen.length !== expected.length ||
-    seen.some((number, index) => number !== expected[index])
+    seen.length === expected.length &&
+    seen.every((number, index) => number === expected[index])
   ) {
+    return null
+  }
+  return (
+    `it came back with ${markerList(seen)}, where it has to carry ` +
+    `${markerList(expected)} — each exactly once, in that order, with ` +
+    'none added'
+  )
+}
+
+// Null unless the reply carries every marker exactly once, in order, and no
+// marker it was not given. Anything else means the model moved, dropped,
+// duplicated or invented locked text, and none of it is safe to send.
+export const restoreProtectedParts = (
+  reply: string,
+  locked: string[],
+): string | null => {
+  if (describeMarkerMiss(reply, locked) !== null) {
     return null
   }
   return reply.replace(
@@ -128,3 +154,25 @@ export const PROTECTED_MARKER_RULE = [
   '  before, between and after them. Do NOT add opt-out or paid-for-by',
   '  language: the markers already hold it.',
 ].join('\n')
+
+// A refused reply goes back to the model with what was wrong with it, so the
+// next attempt is a correction and not another roll of the same dice. Sending
+// the first prompt again unchanged is what turned one unlucky reply into a
+// failed Improve for a candidate (incident 107): the model was never told it
+// had dropped a marker, so its second answer was as likely to drop one as
+// its first. The rejected draft is quoted back as the model's own turn, where
+// it has no more authority than the text it already wrote.
+export const improveCorrectionTurns = (
+  rejected: string,
+  problem: string,
+): LlmMessage[] => [
+  { role: 'assistant', content: rejected },
+  {
+    role: 'user',
+    content: [
+      `That version cannot be used: ${problem}.`,
+      'Send the polished message again. Fix only that, keep the rest of',
+      'your wording, and change nothing else.',
+    ].join('\n'),
+  },
+]

@@ -253,17 +253,70 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
   })
 
-  it('gives up with a 502 rather than return changed locked text', async () => {
-    const { service } = replyWith('No markers at all.', 'Still none.')
+  // The reply is quoted back as the model's own turn with what it broke, so
+  // the second attempt is a correction rather than the same roll of the dice
+  // that already missed: an unlucky first reply used to be sent the identical
+  // prompt again and a second miss failed the candidate's Improve (inc 107).
+  it('tells the model which markers came back before asking again', async () => {
+    const dropped = "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3."
+    const { service, jsonCompletion } = replyWith(
+      dropped,
+      `${dropped}\n\n⟦3⟧ ⟦4⟧`,
+    )
+
+    await expect(improve(service)).resolves.toContain('Reply STOP to opt out.')
+
+    const retry = jsonCompletion.mock.calls[1]?.[0] as {
+      messages: Array<{ role: string; content: string }>
+      temperature: number
+    }
+    expect(retry.messages.at(-2)).toEqual({
+      role: 'assistant',
+      content: dropped,
+    })
+    const correction = retry.messages.at(-1)
+    expect(correction?.role).toBe('user')
+    expect(correction?.content).toContain('came back with ⟦1⟧ ⟦2⟧')
+    expect(correction?.content).toContain('carry ⟦1⟧ ⟦2⟧ ⟦3⟧ ⟦4⟧')
+    // A correction wants obedience, not another creative re-roll.
+    expect(retry.temperature).toBeLessThan(0.8)
+  })
+
+  it('tells the model how long the polish came out when it is too long', async () => {
+    const tooLong = `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}\n\n⟦3⟧ ⟦4⟧`
+    const { service, jsonCompletion } = replyWith(tooLong, tooLong, tooLong)
+
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
+
+    const retry = jsonCompletion.mock.calls[1]?.[0] as {
+      messages: Array<{ role: string; content: string }>
+    }
+    expect(retry.messages.at(-1)?.content).toContain('characters, over the')
+  })
+
+  it('gives up with a 502 rather than return changed locked text', async () => {
+    const { service, jsonCompletion } = replyWith(
+      'No markers at all.',
+      'Still none.',
+      'None again.',
+    )
+    await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
+    expect(jsonCompletion).toHaveBeenCalledTimes(3)
   })
 
   it('refuses a polish that breaks a rule the original passed', async () => {
-    const { service } = replyWith(
-      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧",
-      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧",
+    const shortened = "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧"
+    const { service, jsonCompletion } = replyWith(
+      shortened,
+      shortened,
+      shortened,
     )
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
+    // and says which rule it broke, in words the model can act on
+    const retry = jsonCompletion.mock.calls[1]?.[0] as {
+      messages: Array<{ role: string; content: string }>
+    }
+    expect(retry.messages.at(-1)?.content).toContain('shortened link')
   })
 
   // The markers are shorter than what they hold, so the length the model is
@@ -292,12 +345,10 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
   // limit can come back over it once restored. That is a miss to retry, not
   // a reply the response schema would then reject.
   it('treats a polish that restores past the length limit as a miss', async () => {
-    const { service, jsonCompletion } = replyWith(
-      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}\n\n⟦3⟧ ⟦4⟧`,
-      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}\n\n⟦3⟧ ⟦4⟧`,
-    )
+    const tooLong = `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}\n\n⟦3⟧ ⟦4⟧`
+    const { service, jsonCompletion } = replyWith(tooLong, tooLong, tooLong)
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
-    expect(jsonCompletion).toHaveBeenCalledTimes(2)
+    expect(jsonCompletion).toHaveBeenCalledTimes(3)
   })
 
   it('refuses to polish without the message protection', async () => {
