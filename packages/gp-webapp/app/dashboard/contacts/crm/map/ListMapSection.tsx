@@ -109,8 +109,7 @@ export default function ListMapSection({
           )}
           {drawing && (
             <ListBoundaryOverlay
-              people={people}
-              truncated={truncated}
+              segment={segment}
               initialShapes={savedShapes}
               labels={labels}
               isSaving={saveMutation.isPending}
