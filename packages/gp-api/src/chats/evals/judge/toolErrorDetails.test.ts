@@ -198,7 +198,8 @@ describe('publicToolName', () => {
     'WebSearch',
     'Agent',
     'mcp__broker__GET_community_issues',
-    'mcp__broker__POST_ordinances_slug_clarify_answers',
+    'mcp__broker__POST_domains_search',
+    'mcp__broker__GET_ordinances_slug',
   ])('keeps the background tool %s', (tool) => {
     expect(publicToolName(tool, 'background')).toBe(tool)
   })
@@ -206,6 +207,10 @@ describe('publicToolName', () => {
   it.each([
     'lookup_jane_doe',
     'mcp__broker__jane_doe',
+    // The right shape, but no such route: a model can invent one.
+    'mcp__broker__GET_jane_doe_voter_record',
+    'jane_doe_mcp__broker__GET_community_issues',
+    'mcp__broker__GET_community_issues_jane',
     'mcp__broker__GET_Jane_Doe',
     'mcp__broker__GET_jane doe',
     'mcp__other__GET_x',

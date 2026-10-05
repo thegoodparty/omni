@@ -1202,6 +1202,8 @@ describe('tool error causes', () => {
       'lookup_jane_doe',
       'mcp__broker__jane_doe',
       'mcp__broker__GET_jane doe',
+      'mcp__broker__GET_jane_doe_voter_record',
+      'jane_doe_mcp__broker__GET_x',
     ]
     const agent = normalizeAgent(
       invented.flatMap((tool, i) => [

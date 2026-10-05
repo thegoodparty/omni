@@ -193,10 +193,9 @@ export const errorClass = (message: string): string => {
 
 // A background agent's tool name is whatever the model emitted, so a call
 // to an invented `lookup_jane_doe` that fails would print the name. Public
-// only if it is a harness built-in or a broker MCP tool, whose names
-// gp-api derives as METHOD_path (mcp/util/toolName.util.ts). Today every
-// @McpTool path is lower case; a future camelCase one prints as unknown,
-// which fails safe.
+// only if it is a harness built-in or a real broker MCP tool, whose names
+// gp-api derives from the route template (mcp/util/toolName.util.ts), so
+// they never carry a value.
 const BACKGROUND_TOOLS: ReadonlySet<string> = new Set([
   'Bash',
   'Read',
@@ -213,7 +212,25 @@ const BACKGROUND_TOOLS: ReadonlySet<string> = new Set([
   'Task',
   'Agent',
 ])
-const BROKER_TOOL = /^mcp__broker__(?:GET|POST|PUT|PATCH|DELETE)_[a-z0-9_]+$/
+export const BROKER_TOOL_PREFIX = 'mcp__broker__'
+// Names, not a pattern: a model can invent a well-shaped name with a voter in
+// it, and a call to a tool that does not exist fails, which is exactly what
+// lands here. knownBrokerTools.db.test.ts keeps this equal to the real list.
+export const KNOWN_BROKER_TOOLS: ReadonlySet<string> = new Set([
+  `${BROKER_TOOL_PREFIX}GET_campaigns_mine`,
+  `${BROKER_TOOL_PREFIX}GET_campaigns_tcr_compliance_mine_compliance_state`,
+  `${BROKER_TOOL_PREFIX}GET_campaigns_tracker_tasks`,
+  `${BROKER_TOOL_PREFIX}GET_community_issues`,
+  `${BROKER_TOOL_PREFIX}GET_ordinances`,
+  `${BROKER_TOOL_PREFIX}GET_ordinances_slug`,
+  `${BROKER_TOOL_PREFIX}GET_priorities`,
+  `${BROKER_TOOL_PREFIX}GET_websites_mine`,
+  `${BROKER_TOOL_PREFIX}POST_campaigns_tcr_compliance_submit_to_peerly`,
+  `${BROKER_TOOL_PREFIX}POST_domains_purchase`,
+  `${BROKER_TOOL_PREFIX}POST_domains_search`,
+  `${BROKER_TOOL_PREFIX}POST_websites_mine_verify_live`,
+  `${BROKER_TOOL_PREFIX}PUT_websites_mine`,
+])
 // A chat tool name is one gp-api registered in code, which the chat runner
 // checks before it writes the record; this is the shape those names have.
 const CHAT_TOOL = /^[a-z][a-z0-9_]{0,63}$/
@@ -222,6 +239,6 @@ export const publicToolName = (tool: string, shape: AgentShape): string => {
   const known =
     shape === 'chat'
       ? CHAT_TOOL.test(tool)
-      : BACKGROUND_TOOLS.has(tool) || BROKER_TOOL.test(tool)
+      : BACKGROUND_TOOLS.has(tool) || KNOWN_BROKER_TOOLS.has(tool)
   return known ? tool : 'unknown'
 }

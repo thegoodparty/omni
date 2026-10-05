@@ -810,11 +810,17 @@ lets a name through whenever it has the right shape (`MariaGonzalezError`,
 `JOHN_SMITH_ERROR`).
 
 - **Tool name** (`publicToolName`): for a background agent, a harness
-  built-in (Bash, Read, WebSearch, Agent, ...) or a broker MCP tool
-  (`mcp__broker__GET_community_issues`, the METHOD_path shape
-  `mcp/util/toolName.util.ts` derives). For chat, a tool gp-api registered,
-  which the runner checks before it writes. The model can invent a tool name,
-  so anything else is `unknown`, and both runners store it that way.
+  built-in (Bash, Read, WebSearch, Agent, ...) or a broker MCP tool on
+  `KNOWN_BROKER_TOOLS` (e.g. `mcp__broker__GET_community_issues`). It is a
+  list of names, not a pattern, because a model can invent a well-shaped
+  `mcp__broker__GET_jane_doe_voter_record`. For chat, a tool gp-api
+  registered, which the runner checks before it writes. Anything else is
+  `unknown`, and both runners store it that way.
+
+  **Adding an @McpTool route?** `knownBrokerTools.db.test.ts` fails until
+  `KNOWN_BROKER_TOOLS` in `toolErrorDetails.ts` matches the tools gp-api
+  serves. Add `mcp__broker__` plus the name `deriveToolName` gives the route
+  (the test's failure diff prints it), and remove one you deleted.
 - **Error class** (`errorClass`): a known exception type (`KeyError`,
   `JSONDecodeError`, `HTTPStatusError`, ...), a known Databricks code
   (`PARSE_SYNTAX_ERROR`, `TABLE_OR_VIEW_NOT_FOUND`, ...), `HTTP 503`,
