@@ -50,7 +50,6 @@ import {
   FREE_TEXTS_OFFER,
 } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
-import { dollarsToCents } from 'helpers/numberHelper'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
@@ -1954,13 +1953,11 @@ export const SmsFlow = ({
           }
           purchaseMetaData={{
             contactCount: phoneList?.leadsLoaded ?? 0,
-            pricePerContact: dollarsToCents(PRICE_PER_MESSAGE) || 0,
             outreachType: surface.isServe
               ? OUTREACH_TYPES.text
               : OUTREACH_TYPES.p2p,
             campaignId: campaign?.id,
             outreachId: draftOutreachId ?? undefined,
-            phoneListToken: phoneListToken ?? undefined,
           }}
         >
           <SmsReviewStep
@@ -1976,7 +1973,6 @@ export const SmsFlow = ({
             }
             pricePerContact={PRICE_PER_MESSAGE}
             outreachId={draftOutreachId}
-            phoneListToken={phoneListToken}
             excludedOptedOutCount={phoneList?.excludedOptedOutCount ?? null}
             excludedDuplicatePhoneCount={
               phoneList?.excludedDuplicatePhoneCount ?? null

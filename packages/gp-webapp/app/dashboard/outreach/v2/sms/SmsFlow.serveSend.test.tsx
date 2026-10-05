@@ -456,7 +456,6 @@ describe('SmsFlow serve send path', () => {
         contactCount: 1180,
         outreachType: 'text',
         campaignId: undefined,
-        phoneListToken: undefined,
       }),
     )
   })

@@ -120,6 +120,17 @@ beforeEach(async () => {
       aiContent: {},
     },
   })
+
+  // Every p2p create names a Peerly list, and the create and the purchase
+  // both resolve it against this campaign's own uploads.
+  await service.prisma.peerlyPhoneList.create({
+    data: {
+      organizationSlug: orgSlug,
+      campaignId,
+      token: 'phone-list-token',
+      peerlyListId: 3180213,
+    },
+  })
 })
 
 // -- Helpers --------------------------------------------------------------------------
@@ -776,6 +787,71 @@ describe('Outreach submission flow — single API call contract', () => {
         }),
       ).toBe(0)
       expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+    })
+
+    // The list id names the audience the send goes to and the purchase is
+    // priced from, so it has to be one this campaign uploaded.
+    it('a draft naming a phone list this campaign never uploaded → 400, no row', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 999999,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+      })
+
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain('Phone list not found')
+      expect(
+        await service.prisma.outreach.count({
+          where: { campaignId: campaign.id },
+        }),
+      ).toBe(0)
+    })
+
+    it("a draft naming another campaign's phone list → 400, no row", async () => {
+      const otherOrgSlug = 'campaign-1001'
+      await service.prisma.organization.create({
+        data: {
+          slug: otherOrgSlug,
+          ownerId: service.user.id,
+          positionId: 'pos-2',
+        },
+      })
+      await service.prisma.campaign.create({
+        data: {
+          id: 1001,
+          organizationSlug: otherOrgSlug,
+          userId: service.user.id,
+          slug: 'someone-else',
+          details: {},
+          data: {},
+          aiContent: {},
+        },
+      })
+      await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: otherOrgSlug,
+          campaignId: 1001,
+          token: 'other-token',
+          peerlyListId: 4200000,
+        },
+      })
+
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 4200000,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+      })
+
+      expect(res.status).toBe(400)
+      expect(
+        await service.prisma.outreach.count({
+          where: { campaignId: campaign.id },
+        }),
+      ).toBe(0)
     })
 
     // The draft-first flow is the only way a p2p send is created: the row is

@@ -6,7 +6,7 @@ import {
   PRICE_PER_TEXT_TENTH_CENTS,
 } from '@/shared/util/textPricing.util'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
-import { PeerlyPhoneList } from 'src/generated/prisma'
+import { OutreachStatus, PeerlyPhoneList } from 'src/generated/prisma'
 import { PhoneListState } from 'src/vendors/peerly/peerly.types'
 import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from 'src/vendors/peerly/services/peerlyPhoneList.service'
@@ -14,7 +14,7 @@ import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachService } from './outreach.service'
 import { OutreachPurchaseHandlerService } from './outreachPurchase.service'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockCampaignsService = {
   checkFreeTextsEligibility: vi.fn(),
@@ -22,6 +22,7 @@ const mockCampaignsService = {
 } as unknown as CampaignsService
 
 const mockOutreachService = {
+  findFirst: vi.fn(),
   finalizeOutreachPurchase: vi.fn(),
   failOutreachPurchase: vi.fn(),
   recordCheckoutSession: vi.fn(),
@@ -53,8 +54,31 @@ const baseMetadata: OutreachPurchaseMetadata = {
   contactCount: 500,
   outreachType: 'p2p',
   audienceSize: 1000,
-  phoneListToken: 'token-abc',
+  outreachId: 77,
 }
+
+// The draft a p2p purchase is priced from. `phoneListId` is the Peerly
+// numeric list id, which is what CAPTURED_LIST_FIXTURE.peerlyListId carries.
+const P2P_DRAFT = { id: 77, campaignId: 1, phoneListId: 42 }
+
+// The handler reads two columns off a full Outreach row; the fixture carries
+// only those, so the cast keeps the test from restating the other forty.
+const draftRow = (draft: Partial<typeof P2P_DRAFT> | null) =>
+  draft as unknown as Awaited<ReturnType<OutreachService['findFirst']>>
+
+// Overrides the default below for one call.
+const mockDraft = (draft: Partial<typeof P2P_DRAFT> | null) => {
+  vi.mocked(mockOutreachService.findFirst).mockResolvedValueOnce(
+    draftRow(draft),
+  )
+}
+
+beforeEach(() => {
+  vi.mocked(mockOutreachService.findFirst).mockReset()
+  vi.mocked(mockOutreachService.findFirst).mockResolvedValue(
+    draftRow(P2P_DRAFT),
+  )
+})
 
 const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   id: 'list-1',
@@ -152,10 +176,11 @@ describe('calcTextAmountInCents', () => {
 
 describe('OutreachPurchaseHandlerService', () => {
   describe('validatePurchase', () => {
-    it('throws when contactCount is missing', async () => {
+    it('throws when contactCount is missing on a client-priced type', async () => {
       await expect(
         service.validatePurchase({
           ...baseMetadata,
+          outreachType: 'text',
           contactCount: 0,
         }),
       ).rejects.toThrow(BadRequestException)
@@ -166,19 +191,10 @@ describe('OutreachPurchaseHandlerService', () => {
         service.validatePurchase(baseMetadata),
       ).resolves.toBeUndefined()
     })
-
-    it('ignores pricePerContact from client', async () => {
-      await expect(
-        service.validatePurchase({
-          ...baseMetadata,
-          pricePerContact: 0,
-        }),
-      ).resolves.toBeUndefined()
-    })
   })
 
   describe('calculateAmount', () => {
-    it('uses server-side pricing, not client pricePerContact', async () => {
+    it('prices from the server-derived count, not the client contactCount', async () => {
       mockServerLeadsLoaded(500)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
@@ -187,7 +203,7 @@ describe('OutreachPurchaseHandlerService', () => {
       const amount = await service.calculateAmount({
         ...baseMetadata,
         campaignId: 1,
-        pricePerContact: 0,
+        contactCount: 1,
       })
 
       expect(amount).toBe(calcTextAmountInCents(500))
@@ -208,7 +224,7 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(mockPeerlyPhoneListCapture.findFirst).not.toHaveBeenCalled()
     })
 
-    it('throws BadRequestException when campaignId is missing for a p2p purchase, without looking up the token', async () => {
+    it('throws BadRequestException when campaignId is missing for a p2p purchase, without reading the draft', async () => {
       await expect(
         service.calculateAmount({
           ...baseMetadata,
@@ -216,6 +232,7 @@ describe('OutreachPurchaseHandlerService', () => {
         }),
       ).rejects.toThrow(BadRequestException)
 
+      expect(mockOutreachService.findFirst).not.toHaveBeenCalled()
       expect(mockPeerlyPhoneListCapture.findFirst).not.toHaveBeenCalled()
       expect(
         mockCampaignsService.checkFreeTextsEligibility,
@@ -458,33 +475,6 @@ describe('OutreachPurchaseHandlerService', () => {
       ).not.toHaveBeenCalled()
     })
 
-    it('throws BadRequestException when Peerly omits list_id and no peerlyListId is stamped yet', async () => {
-      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce({
-        ...CAPTURED_LIST_FIXTURE,
-        peerlyListId: null,
-      })
-      vi.mocked(
-        mockPeerlyPhoneListService.checkPhoneListStatus,
-      ).mockResolvedValueOnce({
-        Data: { list_state: PhoneListState.PROCESSING },
-      })
-
-      await expect(
-        service.calculateAmount({
-          ...baseMetadata,
-          campaignId: 1,
-        }),
-      ).rejects.toThrow(BadRequestException)
-
-      expect(
-        mockPeerlyPhoneListService.getPhoneListDetails,
-      ).not.toHaveBeenCalled()
-      expect(mockPeerlyPhoneListCapture.countRecipients).not.toHaveBeenCalled()
-      expect(
-        mockCampaignsService.checkFreeTextsEligibility,
-      ).not.toHaveBeenCalled()
-    })
-
     it('falls back to the DB-stamped peerlyListId when Peerly omits list_id', async () => {
       vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
         CAPTURED_LIST_FIXTURE,
@@ -582,11 +572,48 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(amount).toBe(calcTextAmountInCents(billable))
     })
 
-    it('throws BadRequestException before checking campaign eligibility when phoneListToken is missing', async () => {
+    it('throws BadRequestException before reading anything when no outreach id is supplied', async () => {
       await expect(
         service.calculateAmount({
           ...baseMetadata,
-          phoneListToken: undefined,
+          outreachId: undefined,
+          campaignId: 1,
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(mockOutreachService.findFirst).not.toHaveBeenCalled()
+      expect(mockPeerlyPhoneListCapture.findFirst).not.toHaveBeenCalled()
+      expect(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('prices the list the draft will send to, scoped to the campaign', async () => {
+      mockServerLeadsLoaded(500)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      await service.calculateAmount({ ...baseMetadata, campaignId: 1 })
+
+      expect(mockOutreachService.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 77,
+          campaignId: 1,
+          status: OutreachStatus.pending_payment,
+        },
+      })
+      expect(mockPeerlyPhoneListCapture.findFirst).toHaveBeenCalledWith({
+        where: { peerlyListId: 42, campaignId: 1 },
+      })
+    })
+
+    it('throws BadRequestException when the draft is missing or belongs to another campaign', async () => {
+      mockDraft(null)
+
+      await expect(
+        service.calculateAmount({
+          ...baseMetadata,
           campaignId: 1,
         }),
       ).rejects.toThrow(BadRequestException)
@@ -597,7 +624,23 @@ describe('OutreachPurchaseHandlerService', () => {
       ).not.toHaveBeenCalled()
     })
 
-    it('throws BadRequestException when no phone list is found for the token', async () => {
+    it('throws BadRequestException when the draft carries no phone list', async () => {
+      mockDraft({ id: 77, campaignId: 1 })
+
+      await expect(
+        service.calculateAmount({
+          ...baseMetadata,
+          campaignId: 1,
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(mockPeerlyPhoneListCapture.findFirst).not.toHaveBeenCalled()
+      expect(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('throws BadRequestException when no captured list matches the draft', async () => {
       vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
         null,
       )
@@ -690,6 +733,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('ignores a session with no draft to unwind', async () => {
       await service.executePaymentFailed('cs_failed', {
         ...baseMetadata,
+        outreachId: undefined,
         campaignId: 111,
       })
 
@@ -912,7 +956,10 @@ describe('OutreachPurchaseHandlerService', () => {
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
 
-      await service.executePostPurchase('pi_legacy', purchaseMetadata)
+      await service.executePostPurchase('pi_legacy', {
+        ...purchaseMetadata,
+        outreachId: undefined,
+      })
 
       expect(
         mockOutreachService.finalizeOutreachPurchase,
