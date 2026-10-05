@@ -64,8 +64,6 @@ test.describe('Login Functionality', () => {
     // before landing on /home, which can exceed 5s on a cold preview.
     await page.waitForURL('**/home', { timeout: 30000 })
     await wait(500)
-    await expect(
-      page.getByRole('heading', { name: 'Do this next', level: 2 }),
-    ).toBeVisible()
+    await expect(page.locator('#next-thing-heading')).toBeVisible()
   })
 })

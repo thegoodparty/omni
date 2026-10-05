@@ -3,10 +3,6 @@ import { render } from 'helpers/test-utils/render'
 import { screen } from '@testing-library/react'
 import Home from './Home'
 
-let mockFirstName: string | undefined = 'Sarah'
-vi.mock('@shared/hooks/useUser', () => ({
-  useUser: () => [{ firstName: mockFirstName }],
-}))
 vi.mock('./NextThingCard', () => ({
   default: () => <div>next-thing-card</div>,
 }))
@@ -15,19 +11,11 @@ vi.mock('./HomeComposer', () => ({
 }))
 
 describe('Home', () => {
-  it('is the next thing and a chat box about it, greeting the candidate', () => {
-    render(<Home />)
+  it('is the next thing and a chat box, nothing else', () => {
+    const { container } = render(<Home />)
 
-    expect(screen.getByText("Sarah, here's your next step")).toBeInTheDocument()
     expect(screen.getByText('next-thing-card')).toBeInTheDocument()
     expect(screen.getByText('home-composer')).toBeInTheDocument()
-  })
-
-  it('greets without a name when there is none', () => {
-    mockFirstName = undefined
-    render(<Home />)
-
-    expect(screen.getByText("Here's your next step")).toBeInTheDocument()
-    mockFirstName = 'Sarah'
+    expect(container.textContent).toBe('next-thing-cardhome-composer')
   })
 })

@@ -66,20 +66,17 @@ test.describe('campaign story flow', () => {
     await completeOnboardingUpToPledge(page)
 
     // The pledge CTA is "Get started"; submitting lands on Home (/home), whose
-    // "Do this next" heading renders in every state (no ?personalize, so the
-    // chat does not auto-open here).
+    // headline renders in every state (no ?personalize, so the chat does not
+    // auto-open here).
     const submit = page.getByRole('button', { name: /^get started$/i }).first()
     await expect(submit).toBeVisible({ timeout: 15000 })
     await expect(submit).toBeEnabled()
     await submit.click()
 
     await page.waitForURL('**/home', { timeout: 30000 })
-    await expect(
-      page.getByRole('heading', {
-        name: 'Do this next',
-        level: 2,
-      }),
-    ).toBeVisible({ timeout: 30000 })
+    await expect(page.locator('#next-thing-heading')).toBeVisible({
+      timeout: 30000,
+    })
   })
 
   test('campaign plan tab generates without asking, and invites the story alongside it', async ({

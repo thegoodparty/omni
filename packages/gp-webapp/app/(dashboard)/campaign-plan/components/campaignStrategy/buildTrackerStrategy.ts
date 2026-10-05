@@ -21,7 +21,7 @@ import type {
 // buildActiveWeeks), and "Do this next", which comes from the shared
 // selectNextTrackerTask so the plan and Home always point at the same task.
 
-export const PHASE_META: {
+const PHASE_META: {
   key: CampaignStrategyPhaseKey
   title: string
   summary: string
