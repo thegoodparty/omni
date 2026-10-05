@@ -16,7 +16,10 @@ const sizeOutreachSampleInput = z.object({
       'That audience counted nobody, so there is no one to text. Change ' +
         'the filter and count again before you size a sample.',
     )
-    .describe('The whole audience, as count_contacts counted it.'),
+    .describe(
+      'The whole audience, as count_contacts counted it, even when ' +
+        'widening.',
+    ),
   replyRate: z
     .number()
     .positive()
@@ -42,7 +45,8 @@ const sizeOutreachSampleInput = z.object({
     .optional()
     .describe(
       'When widening, how many people those earlier sends went to, from ' +
-        'read_past_outreach. They are left out of the new sample.',
+        'read_past_outreach. They are left out of the new sample, so ' +
+        'audience stays the full count_contacts count.',
     ),
 })
 
