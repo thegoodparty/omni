@@ -312,7 +312,7 @@ reuse it.
 Per-run auth is a `ScopeTicket` in the broker's DynamoDB table, keyed by a UUID
 `broker_token` the scheduler mints at launch (TTL'd, deleted on publish — anti-replay).
 Endpoints the runner uses: `/anthropic/v1/messages` (proxies to Anthropic, injects
-the real key), `/braintrust/*` (trace ingest), `/databricks/query` (scope-rewritten
+the real key), `/databricks/query` (scope-rewritten
 SQL), `/http/fetch` + `/http/head` (the **only** URL-retrieval path,
 Playwright-backed), `/artifact/publish`, `/artifact/read` (prior-artifact chaining),
 `/inputs/read` (user uploads), `/experiment/manifest`, `/agent/mcp` (proxies MCP tool
@@ -386,14 +386,11 @@ images on merge to `main`. Ops detail: `broker/RUNBOOK.md`.
 
 ## Part 3 — the eval system
 
-There are **two distinct eval systems**; don't conflate them.
-
-### PMF experiment eval (the recent, primary one)
+### PMF experiment eval
 
 Landed as PR #241 (2026-06-19, ported from the standalone `runbooks` repo), it lives
 in `packages/runbooks` — `books/` (the methods), `experiment-evals/` (the adopted
-bars, per experiment), `scripts/python/` (the engine). **It is not Braintrust-based**
-at its core: it reads each run's `artifact.json` and `conversation.jsonl` **from S3,
+bars, per experiment), `scripts/python/` (the engine). It reads each run's `artifact.json` and `conversation.jsonl` **from S3,
 from the outside, after the run** — so the agent cannot inflate its own grade.
 
 Front door: `packages/runbooks/books/pmf-eval-system.md`.
@@ -437,23 +434,6 @@ A rubric can also be compiled into an **in-run QA gate** (`experiments/<exp>/qa/
 e.g. `meeting_briefing/qa/`) — a single LLM judge that runs inside the run after the
 artifact is produced. v1 is **observe-only** (`blocking: false`): the verdict rides
 into S3 but never blocks publish.
-
-### Braintrust sandbox (older, narrower)
-
-`packages/gp-ai/braintrust_eval_sandbox` is a PM-facing **prompt A/B playground** — a
-generic two-stage Gemini pipeline (grounded search → structured output) driven by
-Braintrust playground parameters, so PMs can A/B-test prompts with no per-prompt
-engineering. It is Braintrust-based (`evals.py` defines one `Eval()`), ships **no
-scorers** (`scores=[]` — written in the Braintrust UI per use case), and is pushed
-with `push_eval_to_braintrust.sh` (needs `BRAINTRUST_API_KEY`). It predates the PMF
-eval system by about a month and is independent of it.
-
-### How Braintrust relates to the runtime
-
-Separately from the eval _gates_, every PMF run **logs traces to Braintrust at
-runtime** — the runner routes its Braintrust SDK traffic through the broker's
-`/braintrust/*` proxy. The runbooks gates don't consume Braintrust yet;
-`pmf-eval-system.md` flags it as the future home for trend telemetry.
 
 ## Notable design properties
 

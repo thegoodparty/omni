@@ -90,7 +90,7 @@ _PROC_EXIT_GRACE_SECONDS = 5.0
 _REDACTED = "[REDACTED]"
 
 # A6: secret-ish patterns masked in the stderr tail before it lands in the
-# Verdict (which travels to gp-api + Braintrust). The explicit BROKER_TOKEN
+# Verdict (which travels to the broker's durable verdict.json). The explicit BROKER_TOKEN
 # value (from broker_env) is masked separately; these catch common token shapes
 # a misbehaving main.py might print without us knowing the literal.
 _SECRET_PATTERNS = [
@@ -150,7 +150,7 @@ class Verdict:
     """Engine output (contract C). ``pass_`` carries the ``pass`` field
     (``pass`` is a Python keyword); ``to_dict`` emits it under the wire key
     ``pass``. The full verdict is serialized uncapped (it lands in the broker's
-    durable S3 ``verdict.json`` and the Braintrust span — no callback budget)."""
+    durable S3 ``verdict.json`` — no callback budget)."""
 
     status: VerdictStatus
     verdict_version: int = 1
@@ -168,8 +168,8 @@ class Verdict:
 
         gp-api is dropped — it no longer consumes the SQS callback's qaVerdict
         (its schema strips it). The verdict's system of record is now the
-        broker's durable S3 ``verdict.json`` (no size limit) and the runner's
-        Braintrust span output, so there is no callback budget to protect: the
+        broker's durable S3 ``verdict.json`` (no size limit), so there is no
+        callback budget to protect: the
         full verdict ships, every violation and every per-check field (including
         ``detail``) intact. Redaction and the synthetic-fragment behavior are
         unchanged — only the size truncation is gone.
@@ -357,7 +357,7 @@ def run_qa_gate(
         logger.exception("qa_gate_internal_error errorType=%s: %s", type(e).__name__, e)
         # The violation is built from arbitrary exception text, which can carry a
         # leaked BROKER_TOKEN; redact it before it enters the Verdict (egress to
-        # Braintrust + the durable verdict.json), exactly like fragment fields.
+        # the durable verdict.json), exactly like fragment fields.
         violation = _redact_secrets(f"qa_gate_internal_error: {type(e).__name__}: {e}", broker_env)
         verdict = Verdict(
             status="error",
@@ -381,7 +381,7 @@ def run_qa_gate(
 
 def _log_verdict(verdict: Verdict, run_id: str | None) -> None:
     """Emit the verdict summary at INFO so a deployed smoke can verify the gate
-    ran from CloudWatch alone (no S3 / Braintrust round-trip needed)."""
+    ran from CloudWatch alone (no S3 round-trip needed)."""
     logger.info(
         "qa_gate_verdict status=%s pass=%s checks=%d run_id=%s",
         verdict.status,
@@ -745,7 +745,7 @@ def _run_evaluator(
 
     A6 (redact evaluator fragments): the evaluator's fragment array flows
     verbatim into ``Verdict.checks`` -> the durable verdict.json + the SQS
-    callback + the Braintrust span, so every fragment is run through
+    callback, so every fragment is run through
     ``_normalize_fragment`` WITH ``broker_env`` — a token an evaluator printed
     into a fragment ``detail`` (or any string field) is masked before it leaves
     the gate (contract D).

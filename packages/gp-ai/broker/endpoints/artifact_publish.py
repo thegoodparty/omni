@@ -468,8 +468,8 @@ def artifact_publish(
     # PMF QA gate (contract D / decision 13): durable, observe-only S3 capture.
     # When a verdict is present, write it (and the raw main.py output, when the
     # runner included it) under the run's qa prefix — the same prefix where
-    # artifact.json already lives. This is INDEPENDENT of Braintrust and the
-    # SQS callback: the verdict survives even if both are lost. The runner is
+    # artifact.json already lives. This is INDEPENDENT of the SQS callback:
+    # the verdict survives even if the callback is lost. The runner is
     # sandboxed (the broker is its only egress), so the broker performs the
     # write.
     #
@@ -514,8 +514,7 @@ def artifact_publish(
             else:
                 logger.warning(
                     "qa verdict S3 capture failed run_id=%s experiment_id=%s key=%s "
-                    "bucket=%s. Best-effort durable capture; the verdict is still "
-                    "recoverable from the Braintrust span.",
+                    "bucket=%s. Best-effort durable capture.",
                     ticket.run_id,
                     ticket.experiment_id,
                     qa_verdict_key,
@@ -606,8 +605,7 @@ def artifact_publish(
     # invariant for any downstream experiment that depends on this artifact.
     # The QA verdict does NOT ride the callback: gp-api was dropped as a
     # verdict consumer (its callback schema strips it). The verdict's system of
-    # record is the durable S3 verdict.json write above plus the runner's
-    # Braintrust span.
+    # record is the durable S3 verdict.json write above.
     # An eval run has no `experiment_run` row in gp-api — the judge dispatches
     # straight to SQS — so the callback has nowhere to land. Sending it anyway
     # makes gp-api's consumer log `Experiment run not found` once per run, i.e.

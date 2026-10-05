@@ -250,10 +250,6 @@ resource "aws_ecs_task_definition" "pipeline" {
         {
           name      = "SLACK_WEBHOOK_URL"
           valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:SLACK_WEBHOOK_URL::"
-        },
-        {
-          name      = "BRAINTRUST_API_KEY"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:BRAINTRUST_API_KEY::"
         }
       ]
 

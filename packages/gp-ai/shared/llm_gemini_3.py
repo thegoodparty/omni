@@ -1,9 +1,8 @@
 import os
 import json
 import time
-from typing import Optional, Type, TypeVar, Union, Callable, List, Dict, Any
+from typing import Optional, Type, Union, List, Dict, Any
 
-T = TypeVar('T')
 from enum import Enum
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -11,7 +10,6 @@ import httpx
 from google import genai
 from google.genai import types
 from shared.logger import get_logger
-from shared.braintrust import is_enabled as braintrust_enabled, get_client as get_braintrust_client
 
 load_dotenv()
 
@@ -154,32 +152,6 @@ class Gemini3Client:
 
         self.api_call_count += 1
 
-    def _traced_call(
-        self,
-        trace_name: Optional[str],
-        prompt: str,
-        llm_fn: Callable[[], T],
-        model_name: str,
-        default_trace_name: str,
-        temperature: Optional[float] = None
-    ) -> T:
-        if not braintrust_enabled():
-            return llm_fn()
-
-        name = trace_name or default_trace_name
-        environment = os.getenv("ENVIRONMENT", "local")
-        return get_braintrust_client().traced_call(
-            name=name,
-            input_data={"prompt": prompt},
-            llm_call_fn=llm_fn,
-            prompt=prompt,
-            metadata={
-                "model": model_name,
-                "temperature": temperature if temperature is not None else self.default_temperature,
-                "environment": environment
-            }
-        )
-
     def generate_structured_content(
         self,
         prompt: str,
@@ -187,8 +159,7 @@ class Gemini3Client:
         model: Optional[GeminiModelType] = None,
         temperature: Optional[float] = None,
         thinking_level: Optional[ThinkingLevel] = None,
-        system_instruction: Optional[str] = None,
-        trace_name: Optional[str] = None
+        system_instruction: Optional[str] = None
     ) -> Union[BaseModel, List[BaseModel], Dict[str, Any]]:
         effective_model = model or self.default_model
         model_name = effective_model.value
@@ -230,14 +201,7 @@ class Gemini3Client:
                         self.logger.error(f"All {self.max_retries} attempts failed: {e}")
                         raise
 
-        return self._traced_call(
-            trace_name=trace_name,
-            prompt=prompt,
-            llm_fn=_execute_call,
-            model_name=model_name,
-            default_trace_name="generate_structured_content",
-            temperature=temperature
-        )
+        return _execute_call()
 
     def generate_content(
         self,
@@ -245,8 +209,7 @@ class Gemini3Client:
         model: Optional[GeminiModelType] = None,
         temperature: Optional[float] = None,
         thinking_level: Optional[ThinkingLevel] = None,
-        system_instruction: Optional[str] = None,
-        trace_name: Optional[str] = None
+        system_instruction: Optional[str] = None
     ) -> str:
         effective_model = model or self.default_model
         model_name = effective_model.value
@@ -279,14 +242,7 @@ class Gemini3Client:
                         self.logger.error(f"All {self.max_retries} attempts failed: {e}")
                         raise
 
-        return self._traced_call(
-            trace_name=trace_name,
-            prompt=prompt,
-            llm_fn=_execute_call,
-            model_name=model_name,
-            default_trace_name="generate_content",
-            temperature=temperature
-        )
+        return _execute_call()
 
     def generate_with_search(
         self,
@@ -294,8 +250,7 @@ class Gemini3Client:
         model: Optional[GeminiModelType] = None,
         temperature: Optional[float] = None,
         thinking_level: Optional[ThinkingLevel] = None,
-        system_instruction: Optional[str] = None,
-        trace_name: Optional[str] = None
+        system_instruction: Optional[str] = None
     ) -> SearchResult:
         effective_model = model or self.default_model
         model_name = effective_model.value
@@ -365,14 +320,7 @@ class Gemini3Client:
                         self.logger.error(f"All {self.max_retries} search attempts failed: {e}")
                         raise
 
-        return self._traced_call(
-            trace_name=trace_name,
-            prompt=prompt,
-            llm_fn=_execute_call,
-            model_name=model_name,
-            default_trace_name="generate_with_search",
-            temperature=temperature
-        )
+        return _execute_call()
 
     def get_usage_stats(self) -> Dict[str, Any]:
         return {

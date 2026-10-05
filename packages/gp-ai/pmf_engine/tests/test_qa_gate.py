@@ -650,15 +650,15 @@ print(json.dumps([{"name": "loc", "passed": True, "cwd": os.getcwd()}]))
 
 
 # --------------------------------------------------------------------------
-# No truncation: to_dict returns the FULL verdict (S3 + Braintrust, no size cap)
+# No truncation: to_dict returns the FULL verdict (S3, no size cap)
 # --------------------------------------------------------------------------
 
 
 def test_verdict_to_dict_returns_large_verdict_fully_intact(workspace, gate_base):
     # gp-api is DROPPED — it no longer consumes the SQS callback's qaVerdict, so
     # the 8KB serialization cap that existed solely to protect the callback budget
-    # is gone. The verdict's system of record is now (a) the broker's durable S3
-    # verdict.json (no size limit) and (b) the runner's Braintrust span output.
+    # is gone. The verdict's system of record is now the broker's durable S3
+    # verdict.json (no size limit).
     # to_dict() must therefore return the FULL verdict: every violation, every
     # check, and every per-check field including the big `detail` strings.
     #
@@ -811,7 +811,7 @@ def test_main_py_stderr_broker_token_redacted_from_verdict_detail(workspace, gat
     assert len(synthetic) == 1
     detail = synthetic[0]["detail"]
     # The raw token must NOT appear anywhere in the verdict (it travels to
-    # gp-api + Braintrust). Some redacted marker should remain so the crash is
+    # the durable verdict.json). Some redacted marker should remain so the crash is
     # still discoverable.
     assert secret not in detail
     assert secret not in json.dumps(verdict.to_dict())
@@ -1095,8 +1095,8 @@ def test_fragment_detail_redacts_broker_token(workspace, gate_base):
     leaky = [c for c in verdict.checks if c["name"] == "leaky"]
     assert len(leaky) == 1
     detail = leaky[0]["detail"]
-    # The live token must NOT survive into the verdict (it travels to gp-api +
-    # Braintrust + the durable verdict.json).
+    # The live token must NOT survive into the verdict (it travels to the
+    # durable verdict.json).
     assert secret not in detail
     assert qa_gate_mod._REDACTED in detail
     # The whole serialized verdict is clean too.
@@ -1536,7 +1536,7 @@ def test_unknown_evaluator_cost_is_distinguishable_from_a_free_gate(workspace, g
 def test_evaluator_fragment_detail_redacts_broker_token(workspace, gate_base):
     """A6 / contract D: a leaked BROKER_TOKEN that an evaluator prints into a
     fragment detail must be REDACTED before it lands in the aggregated verdict
-    (the verdict travels to gp-api + Braintrust + the durable verdict.json).
+    (the verdict travels to the durable verdict.json).
     Evaluator (`type: agent`) fragments pass through the SAME _normalize_fragment
     redaction the deterministic fragments do."""
     secret = "tok-eval-fragment-secret-7q6r5s4t"
@@ -1771,8 +1771,8 @@ def test_x_broker_token_json_shape_redacted_in_fragment_detail_even_when_not_liv
     key=value pattern can't either (its key group is [A-Za-z0-9_]* and the JSON
     key's closing '"' breaks adjacency). Only the ported _BROKER_TOKEN_PATTERN
     (mirroring runner/main.py) masks it. This detail flows through
-    _normalize_fragment into verdict.checks, which egresses to gp-api +
-    Braintrust + the durable verdict.json."""
+    _normalize_fragment into verdict.checks, which egresses to the durable
+    verdict.json."""
     live = "tok-live-broker-0000000000"
     other = "tok-OTHER-not-the-live-one-1234abcd"
     detail = f'headers were {{"X-Broker-Token": "{other}"}}'
@@ -1865,7 +1865,7 @@ def test_internal_error_violation_redacts_broker_token(workspace, gate_base, mon
     """The fail-open internal-error catch in run_qa_gate builds a violation from
     arbitrary exception text. A BROKER_TOKEN embedded in that exception message
     must be redacted before it lands in verdict.violations (which travels to
-    Braintrust + the durable verdict.json)."""
+    the durable verdict.json)."""
     secret = "tok-internal-error-secret-9a8b7c"
 
     def boom(*_a, **_k):
@@ -1939,7 +1939,7 @@ def test_hook_error_violation_redacts_broker_token(workspace, gate_base, monkeyp
 # FIX 1 (security HIGH): _normalize_fragment redacts the BROKER_TOKEN at ANY
 # depth, not only in top-level string values. A token nested inside a fragment's
 # `evidence` dict, a `samples` list, or any deeper structure would otherwise
-# reach the durable verdict.json + the Braintrust span UNREDACTED, because the
+# reach the durable verdict.json UNREDACTED, because the
 # old code only ran _redact_secrets over top-level string values of the check
 # dict. Redaction must recurse into nested dicts/lists while leaving structure
 # and non-string leaves (ints/floats/bools/None) intact.
@@ -1994,8 +1994,8 @@ def test_normalize_fragment_redacts_token_nested_in_dict_and_list():
 def test_nested_fragment_token_redacted_through_full_gate(workspace, gate_base):
     """End-to-end: main.py emits a fragment with the live BROKER_TOKEN buried in
     a nested `evidence` dict and a `samples` list. The token must not survive
-    into the aggregated verdict (which egresses to gp-api + Braintrust + the
-    durable verdict.json), while non-secret nested text/numbers are preserved."""
+    into the aggregated verdict (which egresses to the durable verdict.json),
+    while non-secret nested text/numbers are preserved."""
     secret = "tok-nested-e2e-secret-1a2b3c4d5e"
     # main.py BUILDS the fragment itself so Python-invalid JSON literals
     # (false/true) never land in the source. The secret is injected as a string.
@@ -2034,7 +2034,7 @@ def test_invalid_fragment_synthetic_detail_redacts_nested_token():
     the synthetic `invalid_fragment` check whose `detail` embeds the rejected
     fragment via json.dumps. A BROKER_TOKEN buried in that rejected fragment must
     NOT survive into the synthetic detail — that detail egresses to the durable
-    verdict.json + the Braintrust span exactly like a valid fragment's. The
+    verdict.json exactly like a valid fragment's. The
     non-secret structure of the rejected fragment is still echoed for diagnosis."""
     token = "tok-invalid-frag-secret-7e0f70d6"
     broker_env = {"BROKER_URL": "https://broker.test", "BROKER_TOKEN": token}

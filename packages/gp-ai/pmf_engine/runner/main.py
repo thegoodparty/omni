@@ -11,7 +11,6 @@ import sys
 import tempfile
 import time
 
-from shared.braintrust import BraintrustClient
 from shared.logger import get_logger
 
 from .config import BrokerUrlSchemeError, RunnerConfig, validate_broker_url_scheme
@@ -620,7 +619,7 @@ async def _run_qa_gate_hook(
             resolved = config.qa_envelope.get("resolved_qa_version_ids") or {}
         # The violation is built from arbitrary exception text, which can carry a
         # leaked BROKER_TOKEN; redact it before it enters the Verdict (egress to
-        # Braintrust + the durable verdict.json). Rebuild broker_env from os.environ
+        # the durable verdict.json). Rebuild broker_env from os.environ
         # here so the live token is masked even if the try failed before broker_env
         # was bound above.
         redact_env: dict[str, str] = {}
@@ -646,258 +645,177 @@ async def run_experiment(
     if harness is None:
         harness = get_harness(config.harness)
 
-    bt = BraintrustClient.get_instance()
-    bt.init(f"pmf-engine-{config.environment}")
-
     workspace_dir = os.environ.get("WORKSPACE_DIR", "/workspace")
     start_time = time.monotonic()
 
     try:
-        with bt.traced_span(
-            name=f"experiment:{config.experiment_id}",
-            input_data={
-                "experiment_id": config.experiment_id,
-                "run_id": config.run_id,
-                "organization_slug": config.organization_slug,
-                "model": config.model,
-                "params": config.params,
-            },
-            tags=["pmf", config.experiment_id, config.model],
-            metadata={"environment": config.environment},
-        ) as span:
-            try:
-                result = await harness.run(
-                    instruction=config.instruction,
-                    model=config.model,
-                    max_turns=config.max_turns,
-                    workspace_dir=workspace_dir,
-                    params=config.params,
-                    contract_schema=config.contract_schema,
-                    parent_span=span,
-                    experiment_id=config.experiment_id,
-                    system_prompt=config.system_prompt,
-                    permission_mode=config.permission_mode,
-                    allowed_external_tools=config.allowed_external_tools,
-                    max_parallel_subagents=config.max_parallel_subagents,
-                    max_thinking_tokens=config.max_thinking_tokens,
-                )
-            except Exception as e:
-                duration = time.monotonic() - start_time
-                logger.exception(f"Harness failed for run {config.run_id}: {e}")
-                _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
-                # Flush the span BEFORE report_status: a terminal status deletes
-                # this run's broker scope ticket, which invalidates the token the
-                # Braintrust proxy authenticates with. Logging/flushing after it
-                # drops the rollup batch with a 401.
-                span.log(output={"status": "failed", "error": str(e), "duration_seconds": duration})
-                bt.flush()
-                publish.report_status(
-                    "failed",
-                    reason_code=type(e).__name__,
-                    detail=str(e),
-                    duration_seconds=duration,
-                )
-                _mark_callback_sent()
-                raise
+        result = await harness.run(
+            instruction=config.instruction,
+            model=config.model,
+            max_turns=config.max_turns,
+            workspace_dir=workspace_dir,
+            params=config.params,
+            contract_schema=config.contract_schema,
+            experiment_id=config.experiment_id,
+            system_prompt=config.system_prompt,
+            permission_mode=config.permission_mode,
+            allowed_external_tools=config.allowed_external_tools,
+            max_parallel_subagents=config.max_parallel_subagents,
+            max_thinking_tokens=config.max_thinking_tokens,
+        )
+    except Exception as e:
+        duration = time.monotonic() - start_time
+        logger.exception(f"Harness failed for run {config.run_id}: {e}")
+        _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
+        publish.report_status(
+            "failed",
+            reason_code=type(e).__name__,
+            detail=str(e),
+            duration_seconds=duration,
+        )
+        _mark_callback_sent()
+        raise
 
-            try:
-                validate_artifact_contract(
-                    result.artifact_bytes,
-                    config.contract_schema,
-                )
-            except ContractViolation as e:
-                duration = time.monotonic() - start_time
-                logger.error(f"Contract violation for run {config.run_id}: {e}")
-                _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
-                # ContractViolation fires for Invalid-JSON too, so json.loads
-                # would JSONDecodeError — silently skipping the callback and
-                # leaving the run PENDING forever. Preserve the raw bytes
-                # instead when we can't re-parse. Coerce to bytes first so
-                # None / str / other types don't crash the fallback itself.
-                raw = result.artifact_bytes or b""
-                if isinstance(raw, str):
-                    raw = raw.encode("utf-8", errors="replace")
-                try:
-                    rejected = json.loads(raw) if raw else {}
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    rejected = {
-                        "_raw_bytes": raw[:4096].decode("utf-8", errors="replace"),
-                        "_truncated": len(raw) > 4096,
-                    }
-                if not isinstance(rejected, dict):
-                    rejected = {"_raw_bytes": str(rejected)[:4096], "_truncated": False}
-                if "_raw_bytes" not in rejected and not raw:
-                    # None / empty bytes case — preserve the empty marker
-                    # for downstream tooling that branches on truncation.
-                    rejected = {"_raw_bytes": "", "_truncated": False}
-                # Flush before report_status deletes the broker scope ticket
-                # (see harness-failure branch above).
-                span.log(
-                    output={
-                        "status": "contract_violation",
-                        "error": str(e),
-                        "cost_usd": result.cost_usd,
-                        "num_turns": result.num_turns,
-                        "duration_seconds": duration,
-                    }
-                )
-                bt.flush()
-                publish.report_status(
-                    "contract_violation",
-                    rejected_artifact=rejected,
-                    detail=str(e),
-                    duration_seconds=duration,
-                    cost_usd=result.cost_usd,
-                )
-                _mark_callback_sent()
-                return
-            except Exception as e:
-                duration = time.monotonic() - start_time
-                logger.exception(f"Validator error for run {config.run_id}: {e}")
-                _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
-                # Flush before report_status deletes the broker scope ticket
-                # (see harness-failure branch above).
-                span.log(output={"status": "failed", "error": str(e), "duration_seconds": duration})
-                bt.flush()
-                publish.report_status(
-                    "failed",
-                    reason_code=type(e).__name__,
-                    detail=str(e),
-                    duration_seconds=duration,
-                    cost_usd=result.cost_usd,
-                )
-                _mark_callback_sent()
-                raise
-
-            try:
-                artifact = json.loads(result.artifact_bytes)
-            except (json.JSONDecodeError, TypeError) as e:
-                duration = time.monotonic() - start_time
-                logger.exception(f"Artifact not valid JSON for run {config.run_id}: {e}")
-                _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
-                # Flush before report_status deletes the broker scope ticket
-                # (see harness-failure branch above).
-                span.log(
-                    output={
-                        "status": "failed",
-                        "error": str(e),
-                        "cost_usd": result.cost_usd,
-                        "num_turns": result.num_turns,
-                        "duration_seconds": duration,
-                    }
-                )
-                bt.flush()
-                publish.report_status(
-                    "failed",
-                    reason_code="InvalidJSON",
-                    detail=str(e),
-                    duration_seconds=duration,
-                    cost_usd=result.cost_usd,
-                )
-                _mark_callback_sent()
-                raise
-
-            _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
-
-            # PMF QA gate (v1 OBSERVE-ONLY). Runs AFTER the primary logs upload
-            # (so gate evidence can never shadow them) and BEFORE the success
-            # span.log + flush (so the verdict is flushed to Braintrust before
-            # the publish call deletes the broker scope ticket). The verdict
-            # ALWAYS rides the publish/success path — never blocks, never
-            # quarantines, fail-OPEN on a gate error (decisions 5, 6, 8, 10).
-            elapsed = time.monotonic() - start_time
-            remaining_budget = config.timeout_seconds - elapsed
-            qa_gate_result = await _run_qa_gate_hook(
-                config=config,
-                artifact_bytes=result.artifact_bytes,
-                workspace_dir=workspace_dir,
-                remaining_budget_seconds=remaining_budget,
-            )
-            # The gate returns (verdict, raw_output, eval_transcript) when a qa
-            # folder ran, else None (no qa folder — byte-identical to a pre-gate
-            # run). raw_output is the raw main.py stdout; eval_transcript is the
-            # evaluator's redacted JSONL transcript — both written durably to S3
-            # by the broker. eval_transcript is None for a main.py-only folder.
-            qa_verdict_dict = None
-            qa_raw_output = None
-            qa_eval_transcript = None
-            if qa_gate_result is not None:
-                qa_verdict, qa_raw_output, qa_eval_transcript = qa_gate_result
-                qa_verdict_dict = qa_verdict.to_dict()
-
-            duration = time.monotonic() - start_time
-            # Intentional trace/status divergence: the trace records "success"
-            # and flushes HERE, before publish runs. Because publish deletes the
-            # scope ticket that authenticates the Braintrust proxy, if publish
-            # then fails and gp-api gets a "failed" status, this run's Braintrust
-            # trace will still read "success". That stale trace is a deliberate
-            # tradeoff of flush-before-delete, not a bug.
-            # Log + flush the root span BEFORE publish: publish deletes this
-            # run's broker scope ticket (anti-replay), which invalidates the
-            # token the Braintrust proxy authenticates with. Flushing after
-            # publish drops the run-level rollup with a 401.
-            success_output = {
-                "status": "success",
-                "artifact": artifact,
-                "cost_usd": result.cost_usd,
-                "num_turns": result.num_turns,
-                "duration_seconds": duration,
+    try:
+        validate_artifact_contract(
+            result.artifact_bytes,
+            config.contract_schema,
+        )
+    except ContractViolation as e:
+        duration = time.monotonic() - start_time
+        logger.error(f"Contract violation for run {config.run_id}: {e}")
+        _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
+        # ContractViolation fires for Invalid-JSON too, so json.loads
+        # would JSONDecodeError — silently skipping the callback and
+        # leaving the run PENDING forever. Preserve the raw bytes
+        # instead when we can't re-parse. Coerce to bytes first so
+        # None / str / other types don't crash the fallback itself.
+        raw = result.artifact_bytes or b""
+        if isinstance(raw, str):
+            raw = raw.encode("utf-8", errors="replace")
+        try:
+            rejected = json.loads(raw) if raw else {}
+        except (json.JSONDecodeError, ValueError, TypeError):
+            rejected = {
+                "_raw_bytes": raw[:4096].decode("utf-8", errors="replace"),
+                "_truncated": len(raw) > 4096,
             }
-            # Only add the qa_verdict key when a gate actually ran — the no-qa
-            # path keeps the success trace output byte-identical to today.
-            if qa_verdict_dict is not None:
-                success_output["qa_verdict"] = qa_verdict_dict
-            span.log(output=success_output)
-            bt.flush()
-            try:
-                # No-qa path: omit qa_verdict/qa_raw_output entirely so the
-                # publish call is byte-identical to a pre-gate run. Present-verdict
-                # path: forward the contract-C dict and the raw main.py stdout
-                # (for the broker's durable S3 verdict.json write) as the additive
-                # optional fields.
-                publish_kwargs: dict = {
-                    "duration_seconds": duration,
-                    "cost_usd": result.cost_usd,
-                }
-                if qa_verdict_dict is not None:
-                    publish_kwargs["qa_verdict"] = qa_verdict_dict
-                    publish_kwargs["qa_raw_output"] = qa_raw_output
-                    # Additive, byte-identical no-qa path: only forward the
-                    # transcript when an evaluator actually ran (None for a
-                    # main.py-only folder). The broker omits the durable
-                    # eval_transcript.jsonl write when the field is absent.
-                    if qa_eval_transcript is not None:
-                        publish_kwargs["qa_eval_transcript"] = qa_eval_transcript
-                publish.publish(artifact, **publish_kwargs)
-                _mark_callback_sent()
-                logger.info(f"Published artifact via broker for run {config.run_id}")
-            except Exception as e:
-                # Mark callback sent ONLY after report_status returns successfully.
-                # If report_status itself raises (e.g. broker is fully down),
-                # leave the marker False so main()'s outer handler still gets a
-                # chance to send a fallback terminal callback. Eagerly setting
-                # the marker via finally:_mark_callback_sent() would skip that
-                # fallback and leave the run PENDING forever in gp-api.
-                logger.exception(f"Broker publish failed for run {config.run_id}: {e}")
-                try:
-                    publish.report_status(
-                        "failed",
-                        reason_code="PublishFailed",
-                        detail=str(e),
-                        duration_seconds=duration,
-                        cost_usd=result.cost_usd,
-                    )
-                    _mark_callback_sent()
-                except Exception as report_err:
-                    logger.exception(
-                        f"report_status during publish-failure handling also failed "
-                        f"for run {config.run_id}: {report_err}"
-                    )
-                raise
-    finally:
-        # Safety net for unexpected exits; terminal branches already flush the
-        # root span before the broker call that deletes the scope ticket.
-        bt.flush()
+        if not isinstance(rejected, dict):
+            rejected = {"_raw_bytes": str(rejected)[:4096], "_truncated": False}
+        if "_raw_bytes" not in rejected and not raw:
+            # None / empty bytes case — preserve the empty marker
+            # for downstream tooling that branches on truncation.
+            rejected = {"_raw_bytes": "", "_truncated": False}
+        publish.report_status(
+            "contract_violation",
+            rejected_artifact=rejected,
+            detail=str(e),
+            duration_seconds=duration,
+            cost_usd=result.cost_usd,
+        )
+        _mark_callback_sent()
+        return
+    except Exception as e:
+        duration = time.monotonic() - start_time
+        logger.exception(f"Validator error for run {config.run_id}: {e}")
+        _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
+        publish.report_status(
+            "failed",
+            reason_code=type(e).__name__,
+            detail=str(e),
+            duration_seconds=duration,
+            cost_usd=result.cost_usd,
+        )
+        _mark_callback_sent()
+        raise
+
+    try:
+        artifact = json.loads(result.artifact_bytes)
+    except (json.JSONDecodeError, TypeError) as e:
+        duration = time.monotonic() - start_time
+        logger.exception(f"Artifact not valid JSON for run {config.run_id}: {e}")
+        _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
+        publish.report_status(
+            "failed",
+            reason_code="InvalidJSON",
+            detail=str(e),
+            duration_seconds=duration,
+            cost_usd=result.cost_usd,
+        )
+        _mark_callback_sent()
+        raise
+
+    _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
+
+    # PMF QA gate (v1 OBSERVE-ONLY). Runs AFTER the primary logs upload
+    # (so gate evidence can never shadow them) and BEFORE publish. The
+    # verdict ALWAYS rides the publish/success path — never blocks, never
+    # quarantines, fail-OPEN on a gate error (decisions 5, 6, 8, 10).
+    elapsed = time.monotonic() - start_time
+    remaining_budget = config.timeout_seconds - elapsed
+    qa_gate_result = await _run_qa_gate_hook(
+        config=config,
+        artifact_bytes=result.artifact_bytes,
+        workspace_dir=workspace_dir,
+        remaining_budget_seconds=remaining_budget,
+    )
+    # The gate returns (verdict, raw_output, eval_transcript) when a qa
+    # folder ran, else None (no qa folder — byte-identical to a pre-gate
+    # run). raw_output is the raw main.py stdout; eval_transcript is the
+    # evaluator's redacted JSONL transcript — both written durably to S3
+    # by the broker. eval_transcript is None for a main.py-only folder.
+    qa_verdict_dict = None
+    qa_raw_output = None
+    qa_eval_transcript = None
+    if qa_gate_result is not None:
+        qa_verdict, qa_raw_output, qa_eval_transcript = qa_gate_result
+        qa_verdict_dict = qa_verdict.to_dict()
+
+    duration = time.monotonic() - start_time
+    try:
+        # No-qa path: omit qa_verdict/qa_raw_output entirely so the
+        # publish call is byte-identical to a pre-gate run. Present-verdict
+        # path: forward the contract-C dict and the raw main.py stdout
+        # (for the broker's durable S3 verdict.json write) as the additive
+        # optional fields.
+        publish_kwargs: dict = {
+            "duration_seconds": duration,
+            "cost_usd": result.cost_usd,
+        }
+        if qa_verdict_dict is not None:
+            publish_kwargs["qa_verdict"] = qa_verdict_dict
+            publish_kwargs["qa_raw_output"] = qa_raw_output
+            # Additive, byte-identical no-qa path: only forward the
+            # transcript when an evaluator actually ran (None for a
+            # main.py-only folder). The broker omits the durable
+            # eval_transcript.jsonl write when the field is absent.
+            if qa_eval_transcript is not None:
+                publish_kwargs["qa_eval_transcript"] = qa_eval_transcript
+        publish.publish(artifact, **publish_kwargs)
+        _mark_callback_sent()
+        logger.info(f"Published artifact via broker for run {config.run_id}")
+    except Exception as e:
+        # Mark callback sent ONLY after report_status returns successfully.
+        # If report_status itself raises (e.g. broker is fully down),
+        # leave the marker False so main()'s outer handler still gets a
+        # chance to send a fallback terminal callback. Eagerly setting
+        # the marker via finally:_mark_callback_sent() would skip that
+        # fallback and leave the run PENDING forever in gp-api.
+        logger.exception(f"Broker publish failed for run {config.run_id}: {e}")
+        try:
+            publish.report_status(
+                "failed",
+                reason_code="PublishFailed",
+                detail=str(e),
+                duration_seconds=duration,
+                cost_usd=result.cost_usd,
+            )
+            _mark_callback_sent()
+        except Exception as report_err:
+            logger.exception(
+                f"report_status during publish-failure handling also failed for run {config.run_id}: {report_err}"
+            )
+        raise
 
 
 def _handle_signal(signum, _frame=None):

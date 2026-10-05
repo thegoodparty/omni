@@ -15,7 +15,6 @@ from google import genai
 from google.genai import types
 from PIL import Image
 from shared.logger import get_logger
-from shared.braintrust import is_enabled as braintrust_enabled, get_client as get_braintrust_client
 
 load_dotenv()
 
@@ -300,32 +299,6 @@ class GeminiClient:
         self.api_call_count = 0
         return previous_stats
 
-    def _traced_call(
-        self,
-        trace_name: Optional[str],
-        prompt: str,
-        llm_fn,
-        model_name: str,
-        default_trace_name: str,
-        temperature: Optional[float] = None
-    ):
-        if not braintrust_enabled():
-            return llm_fn()
-
-        name = trace_name or default_trace_name
-        environment = os.getenv("ENVIRONMENT", "local")
-        return get_braintrust_client().traced_call(
-            name=name,
-            input_data={"prompt": prompt[:2000] if len(prompt) > 2000 else prompt},
-            llm_call_fn=llm_fn,
-            prompt=prompt,
-            metadata={
-                "model": model_name,
-                "temperature": temperature or self.default_temperature,
-                "environment": environment
-            }
-        )
-
     def generate_content(
         self,
         prompt: str,
@@ -334,8 +307,7 @@ class GeminiClient:
         max_tokens: Optional[int] = None,
         system_instruction: Optional[str] = None,
         thinking_budget: Optional[int] = None,
-        include_thoughts: Optional[bool] = None,
-        trace_name: Optional[str] = None
+        include_thoughts: Optional[bool] = None
     ) -> str:
         model_name = (model or self.default_model).value
         config = self._get_base_config(temperature, max_tokens, thinking_budget, include_thoughts)
@@ -390,14 +362,7 @@ class GeminiClient:
                         self.logger.error(f"Content generation failed after {self.max_retries} attempts: {str(e)}")
                         raise
 
-        return self._traced_call(
-            trace_name=trace_name,
-            prompt=prompt,
-            llm_fn=_execute_call,
-            model_name=model_name,
-            default_trace_name="generate_content",
-            temperature=temperature
-        )
+        return _execute_call()
         
     def generate_structured_content(
         self,
@@ -408,8 +373,7 @@ class GeminiClient:
         max_tokens: Optional[int] = None,
         system_instruction: Optional[str] = None,
         thinking_budget: Optional[int] = None,
-        include_thoughts: Optional[bool] = None,
-        trace_name: Optional[str] = None
+        include_thoughts: Optional[bool] = None
     ) -> Union[BaseModel, List[BaseModel], Dict[str, Any]]:
         model_name = (model or self.default_model).value
         config = self._get_base_config(temperature, max_tokens, thinking_budget, include_thoughts)
@@ -460,14 +424,7 @@ class GeminiClient:
                         self.logger.error(f"Structured content generation failed after {self.max_retries} attempts: {str(e)}")
                         raise
 
-        return self._traced_call(
-            trace_name=trace_name,
-            prompt=prompt,
-            llm_fn=_execute_call,
-            model_name=model_name,
-            default_trace_name="generate_structured_content",
-            temperature=temperature
-        )
+        return _execute_call()
     
     def generate_with_search(
         self,
@@ -477,8 +434,7 @@ class GeminiClient:
         max_tokens: Optional[int] = None,
         system_instruction: Optional[str] = None,
         thinking_budget: Optional[int] = None,
-        include_thoughts: Optional[bool] = None,
-        trace_name: Optional[str] = None
+        include_thoughts: Optional[bool] = None
     ) -> Dict[str, Any]:
         model_name = (model or self.default_model).value
         config = self._get_base_config(temperature, max_tokens, thinking_budget, include_thoughts)
@@ -536,14 +492,7 @@ class GeminiClient:
                         self.logger.error(f"Search-grounded generation failed after {self.max_retries} attempts: {str(e)}")
                         raise
 
-        return self._traced_call(
-            trace_name=trace_name,
-            prompt=prompt,
-            llm_fn=_execute_call,
-            model_name=model_name,
-            default_trace_name="generate_with_search",
-            temperature=temperature
-        )
+        return _execute_call()
     
     def generate_multimodal_content(
         self,
@@ -555,8 +504,7 @@ class GeminiClient:
         max_tokens: Optional[int] = None,
         system_instruction: Optional[str] = None,
         thinking_budget: Optional[int] = None,
-        include_thoughts: Optional[bool] = None,
-        trace_name: Optional[str] = None
+        include_thoughts: Optional[bool] = None
     ) -> str:
         model_name = (model or self.default_model).value
         config = self._get_base_config(temperature, max_tokens, thinking_budget, include_thoughts)
@@ -589,14 +537,7 @@ class GeminiClient:
                 self.logger.error(f"Multimodal content generation failed: {str(e)}")
                 raise
 
-        return self._traced_call(
-            trace_name=trace_name,
-            prompt=f"[{content_type.value}] {prompt}",
-            llm_fn=_execute_call,
-            model_name=model_name,
-            default_trace_name="generate_multimodal_content",
-            temperature=temperature
-        )
+        return _execute_call()
     
     def disable_thinking(self):
         if self.default_model == GeminiModelType.PRO:

@@ -341,7 +341,7 @@ class TestBuildContainerOverrides:
         # `$.detail.overrides.containerOverrides[0].environment[0].value`
         # (EventBridge input transformers cannot filter an array by key name).
         # Reordering this array would silently surface the WRONG value in the
-        # alert — and because BROKER_TOKEN / ANTHROPIC_API_KEY / BRAINTRUST_API_KEY
+        # alert — and because BROKER_TOKEN / ANTHROPIC_API_KEY
         # live later in the same array, a reorder that pushed a secret to index 0
         # would leak it into SNS and the notifier's CloudWatch logs. This test
         # pins the ordering so any such regression breaks CI loudly instead.

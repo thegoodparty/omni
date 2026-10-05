@@ -1019,14 +1019,6 @@ def build_container_overrides(
         {"name": "BROKER_URL", "value": broker_url},
         {"name": "ANTHROPIC_BASE_URL", "value": f"{broker_url}/anthropic"},
         {"name": "ANTHROPIC_API_KEY", "value": broker_token},
-        # Braintrust SDK routes through the broker like Anthropic does: the task
-        # SG only allows broker egress, so direct api.braintrust.dev calls are
-        # blocked. APP_URL/API_URL force the SDK's control-plane (login) and
-        # data-plane (/logs3 ingest) legs through the broker proxy; the runner
-        # authenticates with the broker token, the broker swaps in the real key.
-        {"name": "BRAINTRUST_API_KEY", "value": broker_token},
-        {"name": "BRAINTRUST_APP_URL", "value": f"{broker_url}/braintrust/app"},
-        {"name": "BRAINTRUST_API_URL", "value": f"{broker_url}/braintrust/api"},
         params_env,
         {"name": "TIMEOUT_SECONDS", "value": str(experiment.get("timeout_seconds", 600))},
         # QA_JUDGES configures the runbooks qa-spine pluggable LLM judge registry

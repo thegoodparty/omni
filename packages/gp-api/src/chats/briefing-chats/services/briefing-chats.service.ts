@@ -156,7 +156,6 @@ export class BriefingChatsService {
         tools,
         userMessage: args.userMessage,
         models: [...BRIEFING_CHAT_MODELS],
-        traceName: 'briefing-chat-stream',
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
       })

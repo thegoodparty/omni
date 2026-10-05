@@ -495,7 +495,6 @@ async def run_agent(
     workspace_dir: str,
     params: dict,
     contract_schema: dict | None = None,
-    parent_span=None,
     system_prompt: str | None = None,
     permission_mode: str | None = None,
     allowed_external_tools: list[str] | None = None,
@@ -614,7 +613,6 @@ async def run_agent(
     session_id = None
     message_count = 0
     conversation_jsonl = os.path.join(workspace_dir, "conversation.jsonl")
-    pending_tool_spans: dict[str, object] = {}
 
     def _log_jsonl(record: dict):
         try:
@@ -651,17 +649,6 @@ async def run_agent(
                     log_preview = json.dumps(block.input, default=str)[:2000] if block.input else ""
                     logger.info(f"[{message_count}] tool: {block.name} | {log_preview}")
                     content_blocks.append({"type": "tool_use", "name": block.name, "input": block.input})
-                    if parent_span:
-                        try:
-                            tool_span = parent_span.start_span(name=f"tool:{block.name}")
-                            tool_span.__enter__()
-                            tool_span.log(input=block.input or {})
-                            pending_tool_spans[block.id] = tool_span
-                        except Exception as span_err:
-                            logger.warning(
-                                f"Braintrust tool span enter failed for {block.name} (id={block.id}): {span_err}"
-                            )
-                            pending_tool_spans[block.id] = None
             _log_jsonl({"type": "assistant", "message": {"content": content_blocks}})
 
         elif isinstance(message, UserMessage):
@@ -675,15 +662,6 @@ async def run_agent(
                         content_str = " ".join(getattr(b, "text", "") for b in block.content if hasattr(b, "text"))
                     logger.info(f"[{message_count}] result ({status}): {content_str[:2000]}")
                     _log_jsonl({"type": "tool_result", "content": content_str, "is_error": block.is_error})
-                    tool_span = pending_tool_spans.pop(block.tool_use_id, None)
-                    if tool_span is not None:
-                        try:
-                            tool_span.log(output={"status": status, "result": content_str[:2000]})
-                            tool_span.__exit__(None, None, None)
-                        except Exception as span_err:
-                            logger.warning(
-                                f"Braintrust tool span close failed for tool_use_id={block.tool_use_id}: {span_err}"
-                            )
 
         elif isinstance(message, ResultMessage):
             total_cost = message.total_cost_usd or 0.0
@@ -839,7 +817,6 @@ async def _finalize(state, params, primary_options, drain) -> None:
 
 async def run_evaluator_agent(
     params: EvaluatorHarnessParams,
-    parent_span=None,
 ) -> EvaluatorResult:
     """Run the QA-gate evaluator agent (PMF QA gate, PR-3).
 
@@ -1148,7 +1125,6 @@ class ClaudeSdkHarness:
         workspace_dir: str,
         params: dict,
         contract_schema: dict | None = None,
-        parent_span=None,
         experiment_id: str | None = None,
         system_prompt: str | None = None,
         permission_mode: str | None = None,
@@ -1163,7 +1139,6 @@ class ClaudeSdkHarness:
             workspace_dir=workspace_dir,
             params=params,
             contract_schema=contract_schema,
-            parent_span=parent_span,
             system_prompt=system_prompt,
             permission_mode=permission_mode,
             allowed_external_tools=allowed_external_tools,

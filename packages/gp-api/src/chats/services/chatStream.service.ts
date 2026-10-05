@@ -19,7 +19,6 @@ import {
   LlmStreamUsage,
   LlmTool,
 } from '@/llm/services/llm.service'
-import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import { ChatStoreService, PersistedSegment } from './chatStore.prisma'
 import {
   ATTACHMENT_SCOPES,
@@ -83,10 +82,6 @@ export interface StreamArgs {
   // the model that produced it. Optional so only scopes that meter usage (the
   // ordinance flow) pay for it; a throw here is logged, never fails the turn.
   onUsage?: (usage: LlmStreamUsage, model: string) => void | Promise<void>
-  // Braintrust span name for this turn. This service is shared across chat
-  // scopes, so the caller supplies a scope-specific name (e.g.
-  // 'ordinance_flow-chat-stream'); falls back to a generic name if unset.
-  traceName?: string
   // Optional post-generation hook. On a clean finish, given the full assembled
   // text, returns a line to append (e.g. the CoS professional-advice
   // disclaimer) or null. Streamed as the final text chunk and included in the
@@ -397,12 +392,6 @@ const buildAttachedDocumentsBlock = (docs: AttachedDocMeta[]): string => {
   ].join('\n')
 }
 
-export interface ChatStreamTraceMetrics {
-  textLength: number
-  toolCallCount: number
-  errorCode?: ChatStreamErrorCode
-}
-
 @Injectable()
 export class ChatStreamService {
   private readonly bytesCache = new AttachmentBytesCache()
@@ -411,7 +400,6 @@ export class ChatStreamService {
     private readonly store: ChatStoreService,
     private readonly llm: LlmService,
     private readonly logger: PinoLogger,
-    @Optional() private readonly braintrust?: BraintrustService,
     @Optional() private readonly chatAttachments?: ChatAttachmentsService,
     @Optional() private readonly s3?: S3Service,
     @Optional() private readonly analytics?: AnalyticsService,
@@ -614,7 +602,6 @@ export class ChatStreamService {
 
     const queue = new ChunkQueue(MAX_BUFFERED_CHUNKS, args.signal)
     const textBuffer: string[] = []
-    let toolCallCount = 0
 
     // Ordered display structure of the turn (text runs and tool calls
     // interleaved), built at PRODUCTION time as the model streams — not as the
@@ -715,7 +702,6 @@ export class ChatStreamService {
           void queue.push({ type: 'tool_input_start', toolName })
         },
         onToolCallStart: ({ name, input, toolCallId }) => {
-          toolCallCount += 1
           segments.push({
             kind: ChatMessageSegmentKind.tool,
             toolName: name,
@@ -836,27 +822,17 @@ export class ChatStreamService {
       }
     }
 
-    const tracedMetrics: ChatStreamTraceMetrics = {
-      textLength: 0,
-      toolCallCount: 0,
-    }
-
-    const driveStream = async (): Promise<ChatStreamTraceMetrics> => {
+    const driveStream = async (): Promise<{
+      errorCode?: ChatStreamErrorCode
+    }> => {
       const { error } = await consumeStream()
-      tracedMetrics.textLength = textBuffer.reduce(
-        (sum, s) => sum + s.length,
-        0,
-      )
-      tracedMetrics.toolCallCount = toolCallCount
-      if (error) {
-        tracedMetrics.errorCode = classifyError(error, args.signal)
-      }
+      const errorCode = error ? classifyError(error, args.signal) : undefined
       // Persist the moment generation finishes, decoupled from client draining:
       // an SSE client parked on write backpressure (or a slow/backgrounded tab)
       // must never cost us the turn. A clean tool-only finish still persists so
       // the widget replays on reload; an interrupt leaves it unpersisted here
       // and the finally writes the sentinel instead.
-      const cleanFinish = !args.signal?.aborted && !tracedMetrics.errorCode
+      const cleanFinish = !args.signal?.aborted && !errorCode
       await persistOnce(cleanFinish)
       if (cleanFinish && this.analytics) {
         const citationSegments = segments.filter(
@@ -912,22 +888,10 @@ export class ChatStreamService {
           )
         }
       }
-      return tracedMetrics
+      return { errorCode }
     }
 
-    const streamDone = this.braintrust
-      ? this.braintrust.traced(args.traceName ?? 'chat-stream', driveStream, {
-          input: {
-            conversationId: args.conversationId,
-            userMessageLength: args.userMessage.length,
-          },
-          metadata: {
-            ownerUserId: args.ownerUserId,
-            toolNames: Object.keys(args.tools),
-            ...(args.models && { modelChain: args.models }),
-          },
-        })
-      : driveStream()
+    const streamDone = driveStream()
 
     let completedNormally = false
     try {

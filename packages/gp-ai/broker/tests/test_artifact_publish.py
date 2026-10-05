@@ -1059,8 +1059,7 @@ class TestArtifactPublishDataRequiredUnlessCarveOut:
 # optional `qa_verdict` and writes it DURABLY to S3 (`<exp>/<run>/qa/
 # verdict.json`). The verdict does NOT ride the SQS callback — gp-api was
 # dropped as a verdict consumer (its callback schema strips qaVerdict), so the
-# verdict's system of record is the durable S3 write plus the runner's
-# Braintrust span.
+# verdict's system of record is the durable S3 write.
 #
 # The broker treats the verdict as an OPAQUE passthrough: it validates only
 # `req.artifact` (the existing HTML/fence/anti-fabrication gates), never the
@@ -1399,14 +1398,14 @@ class TestArtifactPublishQaVerdictPassthrough:
 # When a verdict is present, the broker performs ONE additional S3 write to
 # `<exp>/<run>/qa/verdict.json` under the same run prefix where it already
 # writes `artifact.json`. This is the durable, observe-only capture,
-# INDEPENDENT of Braintrust and the SQS callback — the verdict survives even
-# if the callback or a Braintrust write is lost. The runner is sandboxed (the
+# INDEPENDENT of the SQS callback — the verdict survives even if the
+# callback is lost. The runner is sandboxed (the
 # broker is its only egress), so the broker performs the write.
 #
 # The write is BEST-EFFORT and ADDITIVE: it happens AFTER artifact.json
 # succeeds, a failure is logged (with run_id) but does NOT fail the publish.
 # The verdict does NOT ride the callback (gp-api was dropped as a consumer) —
-# this durable S3 write plus the runner's Braintrust span are its system of
+# this durable S3 write is its system of
 # record. When the runner includes the raw main.py stdout (`qa_raw_output`),
 # the broker also writes it durably so the raw fragment output is recoverable
 # alongside the aggregated verdict.

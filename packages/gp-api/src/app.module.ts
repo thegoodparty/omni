@@ -48,7 +48,6 @@ import { SubscribeModule } from '@/subscribe/subscribe.module'
 import { TopIssuesModule } from '@/topIssues/topIssues.module'
 import { SessionsService } from '@/users/services/sessions.service'
 import { UsersModule } from '@/users/users.module'
-import { BraintrustModule } from '@/vendors/braintrust/braintrust.module'
 import { ContentfulModule } from '@/vendors/contentful/contentful.module'
 import { GeminiModule } from '@/vendors/google/gemini.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
@@ -78,7 +77,6 @@ import { DevEnvModule } from '@/devEnv/devEnv.module'
     loggerModule,
     AgentMcpMarkerModule,
     ScheduleModule.forRoot(),
-    BraintrustModule,
     GeminiModule,
     CampaignStrategyModule,
     RaceOpponentModule,

@@ -30,11 +30,9 @@ Real env values are gitignored. Copy `.env.example` to `.env` and fill in the re
 cp .env.example .env
 ```
 
-`.env.example` ships the shared baseline: `TAVILY_API_KEY`, `GEMINI_API_KEY`, `DATABRICKS_API_KEY`, `DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH`, `GOODPARTY_API_TOKEN`, `BRAINTRUST_API_KEY`, `ENVIRONMENT`. Most workspace members need only a subset of these — check the relevant member's `README.md` for what _that_ member actually reads.
+`.env.example` ships the shared baseline: `TAVILY_API_KEY`, `GEMINI_API_KEY`, `DATABRICKS_API_KEY`, `DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH`, `GOODPARTY_API_TOKEN`, `ENVIRONMENT`. Most workspace members need only a subset of these — check the relevant member's `README.md` for what _that_ member actually reads.
 
 Other keys may be required by specific members (e.g., AWS profile / creds for boto3 if you're touching infra, or vendor keys like `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ClickUp tokens for the bot). Add them to your local `.env` as needed; if the key becomes broadly relevant, also add a placeholder to `.env.example` so the next person knows it exists.
-
-Local tests do **not** need `BRAINTRUST_API_KEY` — `conftest.py` clears it via an autouse fixture so tests never touch a live Braintrust project.
 
 ## Install
 
@@ -122,18 +120,11 @@ docker run --rm --env-file ../.env <member>:local <event-json>
 
 For SQS-driven members, you'll also want to look at the corresponding `infrastructure/modules/<member>/main.tf` to see what env the Lambda actually receives in deployed environments.
 
-## Talking to Braintrust intentionally (non-test)
-
-The autouse `disable_braintrust` fixture only fires under `pytest`. Outside tests, set `BRAINTRUST_API_KEY` in your env and the `BraintrustClient` will activate normally.
-
-If you need real Braintrust calls **inside** a test (rare), set the key in that one test's body via `monkeypatch.setenv(...)` after the fixture has run, and reset the singleton at the end. **Don't** disable the autouse fixture globally.
-
 ## Common gotchas
 
 - **`ai-rules/` is empty after clone** → run `make submodule-init` or `git submodule update --init --recursive`. There's no postinstall hook.
 - **`uv sync` fails with a Python version mismatch** → confirm `.python-version` is `3.13` and that `uv python install 3.13` has run (or just rerun `uv sync`; `uv` will fetch it).
 - **mypy passes locally but PR review flags type errors** → mypy is scoped to `serve/v1_pipeline/` and `shared/` in `.pre-commit-config.yaml`. If you've added strict-mypy modules, update the `files:` regex in the config.
-- **Tests want to talk to Braintrust** → check `conftest.py`. The autouse fixture should keep it disabled. If a test sets `BRAINTRUST_API_KEY` itself, it must reset the singleton.
 - **`uv add` doesn't update the lockfile** → make sure you're inside a workspace dir (root or any member). `uv add` outside the workspace falls back to a different mode.
 - **CI build for a member fails on a transitive dep** → the CI image is built per-member; if your member depends on a new lib, ensure it's in _that member's_ `pyproject.toml`, not just the root project's `dependencies`.
 - **Secrets ended up in `.env`** → `.env` is gitignored; do not commit. Use `.env.example` for shape only.

@@ -4,7 +4,6 @@ import os
 import subprocess
 import sys
 import tempfile
-from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1010,239 +1009,6 @@ async def test_main_sends_failed_status_on_signal():
     assert "failed" in status_calls
     failed_call = next(c for c in mock_publish.report_status.call_args_list if c[0][0] == "failed")
     assert "signal" in failed_call[1]["detail"].lower()
-
-
-def _make_mock_bt():
-    mock_span = MagicMock()
-    mock_bt = MagicMock()
-
-    @contextmanager
-    def fake_traced_span(**kwargs):
-        yield mock_span
-
-    mock_bt.traced_span.side_effect = fake_traced_span
-    return mock_bt, mock_span
-
-
-@pytest.mark.asyncio
-@patch("pmf_engine.runner.main._upload_logs")
-@patch("pmf_engine.runner.main.publish")
-async def test_run_experiment_traces_success_to_braintrust(mock_publish, _mock_logs):
-    config = _make_config()
-    fake_result = HarnessResult(
-        artifact_bytes=b'{"greeting": "hello"}',
-        content_type="application/json",
-        cost_usd=0.05,
-        num_turns=3,
-        session_id="sess-abc",
-    )
-    mock_harness = AsyncMock()
-    mock_harness.run.return_value = fake_result
-    mock_bt, mock_span = _make_mock_bt()
-
-    with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-        await run_experiment(config, harness=mock_harness)
-
-    # Per-environment Braintrust project keeps prod a clean eval corpus,
-    # separate from dev smoke noise. config.environment is "dev" here.
-    mock_bt.init.assert_called_once_with("pmf-engine-dev")
-
-    call_kwargs = mock_bt.traced_span.call_args[1]
-    assert call_kwargs["name"] == "experiment:hello_world"
-    assert call_kwargs["input_data"]["experiment_id"] == "hello_world"
-    assert call_kwargs["input_data"]["run_id"] == "run-001"
-    assert call_kwargs["input_data"]["organization_slug"] == "org-123"
-    assert call_kwargs["input_data"]["model"] == "sonnet"
-    assert "pmf" in call_kwargs["tags"]
-    assert "hello_world" in call_kwargs["tags"]
-
-    mock_span.log.assert_called_once()
-    log_kwargs = mock_span.log.call_args[1]
-    assert log_kwargs["output"]["status"] == "success"
-    assert log_kwargs["output"]["cost_usd"] == 0.05
-    assert log_kwargs["output"]["num_turns"] == 3
-    assert log_kwargs["output"]["duration_seconds"] > 0
-    # The final artifact JSON is pushed into the trace output so Braintrust
-    # shows input(params)→output(artifact), not just rollup metadata.
-    assert log_kwargs["output"]["artifact"] == {"greeting": "hello"}
-
-    # flushed twice now: once in the terminal branch (before the broker call
-    # that deletes the scope ticket) + once in the finally safety net.
-    mock_bt.flush.assert_called()
-
-
-@pytest.mark.asyncio
-@patch("pmf_engine.runner.main._upload_logs")
-@patch("pmf_engine.runner.main.publish")
-async def test_run_experiment_publishes_when_braintrust_flush_raises(mock_publish, _mock_logs):
-    """Graceful degradation: Braintrust being fully unavailable must not block
-    the run. When the broker returns 503/401 for the Braintrust proxy, the
-    client's flush() can raise. The run is a success regardless of whether
-    telemetry made it out the door — Braintrust is best-effort observability,
-    not part of the experiment's terminal contract.
-
-    Contract: even if bt.flush() raises (proxy down), run_experiment still
-    calls publish.publish(...) with the artifact and does NOT propagate the
-    Braintrust failure to the caller.
-    """
-    config = _make_config()
-    fake_result = HarnessResult(
-        artifact_bytes=b'{"greeting": "hello"}',
-        content_type="application/json",
-        cost_usd=0.05,
-        num_turns=3,
-        session_id="sess-abc",
-    )
-    mock_harness = AsyncMock()
-    mock_harness.run.return_value = fake_result
-    mock_bt, _mock_span = _make_mock_bt()
-    # Simulate the Braintrust proxy being unreachable. In production the
-    # underlying batch logger's flush raises (proxy 401/503), but
-    # BraintrustClient.flush swallows it (logs .error, returns None) so the
-    # run is never blocked by telemetry. Model that swallow here: the public
-    # flush() the runner calls absorbs the proxy error instead of propagating.
-    flush_attempts = {"count": 0}
-
-    def swallowing_flush():
-        flush_attempts["count"] += 1
-        try:
-            raise RuntimeError("braintrust proxy 503")
-        except Exception:
-            # Matches BraintrustClient.flush: log + swallow, never re-raise.
-            return None
-
-    mock_bt.flush.side_effect = swallowing_flush
-
-    with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-        # MUST NOT raise — Braintrust failure is non-fatal to the run.
-        await run_experiment(config, harness=mock_harness)
-
-    assert flush_attempts["count"] >= 1, "expected the runner to attempt a Braintrust flush"
-
-    # The artifact still reaches the broker.
-    mock_publish.publish.assert_called_once()
-    call_args = mock_publish.publish.call_args
-    assert call_args[0] == ({"greeting": "hello"},)
-    assert call_args.kwargs.get("cost_usd") == pytest.approx(0.05)
-    # The run is NOT reported as failed just because telemetry couldn't flush.
-    failed_calls = [c for c in mock_publish.report_status.call_args_list if c[0][0] == "failed"]
-    assert not failed_calls, f"Braintrust flush failure must not produce a failed status; got: {failed_calls!r}"
-
-
-@pytest.mark.asyncio
-@patch("pmf_engine.runner.main._upload_logs")
-@patch("pmf_engine.runner.main.publish")
-async def test_run_experiment_traces_failure_to_braintrust(mock_publish, _mock_logs):
-    config = _make_config()
-    mock_harness = AsyncMock()
-    mock_harness.run.side_effect = RuntimeError("Agent crashed")
-    mock_bt, mock_span = _make_mock_bt()
-
-    with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-        with pytest.raises(RuntimeError, match="Agent crashed"):
-            await run_experiment(config, harness=mock_harness)
-
-    mock_span.log.assert_called_once()
-    log_kwargs = mock_span.log.call_args[1]
-    assert log_kwargs["output"]["status"] == "failed"
-    assert "Agent crashed" in log_kwargs["output"]["error"]
-
-    # flushed twice now: once in the terminal branch (before the broker call
-    # that deletes the scope ticket) + once in the finally safety net.
-    mock_bt.flush.assert_called()
-
-
-@pytest.mark.asyncio
-@patch("pmf_engine.runner.main._upload_logs")
-@patch("pmf_engine.runner.main.publish")
-async def test_run_experiment_traces_contract_violation_to_braintrust(mock_publish, _mock_logs):
-    config = _make_config(
-        contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}}
-    )
-    fake_result = HarnessResult(
-        artifact_bytes=b'{"greeting": 42}',
-        content_type="application/json",
-        cost_usd=0.02,
-        num_turns=2,
-    )
-    mock_harness = AsyncMock()
-    mock_harness.run.return_value = fake_result
-    mock_bt, mock_span = _make_mock_bt()
-
-    with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-        await run_experiment(config, harness=mock_harness)
-
-    mock_span.log.assert_called_once()
-    log_kwargs = mock_span.log.call_args[1]
-    assert log_kwargs["output"]["status"] == "contract_violation"
-    assert "greeting" in log_kwargs["output"]["error"]
-
-    # flushed twice now: once in the terminal branch (before the broker call
-    # that deletes the scope ticket) + once in the finally safety net.
-    mock_bt.flush.assert_called()
-
-
-@pytest.mark.asyncio
-@patch("pmf_engine.runner.main._upload_logs")
-@patch("pmf_engine.runner.main.publish")
-async def test_braintrust_flushes_before_publish_deletes_scope_ticket(mock_publish, _mock_logs):
-    """The broker deletes this run's scope ticket on publish (anti-replay),
-    which invalidates the token the Braintrust proxy authenticates with. So the
-    root span output must be logged AND flushed BEFORE publish — otherwise the
-    run-level rollup batch is dropped with a 401. Lock the ordering."""
-    config = _make_config()
-    fake_result = HarnessResult(
-        artifact_bytes=b'{"greeting": "hello"}',
-        content_type="application/json",
-        cost_usd=0.05,
-        num_turns=3,
-        session_id="sess-abc",
-    )
-    mock_harness = AsyncMock()
-    mock_harness.run.return_value = fake_result
-    mock_bt, mock_span = _make_mock_bt()
-
-    manager = MagicMock()
-    manager.attach_mock(mock_span.log, "span_log")
-    manager.attach_mock(mock_bt.flush, "flush")
-    manager.attach_mock(mock_publish.publish, "publish")
-
-    with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-        await run_experiment(config, harness=mock_harness)
-
-    order = [c[0] for c in manager.mock_calls]
-    assert "publish" in order and "span_log" in order and "flush" in order
-    assert order.index("span_log") < order.index("publish"), (
-        "root span output must be logged before publish deletes the scope ticket"
-    )
-    assert order.index("flush") < order.index("publish"), (
-        "Braintrust must flush before publish deletes the scope ticket"
-    )
-
-
-@pytest.mark.asyncio
-@patch("pmf_engine.runner.main._upload_logs")
-@patch("pmf_engine.runner.main.publish")
-async def test_braintrust_flushes_before_report_status_on_failure(mock_publish, _mock_logs):
-    """Terminal report_status also deletes the scope ticket. The failure-path
-    span output + flush must precede it for the same reason."""
-    config = _make_config()
-    mock_harness = AsyncMock()
-    mock_harness.run.side_effect = RuntimeError("Agent crashed")
-    mock_bt, mock_span = _make_mock_bt()
-
-    manager = MagicMock()
-    manager.attach_mock(mock_span.log, "span_log")
-    manager.attach_mock(mock_bt.flush, "flush")
-    manager.attach_mock(mock_publish.report_status, "report_status")
-
-    with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-        with pytest.raises(RuntimeError, match="Agent crashed"):
-            await run_experiment(config, harness=mock_harness)
-
-    order = [c[0] for c in manager.mock_calls]
-    assert order.index("span_log") < order.index("report_status")
-    assert order.index("flush") < order.index("report_status")
 
 
 class TestMainErrorPaths:
@@ -2488,22 +2254,21 @@ class TestBrokerTokenRedaction:
 
 # ---------------------------------------------------------------------------
 # PMF QA gate hook (v1 DETERMINISTIC-ONLY, OBSERVE-ONLY). The gate runs in
-# run_experiment's success path, BETWEEN _upload_logs and the success span.log.
+# run_experiment's success path, BETWEEN _upload_logs and publish.
 # The verdict ALWAYS rides the publish path — never quarantine, never a failure
 # report, fail-OPEN on a gate error. There is no AI evaluator: the gate runs one
 # deterministic qa/main.py subprocess.
 #
 # run_qa_gate now returns a (verdict, raw_output) tuple (or None for no-qa). The
-# hook captures both: the verdict folds onto span.log + publish.publish(
+# hook captures both: the verdict folds onto publish.publish(
 # qa_verdict=...), and raw_output rides publish.publish(qa_raw_output=...) for
 # the broker's durable S3 verdict.json write.
 #
 # Locked contracts (contracts D/G/H runner side, decisions 10, 13):
 #   - no qa folder (config.qa_envelope is None) -> byte-identical to today:
-#     publish called with the SAME args, NO qa_verdict / qa_raw_output, span.log
-#     success has no qa_verdict key.
+#     publish called with the SAME args, NO qa_verdict / qa_raw_output.
 #   - gate hook runs AFTER _upload_logs and BEFORE publish; order is
-#     ['upload_logs','qa_gate','bt_flush','publish'].
+#     ['upload_logs','qa_gate','publish'].
 #   - a failing verdict (pass False) under observe STILL publishes and carries
 #     qa_verdict + qa_raw_output; no failure report.
 #   - a gate exception is swallowed to status 'error' and STILL publishes.
@@ -2555,11 +2320,9 @@ async def test_no_qa_folder_publish_is_byte_identical(mock_publish, _mock_logs):
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, mock_span = _make_mock_bt()
 
     with patch("pmf_engine.runner.main.run_qa_gate", return_value=None) as mock_gate:
-        with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-            await run_experiment(config, harness=mock_harness)
+        await run_experiment(config, harness=mock_harness)
 
     # The gate is still invoked (it returns None for no-qa), but contributes
     # nothing to the wire.
@@ -2574,19 +2337,14 @@ async def test_no_qa_folder_publish_is_byte_identical(mock_publish, _mock_logs):
     assert "qa_raw_output" not in call_args.kwargs, "no-qa path must not pass qa_raw_output to publish"
     assert "qa_eval_transcript" not in call_args.kwargs, "no-qa path must not pass qa_eval_transcript to publish"
 
-    # span.log success output carries no qa_verdict key.
-    log_kwargs = mock_span.log.call_args[1]
-    assert log_kwargs["output"]["status"] == "success"
-    assert "qa_verdict" not in log_kwargs["output"]
-
 
 @pytest.mark.asyncio
 @patch("pmf_engine.runner.main._upload_logs")
 @patch("pmf_engine.runner.main.publish")
 async def test_qa_gate_runs_after_upload_logs_before_publish(mock_publish, _mock_logs):
-    """Lock the call order: _upload_logs, then the gate, then bt.flush, then
-    publish. The gate grades the uploaded artifact and the verdict must be
-    span.log'd + flushed before publish deletes the broker scope ticket."""
+    """Lock the call order: _upload_logs, then the gate, then publish. The
+    gate grades the uploaded artifact and the verdict must exist before
+    publish deletes the broker scope ticket."""
     config = _make_config(qa_envelope={"manifest": {"blocking": False}, "files": {}, "resolved_qa_version_ids": {}})
     fake_result = HarnessResult(
         artifact_bytes=b'{"greeting": "hello"}',
@@ -2596,11 +2354,9 @@ async def test_qa_gate_runs_after_upload_logs_before_publish(mock_publish, _mock
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, mock_span = _make_mock_bt()
 
     manager = MagicMock()
     manager.attach_mock(_mock_logs, "upload_logs")
-    manager.attach_mock(mock_bt.flush, "bt_flush")
     manager.attach_mock(mock_publish.publish, "publish")
 
     def _gate(*args, **kwargs):
@@ -2610,18 +2366,15 @@ async def test_qa_gate_runs_after_upload_logs_before_publish(mock_publish, _mock
     manager.attach_mock(MagicMock(side_effect=_gate), "qa_gate")
 
     with patch("pmf_engine.runner.main.run_qa_gate", side_effect=_gate):
-        with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-            await run_experiment(config, harness=mock_harness)
+        await run_experiment(config, harness=mock_harness)
 
-    order = [c[0] for c in manager.mock_calls if c[0] in {"upload_logs", "qa_gate", "bt_flush", "publish"}]
+    order = [c[0] for c in manager.mock_calls if c[0] in {"upload_logs", "qa_gate", "publish"}]
     # First occurrence of each landmark, in order.
     seen: list[str] = []
     for name in order:
         if name not in seen:
             seen.append(name)
-    assert seen == ["upload_logs", "qa_gate", "bt_flush", "publish"], (
-        f"expected upload_logs -> qa_gate -> bt_flush -> publish; got {seen!r}"
-    )
+    assert seen == ["upload_logs", "qa_gate", "publish"], f"expected upload_logs -> qa_gate -> publish; got {seen!r}"
 
 
 @pytest.mark.asyncio
@@ -2642,7 +2395,6 @@ async def test_observe_mode_failing_verdict_still_publishes_with_qa_verdict(mock
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, mock_span = _make_mock_bt()
 
     failing = _make_verdict(
         status="evaluated",
@@ -2653,8 +2405,7 @@ async def test_observe_mode_failing_verdict_still_publishes_with_qa_verdict(mock
     )
 
     with patch("pmf_engine.runner.main.run_qa_gate", return_value=_gate_returns(failing)):
-        with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-            await run_experiment(config, harness=mock_harness)
+        await run_experiment(config, harness=mock_harness)
 
     # Still publishes — observe-only never blocks.
     mock_publish.publish.assert_called_once()
@@ -2669,11 +2420,6 @@ async def test_observe_mode_failing_verdict_still_publishes_with_qa_verdict(mock
     # NO failure report — the run is a success regardless of the verdict.
     failed_calls = [c for c in mock_publish.report_status.call_args_list if c[0][0] == "failed"]
     assert not failed_calls, f"observe-mode failing verdict must not report failed; got {failed_calls!r}"
-
-    # span.log success carries the verdict under qa_verdict, logged before flush.
-    log_kwargs = mock_span.log.call_args[1]
-    assert log_kwargs["output"]["status"] == "success"
-    assert log_kwargs["output"]["qa_verdict"]["pass"] is False
 
 
 @pytest.mark.asyncio
@@ -2693,7 +2439,6 @@ async def test_publish_receives_qa_verdict_and_qa_raw_output(mock_publish, _mock
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, _mock_span = _make_mock_bt()
 
     raw = '[{"name": "grounding", "passed": true, "score": 0.91}]'
     transcript = '{"turn": 1, "kind": "assistant"}\n{"turn": 0, "kind": "result"}'
@@ -2702,8 +2447,7 @@ async def test_publish_receives_qa_verdict_and_qa_raw_output(mock_publish, _mock
         "pmf_engine.runner.main.run_qa_gate",
         return_value=(_make_verdict(), raw, transcript),
     ):
-        with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-            await run_experiment(config, harness=mock_harness)
+        await run_experiment(config, harness=mock_harness)
 
     mock_publish.publish.assert_called_once()
     call_args = mock_publish.publish.call_args
@@ -2733,7 +2477,6 @@ async def test_publish_omits_qa_eval_transcript_when_gate_returns_none(mock_publ
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, _mock_span = _make_mock_bt()
 
     raw = '[{"name": "grounding", "passed": true}]'
 
@@ -2741,8 +2484,7 @@ async def test_publish_omits_qa_eval_transcript_when_gate_returns_none(mock_publ
         "pmf_engine.runner.main.run_qa_gate",
         return_value=(_make_verdict(), raw, None),
     ):
-        with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-            await run_experiment(config, harness=mock_harness)
+        await run_experiment(config, harness=mock_harness)
 
     call_args = mock_publish.publish.call_args
     assert call_args.kwargs.get("qa_verdict") is not None
@@ -2770,14 +2512,12 @@ async def test_publish_forwards_empty_qa_eval_transcript(mock_publish, _mock_log
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, _mock_span = _make_mock_bt()
 
     with patch(
         "pmf_engine.runner.main.run_qa_gate",
         return_value=(_make_verdict(), None, ""),
     ):
-        with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-            await run_experiment(config, harness=mock_harness)
+        await run_experiment(config, harness=mock_harness)
 
     call_args = mock_publish.publish.call_args
     assert call_args.kwargs.get("qa_eval_transcript") == ""
@@ -2800,12 +2540,10 @@ async def test_gate_exception_swallowed_to_error_verdict_and_still_publishes(moc
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, mock_span = _make_mock_bt()
 
     with patch("pmf_engine.runner.main.run_qa_gate", side_effect=RuntimeError("gate blew up")):
-        with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-            # MUST NOT raise — gate failure is fail-open in observe mode.
-            await run_experiment(config, harness=mock_harness)
+        # MUST NOT raise — gate failure is fail-open in observe mode.
+        await run_experiment(config, harness=mock_harness)
 
     # Still publishes.
     mock_publish.publish.assert_called_once()
@@ -2843,7 +2581,6 @@ async def test_qa_gate_receives_artifact_bytes_envelope_and_remaining_budget(moc
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, _mock_span = _make_mock_bt()
 
     captured = {}
 
@@ -2856,8 +2593,7 @@ async def test_qa_gate_receives_artifact_bytes_envelope_and_remaining_budget(moc
         return _gate_returns(_make_verdict())
 
     with patch("pmf_engine.runner.main.run_qa_gate", side_effect=_capture_gate):
-        with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-            await run_experiment(config, harness=mock_harness)
+        await run_experiment(config, harness=mock_harness)
 
     assert captured["artifact_bytes"] == b'{"greeting": "hello"}'
     assert captured["qa_envelope"] == config.qa_envelope
@@ -2915,13 +2651,11 @@ async def test_real_qa_gate_bridge_runs_deterministic_main_and_rides_publish(moc
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, mock_span = _make_mock_bt()
 
     # Redirect the gate's materialization root to a writable tmp dir (the
     # default "/qa-gate" is not creatable on the test host).
     with patch.object(qa_gate_mod, "DEFAULT_QA_GATE_ROOT", str(tmp_path / "qa-gate-root")):
-        with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-            await run_experiment(config, harness=mock_harness)
+        await run_experiment(config, harness=mock_harness)
 
     # The verdict rode publish, derived from the fragments main.py emitted.
     mock_publish.publish.assert_called_once()
@@ -2990,11 +2724,10 @@ async def test_real_qa_gate_bridge_marshals_evaluator_and_rides_publish(mock_pub
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, mock_span = _make_mock_bt()
 
     captured_params = {}
 
-    async def fake_run_evaluator_agent(params, parent_span=None):
+    async def fake_run_evaluator_agent(params):
         from pmf_engine.runner.harness.base import EvaluatorResult
 
         captured_params["result_file_path"] = params.result_file_path
@@ -3026,8 +2759,7 @@ async def test_real_qa_gate_bridge_marshals_evaluator_and_rides_publish(mock_pub
             "pmf_engine.runner.harness.claude_sdk.run_evaluator_agent",
             side_effect=fake_run_evaluator_agent,
         ):
-            with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-                await run_experiment(config, harness=mock_harness)
+            await run_experiment(config, harness=mock_harness)
 
     # The real bridge invoked the (patched) evaluator with engine-built params.
     assert captured_params, "the real bridge must have reached run_evaluator_agent"
@@ -3086,7 +2818,6 @@ async def test_evaluator_bridge_timeout_covers_the_finalize(mock_publish, _mock_
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, _mock_span = _make_mock_bt()
 
     captured = {}
 
@@ -3127,8 +2858,7 @@ async def test_evaluator_bridge_timeout_covers_the_finalize(mock_publish, _mock_
                 "pmf_engine.runner.main.asyncio.run_coroutine_threadsafe",
                 side_effect=fake_run_coroutine_threadsafe,
             ):
-                with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-                    await run_experiment(config, harness=mock_harness)
+                await run_experiment(config, harness=mock_harness)
 
     assert "bridge_timeout" in captured, "the bridge must have called future.result(timeout=...)"
     eval_timeout = captured["params"].timeout_seconds
@@ -3156,7 +2886,6 @@ async def test_qa_gate_hook_passes_run_id_and_experiment_id(mock_publish, _mock_
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, _mock_span = _make_mock_bt()
 
     captured = {}
 
@@ -3165,8 +2894,7 @@ async def test_qa_gate_hook_passes_run_id_and_experiment_id(mock_publish, _mock_
         return _gate_returns(_make_verdict())
 
     with patch("pmf_engine.runner.main.run_qa_gate", side_effect=_capture_gate):
-        with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-            await run_experiment(config, harness=mock_harness)
+        await run_experiment(config, harness=mock_harness)
 
     assert captured.get("run_id") == "run-corr-42", f"hook must forward run_id; got kwargs {sorted(captured)!r}"
     assert captured.get("experiment_id") == "exp-corr-99"
@@ -3191,7 +2919,6 @@ async def test_qa_gate_broker_env_omits_unset_keys(mock_publish, _mock_logs):
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, _mock_span = _make_mock_bt()
 
     captured = {}
 
@@ -3203,8 +2930,7 @@ async def test_qa_gate_broker_env_omits_unset_keys(mock_publish, _mock_logs):
     saved = {k: os.environ.pop(k, None) for k in ("BROKER_URL", "BROKER_TOKEN")}
     try:
         with patch("pmf_engine.runner.main.run_qa_gate", side_effect=_capture_gate):
-            with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-                await run_experiment(config, harness=mock_harness)
+            await run_experiment(config, harness=mock_harness)
     finally:
         for k, v in saved.items():
             if v is not None:
@@ -3235,7 +2961,6 @@ async def test_qa_gate_broker_env_passes_through_set_keys(mock_publish, _mock_lo
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, _mock_span = _make_mock_bt()
 
     captured = {}
 
@@ -3245,8 +2970,7 @@ async def test_qa_gate_broker_env_passes_through_set_keys(mock_publish, _mock_lo
 
     with patch.dict(os.environ, {"BROKER_URL": "https://broker-dev.test", "BROKER_TOKEN": "tok-b3"}):
         with patch("pmf_engine.runner.main.run_qa_gate", side_effect=_capture_gate):
-            with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-                await run_experiment(config, harness=mock_harness)
+            await run_experiment(config, harness=mock_harness)
 
     broker_env = captured["broker_env"]
     assert broker_env.get("BROKER_URL") == "https://broker-dev.test"
@@ -3278,7 +3002,6 @@ async def test_qa_gate_hook_defense_in_depth_catch_logs_at_error(mock_publish, _
     )
     mock_harness = AsyncMock()
     mock_harness.run.return_value = fake_result
-    mock_bt, _mock_span = _make_mock_bt()
 
     captured: list[logging.LogRecord] = []
 
@@ -3290,9 +3013,8 @@ async def test_qa_gate_hook_defense_in_depth_catch_logs_at_error(mock_publish, _
     _main_mod.logger.addHandler(handler)
     try:
         with patch("pmf_engine.runner.main.run_qa_gate", side_effect=RuntimeError("bridge defect")):
-            with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
-                # Fail-open: still publishes despite the hook catch firing.
-                await run_experiment(config, harness=mock_harness)
+            # Fail-open: still publishes despite the hook catch firing.
+            await run_experiment(config, harness=mock_harness)
     finally:
         _main_mod.logger.removeHandler(handler)
 

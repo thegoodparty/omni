@@ -15,23 +15,23 @@ A **`uv` workspace** for GoodParty's Python AI / data services. Members are most
   - Whole-repo: `strict_optional`, `no_implicit_optional`, `check_untyped_defs`, `warn_unused_ignores`, `warn_redundant_casts`.
   - **Strict** for `serve.v1_pipeline.*` and `shared.*` (`disallow_untyped_defs`).
   - `mypy-strict.ini` is a parking lot for tighter rules; promote modules into it incrementally.
-- **`pytest`** with `asyncio_mode = auto`. Repo-root `conftest.py` auto-disables Braintrust telemetry.
+- **`pytest`** with `asyncio_mode = auto`.
 - **`pre-commit`** hooks: ruff + ruff-format + mypy (scoped to `serve/v1_pipeline/` and `shared/`) + standard hygiene hooks.
-- **AI/LLM clients:** anthropic, openai, google-genai, claude-agent-sdk; HTTP via httpx / aiohttp. Telemetry via Braintrust (disabled in tests).
+- **AI/LLM clients:** anthropic, openai, google-genai, claude-agent-sdk; HTTP via httpx / aiohttp.
 - **Cloud:** AWS — SQS, Lambda, S3, Secrets Manager. Deployment is Terraform under `infrastructure/`. CI builds Docker images to ECR.
 - **Other vendors used by members:** Databricks (`databricks-sql-connector`), Slack (`slack-sdk`), HubSpot, ClickUp, Tavily, Google APIs.
 
 ## Workspace members
 
-| Member                | Type                  | What it does                                                                                                                                                     |
-| --------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shared/`             | Library               | Cross-cutting clients: `aws_clients`, `braintrust`, `clickup_client`, `databricks_client`, `google_sheets_client`, `llm_gemini_3` / `llm_gemini`, plus utilities |
-| `serve/v1_pipeline/`  | FastAPI / SQS service | Main pipeline service — strict mypy                                                                                                                              |
-| `hubspot_ddhq_match/` | Lambda                | Match HubSpot contacts to DDHQ records                                                                                                                           |
-| `clickup_bot/`        | Lambda                | ClickUp automation                                                                                                                                               |
-| `engineer_agent/`     | Lambda                | Engineer-style coding agent                                                                                                                                      |
-| `pmf_engine/`         | Lambda                | Product/market-fit engine                                                                                                                                        |
-| `broker/`             | Service               | Message broker service                                                                                                                                           |
+| Member                | Type                  | What it does                                                                                                                                       |
+| --------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shared/`             | Library               | Cross-cutting clients: `aws_clients`, `clickup_client`, `databricks_client`, `google_sheets_client`, `llm_gemini_3` / `llm_gemini`, plus utilities |
+| `serve/v1_pipeline/`  | FastAPI / SQS service | Main pipeline service — strict mypy                                                                                                                |
+| `hubspot_ddhq_match/` | Lambda                | Match HubSpot contacts to DDHQ records                                                                                                             |
+| `clickup_bot/`        | Lambda                | ClickUp automation                                                                                                                                 |
+| `engineer_agent/`     | Lambda                | Engineer-style coding agent                                                                                                                        |
+| `pmf_engine/`         | Lambda                | Product/market-fit engine                                                                                                                          |
+| `broker/`             | Service               | Message broker service                                                                                                                             |
 
 Members are listed under `[tool.uv.workspace] members` in the root `pyproject.toml`.
 
@@ -76,7 +76,7 @@ When in doubt about whether a directory is a workspace member, check `pyproject.
 
 ## Cross-member sharing: `shared/`
 
-`shared/` is a workspace member, **not** just a directory. Other members depend on `shared` as a normal dep. **Don't** copy code from `shared/` into a member — import it. The autouse Braintrust-disabling fixture in `conftest.py` imports `BraintrustClient` from `shared.braintrust`, so adding tests in any member benefits from the same telemetry isolation.
+`shared/` is a workspace member, **not** just a directory. Other members depend on `shared` as a normal dep. **Don't** copy code from `shared/` into a member — import it.
 
 ## Data flow (high level)
 
@@ -88,7 +88,7 @@ Lambda handler (e.g. pmf_engine/control_plane/dispatch_handler.py)
    │
    ├─ inject_secrets() ← AWS Secrets Manager (AI_SECRETS_<ENV>)
    │
-   ├─ shared.* (clients to AWS, Databricks, Braintrust, LLM providers)
+   ├─ shared.* (clients to AWS, Databricks, LLM providers)
    │
    ├─ member-specific logic (engineer_agent/, broker/, pmf_engine/, ...)
    │
@@ -96,21 +96,20 @@ Lambda handler (e.g. pmf_engine/control_plane/dispatch_handler.py)
    │
    └─ side effects:
        ├── S3 outputs
-       ├── SQS hand-off to next stage
-       └── Braintrust telemetry (disabled in tests)
+       └── SQS hand-off to next stage
 ```
 
 Failures generally **do not** retry automatically — outputs (success or failure trace) land in S3 and a human reviews periodically.
 
 ## Cross-service edges
 
-| Direction | Service                            | Protocol                   | Notes                                                    |
-| --------- | ---------------------------------- | -------------------------- | -------------------------------------------------------- |
-| outbound  | AWS S3 / SQS / Secrets Manager     | `boto3`                    | Per-member IAM via Terraform                             |
-| outbound  | Anthropic / OpenAI / Google GenAI  | HTTP                       | LLM calls; token use traced via Braintrust (in non-test) |
-| outbound  | Databricks SQL warehouse           | `databricks-sql-connector` | Mostly read-side                                         |
-| outbound  | HubSpot, ClickUp, Slack, Tavily    | HTTP                       | Member-specific clients in `shared/` or member dirs      |
-| inbound   | SQS / HTTP API Gateway / S3 events | AWS Lambda triggers        | Per-member; defined in Terraform                         |
+| Direction | Service                            | Protocol                   | Notes                                               |
+| --------- | ---------------------------------- | -------------------------- | --------------------------------------------------- |
+| outbound  | AWS S3 / SQS / Secrets Manager     | `boto3`                    | Per-member IAM via Terraform                        |
+| outbound  | Anthropic / OpenAI / Google GenAI  | HTTP                       | LLM calls                                           |
+| outbound  | Databricks SQL warehouse           | `databricks-sql-connector` | Mostly read-side                                    |
+| outbound  | HubSpot, ClickUp, Slack, Tavily    | HTTP                       | Member-specific clients in `shared/` or member dirs |
+| inbound   | SQS / HTTP API Gateway / S3 events | AWS Lambda triggers        | Per-member; defined in Terraform                    |
 
 There is no inbound HTTP API exposed to GoodParty's web frontends from this repo (those go to `gp-api`). The lambdas are internal back-end workers.
 
@@ -147,4 +146,4 @@ Nothing is rebuilt at promotion time.
 
 ## ADRs
 
-`docs/adr/` is not yet seeded. Add one when a non-obvious decision lands — likely candidates: why uv workspace instead of separate repos, why gradual mypy strictness instead of all-or-nothing, why Braintrust as the single observability layer, why per-member ECR images instead of a shared Lambda layer. Use `ai-rules/adr-template.md`.
+`docs/adr/` is not yet seeded. Add one when a non-obvious decision lands — likely candidates: why uv workspace instead of separate repos, why gradual mypy strictness instead of all-or-nothing, why per-member ECR images instead of a shared Lambda layer. Use `ai-rules/adr-template.md`.

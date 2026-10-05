@@ -66,7 +66,7 @@ Adopt only on a performance PASS with outcome and quality parity. Otherwise reve
 - **git** holds the bar: `experiment-evals/<exp>/perf.json` and `quality_rubric.md`, versioned and reviewed in PRs. Changing a threshold is a reviewable commit.
 - **S3** holds the runs (artifacts + traces), produced upstream.
 - **`outputs/`** holds per-run evidence and is gitignored. Per-run metrics are computed on demand, not stored in git.
-- **Trends over time** are not tracked yet. Git is the wrong place for per-run telemetry; the natural home is Braintrust (already logging PMF runs), and the gates do not emit there yet.
+- **Trends over time** are not tracked yet. Git is the wrong place for per-run telemetry, and the gates do not emit anywhere else yet.
 
 ## The engine (scripts), bottom layer up
 

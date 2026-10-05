@@ -32,13 +32,6 @@ function makeService() {
     }),
     generateStructured: vi.fn(),
   }
-  // Pass-through tracedNested: invoke the wrapped fn unchanged so the test
-  // observes the underlying gemini call without caring about the span shape.
-  const braintrust = {
-    tracedNested: vi.fn(
-      <T>(_name: string, fn: () => Promise<T>): Promise<T> => fn(),
-    ),
-  }
   const model = {
     upsert: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
@@ -61,12 +54,11 @@ function makeService() {
   const analytics = { track: vi.fn().mockResolvedValue(undefined) }
   const service = new OnboardingLocalNewsService(
     gemini as never,
-    braintrust as never,
     cache as never,
     analytics as never,
     createMockLogger(),
   )
-  return { service, gemini, braintrust, cache, model, client, analytics }
+  return { service, gemini, cache, model, client, analytics }
 }
 
 function readyOutlets(extra: { name: string }[] = []) {

@@ -350,9 +350,6 @@ eval**. This is a known, growing area of investment. What exists today:
   these do run in CI.
 - The campaign chat's only quality signal is the `POST /:threadId/feedback`
   thumbs-up/down piped to Slack.
-- **Braintrust** (`src/vendors/braintrust/`) wraps the chat stream
-  (`braintrust.traced('briefing-chat-stream', …)`) and other AI surfaces, but this is
-  **observability/tracing, not evaluation.**
 
 For the background-side eval methodology that could inform a future interactive eval,
 see [`cap-background-agents.md`](cap-background-agents.md) (Part 3) and

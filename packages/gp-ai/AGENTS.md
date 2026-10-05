@@ -53,7 +53,7 @@ packages/gp-ai/                  # uv workspace root
 ├── pyproject.toml               # workspace root (members listed under [tool.uv.workspace])
 ├── uv.lock                      # the one lockfile
 ├── .python-version              # 3.13
-├── conftest.py                  # autouse fixture to disable Braintrust telemetry in tests
+├── conftest.py                  # autouse fixture giving tests a default AWS region
 ├── mypy.ini / mypy-strict.ini   # gradual mypy; strict-only for serve.v1_pipeline + shared
 ├── Makefile                     # check / lint / format / type-check / test / hooks
 ├── .pre-commit-config.yaml      # ruff + ruff-format + mypy (scoped) + hygiene
@@ -84,7 +84,7 @@ packages/gp-ai/                  # uv workspace root
 ## Testing
 
 - Framework: **pytest** with `asyncio_mode = auto` (declared in root `pyproject.toml`).
-- Top-level `conftest.py` carries two autouse fixtures. One disables Braintrust telemetry — every test runs with `BRAINTRUST_API_KEY=""` so no test pollutes a live Braintrust project. The other sets a default `AWS_DEFAULT_REGION`, because application code builds boto3 clients without an explicit region (correct in ECS, and it happens to work on a laptop with a profile configured, but a bare CI runner raises `NoRegionError`).
+- Top-level `conftest.py` carries an autouse fixture that sets a default `AWS_DEFAULT_REGION`, because application code builds boto3 clients without an explicit region (correct in ECS, and it happens to work on a laptop with a profile configured, but a bare CI runner raises `NoRegionError`).
 - **Assume Linux.** This suite ran only on macOS until CI existed, which hid failures: an unset region, and assertions that a path is not under `/tmp` (true on macOS, where temp dirs are `/var/folders/...`, false on Linux). Don't assert on temp-dir _locations_ — assert the invariant the code actually guarantees.
 - Single test: `uv run pytest <path>::TestClass::test_case -v`.
 - Per-member: each workspace member has its own `tests/` and runs them with `cd <member> && uv run pytest tests/`.
@@ -94,7 +94,6 @@ packages/gp-ai/                  # uv workspace root
 ## Never
 
 - Never bump a workspace member's deps without running `uv sync --all-packages` and committing the updated `uv.lock`. The lockfile is the source of truth across all members.
-- Never disable the autouse `disable_braintrust` fixture in `conftest.py` — tests would then authenticate against the live Braintrust project. If you need real Braintrust calls in a test, set the env explicitly inside that test only.
 - Never copy code from `shared/` into a member by hand. If it's worth using, import it (`shared/` is a workspace member; just declare the dep). Forks rot.
 - Never silence mypy with a blanket `# type: ignore` in `serve/v1_pipeline/` or `shared/` — those are strict-mode. Narrow the ignore (`# type: ignore[<error-code>]`) and add a comment explaining why.
 - Never remove a workspace member from `[tool.uv.workspace] members` without removing or migrating its code in the same change.

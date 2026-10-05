@@ -6,7 +6,6 @@ Handles cluster analysis using LLM-based theme extraction.
 """
 
 import asyncio
-import os
 import random
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -15,12 +14,54 @@ from pydantic import BaseModel, Field
 
 from shared.logger import get_logger
 from shared.llm_gemini_3 import Gemini3Client, GeminiModelType, ThinkingLevel
-from shared.braintrust import init_braintrust, flush_logs, load_prompt_from_braintrust
 from ..models import PipelineConfig, ClusterAnalysis, ClusterTheme, ClusteredMessage
 from .cluster_merger import cluster_merger_stage
 from .cluster_merger_analysis import analyze_cluster_merger
 
 logger = get_logger(__name__)
+
+CLUSTER_ANALYSIS_PROMPT = """Analyze this cluster of civic engagement messages from political campaigns.
+
+CLUSTER INFO:
+- Cluster ID: {cluster_id}
+- Total Messages: {cluster_size} messages
+- Unique Citizens: {unique_respondents} different people
+- Average Mentions per Citizen: {avg_mentions}
+- Respondent Coverage: {coverage_pct}% of all survey respondents
+- Part of {total_clusters} total clusters
+
+ATOMIC MESSAGES (focused civic concerns after preprocessing and splitting):
+{examples_text}
+
+Provide a comprehensive analysis of this cluster:
+
+1. **Category**: Identify the high-level civic category (Infrastructure, Public Safety, Education, Healthcare, Housing, Transportation, Environment, Governance, Economic Development, Community Services, or Other)
+
+2. **Theme**: Create a concise 2-4 word theme/label that captures the essence of this cluster
+
+3. **Issues Summary**: Write 1 sentence describing the core issues or concerns people are expressing
+
+4. **Detailed Analysis**: Write 2-3 paragraphs analyzing common concerns, patterns, underlying issues, and what citizens are experiencing. Focus on the problems, frustrations, or needs expressed.
+
+5. **Key Topics**: List 5 key topics mentioned in this cluster
+
+6. **Sentiment**: Identify overall sentiment (positive, negative, neutral, mixed, or concerned)
+
+7. **Action Items** (MANDATORY): Provide at least 3 specific, actionable items
+   - If citizens don't explicitly request actions, infer reasonable actions from their concerns
+   - Example: Traffic complaints → ["Install traffic calming measures", "Increase traffic enforcement", "Add speed monitoring signs"]
+   - Each action must be specific and actionable by local government or campaigns
+
+8. **Civic Relevance**: Explain how this relates to local governance and community needs
+
+9. **Confidence**: Rate your confidence (High, Medium, or Low) based on message coherence and theme clarity
+
+Focus on:
+- WHY citizens are contacting campaigns - what problems drive these messages
+- What specific issues, frustrations, or concerns are expressed
+- What citizens want done (MANDATORY action items)
+- Direct citizen voices through clean verbatim quotes
+- How this relates to local governance and community engagement"""
 
 class ClusterAnalysisResponse(BaseModel):
     category: str = Field(..., description="High-level civic category from: Infrastructure, Public Safety, Education, Healthcare, Housing, Transportation, Environment, Governance, Economic Development, Community Services, Other")
@@ -55,10 +96,6 @@ class ClusterAnalyzer:
             max_keepalive_connections=llm_config.get('max_keepalive_connections', 10)
         )
 
-        environment = os.getenv("ENVIRONMENT", "local")
-        logger.info(f"Braintrust environment: {environment}")
-        init_braintrust(project="hierarchical-discovery")
-
         self.max_example_messages = analysis_config.get('max_example_messages', 30)
         self.save_example_messages = analysis_config.get('save_example_messages', 5)
 
@@ -74,7 +111,6 @@ class ClusterAnalyzer:
         return False
 
     def cleanup(self):
-        flush_logs()
         if hasattr(self, 'llm_client') and hasattr(self.llm_client, 'close'):
             try:
                 self.llm_client.close()
@@ -322,8 +358,7 @@ class ClusterAnalyzer:
                 lambda: self.llm_client.generate_structured_content(
                     prompt=prompt,
                     response_schema=ClusterAnalysisResponse,
-                    system_instruction="You are an expert civic message analyst. Analyze citizen messages and identify themes, issues, and actionable items.",
-                    trace_name="cluster_analysis"
+                    system_instruction="You are an expert civic message analyst. Analyze citizen messages and identify themes, issues, and actionable items."
                 )
             )
 
@@ -393,54 +428,7 @@ class ClusterAnalyzer:
             "examples_text": examples_text
         }
 
-        fallback_prompt = """Analyze this cluster of civic engagement messages from political campaigns.
-
-CLUSTER INFO:
-- Cluster ID: {cluster_id}
-- Total Messages: {cluster_size} messages
-- Unique Citizens: {unique_respondents} different people
-- Average Mentions per Citizen: {avg_mentions}
-- Respondent Coverage: {coverage_pct}% of all survey respondents
-- Part of {total_clusters} total clusters
-
-ATOMIC MESSAGES (focused civic concerns after preprocessing and splitting):
-{examples_text}
-
-Provide a comprehensive analysis of this cluster:
-
-1. **Category**: Identify the high-level civic category (Infrastructure, Public Safety, Education, Healthcare, Housing, Transportation, Environment, Governance, Economic Development, Community Services, or Other)
-
-2. **Theme**: Create a concise 2-4 word theme/label that captures the essence of this cluster
-
-3. **Issues Summary**: Write 1 sentence describing the core issues or concerns people are expressing
-
-4. **Detailed Analysis**: Write 2-3 paragraphs analyzing common concerns, patterns, underlying issues, and what citizens are experiencing. Focus on the problems, frustrations, or needs expressed.
-
-5. **Key Topics**: List 5 key topics mentioned in this cluster
-
-6. **Sentiment**: Identify overall sentiment (positive, negative, neutral, mixed, or concerned)
-
-7. **Action Items** (MANDATORY): Provide at least 3 specific, actionable items
-   - If citizens don't explicitly request actions, infer reasonable actions from their concerns
-   - Example: Traffic complaints → ["Install traffic calming measures", "Increase traffic enforcement", "Add speed monitoring signs"]
-   - Each action must be specific and actionable by local government or campaigns
-
-8. **Civic Relevance**: Explain how this relates to local governance and community needs
-
-9. **Confidence**: Rate your confidence (High, Medium, or Low) based on message coherence and theme clarity
-
-Focus on:
-- WHY citizens are contacting campaigns - what problems drive these messages
-- What specific issues, frustrations, or concerns are expressed
-- What citizens want done (MANDATORY action items)
-- Direct citizen voices through clean verbatim quotes
-- How this relates to local governance and community engagement"""
-
-        return load_prompt_from_braintrust(
-            prompt_name="cluster-analysis",
-            fallback_prompt=fallback_prompt,
-            variables=variables
-        )
+        return CLUSTER_ANALYSIS_PROMPT.format(**variables)
 
     def _calculate_person_level_metrics(self, clustered_messages: List[ClusteredMessage],
                                       total_respondents: int) -> Dict[str, Any]:
@@ -553,8 +541,7 @@ Extract 1 quote from each message: ["Ridiculous property taxes", "Can't afford t
                 lambda: self.llm_client.generate_structured_content(
                     prompt=prompt,
                     response_schema=VerbatimQuotesResponse,
-                    system_instruction="Extract verbatim quotes from citizen messages that represent the cluster theme. Keep quotes SHORT (max 15 words) and directly related to the theme.",
-                    trace_name="verbatim_quote_extraction"
+                    system_instruction="Extract verbatim quotes from citizen messages that represent the cluster theme. Keep quotes SHORT (max 15 words) and directly related to the theme."
                 )
             )
 
@@ -633,8 +620,7 @@ REQUIREMENTS:
                 lambda: self.llm_client.generate_structured_content(
                     prompt=prompt,
                     response_schema=ActionItemsResponse,
-                    system_instruction="Generate specific, actionable items that local government or campaigns can implement to address citizen concerns.",
-                    trace_name="action_items_generation"
+                    system_instruction="Generate specific, actionable items that local government or campaigns can implement to address citizen concerns."
                 )
             )
 

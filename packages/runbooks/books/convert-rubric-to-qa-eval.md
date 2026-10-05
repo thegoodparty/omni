@@ -43,7 +43,7 @@ Verified against the runner-image QA gate engine. The author can rely on all of 
 - **Tools = `Bash` only.** No Write/Edit/Glob/Grep, no WebSearch, no subagents, no MCP, no broker. The judge genuinely cannot reach the web — write the rubric so it never needs to.
 - The agent's cwd is a private gate dir; the artifact is under `<workspace>/output/` (the absolute workspace path is given in the prompt). "Workspace is read-only" is **advisory** (prompt + no write tools) — not OS-enforced.
 - The **engine** (not the judge) reads the fragment file back, normalizes it, and aggregates. `pass` = every fragment passed. A missing / unparseable / non-array file, a judge timeout, or a crash → `status:"error"` (still publishes; observe-only).
-- Sinks: `s3://$ARTIFACTS_BUCKET-<env>/<exp>/<run_id>/qa/{verdict.json,eval_transcript.jsonl}` + the run's Braintrust span. **gp-api consumes nothing.**
+- Sinks: `s3://$ARTIFACTS_BUCKET-<env>/<exp>/<run_id>/qa/{verdict.json,eval_transcript.jsonl}`. **gp-api consumes nothing.**
 
 ## Conversion steps
 

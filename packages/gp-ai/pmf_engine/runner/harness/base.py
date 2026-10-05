@@ -81,7 +81,6 @@ class AgentHarness(Protocol):
         workspace_dir: str,
         params: dict,
         contract_schema: dict | None = None,
-        parent_span=None,
         experiment_id: str | None = None,
         system_prompt: str | None = None,
         permission_mode: str | None = None,

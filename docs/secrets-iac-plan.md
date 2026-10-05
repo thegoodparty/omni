@@ -164,8 +164,7 @@ self-service. Each is a few minutes:
 ## Open questions
 
 - **Do engineers keep dev read/write?** Several docs assume they can run
-  `get-secret-value` against `AI_SECRETS_DEV` (see
-  `packages/gp-ai/shared/docs/braintrust.md`). Recommend yes, unchanged — dev
+  `get-secret-value` against `AI_SECRETS_DEV`. Recommend yes, unchanged — dev
   values are rotatable and low-consequence, and the friction this plan removes is
   about prod.
 - **Who approves a prod secret PR?** Recommend a required review from the admin

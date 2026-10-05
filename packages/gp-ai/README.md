@@ -50,7 +50,6 @@ TAVILY_API_KEY=your_tavily_api_key
 DATABRICKS_API_KEY=your_databricks_api_key
 DATABRICKS_SERVER_HOSTNAME=your-workspace.cloud.databricks.com
 DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/your-warehouse-id
-BRAINTRUST_API_KEY=your_braintrust_api_key  # For LLM tracing
 ```
 
 ## Running the Projects
@@ -100,7 +99,7 @@ packages/gp-ai/
 ```
 
 **Adding dependencies:**
-- Shared utilities (llm, logger, braintrust) → `shared/pyproject.toml`
+- Shared utilities (llm, logger) → `shared/pyproject.toml`
 - Pipeline-specific (matplotlib, scipy) → `serve/v1_pipeline/pyproject.toml`
 - Matcher-specific (faiss, pyarrow) → `hubspot_ddhq_match/pyproject.toml`
 
@@ -123,7 +122,6 @@ packages/gp-ai/
 │   └── schema/                   # Pydantic models
 ├── shared/                       # Shared libraries
 │   ├── llm_gemini.py            # Gemini client (primary)
-│   ├── braintrust.py            # LLM tracing integration
 │   ├── logger.py                # Environment-aware logging
 │   └── databricks_client.py     # Databricks connector
 ├── infrastructure/               # Terraform modules
@@ -137,7 +135,6 @@ packages/gp-ai/
 | Library | Purpose |
 |---------|---------|
 | `google-genai` | Gemini LLM completions and embeddings |
-| `braintrust` | LLM call tracing and monitoring |
 | `pandas`, `pyarrow` | Data processing |
 | `faiss-cpu` | Vector similarity search |
 | `tavily-python` | Web search integration |
@@ -164,5 +161,4 @@ See `infrastructure/` for Terraform configurations.
 
 - **Databricks**: READ-ONLY access (SELECT queries only)
 - **LLM Client**: Use `shared/llm_gemini.py` (not deprecated `llm.py`)
-- **Tracing**: Braintrust integration for production LLM monitoring
 - **Cost Tracking**: Built-in token usage and API cost tracking

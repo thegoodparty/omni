@@ -29,12 +29,6 @@ from tqdm.asyncio import tqdm
 from concurrent.futures import ThreadPoolExecutor
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from shared.braintrust import (
-    init_braintrust,
-    cache_prompt,
-    build_cached_prompt,
-    flush_logs,
-)
 from shared.llm_gemini_3 import Gemini3Client, GeminiModelType, ThinkingLevel
 from shared.logger import get_logger
 
@@ -374,44 +368,8 @@ class ParallelProductionMatcher:
         )
         self.logger.info(f"   Gemini 3 Flash initialized with {target_concurrency} max connections, 9 retries (HIGH THROUGHPUT with reliability)")
 
-        environment = os.getenv("ENVIRONMENT", "local")
-        self.logger.info(f"Braintrust environment: {environment}")
-        init_braintrust(project="hubspot-ddhq-match")
-
-        self._init_prompt_cache()
-
-    def _init_prompt_cache(self):
-        self.logger.info("📝 Loading Braintrust prompt template (one-time)...")
-        self._prompt_name = "hubspot-ddhq-match-validator"
-
-        warmup_vars = {
-            "hubspot_name": "warmup",
-            "hubspot_full_name": "warmup",
-            "hubspot_state": "warmup",
-            "hubspot_city": "warmup",
-            "hubspot_office": "warmup",
-            "hubspot_embedding_text": "warmup",
-            "candidates_text": "warmup"
-        }
-
-        prompt_obj = cache_prompt(self._prompt_name, warmup_variables=warmup_vars)
-        if prompt_obj is not None:
-            self.logger.info("   ✅ Braintrust prompt cached (subsequent builds are ~0.03ms)")
-        else:
-            self.logger.warning("   ⚠️ Braintrust prompt not available, using fallback")
-
     def _build_prompt(self, hubspot_info: Dict, candidates_text: str) -> str:
-        variables = {
-            "hubspot_name": hubspot_info['name'],
-            "hubspot_full_name": hubspot_info['full_name'],
-            "hubspot_state": hubspot_info['state'],
-            "hubspot_city": hubspot_info['city'],
-            "hubspot_office": hubspot_info['office'],
-            "hubspot_embedding_text": hubspot_info['embedding_text'],
-            "candidates_text": candidates_text
-        }
-
-        fallback = f"""TASK: Match a HubSpot candidate to DDHQ candidates and return JSON ONLY.
+        return f"""TASK: Match a HubSpot candidate to DDHQ candidates and return JSON ONLY.
 NOTE: Federal and state races are pre-filtered. Only match local/municipal races.
 
 OUTPUT FORMAT (REQUIRED):
@@ -480,9 +438,6 @@ MATCHING RULES:
 Be extremely conservative - false positives are worse than false negatives. If uncertain, REJECT.
 
 OUTPUT JSON ONLY (no explanation, no markdown):"""
-
-        result = build_cached_prompt(self._prompt_name, variables, fallback_prompt=fallback)
-        return result if result else fallback
 
     def _search_similar_candidates(self, hubspot_record: Dict, k: int = 5) -> tuple[List[Dict[str, Any]], str]:
         """
@@ -750,7 +705,6 @@ Match {i}:
   - Embedding: {candidate['embedding_text']}
 """
 
-        # Build prompt using cached Braintrust template (1 API call at init, local builds thereafter)
         prompt = self._build_prompt(hubspot_info, candidates_text)
         llm_validation_start = time.time()
 
@@ -763,7 +717,7 @@ Match {i}:
             async def _llm_call():
                 return await asyncio.get_event_loop().run_in_executor(
                     self.thread_pool,
-                    lambda: self.llm_client.generate_content(prompt, trace_name="hubspot-ddhq-match")
+                    lambda: self.llm_client.generate_content(prompt)
                 )
 
             try:
@@ -1461,9 +1415,6 @@ async def main():
 
         matcher.logger.info(f"\n🎉 Parallel matching complete! Results saved to {results_file}")
 
-        # Flush Braintrust logs before exit (os._exit bypasses cleanup handlers)
-        flush_logs()
-
         # Force immediate exit - all work is done, files saved
         matcher.logger.info("💥 Forcing immediate exit to allow S3 upload to proceed...")
         os._exit(0)
@@ -1471,7 +1422,6 @@ async def main():
     except Exception as e:
         matcher.logger.error(f"❌ Pipeline failed: {e}")
         matcher.logger.error(f"Stack trace:", exc_info=True)
-        flush_logs()
         os._exit(1)
 
 if __name__ == "__main__":

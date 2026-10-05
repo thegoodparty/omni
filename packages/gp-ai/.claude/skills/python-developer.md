@@ -69,7 +69,6 @@ When you write new code in a non-strict module:
 - **`pip install` or `poetry install`.** Wrong tool. This repo is `uv`. Anything you read in old branches that says `pip install -r requirements.txt` is for legacy non-member dirs only (e.g. `apps/genie-slack-bot/` in a _different_ repo).
 - **Per-member venvs.** There is one `.venv/` at the repo root. Members share it.
 - **Forgetting `uv.lock`.** Any change to `pyproject.toml` (root or member) **must** ship with the regenerated `uv.lock`. PR review will catch it; don't.
-- **Disabling the autouse Braintrust fixture in `conftest.py`.** Tests would then talk to the live Braintrust project. Don't.
 - **Importing `shared` by relative path or copy-paste.** `shared/` is a workspace member; declare it as a dep and `from shared.aws_clients import ...`.
 - **3.12+ syntax in code that ruff/mypy target as 3.11.** Both target `py311`. If you want to use newer syntax, bump both targets in lockstep.
 - **`# type: ignore` blanket suppression in strict modules.** Narrow it. Comment why.

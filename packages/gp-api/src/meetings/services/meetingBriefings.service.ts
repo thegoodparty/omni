@@ -12,7 +12,6 @@ import { parseIsoDateAsUTC } from '@/shared/util/date.util'
 import { isInactiveUser } from '@/shared/util/userActivity.util'
 import { getUserFullName } from '@/users/util/users.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { BraintrustService } from '@/vendors/braintrust/braintrust.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   BadGatewayException,
@@ -194,7 +193,6 @@ export class MeetingBriefingsService extends createPrismaBase(
     private readonly experimentRuns: ExperimentRunsService,
     private readonly analytics: AnalyticsService,
     private readonly llm: LlmService,
-    private readonly braintrust: BraintrustService,
     private readonly cronLock: CronLockService,
     private readonly dashboardCards: DashboardCardsService,
     private readonly briefingItemLinks: BriefingItemLinksService,
@@ -1460,20 +1458,12 @@ export class MeetingBriefingsService extends createPrismaBase(
     ]
 
     try {
-      const result = await this.braintrust.traced(
-        'agenda-picked-up-hook',
-        () =>
-          this.llm.chatCompletion({
-            messages,
-            temperature: 0.4,
-            maxTokens: 200,
-            userId: String(userId),
-          }),
-        {
-          input: { meetingType, meetingDate, topItems },
-          metadata: { userId, feature: 'agenda_picked_up' },
-        },
-      )
+      const result = await this.llm.chatCompletion({
+        messages,
+        temperature: 0.4,
+        maxTokens: 200,
+        userId: String(userId),
+      })
       const hook = result.content.trim()
       return hook || leadInFallback
     } catch (err) {

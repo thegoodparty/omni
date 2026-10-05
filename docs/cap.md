@@ -30,16 +30,16 @@ the agent's output is for us rather than for the user it serves, it isn't CAP.
 "CAP" is the name we say out loud. The code almost never uses it. Before you go
 grepping, know the aliases:
 
-| You hear / read              | In the code it's…                                                                     |
-| ---------------------------- | ------------------------------------------------------------------------------------- |
-| CAP, "the platform"          | nothing — it's an umbrella term, not a module                                         |
-| "agent infrastructure"       | the **PMF Engine** — `packages/gp-ai/pmf_engine` + `broker`                           |
-| "background agents"          | **experiment runs** — `gp-api/src/agentExperiments`, `ExperimentRun` (Prisma)         |
-| "an experiment"              | a **run-type** (a manifest in S3): `meeting_briefing`, `top_community_issues`, …      |
-| "a run" / "a job"            | one execution of an experiment for one org (`run_id`)                                 |
-| "the eval system"            | `packages/runbooks/{books,experiment-evals,scripts}` (the gates), Braintrust (traces) |
-| "interactive agent"          | **`LlmService`** + the chat surfaces in `gp-api/src/chats`                            |
-| "the COS" / "Chief of Staff" | the one registered interactive chat scope (`chief_of_staff`)                          |
+| You hear / read              | In the code it's…                                                                |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| CAP, "the platform"          | nothing — it's an umbrella term, not a module                                    |
+| "agent infrastructure"       | the **PMF Engine** — `packages/gp-ai/pmf_engine` + `broker`                      |
+| "background agents"          | **experiment runs** — `gp-api/src/agentExperiments`, `ExperimentRun` (Prisma)    |
+| "an experiment"              | a **run-type** (a manifest in S3): `meeting_briefing`, `top_community_issues`, … |
+| "a run" / "a job"            | one execution of an experiment for one org (`run_id`)                            |
+| "the eval system"            | `packages/runbooks/{books,experiment-evals,scripts}` (the gates)                 |
+| "interactive agent"          | **`LlmService`** + the chat surfaces in `gp-api/src/chats`                       |
+| "the COS" / "Chief of Staff" | the one registered interactive chat scope (`chief_of_staff`)                     |
 
 "PMF" is product/market-fit: the engine exists to test, against real candidates,
 whether AI-generated artifacts are good enough to build a product on. The framing

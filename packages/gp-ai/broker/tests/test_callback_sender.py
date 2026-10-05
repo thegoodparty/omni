@@ -329,8 +329,8 @@ class TestCallbackSenderOmitsAnUnmeasuredCost:
 class TestCallbackSenderNoQaVerdictOnCallback:
     """gp-api is DROPPED as a consumer of the QA verdict — its SQS callback
     schema strips qaVerdict, so forwarding it on the callback is dead weight.
-    The verdict's system of record is now (a) the broker's durable S3 write
-    (`<exp>/<run>/qa/verdict.json`) and (b) the runner's Braintrust span. The
+    The verdict's system of record is now the broker's durable S3 write
+    (`<exp>/<run>/qa/verdict.json`). The
     callback must NEVER carry a `qaVerdict` key, and `send_result` must no
     longer accept a `qa_verdict` parameter at all.
     """

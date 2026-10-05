@@ -100,7 +100,7 @@ Do everything except the value write, in one PR.
    a secret. Put it in `environmentVariables` (gp-api/election-api) or a
    Terraform variable and skip the rest of this.
 2. **Name it** in `SCREAMING_SNAKE_CASE`, matching whatever the vendor calls it
-   (`BRAINTRUST_API_KEY`, not `BT_KEY`). The same name is used in every
+   (`TAVILY_API_KEY`, not `TAV_KEY`). The same name is used in every
    environment; the environment is the secret, not the key.
 3. **Wire it in code.**
    - gp-api / election-api: nothing to wire. Read it via `process.env.YOUR_KEY`

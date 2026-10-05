@@ -26,7 +26,6 @@ import {
   MAX_CHAT_HISTORY_MESSAGES,
 } from './chatStream.service'
 import type { ChatStoreService, PersistedSegment } from './chatStore.prisma'
-import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import type { ChatAttachmentsService } from './chatAttachments.service'
 import type { S3Service } from '@/vendors/aws/services/s3.service'
 
@@ -1309,163 +1308,6 @@ describe('ChatStreamService', () => {
     })
   })
 
-  describe('braintrust tracing', () => {
-    it('does not throw when BraintrustService is not provided', async () => {
-      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
-      llm.setScript([{ kind: 'text', delta: 'ok' }])
-
-      await expect(
-        collect(service.stream(baseStreamArgs())),
-      ).resolves.toBeDefined()
-    })
-
-    const buildTracedService = (traced: ReturnType<typeof vi.fn>) => {
-      const braintrust = {
-        enabled: true,
-        traced,
-      } as unknown as BraintrustService
-      return new ChatStreamService(
-        store.asService(),
-        llm as unknown as LlmService,
-        createMockLogger(),
-        braintrust,
-      )
-    }
-
-    it('wraps stream with traced() using the caller-supplied name and expected input/metadata', async () => {
-      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
-      llm.setScript([{ kind: 'text', delta: 'hello' }])
-      const traced = vi.fn(
-        async (
-          _name: string,
-          fn: () => unknown,
-          _opts?: Record<string, unknown>,
-        ) => fn(),
-      )
-      const tracedService = buildTracedService(traced)
-
-      await collect(
-        tracedService.stream({
-          ...baseStreamArgs({ userMessage: 'hi there' }),
-          traceName: 'ordinance_flow-chat-stream',
-        }),
-      )
-
-      expect(traced).toHaveBeenCalledTimes(1)
-      const [name, fn, opts] = firstOrThrow(traced.mock.calls)
-      // The shared service must not hardcode a scope's name; it uses whatever
-      // the caller passed (each scope supplies its own).
-      expect(name).toBe('ordinance_flow-chat-stream')
-      expect(typeof fn).toBe('function')
-      expect(opts).toMatchObject({
-        input: expect.objectContaining({
-          conversationId: CONVERSATION_ID,
-          userMessageLength: 'hi there'.length,
-        }),
-        metadata: expect.objectContaining({
-          ownerUserId: OWNER_ID,
-        }),
-      })
-    })
-
-    it('falls back to a generic trace name when the caller supplies none', async () => {
-      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
-      llm.setScript([{ kind: 'text', delta: 'hello' }])
-      const traced = vi.fn(async (_name: string, fn: () => unknown) => fn())
-      const tracedService = buildTracedService(traced)
-
-      await collect(tracedService.stream(baseStreamArgs({ userMessage: 'x' })))
-
-      const [name] = firstOrThrow(traced.mock.calls)
-      expect(name).toBe('chat-stream')
-    })
-
-    it('passes stream metrics (textLength, toolCallCount) as the traced function return value', async () => {
-      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
-      llm.setScript([
-        { kind: 'text', delta: 'abcd' },
-        {
-          kind: 'toolCall',
-          name: 'web_search',
-          input: { q: 'x' },
-          output: { results: [] },
-        },
-        { kind: 'text', delta: 'ef' },
-      ])
-      let capturedReturn: unknown
-      const traced = vi.fn(
-        async (
-          _name: string,
-          fn: () => unknown,
-          _opts?: Record<string, unknown>,
-        ) => {
-          capturedReturn = await fn()
-          return capturedReturn
-        },
-      )
-      const braintrust = {
-        enabled: true,
-        traced,
-      } as unknown as BraintrustService
-      const tracedService = new ChatStreamService(
-        store.asService(),
-        llm as unknown as LlmService,
-        createMockLogger(),
-        braintrust,
-      )
-
-      await collect(
-        tracedService.stream(
-          baseStreamArgs({ tools: { web_search: fakeTool } }),
-        ),
-      )
-
-      expect(capturedReturn).toMatchObject({
-        textLength: 'abcdef'.length,
-        toolCallCount: 1,
-      })
-    })
-
-    it('records errorCode in traced metrics when stream errors mid-flight', async () => {
-      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
-      llm.setScript([
-        { kind: 'text', delta: 'partial ' },
-        {
-          kind: 'error',
-          error: Object.assign(new Error('500 boom'), { status: 500 }),
-        },
-      ])
-      let capturedReturn: unknown
-      const traced = vi.fn(
-        async (
-          _name: string,
-          fn: () => unknown,
-          _opts?: Record<string, unknown>,
-        ) => {
-          capturedReturn = await fn()
-          return capturedReturn
-        },
-      )
-      const braintrust = {
-        enabled: true,
-        traced,
-      } as unknown as BraintrustService
-      const tracedService = new ChatStreamService(
-        store.asService(),
-        llm as unknown as LlmService,
-        createMockLogger(),
-        braintrust,
-      )
-
-      await collect(tracedService.stream(baseStreamArgs()))
-
-      expect(capturedReturn).toMatchObject({
-        errorCode: 'upstream_unavailable',
-        textLength: 'partial '.length,
-      })
-    })
-  })
-
   describe('forwarding', () => {
     it('forwards tools verbatim to llm service', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
@@ -1606,13 +1448,13 @@ describe('ChatStreamService', () => {
         { kind: 'error', error: providerErr },
       ])
       const logger = createMockLogger()
-      const tracedService = new ChatStreamService(
+      const svc = new ChatStreamService(
         store.asService(),
         llm as unknown as LlmService,
         logger,
       )
 
-      await collect(tracedService.stream(baseStreamArgs()))
+      await collect(svc.stream(baseStreamArgs()))
 
       const errorCalls = (
         logger.error as unknown as { mock: { calls: unknown[][] } }
@@ -1851,7 +1693,6 @@ describe('ChatStreamService', () => {
         attachmentsStore.asService(),
         fakeLlmSrc as unknown as LlmService,
         createMockLogger(),
-        undefined,
         fakeChatAttachments.asService(),
         fakeS3.asService(),
         fakeAnalytics,

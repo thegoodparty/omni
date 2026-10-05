@@ -263,7 +263,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // deterministic regardless of the host's ambient env.
   TOGETHER_AI_KEY: { tier: 'optional' },
   LLAMA_AI_ASSISTANT: { tier: 'optional' },
-  BRAINTRUST_API_KEY: { tier: 'optional' },
 
   BALLOT_READY_KEY: { tier: 'optional' },
   GEOAPIFY_API_KEY: { tier: 'optional' },

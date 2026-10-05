@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { BraintrustService } from '@/vendors/braintrust/braintrust.service'
 import { GEMINI_MODEL } from '@/vendors/google/gemini.types'
 import { GeminiService } from '@/vendors/google/services/gemini.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -19,9 +18,6 @@ import {
 // (3 Flash preview) so we don't ride preview-channel behavior shifts in
 // production.
 const LOCAL_NEWS_MODEL = GEMINI_MODEL.FLASH_3_5
-
-const SEARCH_SPAN = 'gemini:search'
-const STRUCTURED_SPAN = 'gemini:structured'
 
 // Stage 1 — same intent as the original single prompt, run with Google
 // search grounding so the model can pull contact info from the outlets'
@@ -105,7 +101,6 @@ const PENDING_TTL_MS = 5 * 60 * 1000
 export class OnboardingLocalNewsService {
   constructor(
     private readonly gemini: GeminiService,
-    private readonly braintrust: BraintrustService,
     private readonly cache: LocalNewsCacheService,
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
@@ -179,17 +174,11 @@ export class OnboardingLocalNewsService {
       .catch(() => undefined)
 
     try {
-      const result = await this.braintrust.tracedNested(
-        'local-news:generate',
-        async () => {
-          const searchText = await this.runSearchStage(jurisdiction, office)
-          return this.runStructuredStage(jurisdiction, office, searchText)
-        },
-        {
-          input: { jurisdiction, office },
-          metadata: { jurisdiction, office },
-          type: 'task',
-        },
+      const searchText = await this.runSearchStage(jurisdiction, office)
+      const result = await this.runStructuredStage(
+        jurisdiction,
+        office,
+        searchText,
       )
 
       await this.writeReady(key, result.outlets)
@@ -223,11 +212,9 @@ export class OnboardingLocalNewsService {
     office: string,
   ): Promise<string> {
     const prompt = buildSearchPrompt(jurisdiction, office)
-    const result = await this.braintrust.tracedNested(
-      SEARCH_SPAN,
-      () => this.gemini.generateWithSearch(prompt, { model: LOCAL_NEWS_MODEL }),
-      { input: { prompt }, type: 'llm' },
-    )
+    const result = await this.gemini.generateWithSearch(prompt, {
+      model: LOCAL_NEWS_MODEL,
+    })
     return result.text
   }
 
@@ -237,14 +224,9 @@ export class OnboardingLocalNewsService {
     searchResults: string,
   ): Promise<{ outlets: LocalNewsOutlet[] }> {
     const prompt = buildStructuredPrompt(jurisdiction, office, searchResults)
-    return this.braintrust.tracedNested(
-      STRUCTURED_SPAN,
-      () =>
-        this.gemini.generateStructured(prompt, aiOutletsToolResultSchema, {
-          model: LOCAL_NEWS_MODEL,
-        }),
-      { input: { prompt }, type: 'llm' },
-    )
+    return this.gemini.generateStructured(prompt, aiOutletsToolResultSchema, {
+      model: LOCAL_NEWS_MODEL,
+    })
   }
 
   // Atomically claim the AI-fetch slot for the (office, city, state)

@@ -73,18 +73,6 @@ from broker.endpoints.artifact_read import (
 from broker.endpoints.artifact_read import (
     router as read_router,
 )
-from broker.endpoints.braintrust_proxy import (
-    get_braintrust_api_key,
-)
-from broker.endpoints.braintrust_proxy import (
-    get_broker_auth as braintrust_get_broker_auth,
-)
-from broker.endpoints.braintrust_proxy import (
-    get_upstream_client as braintrust_get_upstream_client,
-)
-from broker.endpoints.braintrust_proxy import (
-    router as braintrust_router,
-)
 from broker.endpoints.databricks_query import (
     get_data_query_tracker as dbx_get_data_query_tracker,
 )
@@ -239,10 +227,6 @@ async def lifespan(app: FastAPI):
     # to their cap on 2026-09-20..22. Read gets headroom; connect stays tight
     # so a down gp-api still fails fast.
     agent_mcp_client = httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
-    # Dedicated client for the Braintrust proxy. A 30s cap is too tight for the
-    # end-of-run /logs3 trace flush (batched spans); a timeout there 502s and
-    # silently loses telemetry with no retry. 300s matches the anthropic client.
-    braintrust_client = httpx.AsyncClient(timeout=300)
     browser_fetcher = PlaywrightBrowserFetcher()
     await browser_fetcher.start()
     callback_sender = CallbackSender(sqs_client=sqs_client, queue_url=secrets.results_queue_url)
@@ -278,10 +262,6 @@ async def lifespan(app: FastAPI):
     app.dependency_overrides[get_broker_auth] = lambda: broker_auth
     app.dependency_overrides[get_upstream_client] = lambda: upstream_client
     app.dependency_overrides[get_anthropic_api_key] = lambda: secrets.anthropic_api_key
-
-    app.dependency_overrides[braintrust_get_broker_auth] = lambda: broker_auth
-    app.dependency_overrides[braintrust_get_upstream_client] = lambda: braintrust_client
-    app.dependency_overrides[get_braintrust_api_key] = lambda: secrets.braintrust_api_key
 
     app.dependency_overrides[publish_get_scope_ticket] = _resolve_ticket_from_request
     app.dependency_overrides[publish_get_s3_client] = lambda: s3_client
@@ -346,7 +326,6 @@ async def lifespan(app: FastAPI):
         await upstream_client.aclose()
         await http_client.aclose()
         await agent_mcp_client.aclose()
-        await braintrust_client.aclose()
         await browser_fetcher.aclose()
 
 
@@ -364,7 +343,6 @@ async def auth_error_handler(request: Request, exc: AuthError):
 app.include_router(mint_router)
 app.include_router(delete_router)
 app.include_router(anthropic_router)
-app.include_router(braintrust_router)
 app.include_router(publish_router)
 app.include_router(read_router)
 app.include_router(inputs_router)

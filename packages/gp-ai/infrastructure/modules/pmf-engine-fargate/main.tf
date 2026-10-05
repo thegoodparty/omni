@@ -256,7 +256,7 @@ resource "aws_ecs_task_definition" "runner" {
 
       # No secrets injected — runner has zero AWS access in v2. All
       # credentials are held by the broker. If runner code ever needs
-      # BRAINTRUST/etc, proxy it through broker.
+      # a third-party credential, proxy it through broker.
       environment = [
         {
           name  = "ENVIRONMENT"
@@ -359,7 +359,7 @@ resource "aws_cloudwatch_event_target" "send_to_sns" {
       # (control_plane/dispatch_handler.py:build_container_overrides emits
       # EXPERIMENT_ID first and keeps the array byte-deterministic). We pull
       # only this one value on purpose — the same array holds BROKER_TOKEN /
-      # ANTHROPIC_API_KEY / BRAINTRUST_API_KEY, which must not reach SNS or the
+      # ANTHROPIC_API_KEY, which must not reach SNS or the
       # notifier's CloudWatch logs. If that env ordering ever changes, this
       # path must change with it.
       experimentId = "$.detail.overrides.containerOverrides[0].environment[0].value"

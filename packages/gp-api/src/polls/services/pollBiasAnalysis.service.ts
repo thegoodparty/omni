@@ -4,19 +4,13 @@ import {
   Injectable,
 } from '@nestjs/common'
 import retry from 'async-retry'
-import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { LlmService } from 'src/llm/services/llm.service'
-import {
-  BraintrustService,
-  isValidChatRole,
-  ValidChatRole,
-} from 'src/vendors/braintrust/braintrust.service'
 import {
   BiasAnalysisInputSchema,
   BiasAnalysisResponse,
   POLL_BIAS_MODELS,
 } from '../types/pollBias.types'
-import { createPollBiasAnalysisPrompt } from '../utils/pollBiasPrompt.util'
+import { createPollBiasAnalysisPrompt } from '../prompts/pollBiasAnalysis.prompt'
 import { convertSubstringsToIndices } from '../utils/pollBiasSpan.util'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -26,7 +20,6 @@ export class PollBiasAnalysisService {
 
   constructor(
     private readonly llmService: LlmService,
-    private readonly braintrust: BraintrustService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(PollBiasAnalysisService.name)
@@ -46,28 +39,19 @@ export class PollBiasAnalysisService {
       throw new BadRequestException('Poll text cannot be empty')
     }
 
-    const messages = await this.getMessagesWithFallback(pollText)
+    const messages = createPollBiasAnalysisPrompt(pollText)
 
     return retry(
       async (bail): Promise<BiasAnalysisResponse> => {
         try {
-          const llmFn = () =>
-            this.llmService.jsonCompletion({
-              messages,
-              schema: BiasAnalysisInputSchema,
-              temperature: 0.2,
-              maxTokens: 512,
-              userId,
-              models: POLL_BIAS_MODELS,
-            })
-          const result = await this.braintrust.traced(
-            'poll-bias-analysis',
-            llmFn,
-            {
-              input: { pollText, messages },
-              metadata: { userId },
-            },
-          )
+          const result = await this.llmService.jsonCompletion({
+            messages,
+            schema: BiasAnalysisInputSchema,
+            temperature: 0.2,
+            maxTokens: 512,
+            userId,
+            models: POLL_BIAS_MODELS,
+          })
 
           const parsed = this.convertBiasSubstringsToIndices(
             // LLM structured output typed as unknown — OpenAI SDK returns generic object
@@ -167,36 +151,6 @@ export class PollBiasAnalysisService {
       grammar_spans: grammarSpans,
       rewritten_text: validated.rewritten_text,
     }
-  }
-
-  private async getMessagesWithFallback(
-    pollText: string,
-  ): Promise<LlmMessage[]> {
-    const fallback = createPollBiasAnalysisPrompt(pollText)
-
-    if (!this.braintrust.enabled) {
-      return fallback
-    }
-
-    const fallbackMessages = fallback
-      .filter((msg): msg is LlmMessage & { role: ValidChatRole } =>
-        isValidChatRole(msg.role),
-      )
-      .map((msg) => ({
-        role: msg.role,
-        content: typeof msg.content === 'string' ? msg.content : '',
-      }))
-
-    const messages = await this.braintrust.loadPromptMessages(
-      'poll-bias-analysis',
-      fallbackMessages,
-      { pollText },
-    )
-
-    return messages.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    }))
   }
 
   private isValidationError(error: unknown): boolean {
