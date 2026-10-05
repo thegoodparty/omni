@@ -6,7 +6,7 @@ Run a meeting briefing for one elected official's specific city council meeting.
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/meeting_briefing.json` and nowhere else.
 5. Perform the spot-check at the bottom — schema-valid data can still be garbage.
 6. As you ENTER each phase below, mark a milestone so cost analysis can attribute per-turn spend to named phases. Run this line (it appends a marker, nothing else):
@@ -58,7 +58,7 @@ The packet is **not** the published agenda summary page. The summary lists item 
 
 ## TODO CHECKLIST
 
-1. Read PARAMS_JSON; verify Databricks env via a trivial ping query. Capture `PARAMS.meetingDate` (required) as the target meeting date. Capture `PARAMS.knownAgendaLocation` (optional) as a channel-0 hint for Step 2.
+1. Read PARAMS_FILE; verify Databricks env via a trivial ping query. Capture `PARAMS.meetingDate` (required) as the target meeting date. Capture `PARAMS.knownAgendaLocation` (optional) as a channel-0 hint for Step 2.
 2. Resolve the agenda **packet** source for the target date — full briefing PDFs, not the summary page — per the precondition above (path > URL > **channel-0 hint** > channels 1-4 platform discovery). If the user supplied an agenda (path or URL), use it and skip platform verification entirely. Otherwise, verify the target meeting exists on the platform calendar for `PARAMS.meetingDate`; if the platform shows no meeting on that date (stale schedule signal) and the user did NOT supply an agenda, set `briefing_status: "no_meeting_found"` and exit early.
 3. Substantive-items check + packet-availability gate. If no attachments / no compiled PDF, route to `awaiting_agenda`.
 4. Chunk the agenda packet section-aware → page-fallback into `raw_context[]`.
@@ -193,11 +193,11 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 
 ### Step 1 — Read params and verify Databricks env
 
-Read `PARAMS_JSON` once at the top:
+Read `PARAMS_FILE` once at the top:
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 TARGET_MEETING_DATE = PARAMS["meetingDate"]  # required, YYYY-MM-DD
 TARGET_MEETING_TIME = PARAMS.get("meetingTime")  # optional, "HH:MM" 24-hour
 TARGET_MEETING_TIMEZONE = PARAMS.get("meetingTimezone")  # optional, IANA name
@@ -1225,7 +1225,7 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 - **Every featured item must have at least one talking point.** Empty array is a schema violation; set `display.talking_points` to a non-empty list or `null`.
 - **Every Haystaq score reported in `display.constituent_sentiment`** must trace to a column in the Step 6 inline catalog and a row in the Step 8 batched L2 query.
 - **`district_note` is always `null`** — deprecated since city scope was removed.
-- **When `l2DistrictType` is set, `voter_count` should reflect the district, not the whole state** → if it looks state-sized, the L2 district WHERE clause matched zero rows and you silently fell back to state scope. Fix: re-confirm `l2DistrictType` and `l2DistrictName` came verbatim from PARAMS_JSON and were discovered via the L2 value-format check; set `haystaq_status: "no_match"` if the value genuinely doesn't resolve.
+- **When `l2DistrictType` is set, `voter_count` should reflect the district, not the whole state** → if it looks state-sized, the L2 district WHERE clause matched zero rows and you silently fell back to state scope. Fix: re-confirm `l2DistrictType` and `l2DistrictName` came verbatim from PARAMS_FILE and were discovered via the L2 value-format check; set `haystaq_status: "no_match"` if the value genuinely doesn't resolve.
 - **All sentiment `mean_score`s below 5** → you used `= 1` instead of treating `hs_*` as 0-100 scores. Re-do the distribution check. (A NULL `mean_score` is a different case: the column has no coverage in this state — vendor vintage — not an error; null the section with `haystaq_status: "no_column"` per Step 16, never coerce it to 0.)
 - **News URL doesn't load or doesn't mention the issue** → don't trust search snippets blindly; this is a required step, not a spot-check afterthought — every `news`/`government_website` source must clear the `http.head` liveness check plus a topicality read of the fetched body (Step 14) before it is cited anywhere.
 - **`recent_news` entry missing `publication_date` or older than 60 days before `meetingDate`** → the schema requires the field and the QA gate rejects stale entries; drop the entry and set `display.recent_news: null` if nothing else qualifies (Step 11).
