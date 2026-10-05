@@ -185,9 +185,9 @@ export default function RecordKnockForm({
   // door derives to exactly that: the walk would not advance, the list would
   // never complete, and paper would reprint the door with empty boxes.
   const serveMode = useDoorKnockingServeMode()
-  // Issue capture runs on both products, each behind its own flag.
+  // Issue capture runs on both products, behind one flag.
   // `trackExposure` stays default: this form is the treatment surface.
-  const { enabled: captureEnabled } = useIssueCaptureFlag(serveMode)
+  const { enabled: captureEnabled } = useIssueCaptureFlag()
   const product = outreachProduct(serveMode)
   // Two steps, two pieces of state, because the contract's five-way outcome is
   // a flattening of the tree the canvasser walks: `answered` in step one only
@@ -228,7 +228,7 @@ export default function RecordKnockForm({
   // Doors are where signal drops. With none, the mic records on the phone,
   // and Save holds the knock and its memo there until there is. Only where
   // a memo can be captured: elsewhere the mic is the ordinary dictation mic,
-  // and the product's flag stays the way to turn the whole path off.
+  // and the flag stays the way to turn the whole path off.
   const offline = useOfflineMemo({ dictation, enabled: capturesIssues })
   // The door the queue files this knock and its memo under, so saving it
   // again replaces them rather than queueing a second pair.

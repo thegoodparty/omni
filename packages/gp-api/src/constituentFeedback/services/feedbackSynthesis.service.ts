@@ -18,7 +18,7 @@ import {
 } from './feedbackReport.service'
 import { IssueTagSeedService } from './issueTagSeed.service'
 import { SYNTHESIS_ENGINE, type SynthesisEngine } from './synthesisEngine'
-import { issueCaptureFlagFor } from '../util/issueCaptureFlag.util'
+import { ISSUE_CAPTURE_FLAG } from '../util/issueCaptureFlag.util'
 
 // Per scope, on the button only: the completion trigger fires once, as the
 // effort finishes, which is when its report matters most. With the floor,
@@ -203,7 +203,7 @@ export class FeedbackSynthesisService extends createPrismaBase(
 
   // The routes are flag-gated per request; this path has no request, so it
   // asks for the org's owner, the same subject the completion event uses.
-  // Turning a product's flag off has to stop the automatic runs too. Most
+  // Turning the flag off has to stop the automatic runs too. Most
   // completed efforts have no memos at all, so the floor is checked first
   // and keeps a flag lookup off nearly every turf's Done.
   private async runIfRolledOut(input: {
@@ -225,7 +225,7 @@ export class FeedbackSynthesisService extends createPrismaBase(
     })
     const enabled = await this.features.isFeatureEnabled({
       user: ownerId,
-      feature: issueCaptureFlagFor(input.organizationSlug),
+      feature: ISSUE_CAPTURE_FLAG,
     })
     if (!enabled) return
     await this.requestRun({

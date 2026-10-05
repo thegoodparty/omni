@@ -11,8 +11,7 @@ import {
   removeFromQueue,
 } from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
-import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import RecordKnockForm from './RecordKnockForm'
 import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
 
@@ -22,25 +21,12 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
-// Both products' flags, mocked separately: which one a door reads is the
-// product's answer, and a test that turned on "the" flag could not tell.
-vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
-  useServeIssueCaptureFlag: vi.fn(),
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
 }))
 
-vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
-  useWinIssueCaptureFlag: vi.fn(),
-}))
-
-const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: serve,
-  })
-  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: win,
-  })
+const setFlag = (enabled: boolean) => {
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({ ready: true, enabled })
 }
 
 const mocks = vi.hoisted(() => ({
@@ -156,7 +142,7 @@ const walkAndSave = async () => {
 beforeEach(() => {
   testQueryClient.clear()
   vi.mocked(trackEvent).mockClear()
-  setFlags({ serve: true, win: false })
+  setFlag(true)
   mocks.input.current = null
   api.mock('POST /v1/door-knocking/interactions', {
     status: 200,
@@ -441,8 +427,8 @@ describe('RecordKnockForm issue capture', () => {
     expect(screen.queryByPlaceholderText(/issues and positions/i)).toBeNull()
   })
 
-  it('does not capture when the Serve flag is off', async () => {
-    setFlags({ serve: false, win: true })
+  it('does not capture when the flag is off', async () => {
+    setFlag(false)
     const onRecorded = renderForm()
     await walkAndSave()
 
@@ -482,7 +468,7 @@ describe('RecordKnockForm issue capture', () => {
 })
 
 // A candidate's door, where the memo is what a voter told the canvasser. Same
-// form, same sequencing, gated on Win's own flag.
+// form, same sequencing, same flag.
 // A dead zone: the knock and its memo wait on the phone, knock first, and
 // the walk moves on as it would online. Nobody can confirm issues that
 // have not been extracted yet, so there is no card to hold the door for.
@@ -620,7 +606,7 @@ describe('RecordKnockForm offline edges', () => {
 
   // The flag is the rollback lever: with it off, nothing is held.
   it('holds nothing with capture off, even offline', async () => {
-    setFlags({ serve: false, win: false })
+    setFlag(false)
     online = false
     const knocks = vi.fn()
     api.mock('POST /v1/door-knocking/interactions', () => {
@@ -640,7 +626,7 @@ describe('RecordKnockForm offline edges', () => {
   // With the flag off the form is exactly what it was: an online save
   // walks on without waiting on the phone's storage.
   it('leaves the queue alone on an online save with capture off', async () => {
-    setFlags({ serve: false, win: false })
+    setFlag(false)
     vi.mocked(enqueue).mockClear()
     vi.mocked(removeFromQueue).mockClear()
     const onRecorded = renderForm()
@@ -762,14 +748,14 @@ describe('RecordKnockForm issue capture on a Win door', () => {
   }
 
   beforeEach(() => {
-    setFlags({ serve: false, win: true })
+    setFlag(true)
     api.mock('POST /v1/door-knocking/interactions', {
       status: 200,
       data: { personId: 'person-1', knockStatus: 'supporter' },
     })
   })
 
-  it('captures and confirms on win-issue-capture alone', async () => {
+  it('captures and confirms on a Win door', async () => {
     const onRecorded = renderForm(vi.fn(), false)
     walkWinAndSave()
 
@@ -789,8 +775,8 @@ describe('RecordKnockForm issue capture on a Win door', () => {
     })
   })
 
-  it('does not capture when only the Serve flag is on', async () => {
-    setFlags({ serve: true, win: false })
+  it('does not capture on a Win door when the flag is off', async () => {
+    setFlag(false)
     const onRecorded = renderForm(vi.fn(), false)
     walkWinAndSave()
 

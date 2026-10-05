@@ -2,8 +2,8 @@
 
 "What we heard": one effort's report. An effort is a door-knocking turf's or a
 phone list's `Outreach` envelope, and the report shows what people said on it,
-as ranked themes once there are enough confirmed notes. Both products, each on
-its own flag. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
+as ranked themes once there are enough confirmed notes. Both products, on one
+flag, `issue-capture`. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
 `@goodparty_org/contracts` `constituentFeedback/FeedbackSynthesis.schema.ts`.
 
 ## Files
@@ -30,11 +30,11 @@ its own flag. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
 ## Access
 
 `issueCaptureAccess()` runs `candidateAccess()` (signed in, in an org, not a
-volunteer: the gate the phone caller uses for both products), then reads the
-product's flag server-side with `getFlagVariants`. The flag is chosen by the
-`organization-slug` cookie's `eo-` prefix, the way gp-api's
-`issueCaptureFlagFor` chooses it, so the page and its routes roll out
-together. Flag off redirects to `/dashboard` before anything renders. No nav
+volunteer: the gate the phone caller uses for both products), then reads
+`issue-capture` server-side with `getFlagVariants`, the key gp-api gates the
+routes on, so the page and its routes roll out together. The
+`organization-slug` cookie's `eo-` prefix picks the product's words. Flag off
+redirects to `/dashboard` before anything renders. No nav
 entry: the page is reached from the effort.
 
 ## The four states
@@ -138,7 +138,7 @@ they recorded.
 ## Entry points
 
 `WhatWeHeardLink` reads `N conversations · M notes` from the report and links
-to it. It renders nothing while the product's flag is off (read without
+to it. It renders nothing while the flag is off (read without
 exposure: the capture card is the treatment), when there is no envelope, or
 until somebody has answered. It does not poll.
 

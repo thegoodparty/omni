@@ -130,9 +130,8 @@ not found"), including for a memo with no effort, which nothing can be
 assigned to. Owners and campaign managers are unaffected.
 
 Every route is flag-gated and 404s when the flag is off, so a surface a user
-has not been rolled out to does not advertise itself. The flag is the org's
-product's: an `eo-` slug reads `serve-issue-capture`, anything else
-`win-issue-capture`, so each product rolls out on its own schedule. Unlike
+has not been rolled out to does not advertise itself. One flag,
+`issue-capture` (`ISSUE_CAPTURE_FLAG`), gates Win and Serve alike. Unlike
 `outreachServeSms.controller.ts`, which gates only its writes, there is no
 inert read here — the reads are the feature. `@UseOrganization()` and its role
 guard are the access check; the flag gates rollout, not access.
@@ -150,7 +149,7 @@ completed run), and the effort completing (a turf's Done in
 `phoneBankingCall.service.ts`), which calls `requestRunOnEffortCompleted`
 fire-and-forget, skips the cooldown, and swallows the floor and the run in
 flight. That path has no request to flag-gate, so it checks the floor and
-then the product's flag for the org's owner itself; turning a flag off
+then the flag for the org's owner itself; turning the flag off
 stops automatic runs too. The first run of a Win org seeds accepted tags
 from its `CampaignPosition`s first.
 
@@ -459,7 +458,7 @@ Transcribe streaming and still needs AWS credentials, so type the memo to
 see the confirm card without them.
 
 Flags: with a real `AMPLITUDE_PROJECT_API_KEY`, gp-api asks Amplitude for
-the product's flag, and a flag Amplitude does not define reads off, so every
+`issue-capture`, and a flag Amplitude does not define reads off, so every
 route 404s. The `.env.example` placeholder (`some_key`) reads every gp-api
 flag as on. The webapp gets its flags from gp-api, so with the placeholder
 they are all off except what the `e2e-flag-overrides` cookie sets

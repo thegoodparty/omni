@@ -200,12 +200,10 @@ describe('offline memo capture', () => {
       expect((await postToSink()).status).toBe(404)
     })
 
-    it('404s when the product flag is off', async () => {
+    it('404s when the issue-capture flag is off', async () => {
       const flags = vi
         .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-        .mockImplementation(
-          async ({ feature }) => feature === 'serve-issue-capture',
-        )
+        .mockImplementation(async ({ feature }) => feature !== 'issue-capture')
       onTestFinished(() => flags.mockRestore())
 
       const res = await uploadUrl(randomUUID())

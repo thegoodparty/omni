@@ -136,9 +136,9 @@ export default function PhoneBankingOutcomeForm({
   // Edit — mirrors the canvas's sticky log-call bar.
   const [isEditing, setIsEditing] = useState(!interaction)
 
-  // Issue capture. Behind the product's own flag, and only once the call is
+  // Issue capture. Behind its flag, and only once the call is
   // answered — there is nothing to summarize about a voicemail.
-  const { enabled: captureEnabled } = useIssueCaptureFlag(isServe)
+  const { enabled: captureEnabled } = useIssueCaptureFlag()
   const product = outreachProduct(isServe)
   const [memo, setMemo] = useState('')
   const [spoken, setSpoken] = useState(false)

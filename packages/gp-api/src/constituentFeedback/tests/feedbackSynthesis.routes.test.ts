@@ -1384,12 +1384,10 @@ describe('feedback synthesis routes', () => {
 
     // The routes are gated per request; the trigger has no request, so it
     // asks the flag itself. Turning the product off stops automatic runs.
-    it('starts nothing when the org’s flag is off', async () => {
+    it('starts nothing when the issue-capture flag is off', async () => {
       const flags = vi
         .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-        .mockImplementation(
-          async ({ feature }) => feature !== 'serve-issue-capture',
-        )
+        .mockImplementation(async ({ feature }) => feature !== 'issue-capture')
       onTestFinished(() => flags.mockRestore())
       await seedConfirmed(effort.targets.slice(0, 5))
 
@@ -1403,7 +1401,7 @@ describe('feedback synthesis routes', () => {
       const asked = async () =>
         flags.mock.calls.some(
           ([params]) =>
-            params.feature === 'serve-issue-capture' &&
+            params.feature === 'issue-capture' &&
             params.user === service.user.id,
         )
       for (let i = 0; i < 50 && !(await asked()); i++) {

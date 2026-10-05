@@ -8,8 +8,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
-import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import PhoneBankingCallerPage from './PhoneBankingCallerPage'
 
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
@@ -21,12 +20,8 @@ vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   ),
 }))
 
-vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
-  useServeIssueCaptureFlag: vi.fn(),
-}))
-
-vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
-  useWinIssueCaptureFlag: vi.fn(),
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
 }))
 
 const LIST_ID = 42
@@ -75,15 +70,8 @@ const mockReport = () =>
     },
   )
 
-const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: serve,
-  })
-  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: win,
-  })
+const setFlag = (enabled: boolean) => {
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({ ready: true, enabled })
 }
 
 beforeEach(() => {
@@ -95,7 +83,7 @@ beforeEach(() => {
     errorSnackbar: vi.fn(),
     successSnackbar: vi.fn(),
   })
-  setFlags({ serve: false, win: true })
+  setFlag(true)
   mockList()
   mockReport()
 })
@@ -113,8 +101,7 @@ describe('PhoneBankingCallerPage: what we heard', () => {
     expect(link).toHaveTextContent('12 conversations · 8 notes')
   })
 
-  it('reads the Serve flag for a Serve list', async () => {
-    setFlags({ serve: true, win: false })
+  it('links a Serve list too', async () => {
     mockList({ ...LIST, isServe: true })
     mockSearchParams = new URLSearchParams({ outreachId: String(OUTREACH_ID) })
     render(<PhoneBankingCallerPage listId={LIST_ID} />)

@@ -1,18 +1,21 @@
-import { useServeIssueCaptureFlag } from './serveIssueCaptureFlag'
-import { useWinIssueCaptureFlag } from './winIssueCaptureFlag'
+import { useFlagOn } from './FeatureFlagsProvider'
 
-// Issue capture for whichever product the surface belongs to. The knock and
-// call forms are shared by Win and Serve, and each product rolls out on its
-// own flag, so the surface passes the product it already knows.
+// Gates issue capture on Win and Serve alike: after a knock or a call, the
+// canvasser records a short spoken summary of what the person said, and the
+// API extracts the issues, their position on each, and the outcome they want.
+// gp-api gates its capture routes on the same key, so the surface and the API
+// roll out together.
 //
-// Both flags are read because a hook cannot be called conditionally, but only
-// the product's own is allowed to expose the user: a Serve official must not
-// be counted in Win's rollout, nor a candidate in Serve's.
+// The flag gates rollout, not access. @UseOrganization() at gp-api and its
+// role guard remain the real checks.
+export const ISSUE_CAPTURE_FLAG_KEY = 'issue-capture'
+
+// Pass trackExposure=false on surfaces that read the flag but aren't the
+// treatment — the capture card on the knock and call forms is the treatment
+// surface, so it takes the default.
 export const useIssueCaptureFlag = (
-  isServe: boolean,
   trackExposure = true,
 ): { ready: boolean; enabled: boolean } => {
-  const serve = useServeIssueCaptureFlag(trackExposure && isServe)
-  const win = useWinIssueCaptureFlag(trackExposure && !isServe)
-  return isServe ? serve : win
+  const { ready, on } = useFlagOn(ISSUE_CAPTURE_FLAG_KEY, { trackExposure })
+  return { ready, enabled: on }
 }

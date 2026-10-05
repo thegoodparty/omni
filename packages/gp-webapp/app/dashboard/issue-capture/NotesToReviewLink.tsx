@@ -27,7 +27,7 @@ export const NotesToReviewLink = ({
 }: NotesToReviewLinkProps) => {
   const copy = whatWeHeardCopy(isServe)
   // Not the treatment surface (the capture card is), so no exposure.
-  const { enabled } = useIssueCaptureFlag(isServe, false)
+  const { enabled } = useIssueCaptureFlag(false)
   const { data } = useQuery({
     ...pendingQueryOptions(outreachId ?? 0),
     enabled: enabled && outreachId !== null,

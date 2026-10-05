@@ -9,8 +9,7 @@ import {
   removeFromQueue,
 } from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
-import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { PhoneBankingInteraction } from '@goodparty_org/contracts'
 import PhoneBankingOutcomeForm from './PhoneBankingOutcomeForm'
 
@@ -37,23 +36,12 @@ vi.mock(
   },
 )
 
-vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
-  useServeIssueCaptureFlag: vi.fn(),
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
 }))
 
-vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
-  useWinIssueCaptureFlag: vi.fn(),
-}))
-
-const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: serve,
-  })
-  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: win,
-  })
+const setFlag = (enabled: boolean) => {
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({ ready: true, enabled })
 }
 
 const mocks = vi.hoisted(() => ({
@@ -146,7 +134,7 @@ let captureBodies: {
 beforeEach(() => {
   testQueryClient.clear()
   vi.mocked(trackEvent).mockClear()
-  setFlags({ serve: true, win: false })
+  setFlag(true)
   mocks.input.current = null
   captureBodies = []
 
@@ -486,8 +474,8 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     expect(captureBodies[0]?.transcript).toBe(MEMO)
   })
 
-  it('asks for no memo when the Serve flag is off', async () => {
-    setFlags({ serve: false, win: true })
+  it('asks for no memo when the flag is off', async () => {
+    setFlag(false)
     const { onSaved } = renderForm()
 
     expect(screen.queryByText('What did they say?')).toBeNull()
@@ -527,7 +515,7 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
 })
 
 // A candidate's call list, where the memo is what a voter told the caller.
-// Same form, gated on Win's own flag.
+// Same form, same flag.
 describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
   // Support, then turnout: the will-vote row only opens once support is in,
   // so its "Yes" is the second one on screen.
@@ -549,10 +537,10 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
   }
 
   beforeEach(() => {
-    setFlags({ serve: false, win: true })
+    setFlag(true)
   })
 
-  it('captures and confirms on win-issue-capture alone', async () => {
+  it('captures and confirms on a Win call', async () => {
     const { onSaved } = renderForm({ isServe: false })
     winCallAndSave()
 
@@ -575,8 +563,8 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
     )
   })
 
-  it('asks for no memo when only the Serve flag is on', () => {
-    setFlags({ serve: true, win: false })
+  it('asks for no memo on a Win call when the flag is off', () => {
+    setFlag(false)
     renderForm({ isServe: false })
     answerWinQuestions()
 
@@ -700,7 +688,7 @@ describe('PhoneBankingOutcomeForm with capture off', () => {
   // The form is exactly what it was: an online save does not wait on the
   // phone's storage.
   it('leaves the queue alone on an online save', async () => {
-    setFlags({ serve: false, win: false })
+    setFlag(false)
     vi.mocked(enqueue).mockClear()
     vi.mocked(removeFromQueue).mockClear()
     const { onSaved } = renderForm()

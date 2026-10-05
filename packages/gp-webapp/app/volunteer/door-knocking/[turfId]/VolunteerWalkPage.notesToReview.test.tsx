@@ -7,18 +7,13 @@ import type {
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
-import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import VolunteerWalkPage from './VolunteerWalkPage'
 
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
 
-vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
-  useServeIssueCaptureFlag: vi.fn(),
-}))
-
-vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
-  useWinIssueCaptureFlag: vi.fn(),
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
 }))
 
 // deck.gl and maplibre don't run in jsdom.
@@ -86,11 +81,7 @@ beforeEach(() => {
     successSnackbar: vi.fn(),
     errorSnackbar: vi.fn(),
   })
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: false,
-  })
-  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({
     ready: true,
     enabled: true,
   })
