@@ -157,20 +157,16 @@ describe('NextThingCard', () => {
     })
   })
 
-  it('counts progress across the whole plan and links to it', () => {
+  it('shows no progress count, and puts the plan link in the menu', async () => {
     mockResult.mockReturnValue(
-      settled([
-        task({ id: 'a', completed: true }),
-        task({ id: 'b', skipReason: 'notForMe' }),
-        task({ id: 'c' }),
-        task({ id: 'd', phase: 'active' }),
-      ]),
+      settled([task({ id: 'a', completed: true }), task({ id: 'b' })]),
     )
     render(<NextThingCard />)
 
-    expect(screen.getByText(/2 of 4 done/)).toBeInTheDocument()
+    expect(screen.queryByText(/of 2 done/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
     expect(
-      screen.getByRole('link', { name: 'See your full plan' }),
+      await screen.findByRole('menuitem', { name: 'See it in your plan' }),
     ).toHaveAttribute('href', '/campaign-plan')
   })
 

@@ -15,6 +15,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmptyState,
   IconButton,
@@ -150,7 +151,8 @@ const NextThingSection = ({
  * The one thing a candidate should do next, chosen by the same
  * selectNextTrackerTask the campaign plan uses, under a friendly headline about
  * it. One filled action, a quiet "Mark done", rare choices (Later, Not for me)
- * in the "…" menu, and two questions about the task that open chat. It stays
+ * in the "…" menu, and right under the card two small questions about the
+ * task that open chat. It stays
  * until they do it, mark it done, skip it, or its date passes on a task that
  * only exists on that date.
  */
@@ -354,37 +356,35 @@ export default function NextThingCard(): React.JSX.Element {
                   </span>
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuSeparator />
+              {/* The sidebar's Campaign Plan covers desktop; this keeps the
+                  plan one tap away on a phone, where the sidebar is a drawer. */}
+              <DropdownMenuItem asChild>
+                <Link href="/campaign-plan">See it in your plan</Link>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-
-        {chat && (
-          <div className="flex flex-col gap-2 border-t border-grayscale-200 pt-4 sm:flex-row">
-            {questionsFor(next, needsFiling).map((question) => (
-              <Button
-                key={question}
-                type="button"
-                variant="outline"
-                className="h-auto flex-1 justify-start whitespace-normal rounded-xl px-3 py-2.5 text-left text-sm font-medium"
-                onClick={() => {
-                  onStarted('chat')
-                  chat.sendFromComposer(askAboutStep(next.title, question))
-                }}
-              >
-                {question}
-              </Button>
-            ))}
-          </div>
-        )}
       </Card>
 
-      {progress.total > 0 && (
-        <p className="text-sm text-muted-foreground">
-          {progress.done} of {progress.total} done ·{' '}
-          <Link href="/campaign-plan" className="font-medium text-primary">
-            See your full plan
-          </Link>
-        </p>
+      {chat && (
+        <div className="flex flex-wrap gap-2">
+          {questionsFor(next, needsFiling).map((question) => (
+            <Button
+              key={question}
+              type="button"
+              variant="outline"
+              size="small"
+              className="rounded-full"
+              onClick={() => {
+                onStarted('chat')
+                chat.sendFromComposer(askAboutStep(next.title, question))
+              }}
+            >
+              {question}
+            </Button>
+          ))}
+        </div>
       )}
 
       <Dialog open={filingOpen} onOpenChange={setFilingOpen}>
