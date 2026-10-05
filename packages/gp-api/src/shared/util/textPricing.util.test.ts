@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  calcTextAmountInCents,
-  PRICE_PER_TEXT_TENTH_CENTS,
-} from './textPricing.util'
+import { PRICE_PER_TEXT_TENTH_CENTS } from '@goodparty_org/contracts'
+import { calcTextAmountInCents } from './textPricing.util'
 
 describe('PRICE_PER_TEXT_TENTH_CENTS', () => {
   it('is 3.5 cents per text expressed as tenth-cents', () => {

@@ -1,10 +1,15 @@
 import {
+  DEFAULT_TEXT_REPLY_RATE,
+  HIGH_CONFIDENCE_MIN_REPLIES,
+  HIGH_CONFIDENCE_MIN_SHARE,
   MAX_CHECK_RAISES,
   PROPOSAL_SENT_MARKER,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
   type PriorityStep,
   type PriorityStepId,
+  recommendedSampleSize,
+  SAMPLE_TARGET_REPLIES,
 } from '@goodparty_org/contracts'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type { PriorityFlowContext } from './services/priorityFlowContext.service'
@@ -217,39 +222,36 @@ const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
     '- If the group cannot be found in their records, still name it and the question, say in one line why there is no list, and ask the same way.',
   ].join('\n')
 
-// About 100 replies reads a yes-or-no question to within ten points either
-// way, which is all a check needs to say whether a step holds.
-export const CHECK_TARGET_REPLIES = 100
-// The bar polls hold a result to before calling it high confidence
-// (queueConsumer.service.ts), so a check reads the same way.
-export const CHECK_MIN_REPLIES = 75
-export const DEFAULT_TEXT_REPLY_RATE = 0.025
+const pct = (fraction: number): string => `${fraction * 100}%`
+const people = (n: number): string => n.toLocaleString('en-US')
+const EXAMPLE_AUDIENCE = 58_520
+const EXAMPLE_SAMPLE = recommendedSampleSize({ audience: EXAMPLE_AUDIENCE })
 
 const buildSamplingBlock = (has: (name: string) => boolean): string =>
   [
     'HOW MANY PEOPLE TO ASK',
     '- A check is a directional read, not a vote. It needs enough replies to tell whether a step holds, not everyone you could reach. So a text check goes to a random sample of its audience, not to all of it.',
-    `- Size a text sample for about ${CHECK_TARGET_REPLIES} replies: the replies you want divided by the reply rate, rounded up to the next hundred. ${CHECK_TARGET_REPLIES} replies at ${DEFAULT_TEXT_REPLY_RATE * 100}% is ${(CHECK_TARGET_REPLIES / DEFAULT_TEXT_REPLY_RATE).toLocaleString('en-US')} people.`,
+    `- Size a text sample the way polls do, for ${SAMPLE_TARGET_REPLIES} replies: the replies you want divided by the reply rate, rounded up. ${SAMPLE_TARGET_REPLIES} replies at ${pct(DEFAULT_TEXT_REPLY_RATE)} is ${people(EXAMPLE_SAMPLE)} people.`,
     has('read_past_outreach')
-      ? `- Use this office's own reply rate when it has one: call read_past_outreach and take replyRate from its past texts that went to a few hundred people or more. Otherwise assume ${DEFAULT_TEXT_REPLY_RATE * 100}%.`
-      : `- Assume a ${DEFAULT_TEXT_REPLY_RATE * 100}% reply rate.`,
+      ? `- Use this office's own reply rate when it has one: call read_past_outreach and take replyRate from its past texts that went to a few hundred people or more. Otherwise assume ${pct(DEFAULT_TEXT_REPLY_RATE)}.`
+      : `- Assume a ${pct(DEFAULT_TEXT_REPLY_RATE)} reply rate.`,
     '- Each side of a check gets its own sample, sized the same way from its own audience.',
     '- Never sample more people than the audience holds. When the audience is no bigger than the sample, send to all of it, leave sampleSize out, and say so.',
     '- A phone bank is sized by the calls the official or their volunteers can realistically make, not by a reply rate. Use judgment from what you know of them, and say what you chose and why. Door knocking the same way, by the doors they can walk. A social post has no audience to sample.',
-    '- On the card, count stays the whole audience. Set sampleSize to the people you would reach, and for a text set targetResponses and assumedReplyRate as a fraction, 0.025 for 2.5%.',
-    '- Explain the number once, in one line, in your message: "I\'d text 4,000 of the 58,520, picked at random. About 100 replies is enough to tell if this is the problem." Never call it statistically proven or representative. It is directional, because the 2 or 3 in 100 who reply choose themselves.',
+    `- On the card, count stays the whole audience. Set sampleSize to the people you would reach, and for a text set targetResponses and assumedReplyRate as a fraction, ${DEFAULT_TEXT_REPLY_RATE} for ${pct(DEFAULT_TEXT_REPLY_RATE)}.`,
+    `- Explain the number once, in one line, in your message: "I'd text ${people(EXAMPLE_SAMPLE)} of the ${people(EXAMPLE_AUDIENCE)}, picked at random. About ${SAMPLE_TARGET_REPLIES} replies is enough to tell if this is the problem." Never call it statistically proven or representative. It is directional, because the 3 in 100 who reply choose themselves.`,
   ].join('\n')
 
 const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
   [
     'READING WHAT CAME BACK',
-    `- Count the replies on each side before you treat them as an answer. Under about ${CHECK_MIN_REPLIES}, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
+    `- Count the replies on each side before you treat them as an answer. Polls hold a read to the same bar: more than ${HIGH_CONFIDENCE_MIN_REPLIES} replies, or replies from at least ${pct(HIGH_CONFIDENCE_MIN_SHARE)} of that side's whole audience. Short of both, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
     ...(has('present_outreach_proposal')
       ? [
           `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized for the replies still missing, with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
         ]
       : []),
-    `- Past ${CHECK_MIN_REPLIES}, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.`,
+    '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',
   ].join('\n')
 
 const GUARDRAILS_BLOCK = `GUARDRAILS (apply before answering)

@@ -407,12 +407,12 @@ describe('PriorityFlowHandler', () => {
   it('sizes a check as a random sample, one per side', () => {
     const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('HOW MANY PEOPLE TO ASK')
-    expect(prompt).toContain('100 replies at 2.5% is 4,000 people')
+    expect(prompt).toContain('83 replies at 3% is 2,767 people')
     expect(prompt).toContain('take replyRate from its past texts')
     expect(prompt).toContain('Each side of a check gets its own sample')
     expect(prompt).toContain('Never sample more people than the audience holds')
     expect(prompt).toContain('not by a reply rate')
-    expect(prompt).toContain("I'd text 4,000 of the 58,520, picked at random")
+    expect(prompt).toContain("I'd text 2,767 of the 58,520, picked at random")
     expect(prompt).toContain('Never call it statistically proven')
     expect(prompt).toContain('It is directional')
     expect(prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT')).toBeLessThan(
@@ -424,7 +424,10 @@ describe('PriorityFlowHandler', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).not.toContain('HOW MANY PEOPLE TO ASK')
     expect(prompt).toContain('READING WHAT CAME BACK')
-    expect(prompt).toContain('Under about 75, the read is thin')
+    expect(prompt).toContain(
+      'more than 75 replies, or replies from at least 10% of that side',
+    )
+    expect(prompt).toContain('Short of both, the read is thin')
     expect(prompt).toContain('do not record that side confirmed or revised')
     expect(prompt).toContain('widensOutreachIds')
   })

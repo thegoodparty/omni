@@ -7,6 +7,7 @@ import type {
   PhoneBankCallOutcome,
   PhoneBankingOutreachDetail,
 } from '@goodparty_org/contracts'
+import { PRICE_PER_TEXT } from '@goodparty_org/contracts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,10 +53,7 @@ import type { MembershipState } from 'app/dashboard/shared/membership/deriveMemb
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
-import {
-  OUTREACH_OPTIONS,
-  OUTREACH_TYPES,
-} from 'app/dashboard/outreach/constants'
+import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { campaignTurfsQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
@@ -141,9 +139,6 @@ const answerRows = (
         ['Support: Unsure', phoneBanking.unsure],
         ['Support: No', phoneBanking.nonSupporters],
       ]
-
-const PRICE_PER_TEXT =
-  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
 
 // The status the candidate is reading, mapped onto the canvas's three
 // lifecycle positions. Derived from the displayed label rather than from
