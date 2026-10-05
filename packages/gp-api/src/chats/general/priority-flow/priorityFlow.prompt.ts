@@ -1,5 +1,4 @@
 import {
-  DEFAULT_TEXT_REPLY_RATE,
   HIGH_CONFIDENCE_MIN_REPLIES,
   HIGH_CONFIDENCE_MIN_SHARE,
   MAX_CHECK_RAISES,
@@ -8,12 +7,11 @@ import {
   PRIORITY_STEP_LABELS,
   type PriorityStep,
   type PriorityStepId,
-  recommendedSampleSize,
-  SAMPLE_TARGET_REPLIES,
 } from '@goodparty_org/contracts'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type { PriorityFlowContext } from './services/priorityFlowContext.service'
 import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
+import { buildSampleSizingRules } from '../chat-tools/outreachSampling.prompt'
 
 export const PRIORITY_FLOW_GUARDRAIL_DECLINE =
   "I'm here to help you move this priority forward. Ask me about the " +
@@ -223,23 +221,17 @@ const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
   ].join('\n')
 
 const pct = (fraction: number): string => `${fraction * 100}%`
-const people = (n: number): string => n.toLocaleString('en-US')
-const EXAMPLE_AUDIENCE = 58_520
-const EXAMPLE_SAMPLE = recommendedSampleSize({ audience: EXAMPLE_AUDIENCE })
 
 const buildSamplingBlock = (has: (name: string) => boolean): string =>
   [
     'HOW MANY PEOPLE TO ASK',
     '- A check is a directional read, not a vote. It needs enough replies to tell whether a step holds, not everyone you could reach. So a text check goes to a random sample of its audience, not to all of it.',
-    `- Size a text sample with size_outreach_sample, which sizes it the way polls do, for about ${SAMPLE_TARGET_REPLIES} replies. Pass the audience count. Use its numbers as given; never work out a sample or a cost yourself.`,
-    has('read_past_outreach')
-      ? `- Pass this office's own reply rate when it has one: call read_past_outreach and take replyRate from its past texts that went to a few hundred people or more. Otherwise leave it out, and ${pct(DEFAULT_TEXT_REPLY_RATE)} is assumed.`
-      : `- Leave replyRate out, and ${pct(DEFAULT_TEXT_REPLY_RATE)} is assumed.`,
     '- Each side of a check gets its own sample, sized the same way from its own audience.',
-    '- Never sample more people than the audience holds. When wholeAudience comes back true, send to all of it, leave sampleSize out, and say so.',
-    '- A phone bank is sized by the calls the official or their volunteers can realistically make, not by a reply rate. Use judgment from what you know of them, and say what you chose and why. Door knocking the same way, by the doors they can walk. A social post has no audience to sample.',
-    '- On the card, count stays the whole audience. For a text, set sampleSize, targetResponses and assumedReplyRate to the sampleSize, targetReplies and replyRate that size_outreach_sample returned. For a phone bank or door knocking, set sampleSize to what you chose.',
-    `- Explain the number once, in one line, in your message: "I'd text ${people(EXAMPLE_SAMPLE)} of the ${people(EXAMPLE_AUDIENCE)}, picked at random. About ${SAMPLE_TARGET_REPLIES} replies is enough to tell if this is the problem." Never call it statistically proven or representative. It is directional, because the 3 in 100 who reply choose themselves.`,
+    ...buildSampleSizingRules({
+      has,
+      sender: 'the official',
+      replyGoal: 'if this is the problem',
+    }),
   ].join('\n')
 
 const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>

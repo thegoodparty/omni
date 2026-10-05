@@ -18,6 +18,7 @@ import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { buildComposeHandoffTool } from './services/composeHandoff.tool'
+import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 
@@ -565,6 +566,41 @@ describe('ChiefOfStaffHandler', () => {
         withLists.buildTools(await withLists.loadContext('c1', USER_ID)),
       )
       expect(withListsTools).toContain('present_outreach_proposal')
+    })
+
+    it('sizes a text sample only where a proposal can be presented', async () => {
+      const readOnly = buildCrmHandler({ contacts: buildContacts() })
+      const readOnlyCtx = await readOnly.loadContext('c1', USER_ID)
+      expect(Object.keys(readOnly.buildTools(readOnlyCtx))).not.toContain(
+        'size_outreach_sample',
+      )
+      expect(readOnly.buildSystemPrompt(readOnlyCtx)).not.toContain(
+        'SAMPLING RULES',
+      )
+
+      const withLists = buildCrmHandler({
+        contacts: buildContacts(),
+        voterFileFilters: buildVoterFileFilters(),
+      })
+      const ctx = await withLists.loadContext('c1', USER_ID)
+      expect(Object.keys(withLists.buildTools(ctx))).toContain(
+        'size_outreach_sample',
+      )
+      const prompt = withLists.buildSystemPrompt(ctx)
+      expect(prompt).toContain('SAMPLING RULES')
+      expect(prompt).toContain('propose the sample by default')
+      expect(prompt).toContain(
+        'Texting all 50,000 is about $1,750. 2,767 picked at random is ' +
+          'about $97 and should bring back about 83 replies.',
+      )
+      expect(prompt).toContain('never work out a sample or a cost yourself')
+      expect(prompt).toContain('Never call it statistically proven')
+    })
+
+    it('has no earlier sample to widen outside a priority', () => {
+      expect(
+        Object.keys(buildPresentOutreachProposalTool().inputSchema.shape),
+      ).not.toContain('widensOutreachIds')
     })
 
     it('keeps the proposal out of the filter catalog', async () => {

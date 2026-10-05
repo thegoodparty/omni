@@ -169,9 +169,12 @@ A check is a directional read, so the agent proposes a random sample of each
 side's audience rather than the whole of it. Texting 58,520 people, about
 $2,050, for a read that needs 83 replies is what this exists to stop.
 The rules live in the prompt (`buildSamplingBlock` and
-`buildReadingRepliesBlock` in `priorityFlow.prompt.ts`), and every number in
-them is the polls methodology, read from `outreach/SampleSizing.const.ts` in
-contracts. Change a number there, never in the prompt.
+`buildReadingRepliesBlock` in `priorityFlow.prompt.ts`). The sizing lines in
+them are `buildSampleSizingRules`
+(`gp-api/src/chats/general/chat-tools/outreachSampling.prompt.ts`), which the
+Chief of Staff shares, and every number is the polls methodology, read from
+`outreach/SampleSizing.const.ts` in contracts. Change a number there, never in
+a prompt.
 
 - **Text** is sized like a poll: `SAMPLE_TARGET_REPLIES` (83) over the
   office's own reply rate (`replyRate` on `read_past_outreach` rows), or
