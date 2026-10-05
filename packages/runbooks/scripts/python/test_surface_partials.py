@@ -103,16 +103,11 @@ def test_inline_refuses_an_unknown_page_part():
         inline("<title>__PAGE_TITLE__</title>", {"__NOT_A_PART__": "x"})
 
 
-# Named on the map, and newer than the committed explorer snapshot (2026-10-01). The next
+# Named on the map, and newer than the committed explorer snapshot (2026-10-05). The next
 # scheduled snapshot carries them; delete an entry once it does. Never add one to make
 # this pass: a name missing from the snapshot is a step the map says is instrumented
 # while the page has nothing to show for it.
-MAP_EVENTS_NEWER_THAN_SNAPSHOT = {
-    "Outreach - Gate In Review Viewed",
-    "Pro Upgrade - Upgrade Interstitial Completed",
-    "Pro Upgrade - Upgrade Interstitial Dismissed",
-    "Pro Upgrade - Upgrade Interstitial Viewed",
-}
+MAP_EVENTS_NEWER_THAN_SNAPSHOT: set[str] = set()
 
 
 def _map_event_names() -> set[str]:

@@ -328,7 +328,7 @@ var ProductMap = (function () {
     ],
     unplaced: {
       title: 'Five events anchored here that say they fire somewhere else',
-      body: 'Each of these is anchored to <b>/dashboard</b>, and each one’s own <code>fires_on</code> sentence puts it in Contacts CRM — a different area at <b>/dashboard/contacts/crm</b>. The anchor and the anchor’s own prose disagree, which is a cheap check nothing currently runs.',
+      body: 'Each of these is anchored to <b>/dashboard</b>, and each one’s own <code>fires_on</code> sentence puts it in Voter Data at <b>/dashboard/contacts</b>. The two List Wizard events are drawn on Create a list. The anchor and the anchor’s own prose disagree, which is a cheap check nothing currently runs.',
       evs: [
         'Contacts - List Wizard Method Viewed',
         'Contacts - List Wizard Conditions Viewed',
@@ -804,6 +804,167 @@ var ProductMap = (function () {
     },
   }
 
+  const CREATE_LIST = {
+    kind: 'flow',
+    name: 'Create a list',
+    route: '/dashboard/contacts',
+    src: 'packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx',
+    note: 'three steps in a drawer, by a different route in Win and in Serve',
+    intro: [
+      'warn',
+      'Win and Serve take different steps',
+      'Win picks how to build the list, then its conditions, then a name. Serve has no choice: conditions, an optional area, then a name. Both fire the same <b>List Wizard</b> events, told apart by a <code>context</code> property.',
+    ],
+    steps: [
+      {
+        id: 'branch',
+        t: 'How do you want to build this list?',
+        state: 'ok',
+        evs: [
+          'Contacts - List Wizard Method Viewed',
+          'Contacts - List Wizard Method Completed',
+        ],
+        note: ['warn', 'Win only', 'Serve skips this step.'],
+      },
+      {
+        id: 'conditions',
+        t: 'Build a voter list',
+        state: 'ok',
+        evs: [
+          'Contacts - List Wizard Conditions Viewed',
+          'Contacts - List Wizard Conditions Completed',
+        ],
+      },
+      {
+        id: 'boundary',
+        t: 'What area should this list cover?',
+        state: 'ok',
+        evs: [
+          'Contacts - List Wizard Boundary Viewed',
+          'Contacts - List Wizard Boundary Completed',
+        ],
+        note: [
+          'warn',
+          'Serve only, and optional',
+          'Continue works with no area drawn. <code>hasBoundary</code> on the Completed event tells a skip from a drawn area.',
+        ],
+      },
+      {
+        id: 'name',
+        t: 'Name your list',
+        state: 'ok',
+        evs: [
+          'Contacts - List Wizard Name Viewed',
+          'Contacts - List Wizard Name Completed',
+          'Voter Data - List Created',
+          'Constituent Data - List Created',
+          'Voter Data - Activity List Created',
+          'Constituent Data - Activity List Created',
+        ],
+        note: [
+          'warn',
+          'Completed means saved',
+          'Every event here except Viewed fires only when the list saves. One of the four List Created events fires, by product and by how the list was built; Serve cannot reach the activity one.',
+        ],
+      },
+    ],
+    offstep: {
+      title: 'The contacts page the drawer opens from',
+      evs: [
+        'Contacts - Contacts Viewed',
+        'Contacts - Voter Data Unavailable',
+        'Contacts - Segment Updated',
+      ],
+    },
+  }
+
+  const POLL_CREATE = {
+    kind: 'flow',
+    name: 'Create a poll',
+    route: '/dashboard/polls/create',
+    src: 'packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx',
+    note: 'six steps and a success page, one Viewed and Completed pair named after each',
+    steps: [
+      {
+        id: 'details',
+        t: "First, let's build your poll.",
+        state: 'ok',
+        evs: [
+          'Polls - Poll Question Viewed',
+          'Polls - Poll Question Completed',
+          'Polls - Poll Question Optimized',
+          'Polls - Poll Bias Detection Shown',
+        ],
+      },
+      {
+        id: 'audienceSelection',
+        t: 'How many constituents do you want to message?',
+        state: 'ok',
+        evs: [
+          'Polls - Audience Selection Viewed',
+          'Polls - Audience Selection Completed',
+        ],
+        note: [
+          'warn',
+          'Counts blocked people too',
+          'Viewed fires before the check for constituent data, so people who hit the no-data dead end are counted as having seen this step.',
+        ],
+      },
+      {
+        id: 'dateSelection',
+        t: 'When should we send your poll?',
+        state: 'ok',
+        evs: [
+          'Polls - Schedule Poll Viewed',
+          'Polls - Schedule Poll Completed',
+        ],
+      },
+      {
+        id: 'addImage',
+        t: 'Would you like to add an image?',
+        state: 'ok',
+        evs: ['Polls - Add Image Viewed', 'Polls - Add Image Completed'],
+      },
+      {
+        id: 'review',
+        t: 'Does everything look good?',
+        state: 'ok',
+        evs: ['Polls - Poll Preview Viewed', 'Polls - Poll Preview Completed'],
+      },
+      {
+        id: 'payment',
+        t: 'SMS Poll Payment',
+        state: 'ok',
+        evs: ['Payment - Schedule and Pay Viewed'],
+        note: [
+          'warn',
+          'Open without close',
+          'Nothing fires on confirming payment. The success page is the only sign a purchase went through.',
+        ],
+      },
+      {
+        id: 'paymentConfirmed',
+        t: 'Payment successful!',
+        state: 'shared',
+        evs: [],
+        shared: [['Payment - Completed', 'New Serve Poll', 'type']],
+        note: [
+          'warn',
+          'Shared with expanding a poll',
+          'Only the <code>type</code> property separates a new poll, so the total here is not this flow’s.',
+        ],
+      },
+    ],
+    offstep: {
+      title: 'The buttons that open the flow, and the no-data dead end',
+      evs: [
+        'Polls - Create Poll Clicked',
+        'Community Issues - Run Poll Clicked',
+        'Polls - Constituent Data Unavailable Viewed',
+      ],
+    },
+  }
+
   const POLL_EXPAND = {
     kind: 'flow',
     name: 'Expand a poll',
@@ -1207,6 +1368,58 @@ var ProductMap = (function () {
     },
   }
 
+  const PHONE_BANKING = {
+    kind: 'flow',
+    name: 'Phone banking wizard',
+    route: '/dashboard/outreach',
+    src: 'packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx',
+    note: 'five steps on the same shell as SMS, and a sixth for an event invite',
+    steps: [
+      shellStep('purpose', 'What do you want to do?'),
+      shellStep('details', 'When and where is the event?', {
+        note: [
+          'warn',
+          'Event invites only',
+          'This step shows only when the purpose is inviting people to an event. Every other purpose goes straight to who.',
+        ],
+      }),
+      shellStep('who', 'Who do you want to reach?', {
+        evs: [
+          'Voter Outreach - Recommended List Accepted',
+          'Voter Outreach - Recommended List Failed',
+        ],
+      }),
+      shellStep('script', 'Write your call script'),
+      shellStep('sheets', 'How many call sheets would you like me to create?', {
+        evs: [
+          'Outreach - Phone Banking Call List Created',
+          'Outreach - Campaign Created',
+        ],
+        note: [
+          'warn',
+          'The list is made here',
+          'Continuing from this step creates the call list, so both creation events fire on leaving it, not on the download step.',
+        ],
+      }),
+      shellStep('download', 'Download your call sheets', {
+        evs: ['Outreach - Phone Banking Call Sheet Downloaded'],
+        note: [
+          'warn',
+          'Not unique to this step',
+          'The same download event also fires from the call session’s header button, which is why it outnumbers the lists created here.',
+        ],
+      }),
+    ],
+    offstep: {
+      title: 'The gate that can stop the wizard',
+      evs: [
+        'Outreach - Gate Banner Viewed',
+        'Outreach - Gate Explainer Viewed',
+        'Outreach - Gate Explainer: Click CTA',
+      ],
+    },
+  }
+
   const OUTREACH_GATE = {
     kind: 'page',
     name: 'Outreach gate',
@@ -1301,26 +1514,14 @@ var ProductMap = (function () {
             ROBOCALL_WIZARD,
             SOCIAL_WIZARD,
             OUTREACH_GATE,
-            building(
-              'Phone banking wizard',
-              '/dashboard/outreach',
-              'packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx',
-              'on the same shell as SMS, with a separate step order for an event invite',
-            ),
+            PHONE_BANKING,
           ],
         },
         {
           name: 'Voter Data',
           route: '/dashboard/contacts',
           inMap: true,
-          surfaces: [
-            building(
-              'Create a list',
-              '/dashboard/contacts',
-              'packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx',
-              'has its own per-stage List Wizard events',
-            ),
-          ],
+          surfaces: [CREATE_LIST],
         },
         {
           name: 'Campaign Tracker',
@@ -1380,15 +1581,7 @@ var ProductMap = (function () {
           name: 'Polls',
           route: '/dashboard/polls',
           inMap: true,
-          surfaces: [
-            building(
-              'Create a poll',
-              '/dashboard/polls/create',
-              'packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx',
-              'declared as an order array; shares Payment - Completed with expanding a poll',
-            ),
-            POLL_EXPAND,
-          ],
+          surfaces: [POLL_CREATE, POLL_EXPAND],
         },
       ],
     },
@@ -1935,16 +2128,18 @@ var ProductMap = (function () {
     return TREE.flatMap((p) => p.areas).flatMap((a) => a.surfaces)
   }
 
-  const BUILDING_COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'][
-    TREE.flatMap((p) => p.areas)
-      .flatMap((a) => a.surfaces)
-      .filter((f) => f.building).length
-  ]
+  const BUILDING_COUNT = TREE.flatMap((p) => p.areas)
+    .flatMap((a) => a.surfaces)
+    .filter((f) => f.building).length
   const BUILDING_NOTE = `<div class="building">
   <h3>Still being built</h3>
   <p>This is a first version, shared to find out what you can do with it. What is not finished:</p>
   <ul>
-    <li><b>${BUILDING_COUNT} flows are placed but not yet drawn.</b> Each sits under its area above with a "Still being built" tag and opens to the file its steps live in; each needs its step list read out of the code once.</li>
+    ${
+      BUILDING_COUNT
+        ? `<li><b>${BUILDING_COUNT} flow${BUILDING_COUNT === 1 ? ' is' : 's are'} placed but not yet drawn.</b> Each sits under its area above with a "Still being built" tag and opens to the file its steps live in; each needs its step list read out of the code once.</li>`
+        : ''
+    }
     <li><b>Page zones are inferred.</b> A flow's steps are declared in code; a page's zones are not, so on Campaign Manager and Campaign Tracker the grouping is a reading of each event's own description, not a fact.</li>
     <li><b>Per-step volume on the outreach wizards</b> needs a property breakdown in Amplitude that the snapshot does not hold, so those steps show the event's total, not the step's.</li>
     <li><b>Steps are drawn by hand.</b> Event numbers refresh with the explorer twice a week; the steps themselves are read from each flow's code once and do not yet notice when a flow changes.</li>
