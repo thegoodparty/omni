@@ -22,13 +22,7 @@ import {
 // whoever is reading it to fix the wrong file.
 const STALE_MAP_EXIT_CODE = 2
 
-let result
-try {
-  result = checkProductMapCoverage()
-} catch {
-  console.log('Product map check skipped.')
-  process.exit(0)
-}
+const result = checkProductMapCoverage()
 const failure = formatCoverageFailure(result)
 
 if (failure) {
