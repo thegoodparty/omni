@@ -197,7 +197,7 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
     const { annotation, briefing, artifactContent, user, office } = loaded
     const conversationId = requireConversationId(annotation.chatConversationId)
     const [districtFilters, notesCount] = await Promise.all([
-      this.resolveDistrictFilters(userId),
+      this.resolveDistrictFilters(loaded.organizationSlug),
       this.notesService.countNotesForUser({
         userId,
         briefingId: briefing.id,
@@ -219,11 +219,15 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
     }
   }
 
+  // Resolve by the briefing's org, not the user: an official with offices in
+  // multiple orgs would otherwise get whichever ElectedOffice row came back
+  // first, locking the voter-data filters to another org's district.
   private async resolveDistrictFilters(
-    userId: number,
+    organizationSlug: string,
   ): Promise<MandatoryFilter[] | null> {
     if (!this.databricks || !this.districtResolver) return null
-    const resolved = await this.districtResolver.resolveByUserId(userId)
+    const resolved =
+      await this.districtResolver.resolveByOrgSlug(organizationSlug)
     return resolved ? this.districtResolver.toMandatoryFilters(resolved) : null
   }
 
