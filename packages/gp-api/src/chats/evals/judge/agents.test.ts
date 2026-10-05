@@ -111,7 +111,7 @@ describe('the agent registry', () => {
   })
 
   // Each one links the live sweep from main that judged its pairs.
-  it('marks the two agents a live sweep has judged', () => {
+  it('marks the three agents a live sweep has judged', () => {
     expect(
       AGENTS.filter((a) => a.status === 'wired').map((a) => [
         a.agentId,
@@ -132,6 +132,14 @@ describe('the agent registry', () => {
           runUrl:
             'https://github.com/thegoodparty/omni/actions/runs/37161231631',
           date: '2026-10-03',
+        },
+      ],
+      [
+        'race_opponent_summary',
+        {
+          runUrl:
+            'https://github.com/thegoodparty/omni/actions/runs/37355882821',
+          date: '2026-10-05',
         },
       ],
     ])
@@ -155,13 +163,15 @@ describe('coverage', () => {
       'compliance_setup',
     ])
     expect(judgeable).toBe(19)
-    expect(wired).toBe(2)
+    expect(wired).toBe(3)
   })
 
-  // Both wired agents were judged on placeholder case lists, so the line
-  // claims nothing about how they do on inputs written to test them.
+  // chief_of_staff and opposition_research were judged on placeholder case
+  // lists, so the line claims nothing about how they do on inputs written to
+  // test them. race_opponent_summary ran on Melecia's real bench, so it is the
+  // one wired agent the parenthetical does not count.
   it('counts the wired agents that ran on placeholder inputs', () => {
-    expect(coverage()).toMatchObject({ wired: 2, placeholder: 2 })
+    expect(coverage()).toMatchObject({ wired: 3, placeholder: 2 })
   })
 
   // THE ONE EXPERIMENT THAT BYPASSES PERMISSION PROMPTS, and the reason this
