@@ -410,7 +410,7 @@ export const TurfCard = ({
             {team.length > 0 && (
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium text-muted-foreground">
-                  Who walks this turf
+                  {`Who walks this ${noun}`}
                 </span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -430,7 +430,9 @@ export const TurfCard = ({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="min-w-[12rem]">
-                    <DropdownMenuLabel>Who walks this turf</DropdownMenuLabel>
+                    <DropdownMenuLabel>
+                      {`Who walks this ${noun}`}
+                    </DropdownMenuLabel>
                     {team.map((option) => (
                       <DropdownMenuItem
                         key={option.userId}
