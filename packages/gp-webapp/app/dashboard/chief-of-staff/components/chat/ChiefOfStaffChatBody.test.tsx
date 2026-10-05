@@ -1688,6 +1688,68 @@ describe('<ChiefOfStaffChatBody>', () => {
       await screen.findByText('That leaves 412 constituents.')
     })
 
+    // A list the agent offers is saved by a button, not by a typed "yes",
+    // and the card turns into the list's map. The conversation is told, in a
+    // hidden turn, because the write itself touches nothing the model sees.
+    it('creates an offered list from its card and tells the conversation', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList()
+      api.mock(
+        'GET /v1/voters/voter-file/filter/by-proposal-key/:proposalKey',
+        { status: 404, data: {} as never },
+      )
+      api.mock('POST /v1/voters/voter-file/filter', {
+        status: 200,
+        data: { id: LIST.listId, name: LIST.name } as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          { type: 'text', delta: 'Saved. Draw an area to narrow it.' },
+          { type: 'done', assistantMessageId: 'a_created' },
+        ]),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'cut me renters'),
+        msg('assistant', 'Here is the list.', {
+          id: 'a_offer',
+          segments: [
+            { kind: 'text', text: 'Here is the list.' },
+            {
+              kind: 'tool',
+              toolName: 'present_list_proposal',
+              toolCallId: 'call_offer',
+              payload: {
+                name: LIST.name,
+                summary: 'Renters in the district.',
+                count: 1200,
+                filters: { homeownerNo: true },
+              },
+            },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_offer" />)
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Create list' }),
+      )
+
+      expect(
+        await screen.findByRole('button', { name: /draw shapes/i }),
+      ).toBeInTheDocument()
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: `I created the list "${LIST.name}" (list ${LIST.listId}) from the card.`,
+          }),
+        ),
+      )
+      expect(screen.queryByText(/I created the list/)).toBeNull()
+    })
+
     // The drawer is mounted by the body so it survives a turn committing
     // (see the test below), which means a save can land mid-stream — and
     // `deliver` refuses a send with one in flight. Dropped there, the model

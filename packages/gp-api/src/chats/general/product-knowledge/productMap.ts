@@ -269,6 +269,7 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
+      'When the chat offers a list, it appears as a card with the list name, its size and a Create list button; pressing it saves the list and the card turns into the list on a map',
       'A list shown on a map here has Draw shapes / Edit shapes beside Open list, which narrows that list to the shapes without leaving the conversation',
       'A list already used for outreach is locked, so its map offers no draw button',
       'The chat can leave cards in the conversation: a finished piece of outreach, past sends and how they did, and someone outside your records to call, with a script',

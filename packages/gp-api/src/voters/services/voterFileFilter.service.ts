@@ -200,6 +200,15 @@ export class VoterFileFilterService extends createPrismaBase(
     } = data
     assertShapeLabelsMatch(geoPoly, geoPolyLabels)
 
+    // A card pressed twice, or pressed again after a reload, is one list.
+    if (rest.proposalKey) {
+      const existing = await this.findByProposalKeyAndOrganizationSlug(
+        rest.proposalKey,
+        organizationSlug,
+      )
+      if (existing) return existing
+    }
+
     if (activityConditions?.length) {
       await this.validateActivityConditions(
         organizationSlug,
@@ -321,6 +330,16 @@ export class VoterFileFilterService extends createPrismaBase(
   ): Promise<VoterFileFilterWithConditions | null> {
     return this.findFirst({
       where: { id, organizationSlug },
+      include: ACTIVITY_CONDITIONS_INCLUDE,
+    })
+  }
+
+  findByProposalKeyAndOrganizationSlug(
+    proposalKey: string,
+    organizationSlug: string,
+  ): Promise<VoterFileFilterWithConditions | null> {
+    return this.findFirst({
+      where: { proposalKey, organizationSlug },
       include: ACTIVITY_CONDITIONS_INCLUDE,
     })
   }
