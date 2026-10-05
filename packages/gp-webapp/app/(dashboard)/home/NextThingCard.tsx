@@ -289,21 +289,23 @@ export default function NextThingCard(): React.JSX.Element {
           in the strip below it. The questions about the task open in the
           chat as quick prompts. */}
       <div className="rounded-2xl border border-grayscale-300 bg-muted">
-        <Card className="-m-px gap-4 rounded-2xl border border-grayscale-300 p-4 lg:p-6">
+        <Card className="-m-px gap-5 rounded-2xl border border-grayscale-300 p-6 lg:p-8">
           <div className="flex flex-col gap-2">
             {reasonTag && (
               <span className="self-start rounded-full bg-primary-light px-2.5 py-0.5 text-xs font-semibold text-primary-dark">
                 {reasonTag}
               </span>
             )}
-            <h3 className="text-xl font-semibold text-card-foreground">
-              {next.title}
-            </h3>
-            {next.description && (
-              <p className="text-sm text-muted-foreground">
-                {next.description}
-              </p>
-            )}
+            <div className="flex flex-col gap-0.5">
+              <h3 className="text-xl font-semibold text-card-foreground">
+                {next.title}
+              </h3>
+              {next.description && (
+                <p className="text-sm text-muted-foreground">
+                  {next.description}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
