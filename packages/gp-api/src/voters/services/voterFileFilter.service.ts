@@ -45,13 +45,20 @@ const assertShapeLabelsMatch = (
   geoPoly: GeoJsonShape | null | undefined,
   geoPolyLabels: GeoShapeLabels | null | undefined,
 ) => {
-  if (!geoPolyLabels) return
-  if (!geoPoly) {
+  if (geoPolyLabels === undefined) return
+  // Even a null is refused without `geoPoly`: the names are only written
+  // beside it, so an update clearing them alone would be a 200 that wrote
+  // nothing.
+  if (geoPoly === undefined || (geoPolyLabels && !geoPoly)) {
     throw new BadRequestException(
       'Shape names can only be saved with the boundary they describe',
     )
   }
-  if (geoPolyLabels.length !== shapePartCount(geoPoly)) {
+  if (
+    geoPolyLabels &&
+    geoPoly &&
+    geoPolyLabels.length !== shapePartCount(geoPoly)
+  ) {
     throw new BadRequestException('Each drawn shape needs exactly one name')
   }
 }
