@@ -176,6 +176,27 @@ describe('BoundaryStep — shapes are cut full-screen, the door-knocking way', (
     expect(onShapesChange).toHaveBeenCalledWith([])
   })
 
+  // Escape is one more way out, so it asks the same question Cancel does —
+  // and inside a name field it only abandons the rename.
+  it('asks before Escape throws shapes away, and not from a name field', async () => {
+    const user = userEvent.setup()
+    const onShapesChange = vi.fn()
+    render(<Harness onShapesChange={onShapesChange} />)
+
+    await user.click(screen.getByRole('button', { name: 'Draw shapes' }))
+    await cutOneShape(user)
+    await user.click(screen.getByRole('textbox', { name: 'Shape name' }))
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.queryByText('Discard your changes?')).not.toBeInTheDocument()
+
+    await user.click(screen.getByText('Shapes'))
+    await user.keyboard('{Escape}')
+
+    expect(await screen.findByText('Discard your changes?')).toBeInTheDocument()
+    expect(onShapesChange).not.toHaveBeenCalled()
+  })
+
   it('discards what was drawn on Cancel', async () => {
     const user = userEvent.setup()
     const onShapesChange = vi.fn()
