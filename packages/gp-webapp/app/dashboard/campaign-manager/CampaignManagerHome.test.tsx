@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
@@ -195,12 +195,22 @@ beforeEach(() => {
 // stack leads with the story prompt. Skip forward until the named card is in
 // front. `hidden` so it still works behind an open (aria-hiding) chat drawer.
 async function bringToFront(title: string): Promise<void> {
+  // pointerEventsCheck off: an open drawer sets pointer-events: none on the
+  // page behind it, which user-event otherwise refuses to click through.
+  const user = userEvent.setup({ pointerEventsCheck: 0 })
   for (let i = 0; i < 5; i += 1) {
     if (screen.queryByRole('heading', { name: title, hidden: true })) return
-    // fireEvent, not user.click: an open drawer sets pointer-events: none on
-    // the page behind it, which user-event refuses to click through.
-    fireEvent.click(screen.getByRole('button', { name: 'Skip', hidden: true }))
-    await waitFor(() => undefined)
+    // Skip sits in the front card's "More options" menu.
+    const front = screen
+      .getAllByRole('heading', { level: 3, hidden: true })[0]
+      ?.closest('[data-slot="card"]')
+    if (!(front instanceof HTMLElement)) return
+    await user.click(
+      within(front).getByRole('button', { name: 'More options', hidden: true }),
+    )
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Skip', hidden: true }),
+    )
   }
 }
 

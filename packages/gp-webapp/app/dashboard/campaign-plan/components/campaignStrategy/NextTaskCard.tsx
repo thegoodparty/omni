@@ -32,6 +32,7 @@ import {
 } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
+import { MoreMenu } from 'app/shared/utils/MoreMenu'
 import { PHASE_META, buildTrackerStrategy } from './buildTrackerStrategy'
 import { formatTaskDate } from './CampaignStrategyTaskRow'
 import { useCompleteTrackerTask } from './useCompleteTrackerTask'
@@ -84,12 +85,12 @@ const discussTaskMessage = (task: DeckTask): string => {
     .join(' ')
 }
 
-// The task's own action, as the tracker rows and the manager's priority cards
-// offered it: its link ("Open", or the row's own cta), else "Start outreach"
-// for text and robocall tasks. Anything else is work done off the product
-// (build a call list, pick a treasurer), so "Discuss in chat" leads: it is
-// where the manager helps do it, and leading with "Mark as done" would ask the
-// candidate to close a task they have not started.
+// The card's main CTA: the place in the product where the task actually gets
+// done, named for that action. A task's own link wins; otherwise its outreach
+// channel opens that flow in the hub (with the due date and task attached,
+// like the rail's "Start outreach"). Static rows carry no channel, so the call
+// list is matched on its title. A task with nowhere to go returns null and
+// "Mark as done" leads instead.
 const taskAction = (
   row: CampaignTrackerTask | undefined,
   surface: 'plan' | 'manager',
@@ -100,15 +101,42 @@ const taskAction = (
   if (link) {
     return { label: cta || 'Open', href: link, external: !link.startsWith('/') }
   }
+  const source = surface === 'manager' ? 'campaign_manager' : 'campaign_tracker'
+  const tracker = parseTrackerOrigin(row.id, row.phase)
+  const hub = (compose: 'phoneBanking' | 'social'): string => {
+    const params = new URLSearchParams({ compose, source })
+    if (row.date) params.set('due', row.date.slice(0, 10))
+    if (tracker) {
+      params.set('trackerTaskId', tracker.trackerTaskId)
+      params.set('phase', tracker.phase)
+    }
+    return `/dashboard/outreach?${params.toString()}`
+  }
   if (row.flowType === 'text' || row.flowType === 'robocall') {
     return {
-      label: cta || 'Start outreach',
-      href: composeOutreachHref(
-        row.flowType,
-        surface === 'manager' ? 'campaign_manager' : 'campaign_tracker',
-        row.date,
-        parseTrackerOrigin(row.id, row.phase),
-      ),
+      label: row.flowType === 'text' ? 'Send a text' : 'Set up a robocall',
+      href: composeOutreachHref(row.flowType, source, row.date, tracker),
+      external: false,
+    }
+  }
+  if (row.flowType === 'phoneBanking' || /call list/i.test(row.title)) {
+    return {
+      label: 'Create your call list',
+      href: hub('phoneBanking'),
+      external: false,
+    }
+  }
+  if (row.flowType === 'doorKnocking') {
+    return {
+      label: 'Plan your door knocking',
+      href: '/dashboard/door-knocking',
+      external: false,
+    }
+  }
+  if (row.flowType === 'socialMedia') {
+    return {
+      label: 'Create a social post',
+      href: hub('social'),
       external: false,
     }
   }
@@ -404,11 +432,29 @@ const NextTaskCard = ({
             )}
             <Card className="relative min-h-20 gap-0 overflow-hidden rounded-2xl border-components-input-border py-0">
               <div className="flex flex-col gap-1 px-6 py-5">
-                {frontTask.prompt ? (
-                  <Overline>Campaign Manager</Overline>
-                ) : (
-                  phaseTitle && <Overline>{phaseTitle}</Overline>
-                )}
+                <div className="flex min-h-6 items-start justify-between gap-2">
+                  {frontTask.prompt ? (
+                    <Overline>Campaign Manager</Overline>
+                  ) : (
+                    <Overline>{phaseTitle}</Overline>
+                  )}
+                  {/* Skip is a quiet escape hatch, so it lives behind the
+                      menu rather than beside the actions. */}
+                  {deck.length > 1 && (
+                    <MoreMenu
+                      menuItems={[
+                        {
+                          label: 'Skip',
+                          onClick: () =>
+                            writeSkipped([
+                              ...skippedIds.filter((id) => id !== frontTask.id),
+                              frontTask.id,
+                            ]),
+                        },
+                      ]}
+                    />
+                  )}
+                </div>
                 <h3 className="font-opensans text-lg font-medium text-card-foreground">
                   {frontTask.title}
                 </h3>
@@ -448,22 +494,9 @@ const NextTaskCard = ({
                           )}
                         </Button>
                       )}
-                      {chat && (
-                        <Button
-                          type="button"
-                          variant={action ? 'outline' : 'default'}
-                          size="small"
-                          onClick={() =>
-                            chat.discussTask(discussTaskMessage(frontTask))
-                          }
-                        >
-                          <MessageSquareIcon className="size-4" aria-hidden />
-                          Discuss in chat
-                        </Button>
-                      )}
                       <Button
                         type="button"
-                        variant={action || chat ? 'outline' : 'default'}
+                        variant={action ? 'outline' : 'default'}
                         size="small"
                         onClick={() => {
                           const row = tasks.find(
@@ -480,23 +513,21 @@ const NextTaskCard = ({
                         <CheckIcon className="size-4" aria-hidden />
                         Mark as done
                       </Button>
+                      {chat && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="small"
+                          className="ml-auto"
+                          onClick={() =>
+                            chat.discussTask(discussTaskMessage(frontTask))
+                          }
+                        >
+                          <MessageSquareIcon className="size-4" aria-hidden />
+                          Discuss in chat
+                        </Button>
+                      )}
                     </>
-                  )}
-                  {deck.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="small"
-                      className="ml-auto"
-                      onClick={() =>
-                        writeSkipped([
-                          ...skippedIds.filter((id) => id !== frontTask.id),
-                          frontTask.id,
-                        ])
-                      }
-                    >
-                      Skip
-                    </Button>
                   )}
                 </div>
               </div>
