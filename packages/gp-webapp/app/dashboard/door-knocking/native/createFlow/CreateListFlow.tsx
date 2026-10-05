@@ -1903,9 +1903,10 @@ export default function CreateListFlow({
               lines={points}
               onLineChange={(key, value) => {
                 // An edit wins over a reply still in flight, which would
-                // otherwise land on top of it.
+                // otherwise land on top of it. Dropping the call also clears
+                // a failed one's error.
                 draftRequestRef.current += 1
-                if (draft.isPending) draft.reset()
+                if (draft.isPending || draft.isError) draft.reset()
                 setPointsManuallyEdited(true)
                 setPoints((current) => ({ ...current, [key]: value }))
               }}

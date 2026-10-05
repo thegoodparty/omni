@@ -679,8 +679,8 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
     act(() => {
       const { editor } = contextBox()
-      // One short of the doc's end, which is inside the last paragraph —
-      // the doc boundary itself would open a new one.
+      // One short of the doc's end, which is inside the last paragraph: the
+      // doc boundary itself would open a new one.
       editor.commands.insertContentAt(
         editor.state.doc.content.size - 1,
         ' Sarah Chen said the roads need work too.',
@@ -696,6 +696,37 @@ describe('CreateListFlow', () => {
     )
     expect(contextBox().editor.getText({ blockSeparator: '\n' })).not.toContain(
       'The AI reply.',
+    )
+  })
+
+  // Typing is the candidate taking over from the failed draft, as in the
+  // other flows, so the card goes.
+  it('clears the draft error once the candidate types a talking point', async () => {
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 502,
+      data: { message: 'Door-knocking draft generation failed' },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    act(() => {
+      const { editor } = screen.getByLabelText('Context') as HTMLElement & {
+        editor: Editor
+      }
+      editor.commands.insertContent('Sarah Chen wants safer streets.')
+    })
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/We couldn.t write your talking points/),
+      ).not.toBeInTheDocument(),
     )
   })
 
