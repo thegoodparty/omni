@@ -57,7 +57,7 @@ const CampaignPlanRouter = ({
   // gate has none) — the bar tracks that itself, so the same config serves
   // both branches below.
   const navHeader: DashboardNavHeaderConfig = {
-    icon: 'scroll',
+    icon: 'checklist',
     label: NAV_LABELS.campaignPlan,
   }
 

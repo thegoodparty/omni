@@ -138,7 +138,7 @@ const NextThingSection = ({
 }): React.JSX.Element => (
   <section className="flex flex-col gap-5" aria-labelledby="next-thing-heading">
     {/* Blank lines hold the height until the client fills them in. */}
-    <div className="flex flex-col items-center gap-1 pb-3 pt-2 text-center lg:pt-6">
+    <div className="flex flex-col items-center gap-1 pb-6 pt-2 text-center lg:pb-10 lg:pt-6">
       <p className="text-sm text-muted-foreground">{eyebrow ?? '\u00a0'}</p>
       <h2
         id="next-thing-heading"
