@@ -9,9 +9,9 @@ import {
 import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import type { ChatStreamEvent } from '../chief-of-staff/data/contracts'
 import type ChiefOfStaffChatSurfaceComponent from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
-import { buildCampaignManagerIntro } from './campaignManagerChat'
-import CampaignManagerHome from './CampaignManagerHome'
-import { CampaignManagerChatProvider } from './CampaignManagerChatProvider'
+import { buildCampaignManagerIntro } from '../campaign-manager/campaignManagerChat'
+import Home from './Home'
+import { CampaignManagerChatProvider } from '../campaign-manager/CampaignManagerChatProvider'
 
 type SurfaceProps = React.ComponentProps<
   typeof ChiefOfStaffChatSurfaceComponent
@@ -25,7 +25,7 @@ type SurfaceProps = React.ComponentProps<
 const renderHome = () =>
   render(
     <CampaignManagerChatProvider>
-      <CampaignManagerHome tcrCompliance={null} />
+      <Home tcrCompliance={null} />
     </CampaignManagerChatProvider>,
   )
 
@@ -164,8 +164,10 @@ const streamMessageMock = vi.fn()
 // The manager's own chat client. Mocked here (rather than the shared factory)
 // so createConversation/listMessages/streamMessage are controllable per test
 // while buildCampaignManagerIntro/CAMPAIGN_MANAGER_HISTORY_KEY stay real.
-vi.mock('./campaignManagerChat', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./campaignManagerChat')>()),
+vi.mock('../campaign-manager/campaignManagerChat', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('../campaign-manager/campaignManagerChat')
+  >()),
   campaignManagerChatApi: {
     createConversation: (...args: unknown[]) => createMock(...args),
     listMessages: (...args: unknown[]) => listMessagesMock(...args),
@@ -209,22 +211,20 @@ async function openOnSeededGreeting(): Promise<void> {
 
   const user = userEvent.setup()
   renderHome()
-  await user.click(
-    screen.getByRole('button', { name: /meet your campaign manager/i }),
-  )
+  await user.click(screen.getByRole('button', { name: /start the tour/i }))
   await waitFor(() => expect(screen.getByText(/^Hi Renee/)).toBeInTheDocument())
 }
 
-describe('CampaignManagerHome', () => {
+describe('Home', () => {
   it('renders the tasks surface and campaign-manager chat entries', () => {
     renderHome()
 
     expect(
-      screen.getByRole('button', { name: /meet your campaign manager/i }),
+      screen.getByRole('button', { name: /start the tour/i }),
     ).toBeInTheDocument()
     // The footer chat bar uses the campaign-manager open label, not CoS.
     expect(
-      screen.getByRole('button', { name: /open campaign manager chat/i }),
+      screen.getByRole('button', { name: /^open chat$/i }),
     ).toBeInTheDocument()
     // Nothing Chief-of-Staff-branded leaks into the campaign-manager surface.
     expect(screen.queryByText(/chief of staff/i)).not.toBeInTheDocument()
@@ -340,7 +340,7 @@ describe('CampaignManagerHome', () => {
   })
 })
 
-describe('CampaignManagerHome story auto-launch', () => {
+describe('Home story auto-launch', () => {
   it('starts the story flow (opens + hidden sentinel kickoff) when the story card is clicked', async () => {
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
     listMessagesMock.mockResolvedValue([])
@@ -474,7 +474,7 @@ describe('CampaignManagerHome story auto-launch', () => {
     // A later re-render (e.g. a sibling state update) must not refire it.
     rerender(
       <CampaignManagerChatProvider>
-        <CampaignManagerHome tcrCompliance={null} />
+        <Home tcrCompliance={null} />
       </CampaignManagerChatProvider>,
     )
     expect(createMock).toHaveBeenCalledTimes(1)
@@ -512,14 +512,14 @@ describe('CampaignManagerHome story auto-launch', () => {
   })
 })
 
-describe('CampaignManagerHome meet-card dismissal', () => {
+describe('Home meet-card dismissal', () => {
   // Query including aria-hidden: an open chat drawer aria-hides the dashboard
   // behind it, so a still-mounted (undismissed) meet card would otherwise read
   // as absent. This distinguishes "removed from the DOM" (dismissed) from
   // "present but behind the open chat" (not dismissed).
   const meetHeading = () =>
     screen.queryByRole('heading', {
-      name: 'Meet your virtual Campaign Manager',
+      name: 'Take a quick tour',
       level: 2,
       hidden: true,
     })
@@ -562,9 +562,7 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     renderHome()
     expect(meetHeading()).toBeInTheDocument()
 
-    await user.click(
-      screen.getByRole('button', { name: /open campaign manager chat/i }),
-    )
+    await user.click(screen.getByRole('button', { name: /^open chat$/i }))
 
     await waitFor(() => expect(meetHeading()).not.toBeInTheDocument())
   })
@@ -575,9 +573,7 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     const user = userEvent.setup()
     const { unmount } = renderHome()
 
-    await user.click(
-      screen.getByRole('button', { name: /meet your campaign manager/i }),
-    )
+    await user.click(screen.getByRole('button', { name: /start the tour/i }))
     await waitFor(() => expect(meetHeading()).not.toBeInTheDocument())
 
     // Persisted: a fresh mount does not bring it back.

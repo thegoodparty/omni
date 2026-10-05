@@ -25,7 +25,7 @@ test.describe('Campaign Manager attachments', () => {
 
     await page.goto('/home', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
-    await openFooterChat(page, 'Open campaign manager chat')
+    await openFooterChat(page, 'Open chat')
 
     await expectAttachmentRoundTrip(
       page,

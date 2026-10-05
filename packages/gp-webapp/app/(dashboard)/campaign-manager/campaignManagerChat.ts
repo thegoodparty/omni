@@ -18,9 +18,7 @@ export const CAMPAIGN_MANAGER_HISTORY_KEY = [
 export const buildCampaignManagerIntro = (
   firstName?: string | null,
 ): string[] => [
-  firstName
-    ? `Hi ${firstName}, I'm your Campaign Manager.`
-    : "Hi, I'm your Campaign Manager.",
+  firstName ? `Hi ${firstName}.` : 'Hi there.',
   "I can help you do things like understand your community's biggest " +
     'priorities, draft voter outreach, or prepare for upcoming events.',
   'How can I help today?',

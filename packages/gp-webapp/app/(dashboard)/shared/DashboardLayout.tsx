@@ -207,7 +207,7 @@ const isContactsPath = (pathname: string): boolean =>
 const getMobilePageTitle = (pathname: string | null): string | null => {
   if (!pathname) return null
   // Exact matches, ahead of the table.
-  if (pathname === '/home') return NAV_LABELS.campaignManager
+  if (pathname === '/home') return NAV_LABELS.home
   if (pathname === '/campaign-plan') {
     return NAV_LABELS.campaignPlan
   }

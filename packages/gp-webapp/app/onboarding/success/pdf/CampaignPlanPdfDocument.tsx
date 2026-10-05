@@ -947,7 +947,7 @@ export const CampaignPlanPdfDocument = ({
         plan={plan}
         onSectionPage={onSectionPage}
         intro="This is the whole plan in one view. If you read nothing else, read this."
-        transition="The race is mapped by your opponents, your projected votes needed to win, and your timeline. What shapes everything else is you. Continue to your Campaign Manager and we'll help rebuild this plan around you specifically."
+        transition="The race is mapped by your opponents, your projected votes needed to win, and your timeline. What shapes everything else is you. Continue to Home and we'll help rebuild this plan around you specifically."
       >
         <Text style={styles.h3}>The Race</Text>
         <Text style={styles.para}>{theRaceCopy(plan)}</Text>
@@ -1017,7 +1017,7 @@ export const CampaignPlanPdfDocument = ({
           intro={`${districtLabel(
             plan,
           )} is an electorate where name recognition and turnout (not ideological persuasion) decide most races. The following opportunities and challenges are framed against that reality.`}
-          transition="The strategic landscape is drawn from public data and historical election results. Head to your Campaign Manager to share your platform and your opponents, and we'll reframe these around what you stand for."
+          transition="The strategic landscape is drawn from public data and historical election results. Head to Home to share your platform and your opponents, and we'll reframe these around what you stand for."
         >
           <View style={styles.twoColRow}>
             <View style={styles.twoColCol}>
@@ -1059,7 +1059,7 @@ export const CampaignPlanPdfDocument = ({
         intro={`The numbers below are projected from historical voter data and proprietary models for ${districtLabel(
           plan,
         )}.`}
-        transition="These projections come straight from public voter data and proprietary models. Once you confirm your platform in Campaign Manager, we can re-forecast against the audience you're actually targeting."
+        transition="These projections come straight from public voter data and proprietary models. Once you confirm your platform on Home, we can re-forecast against the audience you're actually targeting."
       >
         <PlanTable
           columns={[
@@ -1083,7 +1083,7 @@ export const CampaignPlanPdfDocument = ({
         plan={plan}
         onSectionPage={onSectionPage}
         intro="The issues voters in your district care about most right now."
-        transition="Voter insights sharpen as you fill in your platform and we layer in district-specific survey data. Update your issues in Campaign Manager and this section will re-frame around your priorities."
+        transition="Voter insights sharpen as you fill in your platform and we layer in district-specific survey data. Update your issues on Home and this section will re-frame around your priorities."
       >
         <DefinitionList
           items={plan.voterInsightsIssues.map((i) => ({
@@ -1171,7 +1171,7 @@ export const CampaignPlanPdfDocument = ({
         plan={plan}
         onSectionPage={onSectionPage}
         intro="Dates below are the hard gates the campaign must hit. Each is followed by an internal working deadline (one week earlier wherever possible) to preserve a buffer."
-        transition="The key dates you need to know about your race have been established. Share your launch event, fundraising rollout, and issue moments in Campaign Manager and we'll turn this into a working plan."
+        transition="The key dates you need to know about your race have been established. Share your launch event, fundraising rollout, and issue moments on Home and we'll turn this into a working plan."
       >
         <PlanTable
           columns={[
@@ -1193,7 +1193,7 @@ export const CampaignPlanPdfDocument = ({
         plan={plan}
         onSectionPage={onSectionPage}
         intro="Earned media and in-person visibility are the highest-ROI channels in a race this size. A single mention in a local outlet or a strong showing at a civic association meeting can move more voters than any paid channel at this budget."
-        transition="These are your highest-value rooms and your best media targets. Once you tell us why you're running and what you stand for in Campaign Manager, we can turn this list into ready-to-use talking points and press pitches."
+        transition="These are your highest-value rooms and your best media targets. Once you tell us why you're running and what you stand for on Home, we can turn this list into ready-to-use talking points and press pitches."
       >
         <Text style={styles.h3}>Press & Media Outlets</Text>
         <Text style={styles.para}>
@@ -1229,7 +1229,7 @@ export const CampaignPlanPdfDocument = ({
         plan={plan}
         onSectionPage={onSectionPage}
         intro="The contact cadence below is designed so that every likely voter receives at least 1 introductory contact, 1 persuasion contact, 1 early-vote reminder, and 1 Election Day push. Texts are the primary workhorse; robocalls layer on top to catch landline-only voters."
-        transition="This plan puts you in front of every likely voter at the right moment. But repeated exposure only converts to votes if the message is specific and credible. Once you share your issues and your story in Campaign Manager, we'll help you build the actual message."
+        transition="This plan puts you in front of every likely voter at the right moment. But repeated exposure only converts to votes if the message is specific and credible. Once you share your issues and your story on Home, we'll help you build the actual message."
       >
         <PlanTable
           columns={[
@@ -1268,14 +1268,13 @@ export const CampaignPlanPdfDocument = ({
         title={`${numberFor('measurement')}. Measurement & Accountability`}
         plan={plan}
         onSectionPage={onSectionPage}
-        transition="The measurement system is live in Campaign Manager. Once you personalize your plan with your goals, capacity, and timeline, the dashboard starts tracking the campaign you're actually running."
+        transition="The measurement system is live on Home. Once you personalize your plan with your goals, capacity, and timeline, the dashboard starts tracking the campaign you're actually running."
       >
         <Text style={styles.para}>
-          Every week, log into your Campaign Manager to check your progress. We
-          estimate the number of likely votes you are on track to receive based
-          on the activity you complete. Our proprietary models predict the
-          number of likely votes you get, based on the{' '}
-          <Text style={styles.paraBold}>quality</Text> and{' '}
+          Every week, check your progress on Home. We estimate the number of
+          likely votes you are on track to receive based on the activity you
+          complete. Our proprietary models predict the number of likely votes
+          you get, based on the <Text style={styles.paraBold}>quality</Text> and{' '}
           <Text style={styles.paraBold}>frequency</Text> of{' '}
           <Text style={styles.paraBold}>voter contacts</Text>.
         </Text>

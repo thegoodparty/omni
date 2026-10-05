@@ -87,7 +87,7 @@ const formatDue = (iso: string): string =>
 
 interface Props {
   // Whether the first-run "meet your campaign manager" card is shown. Owned by
-  // CampaignManagerHome, which dismisses it on a general manager open (the meet
+  // Home, which dismisses it on a general manager open (the meet
   // card or the footer chat box), not on the story flow.
   showMeetCard: boolean
   onMeetManager: () => void
@@ -97,7 +97,7 @@ interface Props {
   onGetOnBallot: () => void
 }
 
-export default function CampaignManagerTasks({
+export default function HomeTasks({
   showMeetCard,
   onMeetManager,
   onSkipMeet,
@@ -134,9 +134,9 @@ export default function CampaignManagerTasks({
     <section className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6">
       {showMeetCard && (
         <ManagerPromptCard
-          title="Meet your virtual Campaign Manager"
-          description="Introducing your Campaign Manager. Get a quick tour for how it can help."
-          ctaLabel="Meet your Campaign Manager"
+          title="Take a quick tour"
+          description="See what chat can help you with, from outreach drafts to your next steps."
+          ctaLabel="Start the tour"
           onCta={onMeetManager}
           onSkip={onSkipMeet}
         />

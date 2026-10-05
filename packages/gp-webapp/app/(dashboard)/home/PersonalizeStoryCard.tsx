@@ -50,7 +50,7 @@ export default function PersonalizeStoryCard({
 
   return (
     // onPersonalize opens the manager AND auto-launches the story intake chat
-    // flow (see CampaignManagerHome's startStory).
+    // flow (see Home's startStory).
     // Title and description match the plan page's pinned card and the
     // tracker's story task, so the three surfaces don't each name this
     // differently. The CTA label stays as-is: it mirrors the manager's own

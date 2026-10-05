@@ -72,9 +72,7 @@ export const buildCampaignManagerGreeting = (
   firstName?: string | null,
 ): string =>
   [
-    firstName
-      ? `Hi ${firstName}, I'm your Campaign Manager.`
-      : "Hi, I'm your Campaign Manager.",
+    firstName ? `Hi ${firstName}.` : 'Hi there.',
     "I can help you do things like understand your community's biggest " +
       'priorities, draft voter outreach, or prepare for upcoming events.',
     'How can I help today?',
@@ -97,7 +95,7 @@ const STORY_QUESTION_PROMPTS: Record<StoryField, string> = {
 // leads into the story (or welcomes them back if they've answered some), then
 // asks the FIRST still-missing question so reopening picks up where they left
 // off. Uses the Story page's wording. Deliberately does NOT re-introduce the
-// manager ("Hi, I'm your campaign manager"): this runs after the general
+// candidate ("Hi Sarah Chen."): this runs after the general
 // greeting on the in-chat "Personalize" chip path, and re-greeting there reads
 // as a jarring double hello.
 export const buildStoryGreeting = (story: StoryState): string => {
@@ -124,7 +122,7 @@ export const buildStoryGreeting = (story: StoryState): string => {
 // product" chip). Independent of the candidate's Campaign Story state, so it
 // answers the same way whether the story is missing, in progress, or done.
 const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW = [
-  "I'm your campaign manager, here to help you run and win.",
+  "I'm here to help you run and win.",
   'GoodParty.org gives you a personalized campaign and outreach plan with ' +
     'your highest-impact tasks each week, voter outreach tools like texting, ' +
     'door-knocking scripts, and social posts, and a free candidate website.',

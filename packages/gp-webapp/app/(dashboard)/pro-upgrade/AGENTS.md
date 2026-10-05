@@ -182,11 +182,11 @@ closes that at three layers:
   (`app/(dashboard)/components/campaignManager/`, ENG-10858) prompts Pro
   candidates with no TCR record (or a retryable `error` record) and links to
   election-filing; post-start statuses keep their dedicated
-  `ProUpgrade3Compliance` surfaces. `/home` is `CampaignManagerHome`
+  `ProUpgrade3Compliance` surfaces. `/home` is `Home`
   (`DashboardContent` renders it unconditionally), and both the banner (reads
   the server-fetched `tcrCompliance` that `DashboardContent` passes down) and
   `ProUpgrade3ComplianceCard` (every post-start state, including PIN entry)
-  must render there. This is not theoretical: `CampaignManagerHome` once
+  must render there. This is not theoretical: `Home` once
   shipped without the card, and the banner — which hides itself as soon as a
   TCR record exists — left every candidate awaiting a PIN with no dashboard
   10DLC surface at all (PR #1273). `ProUpgrade3Compliance`'s "Set up texting

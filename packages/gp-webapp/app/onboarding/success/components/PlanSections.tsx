@@ -301,7 +301,7 @@ const OppositionResearch = ({
             {plan.filingDateStart}
           </span>{' '}
           and update this section as candidates enter the race. If you hear of a
-          likely opponent before we do, you can flag them in Campaign Manager.
+          likely opponent before we do, you can flag them on Home.
         </p>
       )
     }
@@ -496,7 +496,7 @@ const PlanSections = ({
           id="plan-section-1"
           number={numberFor('executiveSummary')}
           title="Executive Summary"
-          transition="The race is mapped by your opponents, your projected votes needed to win, and your timeline. What shapes everything else is you: the issues you're running on, the people and money you can mobilize, and where you are right now in your campaign. Continue to your Campaign Manager and we'll help rebuild this plan around you specifically."
+          transition="The race is mapped by your opponents, your projected votes needed to win, and your timeline. What shapes everything else is you: the issues you're running on, the people and money you can mobilize, and where you are right now in your campaign. Continue to Home and we'll help rebuild this plan around you specifically."
         >
           <p className="text-sm text-muted-foreground">
             This is the whole plan in one view. If you read nothing else, read
@@ -589,7 +589,7 @@ const PlanSections = ({
             id="plan-section-2"
             number={numberFor('strategicLandscape')}
             title="Strategic Landscape"
-            transition="The strategic landscape is drawn from public data and historical election results. What it can't yet account for is the issues you're championing and how you stack up against your opponents. Head to your Campaign Manager to provide us with that information, and we'll reframe the opportunities and challenges around your platform."
+            transition="The strategic landscape is drawn from public data and historical election results. What it can't yet account for is the issues you're championing and how you stack up against your opponents. Head to Home to provide us with that information, and we'll reframe the opportunities and challenges around your platform."
           >
             <p className="text-sm text-muted-foreground">
               <span className="font-semibold text-foreground">
@@ -624,7 +624,7 @@ const PlanSections = ({
           id="plan-section-3"
           number={numberFor('electoralGoals')}
           title="Electoral Goals & Key Metrics"
-          transition="These projections come straight from public voter data and proprietary models. Once you confirm your platform issues in Campaign Manager, we can re-forecast against the audience you're actually targeting."
+          transition="These projections come straight from public voter data and proprietary models. Once you confirm your platform issues on Home, we can re-forecast against the audience you're actually targeting."
         >
           <p className="text-sm text-muted-foreground">
             The numbers below are projected from historical voter data and
@@ -687,7 +687,7 @@ const PlanSections = ({
           id="plan-section-4"
           number={numberFor('voterInsights')}
           title="Voter Insights For Your District"
-          transition="Voter insights sharpen as you fill in your platform and we layer in district-specific survey data. Update your issues in Campaign Manager and this section will re-frame around your priorities."
+          transition="Voter insights sharpen as you fill in your platform and we layer in district-specific survey data. Update your issues on Home and this section will re-frame around your priorities."
         >
           <VoterDemographicsStep
             ballotReadyPositionId={voterInsightsContext?.ballotReadyPositionId}
@@ -707,7 +707,7 @@ const PlanSections = ({
           title="Projected Minimum Resources Needed"
           transition={`The $${plan.totalBudget.toLocaleString(
             'en-US',
-          )} floor covers your minimum voter contact goal across digital and phone channels at a generic cost-per-vote benchmark. The real budget and how it gets spent depends on two things we don't yet know: what you can raise, and which voter you specifically should target. Go to your Campaign Manager to flesh out your budget and tailor it to achieve your goals.`}
+          )} floor covers your minimum voter contact goal across digital and phone channels at a generic cost-per-vote benchmark. The real budget and how it gets spent depends on two things we don't yet know: what you can raise, and which voter you specifically should target. Go to Home to flesh out your budget and tailor it to achieve your goals.`}
         >
           <p className="text-sm text-muted-foreground">
             We project that you need at least{' '}
@@ -803,7 +803,7 @@ const PlanSections = ({
           id="plan-section-6"
           number={numberFor('timeline')}
           title="Campaign Timeline"
-          transition="The key dates you need to know about your race have been established. What it doesn't yet reflect is your launch event, your fundraising rollout, and the issue moments you want to own. Share those with us on your Campaign Manager and we'll turn this into a working plan."
+          transition="The key dates you need to know about your race have been established. What it doesn't yet reflect is your launch event, your fundraising rollout, and the issue moments you want to own. Share those with us on Home and we'll turn this into a working plan."
         >
           <p className="text-sm text-muted-foreground">
             Dates below are the hard gates the campaign must hit. Each is
@@ -831,7 +831,7 @@ const PlanSections = ({
           id="plan-section-7"
           number={numberFor('community')}
           title="Community Engagement & Earned Media"
-          transition="These are your highest-value rooms and your best media targets. Once you tell us why you're running and what you stand for in Campaign Manager, we can turn this list into ready-to-use talking points for each event and a press pitch you can send this week."
+          transition="These are your highest-value rooms and your best media targets. Once you tell us why you're running and what you stand for on Home, we can turn this list into ready-to-use talking points for each event and a press pitch you can send this week."
         >
           <p className="text-sm text-muted-foreground">
             Earned media and in-person visibility are the highest-ROI channels
@@ -893,7 +893,7 @@ const PlanSections = ({
           id="plan-section-8"
           number={numberFor('voterContact')}
           title="Voter Contact Plan"
-          transition="This plan puts you in front of every likely voter at the right moment. But repeated exposure only converts to votes if the message is specific and credible. Once you share your issues and your story in Campaign Manager, we'll help you build the actual message for each campaign so all you need to do is schedule the campaign."
+          transition="This plan puts you in front of every likely voter at the right moment. But repeated exposure only converts to votes if the message is specific and credible. Once you share your issues and your story on Home, we'll help you build the actual message for each campaign so all you need to do is schedule the campaign."
         >
           <p className="text-sm text-muted-foreground">
             The contact cadence below is designed so that every likely voter
@@ -944,15 +944,14 @@ const PlanSections = ({
           id="plan-section-9"
           number={numberFor('measurement')}
           title="Measurement & Accountability"
-          transition="The measurement system is live in Campaign Manager. What it's measuring right now is a default campaign. Once you personalize your plan with your goals, your capacity, and your timeline, the dashboard starts tracking the campaign you're actually running, and the gap between where you are and where you need to be becomes a lot easier to read."
+          transition="The measurement system is live on Home. What it's measuring right now is a default campaign. Once you personalize your plan with your goals, your capacity, and your timeline, the dashboard starts tracking the campaign you're actually running, and the gap between where you are and where you need to be becomes a lot easier to read."
         >
           <p className="text-sm text-foreground">
-            Every week, log into your Campaign Manager to check your progress.
-            We estimate the number of likely votes you are on track to receive
-            based on the activity you complete. Our proprietary models predict
-            the number of likely votes you get, based on the{' '}
-            <span className="font-semibold">quality</span> and{' '}
-            <span className="font-semibold">frequency</span> of{' '}
+            Every week, check your progress on Home. We estimate the number of
+            likely votes you are on track to receive based on the activity you
+            complete. Our proprietary models predict the number of likely votes
+            you get, based on the <span className="font-semibold">quality</span>{' '}
+            and <span className="font-semibold">frequency</span> of{' '}
             <span className="font-semibold">voter contacts</span>.
           </p>
           <p className="text-sm text-foreground">

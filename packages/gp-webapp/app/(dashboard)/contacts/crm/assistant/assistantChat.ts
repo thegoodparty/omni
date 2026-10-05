@@ -39,7 +39,7 @@ export const getAssistantChat = (
         chatApi: campaignManagerChatApi,
         historyKey: CAMPAIGN_MANAGER_HISTORY_KEY,
         scope: 'campaign_assistant',
-        agentName: 'Campaign manager',
+        agentName: 'Chat',
         analyticsLabel: 'campaign-manager-chat',
       }
     : {

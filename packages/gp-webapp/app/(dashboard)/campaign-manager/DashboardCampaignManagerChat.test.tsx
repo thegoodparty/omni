@@ -34,8 +34,7 @@ const renderGate = () =>
     </DashboardCampaignManagerChat>,
   )
 
-const dockBar = () =>
-  screen.queryByRole('button', { name: /open campaign manager chat/i })
+const dockBar = () => screen.queryByRole('button', { name: /^open chat$/i })
 
 describe('DashboardCampaignManagerChat (the global dock gate)', () => {
   it('mounts the dock for a Win (campaign) org', () => {

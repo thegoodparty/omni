@@ -150,7 +150,7 @@ already round-trips through `Website.content.about`.
   (from the website query), each rendered only when non-empty, so a storyless
   candidate sees no empty labels. It carries an "Add your story" / "Edit in
   campaign manager" link to `/home?personalize=1` (a deep link
-  `CampaignManagerHome` consumes to open the manager and auto-launch the
+  `Home` consumes to open the manager and auto-launch the
   story-intake chat flow, same as the manager home's own story card), and a
   confirm modal before generating.
   Whether a plan already exists (including one the **campaign manager chat**

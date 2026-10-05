@@ -462,13 +462,13 @@ describe('CampaignManagerHandler.buildTools — compose_handoff', () => {
 describe('buildCampaignManagerGreeting', () => {
   it('interpolates the first name when present', () => {
     const greeting = buildCampaignManagerGreeting('Dana')
-    expect(greeting).toContain("Hi Dana, I'm your Campaign Manager.")
+    expect(greeting).toContain('Hi Dana.')
     expect(greeting).toContain('How can I help today?')
   })
 
   it('falls back to the no-name variant when absent', () => {
     const greeting = buildCampaignManagerGreeting()
-    expect(greeting).toContain("Hi, I'm your Campaign Manager.")
+    expect(greeting).toContain('Hi there.')
   })
 })
 
@@ -489,7 +489,7 @@ describe('buildStoryGreeting', () => {
     expect(greeting).toContain('First, your why')
     // No self-introduction: it must not re-greet after the general greeting on
     // the in-chat "Personalize" chip path.
-    expect(greeting).not.toContain("I'm your campaign manager")
+    expect(greeting).not.toContain('Hi ')
   })
 
   it('welcomes back and asks the next missing question when resuming', () => {
@@ -910,8 +910,7 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
     missing: [],
   }
 
-  const PRODUCT_OVERVIEW_OPENER =
-    "I'm your campaign manager, here to help you run and win."
+  const PRODUCT_OVERVIEW_OPENER = "I'm here to help you run and win."
 
   it('returns the story-intake opener when the sentinel arrives mid-intake', () => {
     const reply = buildHandler().maybeCannedReply(

@@ -1134,7 +1134,7 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Lands on the Campaign Manager home, whose chat opens with the story
+      // Lands on Home, whose chat opens with the story
       // intake (the plan + tracker are generated from the story later).
       router.push('/home')
       return
@@ -1505,7 +1505,7 @@ export default function OnboardingFlow({
               {nextStep
                 ? 'Continue'
                 : activeStep.id === 'pledge'
-                  ? 'Meet your campaign manager'
+                  ? 'Get started'
                   : 'Complete'}
             </Button>
           )}

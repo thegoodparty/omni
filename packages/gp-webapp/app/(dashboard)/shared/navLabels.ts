@@ -40,7 +40,7 @@ export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
 // bar, so what a candidate reads at the top of a page always matches the item
 // they clicked in the left rail. Same single-source rule as contactsLabels.ts.
 export const NAV_LABELS = {
-  campaignManager: 'Campaign Manager',
+  home: 'Home',
   campaignStory: 'Your Story',
   campaignPlan: 'Campaign Plan',
   knowYourOpponent: 'Know Your Opponent',

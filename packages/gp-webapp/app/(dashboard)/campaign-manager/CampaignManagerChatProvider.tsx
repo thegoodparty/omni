@@ -320,7 +320,7 @@ export function CampaignManagerChatProvider({
         onOpenConversation={openConversation}
         chatApi={campaignManagerChatApi}
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
-        openLabel="Open campaign manager chat"
+        openLabel="Open chat"
         showAttachIcon
       />
       <ChiefOfStaffChatSurface
@@ -342,7 +342,7 @@ export function CampaignManagerChatProvider({
         // a conversation reopened from history, which replays its transcript.
         opener={greetingOpener}
         openerKey={greetingOpener ? 'manager-greeting' : null}
-        title="Campaign manager"
+        title="Chat"
         subtitle="Always on, focused on your week"
         chatApi={campaignManagerChatApi}
         analyticsLabel="campaign-manager-chat"
@@ -364,9 +364,6 @@ export function CampaignManagerChatProvider({
         }
         pendingKickoff={pendingKickoff}
         composerRef={composerRef}
-        // Overridden because `title` is sentence-cased ("Campaign manager") but
-        // the agent's name reads as a proper noun in prose.
-        disclaimer="Campaign Manager can make mistakes. Check important details."
         scope="campaign_assistant"
         hiddenMessageContents={hiddenMessageContents}
         showMessageActions

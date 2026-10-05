@@ -13,7 +13,7 @@ vi.mock('../shared/DashboardLayout', () => ({
 vi.mock('../shared/WebsiteSunsetModalController', () => ({
   WebsiteSunsetModalController: () => null,
 }))
-vi.mock('../campaign-manager/CampaignManagerHome', () => ({
+vi.mock('../home/Home', () => ({
   default: () => <div data-testid="campaign-manager-home" />,
 }))
 

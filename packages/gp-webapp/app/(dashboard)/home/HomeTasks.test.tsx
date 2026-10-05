@@ -4,7 +4,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
-import CampaignManagerTasks from './CampaignManagerTasks'
+import HomeTasks from './HomeTasks'
 
 const mockResult = vi.fn<() => TrackerTasksResult>()
 const mockToggle = vi.fn()
@@ -59,7 +59,7 @@ vi.mock('../components/tasks/CountModal', () => ({
 }))
 
 const meetButton = () =>
-  screen.queryByRole('button', { name: /meet your campaign manager/i })
+  screen.queryByRole('button', { name: /start the tour/i })
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -89,7 +89,7 @@ const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
   isGeneratingDynamic: false,
 })
 
-describe('CampaignManagerTasks', () => {
+describe('HomeTasks', () => {
   it('renders the top 3 dynamic tasks, excluding static and completed', () => {
     mockResult.mockReturnValue(
       settled([
@@ -119,7 +119,7 @@ describe('CampaignManagerTasks', () => {
     )
 
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
@@ -152,7 +152,7 @@ describe('CampaignManagerTasks', () => {
     )
 
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
@@ -185,7 +185,7 @@ describe('CampaignManagerTasks', () => {
     )
 
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
@@ -206,7 +206,7 @@ describe('CampaignManagerTasks', () => {
     )
 
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
@@ -234,7 +234,7 @@ describe('CampaignManagerTasks', () => {
     )
 
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
@@ -256,7 +256,7 @@ describe('CampaignManagerTasks', () => {
 
     const user = userEvent.setup()
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={onMeet}
         onSkipMeet={vi.fn()}
@@ -264,9 +264,7 @@ describe('CampaignManagerTasks', () => {
         onGetOnBallot={vi.fn()}
       />,
     )
-    await user.click(
-      screen.getByRole('button', { name: /meet your campaign manager/i }),
-    )
+    await user.click(screen.getByRole('button', { name: /start the tour/i }))
 
     expect(onMeet).toHaveBeenCalledOnce()
   })
@@ -275,7 +273,7 @@ describe('CampaignManagerTasks', () => {
     mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
 
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard={false}
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
@@ -298,7 +296,7 @@ describe('CampaignManagerTasks', () => {
     mockResult.mockReturnValue(settled([t]))
     const user = userEvent.setup()
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
@@ -322,7 +320,7 @@ describe('CampaignManagerTasks', () => {
     mockResult.mockReturnValue(settled([t]))
     const user = userEvent.setup()
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
@@ -354,7 +352,7 @@ describe('CampaignManagerTasks', () => {
     })
 
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
@@ -371,7 +369,7 @@ describe('CampaignManagerTasks', () => {
     mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
 
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
@@ -400,7 +398,7 @@ describe('text/robocall cards link into the outreach hub', () => {
       ]),
     )
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={() => undefined}
         onSkipMeet={vi.fn()}
@@ -433,7 +431,7 @@ describe('text/robocall cards link into the outreach hub', () => {
       ]),
     )
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={() => undefined}
         onSkipMeet={vi.fn()}
@@ -462,7 +460,7 @@ describe('text/robocall cards link into the outreach hub', () => {
       ]),
     )
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={() => undefined}
         onSkipMeet={vi.fn()}
@@ -491,7 +489,7 @@ describe('text/robocall cards link into the outreach hub', () => {
       ]),
     )
     render(
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard
         onMeetManager={() => undefined}
         onSkipMeet={vi.fn()}

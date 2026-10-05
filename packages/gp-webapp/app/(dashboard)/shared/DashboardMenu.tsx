@@ -104,7 +104,7 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
-    label: NAV_LABELS.campaignManager,
+    label: NAV_LABELS.home,
     icon: <MdFactCheck />,
     v2Icon: NAV_HEADER_ICONS.dashboard,
     link: '/home',

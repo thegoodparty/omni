@@ -53,9 +53,7 @@ test.describe('campaign story flow', () => {
     ).toBeVisible()
   })
 
-  test('onboarding pledge step routes to the Campaign Manager', async ({
-    page,
-  }) => {
+  test('onboarding pledge step routes to Home', async ({ page }) => {
     test.setTimeout(120000)
     await authenticateTestUser(page, {
       isolated: true,
@@ -67,13 +65,10 @@ test.describe('campaign story flow', () => {
 
     await completeOnboardingUpToPledge(page)
 
-    // The pledge CTA is "Meet your campaign manager"; submitting lands on the
-    // Campaign Manager home (/home), which shows the "meet your campaign
-    // manager" card for a brand-new candidate (no ?personalize, so the chat
-    // does not auto-open here).
-    const submit = page
-      .getByRole('button', { name: /meet your campaign manager/i })
-      .first()
+    // The pledge CTA is "Get started"; submitting lands on Home (/home),
+    // which shows the "Take a quick tour" card for a brand-new candidate (no
+    // ?personalize, so the chat does not auto-open here).
+    const submit = page.getByRole('button', { name: /^get started$/i }).first()
     await expect(submit).toBeVisible({ timeout: 15000 })
     await expect(submit).toBeEnabled()
     await submit.click()
@@ -81,7 +76,7 @@ test.describe('campaign story flow', () => {
     await page.waitForURL('**/home', { timeout: 30000 })
     await expect(
       page.getByRole('heading', {
-        name: 'Meet your virtual Campaign Manager',
+        name: 'Take a quick tour',
         level: 2,
       }),
     ).toBeVisible({ timeout: 30000 })
@@ -109,7 +104,7 @@ test.describe('campaign story flow', () => {
     ).toHaveCount(0)
 
     // The story is still invited, via the same /home?personalize=1 deep
-    // link, which opens the Campaign Manager chat straight into the story
+    // link, which opens chat straight into the story
     // intake (rather than showing the meet-card home) — so assert the intake
     // copy the chat streams, not the meet-card heading, which is hidden once
     // the chat opens.

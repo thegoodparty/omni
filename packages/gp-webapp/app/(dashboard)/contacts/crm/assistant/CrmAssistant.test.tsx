@@ -93,7 +93,7 @@ describe('CrmAssistant', () => {
     expect(lastSurfaceProps?.chatApi).toBe(campaignManagerChatApi)
     expect(lastSurfaceProps?.historyKey).toBe(CAMPAIGN_MANAGER_HISTORY_KEY)
     expect(lastSurfaceProps?.scope).toBe('campaign_assistant')
-    expect(lastSurfaceProps?.title).toBe('Campaign manager')
+    expect(lastSurfaceProps?.title).toBe('Chat')
   })
 
   it('binds Serve to the chief_of_staff surface and names that agent', () => {

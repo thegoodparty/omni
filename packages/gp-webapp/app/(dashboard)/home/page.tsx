@@ -9,8 +9,8 @@ import { redirect } from 'next/navigation'
 import type { TcrCompliance } from 'helpers/types'
 
 const meta = pageMetaData({
-  title: 'Campaign Dashboard | GoodParty.org',
-  description: 'Campaign Dashboard',
+  title: 'Home | GoodParty.org',
+  description: 'Home',
   slug: '/home',
 })
 export const metadata = meta

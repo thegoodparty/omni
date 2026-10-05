@@ -2,12 +2,12 @@
 
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
-import CampaignManagerTasks from './CampaignManagerTasks'
+import HomeTasks from './HomeTasks'
 import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
 import ProUpgrade3ComplianceCard from '../components/campaignManager/ProUpgrade3ComplianceCard'
 import ProgressSection from '../components/campaignManager/ProgressSection'
-import { useCampaignManagerChat } from './CampaignManagerChatProvider'
+import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
 import type { TcrCompliance } from 'helpers/types'
 
 /**
@@ -28,7 +28,7 @@ import type { TcrCompliance } from 'helpers/types'
  * the dock's controls from context: the meet card opens the manager (dismissing
  * itself), and the personalize card launches the story-intake flow.
  */
-export default function CampaignManagerHome({
+export default function Home({
   tcrCompliance,
 }: {
   tcrCompliance: TcrCompliance | null
@@ -50,7 +50,7 @@ export default function CampaignManagerHome({
       {/* onMeetManager is a general open, so it dismisses the meet card.
           onPersonalize launches the story-intake chat flow without dismissing
           the meet card, same as the deep link the plan-tab gate links use. */}
-      <CampaignManagerTasks
+      <HomeTasks
         showMeetCard={!chat?.meetDismissed}
         onMeetManager={() => chat?.openManager()}
         onSkipMeet={() => chat?.dismissMeetCard()}

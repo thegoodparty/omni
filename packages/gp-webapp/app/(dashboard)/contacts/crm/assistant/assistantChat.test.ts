@@ -12,7 +12,7 @@ describe('getAssistantChat', () => {
     expect(binding.chatApi).toBe(campaignManagerChatApi)
     expect(binding.historyKey).toBe(CAMPAIGN_MANAGER_HISTORY_KEY)
     expect(binding.scope).toBe('campaign_assistant')
-    expect(binding.agentName).toBe('Campaign manager')
+    expect(binding.agentName).toBe('Chat')
   })
 
   it('binds Serve to the chief_of_staff client and its history key', () => {
