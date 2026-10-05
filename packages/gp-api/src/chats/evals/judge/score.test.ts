@@ -1264,15 +1264,15 @@ describe('tool error causes', () => {
       () => 0,
     )
     const result = scoreGraded(agent)
-    expect(
-      [...result.exclusions.toolErrorCauses, ...result.scoredToolErrorCauses]
-        .map((c) => c.tool)
-        .sort(),
-    ).toEqual([
+    // Each list on its own: merged, a cause routed to the wrong one would pass.
+    // The broker tool was on a background record, so it was scored.
+    expect(result.scoredToolErrorCauses.map((c) => c.tool)).toEqual([
       'mcp__broker__GET_community_issues',
-      'query_constituent_data',
-      'unknown',
     ])
+    // The chat records keep the old rule and are excluded.
+    expect(result.exclusions.toolErrorCauses.map((c) => c.tool).sort()).toEqual(
+      ['query_constituent_data', 'unknown'],
+    )
   })
 
   it('is empty when nothing was excluded for a tool error', () => {
