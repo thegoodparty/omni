@@ -48,6 +48,7 @@ import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideCont
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 
@@ -285,6 +286,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       // the list behind it can be built.
       if (this.voterFileFilters) {
         tools.present_outreach_proposal = buildPresentOutreachProposalTool()
+        tools.size_outreach_sample = buildSizeOutreachSampleTool()
       }
     }
 

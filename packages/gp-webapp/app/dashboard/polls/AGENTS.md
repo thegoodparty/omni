@@ -18,6 +18,7 @@ Custom polling. Campaigns commission AI-assisted polls of their district, pay (S
 - **Status badge** semantics live in `components/StatusBadge.tsx` — single source of truth for status colors / labels.
 - **Image upload** pattern (`PollImageUpload`) is poll-specific; for general uploads use shared inputs from `app/shared/inputs/`.
 - Stripe checkout-session redirect pattern (not Stripe Elements) — payment flows hand off to gp-api, return via `expand-payment-success`.
+- **Polls own the sampling methodology, and it lives in contracts** (`outreach/SampleSizing.const.ts`): 83 target replies, a 3% default reply rate, the high-confidence bar (`isHighConfidence`, also used by gp-api's poll analysis), and the per-text price. `calculateRecommendedPollSize` wraps `recommendedSampleSize`. Priority checks size their samples from the same module, so a change there changes both.
 
 ## Gotchas
 

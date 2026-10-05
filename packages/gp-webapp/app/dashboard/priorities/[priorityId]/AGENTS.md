@@ -167,13 +167,22 @@ separately.
 
 A check is a directional read, so the agent proposes a random sample of each
 side's audience rather than the whole of it. Texting 58,520 people, about
-$2,050, for a read that needs about 100 replies is what this exists to stop.
+$2,050, for a read that needs 83 replies is what this exists to stop.
 The rules live in the prompt (`buildSamplingBlock` and
-`buildReadingRepliesBlock` in `priorityFlow.prompt.ts`):
+`buildReadingRepliesBlock` in `priorityFlow.prompt.ts`). The sizing lines in
+them are `buildSampleSizingRules`
+(`gp-api/src/chats/general/chat-tools/outreachSampling.prompt.ts`), which the
+Chief of Staff shares, and every number is the polls methodology, read from
+`outreach/SampleSizing.const.ts` in contracts. Change a number there, never in
+a prompt.
 
-- **Text** is sized from `CHECK_TARGET_REPLIES` (100) over the office's own
-  reply rate (`replyRate` on `read_past_outreach` rows), or
-  `DEFAULT_TEXT_REPLY_RATE` (2.5%) without one. **Phone banking and door
+- **Text** is sized like a poll: `SAMPLE_TARGET_REPLIES` (83) over the
+  office's own reply rate (`replyRate` on `read_past_outreach` rows), or
+  `DEFAULT_TEXT_REPLY_RATE` (3%) without one. The agent never does this
+  arithmetic: it calls `size_outreach_sample`
+  (`gp-api/src/chats/general/chat-tools/sizeOutreachSample.tool.ts`), which
+  returns the sample, whether it is the whole audience, and what the sample
+  and the whole audience would cost. A widen passes `repliesAlready`. **Phone banking and door
   knocking** are sized by what the official can actually work, and the agent
   says what it chose. Each side gets its own sample.
 - **The proposal carries it** (`OutreachProposalSchema` in contracts):
@@ -182,22 +191,23 @@ The rules live in the prompt (`buildSamplingBlock` and
   cards persisted before them still parse. A `sampleSize` no smaller than
   `count` means the whole audience everywhere: the card, the tool result
   (`wholeAudience`), and the server's draw.
-- **The card says it**: `proposalSampleLine` reads "Text 4,000 of 58,520,
+- **The card says it**: `proposalSampleLine` reads "Text 2,767 of 58,520,
   picked at random" in place of the channel and count. The list saved from
   the proposal is drawn as `proposalListSample` (keyed on the proposal, so
   saving it twice draws the same people; see "Random samples" in
   `gp-api/src/peopleDb/AGENTS.md` and `VoterFileFilterSampleMember` in
   `gp-api/src/contacts/AGENTS.md`).
-- **A thin read is not an answer.** Under `CHECK_MIN_REPLIES` (75, the polls
-  high-confidence bar) the agent says the read is thin, does not record the
+- **A thin read is not an answer.** Short of the polls high-confidence bar
+  (`isHighConfidence`: more than 75 replies, or replies from 10% of that
+  side's audience) the agent says the read is thin, does not record the
   side confirmed or revised, and offers to widen: a new proposal to the same
   audience with `widensOutreachIds`, whose list leaves out whoever the
   earlier samples drew. A side already sent is otherwise never offered again
   (`checkProposalRefusal`); a widen gets through only when the server finds
   every named send put out that same side of this priority's check
   (`PriorityFlowOutreachService.allPutOutCheck`). A proposal whose audience
-  counted nobody is refused outright. Nothing calls a result statistically proven; the 2 or
-  3 in 100 who reply choose themselves.
+  counted nobody is refused outright. Nothing calls a result statistically
+  proven; the 3 in 100 who reply choose themselves.
 
 ## Cards are keyed, not trusted
 
