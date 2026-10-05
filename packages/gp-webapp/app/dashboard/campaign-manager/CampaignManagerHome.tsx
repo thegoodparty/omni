@@ -5,6 +5,7 @@ import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
 import { GoodPartyOrgLogo } from '@styleguide'
 import { useUser } from '@shared/hooks/useUser'
+import CampaignManagerInsights from './CampaignManagerInsights'
 import type { TcrCompliance } from 'helpers/types'
 
 /**
@@ -29,7 +30,7 @@ export default function CampaignManagerHome({
   return (
     <div className="flex min-h-screen flex-col bg-muted">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
-        <div className="flex items-center gap-2">
+        <div className="hidden items-center gap-2 lg:flex">
           <GoodPartyOrgLogo size="small" />
           <span className="text-sm font-semibold text-foreground">
             Campaign manager
@@ -40,6 +41,7 @@ export default function CampaignManagerHome({
           heading={firstName ? `Welcome back, ${firstName}!` : 'Welcome back!'}
           subheading="Here’s what to do next"
         />
+        <CampaignManagerInsights />
         <ProUpgradeBanner />
         <TextingSetupBanner tcrCompliance={tcrCompliance} />
       </div>

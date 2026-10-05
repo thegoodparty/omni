@@ -162,9 +162,10 @@ const CampaignPlanView = ({
   return (
     <>
       {/* The next step leads the page, ruled off across the full content
-          width from the candidate's headline and the tracker below it. */}
-      <div className="w-full border-b border-border bg-background">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-10 has-[[data-slot=collapsible][data-state=closed]]:pb-4">
+          width from the candidate's headline and the tracker below it, and
+          stays pinned while the tracker scrolls under it. */}
+      <div className="sticky top-0 z-20 w-full border-b border-border bg-background">
+        <div className="mx-auto w-full max-w-3xl px-4 py-4">
           <NextTaskCard surface="plan" heading="Here’s what to do next" />
         </div>
       </div>

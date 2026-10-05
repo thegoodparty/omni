@@ -354,6 +354,11 @@ const NextTaskCard = ({
   deck.sort((a, b) => skipRank(a.id) - skipRank(b.id))
   const frontTask = deck[0]
   const layersBehind = surface === 'manager' ? Math.min(deck.length - 1, 2) : 0
+  // The plan pins this card above the tracker, so there it is a compact strip:
+  // one-line meta, a clamped description, small buttons in one row.
+  const compact = surface === 'plan'
+  const buttonSize = compact ? 'small' : 'medium'
+  const buttonWidth = compact ? undefined : 'w-full sm:w-auto'
 
   if (!frontTask) return countModal
 
@@ -403,7 +408,13 @@ const NextTaskCard = ({
       onOpenChange={(next) => writeCollapsed(!next)}
       asChild
     >
-      <section className={cn('flex w-full flex-col gap-4', className)}>
+      <section
+        className={cn(
+          'flex w-full flex-col',
+          compact ? 'gap-3' : 'gap-4',
+          className,
+        )}
+      >
         {/* The whole heading row toggles the section, a bigger target than
             the chevron. The chevron stays the real (keyboard-reachable)
             trigger; it stops its click here so one press toggles once. */}
@@ -491,32 +502,61 @@ const NextTaskCard = ({
               />
             )}
             <Card className="relative min-h-20 gap-0 overflow-hidden rounded-2xl border-components-input-border py-0">
-              <div className="flex flex-col gap-1 px-6 py-5">
+              <div
+                className={cn(
+                  'flex flex-col gap-1',
+                  compact ? 'px-4 py-3' : 'px-6 py-5',
+                )}
+              >
                 <div className="flex min-h-6 items-start justify-between gap-2">
-                  {frontTask.prompt ? (
-                    <Overline>Campaign Manager</Overline>
-                  ) : (
-                    <Overline>{phaseTitle}</Overline>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {frontTask.prompt ? (
+                      <Overline>Campaign Manager</Overline>
+                    ) : (
+                      <Overline>{phaseTitle}</Overline>
+                    )}
+                    {compact && dueDate && (
+                      <span className="text-xs text-muted-foreground">
+                        Due {dueDate}
+                      </span>
+                    )}
+                  </div>
                   {/* Skip is a quiet escape hatch, so it sits behind the menu
                       rather than beside the actions. */}
                   {menuItems.length > 0 && <MoreMenu menuItems={menuItems} />}
                 </div>
-                <h3 className="font-opensans text-lg font-medium text-card-foreground">
+                <h3
+                  className={cn(
+                    'font-opensans font-medium text-card-foreground',
+                    compact ? 'text-base' : 'text-lg',
+                  )}
+                >
                   {frontTask.title}
                 </h3>
-                {dueDate && (
+                {!compact && dueDate && (
                   <p className="text-muted-foreground text-sm">Due {dueDate}</p>
                 )}
-                <p className="text-muted-foreground text-sm">
+                <p
+                  className={cn(
+                    'text-muted-foreground text-sm',
+                    compact && 'line-clamp-2',
+                  )}
+                >
                   {frontTask.description}
                 </p>
-                <div className="flex flex-col gap-2 pt-3 sm:flex-row sm:flex-wrap">
+                <div
+                  className={cn(
+                    'flex gap-2',
+                    compact
+                      ? 'flex-wrap pt-2'
+                      : 'flex-col pt-3 sm:flex-row sm:flex-wrap',
+                  )}
+                >
                   {frontTask.prompt ? (
                     <Button
                       type="button"
-                      size="medium"
-                      className="w-full sm:w-auto"
+                      size={buttonSize}
+                      className={buttonWidth}
                       onClick={frontTask.prompt.onCta}
                     >
                       {frontTask.prompt.ctaLabel}
@@ -526,8 +566,8 @@ const NextTaskCard = ({
                       {action && (
                         <Button
                           asChild
-                          size="medium"
-                          className="w-full sm:w-auto"
+                          size={buttonSize}
+                          className={buttonWidth}
                         >
                           {action.external ? (
                             <a
@@ -550,8 +590,8 @@ const NextTaskCard = ({
                         <Button
                           type="button"
                           variant={action ? 'outline' : 'default'}
-                          size="medium"
-                          className="w-full sm:w-auto"
+                          size={buttonSize}
+                          className={buttonWidth}
                           onClick={markDone}
                         >
                           <CheckIcon className="size-4" aria-hidden />
@@ -562,8 +602,11 @@ const NextTaskCard = ({
                         <Button
                           type="button"
                           variant="ghost"
-                          size="medium"
-                          className="w-full text-primary hover:bg-primary/5 sm:w-auto"
+                          size={buttonSize}
+                          className={cn(
+                            'text-primary hover:bg-primary/5',
+                            buttonWidth,
+                          )}
                           onClick={() =>
                             chat.discussTask(discussTaskMessage(frontTask))
                           }
