@@ -706,6 +706,28 @@ describe('PhoneBankingFlow', () => {
     expect(scriptText()).not.toMatch(/The AI rewrite/)
   })
 
+  // Typing is the candidate taking over from the failed draft, as in the
+  // other flows, so the card goes.
+  it('clears the draft error once the candidate types', async () => {
+    api.mock('POST /v1/outreach/phone-banking/draft', {
+      status: 502,
+      data: { message: 'Phone banking draft generation failed' },
+    })
+    openFlow()
+    await advanceToScript()
+
+    expect(
+      await screen.findByText(/We couldn.t draft your script just now/),
+    ).toBeInTheDocument()
+
+    typeScript('This is Sarah Chen, calling about the roads.')
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/We couldn.t draft your script just now/),
+      ).not.toBeInTheDocument(),
+    )
+  })
   it('sends trimmed instructions on Regenerate and Improve with AI, omitting them when blank', async () => {
     const draftCalls = mockDraft()
     openFlow()
