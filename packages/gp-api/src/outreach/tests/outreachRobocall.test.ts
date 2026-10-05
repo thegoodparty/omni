@@ -256,7 +256,9 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 
-  it('refuses an Improve reply that drops the disclosure', async () => {
+  // A reply that loses the disclosure is asked again with what it dropped,
+  // and only a model that keeps getting it wrong ends in a refusal.
+  it('refuses an Improve reply that drops the disclosure, after telling the model what it dropped', async () => {
     mockDraft('Hi, this is Jane. Vote Tuesday.')
 
     const res = await postDraft({
@@ -267,7 +269,23 @@ describe('POST /v1/outreach/robocall/draft', () => {
     })
 
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
-    expect(jsonCompletion).toHaveBeenCalledTimes(2)
+    expect(jsonCompletion).toHaveBeenCalledTimes(3)
+
+    // The retry is a correction, not the same request again: the refused
+    // script comes back as the model's own turn, with what was wrong with it.
+    const retry = jsonCompletion.mock.calls[1]?.[0].messages as {
+      role: string
+      content: string
+    }[]
+    expect(retry.at(-2)).toEqual({
+      role: 'assistant',
+      content: 'Hi, this is Jane. Vote Tuesday.',
+    })
+    expect(retry.at(-1)?.role).toBe('user')
+    expect(retry.at(-1)?.content).toContain('cannot be used')
+    expect(retry.at(-1)?.content).toContain('no markers at all')
+    // Never the locked text itself, only where it belonged.
+    expect(retry.at(-1)?.content).not.toContain('Paid for by')
   })
 
   it.each(['early_voting', 'election_day_turnout'])(
