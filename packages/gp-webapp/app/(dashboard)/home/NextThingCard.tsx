@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import {
   Button,
   Card,
   CircleCheckIcon,
+  cn,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -44,7 +46,12 @@ import CountModal from '../components/tasks/CountModal'
 import FilingInstructionsDetails from '../shared/FilingInstructionsDetails'
 import { useNextThing } from './useNextThing'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { eyebrowFor, questionsFor } from './nextThingCopy'
+import {
+  eyebrowFor,
+  kindOf,
+  questionsFor,
+  type TaskKind,
+} from './nextThingCopy'
 import { useSessionHeadline } from './useSessionHeadline'
 
 // A task's own action link, if it has a non-empty one. Trimmed so an empty or
@@ -124,6 +131,17 @@ const primaryActionFor = (
 const reasonTagFor = (task: CampaignTrackerTask): string | null =>
   isTimeBoundTask(task) ? `Deadline ${formatDay(task.date)}` : null
 
+// The tray takes a soft tint by kind of task, after the pastel cards on
+// goodparty.org. The semantic -light tints are strong at full strength for a
+// strip this wide, hence the opacity.
+const TRAY_TINTS: Record<TaskKind, string> = {
+  ballot: 'bg-primary-light/60',
+  send: 'bg-secondary-light/50',
+  event: 'bg-warning-light/40',
+  canvass: 'bg-success-light/40',
+  other: 'bg-secondary-light/50',
+}
+
 // The headline is the section's heading in every state (loading, error,
 // caught up), so Home always has one stable landmark. Centered with room
 // below it, it greets the page rather than titling the card.
@@ -139,10 +157,21 @@ const NextThingSection = ({
   <section className="flex flex-col gap-5" aria-labelledby="next-thing-heading">
     {/* Blank lines hold the height until the client fills them in. */}
     <div className="flex flex-col items-center gap-1 pb-6 pt-2 text-center lg:pb-10 lg:pt-6">
+      {/* The heart is GoodParty's stamp on people and plans across the
+          marketing site, and the greeting is set in its display face, so
+          Home speaks in the brand's voice rather than the app's. */}
+      <Image
+        src="/images/heart.svg"
+        alt=""
+        width={30}
+        height={24}
+        priority
+        className="mb-2 h-6 w-auto"
+      />
       <p className="text-sm text-muted-foreground">{eyebrow ?? '\u00a0'}</p>
       <h2
         id="next-thing-heading"
-        className="text-balance text-2xl font-semibold text-foreground lg:text-3xl"
+        className="text-balance font-outfit text-3xl font-medium text-foreground lg:text-4xl"
       >
         {headline ?? '\u00a0'}
       </h2>
@@ -288,7 +317,12 @@ export default function NextThingCard(): React.JSX.Element {
           border overlaps the tray's top and sides, and "Chat about this" sits
           in the strip below it. The questions about the task open in the
           chat as quick prompts. */}
-      <div className="rounded-2xl border border-grayscale-300 bg-muted">
+      <div
+        className={cn(
+          'rounded-2xl border border-grayscale-300',
+          TRAY_TINTS[kindOf(next, needsFiling)],
+        )}
+      >
         <Card className="-m-px gap-5 rounded-2xl border border-grayscale-300 p-6 lg:p-8">
           <div className="flex flex-col gap-2">
             {reasonTag && (
@@ -383,7 +417,7 @@ export default function NextThingCard(): React.JSX.Element {
           </div>
         </Card>
         {chat && (
-          <div className="px-2 py-1.5 lg:px-4">
+          <div className="px-4 py-1.5 lg:px-6">
             <Button
               type="button"
               variant="ghost"

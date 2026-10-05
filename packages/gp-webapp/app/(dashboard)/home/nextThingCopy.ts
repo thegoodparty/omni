@@ -6,22 +6,24 @@ import type { Campaign } from 'helpers/types'
 // Home's words: the headline above the card, and the two questions "Chat
 // about this" offers, keyed on the kind of task.
 
-// The headline is general on purpose, so it reads right above any task. Home
-// shows one per browser session (useSessionHeadline): a candidate opens Home
-// often, and a line that changes each visit gets noticed, then tuned out.
+// The headline is general on purpose, so it reads right above any task, and in
+// GoodParty's own voice: independent, people first, ready to work. Home shows
+// one per browser session (useSessionHeadline): a candidate opens Home often,
+// and a line that changes each visit gets noticed, then tuned out.
 export const HOME_HEADLINES = [
-  'On the trail',
-  'Make it count',
+  'Get into office',
+  'Run your way',
+  'No party required',
+  'People over money',
   'Earn every vote',
-  'Every vote counts',
+  'On the trail',
   "You've got this",
   'Ready when you are',
-  "Let's get to work",
 ] as const
 
-type TaskKind = 'ballot' | 'send' | 'event' | 'canvass' | 'other'
+export type TaskKind = 'ballot' | 'send' | 'event' | 'canvass' | 'other'
 
-const kindOf = (
+export const kindOf = (
   task: CampaignTrackerTask | null,
   needsFiling: boolean,
 ): TaskKind => {
