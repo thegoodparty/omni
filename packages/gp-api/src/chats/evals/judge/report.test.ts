@@ -474,6 +474,7 @@ describe('provenance', () => {
       regressions: [],
       exclusions: {
         ungradedReasons: [],
+        toolErrorCauses: [],
         toolError: 0,
         infraError: 0,
         identicalConfig: 0,
@@ -1019,6 +1020,80 @@ describe('the all-identical-outputs qualifier', () => {
       ],
     })
     expect(report).toContain('qualified above rather than read as SAME')
+  })
+})
+
+// The same failure for tool errors: "Excluded pairs: 9 tool error" and no way
+// to tell which tool, or why, without a diagnostic branch.
+describe('tool-error exclusions say which tool and why', () => {
+  const withCauses = async (
+    toolErrorCauses: AgentScore['exclusions']['toolErrorCauses'],
+  ): Promise<string> => {
+    const base = await pipeline(sweepRecords(3))
+    return renderReport({
+      agents: [
+        { ...base, exclusions: { ...base.exclusions, toolErrorCauses } },
+      ],
+    })
+  }
+
+  it('lists each cause under the exclusion line', async () => {
+    const report = await withCauses([
+      {
+        tool: 'Bash',
+        message: "KeyError: 'PARAMS_JSON'",
+        pairs: 9,
+        arms: ['base', 'candidate'],
+      },
+      {
+        tool: 'Read',
+        message: 'File does not exist.',
+        pairs: 1,
+        arms: ['base'],
+      },
+    ])
+    const lines = report.split('\n')
+    const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
+    expect(lines.slice(at + 1, at + 3)).toEqual([
+      "- chief_of_staff: `Bash` — `KeyError: 'PARAMS_JSON'` " +
+        '(×9, base and candidate)',
+      '- chief_of_staff: `Read` — `File does not exist.` (×1, base)',
+    ])
+  })
+
+  it('shows five causes and counts the rest', async () => {
+    const report = await withCauses(
+      Array.from({ length: 7 }, (_, i) => ({
+        tool: `tool${i}`,
+        message: 'boom',
+        pairs: 1,
+        arms: ['candidate' as const],
+      })),
+    )
+    expect(report).toContain('`tool4`')
+    expect(report).not.toContain('`tool5`')
+    expect(report).toContain('- and 2 more')
+  })
+
+  // Tool output on a public summary: a backtick would close the code span and
+  // let the rest render as markdown or HTML.
+  it('keeps error text inside its code span', async () => {
+    const report = await withCauses([
+      {
+        tool: 'Bash',
+        message: 'bad `<img src=x>` here',
+        pairs: 1,
+        arms: ['base'],
+      },
+    ])
+    expect(report).toContain("`bad '<img src=x>' here`")
+  })
+
+  it('adds nothing when no pair was excluded for a tool error', async () => {
+    const report = await withCauses([])
+    const lines = report.split('\n')
+    const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
+    expect(lines[at + 1]).toBe('')
   })
 })
 

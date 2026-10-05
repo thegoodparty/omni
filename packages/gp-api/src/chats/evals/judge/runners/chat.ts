@@ -46,6 +46,7 @@ import {
   type StreamEvent,
   type TurnCapture,
 } from './chatSeam'
+import { capToolErrorDetails, toolErrorDetail } from '../toolErrorDetails'
 import { assertAccountStateSupported, chatScopeFor } from './seedChatOrg'
 import { assertTranscriptFits, seedPriorTranscript } from './seedTranscript'
 
@@ -815,6 +816,11 @@ export const runChatCase = async (
   const finalTrace =
     unpriceable === undefined ? trace : errorStep(trace, unpriceable)
   const toolSteps = finalTrace.filter((step) => step.kind === 'tool')
+  const toolErrorDetails = capToolErrorDetails(
+    toolSteps.flatMap((step) =>
+      step.error === undefined ? [] : [toolErrorDetail(step.tool, step.error)],
+    ),
+  )
 
   return RunRecordSchema.parse({
     schemaVersion: 1,
@@ -853,6 +859,7 @@ export const runChatCase = async (
       retries: 0,
     },
     toolQueries: databricks.queries,
+    ...(toolErrorDetails.length > 0 && { toolErrorDetails }),
     // Recorded only when a query actually ran against the pinned version. A
     // run that read no versioned table has no version to report, and claiming
     // one it never applied is the silent failure this field exists to catch —

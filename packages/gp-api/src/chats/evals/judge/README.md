@@ -795,6 +795,16 @@ degraded outputs will confidently report a code regression. Use
 `isComparable()`; any case where either arm hit a tool error resolves to
 CAN'T SAY and leaves the delta.
 
+Each record names its failures in `toolErrorDetails`: the tool and its error
+text, for the first 10 failing calls, each cut to 300 characters (head and
+tail, so a traceback keeps the exception that ends it). Both runners fill it,
+and `toolErrorDetails.ts` redacts it first, since it reaches the public step
+summary: the arm's secrets by value, then keys, tokens, credentialed URLs,
+emails, ids and long digit runs by shape. The report lists the causes under
+the "Excluded pairs" line, grouped by tool and the error's last line, with the
+pair count and the arms it hit. A record written before the field existed
+shows as `unknown`, `no detail in the record`.
+
 **A refusal is a result, not a failure.** `blocked` keeps its output and stays
 judgeable, because whether declining was correct is exactly what a verdict
 should capture. Only `infraError` has no output.

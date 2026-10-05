@@ -960,6 +960,14 @@ describe('exclusion counts', () => {
       identicalConfig: 0,
       unpaired: 1,
       ungraded: 0,
+      toolErrorCauses: [
+        {
+          tool: 'query_constituent_data',
+          message: 'PeopleDbxUnavailableError: credential not configured',
+          pairs: 1,
+          arms: ['candidate'],
+        },
+      ],
     })
   })
 })
@@ -1124,5 +1132,68 @@ describe('ungraded reasons reach the score', () => {
   it('is empty when nothing was ungraded', () => {
     const result = score([], noFloor(), agent())
     expect(result.exclusions.ungradedReasons).toEqual([])
+  })
+})
+
+// A COUNT WITHOUT A CAUSE. Two live sweeps excluded every pair for a tool
+// error and said only how many; naming the tool took a diagnostic branch.
+describe('tool error causes', () => {
+  const TRACEBACK =
+    "Exit code 1\nTraceback (most recent call last):\nKeyError: 'PARAMS_JSON'"
+
+  const failing = (
+    record: RunRecord,
+    caseId: string,
+    details?: RunRecord['toolErrorDetails'],
+  ): RunRecord => ({
+    ...record,
+    caseId,
+    runId: `${record.arm}_${caseId}`,
+    telemetry: { ...record.telemetry, toolCalls: 1, toolErrors: 1 },
+    ...(details && { toolErrorDetails: details }),
+  })
+  const clean = (record: RunRecord, caseId: string): RunRecord => ({
+    ...record,
+    caseId,
+    runId: `${record.arm}_${caseId}`,
+  })
+  const params = [{ tool: 'Bash', message: TRACEBACK }]
+
+  it('groups by tool and cause line, counting pairs and naming arms', () => {
+    const agent = normalizeAgent(
+      [
+        failing(BASE, 'a', params),
+        failing(CANDIDATE, 'a', params),
+        failing(BASE, 'b', params),
+        failing(CANDIDATE, 'b', params),
+        clean(BASE, 'c'),
+        failing(CANDIDATE, 'c', [{ tool: 'Bash', message: 'boom' }]),
+        // Written before the field existed: a count and no detail.
+        failing(BASE, 'd'),
+        clean(CANDIDATE, 'd'),
+      ],
+      () => 0,
+    )
+
+    expect(score([], noFloor(), agent).exclusions.toolErrorCauses).toEqual([
+      {
+        tool: 'Bash',
+        message: "KeyError: 'PARAMS_JSON'",
+        pairs: 2,
+        arms: ['base', 'candidate'],
+      },
+      { tool: 'Bash', message: 'boom', pairs: 1, arms: ['candidate'] },
+      {
+        tool: 'unknown',
+        message: 'no detail in the record',
+        pairs: 1,
+        arms: ['base'],
+      },
+    ])
+  })
+
+  it('is empty when nothing was excluded for a tool error', () => {
+    const agent = normalizeAgent(CHAT_PAIR, () => 0)
+    expect(score([], noFloor(), agent).exclusions.toolErrorCauses).toEqual([])
   })
 })

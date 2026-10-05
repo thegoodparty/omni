@@ -920,6 +920,124 @@ describe('parseTrace', () => {
     expect(summary.trace[0]?.error).toBeDefined()
   })
 
+  // THE LINE A LIVE SWEEP ACTUALLY WROTE. Every race_opponent_summary pair was
+  // excluded for a tool error, and the record said only "1"; the cause was in
+  // this content all along.
+  const PARAMS_JSON_FAILURE =
+    'Exit code 1\nTraceback (most recent call last):\n  File "run.py", ' +
+    "line 4, in <module>\nKeyError: 'PARAMS_JSON'"
+
+  it('names the failing tool and its error in the flat dialect', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Bash","input":{"command":"python run.py"}}]}}',
+        JSON.stringify({
+          type: 'tool_result',
+          content: PARAMS_JSON_FAILURE,
+          is_error: true,
+        }),
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrors).toBe(1)
+    expect(summary.toolErrorDetails).toEqual([
+      { tool: 'Bash', message: PARAMS_JSON_FAILURE },
+    ])
+  })
+
+  it('names the failing tool and its error in the nested CLI dialect', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Bash","input":{}},' +
+          '{"type":"tool_use","name":"Read","input":{}}]}}',
+        JSON.stringify({
+          type: 'user',
+          message: {
+            content: [
+              { type: 'tool_result', content: 'fine', is_error: false },
+              {
+                type: 'tool_result',
+                content: [
+                  { type: 'text', text: 'File does not exist.' },
+                  { type: 'text', text: 'Path: /tmp/params.json' },
+                ],
+                is_error: true,
+              },
+            ],
+          },
+        }),
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrorDetails).toEqual([
+      {
+        tool: 'Read',
+        message: 'File does not exist.\nPath: /tmp/params.json',
+      },
+    ])
+  })
+
+  // `content` is read only to name a failure. A shape nobody anticipated
+  // rejecting the whole line would drop the result and shift every later
+  // attribution, which is worse than losing the text.
+  it('keeps a result whose content has an unexpected shape', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Bash","input":{}}]}}',
+        '{"type":"tool_result","content":{"odd":1},"is_error":false}',
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Read","input":{}}]}}',
+        '{"type":"tool_result","content":"boom","is_error":true}',
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrorDetails).toEqual([
+      { tool: 'Read', message: 'boom' },
+    ])
+  })
+
+  it('bounds the detail list and each message', () => {
+    const calls = Array.from({ length: 12 }, (_, i) => [
+      '{"type":"assistant","message":{"content":[' +
+        `{"type":"tool_use","name":"Tool${i}","input":{}}]}}`,
+      JSON.stringify({
+        type: 'tool_result',
+        content: `${'x'.repeat(1000)}\nKeyError: '${i}'`,
+        is_error: true,
+      }),
+    ]).flat()
+    const summary = parseTrace(calls.join('\n'))
+
+    expect(summary.toolErrors).toBe(12)
+    expect(summary.toolErrorDetails).toHaveLength(10)
+    expect(summary.toolErrorDetails[0]?.tool).toBe('Tool0')
+    for (const detail of summary.toolErrorDetails) {
+      expect(detail.message.length).toBeLessThanOrEqual(300)
+    }
+    expect(summary.toolErrorDetails[0]?.message).toMatch(/KeyError: '0'$/)
+  })
+
+  it('redacts the error text', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Bash","input":{}}]}}',
+        JSON.stringify({
+          type: 'tool_result',
+          content: 'curl failed for voter@example.com with sk-ant-abcdef123456',
+          is_error: true,
+        }),
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrorDetails[0]?.message).toBe(
+      'curl failed for [email] with [redacted key]',
+    )
+  })
+
   it('stamps liveWeb only when the turn actually searched', () => {
     const searched =
       '{"type":"assistant","message":{"content":[' +
@@ -1446,6 +1564,9 @@ describe('runBackgroundBaseArm', () => {
 
     expect(result.record.status).toBe('produced')
     expect(result.record.telemetry.toolErrors).toBe(1)
+    expect(result.record.toolErrorDetails).toEqual([
+      { tool: 'Bash', message: 'no error text' },
+    ])
     expect(result.cache).toBe('notCached')
   })
 

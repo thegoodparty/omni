@@ -219,6 +219,28 @@ const exclusionLine = (score: AgentScore): string => {
   return `${base} Why: ${e.ungradedReasons.join(' | ')}`
 }
 
+const MAX_CAUSE_LINES = 5
+const MAX_CAUSE_CHARS = 160
+
+// Inside a code span, so error text from a tool cannot become markdown or
+// HTML on a public summary. A backtick would close the span, so it goes.
+const codeSpan = (text: string): string =>
+  `\`${text.replaceAll('`', "'").slice(0, MAX_CAUSE_CHARS)}\``
+
+const toolErrorCauseLines = (score: AgentScore): string[] => {
+  const causes = score.exclusions.toolErrorCauses
+  const lines = causes
+    .slice(0, MAX_CAUSE_LINES)
+    .map(
+      (cause) =>
+        `- ${score.agentId}: ${codeSpan(cause.tool)} — ` +
+        `${codeSpan(cause.message)} ` +
+        `(×${cause.pairs}, ${cause.arms.join(' and ')})`,
+    )
+  const more = causes.length - MAX_CAUSE_LINES
+  return more > 0 ? [...lines, `- and ${more} more`] : lines
+}
+
 const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
   const lines: string[] = []
   lines.push(`### ${score.agentId} — ${score.label}`)
@@ -279,6 +301,7 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
   lines.push(...evidenceLines(score))
   lines.push('')
   lines.push(exclusionLine(score))
+  lines.push(...toolErrorCauseLines(score))
   lines.push('')
   lines.push(consistencyLine(score, config))
   if (score.panelDisagreementRate !== null) {

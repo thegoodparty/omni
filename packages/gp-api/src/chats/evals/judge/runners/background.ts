@@ -15,6 +15,7 @@ import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
 import {
   isComparable,
   JsonValueSchema,
+  MAX_TOOL_ERROR_DETAILS,
   RunRecordSchema,
   VariantSchema,
   type Arm,
@@ -22,9 +23,11 @@ import {
   type JsonValue,
   type RunRecord,
   type TokenUsage,
+  type ToolErrorDetail,
   type TraceStep,
   type Variant,
 } from '../record'
+import { toolErrorDetail } from '../toolErrorDetails'
 
 // The background half of the judge: 16 of the 20 agents.
 //
@@ -752,11 +755,27 @@ export const pollForObject = async (
 // skipped tool_use both loses a call and shifts every later error's
 // attribution. Tolerating null is the difference between a partial trace and a
 // quietly wrong one.
+//
+// `content` is a tool result's text: a string, or a list of text blocks. It
+// is read only to name a failure, so a shape nobody anticipated degrades to
+// no text rather than rejecting the line — a rejected result line is the
+// mis-attribution described above.
+const ToolResultContentSchema = z
+  .union([
+    z.string(),
+    z.array(
+      z.object({ type: z.string().nullish(), text: z.string().nullish() }),
+    ),
+  ])
+  .nullish()
+  .catch(null)
+
 const ContentBlockSchema = z.object({
   type: z.string(),
   name: z.string().nullish(),
   input: z.record(z.string(), JsonValueSchema).nullish(),
   is_error: z.boolean().nullish(),
+  content: ToolResultContentSchema,
 })
 
 const UsageSchema = z.object({
@@ -779,6 +798,8 @@ const TraceLineSchema = z.object({
     })
     .nullish(),
   is_error: z.boolean().nullish(),
+  // The flat dialect writes a tool result as its own line, content and all.
+  content: ToolResultContentSchema,
   total_cost_usd: z.number().nonnegative().nullish(),
   usage: UsageSchema.nullish(),
 })
@@ -792,6 +813,7 @@ export interface TraceSummary {
   trace: TraceStep[]
   toolCalls: number
   toolErrors: number
+  toolErrorDetails: ToolErrorDetail[]
   tokens: TokenUsage
   // The SDK's own authoritative total from the `result` record. See
   // captureCostUsd for why this is not simply re-derived.
@@ -813,6 +835,7 @@ export const emptyTrace = (): TraceSummary => ({
   trace: [],
   toolCalls: 0,
   toolErrors: 0,
+  toolErrorDetails: [],
   tokens: zeroTokens(),
   liveWeb: false,
   toolQueries: [],
@@ -840,12 +863,24 @@ const MAX_TOOL_QUERY_CHARS = 20_000
 export const traceTooLarge = (jsonl: string): boolean =>
   Buffer.byteLength(jsonl, 'utf8') > MAX_TRACE_BYTES
 
+const resultText = (
+  content: z.infer<typeof ToolResultContentSchema>,
+): string => {
+  if (content === null || content === undefined) return ''
+  if (typeof content === 'string') return content
+  return content
+    .map((block) => block.text ?? '')
+    .filter((text) => text !== '')
+    .join('\n')
+}
+
 export const parseTrace = (jsonl: string): TraceSummary => {
   const trace: TraceStep[] = []
   const tokens = zeroTokens()
   const toolQueries: string[] = []
   let toolCalls = 0
   let rawToolErrors = 0
+  const toolErrorDetails: ToolErrorDetail[] = []
   let liveWeb = false
   let traceCostUsd: number | undefined
 
@@ -869,10 +904,22 @@ export const parseTrace = (jsonl: string): TraceSummary => {
   // call as the failure. Every attribution after that is wrong too.
   const awaitingResult: number[] = []
 
-  const consumeResult = (isError: boolean, error: string): void => {
+  const consumeResult = (
+    isError: boolean,
+    error: string,
+    content: z.infer<typeof ToolResultContentSchema>,
+  ): void => {
     const index = awaitingResult.shift()
     if (!isError) return
     const step = index === undefined ? undefined : trace[index]
+    if (toolErrorDetails.length < MAX_TOOL_ERROR_DETAILS) {
+      toolErrorDetails.push(
+        toolErrorDetail(
+          step?.kind === 'tool' ? step.tool : undefined,
+          resultText(content),
+        ),
+      )
+    }
     if (step && step.kind === 'tool') {
       step.error = error
       return
@@ -919,7 +966,7 @@ export const parseTrace = (jsonl: string): TraceSummary => {
       if (block.type === 'tool_result') {
         const isError = block.is_error === true
         if (isError) rawToolErrors += 1
-        consumeResult(isError, 'tool call failed')
+        consumeResult(isError, 'tool call failed', block.content)
       }
     }
   }
@@ -943,7 +990,7 @@ export const parseTrace = (jsonl: string): TraceSummary => {
     } else if (record.type === 'tool_result') {
       const isError = record.is_error === true
       if (isError) rawToolErrors += 1
-      consumeResult(isError, 'tool call failed')
+      consumeResult(isError, 'tool call failed', record.content)
     } else if (record.type === 'result') {
       traceCostUsd = record.total_cost_usd ?? traceCostUsd
     }
@@ -957,6 +1004,7 @@ export const parseTrace = (jsonl: string): TraceSummary => {
     // truncated write — and clamping keeps a real, salvageable run from being
     // thrown away over a bookkeeping artifact.
     toolErrors: Math.min(rawToolErrors, toolCalls),
+    toolErrorDetails,
     tokens,
     ...(traceCostUsd === undefined ? {} : { traceCostUsd }),
     liveWeb,
@@ -1301,6 +1349,9 @@ export const runBackgroundCase = async (
       retries: 0,
     },
     toolQueries: summary.toolQueries,
+    ...(summary.toolErrorDetails.length > 0 && {
+      toolErrorDetails: summary.toolErrorDetails,
+    }),
     ...(input.dataVersion === undefined
       ? {}
       : { dataVersion: input.dataVersion }),

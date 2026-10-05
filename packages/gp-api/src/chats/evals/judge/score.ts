@@ -7,9 +7,15 @@ import {
   type Magnitude,
   type SlotVerdict,
 } from './judge'
-import type { NormalizedAgent, SlotMap } from './normalize'
+import type { ExcludedCase, NormalizedAgent, SlotMap } from './normalize'
 import { priceUsd, sharesPricing } from './pricing'
-import type { AgentShape, Arm, CiContext, RunRecord } from './record'
+import {
+  ArmSchema,
+  type AgentShape,
+  type Arm,
+  type CiContext,
+  type RunRecord,
+} from './record'
 
 // Un-blinds, orients everything to the candidate, and turns a pile of
 // slot-level judgments into one verdict for one agent.
@@ -106,6 +112,19 @@ export interface ExclusionCounts {
   // which one meant reproducing the run. The reasons are already on the
   // judgments — this carries them to the report.
   ungradedReasons: readonly string[]
+  // The same treatment for tool-error exclusions, which had only a count.
+  // Grouped so nine pairs failing one way read as one line, not nine.
+  toolErrorCauses: readonly ToolErrorCause[]
+}
+
+export interface ToolErrorCause {
+  tool: string
+  // One line of the error: the last non-blank one, since that is where a
+  // traceback or a shell failure names its cause.
+  message: string
+  // Excluded pairs this cause appeared in, whichever arm it hit.
+  pairs: number
+  arms: readonly Arm[]
 }
 
 export interface OrientedFlag {
@@ -586,6 +605,59 @@ const floorVerdicts = (
 // the report; counting it here as well would report one failure twice and
 // bury the case this exists for — a panel that lost SOME seats and returned
 // a verdict anyway.
+// A record written before toolErrorDetails existed has the count and no
+// detail. It still gets a line, so the causes always account for every
+// tool-error exclusion.
+const UNRECORDED = { tool: 'unknown', message: 'no detail in the record' }
+
+const headline = (message: string): string =>
+  message
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .at(-1) ?? message
+
+const toolErrorCauses = (
+  excluded: readonly ExcludedCase[],
+): ToolErrorCause[] => {
+  const causes = new Map<
+    string,
+    { tool: string; message: string; pairs: number; arms: Set<Arm> }
+  >()
+  for (const pair of excluded) {
+    if (pair.reason !== 'toolError') continue
+    const seen = new Set<string>()
+    for (const arm of pair.arms) {
+      const details = pair.records[arm].toolErrorDetails ?? []
+      for (const detail of details.length > 0 ? details : [UNRECORDED]) {
+        const message = headline(detail.message)
+        const key = `${detail.tool}\u0000${message}`
+        const cause = causes.get(key) ?? {
+          tool: detail.tool,
+          message,
+          pairs: 0,
+          arms: new Set<Arm>(),
+        }
+        if (!seen.has(key)) cause.pairs += 1
+        seen.add(key)
+        cause.arms.add(arm)
+        causes.set(key, cause)
+      }
+    }
+  }
+  return [...causes.values()]
+    .map((cause) => ({
+      ...cause,
+      arms: ArmSchema.options.filter((arm) => cause.arms.has(arm)),
+    }))
+    .sort(
+      (a, b) =>
+        b.pairs - a.pairs ||
+        a.tool.localeCompare(b.tool) ||
+        a.message.localeCompare(b.message),
+    )
+}
+
 const degradedPanel = (
   judgments: readonly GradedJudgment[],
 ): DegradedPanel | null => {
@@ -687,6 +759,7 @@ export const scoreAgent = (
           judgments.filter((j) => j.kind === 'ungraded').map((j) => j.reason),
         ),
       ],
+      toolErrorCauses: toolErrorCauses(normalized.excluded),
     },
     positionConsistency,
     swappedPairs: swappedPairs.length,

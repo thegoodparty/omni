@@ -96,6 +96,21 @@ export const CostSchema = z.object({
 })
 export type Cost = z.infer<typeof CostSchema>
 
+// A count of tool errors is not actionable: a sweep that excluded every pair
+// said "9 tool error" and nothing else, and naming the failing tool meant a
+// throwaway diagnostic branch. So each failure carries the tool and the
+// error text, bounded because the base-arm cache stores the record and every
+// later sweep re-downloads it, and redacted because the text is a vendor or
+// shell string we do not control and it ends up in a public step summary.
+export const MAX_TOOL_ERROR_DETAILS = 10
+export const MAX_TOOL_ERROR_CHARS = 300
+
+export const ToolErrorDetailSchema = z.object({
+  tool: z.string().min(1),
+  message: z.string().min(1).max(MAX_TOOL_ERROR_CHARS),
+})
+export type ToolErrorDetail = z.infer<typeof ToolErrorDetailSchema>
+
 export const TelemetrySchema = z.object({
   latencyMs: z.number().int().nonnegative(),
   tokens: TokenUsageSchema,
@@ -183,6 +198,13 @@ export const RunRecordSchema = z
     // queries, so capturing them lets the two arms' generated SQL be diffed
     // directly — a real regression class caught with no judge call.
     toolQueries: z.array(z.string().min(1)),
+    // The first failures behind telemetry.toolErrors, in call order. Optional
+    // so a record written before the field existed still parses; absent
+    // also on a run with no tool error.
+    toolErrorDetails: z
+      .array(ToolErrorDetailSchema)
+      .max(MAX_TOOL_ERROR_DETAILS)
+      .optional(),
     // The Delta table version both arms read, so a verdict can never be an
     // artifact of the voter data moving between the two runs. Absent for a
     // run that touched no versioned table.
