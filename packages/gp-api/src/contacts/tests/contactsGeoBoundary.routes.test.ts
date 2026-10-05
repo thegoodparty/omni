@@ -438,6 +438,29 @@ describe('saved list boundaries', () => {
       })
       expect(rows).toHaveLength(1)
     })
+
+    // Two tabs, or a reload racing the first press: both can miss the
+    // lookup, and the loser must get the winner's list, not a 500.
+    it('returns one list to two presses that race', async () => {
+      const slug = await setupServeOrg('card-race')
+      const body = {
+        name: 'Renters',
+        homeownerNo: true,
+        proposalKey: randomUUID(),
+      }
+
+      const [first, second] = await Promise.all([
+        createFilter(slug, body),
+        createFilter(slug, body),
+      ])
+
+      expect([first.status, second.status]).toEqual([201, 201])
+      expect(second.data.id).toBe(first.data.id)
+      const rows = await service.prisma.voterFileFilter.findMany({
+        where: { organizationSlug: slug },
+      })
+      expect(rows).toHaveLength(1)
+    })
   })
 
   describe('shape names', () => {
