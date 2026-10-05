@@ -1953,8 +1953,10 @@
             if (refs.indexOf(ref) < 0) refs.push(ref)
           })
           proof.value = refs.join(', ')
-          if (refs.length && subset) proof.hidden = false
         }
+        // Hiding the whole-cause case must not lose proof typed before it: coming back
+        // to a subset shows the box again with what is in it.
+        if (subset && proof.value) proof.hidden = false
       },
     }
   }
