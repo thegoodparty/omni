@@ -78,6 +78,8 @@ const DashboardLayout = ({
   // than declared by the page: these CTAs come and go with page state, and the
   // bar needs the live answer to decide whether to render on mobile.
   const [navHeaderActionCount, setNavHeaderActionCount] = useState(0)
+  const showNavHeader =
+    !!organization?.electedOfficeId || navHeaderActionCount > 0
   const registerNavHeaderAction = useCallback(
     (delta: number) => setNavHeaderActionCount((count) => count + delta),
     [],
@@ -153,7 +155,13 @@ const DashboardLayout = ({
         {!hideMenu && <MobileMenuTrigger />}
         <ImpersonationBanner />
         <ElectedOfficeTermDatesModalController />
-        {navHeader && (
+        {/* Win drops the title bar unless the page puts an action in it: the
+            sidebar's current-page state says where you are. The page keeps a
+            screen-reader heading. Serve keeps the bar. */}
+        {navHeader && !showNavHeader && (
+          <h1 className="sr-only">{navHeader.label}</h1>
+        )}
+        {navHeader && showNavHeader && (
           <DashboardNavHeader
             icon={navHeader.icon}
             label={navHeader.label}

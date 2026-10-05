@@ -52,6 +52,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem as SidebarMenuItemComponent,
   SidebarSeparator,
+  cn,
   useSidebar,
 } from '@styleguide'
 import {
@@ -101,6 +102,19 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
   link: '/pro-upgrade',
   id: 'upgrade-pro-dashboard',
 }
+
+// The sidebar is Win's only "you are here" cue (its pages have no title bar),
+// so the current tab layers three signals: a tinted pill with a solid leading
+// bar (the bar carries the 3:1 contrast the pale tint can't), a semibold
+// label, and a heavier brand-colored icon. Hover stays the faint neutral fill
+// so it never reads as the current page.
+const WIN_ACTIVE_ITEM_CLASSES = cn(
+  'relative',
+  'data-[active=true]:bg-primary-light data-[active=true]:hover:bg-primary-light',
+  'data-[active=true]:font-semibold data-[active=true]:text-primary-dark data-[active=true]:hover:text-primary-dark',
+  'data-[active=true]:[&>svg]:text-primary data-[active=true]:[&>svg]:stroke-[2.5]',
+  'data-[active=true]:before:absolute data-[active=true]:before:inset-y-2 data-[active=true]:before:left-0 data-[active=true]:before:w-1 data-[active=true]:before:rounded-full data-[active=true]:before:bg-primary',
+)
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
@@ -599,17 +613,28 @@ const NewNavMenu = ({
                     isNew,
                     v2Icon: V2Icon,
                   } = item
+                  const isWin = !organization?.electedOfficeId
+                  // Win keeps the tab lit on its sub-pages (a phone banking
+                  // list is still Voter Outreach); Serve matches exactly, as
+                  // before.
+                  const isActive =
+                    pathname === link ||
+                    (isWin && !!pathname?.startsWith(`${link}/`))
                   return (
                     <SidebarMenuItemComponent key={id}>
                       <SidebarMenuButton
                         asChild
-                        isActive={pathname === link}
-                        className="px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans"
+                        isActive={isActive}
+                        className={cn(
+                          'px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans',
+                          isWin && WIN_ACTIVE_ITEM_CLASSES,
+                        )}
                       >
                         <Link
                           href={link}
                           id={id}
                           target={target}
+                          aria-current={isActive ? 'page' : undefined}
                           onClick={() => handleMenuItemClick(item)}
                         >
                           {V2Icon && <V2Icon size={16} />}

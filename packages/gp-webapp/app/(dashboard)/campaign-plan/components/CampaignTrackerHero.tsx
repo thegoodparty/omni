@@ -1,7 +1,6 @@
 'use client'
 
-import { DownloadIcon, IconButton } from '@styleguide'
-import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
+import { Button, DownloadIcon } from '@styleguide'
 
 interface CampaignTrackerHeroProps {
   candidateName: string
@@ -15,10 +14,8 @@ interface CampaignTrackerHeroProps {
 }
 
 // Lovable-style campaign-tracker hero: candidate + race headline, district /
-// election-day line, and intro copy. The "Campaign tracker" overline is gone —
-// the page's title bar (DashboardLayout's navHeader) carries the tab name now,
-// so the overline only repeated it — and the download action portals up into
-// that bar, aligned top right.
+// election-day line, intro copy, and the download action between the intro and
+// the first card. The page has no title bar, so the headline is its heading.
 const CampaignTrackerHero = ({
   candidateName,
   race,
@@ -43,22 +40,6 @@ const CampaignTrackerHero = ({
 
   return (
     <section className="mb-8">
-      {/* size="small" so the CTA clears the title bar's fixed h-14 without
-          growing it past the other pages' bars. */}
-      <DashboardNavHeaderAction>
-        <IconButton
-          type="button"
-          variant="outline"
-          size="small"
-          onClick={onDownload}
-          loading={downloading}
-          disabled={!canDownload}
-          aria-label="Download Campaign Plan"
-          className="shrink-0"
-        >
-          <DownloadIcon className="size-4" aria-hidden />
-        </IconButton>
-      </DashboardNavHeaderAction>
       <h1 className="text-foreground text-3xl font-bold sm:text-4xl">
         {headline}
       </h1>
@@ -71,6 +52,19 @@ const CampaignTrackerHero = ({
         your race. It is built from public voter records and past elections in
         your area, and it shapes itself around you as you go.
       </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="small"
+        className="mt-6"
+        onClick={onDownload}
+        loading={downloading}
+        loadingText="Downloading…"
+        disabled={!canDownload}
+        icon={<DownloadIcon className="size-4" aria-hidden />}
+      >
+        Download plan
+      </Button>
     </section>
   )
 }

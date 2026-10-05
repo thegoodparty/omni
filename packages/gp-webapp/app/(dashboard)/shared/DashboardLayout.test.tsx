@@ -27,7 +27,11 @@ vi.mock('helpers/dateHelper', () => ({
 }))
 
 vi.mock('@shared/hooks/useUser', () => ({ useUser: () => [null] }))
-vi.mock('@shared/organization-picker', () => ({ useOrganization: () => null }))
+// null reads as a Win (campaign) org; a test sets an electedOfficeId for Serve.
+let mockOrganization: { electedOfficeId: number } | null = null
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => mockOrganization,
+}))
 vi.mock('./DashboardMenu', () => ({ default: () => null }))
 vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
 vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
@@ -202,7 +206,8 @@ describe('DashboardLayout nav header CTA', () => {
     expect(bar()).not.toHaveClass('hidden')
   })
 
-  it('keeps the bar desktop-only when the page state mounts no action', async () => {
+  it('keeps the bar desktop-only for Serve when the page state mounts no action', async () => {
+    mockOrganization = { electedOfficeId: 1 }
     // Pairs with the two cases either side of it: mobile visibility is derived
     // from a mounted action, never declared. A page-level flag couldn't express
     // this — it read true for every state of a route, so states with no CTA
@@ -217,6 +222,20 @@ describe('DashboardLayout nav header CTA', () => {
     await waitFor(() => expect(bar()).toBeTruthy())
     expect(bar()).toHaveClass('hidden')
     expect(bar()).toHaveClass('lg:flex')
+    mockOrganization = null
+  })
+
+  it('drops the bar for Win when the page has no action, keeping a hidden heading', () => {
+    render(
+      <DashboardLayout navHeader={navHeader}>
+        <div data-testid="page-body">no CTA in this state</div>
+      </DashboardLayout>,
+    )
+
+    expect(bar()).toBeUndefined()
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Your Story' }),
+    ).toHaveClass('sr-only')
   })
 
   it('drops the action back out of the bar when it unmounts', async () => {
@@ -235,7 +254,8 @@ describe('DashboardLayout nav header CTA', () => {
       </DashboardLayout>,
     )
 
-    await waitFor(() => expect(bar()).toHaveClass('hidden'))
+    // Win: with its only action gone, the bar goes too.
+    await waitFor(() => expect(bar()).toBeUndefined())
     expect(
       screen.queryByRole('button', { name: 'Save' }),
     ).not.toBeInTheDocument()
