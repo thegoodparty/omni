@@ -1135,10 +1135,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
       target: winNumber.toLocaleString('en-US'),
     },
     {
-      metric: 'Projected Voter Turnout',
-      target: projectedTurnout.toLocaleString('en-US'),
-    },
-    {
       metric: 'Targeted Voter Contact Goal',
       target: voterContactGoal.toLocaleString('en-US'),
     },
@@ -1158,12 +1154,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
       target: `${registeredVoters.toLocaleString('en-US')} registered voters`,
       source:
         'The total pool of voters eligible to cast a ballot in your race, pulled from the latest voter file.',
-    },
-    {
-      metric: 'Projected Voter Turnout',
-      target: `${projectedTurnout.toLocaleString('en-US')} voters turnout`,
-      source:
-        'The projected number of voters we expect to cast a ballot in your race, based on past voter turnout and our proprietary models.',
     },
     {
       metric: 'Projected Votes Needed to Win',
