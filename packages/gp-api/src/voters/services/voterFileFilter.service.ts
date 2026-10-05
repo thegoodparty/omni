@@ -4,6 +4,11 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common'
+import {
+  type GeoJsonShape,
+  type GeoShapeLabels,
+  shapePartCount,
+} from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.util'
@@ -33,6 +38,23 @@ const ACTIVITY_CONDITIONS_INCLUDE = {
 type VoterFileFilterWithConditions = Prisma.VoterFileFilterGetPayload<{
   include: typeof ACTIVITY_CONDITIONS_INCLUDE
 }>
+
+// Labels are joined to the boundary's parts by index, so a set that does not
+// line up with the shape it arrives with would name the wrong parts.
+const assertShapeLabelsMatch = (
+  geoPoly: GeoJsonShape | null | undefined,
+  geoPolyLabels: GeoShapeLabels | null | undefined,
+) => {
+  if (!geoPolyLabels) return
+  if (!geoPoly) {
+    throw new BadRequestException(
+      'Shape names can only be saved with the boundary they describe',
+    )
+  }
+  if (geoPolyLabels.length !== shapePartCount(geoPoly)) {
+    throw new BadRequestException('Each drawn shape needs exactly one name')
+  }
+}
 
 const toActivityConditionCreateInput = (
   conditions: ActivityCondition[],
@@ -161,8 +183,15 @@ export class VoterFileFilterService extends createPrismaBase(
     // bigger than itself comes back as.
     sampleMemberIds?: string[] | null,
   ): Promise<VoterFileFilterWithConditions> {
-    const { activityConditions, recommendedFilter, geoPoly, sample, ...rest } =
-      data
+    const {
+      activityConditions,
+      recommendedFilter,
+      geoPoly,
+      geoPolyLabels,
+      sample,
+      ...rest
+    } = data
+    assertShapeLabelsMatch(geoPoly, geoPolyLabels)
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
@@ -192,6 +221,7 @@ export class VoterFileFilterService extends createPrismaBase(
           ...(geoPoly === undefined
             ? {}
             : { geoPoly: geoPoly ?? Prisma.DbNull }),
+          ...(geoPoly && geoPolyLabels ? { geoPolyLabels } : {}),
           ...(geoMemberIds ? { geoMembersResolvedAt: new Date() } : {}),
           ...(sample && sampleMemberIds
             ? { sampleSize: sample.size, sampledAt: new Date() }
@@ -296,7 +326,8 @@ export class VoterFileFilterService extends createPrismaBase(
   ): Promise<VoterFileFilterWithConditions> {
     await this.assertNotLocked(id, organizationSlug)
 
-    const { activityConditions, geoPoly, ...rest } = data
+    const { activityConditions, geoPoly, geoPolyLabels, ...rest } = data
+    assertShapeLabelsMatch(geoPoly, geoPolyLabels)
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
@@ -342,6 +373,10 @@ export class VoterFileFilterService extends createPrismaBase(
             ? {}
             : {
                 geoPoly: geoPoly ?? Prisma.DbNull,
+                // A reshaped boundary without labels drops the old ones:
+                // they were joined to parts by index, and the parts moved.
+                geoPolyLabels:
+                  geoPoly && geoPolyLabels ? geoPolyLabels : Prisma.DbNull,
                 geoMembersResolvedAt: geoPoly === null ? null : new Date(),
               }),
         },

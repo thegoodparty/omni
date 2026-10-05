@@ -10,6 +10,19 @@ import {
   savedFilterBlockedForElectedOffice,
 } from './voterFileFilter.utils'
 
+describe('convertVoterFileFilterToFilters shape names', () => {
+  // The one array column that is not criteria. Through the generic branch
+  // it would become an `in` filter on a voter column that does not exist.
+  it('never turns a boundary part name into a filter', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        genderFemale: true,
+        geoPolyLabels: [{ name: 'Downtown', color: '#2563eb' }],
+      }),
+    ).toEqual(convertVoterFileFilterToFilters({ genderFemale: true }))
+  })
+})
+
 // ENG-10752: the wizard offers mutually exclusive ranges; rows saved before
 // the change keep the exact (overlapping) bounds they were created with.
 const NEW_KEY_BOUNDS = [

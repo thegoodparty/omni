@@ -2,6 +2,7 @@ import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
 import {
   GeoJsonShapeSchema,
+  GeoShapeLabelsSchema,
   ListSampleSchema,
   RecommendedListChannelSchema,
   RecommendedListFilterSchema,
@@ -31,6 +32,8 @@ export class CreateVoterFileFilterSchema extends createZodDto(
     // and door knocking's own filter grammar, both of which already have a
     // polygon of their own to mean something else by.
     geoPoly: GeoJsonShapeSchema.nullable().optional(),
+    // One name and colour per part of `geoPoly`, in the same order.
+    geoPolyLabels: GeoShapeLabelsSchema.nullable().optional(),
     // Create-only: a sample is drawn once, when the list is saved, and the
     // update schema has nothing to redraw it with.
     sample: ListSampleSchema.optional(),

@@ -406,6 +406,108 @@ describe('saved list boundaries', () => {
     expect(await geoMemberIds(created.data.id)).toEqual([second])
   })
 
+  describe('shape names', () => {
+    const LABELS = [
+      { name: 'Downtown', color: '#2563eb' },
+      { name: 'Riverside', color: '#16a34a' },
+    ]
+
+    const readRow = (id: number) =>
+      service.prisma.voterFileFilter.findUniqueOrThrow({ where: { id } })
+
+    it('saves one name and colour per part beside the boundary', async () => {
+      const slug = await setupServeOrg('labels-create')
+      spyOnEvaluate([])
+
+      const response = await createFilter(slug, {
+        name: 'Named parts',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+
+      expect(response.status).toBe(201)
+      expect((await readRow(response.data.id)).geoPolyLabels).toEqual(LABELS)
+    })
+
+    it('refuses names that do not line up with the parts', async () => {
+      const slug = await setupServeOrg('labels-mismatch')
+      spyOnEvaluate([])
+
+      const response = await createFilter(slug, {
+        name: 'One name short',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: [LABELS[0]],
+      })
+
+      expect(response.status).toBe(400)
+    })
+
+    it('refuses names sent without the boundary they describe', async () => {
+      const slug = await setupServeOrg('labels-orphan')
+      spyOnEvaluate([])
+      const created = await createFilter(slug, {
+        name: 'Orphaned names',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+
+      const response = await updateFilter(slug, created.data.id, {
+        geoPolyLabels: LABELS,
+      })
+
+      expect(response.status).toBe(400)
+    })
+
+    // The names are joined to parts by index, so a reshape that does not
+    // restate them would leave "Downtown" on whatever part moved into slot 0.
+    it('clears the names when the boundary is redrawn without them', async () => {
+      const slug = await setupServeOrg('labels-reshape')
+      spyOnEvaluate([])
+      const created = await createFilter(slug, {
+        name: 'Reshaped',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+
+      await updateFilter(slug, created.data.id, { geoPoly: SQUARE })
+
+      expect((await readRow(created.data.id)).geoPolyLabels).toBeNull()
+    })
+
+    it('replaces the names when the boundary is redrawn with them', async () => {
+      const slug = await setupServeOrg('labels-rename')
+      spyOnEvaluate([])
+      const created = await createFilter(slug, {
+        name: 'Renamed parts',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+      const renamed = [{ name: 'Old town', color: '#d97706' }]
+
+      const response = await updateFilter(slug, created.data.id, {
+        geoPoly: SQUARE,
+        geoPolyLabels: renamed,
+      })
+
+      expect(response.status).toBe(200)
+      expect((await readRow(created.data.id)).geoPolyLabels).toEqual(renamed)
+    })
+
+    it('leaves the names alone when the update does not touch the boundary', async () => {
+      const slug = await setupServeOrg('labels-untouched')
+      spyOnEvaluate([])
+      const created = await createFilter(slug, {
+        name: 'Kept names',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+
+      await updateFilter(slug, created.data.id, { name: 'Renamed list' })
+
+      expect((await readRow(created.data.id)).geoPolyLabels).toEqual(LABELS)
+    })
+  })
+
   // A shape removed with its rows left behind would keep narrowing the list
   // with nothing on the map to explain why.
   it('clears the shape, its membership and its stamp together', async () => {

@@ -1276,6 +1276,11 @@ export {
   type GeoJsonShape,
   shapePolygons,
   shapePartCount,
+  MAX_GEO_SHAPE_NAME_LENGTH,
+  GeoShapeLabelSchema,
+  type GeoShapeLabel,
+  GeoShapeLabelsSchema,
+  type GeoShapeLabels,
 } from './shared/GeoJsonShape.schema'
 
 export {
