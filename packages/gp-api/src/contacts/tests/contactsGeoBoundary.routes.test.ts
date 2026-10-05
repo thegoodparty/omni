@@ -458,6 +458,25 @@ describe('saved list boundaries', () => {
       expect(response.status).toBe(400)
     })
 
+    // A null alone would otherwise be a 200 that wrote nothing: the names
+    // are only written beside the boundary.
+    it('refuses to clear the names without the boundary', async () => {
+      const slug = await setupServeOrg('labels-null-orphan')
+      spyOnEvaluate([])
+      const created = await createFilter(slug, {
+        name: 'Null names',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+
+      const response = await updateFilter(slug, created.data.id, {
+        geoPolyLabels: null,
+      })
+
+      expect(response.status).toBe(400)
+      expect((await readRow(created.data.id)).geoPolyLabels).toEqual(LABELS)
+    })
+
     // The names are joined to parts by index, so a reshape that does not
     // restate them would leave "Downtown" on whatever part moved into slot 0.
     it('clears the names when the boundary is redrawn without them', async () => {
