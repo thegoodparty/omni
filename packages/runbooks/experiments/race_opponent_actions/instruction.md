@@ -13,14 +13,14 @@ district is unknown or Haystaq has no coverage.
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/race_opponent_actions.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
 
 ## TODO CHECKLIST
 
-1. Read `PARAMS_JSON`: `opponents[]`, `candidate_platform`, the district params (`state`, `l2_district_type`, `l2_district_name`), `race_context` (Step 1).
+1. Read `PARAMS_FILE`: `opponents[]`, `candidate_platform`, the district params (`state`, `l2_district_type`, `l2_district_name`), `race_context` (Step 1).
 2. Pick up to 5 distinct contrast angles from the summaries + platform (Step 2).
 3. When the district params are present, map each angle to one `hs_*` column from the inline catalog (Step 3).
 4. When the district params are present, run the district sentiment block: L2 value discovery, distribution check, ONE batched threshold query with coverage (Step 4).
@@ -117,7 +117,7 @@ from pmf_runtime import milestone; milestone("read params")
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 OPPONENTS = PARAMS["opponents"]
 PLATFORM = PARAMS.get("candidate_platform") or {}
 L2_TYPE = PARAMS.get("l2_district_type")  # L2 column name, e.g. "City"
