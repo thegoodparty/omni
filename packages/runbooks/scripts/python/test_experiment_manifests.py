@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -96,6 +97,32 @@ def test_each_manifest_has_instruction(manifest_path: Path):
     instruction = manifest_path.parent / "instruction.md"
     assert instruction.exists(), f"missing {instruction.relative_to(REPO_ROOT)}"
     assert instruction.read_text().strip(), f"{instruction.relative_to(REPO_ROOT)} is empty"
+
+
+# PARAMS_JSON is only set when params fit inline; large params arrive via the
+# broker with no such env var, so a read of it fails on exactly those runs.
+# Any mention at all, not just a read: no legitimate one is left in what the
+# agent reads, and prose copied from an old template ("your params are in
+# PARAMS_JSON") is followed as surely as code.
+_PARAMS_JSON_MENTION = re.compile(r"\bPARAMS_JSON\b")
+
+
+def _agent_readable_files() -> list[Path]:
+    files = list(EXPERIMENTS_DIR.glob("*/instruction.md"))
+    files += [p for p in EXPERIMENTS_DIR.glob("*/attachments/**/*") if p.is_file()]
+    files += [p for p in EXPERIMENTS_DIR.glob("*/qa/**/*") if p.is_file()]
+    files += list(EXPERIMENTS_DIR.glob("*/manifest.json"))
+    return sorted(files)
+
+
+def test_agent_files_read_params_from_the_params_file():
+    offenders = [
+        f"{path.relative_to(REPO_ROOT)}:{lineno}: {line.strip()}"
+        for path in _agent_readable_files()
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1)
+        if _PARAMS_JSON_MENTION.search(line)
+    ]
+    assert not offenders, "read params from os.environ['PARAMS_FILE'], not PARAMS_JSON:\n" + "\n".join(offenders)
 
 
 @pytest.mark.parametrize("manifest_path", _all_manifest_paths(), ids=lambda p: p.parent.name)
