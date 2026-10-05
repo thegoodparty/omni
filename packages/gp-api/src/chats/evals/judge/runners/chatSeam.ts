@@ -15,6 +15,7 @@ import type { DatabricksRowSet } from '@/llm/tools/queryDatabricks.tool'
 import { toolFailureDelayMs, type ToolFailure } from '../cases'
 import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from '../config'
 import type { JsonValue, TraceStep } from '../record'
+import { redactToolError } from '../toolErrorDetails'
 
 // The three seams a chat run is observed at. Each one is the only place the
 // thing it captures exists:
@@ -139,17 +140,12 @@ const MAX_ERROR_CHARS = 200
 // statement client throws with the raw HTTP body, which echoes the failing
 // statement, and the voter SQL builder inlines contact ids by design. The
 // judge needs the failure class, never the vendor's prose, so the message is
-// redacted and bounded before it can reach a stored record.
+// redacted and bounded before it can reach a stored record. Redacted on the
+// whole text first: a cut that lands inside a secret leaves a fragment no
+// shape matches any more.
 export const traceErrorText = (err: unknown): string => {
   const raw = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-  return raw
-    .replace(
-      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
-      '[id]',
-    )
-    .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[email]')
-    .replace(/\d{7,}/g, '[digits]')
-    .slice(0, MAX_ERROR_CHARS)
+  return redactToolError(raw).slice(0, MAX_ERROR_CHARS)
 }
 
 const systemPromptOf = (options: LlmStreamOptions): string => {

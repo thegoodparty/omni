@@ -42,6 +42,32 @@ describe('RunRecordSchema', () => {
     expect(result.success).toBe(false)
   })
 
+  // Every stored record and cached base arm predates toolErrorDetails, and a
+  // cached arm that stopped parsing would be re-run at full price.
+  it('parses a record written before toolErrorDetails existed', () => {
+    const [, candidate] = TOOL_ERROR_PAIR
+    const { toolErrorDetails, ...old } = candidate
+    expect(toolErrorDetails).toBeDefined()
+    expect(RunRecordSchema.safeParse(old).success).toBe(true)
+  })
+
+  it('refuses an unbounded detail list', () => {
+    const [, candidate] = TOOL_ERROR_PAIR
+    const detail = { tool: 'Bash', message: 'boom' }
+    expect(
+      RunRecordSchema.safeParse({
+        ...candidate,
+        toolErrorDetails: Array.from({ length: 11 }, () => detail),
+      }).success,
+    ).toBe(false)
+    expect(
+      RunRecordSchema.safeParse({
+        ...candidate,
+        toolErrorDetails: [{ tool: 'Bash', message: 'x'.repeat(301) }],
+      }).success,
+    ).toBe(false)
+  })
+
   it('rejects a run that ended before it started', () => {
     const [base] = CHAT_PAIR
     const result = RunRecordSchema.safeParse({

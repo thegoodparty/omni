@@ -23,6 +23,7 @@ interface Overrides {
   toolErrors?: number
   trace?: RunRecord['trace']
   toolQueries?: string[]
+  toolErrorDetails?: RunRecord['toolErrorDetails']
   dataVersion?: string
   liveWeb?: boolean
   ci?: boolean
@@ -98,6 +99,9 @@ const record = (
     retries: 0,
   },
   toolQueries: o.toolQueries ?? [],
+  ...(o.toolErrorDetails === undefined
+    ? {}
+    : { toolErrorDetails: o.toolErrorDetails }),
   ...(o.dataVersion === undefined ? {} : { dataVersion: o.dataVersion }),
   ...(o.ci
     ? {
@@ -235,6 +239,12 @@ export const TOOL_ERROR_PAIR: [RunRecord, RunRecord] = pair(
         kind: 'tool',
         tool: 'query_constituent_data',
         error: 'PeopleDbxUnavailableError: credential not configured',
+      },
+    ],
+    toolErrorDetails: [
+      {
+        tool: 'query_constituent_data',
+        message: 'PeopleDbxUnavailableError: credential not configured',
       },
     ],
     output: {

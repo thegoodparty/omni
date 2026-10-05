@@ -7,9 +7,16 @@ import {
   type Magnitude,
   type SlotVerdict,
 } from './judge'
-import type { NormalizedAgent, SlotMap } from './normalize'
+import type { ExcludedCase, NormalizedAgent, SlotMap } from './normalize'
+import { errorClass, publicToolName } from './toolErrorDetails'
 import { priceUsd, sharesPricing } from './pricing'
-import type { AgentShape, Arm, CiContext, RunRecord } from './record'
+import {
+  ArmSchema,
+  type AgentShape,
+  type Arm,
+  type CiContext,
+  type RunRecord,
+} from './record'
 
 // Un-blinds, orients everything to the candidate, and turns a pile of
 // slot-level judgments into one verdict for one agent.
@@ -106,6 +113,20 @@ export interface ExclusionCounts {
   // which one meant reproducing the run. The reasons are already on the
   // judgments — this carries them to the report.
   ungradedReasons: readonly string[]
+  // The same treatment for tool-error exclusions, which had only a count.
+  // Grouped so nine pairs failing one way read as one line, not nine.
+  toolErrorCauses: readonly ToolErrorCause[]
+}
+
+export interface ToolErrorCause {
+  // Allowlisted by publicToolName, so safe to print.
+  tool: string
+  // A fixed class from errorClass, never the error text: the report is
+  // public and the text can carry voter data.
+  errorClass: string
+  // Excluded pairs this cause appeared in, whichever arm it hit.
+  pairs: number
+  arms: readonly Arm[]
 }
 
 export interface OrientedFlag {
@@ -581,6 +602,60 @@ const floorVerdicts = (
   }
 }
 
+// A record written before toolErrorDetails existed has the count and no
+// detail. It still gets a line, so the causes always account for every
+// tool-error exclusion.
+const UNRECORDED = 'unrecorded'
+
+// Built from errorClass and publicToolName only, never from the message:
+// this is what reaches the public report. See toolErrorDetails.ts.
+const toolErrorCauses = (
+  excluded: readonly ExcludedCase[],
+): ToolErrorCause[] => {
+  const causes = new Map<
+    string,
+    { tool: string; errorClass: string; pairs: number; arms: Set<Arm> }
+  >()
+  for (const pair of excluded) {
+    if (pair.reason !== 'toolError') continue
+    const seen = new Set<string>()
+    for (const arm of pair.arms) {
+      const details = pair.records[arm].toolErrorDetails ?? []
+      const found =
+        details.length > 0
+          ? details.map((detail) => ({
+              tool: publicToolName(detail.tool, pair.records[arm].agentShape),
+              errorClass: errorClass(detail.message),
+            }))
+          : [{ tool: 'unknown', errorClass: UNRECORDED }]
+      for (const { tool, errorClass: cls } of found) {
+        const key = `${tool}\u0000${cls}`
+        const cause = causes.get(key) ?? {
+          tool,
+          errorClass: cls,
+          pairs: 0,
+          arms: new Set<Arm>(),
+        }
+        if (!seen.has(key)) cause.pairs += 1
+        seen.add(key)
+        cause.arms.add(arm)
+        causes.set(key, cause)
+      }
+    }
+  }
+  return [...causes.values()]
+    .map((cause) => ({
+      ...cause,
+      arms: ArmSchema.options.filter((arm) => cause.arms.has(arm)),
+    }))
+    .sort(
+      (a, b) =>
+        b.pairs - a.pairs ||
+        a.tool.localeCompare(b.tool) ||
+        a.errorClass.localeCompare(b.errorClass),
+    )
+}
+
 // Graded judgments only. A judgment whose every seat failed came back
 // `ungraded`, which is already counted in `exclusions.ungraded` and named in
 // the report; counting it here as well would report one failure twice and
@@ -687,6 +762,7 @@ export const scoreAgent = (
           judgments.filter((j) => j.kind === 'ungraded').map((j) => j.reason),
         ),
       ],
+      toolErrorCauses: toolErrorCauses(normalized.excluded),
     },
     positionConsistency,
     swappedPairs: swappedPairs.length,

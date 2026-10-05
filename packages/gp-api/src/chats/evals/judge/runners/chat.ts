@@ -28,6 +28,7 @@ import {
   type RunRecord,
   type RunStatus,
   type TokenUsage,
+  type ToolErrorDetail,
   type TraceStep,
 } from '../record'
 import { WIN_CONSTITUENT_TABLES } from '@/chats/general/campaign-manager/services/constituentDataScope'
@@ -46,6 +47,7 @@ import {
   type StreamEvent,
   type TurnCapture,
 } from './chatSeam'
+import { capToolErrorDetails, toolErrorDetail } from '../toolErrorDetails'
 import { assertAccountStateSupported, chatScopeFor } from './seedChatOrg'
 import { assertTranscriptFits, seedPriorTranscript } from './seedTranscript'
 
@@ -266,6 +268,29 @@ interface CaseOutcome {
 const infraTrace = (message: string): TraceStep[] => [
   { index: 0, kind: 'error', error: message },
 ]
+
+// Only a name gp-api registered in code is kept. The model can name a tool
+// that does not exist, and the public report trusts what this stores.
+export const chatToolErrorDetails = (
+  steps: readonly TraceStep[],
+  registeredTools: readonly string[],
+): ToolErrorDetail[] => {
+  const registered = new Set(registeredTools)
+  return capToolErrorDetails(
+    steps.flatMap((step) =>
+      step.kind !== 'tool' || step.error === undefined
+        ? []
+        : [
+            toolErrorDetail(
+              step.tool !== undefined && registered.has(step.tool)
+                ? step.tool
+                : undefined,
+              step.error,
+            ),
+          ],
+    ),
+  )
+}
 
 const errorStep = (trace: TraceStep[], error: string): TraceStep[] => [
   ...trace,
@@ -815,6 +840,10 @@ export const runChatCase = async (
   const finalTrace =
     unpriceable === undefined ? trace : errorStep(trace, unpriceable)
   const toolSteps = finalTrace.filter((step) => step.kind === 'tool')
+  const toolErrorDetails = chatToolErrorDetails(
+    toolSteps,
+    llm.capture.toolNames,
+  )
 
   return RunRecordSchema.parse({
     schemaVersion: 1,
@@ -853,6 +882,7 @@ export const runChatCase = async (
       retries: 0,
     },
     toolQueries: databricks.queries,
+    ...(toolErrorDetails.length > 0 && { toolErrorDetails }),
     // Recorded only when a query actually ran against the pinned version. A
     // run that read no versioned table has no version to report, and claiming
     // one it never applied is the silent failure this field exists to catch —

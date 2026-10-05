@@ -219,6 +219,24 @@ const exclusionLine = (score: AgentScore): string => {
   return `${base} Why: ${e.ungradedReasons.join(' | ')}`
 }
 
+const MAX_CAUSE_LINES = 5
+
+// Tool name and error class only, both allowlisted upstream. The error text
+// itself is never printed: this page is public and the text can carry voter
+// data that no redaction can recognise.
+const toolErrorCauseLines = (score: AgentScore): string[] => {
+  const causes = score.exclusions.toolErrorCauses
+  const lines = causes
+    .slice(0, MAX_CAUSE_LINES)
+    .map(
+      (cause) =>
+        `- ${score.agentId}: \`${cause.tool}\` — ${cause.errorClass} ` +
+        `(×${cause.pairs}, ${cause.arms.join(' and ')})`,
+    )
+  const more = causes.length - MAX_CAUSE_LINES
+  return more > 0 ? [...lines, `- and ${more} more`] : lines
+}
+
 const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
   const lines: string[] = []
   lines.push(`### ${score.agentId} — ${score.label}`)
@@ -279,6 +297,7 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
   lines.push(...evidenceLines(score))
   lines.push('')
   lines.push(exclusionLine(score))
+  lines.push(...toolErrorCauseLines(score))
   lines.push('')
   lines.push(consistencyLine(score, config))
   if (score.panelDisagreementRate !== null) {

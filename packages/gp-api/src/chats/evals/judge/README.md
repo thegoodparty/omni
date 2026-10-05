@@ -795,6 +795,44 @@ degraded outputs will confidently report a code regression. Use
 `isComparable()`; any case where either arm hit a tool error resolves to
 CAN'T SAY and leaves the delta.
 
+Each record names its failures in `toolErrorDetails`: the tool and its error
+text, for the first 10 failing calls, each cut to 300 characters (head and
+tail, so a traceback keeps the exception that ends it). Both runners fill it.
+The text is redacted on the way in (`toolErrorDetails.ts`: the arm's secrets
+by value, then keys, tokens, URLs, internal hosts, IPs, emails, phones, SSNs,
+ids and long digit runs by shape), but redaction cannot recognise a name or an
+address, so **the text never reaches a public page**. It stays in the record,
+which lives on the runner and in the private bucket.
+
+The report, which is public (run log, step summary), prints only a tool name
+and an error class, and both are allowlists, not patterns, because a pattern
+lets a name through whenever it has the right shape (`MariaGonzalezError`,
+`JOHN_SMITH_ERROR`).
+
+- **Tool name** (`publicToolName`): for a background agent, a harness
+  built-in (Bash, Read, WebSearch, Agent, ...) or a broker MCP tool on
+  `KNOWN_BROKER_TOOLS` (e.g. `mcp__broker__GET_community_issues`). It is a
+  list of names, not a pattern, because a model can invent a well-shaped
+  `mcp__broker__GET_jane_doe_voter_record`. For chat, a tool gp-api
+  registered, which the runner checks before it writes. Anything else is
+  `unknown`, and both runners store it that way.
+
+  **Adding an @McpTool route?** `knownBrokerTools.db.test.ts` fails until
+  `KNOWN_BROKER_TOOLS` in `toolErrorDetails.ts` matches the tools gp-api
+  serves. Add `mcp__broker__` plus the name `deriveToolName` gives the route
+  (the test's failure diff prints it), and remove one you deleted.
+- **Error class** (`errorClass`): a known exception type (`KeyError`,
+  `JSONDecodeError`, `HTTPStatusError`, ...), a known Databricks code
+  (`PARSE_SYNTAX_ERROR`, `TABLE_OR_VIEW_NOT_FOUND`, ...), `HTTP 503`,
+  `timeout` or `exit code N`. An unlisted exception prints as `other
+  exception`, an unlisted code as `other error code`, and the rest as
+  `other`. To name a new one, add it to the list in `toolErrorDetails.ts`.
+
+Causes are grouped by tool and class under the "Excluded pairs" line, with the
+pair count and the arms hit. A record written before the field existed shows
+as `unknown`, `unrecorded`. Anything new that renders a tool error publicly must
+go through `errorClass` and `publicToolName`, never the record's text.
+
 **A refusal is a result, not a failure.** `blocked` keeps its output and stays
 judgeable, because whether declining was correct is exactly what a verdict
 should capture. Only `infraError` has no output.

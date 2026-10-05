@@ -225,6 +225,12 @@ describe('runChatCase', () => {
       expect(
         record.trace.find((step) => step.tool === 'crud_priorities')?.error,
       ).toContain('Priority not found')
+      expect(record.toolErrorDetails).toEqual([
+        {
+          tool: 'crud_priorities',
+          message: expect.stringContaining('Priority not found'),
+        },
+      ])
       // A tool failure is never a quality signal: both arms degrade the same
       // way and a judge shown two degraded answers reports a regression.
       expect(isComparable(record)).toBe(false)

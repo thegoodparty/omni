@@ -960,6 +960,14 @@ describe('exclusion counts', () => {
       identicalConfig: 0,
       unpaired: 1,
       ungraded: 0,
+      toolErrorCauses: [
+        {
+          tool: 'query_constituent_data',
+          errorClass: 'PeopleDbxUnavailableError',
+          pairs: 1,
+          arms: ['candidate'],
+        },
+      ],
     })
   })
 })
@@ -1124,5 +1132,127 @@ describe('ungraded reasons reach the score', () => {
   it('is empty when nothing was ungraded', () => {
     const result = score([], noFloor(), agent())
     expect(result.exclusions.ungradedReasons).toEqual([])
+  })
+})
+
+// A COUNT WITHOUT A CAUSE. Two live sweeps excluded every pair for a tool
+// error and said only how many; naming the tool took a diagnostic branch.
+describe('tool error causes', () => {
+  const TRACEBACK =
+    "Exit code 1\nTraceback (most recent call last):\nKeyError: 'PARAMS_JSON'"
+
+  const failing = (
+    record: RunRecord,
+    caseId: string,
+    details?: RunRecord['toolErrorDetails'],
+  ): RunRecord => ({
+    ...record,
+    agentShape: 'background',
+    caseId,
+    runId: `${record.arm}_${caseId}`,
+    telemetry: { ...record.telemetry, toolCalls: 1, toolErrors: 1 },
+    ...(details && { toolErrorDetails: details }),
+  })
+  const clean = (record: RunRecord, caseId: string): RunRecord => ({
+    ...record,
+    agentShape: 'background',
+    caseId,
+    runId: `${record.arm}_${caseId}`,
+  })
+  const params = [{ tool: 'Bash', message: TRACEBACK }]
+
+  it('groups by tool and error class, counting pairs and naming arms', () => {
+    const agent = normalizeAgent(
+      [
+        failing(BASE, 'a', params),
+        failing(CANDIDATE, 'a', params),
+        failing(BASE, 'b', params),
+        failing(CANDIDATE, 'b', params),
+        clean(BASE, 'c'),
+        failing(CANDIDATE, 'c', [{ tool: 'Bash', message: 'boom' }]),
+        // Written before the field existed: a count and no detail.
+        failing(BASE, 'd'),
+        clean(CANDIDATE, 'd'),
+      ],
+      () => 0,
+    )
+
+    expect(score([], noFloor(), agent).exclusions.toolErrorCauses).toEqual([
+      {
+        tool: 'Bash',
+        errorClass: 'KeyError',
+        pairs: 2,
+        arms: ['base', 'candidate'],
+      },
+      { tool: 'Bash', errorClass: 'other', pairs: 1, arms: ['candidate'] },
+      {
+        tool: 'unknown',
+        errorClass: 'unrecorded',
+        pairs: 1,
+        arms: ['base'],
+      },
+    ])
+  })
+
+  // A background tool name is whatever the model emitted. One it invented
+  // can be a person's name, and a failing call to it would print that name.
+  it('never carries a tool name outside the allowlist', () => {
+    const invented = [
+      'Jane Smith <b>',
+      'lookup_jane_doe',
+      'mcp__broker__jane_doe',
+      'mcp__broker__GET_jane doe',
+      'mcp__broker__GET_jane_doe_voter_record',
+      'jane_doe_mcp__broker__GET_x',
+    ]
+    const agent = normalizeAgent(
+      invented.flatMap((tool, i) => [
+        failing(BASE, `t${i}`, [{ tool, message: 'boom' }]),
+        clean(CANDIDATE, `t${i}`),
+      ]),
+      () => 0,
+    )
+    expect(
+      score([], noFloor(), agent).exclusions.toolErrorCauses.map((c) => c.tool),
+    ).toEqual(['unknown'])
+  })
+
+  it('keeps a broker tool and a registered chat tool', () => {
+    const agent = normalizeAgent(
+      [
+        failing(BASE, 'a', [
+          { tool: 'mcp__broker__GET_community_issues', message: 'boom' },
+        ]),
+        clean(CANDIDATE, 'a'),
+        {
+          ...failing(BASE, 'b', [
+            { tool: 'query_constituent_data', message: 'boom' },
+          ]),
+          agentShape: 'chat',
+        },
+        { ...clean(CANDIDATE, 'b'), agentShape: 'chat' },
+        // A built-in name on a chat record is not a chat tool.
+        {
+          ...failing(BASE, 'c', [{ tool: 'Bash', message: 'x' }]),
+          agentShape: 'chat',
+        },
+        { ...clean(CANDIDATE, 'c'), agentShape: 'chat' },
+      ],
+      () => 0,
+    )
+    expect(
+      score([], noFloor(), agent)
+        .exclusions.toolErrorCauses.map((c) => c.tool)
+        .sort(),
+    ).toEqual([
+      'mcp__broker__GET_community_issues',
+      'query_constituent_data',
+      'unknown',
+    ])
+  })
+
+  it('is empty when nothing was excluded for a tool error', () => {
+    const agent = normalizeAgent(CHAT_PAIR, () => 0)
+    expect(score([], noFloor(), agent).exclusions.toolErrorCauses).toEqual([])
   })
 })

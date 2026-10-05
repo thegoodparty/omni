@@ -13,6 +13,7 @@ import {
   TOOL_BUDGET_FALLBACK_REPLY,
   buildFallbackReplies,
   caseInput,
+  chatToolErrorDetails,
   ciContextFromEnv,
   classifyChatStatus,
   combineChatStatus,
@@ -634,5 +635,21 @@ describe('directiveFailureText', () => {
       text.indexOf('no such tool: x'),
     )
     expect(text).toMatch(/^a\/b: the run did not complete/)
+  })
+})
+
+describe('chatToolErrorDetails', () => {
+  it('names a registered tool and refuses one the model invented', () => {
+    const details = chatToolErrorDetails(
+      [
+        { index: 0, kind: 'text' },
+        { index: 1, kind: 'tool', tool: 'crud_priorities', error: 'E: one' },
+        { index: 2, kind: 'tool', tool: 'lookup_jane_doe', error: 'E: two' },
+        { index: 3, kind: 'tool', tool: 'crud_priorities' },
+        { index: 4, kind: 'error', error: 'stream died' },
+      ],
+      ['crud_priorities'],
+    )
+    expect(details.map((d) => d.tool)).toEqual(['crud_priorities', 'unknown'])
   })
 })

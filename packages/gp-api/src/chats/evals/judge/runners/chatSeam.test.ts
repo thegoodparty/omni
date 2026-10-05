@@ -157,6 +157,15 @@ describe('traceErrorText', () => {
     expect(text).not.toContain('a.b@x.org')
   })
 
+  // Cut first and a secret straddling the bound leaves a fragment too short
+  // for its shape to match, so it is stored in the clear.
+  it('redacts the whole error before it cuts', () => {
+    const text = traceErrorText(
+      new Error(`${'a '.repeat(92)}sk-ant-zzzzzzzzzzzz`),
+    )
+    expect(text).not.toMatch(/zz/)
+  })
+
   it('bounds a vendor error that dumps a whole response body', () => {
     expect(traceErrorText(new Error('x'.repeat(5_000))).length).toBe(200)
   })
