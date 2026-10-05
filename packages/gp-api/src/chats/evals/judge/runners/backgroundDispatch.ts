@@ -13,6 +13,7 @@ import {
 import type { ArmCaseRequest } from '../sweepArm'
 import type { ArmEnv } from '../sweepEnv'
 import { armConfigFor, backgroundDestinationFrom } from '../sweepEnv'
+import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { agentConfigFor } from './agentConfig'
 import type { AgentConfig, BackgroundRunInput } from './background'
 
@@ -213,6 +214,19 @@ export const capturableAgents = (
   })
 }
 
+// THE PLACEHOLDER VALUES ONE AGENT'S CASES ARE FILLED FROM. An agent that
+// reads gp-api runs against the seeded fixture organization rather than the
+// per-sweep slug, and its params have to name the same organization the
+// dispatch does, or the artifact would echo one slug while the reads used
+// another.
+export const fixtureValuesFor = (
+  agent: Pick<AgentEntry, 'readsGpApi'>,
+  values: PlaceholderValues,
+): PlaceholderValues =>
+  agent.readsGpApi === true
+    ? { ...values, orgSlug: JUDGE_FIXTURE.orgSlug }
+    : values
+
 export const backgroundRunInputFor = (
   request: ArmCaseRequest,
   env: ArmEnv,
@@ -251,7 +265,12 @@ export const backgroundRunInputFor = (
     // to touch.
     config,
     variant: { ...request.variant, model: modelOf(config) },
-    organizationSlug: orgSlug,
+    ...(request.agent.readsGpApi === true
+      ? {
+          organizationSlug: JUDGE_FIXTURE.orgSlug,
+          clerkUserId: JUDGE_FIXTURE.clerkUserId,
+        }
+      : { organizationSlug: orgSlug }),
     metadataBucket: destination.metadataBucket,
     artifactBucket: destination.artifactBucket,
     poll: { timeoutMs: pollTimeoutMs(config), intervalMs },
@@ -370,7 +389,7 @@ export const caseLoaderFor = (
     const all = loadBackground(agent)
     const cases = substituteBackgroundCases(
       maxCases === undefined ? all : all.slice(0, maxCases),
-      values,
+      fixtureValuesFor(agent, values),
     )
     const config = loadConfig(agent.agentId)
     // Reached here rather than at the dispatch, where a manifest naming no

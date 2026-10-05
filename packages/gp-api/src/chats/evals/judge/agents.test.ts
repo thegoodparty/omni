@@ -54,17 +54,13 @@ describe('coverage', () => {
   it('excludes blocked agents from the denominator', () => {
     const { wired, judgeable, blocked } = coverage()
     // Named rather than dropped, so each gap stays visible: briefing
-    // annotation has no handler yet, compliance_setup must not be swept at
-    // all, and three agents' main path reads from gp-api, which a judge
-    // dispatch cannot authenticate.
+    // annotation has no handler yet, and compliance_setup must not be swept
+    // at all.
     expect(blocked.map((a) => a.agentId).sort()).toEqual([
       'briefing_annotation',
       'compliance_setup',
-      'meeting_briefing',
-      'top_community_issues',
-      'trending_issues',
     ])
-    expect(judgeable).toBe(16)
+    expect(judgeable).toBe(19)
     expect(wired).toBe(0)
   })
 
@@ -98,6 +94,24 @@ describe('coverage', () => {
       const entry = findAgent(agentId)
       expect(entry, `${agentId} is not in the registry`).toBeDefined()
       expect(entry?.status, `${agentId} is sweepable`).toBe('blocked')
+    }
+  })
+
+  // The flag is what hands an agent the fixture account, so it is pinned to
+  // exactly the three that read gp-api: one more is an agent acting as a user
+  // it has no need of, one fewer is an agent judged on its empty-data
+  // fallback.
+  it('marks exactly the three gp-api readers, all sweepable', () => {
+    const readers = AGENTS.filter((a) => a.readsGpApi === true)
+    expect(readers.map((a) => a.agentId).sort()).toEqual([
+      'meeting_briefing',
+      'top_community_issues',
+      'trending_issues',
+    ])
+    for (const reader of readers) {
+      expect(reader.shape).toBe('background')
+      expect(reader.status).toBe('pending')
+      expect(reader.cases).toBe(`${reader.agentId}.json`)
     }
   })
 

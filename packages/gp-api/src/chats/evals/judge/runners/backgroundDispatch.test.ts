@@ -115,6 +115,40 @@ describe('backgroundRunInputFor', () => {
     })
   })
 
+  // OPT-IN PER AGENT. Only an entry the registry marks readsGpApi runs as the
+  // fixture account; the whole-object test above is the agent that does not.
+  it('dispatches a gp-api reader as the fixture account', () => {
+    const built = config()
+    const reader = request({
+      agent: { ...request().agent, readsGpApi: true },
+    })
+    expect(backgroundRunInputFor(reader, env(), () => built)).toEqual({
+      sweepId: 'sweep-from-request',
+      agentId: 'meeting_briefing',
+      arm: 'candidate',
+      attempt: 2,
+      agentCase: { caseId: 'case-1', params: { meeting_id: 'm-1' } },
+      config: built,
+      variant: { ref: 'feature', commit: 'deadbeef', model: 'sonnet' },
+      organizationSlug: 'judge-fixture',
+      clerkUserId: 'user_judge_fixture',
+      metadataBucket: 'agent-experiment-metadata-dev',
+      artifactBucket: 'gp-agent-artifacts-dev',
+      poll: {
+        timeoutMs: 1800 * 1000 + POLL_HEADROOM_MS,
+        intervalMs: 10 * 1000,
+      },
+    })
+  })
+
+  // toEqual reads an undefined key as absent, so the whole-object test above
+  // cannot tell "no user" from "a user key set to undefined".
+  it('names no user for an agent that does not read gp-api', () => {
+    const built = backgroundRunInputFor(request(), env(), () => config())
+    expect(built).not.toHaveProperty('clerkUserId')
+    expect(built.organizationSlug).toBe('judge-fixture-1')
+  })
+
   // The config is loaded for the agent the request names. Hardcoding an id
   // here would judge one agent's branch against another agent's behaviour.
   //
@@ -305,6 +339,29 @@ describe('caseLoaderFor', () => {
     )(agent)
     expect(list.cases).toEqual([
       { caseId: 'c1', params: { organization_slug: 'judge-fixture-1' } },
+    ])
+  })
+
+  // The params must name the organization the dispatch runs against, or the
+  // artifact echoes one slug while the agent's reads used another.
+  it("fills a gp-api reader's slug from the fixture, not the sweep", () => {
+    const reader = { ...agent, readsGpApi: true as const }
+    const list = caseLoaderFor(
+      { orgSlug: 'judge-fixture-1' },
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 3,
+        maxCases: undefined,
+        maxInFlight: 99,
+      },
+      {
+        load: () => caseList('background', reader.agentId, withToken),
+        loadBackground: () => withToken,
+        loadConfig: () => config(),
+      },
+    )(reader)
+    expect(list.cases).toEqual([
+      { caseId: 'c1', params: { organization_slug: 'judge-fixture' } },
     ])
   })
 
