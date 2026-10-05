@@ -487,6 +487,7 @@ jobs:
               packages/gp-api/src/chats/general/campaign-manager/*) add campaign_assistant ;;
               packages/gp-api/src/chats/general/ordinance-flow/*)  add ordinance_flow ;;
               packages/gp-api/src/chats/general/priority-flow/*)   add priority_flow ;;
+              packages/gp-api/src/chats/briefing-chats/*)          add briefing_annotation ;;
               # Background agents. One directory per published experiment, and
               # the directory name IS the agent id.
               packages/runbooks/experiments/_schema/*) ;;
