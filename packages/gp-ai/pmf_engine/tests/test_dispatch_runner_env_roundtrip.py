@@ -350,8 +350,9 @@ _LARGE_PARAMS = {
 )
 async def test_params_reach_the_agent_as_a_file_on_both_delivery_paths(tmp_path, params, via_broker):
     """Dispatch → runner config → harness: whichever way params travel, the
-    agent's env names a file holding exactly those params. PARAMS_JSON keeps
-    its old contract (set when small, absent when large) for back-compat."""
+    agent's env names a file holding exactly those params. On the dispatch
+    side PARAMS_JSON keeps its old contract (set when small, absent when
+    large); the agent never inherits it."""
     message = {**_base_message("roundtrip_exp"), "params": params}
     overrides = build_container_overrides(
         experiment={"model": "sonnet", "timeout_seconds": 600},
