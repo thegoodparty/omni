@@ -423,6 +423,16 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('asks every question as a card, open ones included', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'Every question to them goes through ask_clarify_question',
+    )
+    expect(prompt).toContain('in your own words')
+    expect(prompt).toContain('Never write a list of questions')
+    expect(prompt).toContain('The opening turn is the same')
+  })
+
   it('previews the path by rail step before any workflow', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('PREVIEW THE PATH BEFORE THE WORK')
@@ -837,7 +847,7 @@ describe('PriorityFlowHandler', () => {
     const handler = build()
     const ctx = await handler.loadContext('c1', USER_ID)
     const prompt = handler.buildSystemPrompt(ctx)
-    expect(prompt).toContain('Ask it with ask_clarify_question, never in prose')
+    expect(prompt).toContain('goes through ask_clarify_question, never prose')
     expect(prompt).toContain('One question at a time')
   })
 
