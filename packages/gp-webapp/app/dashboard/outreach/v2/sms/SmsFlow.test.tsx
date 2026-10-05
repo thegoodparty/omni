@@ -877,6 +877,47 @@ describe('SmsFlow', () => {
       )
     })
 
+    // Typing is the candidate taking over from the failed draft, so the
+    // card goes and Try again cannot improve their words.
+    it('clears the draft error once the candidate types', async () => {
+      api.mock('POST /v1/outreach/sms/draft', {
+        status: 502,
+        data: { message: 'SMS draft generation failed' },
+      })
+      openFlow()
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(screen.getByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByText('When do you want to send it?')
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText(/We couldn.t draft your message just now/),
+      ).toBeInTheDocument()
+      const box = await screen.findByRole('textbox', { name: 'Message body' })
+      const editor = (box as HTMLElement & { editor: Editor }).editor
+      await waitFor(() => expect(endOf(editor, 'Hello ')).toBeGreaterThan(0))
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, ','),
+          ' this is Sarah Chen.',
+        )
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.queryByText(/We couldn.t draft your message just now/),
+        ).not.toBeInTheDocument(),
+      )
+    })
+
     // A gp-api from before masking answers Improve with a body alone. The
     // flow composes the greeting and footer back around it, so a polish
     // never sends without the disclaimer or opt-out.
