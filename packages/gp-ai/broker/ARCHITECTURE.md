@@ -168,6 +168,9 @@ Full spec: see `broker/endpoints/*.py`.
   3. Runner Fargate task:
      - Pulls image via ECR endpoints + S3 prefix list
      - If PARAMS_VIA_BROKER is set: GET /params/read (token auth) → ticket params
+     - Writes the params (either path) to /workspace/params.json, read-only, and
+       sets PARAMS_FILE to that path in the agent's env; agent tools read params
+       there, since PARAMS_JSON exists only on the inline path
      - Starts Claude Agent SDK (passes ANTHROPIC_BASE_URL + ANTHROPIC_API_KEY as env)
      - Every API call: Claude SDK → broker /anthropic/v1/messages (token auth)
      - Every DB query: pmf_runtime.databricks → broker /databricks/query
