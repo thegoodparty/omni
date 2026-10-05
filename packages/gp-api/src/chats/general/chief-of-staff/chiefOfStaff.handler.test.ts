@@ -94,7 +94,7 @@ describe('ChiefOfStaffHandler', () => {
 
   const buildResolver = (): DistrictResolverService =>
     ({
-      resolveByUserId: vi.fn(() =>
+      resolveByOrgSlug: vi.fn(() =>
         Promise.resolve({
           state: 'NC',
           l2DistrictType: 'city',
@@ -194,7 +194,7 @@ describe('ChiefOfStaffHandler', () => {
 
   it('omits constituent-data tools when the district does not resolve', async () => {
     const resolver = {
-      resolveByUserId: vi.fn(() => Promise.resolve(null)),
+      resolveByOrgSlug: vi.fn(() => Promise.resolve(null)),
       toMandatoryFilters: vi.fn(),
     } as unknown as DistrictResolverService
     const handler = new ChiefOfStaffHandler(

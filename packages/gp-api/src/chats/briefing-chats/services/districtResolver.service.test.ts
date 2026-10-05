@@ -21,14 +21,6 @@ const createOrg = async (
     },
   })
 
-const createElectedOffice = async (userId: number, organizationSlug: string) =>
-  service.prisma.electedOffice.create({
-    data: {
-      organizationSlug,
-      userId,
-    },
-  })
-
 describe('DistrictResolverService', () => {
   let resolver: DistrictResolverService
   let elections: { getPositionById: ReturnType<typeof vi.fn> }
@@ -57,70 +49,32 @@ describe('DistrictResolverService', () => {
     resolver.onModuleInit()
   })
 
-  describe('resolveByUserId', () => {
-    it('returns null when user has no electedOffice', async () => {
-      const newUser = await service.prisma.user.create({
-        data: {
-          id: 5001,
-          email: 'no-office@goodparty.org',
-          firstName: 'No',
-          lastName: 'Office',
-        },
-      })
-      const result = await resolver.resolveByUserId(newUser.id)
+  describe('resolveByOrgSlug', () => {
+    it('returns null when no org exists for the slug', async () => {
+      const result = await resolver.resolveByOrgSlug('missing-slug')
       expect(result).toBeNull()
     })
 
-    it('returns null when org has no positionId or overrideDistrictId', async () => {
-      const newUser = await service.prisma.user.create({
-        data: {
-          id: 5002,
-          email: 'empty-org@goodparty.org',
-          firstName: 'Empty',
-          lastName: 'Org',
-        },
-      })
-      const org = await createOrg(newUser.id)
-      await createElectedOffice(newUser.id, org.slug)
-
-      const result = await resolver.resolveByUserId(newUser.id)
+    it('returns null when the org has no positionId', async () => {
+      const org = await createOrg(service.user.id)
+      const result = await resolver.resolveByOrgSlug(org.slug)
       expect(result).toBeNull()
     })
 
     it('returns null when district lookup yields no district', async () => {
-      const newUser = await service.prisma.user.create({
-        data: {
-          id: 5003,
-          email: 'no-district@goodparty.org',
-          firstName: 'No',
-          lastName: 'District',
-        },
-      })
-      const org = await createOrg(newUser.id, { positionId: 'pos-1' })
-      await createElectedOffice(newUser.id, org.slug)
-
+      const org = await createOrg(service.user.id, { positionId: 'pos-1' })
       organizations.getDistrictForOrgSlug.mockResolvedValueOnce(null)
       elections.getPositionById.mockResolvedValueOnce({
         id: 'pos-1',
         state: 'CA',
       })
 
-      const result = await resolver.resolveByUserId(newUser.id)
+      const result = await resolver.resolveByOrgSlug(org.slug)
       expect(result).toBeNull()
     })
 
     it('returns null when position has no state', async () => {
-      const newUser = await service.prisma.user.create({
-        data: {
-          id: 5004,
-          email: 'no-state@goodparty.org',
-          firstName: 'No',
-          lastName: 'State',
-        },
-      })
-      const org = await createOrg(newUser.id, { positionId: 'pos-2' })
-      await createElectedOffice(newUser.id, org.slug)
-
+      const org = await createOrg(service.user.id, { positionId: 'pos-2' })
       organizations.getDistrictForOrgSlug.mockResolvedValueOnce({
         id: 'd-1',
         l2Type: 'City',
@@ -131,50 +85,6 @@ describe('DistrictResolverService', () => {
         state: '',
       })
 
-      const result = await resolver.resolveByUserId(newUser.id)
-      expect(result).toBeNull()
-    })
-
-    it('returns the resolved district when district + position state are present', async () => {
-      const newUser = await service.prisma.user.create({
-        data: {
-          id: 5005,
-          email: 'ok@goodparty.org',
-          firstName: 'Ok',
-          lastName: 'Resolved',
-        },
-      })
-      const org = await createOrg(newUser.id, { positionId: 'pos-3' })
-      await createElectedOffice(newUser.id, org.slug)
-
-      organizations.getDistrictForOrgSlug.mockResolvedValueOnce({
-        id: 'd-2',
-        l2Type: 'City',
-        l2Name: 'Oakland',
-      })
-      elections.getPositionById.mockResolvedValueOnce({
-        id: 'pos-3',
-        state: 'CA',
-      })
-
-      const result = await resolver.resolveByUserId(newUser.id)
-      expect(result).toEqual({
-        state: 'CA',
-        l2DistrictType: 'City',
-        l2DistrictName: 'Oakland',
-        level: null,
-      })
-    })
-  })
-
-  describe('resolveByOrgSlug', () => {
-    it('returns null when no org exists for the slug', async () => {
-      const result = await resolver.resolveByOrgSlug('missing-slug')
-      expect(result).toBeNull()
-    })
-
-    it('returns null when the org has no positionId', async () => {
-      const org = await createOrg(service.user.id)
       const result = await resolver.resolveByOrgSlug(org.slug)
       expect(result).toBeNull()
     })

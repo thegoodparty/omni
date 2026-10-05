@@ -25,15 +25,12 @@ export class DistrictResolverService extends createPrismaBase(
     super()
   }
 
-  async resolveByUserId(userId: number): Promise<DistrictResolution | null> {
-    const electedOffice = await this.model.findFirst({ where: { userId } })
-    if (!electedOffice) return null
-    return this.resolveByOrgSlug(electedOffice.organizationSlug)
-  }
-
   // Resolves a district straight from the organization (its position), so a Win
   // campaign — which has no elected office — can scope constituent queries the
-  // same way Chief of Staff does. resolveByUserId funnels through here.
+  // same way Chief of Staff does. This is the only entry point on purpose: a
+  // user can hold offices in several orgs (ElectedOffice.userId is not
+  // unique), so resolving "the user's district" would pick one arbitrarily.
+  // Callers pass the org the conversation or resource belongs to.
   async resolveByOrgSlug(slug: string): Promise<DistrictResolution | null> {
     const org = await this.client.organization.findUnique({ where: { slug } })
     if (!org) return null
