@@ -1367,6 +1367,18 @@ describe('<ChiefOfStaffChatBody>', () => {
           },
         },
       })
+      // The drawing surface draws the list's whole audience, not its members.
+      api.mock('POST /v1/contacts/points', {
+        status: 200,
+        data: {
+          points: people.map((person) => ({
+            id: person.id,
+            lat: 44.7593,
+            lng: -85.6175,
+          })),
+          truncated: false,
+        },
+      })
     }
 
     // The tool's ARGS are the payload, so the card can render from the live

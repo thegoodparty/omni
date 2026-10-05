@@ -3,7 +3,21 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
-import ListBoundaryOverlay from './ListBoundaryOverlay'
+import type { SegmentResponse } from '../shared/contacts-types'
+import ListBoundaryOverlay, {
+  savedListAudienceFilters,
+} from './ListBoundaryOverlay'
+
+vi.mock('../wizard/useFilterPoints', () => ({
+  useFilterPoints: () => ({
+    points: [],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+  }),
+}))
+
+const SEGMENT = { id: 7, name: 'Seniors' } as SegmentResponse
 
 vi.mock('./ContactListMap', () => ({
   __esModule: true,
@@ -22,8 +36,7 @@ const renderOverlay = (over: Partial<{ onCancel: () => void }> = {}) =>
           discard the ring being drawn. */}
       <button type="button">Behind the overlay</button>
       <ListBoundaryOverlay
-        people={[]}
-        truncated={false}
+        segment={SEGMENT}
         initialShapes={[]}
         labels={LABELS}
         isSaving={false}
@@ -106,8 +119,7 @@ describe('ListBoundaryOverlay focus handling', () => {
           </button>
           {open && (
             <ListBoundaryOverlay
-              people={[]}
-              truncated={false}
+              segment={SEGMENT}
               initialShapes={[]}
               labels={LABELS}
               isSaving={false}
@@ -128,5 +140,52 @@ describe('ListBoundaryOverlay focus handling', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     await vi.waitFor(() => expect(opener).toHaveFocus())
+  })
+})
+
+// The members of a list with a boundary are already cut down to its shapes,
+// so drawing on them would hide everyone a new shape could add. The surface
+// draws the list's criteria instead, with the shape taken off.
+describe('savedListAudienceFilters', () => {
+  it('keeps every criterion and drops the boundary', () => {
+    const filters = savedListAudienceFilters({
+      id: 7,
+      name: 'Seniors',
+      age65Plus: true,
+      followUpRequested: true,
+      supportStatus: ['supporter'],
+      geoPoly: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 0],
+          ],
+        ],
+      },
+      geoPolyLabels: [{ name: 'Downtown', color: '#2563eb' }],
+      activityConditions: [
+        {
+          id: 3,
+          voterFileFilterId: 7,
+          outreachType: 'text',
+          outreachId: 12,
+          actions: ['responded'],
+        },
+      ],
+    } as unknown as SegmentResponse)
+
+    expect(filters).toMatchObject({
+      age65Plus: true,
+      followUpRequested: true,
+      supportStatus: ['supporter'],
+      activityConditions: [
+        { outreachType: 'text', outreachId: 12, actions: ['responded'] },
+      ],
+    })
+    expect(filters).not.toHaveProperty('geoPoly')
+    expect(filters).not.toHaveProperty('geoPolyLabels')
   })
 })

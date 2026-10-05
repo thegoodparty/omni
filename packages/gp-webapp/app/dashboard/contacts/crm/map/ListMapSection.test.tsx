@@ -99,6 +99,11 @@ beforeEach(() => {
     currentlySelectedPersonId: null,
     isWinContext: false,
   } as unknown as ReturnType<typeof useContactsTable>)
+  // The drawing surface draws the list's whole audience, not its members.
+  api.mock('POST /v1/contacts/points', {
+    status: 200,
+    data: { points: [{ id: 'p1', lat: 44.76, lng: -85.61 }], truncated: false },
+  })
   api.mock('GET /v1/contacts', {
     status: 200,
     data: {

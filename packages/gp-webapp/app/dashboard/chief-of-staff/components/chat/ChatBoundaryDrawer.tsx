@@ -2,7 +2,6 @@ import { useMemo } from 'react'
 import type { ShowListMap } from '@goodparty_org/contracts'
 import { shapesFromSaved } from 'app/dashboard/shared/listShapes'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
-import { useListPeople } from '../../../contacts/crm/map/useListPeople'
 import { useSavedList } from '../../../contacts/crm/map/useSavedList'
 import { useSaveListBoundary } from '../../../contacts/crm/map/useSaveListBoundary'
 import ListBoundaryOverlay from '../../../contacts/crm/map/ListBoundaryOverlay'
@@ -24,14 +23,12 @@ export default function ChatBoundaryDrawer({
   onClose: () => void
   onSaved: (result: { cleared: boolean }) => void
 }) {
-  const { people, truncated } = useListPeople(list.listId)
   const { list: saved } = useSavedList(list.listId)
   // In practice the row is already cached — the button that opens this only
   // appears once it has arrived — but the overlay reads its ring into
   // useState at mount and never again, so mounting it before the row exists
   // is unrecoverable rather than merely early. Cheap to refuse outright
   // instead of depending on the caller's gate staying correct.
-  const hasRow = Boolean(saved)
   const labels = getContactsLabels(false)
   const savedShapes = useMemo(
     () => shapesFromSaved(saved?.geoPoly, saved?.geoPolyLabels),
@@ -42,12 +39,11 @@ export default function ChatBoundaryDrawer({
     onSaved,
   })
 
-  if (!hasRow) return null
+  if (!saved) return null
 
   return (
     <ListBoundaryOverlay
-      people={people}
-      truncated={truncated}
+      segment={saved}
       initialShapes={savedShapes}
       labels={labels}
       isSaving={saveMutation.isPending}
