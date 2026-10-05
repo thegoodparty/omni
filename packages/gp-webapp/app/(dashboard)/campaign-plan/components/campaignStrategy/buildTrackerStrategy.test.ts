@@ -16,6 +16,8 @@ const row = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   phase: 'preLaunch',
   proRequired: null,
   isDefaultTask: false,
+  skipReason: null,
+  snoozedUntil: null,
   ...over,
 })
 
@@ -28,7 +30,7 @@ describe('buildTrackerStrategy', () => {
         row({ id: 'a', phase: 'preLaunch', completed: true }),
         row({ id: 'b', phase: 'launch' }),
       ],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     const pre = data.phases.find((p) => p.key === 'preLaunch')
     const tasks = pre?.groups.flatMap((g) => g.tasks) ?? []
@@ -39,6 +41,7 @@ describe('buildTrackerStrategy', () => {
   it('hides GOTV behind a window banner when >30 days out', () => {
     const election = startOfDay(new Date('2026-11-03'))
     const data = buildTrackerStrategy([row({ phase: 'gotv' })], {
+      onBallot: true,
       electionDate: election,
       today,
     })
@@ -52,7 +55,11 @@ describe('buildTrackerStrategy', () => {
     const active = Array.from({ length: 6 }, (_, i) =>
       row({ id: `t${i}`, phase: 'active', date: `2026-02-0${i + 2}` }),
     )
-    const data = buildTrackerStrategy(active, { electionDate: null, today })
+    const data = buildTrackerStrategy(active, {
+      onBallot: true,
+      electionDate: null,
+      today,
+    })
     const phase = data.phases.find((p) => p.key === 'active')
     expect(phase?.weeks).toHaveLength(1)
     expect(phase?.weeks?.flatMap((w) => w.tasks)).toHaveLength(6)
@@ -62,7 +69,11 @@ describe('buildTrackerStrategy', () => {
     const pre = Array.from({ length: 6 }, (_, i) =>
       row({ id: `p${i}`, phase: 'preLaunch', date: `2026-02-0${i + 1}` }),
     )
-    const data = buildTrackerStrategy(pre, { electionDate: null, today })
+    const data = buildTrackerStrategy(pre, {
+      onBallot: true,
+      electionDate: null,
+      today,
+    })
     const phase = data.phases.find((p) => p.key === 'preLaunch')
     expect(phase?.groups.flatMap((g) => g.tasks)).toHaveLength(6)
   })
@@ -73,7 +84,7 @@ describe('buildTrackerStrategy', () => {
         row({ id: 'a', phase: 'active', date: '2026-01-14' }),
         row({ id: 'b', phase: 'active', date: '2026-01-21' }),
       ],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     const weeks = data.phases.find((p) => p.key === 'active')?.weeks ?? []
     expect(weeks.map((w) => w.start)).toEqual(['2026-01-12', '2026-01-19'])
@@ -89,7 +100,7 @@ describe('buildTrackerStrategy', () => {
         row({ id: 'new', phase: 'active', week: 2, date: '2026-02-04' }),
         row({ id: 'static', phase: 'preLaunch', week: 5, isDefaultTask: true }),
       ],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     const active = data.phases
       .find((p) => p.key === 'active')
@@ -117,7 +128,7 @@ describe('buildTrackerStrategy', () => {
           completed: true,
         }),
       ],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     expect(data.phases.find((p) => p.key === 'active')?.status).toBe('active')
   })
@@ -128,7 +139,7 @@ describe('buildTrackerStrategy', () => {
         row({ id: 'a', phase: 'preLaunch', completed: true }),
         row({ id: 'b', phase: 'launch', completed: false }),
       ],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe('done')
     expect(data.phases.find((p) => p.key === 'launch')?.status).not.toBe('done')
@@ -145,7 +156,7 @@ describe('buildTrackerStrategy', () => {
         }),
         row({ id: 'r', phase: 'launch', flowType: 'robocall' }),
       ],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     const tasks = data.phases.flatMap((p) => p.groups).flatMap((g) => g.tasks)
     const byId = new Map(tasks.map((t) => [t.id, t]))
@@ -168,7 +179,7 @@ describe('buildTrackerStrategy', () => {
         }),
         row({ id: 'b', phase: 'launch', date: '2026-03-01' }),
       ],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe('done')
     expect(data.phases.find((p) => p.key === 'launch')?.status).toBe('active')
@@ -185,7 +196,7 @@ describe('buildTrackerStrategy', () => {
         }),
         row({ id: 'b', phase: 'active', date: '2026-04-01' }),
       ],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     expect(data.phases.find((p) => p.key === 'launch')?.status).not.toBe(
       'active',
@@ -215,7 +226,7 @@ describe('buildTrackerStrategy', () => {
         }),
         row({ id: 'gotv', phase: 'gotv', date: '2026-03-01' }),
       ],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     expect(data.phases.find((p) => p.key === 'active')?.status).toBe('active')
     expect(data.phases.find((p) => p.key === 'gotv')?.status).toBe('upcoming')
@@ -228,7 +239,7 @@ describe('buildTrackerStrategy', () => {
         row({ id: 'a', phase: 'preLaunch', date: '2026-01-01' }),
         row({ id: 'b', phase: 'launch', date: '2026-02-01' }),
       ],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     // Not all completed, and the calendar has reached/passed it → active.
     expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe(
@@ -241,7 +252,7 @@ describe('buildTrackerStrategy', () => {
     // populate). The empty preLaunch/launch must not strand Active as upcoming.
     const data = buildTrackerStrategy(
       [row({ id: 'a', phase: 'active', date: '2026-02-01' })],
-      { electionDate: null, today },
+      { onBallot: true, electionDate: null, today },
     )
     expect(data.phases.find((p) => p.key === 'active')?.status).toBe('active')
   })
@@ -264,6 +275,7 @@ describe('buildTrackerStrategy with the campaign story task', () => {
 
   it('renders in the pre-launch phase', () => {
     const data = buildTrackerStrategy([storyRow()], {
+      onBallot: true,
       electionDate: null,
       today,
     })
@@ -277,6 +289,7 @@ describe('buildTrackerStrategy with the campaign story task', () => {
   // card above it.
   it('labels the link with the row own CTA', () => {
     const data = buildTrackerStrategy([storyRow()], {
+      onBallot: true,
       electionDate: null,
       today,
     })
@@ -291,6 +304,7 @@ describe('buildTrackerStrategy with the campaign story task', () => {
 
   it('falls back to Open for a row with a link and no CTA', () => {
     const data = buildTrackerStrategy([storyRow({ cta: null })], {
+      onBallot: true,
       electionDate: null,
       today,
     })
@@ -303,6 +317,7 @@ describe('buildTrackerStrategy with the campaign story task', () => {
 
   it('reads as done once the story is complete and the row is ticked', () => {
     const data = buildTrackerStrategy([storyRow({ completed: true })], {
+      onBallot: true,
       electionDate: null,
       today,
     })
@@ -330,8 +345,99 @@ describe('buildTrackerStrategy with the campaign story task', () => {
         row({ id: 'this-week', phase: 'active', date: '2026-06-11' }),
         storyRow(),
       ],
-      { electionDate: startOfDay(new Date('2026-11-03')), today },
+      {
+        onBallot: true,
+        electionDate: startOfDay(new Date('2026-11-03')),
+        today,
+      },
     )
     expect(data.phases.find((p) => p.key === 'active')?.status).toBe('upcoming')
+  })
+})
+
+describe('buildTrackerStrategy: do this next', () => {
+  const today = startOfDay(new Date('2026-01-15'))
+  const nextIds = (data: ReturnType<typeof buildTrackerStrategy>) =>
+    data.phases
+      .flatMap((p) => [
+        ...p.groups.flatMap((g) => g.tasks),
+        ...(p.weeks ?? []).flatMap((w) => w.tasks),
+      ])
+      .filter((t) => t.isNext)
+      .map((t) => t.id)
+
+  it('marks exactly the task the shared picker chooses, in plan order', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({ id: 'launch', phase: 'launch', date: '2026-01-16' }),
+        row({ id: 'pre-late', phase: 'preLaunch', date: '2026-03-01' }),
+        row({ id: 'pre-early', phase: 'preLaunch', date: '2026-02-01' }),
+      ],
+      { onBallot: true, electionDate: null, today },
+    )
+    expect(nextIds(data)).toEqual(['pre-early'])
+  })
+
+  it('leads with ballot access for a candidate who has not filed', () => {
+    const tasks = [
+      row({ id: 'setup', phase: 'preLaunch', date: '2026-01-20' }),
+      row({
+        id: 'ballot',
+        phase: 'preLaunch',
+        date: '2026-03-01',
+        title: 'Submit your Ballot Access Signatures',
+      }),
+    ]
+    expect(
+      nextIds(
+        buildTrackerStrategy(tasks, {
+          onBallot: false,
+          electionDate: null,
+          today,
+        }),
+      ),
+    ).toEqual(['ballot'])
+    expect(
+      nextIds(
+        buildTrackerStrategy(tasks, {
+          onBallot: true,
+          electionDate: null,
+          today,
+        }),
+      ),
+    ).toEqual(['setup'])
+  })
+
+  it('passes over a skipped task and carries the reason to the row', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 'not-for-me',
+          phase: 'preLaunch',
+          date: '2026-01-20',
+          skipReason: 'notForMe',
+        }),
+        row({ id: 'open', phase: 'preLaunch', date: '2026-01-25' }),
+      ],
+      { onBallot: true, electionDate: null, today },
+    )
+    expect(nextIds(data)).toEqual(['open'])
+    const rendered = data.phases[0]?.groups[0]?.tasks ?? []
+    expect(rendered.find((t) => t.id === 'not-for-me')?.skipReason).toBe(
+      'notForMe',
+    )
+  })
+
+  it('counts a "not for me" task as settled when finishing a phase', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({ id: 'done', phase: 'preLaunch', completed: true }),
+        row({ id: 'dismissed', phase: 'preLaunch', skipReason: 'notForMe' }),
+        row({ id: 'launch', phase: 'launch', date: '2026-03-01' }),
+      ],
+      { onBallot: true, electionDate: null, today },
+    )
+    expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe('done')
+    expect(data.phases.find((p) => p.key === 'launch')?.status).toBe('active')
   })
 })

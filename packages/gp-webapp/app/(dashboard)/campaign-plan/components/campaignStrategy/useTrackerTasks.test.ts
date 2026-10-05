@@ -19,6 +19,8 @@ const row = (isDefaultTask: boolean): CampaignTrackerTask => ({
   phase: 'preLaunch',
   proRequired: null,
   isDefaultTask,
+  skipReason: null,
+  snoozedUntil: null,
 })
 
 describe('isTrackerGenerating', () => {

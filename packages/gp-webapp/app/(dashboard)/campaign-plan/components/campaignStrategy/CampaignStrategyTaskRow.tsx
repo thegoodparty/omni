@@ -26,6 +26,8 @@ interface CampaignStrategyTaskRowProps {
   task: CampaignStrategyTask
   index: number
   onToggleComplete?: (id: string, completed: boolean) => void
+  // Brings back a task the candidate said is not for them.
+  onUndoSkip?: (id: string) => void
   // In-place launcher for text/robocall tasks (legacy-task behavior): opens
   // the outreach flow with the task's due date instead of navigating.
   onStartOutreach?: (
@@ -68,9 +70,11 @@ const CampaignStrategyTaskRow = ({
   task,
   index,
   onToggleComplete,
+  onUndoSkip,
   onStartOutreach,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const formattedDate = formatTaskDate(task.date)
+  const setAside = !task.completed && task.skipReason === 'notForMe'
   const Icon = CHANNEL_ICONS[task.channel]
   const composeChannel = isComposeChannel(task.channel) ? task.channel : null
 
@@ -134,10 +138,16 @@ const CampaignStrategyTaskRow = ({
             className={cn(
               'text-sm font-semibold',
               task.completed && 'text-muted-foreground line-through',
+              setAside && 'text-muted-foreground',
             )}
           >
             {task.title}
           </span>
+          {setAside && (
+            <Badge className="text-muted-foreground border-border bg-transparent font-normal">
+              Not for me
+            </Badge>
+          )}
           {task.isNext && <Badge>Do this next</Badge>}
           {task.proRequired && (
             <Badge className="border-transparent bg-secondary text-secondary-foreground">
@@ -146,6 +156,17 @@ const CampaignStrategyTaskRow = ({
           )}
         </div>
         <p className="text-muted-foreground text-sm">{task.description}</p>
+        {setAside && onUndoSkip && (
+          <Button
+            type="button"
+            variant="link"
+            size="small"
+            className="text-primary h-auto p-0"
+            onClick={() => onUndoSkip(task.id)}
+          >
+            Undo
+          </Button>
+        )}
         {task.param && (
           <p className="text-muted-foreground text-xs">{task.param}</p>
         )}

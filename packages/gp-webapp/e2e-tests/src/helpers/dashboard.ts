@@ -1,9 +1,9 @@
 import { type Page, expect } from '@playwright/test'
 
 // The /election-result h1 (still shown once the election has
-// passed — unrelated to campaign-story), or HomeTasks' "Your top
-// priorities this week" h2 — the one heading Home always
-// renders, regardless of task-loading state. Shared so the dashboard and
+// passed — unrelated to campaign-story), or NextThingCard's "Do this next"
+// h2 — the one heading Home always renders, regardless of task-loading
+// state. Shared so the dashboard and
 // mobile specs query it the same way instead of each redefining the locator.
 export const dashboardGreetingHeading = (page: Page) =>
   page
@@ -12,7 +12,7 @@ export const dashboardGreetingHeading = (page: Page) =>
     .or(
       page.getByRole('heading', {
         level: 2,
-        name: /your top priorities this week/i,
+        name: /do this next/i,
       }),
     )
     .first()

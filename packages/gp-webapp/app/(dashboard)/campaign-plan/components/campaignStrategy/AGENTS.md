@@ -31,10 +31,17 @@ cards the candidate checks off. Feature overview + backend:
   the card pinned above the rail; the manager's task list prefers the same
   column. Before this the tracker hardcoded "Open" for every linked row, so a
   row could disagree with the surface next to it.
-- **Phase status has two axes.** `done` = every task in the phase completed;
-  "happening now" (active) is date-driven (the first non-empty phase still in
-  play). Empty intermediate phases are skipped so they can't strand a later
-  populated phase as `upcoming`.
+- **Phase status has two axes.** `done` = every task in the phase completed
+  or set aside as "not for me"; "happening now" (active) is date-driven (the
+  first non-empty phase still in play). Empty intermediate phases are skipped so
+  they can't strand a later populated phase as `upcoming`.
+- **"Do this next" is not decided here.** `buildTrackerStrategy` badges the
+  task `selectNextTrackerTask` (contracts) picks, the same call Home's
+  `NextThingCard` makes, so the plan and Home can never point at different
+  tasks. It is plan order, earliest first, with ballot access leading for a
+  candidate who is not `on-ballot`; done, snoozed (`later`) and `notForMe`
+  tasks are passed over, as is an event or scheduled send whose date has gone.
+  A `notForMe` row stays in its phase, muted, with an Undo.
 - **Pre-launch / Launch render all tasks; Active is a week navigator.** No
   progressive-reveal cap (the weekly digest is what caps at 3). The Active phase
   is built by `buildActiveWeeks`: it buckets every active task (all generations,

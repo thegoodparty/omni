@@ -11,6 +11,7 @@ import { buildTrackerStrategy } from './buildTrackerStrategy'
 import {
   isVoterContactFlowType,
   useGenerateTrackerTasks,
+  useSkipTrackerTask,
   useToggleTrackerTaskComplete,
   useTrackerTasks,
 } from './useTrackerTasks'
@@ -128,6 +129,10 @@ const CampaignStrategySection = (): React.JSX.Element => {
     setCountTask(null)
   }
 
+  const onBallot = campaign?.ballotStatus === 'on-ballot'
+  const skipTask = useSkipTrackerTask()
+  const onUndoSkip = (id: string) => skipTask.mutate({ id, reason: null })
+
   const metrics = campaign?.raceTargetMetrics
   const electionDateIso =
     metrics?.relevantElectionDate ??
@@ -142,8 +147,8 @@ const CampaignStrategySection = (): React.JSX.Element => {
     const electionDate = electionDateIso
       ? new Date(electionDateIso.replace(/-/g, '/'))
       : null
-    return buildTrackerStrategy(tasks, { electionDate })
-  }, [tasks, electionDateIso])
+    return buildTrackerStrategy(tasks, { electionDate, onBallot })
+  }, [tasks, electionDateIso, onBallot])
 
   // Fires only once `strategy` exists, so it means "the candidate actually saw
   // their tasks" — not merely that the route loaded (the page view already
@@ -270,6 +275,7 @@ const CampaignStrategySection = (): React.JSX.Element => {
                 key={phase.key}
                 phase={phase}
                 onToggleComplete={onToggleComplete}
+                onUndoSkip={onUndoSkip}
                 onStartOutreach={openOutreachFlow}
               />
             ))}

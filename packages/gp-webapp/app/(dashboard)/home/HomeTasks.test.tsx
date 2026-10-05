@@ -1,36 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
-import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import HomeTasks from './HomeTasks'
 
-const mockResult = vi.fn<() => TrackerTasksResult>()
-const mockToggle = vi.fn()
-// Partial-mock: keep the real isVoterContactFlowType, stub the data + mutation.
-vi.mock(
-  '../campaign-plan/components/campaignStrategy/useTrackerTasks',
-  async (importOriginal) => ({
-    ...(await importOriginal<
-      typeof import('../campaign-plan/components/campaignStrategy/useTrackerTasks')
-    >()),
-    useTrackerTasks: () => mockResult(),
-    useToggleTrackerTaskComplete: () => ({
-      mutate: mockToggle,
-      isPending: false,
-    }),
-  }),
-)
-
-// The meet card no longer keys off chat history; keep the module stubbed so no
-// child pulls the real query into jsdom.
-vi.mock('../chief-of-staff/data/use-chat-history', () => ({
-  useChatHistory: () => ({ data: [] }),
+// The next-thing card has its own tests; here it only has to be placed.
+vi.mock('./NextThingCard', () => ({
+  default: () => <div>next-thing-card</div>,
 }))
 
 // The story card gates on story completion; default to incomplete so it
-// renders alongside the tasks in most tests.
+// renders.
 vi.mock('app/(dashboard)/campaign-story/useCampaignStoryComplete', () => ({
   useCampaignStoryComplete: vi.fn(() => ({
     isComplete: false,
@@ -39,466 +19,53 @@ vi.mock('app/(dashboard)/campaign-story/useCampaignStoryComplete', () => ({
   })),
 }))
 
-// Stub the count modal to a submit button so we can assert the completion
-// wiring (type + quantity) without driving its internals.
-vi.mock('../components/tasks/CountModal', () => ({
-  default: ({
-    flowType,
-    onSubmit,
-  }: {
-    flowType: string
-    onSubmit: (count: number) => void
-  }) => (
-    <div>
-      <span>count-modal:{flowType}</span>
-      <button type="button" onClick={() => onSubmit(42)}>
-        submit-count
-      </button>
-    </div>
-  ),
-}))
-
-const meetButton = () =>
-  screen.queryByRole('button', { name: /start the tour/i })
-
-beforeEach(() => {
-  window.localStorage.clear()
-  mockToggle.mockClear()
-})
-
-const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
-  id: Math.random().toString(36).slice(2),
-  title: 'task',
-  description: '',
-  cta: null,
-  link: null,
-  flowType: null,
-  week: 1,
-  date: '2026-07-01T00:00:00.000Z',
-  completed: false,
-  phase: null,
-  proRequired: null,
-  isDefaultTask: false,
-  ...over,
-})
-
-const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
-  tasks,
-  isPending: false,
-  isError: false,
-  isGeneratingDynamic: false,
-})
+const renderHomeTasks = (
+  overrides: Partial<React.ComponentProps<typeof HomeTasks>> = {},
+) =>
+  render(
+    <HomeTasks
+      showMeetCard
+      onMeetManager={vi.fn()}
+      onSkipMeet={vi.fn()}
+      onPersonalize={vi.fn()}
+      {...overrides}
+    />,
+  )
 
 describe('HomeTasks', () => {
-  it('renders the top 3 dynamic tasks, excluding static and completed', () => {
-    mockResult.mockReturnValue(
-      settled([
-        task({
-          title: 'Knock 50 doors',
-          week: 2,
-          date: '2026-07-02T00:00:00.000Z',
-        }),
-        task({
-          title: 'Call your donors',
-          week: 2,
-          date: '2026-07-01T00:00:00.000Z',
-        }),
-        task({
-          title: 'Post an update',
-          week: 2,
-          date: '2026-07-03T00:00:00.000Z',
-        }),
-        task({
-          title: 'Send GOTV text',
-          week: 2,
-          date: '2026-07-04T00:00:00.000Z',
-        }),
-        task({ title: 'Register on ballot', isDefaultTask: true, week: 99 }),
-        task({ title: 'Done already', week: 2, completed: true }),
-      ]),
-    )
-
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={vi.fn()}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    // top 3 by date asc among incomplete dynamic latest-gen
-    expect(screen.getByText('Call your donors')).toBeInTheDocument()
-    expect(screen.getByText('Knock 50 doors')).toBeInTheDocument()
-    expect(screen.getByText('Post an update')).toBeInTheDocument()
-    // 4th dynamic task and the static/completed ones are not shown
-    expect(screen.queryByText('Send GOTV text')).not.toBeInTheDocument()
-    expect(screen.queryByText('Register on ballot')).not.toBeInTheDocument()
-    expect(screen.queryByText('Done already')).not.toBeInTheDocument()
+  it('shows the next thing to do', () => {
+    renderHomeTasks()
+    expect(screen.getByText('next-thing-card')).toBeInTheDocument()
   })
 
-  it('links each card CTA to the task action, falling back to the tracker', () => {
-    mockResult.mockReturnValue(
-      settled([
-        task({
-          title: 'With link',
-          week: 1,
-          cta: 'Knock doors',
-          link: '/outreach/doors',
-        }),
-        task({ title: 'No link', week: 1, cta: null, link: null }),
-      ]),
-    )
-
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={vi.fn()}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByRole('link', { name: 'Knock doors' })).toHaveAttribute(
-      'href',
-      '/outreach/doors',
-    )
-    // A task with no cta of its own falls back to a "See details" link → tracker.
-    expect(screen.getByRole('link', { name: 'See details' })).toHaveAttribute(
-      'href',
-      '/campaign-plan',
-    )
-  })
-
-  it('opens an external task link in a new tab, like the tracker', () => {
-    mockResult.mockReturnValue(
-      settled([
-        task({
-          title: 'File your paperwork',
-          week: 1,
-          cta: null,
-          link: 'https://www.sos.state.co.us/candidate',
-        }),
-      ]),
-    )
-
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={vi.fn()}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    const cta = screen.getByRole('link', { name: 'Open' })
-    expect(cta).toHaveAttribute('href', 'https://www.sos.state.co.us/candidate')
-    expect(cta).toHaveAttribute('target', '_blank')
-    expect(cta).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
-  })
-
-  it('treats an empty-string link as no link (no broken href)', () => {
-    mockResult.mockReturnValue(
-      settled([task({ title: 'Empty link', week: 1, cta: null, link: '' })]),
-    )
-
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={vi.fn()}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByRole('link', { name: 'See details' })).toHaveAttribute(
-      'href',
-      '/campaign-plan',
-    )
-  })
-
-  it('renders each task as a rich card with a category overline and summary', () => {
-    mockResult.mockReturnValue(
-      settled([
-        task({
-          title: 'Knock 60 doors in Maplewood',
-          week: 1,
-          flowType: 'doorKnocking',
-          description: 'Highest-persuasion turf; closes your contact gap.',
-        }),
-      ]),
-    )
-
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={vi.fn()}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByText('Door knocking')).toBeInTheDocument()
-    expect(
-      screen.getByText('Highest-persuasion turf; closes your contact gap.'),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Knock 60 doors in Maplewood')).toBeInTheDocument()
-  })
-
-  it('shows the meet button (when showMeetCard) and fires the callback', async () => {
+  it('shows the tour button (when showMeetCard) and fires the callback', async () => {
     const onMeet = vi.fn()
-    mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
+    renderHomeTasks({ onMeetManager: onMeet })
 
-    const user = userEvent.setup()
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={onMeet}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
+    await userEvent.click(
+      screen.getByRole('button', { name: /start the tour/i }),
     )
-    await user.click(screen.getByRole('button', { name: /start the tour/i }))
 
     expect(onMeet).toHaveBeenCalledOnce()
   })
 
-  it('does not render the meet card when showMeetCard is false', () => {
-    mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
+  it('does not render the tour card when showMeetCard is false', () => {
+    renderHomeTasks({ showMeetCard: false })
 
-    render(
-      <HomeTasks
-        showMeetCard={false}
-        onMeetManager={vi.fn()}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    expect(meetButton()).not.toBeInTheDocument()
-    // The priorities still render.
-    expect(screen.getByText('A task')).toBeInTheDocument()
-  })
-
-  it('marks a non-count task done directly, without a voter count', async () => {
-    const t = task({
-      title: 'Get Meta verified',
-      week: 1,
-      flowType: 'awareness',
-    })
-    mockResult.mockReturnValue(settled([t]))
-    const user = userEvent.setup()
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={vi.fn()}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    await user.click(screen.getByRole('button', { name: 'Mark done' }))
-
-    expect(mockToggle).toHaveBeenCalledWith({ id: t.id, completed: true })
-    expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
-  })
-
-  it('records a voter-contact count when completing a community-event task', async () => {
-    const t = task({
-      title: 'Greet voters at the polls',
-      week: 1,
-      flowType: 'events',
-    })
-    mockResult.mockReturnValue(settled([t]))
-    const user = userEvent.setup()
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={vi.fn()}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    // Completing an events task opens the count prompt instead of completing.
-    await user.click(screen.getByRole('button', { name: 'Mark done' }))
-    expect(mockToggle).not.toHaveBeenCalled()
-    expect(screen.getByText('count-modal:events')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'submit-count' }))
-    expect(mockToggle).toHaveBeenCalledWith({
-      id: t.id,
-      completed: true,
-      type: 'events',
-      quantity: 42,
-    })
-  })
-
-  it('shows a generating state while dynamic tasks are still being produced', () => {
-    mockResult.mockReturnValue({
-      tasks: [task({ isDefaultTask: true, week: 1 })],
-      isPending: false,
-      isError: false,
-      isGeneratingDynamic: true,
-    })
-
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={vi.fn()}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByText(/preparing/i)).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /start the tour/i }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('next-thing-card')).toBeInTheDocument()
   })
 
   it('renders the personalize story card and wires its button', async () => {
     const onPersonalize = vi.fn()
-    mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
+    renderHomeTasks({ onPersonalize })
 
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={vi.fn()}
-        onSkipMeet={vi.fn()}
-        onPersonalize={onPersonalize}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
     await userEvent.click(
       screen.getByRole('button', { name: 'Personalize your campaign' }),
     )
 
     expect(onPersonalize).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('text/robocall cards link into the outreach hub', () => {
-  it('renders Start outreach as a link carrying the due date', () => {
-    mockResult.mockReturnValue(
-      settled([
-        task({
-          title: 'Send a text blast',
-          flowType: 'text',
-          link: null,
-          date: '2026-07-14T00:00:00.000Z',
-        }),
-      ]),
-    )
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={() => undefined}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    // A link into the hub, not an in-place launcher: the hub owns the one
-    // mount of each channel flow and the gate in front of it.
-    expect(
-      screen.getByRole('link', { name: /start outreach/i }),
-    ).toHaveAttribute(
-      'href',
-      '/outreach?compose=text&source=campaign_manager&due=2026-07-14',
-    )
-  })
-
-  it('carries the tracker task and its phase, so the arrival joins back to it', () => {
-    mockResult.mockReturnValue(
-      settled([
-        task({
-          id: 'task-7',
-          title: 'Send a text blast',
-          flowType: 'text',
-          link: null,
-          date: '2026-07-14T00:00:00.000Z',
-          phase: 'launch',
-        }),
-      ]),
-    )
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={() => undefined}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    expect(
-      screen.getByRole('link', { name: /start outreach/i }),
-    ).toHaveAttribute(
-      'href',
-      '/outreach?compose=text&source=campaign_manager&due=2026-07-14&trackerTaskId=task-7&phase=launch',
-    )
-  })
-
-  it('links robocall tasks into the hub with the due date', () => {
-    mockResult.mockReturnValue(
-      settled([
-        task({
-          title: 'Record a robocall',
-          flowType: 'robocall',
-          link: null,
-          date: '2026-07-15T00:00:00.000Z',
-        }),
-      ]),
-    )
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={() => undefined}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    expect(
-      screen.getByRole('link', { name: /start outreach/i }),
-    ).toHaveAttribute(
-      'href',
-      '/outreach?compose=robocall&source=campaign_manager&due=2026-07-15',
-    )
-  })
-
-  it('keeps the tracker link for non-compose tasks and a task-owned link when present', () => {
-    mockResult.mockReturnValue(
-      settled([
-        task({ title: 'Knock doors', flowType: 'doorKnocking', link: null }),
-        task({
-          title: 'Texts with a link',
-          flowType: 'text',
-          link: 'https://example.com/action',
-        }),
-      ]),
-    )
-    render(
-      <HomeTasks
-        showMeetCard
-        onMeetManager={() => undefined}
-        onSkipMeet={vi.fn()}
-        onPersonalize={vi.fn()}
-        onGetOnBallot={vi.fn()}
-      />,
-    )
-
-    expect(screen.queryByRole('link', { name: /start outreach/i })).toBeNull()
-    expect(screen.queryByRole('button', { name: /start outreach/i })).toBeNull()
   })
 })

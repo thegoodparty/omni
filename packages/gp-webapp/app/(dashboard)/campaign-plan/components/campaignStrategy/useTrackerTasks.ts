@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
+import type { TrackerTaskSkipReason } from '@goodparty_org/contracts'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 
 const TRACKER_TASKS_ROUTE = 'GET /v1/campaigns/tracker-tasks' as const
@@ -157,6 +158,28 @@ export function useToggleTrackerTaskComplete() {
         queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
       }
     },
+  })
+}
+
+// Skip sets a task aside with a reason; passing null undoes the skip.
+export function useSkipTrackerTask() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      reason,
+    }: {
+      id: string
+      reason: TrackerTaskSkipReason | null
+    }) =>
+      reason
+        ? clientRequest('PUT /v1/campaigns/tracker-tasks/skip/:id', {
+            id,
+            reason,
+          })
+        : clientRequest('DELETE /v1/campaigns/tracker-tasks/skip/:id', { id }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY }),
   })
 }
 

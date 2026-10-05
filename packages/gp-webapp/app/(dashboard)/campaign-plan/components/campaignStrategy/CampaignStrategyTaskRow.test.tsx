@@ -38,6 +38,7 @@ describe('start outreach CTA', () => {
     unlocksAfter: null,
     isNext: false,
     completed: false,
+    skipReason: null,
   } as const
 
   it('opens the outreach flow in place with the channel and due date', () => {
@@ -89,6 +90,58 @@ describe('start outreach CTA', () => {
     )
     expect(
       screen.queryByRole('button', { name: /start outreach/i }),
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe('a task set aside as not for me', () => {
+  const task = {
+    id: 't2',
+    title: 'Order yard signs',
+    description: 'Get signs printed',
+    channel: 'general',
+    date: '2026-02-03T00:00:00.000Z',
+    param: null,
+    href: null,
+    hrefLabel: null,
+    priorityTier: 'P2',
+    proRequired: false,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: false,
+    completed: false,
+    skipReason: 'notForMe',
+  } as const
+
+  it('says so and offers Undo', () => {
+    const onUndoSkip = vi.fn()
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={task}
+          index={1}
+          onUndoSkip={onUndoSkip}
+        />
+      </ul>,
+    )
+    expect(screen.getByText('Not for me')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(onUndoSkip).toHaveBeenCalledWith('t2')
+  })
+
+  it('shows no Undo for a task snoozed for later', () => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{ ...task, skipReason: 'later' }}
+          index={1}
+          onUndoSkip={vi.fn()}
+        />
+      </ul>,
+    )
+    expect(screen.queryByText('Not for me')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Undo' }),
     ).not.toBeInTheDocument()
   })
 })

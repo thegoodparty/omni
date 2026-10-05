@@ -89,6 +89,9 @@ export {
   type PrioritySource,
   PRIORITY_SOURCE_VALUES,
   PrioritySourceSchema,
+  type TrackerTaskSkipReason,
+  TRACKER_TASK_SKIP_REASON_VALUES,
+  TrackerTaskSkipReasonSchema,
 } from './generated/enums'
 
 export {
@@ -388,6 +391,17 @@ export {
   CAMPAIGN_STORY_CATEGORY,
   CAMPAIGN_TASK_CATALOG,
 } from './campaigns/CampaignTaskCatalog.data'
+
+export {
+  GOTV_WINDOW_DAYS,
+  TRACKER_TASK_SNOOZE_DAYS,
+  isBallotAccessTask,
+  isTimeBoundTask,
+  isTrackerTaskSnoozed,
+  selectNextTrackerTask,
+  type NextTrackerTaskCandidate,
+  type NextTrackerTaskContext,
+} from './campaigns/NextTrackerTask'
 
 export {
   VOTER_CONTACT_SCHEDULE,

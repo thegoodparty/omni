@@ -1,4 +1,8 @@
 import { differenceInDays, format, startOfDay, startOfWeek } from 'date-fns'
+import {
+  GOTV_WINDOW_DAYS,
+  selectNextTrackerTask,
+} from '@goodparty_org/contracts'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type {
   CampaignStrategyData,
@@ -14,7 +18,8 @@ import type {
 // phases, and completion already live on the rows, so this only buckets by phase
 // and applies the deterministic display rules: the GOTV 30-day window gate, the
 // Active phase's Monday-Sunday week navigator (one week at a time, see
-// buildActiveWeeks), and "Do this next".
+// buildActiveWeeks), and "Do this next", which comes from the shared
+// selectNextTrackerTask so the plan and Home always point at the same task.
 
 const PHASE_META: {
   key: CampaignStrategyPhaseKey
@@ -42,8 +47,6 @@ const PHASE_META: {
     summary: 'Push your supporters to actually vote.',
   },
 ]
-
-const GOTV_WINDOW_DAYS = 30
 
 const FLOW_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
   text: 'text',
@@ -78,7 +81,13 @@ const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
   unlocksAfter: null,
   isNext: false,
   completed: row.completed,
+  skipReason: row.skipReason,
 })
+
+// A task the candidate said is not for them is settled, the same as a done
+// one, so it cannot hold a phase open.
+const isResolved = (task: CampaignStrategyTask): boolean =>
+  task.completed || task.skipReason === 'notForMe'
 
 // API dates are full ISO at UTC midnight; the catalog fallback is date-only.
 // Parse both as LOCAL midnight (slice + dash->slash, matching the date chip in
@@ -188,8 +197,6 @@ const buildActiveWeeks = (
         .filter((r) => r.isDefaultTask || r.week === latestGen)
         .map(toRenderTask)
         .sort(compareTasks)
-      const next = tasksForWeek.find((t) => !t.completed)
-      if (weekMs === todayWeek && next) next.isNext = true
       return {
         start: format(new Date(weekMs), 'yyyy-MM-dd'),
         tasks: tasksForWeek,
@@ -202,8 +209,9 @@ export const buildTrackerStrategy = (
   tasks: CampaignTrackerTask[],
   {
     electionDate,
+    onBallot,
     today = new Date(),
-  }: { electionDate: Date | null; today?: Date },
+  }: { electionDate: Date | null; onBallot: boolean; today?: Date },
 ): CampaignStrategyData => {
   // Weekly regen appends each run as a new `week` generation; older ones
   // persist (completion history + prior-task dedupe via MCP) but only the
@@ -236,7 +244,7 @@ export const buildTrackerStrategy = (
     phaseLatestDate.set(meta.key, dates.length ? Math.max(...dates) : null)
     phaseAllCompleted.set(
       meta.key,
-      phaseTasks.length > 0 && phaseTasks.every((t) => t.completed),
+      phaseTasks.length > 0 && phaseTasks.every(isResolved),
     )
     phaseIsEmpty.set(meta.key, phaseTasks.length === 0)
     return {
@@ -259,10 +267,7 @@ export const buildTrackerStrategy = (
   const activeWeeks = buildActiveWeeks(tasks, today)
   const navigableTasks = activeWeeks.flatMap((w) => w.tasks)
   if (navigableTasks.length > 0) {
-    phaseAllCompleted.set(
-      'active',
-      navigableTasks.every((t) => t.completed),
-    )
+    phaseAllCompleted.set('active', navigableTasks.every(isResolved))
     phaseIsEmpty.set('active', false)
   }
 
@@ -282,16 +287,21 @@ export const buildTrackerStrategy = (
     activeKeyPhase.groups = []
   }
 
-  // "Do this next" on the phase the calendar has reached. The Active phase marks
-  // its own (the current week's first open task, in buildActiveWeeks), so only
-  // a different "happening now" phase (e.g. Pre-launch early on) needs it here.
-  const happeningNow = phases.find((p) => p.status === 'active')
-  if (happeningNow && happeningNow.key !== 'active') {
-    const candidates = happeningNow.groups
-      .flatMap((g) => g.tasks)
-      .filter((t) => !t.completed)
-      .sort(compareTasks)
-    if (candidates[0]) candidates[0].isNext = true
+  const next = selectNextTrackerTask(tasks, {
+    onBallot,
+    electionDate,
+    now: today,
+  })
+  if (next) {
+    for (const phase of phases) {
+      const rendered = [
+        ...phase.groups.flatMap((g) => g.tasks),
+        ...(phase.weeks ?? []).flatMap((w) => w.tasks),
+      ]
+      for (const task of rendered) {
+        if (task.id === next.id) task.isNext = true
+      }
+    }
   }
 
   const daysToElection = electionDate

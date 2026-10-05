@@ -8,6 +8,7 @@ import type {
   PriorityTier,
   TaskChannel,
   TaskStatus,
+  TrackerTaskSkipReason,
 } from '@goodparty_org/contracts'
 
 export type {
@@ -41,6 +42,7 @@ export interface CampaignStrategyTask {
   unlocksAfter: string | null
   isNext: boolean
   completed: boolean
+  skipReason: TrackerTaskSkipReason | null
 }
 
 export interface CampaignStrategyGroup {

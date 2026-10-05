@@ -11,9 +11,9 @@ import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatP
 import type { TcrCompliance } from 'helpers/types'
 
 /**
- * The Campaign Manager dashboard home for the campaign-story cohort: the Pro
- * banner, the texting-compliance surfaces, the progress section, the first-run
- * "meet your campaign manager" card, and the top tracker tasks.
+ * Home for the campaign-story cohort: the Pro banner, the texting-compliance
+ * surfaces, the progress section, the first-run tour card, and the one next
+ * thing to do.
  *
  * The two compliance surfaces split the TCR states between them and never
  * co-render: TextingSetupBanner owns the retryable `error` record, and
@@ -55,7 +55,6 @@ export default function Home({
         onMeetManager={() => chat?.openManager()}
         onSkipMeet={() => chat?.dismissMeetCard()}
         onPersonalize={() => chat?.startStory()}
-        onGetOnBallot={() => chat?.startBallotAccess()}
       />
     </div>
   )

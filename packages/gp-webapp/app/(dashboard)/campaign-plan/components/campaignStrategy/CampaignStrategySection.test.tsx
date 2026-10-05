@@ -20,6 +20,7 @@ vi.mock('./useTrackerTasks', async (importOriginal) => ({
     mutate: mockToggle,
     isPending: false,
   }),
+  useSkipTrackerTask: () => ({ mutate: vi.fn(), isPending: false }),
   useGenerateTrackerTasks: () => ({
     generate: mockGenerate,
     isGenerating: mockIsGenerating,
@@ -71,6 +72,8 @@ const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   phase: 'launch',
   proRequired: false,
   isDefaultTask: false,
+  skipReason: null,
+  snoozedUntil: null,
   ...over,
 })
 

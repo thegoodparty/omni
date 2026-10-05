@@ -1,4 +1,5 @@
 import type {
+  TrackerTaskSkipReason,
   CreateDoorKnockingTurf,
   CreateServeDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
@@ -207,6 +208,10 @@ export type CampaignTrackerTask = {
   // false for the dynamic tasks + events the CAP run produces. Lets the client
   // tell "still generating" (only static present) from "done".
   isDefaultTask: boolean
+  // Why the candidate set the task aside, if they did. 'later' also carries
+  // snoozedUntil; 'notForMe' holds until they undo it.
+  skipReason: TrackerTaskSkipReason | null
+  snoozedUntil: string | null
 }
 
 /** Request/response shapes for the user-agenda-upload flow. */
@@ -939,6 +944,16 @@ export type APIEndpoints = {
   }
 
   'DELETE /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string }
+    Response: CampaignTrackerTask
+  }
+
+  'PUT /v1/campaigns/tracker-tasks/skip/:id': {
+    Request: { id: string; reason: TrackerTaskSkipReason }
+    Response: CampaignTrackerTask
+  }
+
+  'DELETE /v1/campaigns/tracker-tasks/skip/:id': {
     Request: { id: string }
     Response: CampaignTrackerTask
   }

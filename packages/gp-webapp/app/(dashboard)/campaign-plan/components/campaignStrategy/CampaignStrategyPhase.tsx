@@ -22,6 +22,7 @@ import CampaignStrategyTaskRow from './CampaignStrategyTaskRow'
 interface CampaignStrategyPhaseProps {
   phase: CampaignStrategyPhaseModel
   onToggleComplete?: (id: string, completed: boolean) => void
+  onUndoSkip?: (id: string) => void
   onStartOutreach?: (
     channel: 'text' | 'robocall',
     date: string | null,
@@ -45,10 +46,12 @@ const weekLabel = (start: string): string => {
 const WeekNavigator = ({
   weeks,
   onToggleComplete,
+  onUndoSkip,
   onStartOutreach,
 }: {
   weeks: CampaignStrategyWeek[]
   onToggleComplete?: (id: string, completed: boolean) => void
+  onUndoSkip?: (id: string) => void
   onStartOutreach?: (
     channel: 'text' | 'robocall',
     date: string | null,
@@ -116,6 +119,7 @@ const WeekNavigator = ({
               task={task}
               index={index + 1}
               onToggleComplete={onToggleComplete}
+              onUndoSkip={onUndoSkip}
               onStartOutreach={onStartOutreach}
             />
           ))}
@@ -158,6 +162,7 @@ const PhaseStatus = ({
 const CampaignStrategyPhase = ({
   phase,
   onToggleComplete,
+  onUndoSkip,
   onStartOutreach,
 }: CampaignStrategyPhaseProps): React.JSX.Element => (
   <AccordionItem
@@ -190,6 +195,7 @@ const CampaignStrategyPhase = ({
         <WeekNavigator
           weeks={phase.weeks}
           onToggleComplete={onToggleComplete}
+          onUndoSkip={onUndoSkip}
           onStartOutreach={onStartOutreach}
         />
       ) : (
@@ -209,6 +215,7 @@ const CampaignStrategyPhase = ({
                   task={task}
                   index={index + 1}
                   onToggleComplete={onToggleComplete}
+                  onUndoSkip={onUndoSkip}
                   onStartOutreach={onStartOutreach}
                 />
               ))}

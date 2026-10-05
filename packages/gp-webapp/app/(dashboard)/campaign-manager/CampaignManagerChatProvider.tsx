@@ -24,6 +24,7 @@ import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfSt
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 import {
   CAMPAIGN_MANAGER_BALLOT_KICKOFF,
+  buildAskAboutTaskKickoff,
   CAMPAIGN_MANAGER_HISTORY_KEY,
   buildCampaignManagerIntro,
   campaignManagerChatApi,
@@ -57,6 +58,9 @@ interface CampaignManagerChatContextValue {
   // Open the manager and ask how to get on the ballot (the ballot-access home
   // card). Does NOT dismiss the meet card.
   startBallotAccess: () => void
+  // Open the manager on a new chat asking for help with one task (the
+  // next-thing card). Does NOT dismiss the meet card.
+  askAboutTask: (task: { title: string; description: string }) => void
   // First-run meet-card visibility, shared so the home card and a manager open
   // stay in sync across the (layout-level) dock and the (page-level) card.
   meetDismissed: boolean
@@ -253,6 +257,13 @@ export function CampaignManagerChatProvider({
     openNewChat(CAMPAIGN_MANAGER_BALLOT_KICKOFF)
   }, [openNewChat])
 
+  const askAboutTask = useCallback(
+    (task: { title: string; description: string }) => {
+      openNewChat(buildAskAboutTaskKickoff(task))
+    },
+    [openNewChat],
+  )
+
   // The personalize deep link (`/home?personalize=1`) is how the plan-tab
   // story gate's "Open"/"Edit in campaign manager" links start the same story
   // flow as the manager home's own card. Read from the URL directly (not
@@ -293,6 +304,7 @@ export function CampaignManagerChatProvider({
       openConversation,
       startStory,
       startBallotAccess,
+      askAboutTask,
       meetDismissed,
       dismissMeetCard,
     }),
@@ -301,6 +313,7 @@ export function CampaignManagerChatProvider({
       openConversation,
       startStory,
       startBallotAccess,
+      askAboutTask,
       meetDismissed,
       dismissMeetCard,
     ],
