@@ -5,78 +5,17 @@ import {
   ChatStreamChunk,
   ChatStreamService,
 } from '@/chats/services/chatStream.service'
-import { z } from 'zod'
-import type { LlmTool } from '@/llm/services/llm.service'
-import { buildDistrictInsightsTool } from '@/llm/tools/districtInsights.tool'
-import { buildDistrictTopicsTool } from '@/llm/tools/districtTopics.tool'
-import {
-  buildGetMyNotesTool,
-  Note,
-  NotesProvider,
-} from '@/llm/tools/getMyNotes.tool'
-import {
-  Artifact,
-  ArtifactsProvider,
-  buildGetArtifactsTool,
-} from '@/llm/tools/getArtifacts.tool'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
-import { BriefingSchema } from '@/chats/briefing-chats/types/briefing.schema'
-import { BriefingArtifactsProvider } from './briefingArtifactsProvider'
+import {
+  BriefingAnnotationHandler,
+  requireConversationId,
+} from '../briefingAnnotation.handler'
 import { BriefingContextService } from './briefingContext.service'
 import { BriefingNotesService } from './briefingNotes.service'
 import { DistrictResolverService } from './districtResolver.service'
-import { extractHighlight } from './extractHighlight'
-import { buildSystemPrompt, todayInTimezone } from './systemPromptBuilder'
-
-type ParsedBriefing = z.infer<typeof BriefingSchema>
-
-const safeParseArtifact = (raw: string): ParsedBriefing | null => {
-  let json: unknown
-  try {
-    json = JSON.parse(raw)
-  } catch {
-    return null
-  }
-  const parsed = BriefingSchema.safeParse(json)
-  return parsed.success ? parsed.data : null
-}
-
-class LazyNotesProvider implements NotesProvider {
-  private cached: Promise<Note[]> | null = null
-
-  constructor(
-    private readonly notesService: BriefingNotesService,
-    private readonly userId: number,
-    private readonly briefingId: string,
-    private readonly artifactContent: string,
-  ) {}
-
-  list(): Promise<Note[]> {
-    if (this.cached === null) {
-      const pending = this.notesService.loadNotesForChat({
-        userId: this.userId,
-        briefingId: this.briefingId,
-        artifactContent: this.artifactContent,
-      })
-      this.cached = pending
-      pending.catch(() => {
-        if (this.cached === pending) this.cached = null
-      })
-    }
-    return this.cached
-  }
-}
 
 export const BRIEFING_CHATS_DATABRICKS_PROVIDER =
   'BRIEFING_CHATS_DATABRICKS_PROVIDER'
-
-const SERVE_AGENT_VOTERS_TABLE = 'serve_agent_voters'
-const SERVE_AGENT_VOTERS_ALLOWED_TABLES = new Set([SERVE_AGENT_VOTERS_TABLE])
-
-export const BRIEFING_CHAT_MODELS = [
-  'claude-sonnet-4-6',
-  'claude-opus-4-7',
-] as const
 
 export interface SendMessageArgs {
   annotationId: string
@@ -91,72 +30,50 @@ export interface LoadConversationResult {
   messages: ChatMessage[]
 }
 
-const requireConversationId = (chatConversationId: string | null): string => {
-  if (chatConversationId === null) {
-    throw new NotFoundException(
-      'Conversation not initialized for this annotation',
-    )
-  }
-  return chatConversationId
-}
-
 @Injectable()
 export class BriefingChatsService {
+  // The one BriefingAnnotationHandler instance. briefing-chats.module
+  // republishes it so the scope registry shares it with this send path.
+  readonly handler: BriefingAnnotationHandler
+
   constructor(
     private readonly briefingContext: BriefingContextService,
     private readonly chatStore: ChatStoreService,
     private readonly chatStream: ChatStreamService,
-    private readonly notesService: BriefingNotesService,
+    notesService: BriefingNotesService,
     @Optional()
     @Inject(BRIEFING_CHATS_DATABRICKS_PROVIDER)
-    private readonly databricks?: DatabricksProvider,
+    databricks?: DatabricksProvider,
     @Optional()
-    private readonly districtResolver?: DistrictResolverService,
-  ) {}
+    districtResolver?: DistrictResolverService,
+  ) {
+    this.handler = new BriefingAnnotationHandler(
+      briefingContext,
+      notesService,
+      databricks,
+      districtResolver,
+    )
+  }
 
+  // The turn itself is the shared one: context, prompt and tools all come from
+  // the registered handler. Only the annotation-keyed entry is briefing's own.
   sendMessage(args: SendMessageArgs): AsyncIterable<ChatStreamChunk> {
     const run = async function* (
       self: BriefingChatsService,
     ): AsyncGenerator<ChatStreamChunk, void, void> {
-      const { annotation, briefing, artifactContent, user, office } =
-        await self.briefingContext.loadContext(args.annotationId, args.userId)
-
-      const parsed = safeParseArtifact(artifactContent)
-      const { tools, availableToolNames, notesCount } =
-        await self.buildToolsForUser({
-          userId: args.userId,
-          briefingId: briefing.id,
-          artifactContent,
-          parsed,
-        })
-
-      const today = todayInTimezone(briefing.meetingTimezone)
-      const highlight = extractHighlight(artifactContent, annotation)
-      const systemPrompt = buildSystemPrompt({
-        annotation,
-        briefing,
-        artifactContent,
-        today,
-        availableToolNames,
-        notesCount,
-        user,
-        office,
-        highlight,
-        parsed,
-      })
-
-      const conversationId = requireConversationId(
-        annotation.chatConversationId,
+      const ctx = await self.handler.loadContextForAnnotation(
+        args.annotationId,
+        args.userId,
       )
 
       const inner = self.chatStream.stream({
-        conversationId,
+        conversationId: ctx.conversationId,
         ownerUserId: args.userId,
-        systemPrompt,
-        tools,
+        systemPrompt: self.handler.buildSystemPrompt(ctx),
+        tools: self.handler.buildTools(ctx),
         userMessage: args.userMessage,
-        models: [...BRIEFING_CHAT_MODELS],
-        traceName: 'briefing-chat-stream',
+        models: self.handler.models,
+        traceName: self.handler.traceName,
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
       })
@@ -207,63 +124,4 @@ export class BriefingChatsService {
     const conversationId = requireConversationId(annotation.chatConversationId)
     await this.chatStore.softDeleteConversation(conversationId, userId)
   }
-
-  private async buildToolsForUser(args: {
-    userId: number
-    briefingId: string
-    artifactContent: string
-    parsed: ParsedBriefing | null
-  }): Promise<{
-    tools: Record<string, LlmTool>
-    availableToolNames: string[]
-    notesCount: number
-  }> {
-    const { userId, briefingId, artifactContent, parsed } = args
-    const tools: Record<string, LlmTool> = {}
-    const artifactsProvider = new BriefingArtifactsProvider(parsed, briefingId)
-    tools.get_artifacts = buildGetArtifactsTool({ provider: artifactsProvider })
-
-    // Web search via Anthropic's native tool (briefing chat is Claude-only), so
-    // queries stay within the enterprise agreement. Gated on the key here too
-    // so the system prompt never advertises a tool that wasn't registered.
-    if (process.env.ANTHROPIC_API_KEY) {
-      tools.web_search = { kind: 'native_web_search', maxUses: 5 }
-    }
-
-    if (this.databricks && this.districtResolver) {
-      const resolved = await this.districtResolver.resolveByUserId(userId)
-      if (resolved) {
-        const mandatoryFilters =
-          this.districtResolver.toMandatoryFilters(resolved)
-        tools.district_insights = buildDistrictInsightsTool({
-          provider: this.databricks,
-          allowedTables: SERVE_AGENT_VOTERS_ALLOWED_TABLES,
-          mandatoryFilters,
-        })
-        tools.list_district_topics = buildDistrictTopicsTool()
-      }
-    }
-
-    const notesCount = await this.notesService.countNotesForUser({
-      userId,
-      briefingId,
-    })
-    if (notesCount > 0) {
-      const lazyProvider = new LazyNotesProvider(
-        this.notesService,
-        userId,
-        briefingId,
-        artifactContent,
-      )
-      tools.get_my_notes = buildGetMyNotesTool({ provider: lazyProvider })
-    }
-
-    return {
-      tools,
-      availableToolNames: Object.keys(tools),
-      notesCount,
-    }
-  }
 }
-
-export type { Artifact, ArtifactsProvider }
