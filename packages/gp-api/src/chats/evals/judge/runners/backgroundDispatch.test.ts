@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import {
   ARM_BUDGET_MS,
   CHAT_TURN_MS,
@@ -1106,6 +1107,23 @@ describe('refusedBeforeSpend', () => {
       expect(refusedBeforeSpend(agent, arm, () => one)).toBe(true)
     },
   )
+
+  // A GP-API READER NEEDS NONE OF THE SWEEP'S IDENTIFIERS. It dispatches as
+  // the seeded fixture, so a sweep whose identifiers step produced nothing
+  // must still run it, slug placeholder included, on both checks that decide.
+  it('runs a gp-api reader when the sweep resolved no identifiers', () => {
+    const reader = { ...background, readsGpApi: true as const }
+    const slugCase: BackgroundCase[] = [
+      { caseId: 'case-1', params: { organization_slug: '{judgeOrgSlug}' } },
+    ]
+    const arm = env({ fixtureValues: {} })
+    expect(armRefusal(reader, arm, slugCase)).toBe('')
+    expect(refusedBeforeSpend(reader, arm, () => slugCase)).toBe(false)
+    expect(
+      backgroundRunInputFor(request({ agent: reader }), arm, () => config())
+        .organizationSlug,
+    ).toBe(JUDGE_FIXTURE.orgSlug)
+  })
 
   // A VALUE THE SWEEP COULD NOT RESOLVE. The race goes missing once the named
   // election has passed; the loader then refuses exactly the lists that need

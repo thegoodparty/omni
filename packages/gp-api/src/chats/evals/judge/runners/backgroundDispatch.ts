@@ -176,11 +176,16 @@ export const refusedBeforeSpend = (
     ? (env.backgroundAdmitted !== undefined &&
         !env.backgroundAdmitted.has(agent.agentId)) ||
       // Also what a resolution that silently produced nothing looks like, and
-      // it is meant to: that sweep still judges its chat agents.
-      env.fixtureValues.orgSlug === undefined ||
+      // it is meant to: that sweep still judges its chat agents. Read
+      // through fixtureValuesFor, so an agent that dispatches as the seeded
+      // fixture is judged on the values it actually uses, not the sweep's.
+      fixtureValuesFor(agent, env.fixtureValues).orgSlug === undefined ||
       env.dispatchQueueUrl === undefined ||
       (agent.cases !== null &&
-        missingValues(casesFor(agent), env.fixtureValues).length > 0)
+        missingValues(
+          casesFor(agent),
+          fixtureValuesFor(agent, env.fixtureValues),
+        ).length > 0)
     : env.backgroundRefused?.has(agent.agentId) === true
 
 // THE AGENTS AN ARM MUST HAVE CAPTURED, for the arm suite's final check. A
@@ -240,7 +245,7 @@ export const backgroundRunInputFor = (
     )
   }
   const destination = backgroundDestinationFrom(env)
-  const orgSlug = env.fixtureValues.orgSlug
+  const orgSlug = fixtureValuesFor(request.agent, env.fixtureValues).orgSlug
   // Refused by name BEFORE anything is staged or sent. The dispatch builder
   // enforces the `judge-` prefix itself, but its message is about a slug it
   // was handed; this one is about the sweep not having resolved its
