@@ -271,7 +271,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   return (
     <NextThingSection headline={headline}>
-      <Card className="gap-4 rounded-2xl border border-grayscale-300 p-4 shadow-sm lg:p-6">
+      <Card className="gap-4 rounded-2xl border border-grayscale-300 p-4 lg:p-6">
         <div className="flex flex-col gap-2">
           {reasonTag && (
             <span className="self-start rounded-full bg-primary-light px-2.5 py-0.5 text-xs font-semibold text-primary-dark">

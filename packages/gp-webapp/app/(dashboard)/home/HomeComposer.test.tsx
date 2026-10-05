@@ -7,8 +7,16 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import HomeComposer from './HomeComposer'
 
 const mockSend = vi.fn()
+const mockOpenManager = vi.fn()
 vi.mock('../campaign-manager/CampaignManagerChatProvider', () => ({
-  useCampaignManagerChat: () => ({ sendFromComposer: mockSend }),
+  useCampaignManagerChat: () => ({
+    sendFromComposer: mockSend,
+    openManager: mockOpenManager,
+    openConversation: vi.fn(),
+  }),
+}))
+vi.mock('../chief-of-staff/components/chat/ChatHistoryPopover', () => ({
+  default: () => <button type="button">Past chats</button>,
 }))
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [{ firstName: 'Sarah' }],
@@ -44,7 +52,10 @@ describe('HomeComposer', () => {
   it('sends a question framed as being about the next step', async () => {
     render(<HomeComposer />)
 
-    expect(box()).toHaveAttribute('placeholder', 'Ask anything about this step')
+    expect(box()).toHaveAttribute(
+      'placeholder',
+      'How can I help with this step?',
+    )
     await userEvent.type(box(), 'Can I collect signatures online?')
     await userEvent.click(screen.getByRole('button', { name: 'Send' }))
 
@@ -76,5 +87,19 @@ describe('HomeComposer', () => {
     await userEvent.type(box(), 'What is a filing fee?{Enter}')
     expect(mockSend).toHaveBeenCalledWith('What is a filing fee?')
     expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('has a tool row: attach, past chats, voice and send', async () => {
+    render(<HomeComposer />)
+
+    expect(
+      screen.getByRole('button', { name: 'Past chats' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Dictate a message' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Attach a file' }))
+    expect(mockOpenManager).toHaveBeenCalled()
   })
 })
