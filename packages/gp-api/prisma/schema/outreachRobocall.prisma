@@ -88,32 +88,32 @@ model OutreachRobocall {
   // --- payment / settlement state (populated by later slices) -------------
 
   // The Stripe customer the hold and capture run against.
-  stripeCustomerId       String?             @map("stripe_customer_id")
+  stripeCustomerId        String?             @map("stripe_customer_id")
   // The saved card the hold and capture charge.
-  paymentMethodId        String?             @map("payment_method_id")
+  paymentMethodId         String?             @map("payment_method_id")
   // The CallHub voice-broadcast campaign this robocall dials from (its PK, as a
   // string — CallHub ids exceed a 32-bit int).
-  callhubCampaignPkStr   String?             @map("callhub_campaign_pk_str")
+  callhubCampaignPkStr    String?             @map("callhub_campaign_pk_str")
   // The CallHub campaign's scheduled dial window, mirrored back for settlement.
-  callhubStartingDate    DateTime?           @map("callhub_starting_date")
-  callhubExpirationDate  DateTime?           @map("callhub_expiration_date")
+  callhubStartingDate     DateTime?           @map("callhub_starting_date")
+  callhubExpirationDate   DateTime?           @map("callhub_expiration_date")
   // The Stripe PaymentIntent the hold is placed on (manual capture).
-  authorizationIntentId  String?             @map("authorization_intent_id")
+  authorizationIntentId   String?             @map("authorization_intent_id")
   // The amount actually authorized on the hold, in cents.
-  authorizedAmountInCents Int?               @map("authorized_amount_in_cents")
+  authorizedAmountInCents Int?                @map("authorized_amount_in_cents")
   // The deadline by which the hold must be captured before Stripe auto-expires
   // it (Stripe holds last ~7 days).
-  captureBefore          DateTime?           @map("capture_before")
+  captureBefore           DateTime?           @map("capture_before")
   // The amount actually captured off the hold once the dialed count is known.
-  capturedAmountInCents  Int?                @map("captured_amount_in_cents")
+  capturedAmountInCents   Int?                @map("captured_amount_in_cents")
   // The Stripe PaymentIntent a fresh charge is placed on when the hold has
   // lapsed and a new charge is needed instead of a capture.
-  chargeIntentId         String?             @map("charge_intent_id")
+  chargeIntentId          String?             @map("charge_intent_id")
   // How many times settlement has been attempted, to bound retries.
-  payAttempt             Int                 @default(0) @map("pay_attempt")
+  payAttempt              Int                 @default(0) @map("pay_attempt")
   // When the CallHub voice-broadcast was launched (START). Stamped by the send
   // slice at the dialing → dialed commit; null until the run actually dials.
-  dialedAt               DateTime?           @map("dialed_at")
+  dialedAt                DateTime?           @map("dialed_at")
   // Set true when the send slice confirmed a PERMANENT CallHub launch rejection
   // (a definitive 4xx — the campaign is guaranteed still PAUSED, never dialed)
   // but could not immediately commit the send_failed terminal (e.g. a transient
@@ -122,32 +122,32 @@ model OutreachRobocall {
   // strand, reverting to `authorized`, and relaunching into the same 4xx forever.
   // Only ever read while the row is still `dialing`; a send_failed row is
   // terminal, so a lingering true value on it is inert.
-  permanentSendFailure   Boolean             @default(false) @map("permanent_send_failure")
+  permanentSendFailure    Boolean             @default(false) @map("permanent_send_failure")
   // When this draft's audio passed the server-side compliance check, mirrored
   // from the RobocallComplianceResult at create. A hard prerequisite for
   // dialing: the send slice refuses to launch a draft whose value is null, a
   // belt-and-suspenders backstop under the create-time gate.
-  compliancePassedAt     DateTime?           @map("compliance_passed_at")
+  compliancePassedAt      DateTime?           @map("compliance_passed_at")
   // The S3 ETag of the audio that passed compliance, FROZEN at create from the
   // RobocallComplianceResult. The staging step re-reads the object's current
   // ETag before uploading it to CallHub and refuses a mismatch, so bytes swapped
   // after the create gate (a re-upload to the same presigned key) can never
   // reach voters. Frozen on the draft — not re-read from the mutable verdict —
   // so re-running compliance on swapped bytes can't retroactively bless them.
-  complianceAudioEtag    String?             @map("compliance_audio_etag")
+  complianceAudioEtag     String?             @map("compliance_audio_etag")
   // When the last "fix your card" reminder was sent for a hold_failed draft.
   // The daily reminder sweep stamps this on emit and only re-reminds a draft
   // whose value is null or older than ~1 day, so it is the primary once/day
   // guard against a double sweep re-emailing.
-  lastReminderSentAt     DateTime?           @map("last_reminder_sent_at")
+  lastReminderSentAt      DateTime?           @map("last_reminder_sent_at")
   // The completion sweep's snapshot of CallHub's actual completed/billable call
   // count (credits_usage `voice_calls`). Written on each terminal-status poll so
   // one sweep pass never settles a still-moving count: settlement requires two
   // consecutive polls to read the SAME count. The value the capture slice
   // charges (min(actual, authorized)); null until the run finishes dialing.
-  completedCallCount     Int?                @map("completed_call_count")
+  completedCallCount      Int?                @map("completed_call_count")
   // When the completion sweep last polled CallHub for this run's count.
-  completionPolledAt     DateTime?           @map("completion_polled_at")
+  completionPolledAt      DateTime?           @map("completion_polled_at")
   // A reward promotion code applied on the pay step. CAS mints these in Stripe
   // as single-use, amount-off codes; Stripe only applies a code to a Checkout
   // Session or invoice, never to the manual-capture hold this run pays with, so
@@ -164,12 +164,12 @@ model OutreachRobocall {
   // unique index on `promotion_code_id WHERE promo_redeemed_at IS NOT NULL`,
   // which Prisma cannot declare here (`prisma migrate diff` ignores partial
   // indexes, so it is not drift).
-  promotionCodeId        String?             @map("promotion_code_id")
-  promoCode              String?             @map("promo_code")
-  promoDiscountInCents   Int?                @map("promo_discount_in_cents")
-  promoRedeemedAt        DateTime?           @map("promo_redeemed_at")
-  promoCoversTotal       Boolean             @default(false) @map("promo_covers_total")
-  settleState            RobocallSettleState @default(pending_payment) @map("settle_state")
+  promotionCodeId         String?             @map("promotion_code_id")
+  promoCode               String?             @map("promo_code")
+  promoDiscountInCents    Int?                @map("promo_discount_in_cents")
+  promoRedeemedAt         DateTime?           @map("promo_redeemed_at")
+  promoCoversTotal        Boolean             @default(false) @map("promo_covers_total")
+  settleState             RobocallSettleState @default(pending_payment) @map("settle_state")
 
   @@map("outreach_robocall")
 }

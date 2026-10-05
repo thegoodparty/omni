@@ -4,16 +4,16 @@ enum WebsiteStatus {
 }
 
 model Website {
-  id                   Int              @id @default(autoincrement())
-  createdAt            DateTime         @default(now()) @map("created_at")
-  updatedAt            DateTime         @updatedAt @map("updated_at")
-  campaignId           Int              @unique @map("campaign_id")
-  campaign             Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  status               WebsiteStatus    @default(unpublished)
-  hasEverBeenPublished Boolean          @default(false) @map("has_ever_been_published")
-  vanityPath           String           @unique @map("vanity_path")
+  id                    Int                    @id @default(autoincrement())
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  campaignId            Int                    @unique @map("campaign_id")
+  campaign              Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  status                WebsiteStatus          @default(unpublished)
+  hasEverBeenPublished  Boolean                @default(false) @map("has_ever_been_published")
+  vanityPath            String                 @unique @map("vanity_path")
   /// [WebsiteContent]
-  content              Json?            @default("{}") @db.JsonB
+  content               Json?                  @default("{}") @db.JsonB
   /// TEMPORARY (remove after the 2026-11-03 general election).
   /// Candidate-authored hero headline, preserved for the 47 published Pro sites
   /// that had one when headlines became derived from the owner's name. Only the
@@ -25,10 +25,10 @@ model Website {
   /// add one — a new custom headline would reintroduce the stale-name
   /// divergence this replaced. Dropping the column changes those sites'
   /// headline to the derived form, so schedule it deliberately, not as cleanup.
-  legacyTitleOverride  String?          @map("legacy_title_override")
-  domain               Domain?
-  contacts             WebsiteContact[]
-  views                WebsiteView[]
+  legacyTitleOverride   String?                @map("legacy_title_override")
+  domain                Domain?
+  contacts              WebsiteContact[]
+  views                 WebsiteView[]
   raceOpponentContrasts RaceOpponentContrast[]
 
   @@map("website")

@@ -71,6 +71,22 @@ model TcrCompliance {
   // re-submitting while this is within the cooldown window — one alert, no storm.
   peerlyBillingBlockedAt DateTime? @map("peerly_billing_blocked_at")
 
+  // Set when Campaign Verify first refuses a submission for this record with a
+  // status that names nothing to correct (the bare `403 Forbidden` of
+  // 2026-10-02). Those refusals come and go — campaign 327336 was refused
+  // about a dozen times across an hour and then went through unchanged — so it
+  // is a "refused since", not a block: retries continue quietly while it is
+  // recent, and once the window closes the flow stops and staff are asked to
+  // raise it with Peerly. Cleared the moment a submission succeeds.
+  peerlyCvRefusedSince DateTime? @map("peerly_cv_refused_since")
+
+  // Stamped when the refusal window above closes and staff are asked to raise
+  // it with Peerly. Doubles as the once-only fire guard for that alert (the
+  // same idiom as pinSentDetectedAt): claimed with
+  // `updateMany WHERE peerlyCvRefusalAlertedAt IS NULL`, so two replicas
+  // cannot both post it. Cleared with the clock when a submission succeeds.
+  peerlyCvRefusalAlertedAt DateTime? @map("peerly_cv_refusal_alerted_at")
+
   agenticRunId               String?   @unique @map("agentic_run_id")
   agenticDispatchAttemptedAt DateTime? @map("agentic_dispatch_attempted_at")
 

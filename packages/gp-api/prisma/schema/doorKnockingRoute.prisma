@@ -4,23 +4,23 @@ enum DoorKnockingMode {
 }
 
 model DoorKnockingRoute {
-  id                 Int                    @id @default(autoincrement())
+  id                 Int              @id @default(autoincrement())
   // createdAt is the moment the route was bought; the row never mutates after
   // the transaction that writes it commits (see docs/door-knocking.md). Its
   // EXISTENCE is what says a turf has been routed, since it is written at
   // first knock rather than at turf creation.
-  createdAt          DateTime               @default(now()) @map("created_at")
-  updatedAt          DateTime               @updatedAt @map("updated_at")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
   // Unique: the route's only parent, and one route per turf is a database
   // fact rather than a convention — it is what makes a second buy of the same
   // turf impossible rather than merely unlikely.
-  turf               DoorKnockingTurf       @relation(fields: [doorKnockingTurfId], references: [id], onDelete: Cascade)
-  doorKnockingTurfId Int                    @unique @map("door_knocking_turf_id")
+  turf               DoorKnockingTurf @relation(fields: [doorKnockingTurfId], references: [id], onDelete: Cascade)
+  doorKnockingTurfId Int              @unique @map("door_knocking_turf_id")
   mode               DoorKnockingMode
   // True -> the optimized route returns to its start (start = end anchor).
   loop               Boolean
-  totalSeconds       Int                    @map("total_seconds")
-  totalMeters        Int                    @map("total_meters")
+  totalSeconds       Int              @map("total_seconds")
+  totalMeters        Int              @map("total_meters")
   // Geoapify credits spent generating this route: its Route Planner
   // optimization plus the Routing request for the path geometry below, the
   // latter only when that request completed. Priced in
@@ -30,7 +30,7 @@ model DoorKnockingRoute {
   /// Road-following path from Geoapify's Routing API, fetched once at knock
   /// and frozen (their terms permit storing results). Null when the routing
   /// call failed — consumers fall back to straight seq-order legs.
-  pathGeometry       Json?                  @map("path_geometry")
+  pathGeometry       Json?            @map("path_geometry")
   outreach           Outreach?
 
   @@map("door_knocking_route")

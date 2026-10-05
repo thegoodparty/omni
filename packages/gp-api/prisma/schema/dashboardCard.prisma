@@ -3,11 +3,11 @@ model DashboardCard {
   electedOfficeId String        @map("elected_office_id")
   electedOffice   ElectedOffice @relation(fields: [electedOfficeId], references: [id], onDelete: Cascade)
 
-  type    DashboardCardType
-  title   String
-  summary String            @db.Text
-  ctaLabel String           @map("cta_label")
-  ctaHref  String           @map("cta_href")
+  type     DashboardCardType
+  title    String
+  summary  String            @db.Text
+  ctaLabel String            @map("cta_label")
+  ctaHref  String            @map("cta_href")
 
   dueDate          DateTime  @map("due_date")
   sourceExternalId String    @map("source_external_id")

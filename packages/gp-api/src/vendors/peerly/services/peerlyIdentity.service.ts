@@ -68,8 +68,11 @@ import {
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../utils/peerlyBillingError.util'
 import {
+  getPeerlyCvNestedStatus,
   getPeerlyCvRejectionDetail,
+  isPeerlyCvRefusal,
   isPeerlyCvRejection,
+  PeerlyCvRefusalException,
   PeerlyCvRejectionException,
 } from '../utils/peerlyCvRejection.util'
 import { isPeerlyCvPinRejection } from '../utils/peerlyCvPinRejection.util'
@@ -557,6 +560,15 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           return null
         }
       }
+      // CV refusing to answer for this identity at all (a nested 4xx that is
+      // not 400) is the same refusal the submit call below hits, and this read
+      // is the first step of the same registration flow: a 502 here is retried
+      // just as pointlessly and pages on the way.
+      if (isPeerlyCvRefusal(e)) {
+        return await this.failOnCampaignVerifyRefusal(e, campaign, {
+          peerlyIdentityId,
+        })
+      }
       await this.handleApiError(e, { campaign, peerlyIdentityId })
     }
     return result
@@ -770,12 +782,57 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
             'resubmitting; retrying with the same data will fail again.',
         })
       }
+      // CV refusing the request itself (a nested 4xx that is not 400 — the
+      // `403 Forbidden` HTML page of 2026-10-02) carries nothing the candidate
+      // could correct: no field, no reason. As a 502 it read as a vendor blip,
+      // so the agent re-dispatched against it and paged the on-call on this
+      // route's server errors while the registration quietly stopped. Name
+      // CV's status instead, and leave the retry policy to the caller that
+      // owns the record: these 403s come and go (campaign 327336 was refused
+      // about a dozen times and then went through unchanged), so whether to
+      // wait and retry or stop and alert depends on how long this record has
+      // been refused — which only the TCR service knows.
+      if (isPeerlyCvRefusal(error)) {
+        return await this.failOnCampaignVerifyRefusal(error, campaign, {
+          ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
+        })
+      }
       await this.handleApiError(error, {
         campaign,
         ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
       })
     }
     return result
+  }
+
+  // Shared by both Campaign Verify calls in the registration flow. Alerts the
+  // 10DLC channel with something staff can act on, then throws a 400 so the
+  // compliance agent classifies it as non-retryable instead of re-dispatching
+  // against a refusal that answers the same way every time.
+  private async failOnCampaignVerifyRefusal(
+    error: unknown,
+    campaign: Campaign,
+    context: { peerlyIdentityId?: string },
+  ): Promise<never> {
+    const nestedStatus = getPeerlyCvNestedStatus(error)
+    const detail = getPeerlyCvRejectionDetail(error)
+    return await this.handleApiError(error, {
+      campaign,
+      ...context,
+      httpExceptionClass: PeerlyCvRefusalException,
+      // The generic per-identity error blob is suppressed here: a refusal is
+      // retried while it is recent, so posting one per attempt buried the
+      // actionable message twelve deep on 2026-10-02. The error-level log line
+      // still carries every refusal (the Peerly warnings alert reads those),
+      // and the compliance service posts one message naming the candidate once
+      // a record stays refused past its retry window.
+      suppressSlackAlert: true,
+      customMessage:
+        `Campaign Verify refused the request (CV returned ${nestedStatus})` +
+        (detail ? `: ${detail}` : '') +
+        ' — it named nothing to correct, so this is not a data rejection of ' +
+        "the candidate's filing details.",
+    })
   }
 
   // Distinct from the generic Peerly error alert: a billing outage blocks every
