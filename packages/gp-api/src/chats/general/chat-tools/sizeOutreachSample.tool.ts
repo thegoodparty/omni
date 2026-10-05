@@ -35,6 +35,15 @@ const sizeOutreachSampleInput = z.object({
       'Replies already in from earlier sends to this audience, when ' +
         'widening a sample that came back thin.',
     ),
+  alreadyAsked: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe(
+      'When widening, how many people those earlier sends went to, from ' +
+        'read_past_outreach. They are left out of the new sample.',
+    ),
 })
 
 const dollars = (texts: number): number => calcTextAmountInCents(texts) / 100
@@ -45,18 +54,34 @@ export const sizeOutreachSample = (
   input: z.infer<typeof sizeOutreachSampleInput>,
 ) => {
   const replyRate = input.replyRate ?? DEFAULT_TEXT_REPLY_RATE
+  const notYetAsked = Math.max(0, input.audience - (input.alreadyAsked ?? 0))
+  if (notYetAsked === 0) {
+    return {
+      error:
+        'Everyone in this audience has already been asked, so a wider ' +
+        'sample would reach nobody new. Say so instead of proposing one.',
+    }
+  }
+  if ((input.repliesAlready ?? 0) >= SAMPLE_TARGET_REPLIES) {
+    return {
+      error:
+        `The ${SAMPLE_TARGET_REPLIES} replies a sample is sized for are ` +
+        'already in, so there is nothing to widen. Read what came back.',
+    }
+  }
   const sampleSize = recommendedSampleSize({
-    audience: input.audience,
+    audience: notYetAsked,
     replyRate,
     repliesAlready: input.repliesAlready,
   })
   return {
     targetReplies: SAMPLE_TARGET_REPLIES,
     replyRate,
+    notYetAsked,
     sampleSize,
-    wholeAudience: sampleSize >= input.audience,
+    wholeAudience: sampleSize >= notYetAsked,
     sampleCost: dollars(sampleSize),
-    wholeAudienceCost: dollars(input.audience),
+    wholeAudienceCost: dollars(notYetAsked),
   }
 }
 
@@ -67,9 +92,9 @@ export const buildSizeOutreachSampleTool = (): LlmStreamTool<
     'Size a random sample for a text send, the way polls are sized: ' +
     `enough people for about ${SAMPLE_TARGET_REPLIES} replies. Call it ` +
     'after count_contacts, before you present a text. Returns sampleSize, ' +
-    'whether that is the whole audience, and the cost in dollars of the ' +
-    'sample and of texting everyone. Use these numbers as given; never ' +
-    'work them out yourself.',
+    'whether that is everyone not yet asked, and the cost in dollars of ' +
+    'the sample and of texting all of them. Use these numbers as given; ' +
+    'never work them out yourself.',
   inputSchema: sizeOutreachSampleInput,
   execute: sizeOutreachSample,
 })

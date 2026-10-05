@@ -434,6 +434,7 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('do not record that side confirmed or revised')
     expect(prompt).toContain('widensOutreachIds')
     expect(prompt).toContain('repliesAlready set to the replies already in')
+    expect(prompt).toContain('alreadyAsked set to how many people')
   })
 
   it('says a sample no smaller than its audience goes to all of it', async () => {

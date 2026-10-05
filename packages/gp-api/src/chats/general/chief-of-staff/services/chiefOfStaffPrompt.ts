@@ -11,6 +11,8 @@ import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnow
 import {
   MAX_CHECK_RAISES,
   PRIORITY_STEP_LABELS,
+  recommendedSampleSize,
+  SAMPLE_TARGET_REPLIES,
   type ChatAnchor,
   type PriorityStepCheck,
   type PriorityStepContrast,
@@ -19,7 +21,7 @@ import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { PriorityRecord } from './prioritiesPort'
 import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
 import { buildSampleSizingRules } from '../../chat-tools/outreachSampling.prompt'
-import { sizeOutreachSample } from '../../chat-tools/sizeOutreachSample.tool'
+import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 
 export const COS_GUARDRAIL_DECLINE =
   "I'm your Chief of Staff. Please ask me something about your office, " +
@@ -245,9 +247,10 @@ const COMPOSE_HANDOFF_RULES =
   'anything sends. Confirm you called it and let them take it from there.'
 
 const people = (n: number): string => n.toLocaleString('en-US')
-const dollars = (n: number): string => `$${people(Math.round(n))}`
+const dollars = (texts: number): string =>
+  `$${people(Math.round(calcTextAmountInCents(texts) / 100))}`
 const EXAMPLE_AUDIENCE = 50_000
-const EXAMPLE = sizeOutreachSample({ audience: EXAMPLE_AUDIENCE })
+const EXAMPLE_SAMPLE = recommendedSampleSize({ audience: EXAMPLE_AUDIENCE })
 
 const outreachSamplingBlock = (toolNames: string[]): string => {
   const has = (name: string): boolean => toolNames.includes(name)
@@ -255,7 +258,7 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
     'SAMPLING RULES (apply whenever you propose a text with `present_outreach_proposal`):',
     '- Texting a whole audience costs real money, and most texts do not need everyone. Before you present a text, size a random sample with `size_outreach_sample` and offer it.',
     '- When the text asks people something (a question, a survey, what they think of a plan), propose the sample by default. When it tells people something they all need to know, propose the whole audience and mention the sample in one line as the cheaper option.',
-    `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE.wholeAudienceCost)}. ${people(EXAMPLE.sampleSize)} picked at random is about ${dollars(EXAMPLE.sampleCost)} and should bring back about ${EXAMPLE.targetReplies} replies." If they want everyone instead, present it again with sampleSize left out.`,
+    `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
     ...buildSampleSizingRules({
       has,
       sender: 'the official',
