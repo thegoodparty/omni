@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   type NextTrackerTaskCandidate,
+  rankNextTrackerTasks,
   selectNextTrackerTask,
 } from './NextTrackerTask'
 
@@ -137,5 +138,42 @@ describe('selectNextTrackerTask', () => {
         task({ id: 'unknown', phase: null, date: '2026-10-20' }),
       ]),
     ).toBe('unknown')
+  })
+})
+
+describe('rankNextTrackerTasks', () => {
+  it('queues the open tasks behind the next thing in plan order', () => {
+    const ranked = rankNextTrackerTasks(
+      [
+        task({ id: 'c', phase: 'active', date: '2026-10-06' }),
+        task({ id: 'done', completed: true }),
+        task({ id: 'a', phase: 'preLaunch', date: '2026-10-20' }),
+        task({ id: 'b', phase: 'launch', date: '2026-10-06' }),
+      ],
+      { onBallot: true, electionDate: FAR_ELECTION, now: NOW },
+    )
+    expect(ranked.map((t) => t.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('moves every ballot access task to the front when not on the ballot', () => {
+    const ranked = rankNextTrackerTasks(
+      [
+        task({ id: 'setup', phase: 'preLaunch', date: '2026-10-06' }),
+        task({
+          id: 'signatures',
+          phase: 'preLaunch',
+          date: '2026-11-15',
+          title: 'Submit your Ballot Access Signatures',
+        }),
+        task({
+          id: 'begin',
+          phase: 'preLaunch',
+          date: '2026-11-01',
+          title: 'Begin Ballot Access Period',
+        }),
+      ],
+      { onBallot: false, electionDate: FAR_ELECTION, now: NOW },
+    )
+    expect(ranked.map((t) => t.id)).toEqual(['begin', 'signatures', 'setup'])
   })
 })

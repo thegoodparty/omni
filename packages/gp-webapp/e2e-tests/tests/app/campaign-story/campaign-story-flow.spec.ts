@@ -65,9 +65,9 @@ test.describe('campaign story flow', () => {
 
     await completeOnboardingUpToPledge(page)
 
-    // The pledge CTA is "Get started"; submitting lands on Home (/home),
-    // which shows the "Take a quick tour" card for a brand-new candidate (no
-    // ?personalize, so the chat does not auto-open here).
+    // The pledge CTA is "Get started"; submitting lands on Home (/home), whose
+    // "Do this next" heading renders in every state (no ?personalize, so the
+    // chat does not auto-open here).
     const submit = page.getByRole('button', { name: /^get started$/i }).first()
     await expect(submit).toBeVisible({ timeout: 15000 })
     await expect(submit).toBeEnabled()
@@ -76,7 +76,7 @@ test.describe('campaign story flow', () => {
     await page.waitForURL('**/home', { timeout: 30000 })
     await expect(
       page.getByRole('heading', {
-        name: 'Take a quick tour',
+        name: 'Do this next',
         level: 2,
       }),
     ).toBeVisible({ timeout: 30000 })
@@ -104,10 +104,8 @@ test.describe('campaign story flow', () => {
     ).toHaveCount(0)
 
     // The story is still invited, via the same /home?personalize=1 deep
-    // link, which opens chat straight into the story
-    // intake (rather than showing the meet-card home) — so assert the intake
-    // copy the chat streams, not the meet-card heading, which is hidden once
-    // the chat opens.
+    // link, which opens chat straight into the story intake, so assert the
+    // intake copy the chat streams.
     await storyLink.click()
     await page.waitForURL('**/home**', { timeout: 30000 })
     await expect(page.getByText(/get your Campaign Story down/i)).toBeVisible({

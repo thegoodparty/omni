@@ -4,17 +4,14 @@ import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
 import Home from '../home/Home'
 import { WebsiteSunsetModalController } from '../shared/WebsiteSunsetModalController'
-import type { TcrCompliance } from 'helpers/types'
 
 interface DashboardContentProps {
   pathname: string
-  tcrCompliance: TcrCompliance | null
   sunsetEligible: boolean
 }
 
 export default function DashboardContent({
   pathname,
-  tcrCompliance,
   sunsetEligible,
 }: DashboardContentProps): React.JSX.Element {
   return (
@@ -25,7 +22,7 @@ export default function DashboardContent({
       navHeader={{ icon: 'house', label: NAV_LABELS.home }}
     >
       <WebsiteSunsetModalController eligible={sunsetEligible} />
-      <Home tcrCompliance={tcrCompliance} />
+      <Home />
     </DashboardLayout>
   )
 }

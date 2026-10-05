@@ -8,7 +8,7 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 
 | File | Role |
 |------|------|
-| `home/page.tsx` | Dashboard home (`/home`) — campaign overview |
+| `home/page.tsx` | Home (`/home`): the one next thing (`NextThingCard`, from `useNextThing` → contracts' `rankNextTrackerTasks`) and the chat box about it (`HomeComposer`), nothing else. The chat dock skips its fixed footer bar on `/home` because the chat box is in the page |
 | `shared/DashboardLayout.tsx` | Layout wrapper — sidebar, header, auth gating. Pass `navHeader={{ icon, label }}` to render a full-bleed in-body header that mirrors the active nav item (every main nav page uses it) |
 | `shared/DashboardNavHeader.tsx` | The shared full-bleed icon + tab-name header bar rendered by `DashboardLayout` for `navHeader`; Community Issues' `IssuesNavHeader` also delegates to it |
 | `shared/DashboardNavHeaderAction.tsx` | Portals a page's primary CTA into that bar, aligned top right, from anywhere below `DashboardLayout` |

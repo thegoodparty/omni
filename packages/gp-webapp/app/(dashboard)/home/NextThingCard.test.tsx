@@ -30,15 +30,6 @@ vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 1, ballotStatus: mockBallotStatus, details: {} }],
 }))
 
-const mockAskAboutTask = vi.fn()
-const mockStartBallotAccess = vi.fn()
-vi.mock('../campaign-manager/CampaignManagerChatProvider', () => ({
-  useCampaignManagerChat: () => ({
-    askAboutTask: mockAskAboutTask,
-    startBallotAccess: mockStartBallotAccess,
-  }),
-}))
-
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
@@ -85,8 +76,6 @@ beforeEach(() => {
   mockBallotStatus = 'on-ballot'
   mockToggle.mockClear()
   mockSkip.mockClear()
-  mockAskAboutTask.mockClear()
-  mockStartBallotAccess.mockClear()
   vi.mocked(trackEvent).mockClear()
 })
 
@@ -104,7 +93,9 @@ describe('NextThingCard', () => {
     expect(
       screen.getByRole('heading', { name: 'Order yard signs' }),
     ).toBeInTheDocument()
-    expect(screen.queryByText('Knock doors')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Knock doors' }),
+    ).not.toBeInTheDocument()
   })
 
   it('records one view per task shown', () => {
@@ -202,20 +193,6 @@ describe('NextThingCard', () => {
     )
   })
 
-  it('opens chat about the task', async () => {
-    const shown = task({})
-    mockResult.mockReturnValue(settled([shown]))
-    render(<NextThingCard />)
-
-    await userEvent.click(screen.getByRole('button', { name: /ask in chat/i }))
-
-    expect(mockAskAboutTask).toHaveBeenCalledWith(shown)
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Dashboard.CampaignPlan.NextThingStarted,
-      expect.objectContaining({ via: 'chat' }),
-    )
-  })
-
   describe('for a candidate who is not on the ballot', () => {
     const ballotTask = task({
       id: 'ballot',
@@ -241,16 +218,50 @@ describe('NextThingCard', () => {
       )
       expect(await screen.findByText('filing-instructions')).toBeInTheDocument()
     })
+  })
 
-    it('asks chat the ballot question', async () => {
-      render(<NextThingCard />)
+  it('says where the step sits in its phase', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({ id: 'done', phase: 'launch', completed: true }),
+        task({ id: 'next', phase: 'launch', title: 'Plan your launch event' }),
+        task({
+          id: 'after',
+          phase: 'launch',
+          date: '2099-08-01T00:00:00.000Z',
+        }),
+      ]),
+    )
+    render(<NextThingCard />)
 
-      await userEvent.click(
-        screen.getByRole('button', { name: /ask in chat/i }),
-      )
-      expect(mockStartBallotAccess).toHaveBeenCalled()
-      expect(mockAskAboutTask).not.toHaveBeenCalled()
-    })
+    expect(screen.getByText('Step 2 of 3 · Launch')).toBeInTheDocument()
+  })
+
+  it('counts what is queued behind it and links to the full plan', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({ id: 'a', title: 'Order yard signs', phase: 'preLaunch' }),
+        task({ id: 'b', title: 'Plan your launch event', phase: 'launch' }),
+        task({ id: 'c', title: 'Knock your first doors', phase: 'active' }),
+        task({
+          id: 'd',
+          title: 'Send your intro text',
+          phase: 'active',
+          date: '2099-09-01T00:00:00.000Z',
+        }),
+      ]),
+    )
+    render(<NextThingCard />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Order yard signs' }),
+    ).toBeInTheDocument()
+    // Only the next task is readable; the rest are counted, not listed.
+    expect(screen.queryByText('Plan your launch event')).not.toBeInTheDocument()
+    expect(screen.getByText(/3 more steps after this/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'See your full plan' }),
+    ).toHaveAttribute('href', '/campaign-plan')
   })
 
   it('says the plan is still coming together before any task exists', () => {

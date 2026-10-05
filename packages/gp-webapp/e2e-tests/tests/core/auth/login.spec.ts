@@ -65,7 +65,7 @@ test.describe('Login Functionality', () => {
     await page.waitForURL('**/home', { timeout: 30000 })
     await wait(500)
     await expect(
-      page.getByText('Campaign progress', { exact: true }),
+      page.getByRole('heading', { name: 'Do this next', level: 2 }),
     ).toBeVisible()
   })
 })

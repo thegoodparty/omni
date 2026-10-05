@@ -6,7 +6,6 @@ import { serverFetch } from 'gpApi/serverFetch'
 import { fetchUserWebsite } from 'helpers/fetchUserWebsite'
 import { isWebsiteSunsetEligible } from '../shared/websiteSunset'
 import { redirect } from 'next/navigation'
-import type { TcrCompliance } from 'helpers/types'
 
 const meta = pageMetaData({
   title: 'Home | GoodParty.org',
@@ -38,19 +37,11 @@ export default async function Page(): Promise<React.JSX.Element> {
     return redirect('/chief-of-staff')
   }
 
-  const [tcrComplianceResponse, website] = await Promise.all([
-    serverFetch<TcrCompliance>(apiRoutes.campaign.tcrCompliance.fetch),
-    fetchUserWebsite(),
-  ])
-
-  const tcrCompliance = tcrComplianceResponse.ok
-    ? tcrComplianceResponse.data
-    : null
+  const website = await fetchUserWebsite()
 
   return (
     <DashboardContent
       pathname="/home"
-      tcrCompliance={tcrCompliance}
       sunsetEligible={isWebsiteSunsetEligible(website)}
     />
   )

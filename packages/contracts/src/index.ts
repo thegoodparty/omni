@@ -398,6 +398,7 @@ export {
   isBallotAccessTask,
   isTimeBoundTask,
   isTrackerTaskSnoozed,
+  rankNextTrackerTasks,
   selectNextTrackerTask,
   type NextTrackerTaskCandidate,
   type NextTrackerTaskContext,

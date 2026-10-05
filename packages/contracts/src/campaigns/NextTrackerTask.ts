@@ -107,10 +107,12 @@ const comparePlanOrder = (
   dateKey(a.date).localeCompare(dateKey(b.date)) ||
   a.id.localeCompare(b.id)
 
-export const selectNextTrackerTask = <T extends NextTrackerTaskCandidate>(
+// Every task that could be the next thing, most important first. The head of
+// the list is the next thing; the rest is the queue behind it.
+export const rankNextTrackerTasks = <T extends NextTrackerTaskCandidate>(
   tasks: T[],
   { onBallot, electionDate, now }: NextTrackerTaskContext,
-): T | null => {
+): T[] => {
   const today = localDateKey(now)
   const gotvOpen =
     electionDate !== null &&
@@ -127,9 +129,14 @@ export const selectNextTrackerTask = <T extends NextTrackerTaskCandidate>(
     )
     .sort(comparePlanOrder)
 
-  if (!onBallot) {
-    const ballotTask = eligible.find(isBallotAccessTask)
-    if (ballotTask) return ballotTask
-  }
-  return eligible[0] ?? null
+  if (onBallot) return eligible
+  return [
+    ...eligible.filter(isBallotAccessTask),
+    ...eligible.filter((task) => !isBallotAccessTask(task)),
+  ]
 }
+
+export const selectNextTrackerTask = <T extends NextTrackerTaskCandidate>(
+  tasks: T[],
+  context: NextTrackerTaskContext,
+): T | null => rankNextTrackerTasks(tasks, context)[0] ?? null

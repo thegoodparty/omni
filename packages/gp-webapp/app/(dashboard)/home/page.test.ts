@@ -121,7 +121,7 @@ describe('dashboard Page behavior', () => {
     expect(mockFetchUserWebsite).not.toHaveBeenCalled()
   })
 
-  it('renders the dashboard (fetching tcr + website) when there is no current elected office', async () => {
+  it('renders Home (fetching the website, not tcr) when there is no current elected office', async () => {
     wireServerFetch({ hasElectedOffice: false })
 
     await expect(Page()).resolves.toBeDefined()
@@ -130,7 +130,8 @@ describe('dashboard Page behavior', () => {
       ([endpoint]) => (endpoint as ApiRoute).path,
     )
     expect(fetchedPaths).toContain(ELECTED_OFFICE_PATH)
-    expect(fetchedPaths).toContain(TCR_PATH)
+    // Home no longer shows the texting-compliance surfaces.
+    expect(fetchedPaths).not.toContain(TCR_PATH)
     expect(mockFetchUserWebsite).toHaveBeenCalledTimes(1)
     expect(mockRedirect).not.toHaveBeenCalled()
   })

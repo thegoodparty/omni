@@ -61,6 +61,9 @@ interface CampaignManagerChatContextValue {
   // Open the manager on a new chat asking for help with one task (the
   // next-thing card). Does NOT dismiss the meet card.
   askAboutTask: (task: { title: string; description: string }) => void
+  // Open the manager on a new chat with a message the candidate already typed
+  // somewhere else (Home's chat box). Sent visibly, as their first message.
+  sendFromComposer: (message: string) => void
   // First-run meet-card visibility, shared so the home card and a manager open
   // stay in sync across the (layout-level) dock and the (page-level) card.
   meetDismissed: boolean
@@ -106,12 +109,17 @@ export function CampaignManagerChatProvider({
   const firstName = user?.firstName || undefined
   const router = useRouter()
   const pathname = usePathname()
+  const isHome = pathname === '/home'
   const [chatOpen, setChatOpen] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   // One-shot hidden kickoff sent once the resolved conversation loads (see
   // ChiefOfStaffChatBody's pendingKickoff effect). Cleared on close so a later
   // plain reopen (e.g. the meet card) never replays it.
   const [pendingKickoff, setPendingKickoff] = useState<string | undefined>(
+    undefined,
+  )
+  // One-shot visible first message from Home's chat box; cleared on close.
+  const [pendingMessage, setPendingMessage] = useState<string | undefined>(
     undefined,
   )
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
@@ -217,9 +225,24 @@ export function CampaignManagerChatProvider({
   // callers below decide whether opening counts as "meeting the manager".
   const openNewChat = useCallback((kickoff?: string) => {
     setPendingKickoff(kickoff)
+    setPendingMessage(undefined)
     setConversationId(null)
     setChatOpen(true)
   }, [])
+
+  // Home's chat box collected the first message itself, so the drawer opens on
+  // a new chat and sends it as the candidate's own (visible) turn. Counts as
+  // meeting the manager, like the footer bar.
+  const sendFromComposer = useCallback(
+    (message: string) => {
+      dismissMeetCard()
+      setPendingKickoff(undefined)
+      setPendingMessage(message)
+      setConversationId(null)
+      setChatOpen(true)
+    },
+    [dismissMeetCard],
+  )
 
   // General open (meet card / footer): counts as meeting the manager, so it
   // dismisses the first-run meet card. Resumes the most recent conversation;
@@ -294,8 +317,11 @@ export function CampaignManagerChatProvider({
   // effect dependency of the typed-in intro — a fresh array every render would
   // restart the typing interval on every keystroke of it.
   const greetingOpener = useMemo(
-    () => (conversationId || pendingKickoff ? undefined : greetingIntro),
-    [conversationId, pendingKickoff, greetingIntro],
+    () =>
+      conversationId || pendingKickoff || pendingMessage
+        ? undefined
+        : greetingIntro,
+    [conversationId, pendingKickoff, pendingMessage, greetingIntro],
   )
 
   const contextValue = useMemo(
@@ -305,6 +331,7 @@ export function CampaignManagerChatProvider({
       startStory,
       startBallotAccess,
       askAboutTask,
+      sendFromComposer,
       meetDismissed,
       dismissMeetCard,
     }),
@@ -314,6 +341,7 @@ export function CampaignManagerChatProvider({
       startStory,
       startBallotAccess,
       askAboutTask,
+      sendFromComposer,
       meetDismissed,
       dismissMeetCard,
     ],
@@ -322,27 +350,38 @@ export function CampaignManagerChatProvider({
   return (
     <CampaignManagerChatContext.Provider value={contextValue}>
       {children}
-      {/* Reserve space at the end of the scroll flow so the fixed footer bar
-          (~80px tall) never overlaps the bottom of page content — e.g. Your
-          Story's "Start over" / "Add a policy priority". shrink-0 keeps it from
-          collapsing when the content region is a flex child. */}
-      <div aria-hidden className="h-24 shrink-0" />
-      <FooterChatBar
-        firstName={firstName}
-        onOpen={openManager}
-        onOpenConversation={openConversation}
-        chatApi={campaignManagerChatApi}
-        historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
-        openLabel="Open chat"
-        showAttachIcon
-      />
+      {/* Home puts the chat box in the page, under the next thing, so the
+          fixed footer bar (and the space reserved for it) is for every other
+          page. */}
+      {!isHome && (
+        <>
+          {/* Reserve space at the end of the scroll flow so the fixed footer
+              bar (~80px tall) never overlaps the bottom of page content, e.g.
+              Your Story's "Start over" / "Add a policy priority". shrink-0
+              keeps it from collapsing when the content region is a flex
+              child. */}
+          <div aria-hidden className="h-24 shrink-0" />
+          <FooterChatBar
+            firstName={firstName}
+            onOpen={openManager}
+            onOpenConversation={openConversation}
+            chatApi={campaignManagerChatApi}
+            historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
+            openLabel="Open chat"
+            showAttachIcon
+          />
+        </>
+      )}
       <ChiefOfStaffChatSurface
         open={chatOpen}
         onOpenChange={(next) => {
           setChatOpen(next)
           // Clear the one-shot kickoff on close: a later plain reopen (the
           // meet card, the footer bar) must never replay the story sentinel.
-          if (!next) setPendingKickoff(undefined)
+          if (!next) {
+            setPendingKickoff(undefined)
+            setPendingMessage(undefined)
+          }
         }}
         initialConversationId={conversationId}
         // The header's "New chat" clears any queued kickoff too, so a fresh
@@ -376,6 +415,7 @@ export function CampaignManagerChatProvider({
           firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'
         }
         pendingKickoff={pendingKickoff}
+        pendingMessage={pendingMessage}
         composerRef={composerRef}
         scope="campaign_assistant"
         hiddenMessageContents={hiddenMessageContents}

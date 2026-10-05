@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen } from '@testing-library/react'
+import { usePathname } from 'next/navigation'
 import { DashboardCampaignManagerChat } from './CampaignManagerChatProvider'
 
 vi.mock('@shared/organization-picker', () => ({
@@ -43,6 +44,16 @@ describe('DashboardCampaignManagerChat (the global dock gate)', () => {
 
     expect(screen.getByTestId('page-content')).toBeInTheDocument()
     expect(dockBar()).toBeInTheDocument()
+  })
+
+  it('leaves the footer bar off Home, where the chat box is in the page', () => {
+    mockOrganization.mockReturnValue(winOrg as never)
+    vi.mocked(usePathname).mockReturnValue('/home')
+    renderGate()
+
+    expect(screen.getByTestId('page-content')).toBeInTheDocument()
+    expect(dockBar()).not.toBeInTheDocument()
+    vi.mocked(usePathname).mockReturnValue('/')
   })
 
   it('never mounts the dock on a Serve (elected-office) org', () => {

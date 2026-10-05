@@ -507,7 +507,9 @@ import { dirname, join, relative } from 'node:path'
 // 2026-09-29: 592 -> 591. The Priorities chat's own turnBlocks.tsx, a copy of
 // the shared splicer, was deleted when every chat moved onto the shared widget
 // registry. Locked in per the policy above.
-const BASELINE = 591
+// 2026-10-05: 591 -> 567. Home became one next-thing card and a chat box, so
+// its banners, progress section, tour and story cards and their modals went.
+const BASELINE = 567
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
