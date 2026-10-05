@@ -5,6 +5,8 @@ import type {
   ChatStreamService,
   StreamArgs,
 } from '@/chats/services/chatStream.service'
+import type { LlmTool } from '@/llm/services/llm.service'
+import { buildDistrictInsightsTool } from '@/llm/tools/districtInsights.tool'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { BriefingSchema } from './types/briefing.schema'
 import { HENDERSONVILLE_FIXTURE } from './evals/fixtures/hendersonvilleBriefing.fixture'
@@ -20,9 +22,15 @@ import {
 
 // Parity guard for moving briefing chat onto BriefingAnnotationHandler. Every
 // tool-gating input is crossed, and for each the live send path must hand the
-// stream the tool list the pre-migration service registered (in its order) and
-// a prompt byte-identical to the pure builder given that list. The registry's
-// conversation-keyed entry must then render exactly what the send path did.
+// stream the tool list and tool configuration the pre-migration service
+// registered, and a prompt byte-identical to the pure builder given that list.
+// The registry's conversation-keyed entry must then render exactly what the
+// send path did.
+//
+// The baseline here (expectedTools, assertToolConfig) is a hand-written SPEC
+// of the pre-migration behavior, not the deleted code itself. It was checked
+// once against origin/main's pre-migration BriefingChatsService (all 40 cases
+// passed there); from here on it is the contract, and the old code is gone.
 
 const USER_ID = 42
 const FILTERS = [
@@ -107,6 +115,97 @@ const expectedTools = (
     : []),
   ...(notes > 0 ? ['get_my_notes'] : []),
 ]
+
+const VOTERS_TABLE = 'serve_agent_voters'
+const IN_DISTRICT_SQL =
+  `SELECT COUNT(*) AS n FROM ${VOTERS_TABLE} ` +
+  "WHERE state_postal_code = 'NC' AND City = 'Hendersonville'"
+const CALL = { toolCallId: 'parity', messages: [] }
+
+type Executable = {
+  description?: string
+  execute: (input: unknown, options: unknown) => Promise<unknown>
+}
+const executable = (tool: LlmTool | undefined): Executable => {
+  expect(tool).toBeDefined()
+  expect(tool).toHaveProperty('execute')
+  return tool as unknown as Executable
+}
+
+// The configuration each registered tool carries, beyond its name: the
+// web_search budget, the voter-table allowlist and district filters behind
+// district_insights, and the notes loader behind get_my_notes.
+const assertToolConfig = async (
+  tools: Record<string, LlmTool>,
+  deps: {
+    key: boolean
+    district: District
+    notes: number
+    databricks: DatabricksProvider | undefined
+    notesService: BriefingNotesService
+    briefingId: string
+    artifactContent: string
+  },
+): Promise<void> => {
+  await expect(
+    executable(tools.get_artifacts).execute({}, CALL),
+  ).resolves.toBeDefined()
+
+  if (deps.key) {
+    expect(tools.web_search).toEqual({
+      kind: 'native_web_search',
+      maxUses: 5,
+    })
+  }
+
+  if (deps.district === 'resolves') {
+    const insights = executable(tools.district_insights)
+    expect(insights.description).toBe(
+      buildDistrictInsightsTool({
+        provider: deps.databricks!,
+        allowedTables: new Set([VOTERS_TABLE]),
+        mandatoryFilters: FILTERS,
+      }).description,
+    )
+    const query = vi.mocked(deps.databricks!.query)
+    query.mockClear()
+    await insights.execute({ sql: IN_DISTRICT_SQL, rationale: 'r' }, CALL)
+    expect(query).toHaveBeenCalledTimes(1)
+    // Another table, and the right table without the district's filters,
+    // never reach the warehouse.
+    await expect(
+      insights.execute(
+        {
+          sql: IN_DISTRICT_SQL.replace(VOTERS_TABLE, 'other_voters'),
+          rationale: 'r',
+        },
+        CALL,
+      ),
+    ).rejects.toThrow()
+    await expect(
+      insights.execute(
+        {
+          sql: `SELECT COUNT(*) AS n FROM ${VOTERS_TABLE} WHERE state_postal_code = 'NC'`,
+          rationale: 'r',
+        },
+        CALL,
+      ),
+    ).rejects.toThrow()
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(executable(tools.list_district_topics)).toBeDefined()
+  }
+
+  if (deps.notes > 0) {
+    const load = vi.mocked(deps.notesService.loadNotesForChat)
+    load.mockClear()
+    await executable(tools.get_my_notes).execute({}, CALL)
+    expect(load).toHaveBeenCalledWith({
+      userId: USER_ID,
+      briefingId: deps.briefingId,
+      artifactContent: deps.artifactContent,
+    })
+  }
+}
 
 const CASES = ARTIFACTS.flatMap(([label, content, annotation]) =>
   [true, false].flatMap((key) =>
@@ -238,6 +337,16 @@ describe('briefing chat prompt and tool parity', () => {
       expect(streamed).toBeDefined()
       expect(Object.keys(streamed!.tools)).toEqual(tools)
       expect(streamed!.systemPrompt).toBe(expectedPrompt)
+      const configDeps = {
+        key,
+        district,
+        notes,
+        databricks,
+        notesService,
+        briefingId: briefing.id,
+        artifactContent,
+      }
+      await assertToolConfig(streamed!.tools, configDeps)
       expect(streamed!.conversationId).toBe(annotation.chatConversationId)
       expect(streamed!.models).toEqual(['claude-sonnet-4-6', 'claude-opus-4-7'])
       expect(streamed!.traceName).toBe('briefing-chat-stream')
@@ -255,7 +364,9 @@ describe('briefing chat prompt and tool parity', () => {
         USER_ID,
       )
       expect(svc.handler.buildSystemPrompt(ctx)).toBe(expectedPrompt)
-      expect(Object.keys(svc.handler.buildTools(ctx))).toEqual(tools)
+      const registryTools = svc.handler.buildTools(ctx)
+      expect(Object.keys(registryTools)).toEqual(tools)
+      await assertToolConfig(registryTools, configDeps)
     },
   )
 })
