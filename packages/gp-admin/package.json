@@ -36,7 +36,7 @@
     "date-fns": "^4.1.0",
     "isomorphic-dompurify": "^2.22.0",
     "libphonenumber-js": "^1.12.36",
-    "next": "^15.5.19",
+    "next": "^15.5.24",
     "next-navigation-guard": "^0.2.0",
     "postcss": "^8.5.11",
     "radix-ui": "^1.4.3",
@@ -72,7 +72,7 @@
     "prettier": "^3.4.2",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.50.0",
-    "vitest": "^4.0.18"
+    "vitest": "^5.0.3"
   },
   "packageManager": "npm@10.9.2",
   "engines": {
