@@ -196,7 +196,7 @@ export interface JudgeConfig {
 
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
   attemptsPerCase: 3,
-  background: { attemptsPerCase: 1, maxCases: 9, maxInFlight: 12 },
+  background: { attemptsPerCase: 1, maxCases: 3, maxInFlight: 12 },
   dimensions: ['task_success', 'instruction_adherence', 'user_utility'],
   panel: {
     seats: ['claude-sonnet-4-6'],

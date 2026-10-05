@@ -893,6 +893,15 @@ export const parseTrace = (jsonl: string): TraceSummary => {
   for (const line of jsonl.split('\n')) {
     const text = line.trim()
     if (text === '') continue
+    // BENCH DIAGNOSTIC, throwaway branch only: name what failed.
+    if (/"is_error":\s*true/.test(text)) {
+      console.error(`JUDGE_TOOL_ERROR ${text.slice(0, 2000)}`)
+    }
+    if (/"type":\s*"tool_use"/.test(text)) {
+      for (const m of text.matchAll(/"name":\s*"([^"]+)"/g)) {
+        console.error(`JUDGE_TOOL_USE ${m[1]}`)
+      }
+    }
     const record = parseTraceLine(text)
     if (record === undefined) continue
 
