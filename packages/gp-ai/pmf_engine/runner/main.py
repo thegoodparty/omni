@@ -418,6 +418,11 @@ def _collect_workspace_files(
         for filename in filenames:
             if _is_sensitive_file(filename):
                 continue
+            # The run's own params, which session.jsonl already carries through
+            # _redact_line. Uploading the file too would ship the same data
+            # unredacted.
+            if dirpath == root_dir and filename == PARAMS_FILENAME:
+                continue
             if allowed_extensions is not None:
                 _, ext = os.path.splitext(filename)
                 if ext.lower() not in allowed_extensions:

@@ -410,5 +410,8 @@ async def test_params_reach_the_agent_as_a_file_on_both_delivery_paths(tmp_path,
 
     params_file = captured["options"].env["PARAMS_FILE"]
     assert params_file == str(tmp_path / "params.json")
+    # Exactly one key: the SDK merges options.env over the inherited env, so
+    # anything else here (PARAMS_JSON above all) would silently override it.
+    assert captured["options"].env == {"PARAMS_FILE": params_file}
     assert json.loads(captured["file_at_start"]) == params
     assert stat.S_IMODE(os.stat(params_file).st_mode) == 0o444

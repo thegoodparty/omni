@@ -146,6 +146,18 @@ class TestCollectWorkspaceFilesSecurity:
         assert "credentials.json" not in filenames
         assert "config.key" not in filenames
 
+    def test_skips_the_params_file(self, tmp_path):
+        from pmf_engine.runner.main import _collect_workspace_files
+
+        (tmp_path / "data.json").write_text('{"ok": true}')
+        (tmp_path / "params.json").write_text('{"page": "token: abcd1234"}')
+
+        files = _collect_workspace_files(str(tmp_path))
+        filenames = [k.split("/")[-1] for k in files.keys()]
+
+        assert "data.json" in filenames
+        assert "params.json" not in filenames
+
     def test_respects_aggregate_cap(self, tmp_path):
         from pmf_engine.runner.main import _collect_workspace_files
 
