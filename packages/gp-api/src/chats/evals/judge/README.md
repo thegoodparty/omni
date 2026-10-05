@@ -152,6 +152,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `pricing.ts`                                           | Versioned token rates. Re-derive cost from here; never compare stored dollars. |
 | `runners/chat.ts`                                      | Drives one real chat case — one turn or several — and emits one record.        |
 | `runners/seedTranscript.ts`                            | Writes a prior transcript through the store path the live turn reads.          |
+| `runners/briefingFixture.ts`                           | The briefing a briefing chat case is asked about, and its pinned `today`.      |
 | `cases.ts`                                             | Loads and validates one agent's case list.                                     |
 | `cases/*.json`                                         | The case lists themselves. One per agent — see below.                          |
 | `caseParams.ts`                                        | The placeholder vocabulary, its substitution, and the pre-dispatch guard.      |
@@ -186,15 +187,16 @@ the agent, not that the agent is good, so they stay visible in the number
 rather than counted the same as a real bench. The parenthetical is left out
 when P is 0. The `--dry-run` plan prints the same counts.
 
-## Case lists: nineteen of twenty agents, and all but one are placeholders
+## Case lists: every judgeable agent, and all but one are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
-in `agents.ts` and validated by `cases.ts`. Adding the twenty-first agent is a
+in `agents.ts` and validated by `cases.ts`. Adding the twenty-second agent is a
 file here plus a registry line, and no code.
 
-Nineteen of the twenty judgeable agents have one. All four chat scopes that
-have a `ChatScopeHandler` — `chief_of_staff`, `campaign_assistant`,
-`ordinance_flow`, `priority_flow` — and fifteen background experiments. Nine
+All twenty judgeable agents have one. All five chat scopes that have a
+`ChatScopeHandler` — `chief_of_staff`, `campaign_assistant`,
+`ordinance_flow`, `priority_flow`, `briefing_annotation` — and fifteen
+background experiments. Nine
 of those take plain data: `district_issue_pulse`, `district_issue_snapshot`,
 `meeting_briefing`, `meeting_schedule`, `opponent_research`,
 `race_opponent_actions`, `race_opponent_collection`, `race_opponent_summary`,
@@ -204,13 +206,11 @@ organization, and carry placeholders for it instead:
 `opportunities_and_challenges`, `opposition_research`, `top_community_issues`,
 `trending_issues` — see the next section.
 
-One entry is left: `compliance_setup` carries `cases: null`, which is the gap
-staying visible rather than being rounded off. It is a pending decision about
-what its inputs should be, not an unwritten file. `briefing_annotation` is not
-that gap: it is `blocked` (its handler is registered, but the runner cannot
-create a briefing conversation through `POST /v1/chats`), and is out of the
-denominator on purpose, so inputs for it would be inputs for a runner that
-cannot drive it.
+One entry is left: `compliance_setup` carries `cases: null` and is
+`blocked`, out of the denominator on purpose — it is the one experiment that
+bypasses permission prompts, so a judge arm of it would make real writes
+against a real organization. A case list for it would be inputs for a sweep
+that must not run.
 
 **All but one are `placeholder: true`.** The exception is
 `race_opponent_summary.json`, a real bench of nine cases. Each other background list is
@@ -228,8 +228,38 @@ thin an answer — it takes a tool off the model's list. `runners/seedChatOrg.ts
 creates one organization per case, with `positionId` set, plus per scope: a
 Pro campaign carrying `details` and a `raceId` (`campaign_assistant`), an
 ordinance and an `OrdinanceCodeRecord` placing the agent in Judge City WA
-(`ordinance_flow`), a priority (`priority_flow`), or an elected office alone
-(`chief_of_staff`). It still seeds no contacts, briefings or community issues.
+(`ordinance_flow`), a priority (`priority_flow`), a meeting briefing and one
+note on it (`briefing_annotation`), or an elected office alone
+(`chief_of_staff`). It still seeds no contacts or community issues.
+
+**Briefing chat is opened the way the webapp opens it.** Its conversation is
+created with its annotation, in one transaction, by `POST /v1/briefing-chats
+{meetingDate, anchor}`, and each turn goes to
+`/v1/briefing-chats/:annotationId/messages`. The registry's `POST /v1/chats`
+refuses the scope on purpose, so the runner uses the briefing routes rather
+than teaching the registry a second way in; the handler that answers is the
+same instance the registry holds. Two inputs of that turn cannot come from the
+database, and `installBriefingFixture` in `runners/chatSeam.ts` supplies both
+for the seeded bucket only, refusing outside a test process:
+
+- **The artifact.** Production reads it from S3 by the bucket and key on the
+  `MeetingBriefing` row. The seam serves `runners/briefingFixture.ts` instead:
+  the Hendersonville meeting the briefing prompt evals use, as the
+  `BriefingSchema` JSON the pipeline writes, so `get_artifacts` and highlights
+  work the way they do in production.
+- **Today.** The prompt says `Today is <date in the meeting's timezone>`, so
+  two arms captured either side of midnight there would read two different
+  prompts for one branch. The seam pins it to a fixed day, five days before
+  the meeting. It is in the system prompt, so the config digest covers it like
+  everything else the agent reads.
+
+Every case in an arm seeds its own office for the one judge user, but the
+briefing route finds a briefing by meeting date and the caller's office, which
+assumes one office per user. So the briefing seed deletes the earlier cases'
+judge briefings on the fixture date first; otherwise a later case would be
+routed onto an earlier briefing and continue its conversation. For the same
+reason briefing chat cannot express `accountState.district`: it resolves the
+district by user, not by this case's organization.
 
 `query_constituent_data` and `describe_constituent_data` stay unregistered on
 every run this harness makes, but **that is now a deployment gap rather than a
@@ -252,7 +282,7 @@ of these lists resolves CAN'T SAY however the judge voted — the floor was set
 from measured agent non-determinism (three identical Chief of Staff turns gave
 6, 4 and 2 tool steps) and eight runs measure that rather than the branch.
 Eight is one clean baseline plus seven single-axis variations, which is what
-one change can author honestly across nineteen agents. **Whether to grow every
+one change can author honestly across twenty agents. **Whether to grow every
 list to 20 or to lower the floor is still open.** Do not read the shortfall as
 a decision either way.
 
@@ -301,8 +331,8 @@ and L2 voter file column names are real.
 
 `ChatCaseSchema` grew four optional fields so a case list can express the
 formats a bench is actually written in. **Every one of them is optional and a
-list that uses none behaves exactly as before** — the nineteen lists in
-`cases/` needed no editing for any of this.
+list that uses none behaves exactly as before** — the lists in `cases/`
+needed no editing for any of this.
 
 | Field             | What it does                                                       |
 | ----------------- | ------------------------------------------------------------------ |
@@ -440,7 +470,10 @@ whole CRM and voter-file family on `ctx.isPro !== false`), `district`
 (`organization.positionId`, the half of the district gate that lives in our own
 database), `campaignDetails` (the blob carrying `raceId`, which
 `get_ballot_requirements` registers on) and `ordinanceStep` (each step past
-clarify carries its own `present_*` tools). `.strict()` keeps it closed: an
+clarify carries its own `present_*` tools). `briefingHighlight` is the one
+that gates no tool: like `ordinanceStep` it picks what the conversation is
+anchored on, here a highlighted passage instead of the whole briefing, which
+the briefing prompt renders differently. `.strict()` keeps it closed: an
 open bag of column overrides would let a case list seed a state no deployment
 can produce, and the verdict would be about an agent we do not ship.
 

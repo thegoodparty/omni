@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatAccountState } from '../cases'
+import { ChatScope } from '../../../../generated/prisma'
 import {
   assertAccountStateSupported,
   chatOrgSlug,
+  chatScopeFor,
   seedOptionsFor,
 } from './seedChatOrg'
+
+// The runner resolves a handler straight from the agent id, so a scope
+// missing from this map is an agent the judge lists and cannot drive.
+describe('chatScopeFor', () => {
+  it('drives briefing chat as its registered scope', () => {
+    expect(chatScopeFor('briefing_annotation')).toBe(
+      ChatScope.briefing_annotation,
+    )
+  })
+
+  it('refuses an agent that is not a chat scope', () => {
+    expect(() => chatScopeFor('meeting_briefing')).toThrow(
+      'not a chat scope the runner can drive',
+    )
+  })
+})
 
 // The slug this derives is `organization.slug`, the table's primary key, and
 // the sweep seeds one organization per case PER ATTEMPT — so two attempts
@@ -110,7 +128,30 @@ describe('seedOptionsFor', () => {
     )
   })
 
-  // Every scope seeds an organization, and positionId is a column on it.
+  it('maps the briefing highlight onto the anchor the seeder opens', () => {
+    expect(
+      seedOptionsFor('briefing_annotation', { briefingHighlight: true }),
+    ).toEqual({ briefingHighlight: true })
+  })
+
+  // A highlight is a place in a briefing, and only one scope has a briefing.
+  it('refuses a briefing highlight on a scope with no briefing', () => {
+    expect(() =>
+      seedOptionsFor('chief_of_staff', { briefingHighlight: true }),
+    ).toThrow(/chief_of_staff cannot express the account state briefingHigh/)
+  })
+
+  // Briefing chat resolves its district by USER, through whichever of the
+  // judge user's offices comes first, and an arm seeds an office per case —
+  // so a district state on this case's org is not the one the agent reads.
+  it('refuses the district state on briefing chat', () => {
+    expect(() =>
+      seedOptionsFor('briefing_annotation', { district: false }),
+    ).toThrow(/briefing_annotation cannot express the account state district/)
+  })
+
+  // Every other scope seeds an organization, and positionId is a column on
+  // it.
   it('allows the district state on every scope', () => {
     for (const agentId of [
       'chief_of_staff',

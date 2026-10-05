@@ -11,6 +11,19 @@ import { PriorityFlowHandler } from '@/chats/general/priority-flow/priorityFlow.
 import { CampaignManagerHandler } from '@/chats/general/campaign-manager/campaignManager.handler'
 import { OrdinanceFlowHandler } from '@/chats/general/ordinance-flow/ordinanceFlow.handler'
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import { BriefingAnnotationHandler } from '@/chats/briefing-chats/briefingAnnotation.handler'
+import { BriefingNotesService } from '@/chats/briefing-chats/services/briefingNotes.service'
+import {
+  createBriefingChatResponseSchema,
+  type CreateBriefingChatResponse,
+} from '@/chats/briefing-chats/schemas/CreateBriefingChat.schema'
+import { installBriefingFixture } from './chatSeam'
+import {
+  JUDGE_BRIEFING_ARTIFACT,
+  JUDGE_BRIEFING_BUCKET,
+  JUDGE_BRIEFING_TODAY,
+  JUDGE_NOTE,
+} from './briefingFixture'
 import {
   chatScopeFor,
   JUDGE_POSITION,
@@ -371,5 +384,130 @@ describe('the ordinance step the seeder anchors on', () => {
 
     const ctx = await handler.loadContext(conversationId, service.user.id)
     expect(ctx.jurisdiction).toBe('Judge City, WA')
+  })
+})
+
+// BRIEFING CHAT, which the registry cannot open: its conversation is created
+// with its annotation by POST /v1/briefing-chats, so that is the route used
+// here, exactly as the runner uses it. The artifact is the fixture the seam
+// serves for the seeded bucket, because no test process can reach S3.
+describe('the tools a seeded briefing registers', () => {
+  const seedAndOpenBriefing = async (caseId: string) => {
+    const seeded = await seedChatOrg(
+      service.prisma,
+      service.user.id,
+      'briefing_annotation',
+      caseId,
+    )
+    if (seeded.briefing === undefined) {
+      throw new Error('the briefing seed returned no briefing to open')
+    }
+    const created = await service.client.post<CreateBriefingChatResponse>(
+      '/v1/briefing-chats',
+      seeded.briefing,
+    )
+    expect(created.status).toBe(201)
+    return {
+      ...seeded,
+      ...createBriefingChatResponseSchema.parse(created.data),
+    }
+  }
+
+  const withFixture = async <T>(read: () => Promise<T>): Promise<T> => {
+    const seam = installBriefingFixture({
+      bucket: JUDGE_BRIEFING_BUCKET,
+      artifactContent: JUDGE_BRIEFING_ARTIFACT,
+      today: JUDGE_BRIEFING_TODAY,
+    })
+    try {
+      return await read()
+    } finally {
+      seam.restore()
+    }
+  }
+
+  it('registers get_artifacts and get_my_notes', async () => {
+    const { conversationId } = await seedAndOpenBriefing('br-tools')
+    const handler = service.app.get(BriefingAnnotationHandler)
+
+    const ctx = await withFixture(() =>
+      handler.loadContext(conversationId, service.user.id),
+    )
+    // Parsed, which is what get_artifacts reads and what the prompt's
+    // structured block is built from: a markdown artifact would leave it null.
+    expect(ctx.parsed?.meeting.cityName).toBe('Hendersonville')
+    expect(ctx.notesCount).toBe(1)
+    expect(Object.keys(handler.buildTools(ctx))).toEqual(
+      expect.arrayContaining(['get_artifacts', 'get_my_notes']),
+    )
+  })
+
+  // The note recall case reads this: the body, and the passage it was
+  // written against, resolved through the same JSON Pointer production uses.
+  it('seeds a note that resolves to its highlighted passage', async () => {
+    const { briefing } = await seedAndOpenBriefing('br-note')
+    expect(briefing).toBeDefined()
+    const row = await service.prisma.meetingBriefing.findFirstOrThrow()
+    const notes = await service.app.get(BriefingNotesService).loadNotesForChat({
+      userId: service.user.id,
+      briefingId: row.id,
+      artifactContent: JUDGE_BRIEFING_ARTIFACT,
+    })
+    expect(notes.map((n) => [n.body, n.highlightedText])).toEqual([
+      [JUDGE_NOTE.body, '$24M revenue bond rating review'],
+    ])
+  })
+
+  // The district pair is resolved BY USER on this scope, and only a
+  // credentialed deployment has the warehouse provider, so both deployment
+  // halves are supplied here the way the Serve scopes above supply them.
+  it('registers district_insights under a credentialed deployment', async () => {
+    const { conversationId } = await seedAndOpenBriefing('br-district')
+    const handler = service.app.get(BriefingAnnotationHandler)
+    const prior = Reflect.get(handler, 'databricks')
+    Object.assign(handler, {
+      databricks: new InMemoryDatabricksProvider(new Map()),
+    })
+    try {
+      const tools = await withJudgePosition(() =>
+        withFixture(async () =>
+          Object.keys(
+            handler.buildTools(
+              await handler.loadContext(conversationId, service.user.id),
+            ),
+          ),
+        ),
+      )
+      expect(tools).toEqual(
+        expect.arrayContaining(['district_insights', 'list_district_topics']),
+      )
+    } finally {
+      Object.assign(handler, { databricks: prior })
+    }
+  })
+
+  // The route finds a briefing by (meeting date, caller's office) and
+  // production has one office per user; an arm seeds one per case. Leaving
+  // the earlier briefing would route a later case onto it.
+  it("retires the previous case's briefing on the same date", async () => {
+    await seedChatOrg(
+      service.prisma,
+      service.user.id,
+      'briefing_annotation',
+      'a',
+    )
+    const second = await seedChatOrg(
+      service.prisma,
+      service.user.id,
+      'briefing_annotation',
+      'b',
+    )
+
+    const briefings = await service.prisma.meetingBriefing.findMany({
+      include: { electedOffice: true },
+    })
+    expect(briefings.map((b) => b.electedOffice.organizationSlug)).toEqual([
+      second.organizationSlug,
+    ])
   })
 })

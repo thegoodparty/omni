@@ -154,9 +154,9 @@ const pipeline = async (
 describe('the coverage line', () => {
   // The real registry, pinned. race_opponent_summary was wired on Melecia's
   // real bench, so it is the one wired agent outside the parenthetical.
-  it('reads 3 of 19 wired, 2 on placeholder inputs, for the registry', () => {
+  it('reads 3 of 20 wired, 2 on placeholder inputs, for the registry', () => {
     expect(coverageLines()[0]).toBe(
-      '**Coverage: 3 of 19 agents wired (2 on placeholder inputs).**',
+      '**Coverage: 3 of 20 agents wired (2 on placeholder inputs).**',
     )
   })
 
