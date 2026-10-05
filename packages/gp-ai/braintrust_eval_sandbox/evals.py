@@ -3,9 +3,7 @@ Generic Braintrust Sandbox Eval for prompt iteration.
 
 Wraps Gemini grounded search + Gemini structured output as a parameterized
 two-stage pipeline so PMs can A/B test arbitrary prompts in the Braintrust
-playground without engineering work per new prompt. The campaign_plan_lambda
-eval inspired this — same shape, but prompts and schemas are inputs rather
-than baked in.
+playground without engineering work per new prompt.
 
 Push (engineer, after code changes):
     ./braintrust_eval_sandbox/push_eval_to_braintrust.sh
@@ -338,9 +336,9 @@ def pipeline_task(input: dict, hooks: Any) -> dict:
 #     editor (not a nested {value: ...} form). The unwrapped value is what
 #     arrives at the task via hooks.parameters.
 #
-# Why not typed constructors for the prompt entries? The campaign_plan_lambda
-# eval documents this: Braintrust's PromptParameter / PromptData /
-# PromptChatBlock / PromptMessage dataclasses serialize unset Optional fields
+# Why not typed constructors for the prompt entries? Braintrust's
+# PromptParameter / PromptData / PromptChatBlock / PromptMessage dataclasses
+# serialize unset Optional fields
 # as JSON `null`s, which the playground's parameter validator silently
 # rejects (function disappears from the "+ Task → Remote eval" picker).
 # Dict literals omit the unset keys.

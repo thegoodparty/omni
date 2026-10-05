@@ -1,11 +1,11 @@
 ---
 name: triage-instrumentation-gaps
-description: Run the weekly instrumentation-governance review over four queues — flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), and registry-vs-semantic-layer alignment findings (anchor_alignment.py) — entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest. Also use to resolve drift between a governed metric and the product with no digest in hand: an event a semantic-layer metric counts was renamed, moved or stopped firing, or the business group changed what a governed metric means.
+description: Run the weekly instrumentation-governance review over five queues, flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), registry-vs-semantic-layer alignment findings (anchor_alignment.py), and surface relabels (surface_drift.py), entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest. Also use to resolve drift between a governed metric and the product with no digest in hand: an event a semantic-layer metric counts was renamed, moved or stopped firing, or the business group changed what a governed metric means.
 ---
 
 # Triage instrumentation gaps
 
-Weekly governance review over **four re-nagging queues** that share one reviewer, one
+Weekly governance review over **five re-nagging queues** that share one reviewer, one
 session, and one PR:
 
 - **Queue 0 — flagged causes** (`analytics_event_health.py`): the flagged set grouped by
@@ -17,6 +17,8 @@ session, and one PR:
 - **Queue C — registry vs semantic layer** (`anchor_alignment.py`): a behavior in
   `monitored_events.yaml` and the governed metric it points at disagree about which
   events count.
+- **Queue D, surface relabels** (`surface_drift.py`): an event whose label (its
+  `surface:` tag, or its name prefix) no longer matches where the code fires it.
 
 This skill orchestrates existing Python modules and three other skills. It never
 re-implements enumeration, judgment, or proposal detection, and it never edits product
@@ -118,6 +120,10 @@ judgments: 12
 ## gaps
 - accept: packages/gp-webapp/app/…#form
   reason: <why>
+
+## surface
+- accept: Profile - Running Against: Click Save
+  reason: <why>
 ```
 
 Take `run_date` from the `run:` line and skip the Slack read. Everything downstream is
@@ -152,7 +158,7 @@ Reading the blocks:
 Never post to Slack during this self-load — it's read-only (`slack_read_channel` /
 `slack_read_thread` / `slack_search_public`), never `slack_send_message`.
 
-With `run_date` in hand, load all four queues scoped to that run.
+With `run_date` in hand, load all five queues scoped to that run.
 
 **Read the gotchas book before ruling on anything.** `books/analytics-governance-gotchas.md`
 is a symptom table of the traps that have produced confident, wrong verdicts in this
@@ -818,6 +824,27 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    (step 7.3) merged, or say why no `m_*.yaml` description needed it. Then update the
    docs that describe the metric, and move the ticket to done with a resolution comment.
 
+## Queue D: surface relabels
+
+**Get the batch:** the console's surface queue, or `instrumentation_data/surface_drift.json`
+rows with disposition `new`/`open`. Rows already `accepted` (a console accept from an
+earlier session, or a `relabels:` row a PR merged) need no ruling: go straight to
+"Apply accepted relabels".
+
+| Verb      | What you do |
+| --------- | ----------- |
+| `accept`  | `uv run surface_drift.py dispose "<event>" --as accepted`, then apply it below. |
+| `dismiss` | `uv run surface_drift.py dispose "<event>" --as dismissed --reason "<why>"`. It stays quiet until the event's areas change. |
+| `defer`   | `uv run surface_drift.py dispose "<event>" --as open`. |
+
+**Apply accepted relabels.** For each `accepted` row, hand the row to `event-metadata`
+in Mode: RELABEL. On a confirmed write, `uv run surface_drift.py dispose "<event>" --as applied`.
+A row that event-metadata refused (an OKR event, or one needing a status change) stays
+`accepted`; say why in the PR body.
+
+`surface_drift.json` is state, so these dispositions ride the one triage PR like the gap
+dispositions do. Never hand-edit the JSON.
+
 ## Diagnose — red/yellow health items
 
 Runs when the digest has a 🔴/🟡 tier and the reviewer wants the story, not just the
@@ -908,7 +935,7 @@ ticket, or the reviewer's own follow-up message.
 
 ## Write back — one PR
 
-Once all four queues are dispositioned:
+Once all five queues are dispositioned:
 
 1. **Propose gotchas-book updates for sign-off.** Same shape as Queue B's watchlist
    proposals: you propose, the reviewer picks, you apply. Never edit the book
@@ -963,9 +990,10 @@ Once all four queues are dispositioned:
    **Updates to this book happen only here, with a human in the loop.** The scheduled
    Monday/Thursday runs read the book (it is pasted into both judges' prompts — see
    `governance_gotchas.py`) and never write to it.
-2. `git status` should show at most `instrumentation_gaps.json` and (if Queue 0 had any
-   cause dismissal, Queue B had any accept/dismiss, or Queue C had any case 1 edit or
-   dismissal) `monitored_events.yaml` under
+2. `git status` should show at most `instrumentation_gaps.json` and
+   `instrumentation_data/surface_drift.json` (if Queue D disposed any row) and (if Queue 0
+   had any cause dismissal, Queue B had any accept/dismiss, or Queue C had any case 1 edit
+   or dismissal) `monitored_events.yaml` under
    `packages/runbooks/scripts/python/instrumentation_data/` /
    `packages/runbooks/scripts/python/`, plus `books/analytics-governance-gotchas.md` if
    step 1 added a row.
@@ -990,6 +1018,8 @@ Once all four queues are dispositioned:
      reason), which were deferred.
    - Queue C: which findings were edited in omni (behavior and surface), which produced a
      gp-data-platform PR (link), which were dismissed (with reason), which were deferred.
+   - Queue D: which events were relabeled through `event-metadata` (old surface/display
+     name -> new), which were dismissed (with reason), which were deferred.
 5. For each finding cleared this session, record in the PR body which analytics guard rule
    would have caught it at PR time, or `escaped`. A cause that escapes twice becomes a
    proposed guard rule in the same PR.

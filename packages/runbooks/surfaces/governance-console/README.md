@@ -19,6 +19,13 @@ dismissed or deferred. The judgment is recorded the moment you click, in this br
 keyed by the run it was made against. Nothing is submitted, and a half-finished session
 loses nothing.
 
+**The surface queue** (DATA-2531) lists events that fire somewhere other than their label
+says. A row arrives with "Relabel it" suggested only when every check agrees: the code
+reaches one area, the commit that removed the old mount is named, and the page people
+were on matches. Otherwise there is no suggestion and the evidence is yours to read.
+Accepting writes a new `surface:` tag, `fires_on` and display name through
+`event-metadata`; the raw event name never changes.
+
 **A button label names the control; hovering it names the consequence.** "Fix in
 Govern" tells you which thing you are touching. The tooltip, and the review panel, say
 what it does to other people: *Write this to Amplitude Govern. A retirement here tells
@@ -72,7 +79,7 @@ looking and rule on the evidence in front of you.
 None of this text is a fact of its own. Every entry is a row in
 `books/analytics-governance-gotchas.md`, which is where one gets added when it is found
 and deleted when it is fixed. The caveats are the path from that file to the person
-ruling. Three of the four queues judge every row the same way, so their caveat prints
+ruling. Four of the five queues judge every row the same way, so their caveat prints
 once above the list; flags print theirs per row, because each cause rests on different
 evidence.
 
@@ -293,7 +300,7 @@ yaml, pandas and the Databricks SDK.
 
 ## Where each queue's decisions live
 
-The page shows a queue; these files own what you decide about it. All four are read back
+The page shows a queue; these files own what you decide about it. All five are read back
 by the twice-weekly run, which is why a decision recorded in one of them stops the
 digest raising the item again.
 
@@ -303,6 +310,7 @@ digest raising the item again.
 | Instrumentation gaps | `instrumentation_gaps.json` |
 | Watchlist proposals | an `event:` row in `monitored_events.yaml` |
 | Registry vs semantic layer | a `metric:` row in `monitored_events.yaml` |
+| Surface relabels | `instrumentation_data/surface_drift.json`, applied to Amplitude through `event-metadata` |
 
 Per-event "I looked at this one and it is fine" has no home yet. That file is phase 2
 and is the only genuinely new mechanism in the whole ticket.

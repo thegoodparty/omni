@@ -489,6 +489,9 @@ const exclusionFor = (
   // infraError first: a run that died never got far enough for a tool
   // error to mean anything about it.
   if (infra.length > 0) return { reason: 'infraError', arms: infra }
+  // Only a chat pair gets this far: isComparable never fails a background
+  // record for a tool error, because its verdict is on the final artifact
+  // and a run that hit a failing Bash snippet and recovered still made one.
   const tool: Arm[] = []
   if (base.telemetry.toolErrors > 0) tool.push('base')
   if (candidate.telemetry.toolErrors > 0) tool.push('candidate')

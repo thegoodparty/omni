@@ -2,7 +2,6 @@
 
 A generic Braintrust sandbox eval that wraps Gemini grounded search + Gemini structured output as a two-stage pipeline driven by playground parameters. Lets PMs A/B test arbitrary prompts without engineering work per new prompt.
 
-Inspired by `campaign_plan_lambda/evals.py`. Same architectural shape, but the prompts and schema are inputs rather than baked in.
 
 ## How it works
 

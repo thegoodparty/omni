@@ -41,7 +41,6 @@ These are part of the repo but **not** workspace members. Their deps come from t
 
 - `ai_generated_campaign_plan/` — older module, has tests at `tests/ai_generated_campaign_plan/`.
 - `api/` — top-level entry points.
-- `campaign_plan_lambda/` — separate Lambda with its own deploy workflow (`.github/workflows/deploy-campaign-plan-lambda.yml`); has its own dependency group at `[dependency-groups] campaign-plan-lambda`.
 - `llm_deployment/` — LLM hosting / deployment helpers.
 - `serve/hierarchical_discovery/`, `serve/analyze_texts/`, `serve/classify/` — siblings to `serve/v1_pipeline/` but **not** workspace members. They live under `serve/` for historical/topical reasons; only `serve/v1_pipeline/` is in `[tool.uv.workspace] members`.
 - `infrastructure/` — Terraform (modules + per-environment configs) for the AWS resources behind the lambdas.
