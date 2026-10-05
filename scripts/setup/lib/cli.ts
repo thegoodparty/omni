@@ -60,6 +60,7 @@ import {
   buildMergedEnv,
   findPlaceholderFeatures,
   parseEnvFile,
+  serializeBuiltEnv,
   serializeEnvFile,
   type EnvMap,
 } from './env'
@@ -182,7 +183,7 @@ const runBuild = async (
     process.exit(1)
   }
 
-  writeFileSync(outPath, serializeEnvFile(merged, keys))
+  writeFileSync(outPath, serializeBuiltEnv(merged, keys))
 
   const dark = findPlaceholderFeatures(ENV_VAR_CONTRACT, merged)
   if (dark.length > 0) {
