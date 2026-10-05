@@ -23,12 +23,17 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+import pytest
+from claude_agent_sdk import ResultMessage
 
 from pmf_engine.control_plane.dispatch_handler import build_container_overrides
 from pmf_engine.runner.config import RunnerConfig
+from pmf_engine.runner.harness.claude_sdk import ClaudeSdkHarness
 from pmf_engine.tests.conftest import synthetic_instruction, synthetic_manifest
 
 
@@ -328,3 +333,82 @@ def test_qa_version_ids_round_trip_dispatch_to_runner_request(monkeypatch):
         RunnerConfig.from_env()
 
     assert len(factory.requests) == 1, f"runner must hit broker exactly once, got {len(factory.requests)}"
+
+
+_SMALL_PARAMS = {"state": "MI", "office": "Lansing City Council"}
+# Over INLINE_PARAMS_BUDGET, and shaped like race_opponent_summary's captured
+# source pages, the case that broke in a live sweep.
+_LARGE_PARAMS = {
+    "opponents": [{"full_name": "Pat Doe", "sources": [{"url": "https://e.test", "text": "x" * 20000}]}],
+}
+
+
+@pytest.mark.parametrize(
+    ("params", "via_broker"),
+    [(_SMALL_PARAMS, False), (_LARGE_PARAMS, True)],
+    ids=["inline", "broker"],
+)
+async def test_params_reach_the_agent_as_a_file_on_both_delivery_paths(tmp_path, params, via_broker):
+    """Dispatch → runner config → harness: whichever way params travel, the
+    agent's env names a file holding exactly those params. PARAMS_JSON keeps
+    its old contract (set when small, absent when large) for back-compat."""
+    message = {**_base_message("roundtrip_exp"), "params": params}
+    overrides = build_container_overrides(
+        experiment={"model": "sonnet", "timeout_seconds": 600},
+        message=message,
+        broker_token="tok-params-file",
+        broker_url="https://broker.example.com",
+        container_name="pmf-engine",
+    )
+    env_map = _env_list_to_map(overrides["containerOverrides"][0]["environment"])
+    if via_broker:
+        assert "PARAMS_JSON" not in env_map
+        assert env_map["PARAMS_VIA_BROKER"] == "1"
+    else:
+        assert json.loads(env_map["PARAMS_JSON"]) == params
+        assert "PARAMS_VIA_BROKER" not in env_map
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/params/read"
+        return httpx.Response(200, json=params)
+
+    factory = _ClientFactory(handler)
+    with patch.dict(os.environ, env_map, clear=False), patch("pmf_engine.runner.params.httpx.Client", factory):
+        # No EXPERIMENT_ID → from_env skips the manifest fetch, isolating params.
+        os.environ.pop("EXPERIMENT_ID", None)
+        if not via_broker:
+            os.environ.pop("PARAMS_VIA_BROKER", None)
+        config = RunnerConfig.from_env()
+    assert len(factory.requests) == (1 if via_broker else 0)
+
+    captured: dict = {}
+
+    async def fake_query(prompt, options):
+        captured["options"] = options
+        captured["file_at_start"] = Path(options.env["PARAMS_FILE"]).read_text()
+        yield ResultMessage(
+            subtype="result",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="sess-params-file",
+            total_cost_usd=0.0,
+            result="Done",
+        )
+
+    (tmp_path / "output").mkdir()
+    (tmp_path / "output" / "result.json").write_text("{}")
+    with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query):
+        await ClaudeSdkHarness().run(
+            instruction="Do analysis",
+            model="sonnet",
+            max_turns=5,
+            workspace_dir=str(tmp_path),
+            params=config.params,
+        )
+
+    params_file = captured["options"].env["PARAMS_FILE"]
+    assert params_file == str(tmp_path / "params.json")
+    assert json.loads(captured["file_at_start"]) == params
+    assert stat.S_IMODE(os.stat(params_file).st_mode) == 0o444

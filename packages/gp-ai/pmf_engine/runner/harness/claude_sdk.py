@@ -19,6 +19,7 @@ from claude_agent_sdk import (
 )
 
 from pmf_engine.runner.contract import format_contract_for_prompt
+from pmf_engine.runner.params import write_params_file
 from shared.logger import get_logger
 
 from .base import EvaluatorHarnessParams, EvaluatorResult, HarnessResult
@@ -508,6 +509,7 @@ async def run_agent(
 
     output_dir = os.path.join(workspace_dir, "output")
     os.makedirs(output_dir, exist_ok=True)
+    params_file = write_params_file(workspace_dir, params)
 
     # Extend (don't replace) ALLOWED_TOOLS with manifest-supplied tools.
     # De-dup while preserving order so the assertable shape is stable.
@@ -582,6 +584,7 @@ async def run_agent(
         mcp_servers=mcp_servers,
         agents=agents,
         cwd=workspace_dir,
+        env={"PARAMS_FILE": params_file},
         max_turns=max_turns,
         model=model,
         thinking=thinking_config,

@@ -18,6 +18,7 @@ from .config import BrokerUrlSchemeError, RunnerConfig, validate_broker_url_sche
 from .contract import ContractViolation, validate_artifact_contract
 from .harness.base import AgentHarness
 from .input_files import prefetch_input_files
+from .params import PARAMS_FILENAME
 from .pmf_runtime import publish
 from .pmf_runtime.config import init_config
 from .pmf_runtime.egress_guard import MESSAGE as EGRESS_MESSAGE
@@ -57,6 +58,7 @@ _RESERVED_WORKSPACE_FILES = frozenset(
         "contract_schema.json",
         "validate_output.py",
         "SANDBOX.md",
+        PARAMS_FILENAME,
     }
 )
 
