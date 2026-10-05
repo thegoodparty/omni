@@ -11,7 +11,6 @@ import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnow
 import {
   MAX_CHECK_RAISES,
   PRIORITY_STEP_LABELS,
-  recommendedSampleSize,
   SAMPLE_TARGET_REPLIES,
   type ChatAnchor,
   type PriorityStepCheck,
@@ -20,7 +19,11 @@ import {
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { PriorityRecord } from './prioritiesPort'
 import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
-import { buildSampleSizingRules } from '../../chat-tools/outreachSampling.prompt'
+import {
+  buildSampleSizingRules,
+  EXAMPLE_AUDIENCE,
+  EXAMPLE_SAMPLE,
+} from '../../chat-tools/outreachSampling.prompt'
 import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 
 export const COS_GUARDRAIL_DECLINE =
@@ -249,8 +252,6 @@ const COMPOSE_HANDOFF_RULES =
 const people = (n: number): string => n.toLocaleString('en-US')
 const dollars = (texts: number): string =>
   `$${people(Math.round(calcTextAmountInCents(texts) / 100))}`
-const EXAMPLE_AUDIENCE = 50_000
-const EXAMPLE_SAMPLE = recommendedSampleSize({ audience: EXAMPLE_AUDIENCE })
 
 const outreachSamplingBlock = (toolNames: string[]): string => {
   const has = (name: string): boolean => toolNames.includes(name)
