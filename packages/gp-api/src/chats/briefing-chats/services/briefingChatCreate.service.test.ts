@@ -2,6 +2,7 @@ import { InternalServerErrorException, NotFoundException } from '@nestjs/common'
 import {
   AnnotationKind,
   AnnotationResourceType,
+  ChatScope,
   ExperimentRunStatus,
   User,
 } from '../../../generated/prisma'
@@ -18,7 +19,7 @@ const MEETING_DATE = '2026-06-01'
 const createBriefingForUser = async (
   userId: number,
   meetingDate: string = MEETING_DATE,
-): Promise<{ briefingId: string; meetingDate: string }> => {
+): Promise<{ briefingId: string; meetingDate: string; slug: string }> => {
   const slug = `org-${userId}-${Math.random().toString(36).slice(2, 10)}`
   await service.prisma.organization.create({
     data: { slug, ownerId: userId },
@@ -44,7 +45,7 @@ const createBriefingForUser = async (
       meetingTimezone: 'America/New_York',
     },
   })
-  return { briefingId: briefing.id, meetingDate }
+  return { briefingId: briefing.id, meetingDate, slug }
 }
 
 const createOtherUser = async (suffix: string): Promise<User> =>
@@ -165,6 +166,31 @@ describe('BriefingChatCreateService.findOrCreate', () => {
     expect(second.annotationId).not.toBe(first.annotationId)
     expect(second.conversationId).not.toBe(first.conversationId)
   })
+
+  // The scope registry's routes check ownership by (owner, scope,
+  // organizationSlug), so a new briefing conversation carries both. Rows from
+  // before this have a NULL slug; the /v1/briefing-chats routes never read it.
+  it.each([
+    ['top-level', TOP_LEVEL_ANCHOR],
+    ['anchored', ANCHORED],
+  ])(
+    '%s: writes the briefing scope and the office organization slug',
+    async (_label, anchor) => {
+      const { meetingDate, slug } = await createBriefingForUser(service.user.id)
+
+      const { conversationId } = await svc.findOrCreate({
+        userId: service.user.id,
+        meetingDate,
+        anchor,
+      })
+
+      const conv = await service.prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+      })
+      expect(conv?.scope).toBe(ChatScope.briefing_annotation)
+      expect(conv?.organizationSlug).toBe(slug)
+    },
+  )
 
   it('throws NotFoundException when briefing belongs to a different user', async () => {
     const other = await createOtherUser('not-owner')

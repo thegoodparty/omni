@@ -31,10 +31,10 @@ const AUTHORED_BACKGROUND_COUNT = 15
 // which is deliberate and recorded in every list's `note`.
 const CASES_PER_LIST = 8
 
-// briefing_annotation is blocked and has no handler, so it is deliberately
-// out of the denominator. Asserted rather than assumed: a later change that
-// quietly gave it a case list would be pointing inputs at a runner that
-// cannot drive it.
+// briefing_annotation is blocked (the runner cannot create its conversation
+// through POST /v1/chats), so it is deliberately out of the denominator.
+// Asserted rather than assumed: a later change that quietly gave it a case
+// list would be pointing inputs at a runner that cannot drive it.
 const UNAUTHORED = 'briefing_annotation'
 
 // Registry entries that name a file, narrowed so the file name is a string.

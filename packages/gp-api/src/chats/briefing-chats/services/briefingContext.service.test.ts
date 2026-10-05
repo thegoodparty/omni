@@ -8,7 +8,7 @@ import {
   AnnotationResourceType,
   ExperimentRunStatus,
 } from '../../../generated/prisma'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { useTestService } from '@/test-service'
@@ -390,6 +390,78 @@ describe('BriefingContextService', () => {
       expect(result.briefing.artifactBucket).toBe(BRIEFINGS_BUCKET)
       expect(result.briefing.artifactKey).toBe(HAPPY_PATH_KEY)
       expect(result.artifactContent).toBe(expected)
+    })
+  })
+
+  // The registry entry keys on a conversation id. It must resolve the same
+  // context as the annotation-keyed path, and only for the annotation's author.
+  describe('loadContextByConversation', () => {
+    const seedOwnedChat = async (userId: number) => {
+      const { electedOffice } = await createOrgAndElectedOffice(userId)
+      const run = await createExperimentRun(electedOffice.organizationSlug)
+      const briefing = await createBriefing({
+        electedOfficeId: electedOffice.id,
+        experimentRunId: run.runId,
+        artifactBucket: BRIEFINGS_BUCKET,
+        artifactKey: HAPPY_PATH_KEY,
+      })
+      const convo = await createConversation(userId)
+      const annotation = await createAnnotation({
+        authorUserId: userId,
+        kind: AnnotationKind.chat,
+        resourceId: briefing.id,
+        chatConversationId: convo.id,
+      })
+      s3.seed(BRIEFINGS_BUCKET, HAPPY_PATH_KEY, 'by conversation')
+      return { convo, annotation, briefing }
+    }
+
+    it('resolves the annotation that points at the conversation', async () => {
+      // Two chats for the same user, so a lookup that ignored the
+      // conversation id would pick the wrong one.
+      await seedOwnedChat(service.user.id)
+      const { convo, annotation, briefing } = await seedOwnedChat(
+        service.user.id,
+      )
+
+      const result = await ctx.loadContextByConversation(
+        convo.id,
+        service.user.id,
+      )
+
+      expect(result.annotation.id).toBe(annotation.id)
+      expect(result.briefing.id).toBe(briefing.id)
+      expect(result.artifactContent).toBe('by conversation')
+    })
+
+    it('throws NotFoundException for a conversation no annotation points at', async () => {
+      await seedOwnedChat(service.user.id)
+      const orphan = await createConversation(service.user.id)
+      const loadContext = vi.spyOn(ctx, 'loadContext')
+
+      await expect(
+        ctx.loadContextByConversation(orphan.id, service.user.id),
+      ).rejects.toBeInstanceOf(NotFoundException)
+      expect(loadContext).not.toHaveBeenCalled()
+    })
+
+    it("throws NotFoundException for another user's conversation (IDOR)", async () => {
+      const other = await service.prisma.user.create({
+        data: {
+          email: 'by-conversation-other@goodparty.org',
+          firstName: 'Other',
+          lastName: 'Person',
+        },
+      })
+      const { convo } = await seedOwnedChat(other.id)
+      // Rejected at the conversation lookup itself, not only by the
+      // annotation-keyed path's own author check behind it.
+      const loadContext = vi.spyOn(ctx, 'loadContext')
+
+      await expect(
+        ctx.loadContextByConversation(convo.id, service.user.id),
+      ).rejects.toBeInstanceOf(NotFoundException)
+      expect(loadContext).not.toHaveBeenCalled()
     })
   })
 

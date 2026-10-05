@@ -122,6 +122,8 @@ describe('BriefingAnnotationHandler', () => {
     expect(handler.isSensitive).toBe(true)
     expect(handler.models).toEqual([...BRIEFING_CHAT_MODELS])
     expect(handler.models.every((m) => m.startsWith('claude'))).toBe(true)
+    // Braintrust filters key on this; the registry default would rename it.
+    expect(handler.traceName).toBe('briefing-chat-stream')
   })
 
   it('renders a prompt byte-identical to the pure builder on the fixture', () => {

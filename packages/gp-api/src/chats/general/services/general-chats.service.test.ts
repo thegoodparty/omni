@@ -386,6 +386,49 @@ describe('GeneralChatsService', () => {
     expect(streamArgs.value).toMatchObject({ maxSteps: 8 })
   })
 
+  // Braintrust filters key on the trace name, so a scope that predates the
+  // registry (briefing chat: `briefing-chat-stream`) keeps its own.
+  it.each([
+    [undefined, `${SCOPE}-chat-stream`],
+    ['briefing-chat-stream', 'briefing-chat-stream'],
+  ])(
+    'traces the turn as handler.traceName=%s -> %s',
+    async (traceName, expected) => {
+      handler = buildHandler(traceName === undefined ? {} : { traceName })
+      store = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: 'existing' }),
+        ) as never,
+      })
+      const chatStream = {
+        stream: vi.fn(() => ({
+          [Symbol.asyncIterator]: async function* () {
+            yield { type: 'done' } as ChatStreamChunk
+          },
+        })),
+      }
+      const service = new GeneralChatsService(
+        buildRegistry(handler),
+        store,
+        {} as never,
+        chatStream as never,
+        {} as never,
+      )
+      await collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope: SCOPE,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage: 'hi',
+        }),
+      )
+      expect(chatStream.stream).toHaveBeenCalledWith(
+        expect.objectContaining({ traceName: expected }),
+      )
+    },
+  )
+
   it('yields conversation_not_found when streaming a missing conversation', async () => {
     store = buildStore({
       findOwnedConversation: vi.fn(() => Promise.resolve(null)) as never,

@@ -73,7 +73,7 @@ export class BriefingChatsService {
         tools: self.handler.buildTools(ctx),
         userMessage: args.userMessage,
         models: self.handler.models,
-        traceName: 'briefing-chat-stream',
+        traceName: self.handler.traceName,
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
       })

@@ -47,6 +47,10 @@ export const BRIEFING_CHAT_MODELS = [
   'claude-opus-4-7',
 ] as const
 
+// Braintrust filters key on this name, and it predates the registry's
+// `${scope}-chat-stream` default, so the handler carries it explicitly.
+export const BRIEFING_CHAT_TRACE_NAME = 'briefing-chat-stream'
+
 const safeParseArtifact = (raw: string): ParsedBriefing | null => {
   let json: unknown
   try {
@@ -120,6 +124,7 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
   readonly scope = ChatScope.briefing_annotation
   readonly isSensitive = true
   readonly models = [...BRIEFING_CHAT_MODELS]
+  readonly traceName = BRIEFING_CHAT_TRACE_NAME
 
   constructor(
     private readonly briefingContext: BriefingContextService,

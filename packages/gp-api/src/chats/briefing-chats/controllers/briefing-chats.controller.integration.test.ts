@@ -5,6 +5,7 @@ import {
   AnnotationResourceType,
   ChatConversation,
   ChatMessageRole,
+  ChatScope,
   ElectedOffice,
   ExperimentRunStatus,
   MeetingBriefing,
@@ -27,6 +28,7 @@ const ARTIFACT_CONTENT = '# Briefing\n\nbody'
 const MEETING_DATE = '2026-06-01'
 
 interface Fixtures {
+  slug: string
   electedOffice: ElectedOffice
   briefing: MeetingBriefing
   conversation: ChatConversation
@@ -79,7 +81,7 @@ const createBriefingFixtures = async (
       chatConversationId: conversation.id,
     },
   })
-  return { electedOffice, briefing, conversation, annotation }
+  return { slug, electedOffice, briefing, conversation, annotation }
 }
 
 const createOtherUser = async (suffix: string): Promise<User> =>
@@ -195,6 +197,13 @@ describe('BriefingChatsController (integration)', () => {
       })
 
       expect(second.data.annotationId).not.toBe(first.data.annotationId)
+
+      // New rows carry what the registry routes check ownership by.
+      const conversation = await service.prisma.chatConversation.findUnique({
+        where: { id: first.data.conversationId },
+      })
+      expect(conversation?.scope).toBe(ChatScope.briefing_annotation)
+      expect(conversation?.organizationSlug).toBe(fixtures.slug)
     })
 
     it('returns 401 when Authorization is invalid', async () => {
@@ -266,6 +275,36 @@ describe('BriefingChatsController (integration)', () => {
       expect(frames.length).toBeGreaterThanOrEqual(1)
       const first = frames[0]?.parsed as { type?: string }
       expect(typeof first.type).toBe('string')
+    })
+
+    // Braintrust filters key on this trace name. The registry's default would
+    // be `briefing_annotation-chat-stream`; the briefing turn also never passed
+    // a scope (so no attachment injection or scope-tagged analytics).
+    it('streams under the briefing-chat-stream trace name with no scope', async () => {
+      const streamSpy = vi.spyOn(chatStream, 'stream')
+      streamSpy.mockClear()
+
+      await service.client.post(
+        `/v1/briefing-chats/${fixtures.annotation.id}/messages`,
+        { content: 'trace me' },
+      )
+
+      expect(streamSpy).toHaveBeenCalledTimes(1)
+      const args = streamSpy.mock.calls[0]?.[0]
+      expect(args?.traceName).toBe('briefing-chat-stream')
+      expect(args).not.toHaveProperty('scope')
+    })
+
+    it('does not set a conversation title', async () => {
+      await service.client.post(
+        `/v1/briefing-chats/${fixtures.annotation.id}/messages`,
+        { content: 'no title from me' },
+      )
+
+      const row = await service.prisma.chatConversation.findUnique({
+        where: { id: fixtures.conversation.id },
+      })
+      expect(row?.title).toBeNull()
     })
 
     it('persists the user message visible via GET', async () => {
@@ -436,6 +475,85 @@ describe('BriefingChatsController (integration)', () => {
       })
       expect(userMessages).toHaveLength(1)
       expect(userMessages[0]?.content).toBe('original content')
+    })
+  })
+
+  // Every conversation created before this branch has only ownerUserId: scope
+  // falls to its default and organizationSlug is NULL. The shared fixture above
+  // is shaped that way on purpose. These routes key on the annotation, so such
+  // a row must stay fully usable here; only the registry's /v1/chats routes
+  // (which check organizationSlug) cannot reach it until a backfill.
+  describe('legacy conversations (no organizationSlug)', () => {
+    it('streams, loads and deletes through the briefing routes', async () => {
+      const row = await service.prisma.chatConversation.findUnique({
+        where: { id: fixtures.conversation.id },
+      })
+      expect(row?.organizationSlug).toBeNull()
+      expect(row?.scope).toBe(ChatScope.briefing_annotation)
+
+      const streamed = await service.client.post(
+        `/v1/briefing-chats/${fixtures.annotation.id}/messages`,
+        { content: 'legacy hello' },
+      )
+      expect(streamed.status).toBe(HttpStatus.OK)
+      expect(
+        parseSseFrames(String(streamed.data)).map(
+          (f) => (f.parsed as { type?: string }).type,
+        ),
+      ).toEqual(['text', 'done'])
+
+      const loaded = await service.client.get(
+        `/v1/briefing-chats/${fixtures.annotation.id}`,
+      )
+      expect(loaded.status).toBe(HttpStatus.OK)
+      expect(loaded.data.conversationId).toBe(fixtures.conversation.id)
+      expect(
+        (loaded.data.messages as Array<{ content: string }>).map(
+          (m) => m.content,
+        ),
+      ).toEqual(['legacy hello'])
+
+      const deleted = await service.client.delete(
+        `/v1/briefing-chats/${fixtures.annotation.id}`,
+      )
+      expect(deleted.status).toBe(HttpStatus.NO_CONTENT)
+    })
+
+    it('top-level create returns the existing legacy pair unchanged', async () => {
+      const res = await service.client.post('/v1/briefing-chats', {
+        meetingDate: MEETING_DATE,
+        anchor: { jsonPath: null, start: null, end: null },
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data).toEqual({
+        annotationId: fixtures.annotation.id,
+        conversationId: fixtures.conversation.id,
+      })
+      const row = await service.prisma.chatConversation.findUnique({
+        where: { id: fixtures.conversation.id },
+      })
+      expect(row?.organizationSlug).toBeNull()
+    })
+
+    it('is not reachable through the registry route, while a new chat is', async () => {
+      const headers = { headers: { 'X-Organization-Slug': fixtures.slug } }
+
+      const legacy = await service.client.get(
+        `/v1/chats/${fixtures.conversation.id}?scope=briefing_annotation`,
+        headers,
+      )
+      expect(legacy.status).toBe(HttpStatus.NOT_FOUND)
+
+      const created = await service.client.post('/v1/briefing-chats', {
+        meetingDate: MEETING_DATE,
+        anchor: { jsonPath: '$.a', start: 1, end: 5 },
+      })
+      const fresh = await service.client.get(
+        `/v1/chats/${created.data.conversationId}?scope=briefing_annotation`,
+        headers,
+      )
+      expect(fresh.status).toBe(HttpStatus.OK)
     })
   })
 
