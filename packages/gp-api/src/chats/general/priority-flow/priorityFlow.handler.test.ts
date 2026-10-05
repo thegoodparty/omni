@@ -358,28 +358,26 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('Never tell them to pick just one')
   })
 
-  it('offers a stage-gate check even without the list tools', () => {
+  it('offers a stage-gate check only for a gap nothing else fills', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('CHECKING A STEP WITH THE PEOPLE IT LANDS ON')
     expect(prompt).toContain('comes back at most 3 times')
+    expect(prompt).toContain('None of them needs one')
+    expect(prompt).toContain('work out what is actually missing')
+    expect(prompt).toContain('Constituents are not a data source')
+    expect(prompt).toContain('when the official says they have already heard')
     expect(prompt).toContain(
-      'Every one of the four gets the offer, plan included',
+      'A check is never the default way to gather evidence',
     )
+    expect(prompt).toContain('holds for the whole priority, not one step')
     expect(prompt).toContain(
-      'method: put the chosen method itself to them, not the problem again',
-    )
-    expect(prompt).toContain(
-      'Every check has two sides, and you always offer both',
+      'A check you offer has two sides, and you offer both',
     )
     expect(prompt).toContain('Never frame them as less important')
-    expect(prompt).toContain(
-      'do the check in that same turn before any work on the next step',
-    )
     expect(prompt).toContain('never counts as constituents agreeing')
     expect(prompt).toContain('never say a check is out')
-    expect(prompt).toContain(
-      'has been offered a check with the people the plan lands on',
-    )
+    expect(prompt).not.toContain('Every one of the four gets the offer')
+    expect(prompt).not.toContain('offered a check with the people the plan')
     expect(prompt).not.toContain('HOW TO CHOOSE WHO TO HEAR FROM')
     expect(prompt).not.toContain('BUILD THE CHECK BEFORE YOU OFFER IT')
   })
@@ -391,7 +389,9 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('A district or ward seat is NOT the city')
     expect(prompt).toContain('Never quietly fall back to the whole city')
     expect(prompt).toContain('fewer than about 100 people')
-    expect(prompt).toContain('every check also gets the least affected group')
+    expect(prompt).toContain(
+      'a check you offer also gets the least affected group',
+    )
     expect(prompt).toContain(
       'Present it as its own present_outreach_proposal, right after the first',
     )
@@ -796,7 +796,7 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('Never present it again')
     expect(prompt).toContain('say in one line that it is out, once')
     expect(prompt).toContain(`starts with ${PROPOSAL_SENT_MARKER}`)
-    expect(prompt).toContain('stepId (the step you just settled) and side main')
+    expect(prompt).toContain('stepId (the step the check is on) and side main')
     expect(prompt).toContain('with the same stepId and side contrast')
   })
 

@@ -91,25 +91,32 @@ message, so the card never has to.
 
 ## A step carries whether its people were asked
 
-`define`, `options`, `method` and `plan` always end with a check. The agent
-picks who by the affectedness method in the prompt (`AFFECTEDNESS_BLOCK` in
+`define`, `options`, `method` and `plan` can each carry a check, and none has
+to. Before offering one the agent names what the step is missing and matches
+it to a source: a fact gets looked up, how it runs comes from staff or groups,
+and only what people think, with nothing on hand showing it, earns a check.
+A step that settles without one is done; the model otherwise routed every gap
+into a texting campaign. When a check is warranted, the agent picks who by the affectedness method in the prompt (`AFFECTEDNESS_BLOCK` in
 `gp-api/.../priority-flow/priorityFlow.prompt.ts`, from Samuel's Serve lists
 runbook), counts the group without saving it, writes the one question, and offers it as
 work already done through `present_outreach_proposal` on whichever channel
-those people answer on, door knocking included. Every check has two sides,
+those people answer on, door knocking included. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
 inverted, same gates), each on its own card. The official can take both, one,
 or neither. The check is the ask for its stage. `listen_problem` and
 `listen_options` never ask again: they are where the answers to the `define`
-and `options` checks land.
+and `options` checks land, and with no check on their gate they close on what
+the official and the record already show (`isCheckAnswered` reads no check as
+nothing to wait on).
 
 A model left alone records the check and moves on without showing it, so the
-server holds the order. `update_priority_status` refuses to record `asked`
-until a card or a question has gone out in that turn (the priority-flow
-handler tells it, since tools are built per turn), refuses to open a step past
-a settled gate that has no check, and answers a gate settled without one with
-`checkDue`: offer it now, before any next-step work. So `asked` means shown,
-and the rail reads it as waiting on the official.
+server holds the order once a check exists, and never forces one.
+`update_priority_status` refuses to record `asked` until a card or a question
+has gone out in that turn (the priority-flow handler tells it, since tools are
+built per turn), and answers a gate settled without one with `checkDue`: say
+what is still missing, offer a check only for a gap in what people think, and
+otherwise move on. So `asked` means shown, and the rail reads it as waiting on
+the official.
 
 Three more holds, because the model also called the official's own agreement
 "constituents agreed":
@@ -117,14 +124,11 @@ Three more holds, because the model also called the official's own agreement
 - **Recording `asked` while something was offered stamps `offeredAt` on the
   server** (`mergeStepCheck`'s `offered` argument, which only the server
   passes). Reads heal earlier rows: `parsePriorityStatus` drops an `asked`
-  with no `offeredAt`, and any check on a step that is not a gate. The gate
-  then counts as bare and asks again.
+  with no `offeredAt`, and any check on a step that is not a gate.
 - **`confirmed` and `revised` need evidence.** The side has to have been `out`,
   or shown in an earlier turn (`offeredAt` before the handler's turn
   `startedAt`), and `heard` has to say what constituents said. A check patch
   on a step that is not a gate is refused, and the client merge ignores one.
-- **An unanswered `asked` lets one step open past its gate, and no further.**
-  After that, the agent has to ask again or record the answer.
 - **A real send puts a side out, not the agent.** A proposal names the check
   it puts out (`stepId`, `side`), and the create that sends it carries them.
   Once the send is real (the phone list built, the post saved, the text paid
