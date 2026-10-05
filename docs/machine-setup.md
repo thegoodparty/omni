@@ -118,7 +118,13 @@ winget install -e --id Schniz.fnm
 echo 'eval "$(fnm env --use-on-cd --shell bash)"' >> ~/.bashrc
 ```
 
-Then open a new Git Bash window. fnm reads `.nvmrc` the way nvm does.
+Then open a new Git Bash window and run `fnm --version`. On a fresh Git
+install, that window first prints a red "WARNING: Found ~/.bashrc but no
+~/.bash_profile". That's expected: Git creates a `~/.bash_profile` that
+loads `~/.bashrc`. If `fnm` is still not found, your existing
+`~/.bash_profile` doesn't load `~/.bashrc`; add
+`test -f ~/.bashrc && . ~/.bashrc` to it. fnm reads `.nvmrc` the way nvm
+does.
 
 ### W4. WSL2 and Docker Desktop
 
