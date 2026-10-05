@@ -231,7 +231,8 @@ A cause is normally one ruling, but some causes hold more than one decision. On 
 row with more than one event, the evidence table takes checkboxes and a row of
 quick-select chips built from that cause's own data: `all`, `none`, one per distinct
 provenance state, and `older than 30d` where it applies. Pick a set, then apply a verb
-to just those events.
+to just those events. Picking every event is the whole cause, so the per-event boxes
+stay hidden and the page points you at the cause-level ruling instead.
 
 Use it when the evidence columns split a cause into more than one decision, for example
 when the provenance chips show some events were never found in code and others were.
