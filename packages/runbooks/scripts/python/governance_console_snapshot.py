@@ -5,6 +5,10 @@ Joins, all in one pass:
     status counts, the flagged set, watchlist proposals, alignment findings
   - instrumentation_gaps.json (committed): the gap queue and its dispositions
   - the explorer snapshot (committed): the area rollup, so the two pages cannot disagree
+  - amplitude_event_provenance.csv (committed): call-site counts and retirement dates,
+    joined onto flagged evidence and event cards
+  - surface_drift.json (committed, optional until the first detector run): open and
+    high-confidence relabel proposals, as the fifth queue
 
 Runs in the analytics-governance workflow after the health step, which is what lets it
 read a report that is never committed, and by hand:
@@ -79,6 +83,10 @@ ALIGNMENT_VERBS = {
     "defer": "Defer",
 }
 
+SURFACE_VERBS = {"accept": "Relabel it", "dismiss": "Label is right", "defer": "Defer"}
+SURFACE_RANK = 45
+DRIFT = PY / "instrumentation_data" / "surface_drift.json"
+
 # What each verb actually DOES, in plain words, for the review panel and the button
 # tooltips. The labels above name the button you press; these name the consequence.
 #
@@ -152,6 +160,18 @@ VERB_EFFECTS = {
         ),
         "dismiss": (
             "Record that this mismatch is fine. Permanent: it stops being raised."
+        ),
+        "defer": "Leave it for a later run. It comes back next time.",
+    },
+    "surface": {
+        "accept": (
+            "Write the new surface tag, where-it-fires line and display name to Amplitude "
+            "Govern. The explorer and product map file the event under its new area; its "
+            "raw name and every chart stay as they are."
+        ),
+        "dismiss": (
+            "Record that this label is right. It stays quiet until the places this event "
+            "fires from change."
         ),
         "defer": "Leave it for a later run. It comes back next time.",
     },
@@ -473,6 +493,18 @@ QUEUE_CAVEATS = {
         "If the metric counts less than the whole event, check whether the declaration "
         "actually says so. A narrowing nobody wrote down is invisible to this check.",
         "anchored_on, sem_*.yml, sem_anchors.Leg",
+    ),
+    "surface": _caveat(
+        "We traced each event from the code that sends it up to the pages that show that "
+        "code, and compared those pages with the area its name or surface tag claims. "
+        "Where we could, we also checked which page people were on when it fired.",
+        "The event fires somewhere other than where its label says, so anyone filtering "
+        "by area or reading its name is looking in the wrong place.",
+        "Code that is imported is not always shown, and a live page may have no link to "
+        "it. A suggested relabel is only offered when the page people were on agrees.",
+        "Open the removal commit and the page-path numbers in the evidence. A low "
+        "coverage figure means most fires could not be placed on a page.",
+        "event_reach.py, surface_drift.py, surface_drift.json",
     ),
 }
 
@@ -891,6 +923,49 @@ def build_alignment_queue(report: Mapping) -> list[dict]:
     } for f in (report.get("anchor_alignment") or [])]
 
 
+def build_surface_queue(drift: Mapping) -> list[dict]:
+    """Relabel proposals still waiting on a ruling. Accepted rows (including ones a PR
+    approved through relabels:) are already decided and go straight to triage."""
+    out = []
+    for event, r in sorted((drift.get("rows") or {}).items()):
+        if r.get("disposition") not in ("new", "open"):
+            continue
+        high = r.get("confidence") == "high"
+        out.append({
+            "id": event,
+            "queue": "surface",
+            "events": [event],
+            "verbs": SURFACE_VERBS,
+            "caveat": QUEUE_CAVEATS["surface"],
+            "recommended": "accept" if high else "",
+            "recommendation_reason": (
+                "Every check agrees: the code reaches one area, the old mount was removed "
+                f"in {r.get('removal_commit')}, and the page people were on matches."
+                if high else ""
+            ),
+            "label": f"{event}: labeled {r.get('claimed')}, fires from {', '.join(r.get('areas') or [])}",
+            "rank": SURFACE_RANK,
+            "count": 1,
+            "dismissable": True,
+            "dismissed": None,
+            "evidence": [{
+                "verdict": r.get("verdict"),
+                "confidence": r.get("confidence"),
+                "live_routes": ", ".join(r.get("live_routes") or []),
+                "removal_commit": r.get("removal_commit"),
+                "page_path_coverage": (r.get("signal") or {}).get("coverage"),
+                "page_path_agreement": (r.get("signal") or {}).get("agreement"),
+                "page_path_users": (r.get("signal") or {}).get("users"),
+                "okr": r.get("okr"),
+                "proposed_surface": r.get("proposed_surface"),
+                "surface_options": ", ".join(r.get("surface_options") or []),
+                "proposed_display_name": r.get("proposed_display_name"),
+                "proposed_fires_on": r.get("proposed_fires_on"),
+            }],
+        })
+    return out
+
+
 # --- the whole snapshot -------------------------------------------------------
 
 
@@ -910,6 +985,7 @@ def build_snapshot(
     explorer: Mapping,
     previous: Mapping | None,
     code: Mapping | None = None,
+    drift: Mapping | None = None,
 ) -> dict:
     """Join every input into the one file the page renders.
 
@@ -931,6 +1007,7 @@ def build_snapshot(
         {"queue": "gaps", "items": build_gap_queue(gaps)},
         {"queue": "proposals", "items": build_proposal_queue(report)},
         {"queue": "alignment", "items": build_alignment_queue(report)},
+        {"queue": "surface", "items": build_surface_queue(drift or {})},
     ]
     overview = build_overview(report, explorer)
     overview["totals"]["open_decisions"] = sum(len(q["items"]) for q in queues)
@@ -967,6 +1044,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--gaps", type=Path, default=GAPS)
     parser.add_argument("--explorer", type=Path, default=EXPLORER)
     parser.add_argument("--code", type=Path, default=CODE_CSV)
+    parser.add_argument("--drift", type=Path, default=DRIFT)
     parser.add_argument("-o", "--out", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -983,6 +1061,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _load(args.explorer),
             previous,
             aeh.load_code_axis(args.code),
+            drift=_load(args.drift) if args.drift.exists() else None,
         )
     except StaleReport as exc:
         print(str(exc), file=sys.stderr)
