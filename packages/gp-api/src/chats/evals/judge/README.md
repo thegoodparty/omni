@@ -804,9 +804,11 @@ excluded all but one pair across the three gp-api agents. So `isComparable()`
 is true for a background record with tool errors, and its pair is judged. A
 background pair is still excluded for `infraError` (which is also how the
 runner records a missing or unparseable artifact, or a trace it could not
-read) and for an identical config, exactly as before. The base-arm cache
-follows the same rule: a background base arm with tool errors, a valid
-artifact and no infraError is cached. The tool-error count is still measured
+read) and for an identical config, exactly as before. The base-arm cache does
+NOT follow this rule: `isCacheableBase()` caches a background base arm only
+when it is comparable and has zero tool errors, so a base arm captured during a
+credential or broker outage is scored that sweep but never becomes the cached
+baseline. The tool-error count is still measured
 (`tool errors: +X per run pair`) and its causes still listed, so the evidence
 stays beside the verdict.
 

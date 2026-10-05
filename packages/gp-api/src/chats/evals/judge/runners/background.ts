@@ -1467,7 +1467,13 @@ export type CacheRead =
 // into the judge prefix installs a schema-valid baseline that every later sweep
 // reuses, which either hides a regression or invents one.
 //
-// isComparable is re-checked here, not only on write: a hand-written entry
+// Stricter than isComparable on purpose: a base arm captured during a
+// credential or broker outage would otherwise stay the baseline until the
+// agent's config changes, and a re-capture of a clean run is the cheap side.
+export const isCacheableBase = (record: RunRecord): boolean =>
+  isComparable(record) && record.telemetry.toolErrors === 0
+
+// isCacheableBase is re-checked here, not only on write: a hand-written entry
 // would otherwise walk straight past the write-side guard.
 const cacheEntryMatches = (
   entry: CachedBaseArm,
@@ -1482,7 +1488,7 @@ const cacheEntryMatches = (
     record.agentId === agentId &&
     record.caseId === caseId &&
     record.variant.configDigest === configDigest &&
-    isComparable(record)
+    isCacheableBase(record)
   )
 }
 
@@ -1588,12 +1594,13 @@ export const runBackgroundBaseArm = async (
   }
 
   const record = await runBackgroundCase(deps, input)
-  // Never cache a run that cannot be compared. A cached timeout, or a cached
-  // run with no readable artifact or trace, would be reused by every later
-  // sweep, so one bad run would become a permanent baseline. A run that hit
-  // tool errors and still published a valid artifact IS comparable for a
-  // background agent (see isComparable), so it is cached like any other.
-  if (!isComparable(record)) {
+  // Never cache a run that cannot be compared, or one that hit a tool error.
+  // A cached timeout, or a cached run with no readable artifact or trace,
+  // would be reused by every later sweep, so one bad run would become a
+  // permanent baseline. A background run with tool errors IS comparable and
+  // is scored this sweep (see isComparable), but it is not cached: see
+  // isCacheableBase.
+  if (!isCacheableBase(record)) {
     return {
       record,
       cache: 'notCached',
