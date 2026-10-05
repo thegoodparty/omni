@@ -240,7 +240,7 @@ const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
     `- Count the replies on each side before you treat them as an answer. Polls hold a read to the same bar: more than ${HIGH_CONFIDENCE_MIN_REPLIES} replies, or replies from at least ${pct(HIGH_CONFIDENCE_MIN_SHARE)} of that side's whole audience. Short of both, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
     ...(has('present_outreach_proposal')
       ? [
-          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized with size_outreach_sample and repliesAlready set to the replies already in, with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
+          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized with size_outreach_sample, with repliesAlready set to the replies already in and alreadyAsked set to how many people those sends went to (from read_past_outreach), with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
         ]
       : []),
     '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',
