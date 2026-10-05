@@ -72,7 +72,7 @@ adding one needs a code change:
   `E2E_ADMIN_PASSWORD`, `E2E_CANDIDATE_EMAIL`, `E2E_CANDIDATE_PASSWORD` in
   `GP_API_DEV`): dev skips them, and preview maps them to `ADMIN_EMAIL`,
   `ADMIN_PASSWORD`, `CANDIDATE_EMAIL` and `CANDIDATE_PASSWORD`, the names the
-  seed and E2E suite read.
+  seed reads.
 - **gp-ai needs a Terraform edit.** Each key is listed explicitly in the module's
   `secrets` array, so a new one means a new `valueFrom` entry plus an
   `AI_SECRETS_<ENV>` resource in the task role's IAM policy.
