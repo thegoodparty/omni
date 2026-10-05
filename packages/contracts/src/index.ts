@@ -675,6 +675,21 @@ export {
   PRIORITY_STEP_LABELS,
   PRIORITY_STEP_PURPOSE,
   PRIORITY_STATUS_VERSION,
+  PRIORITY_CHECK_STATES,
+  MAX_CHECK_RAISES,
+  PRIORITY_GATE_STEPS,
+  PRIORITY_LISTEN_GATES,
+  PRIORITY_CHECK_SIDES,
+  PriorityCheckSideSchema,
+  type PriorityCheckSide,
+  isCheckAnswered,
+  openListenBefore,
+  PriorityCheckStateSchema,
+  PriorityStepCheckSchema,
+  PriorityStepCheckInputSchema,
+  PriorityStepContrastSchema,
+  PriorityStepContrastInputSchema,
+  mergeStepCheck,
   PriorityStepIdSchema,
   PriorityStepStateSchema,
   PriorityStepSchema,
@@ -685,6 +700,11 @@ export {
   type PriorityStepState,
   type PriorityStep,
   type PriorityStatus,
+  type PriorityCheckState,
+  type PriorityStepCheck,
+  type PriorityStepCheckInput,
+  type PriorityStepContrast,
+  type PriorityStepContrastInput,
 } from './priorities/PriorityStatus.schema'
 
 export { mintProposalKey } from './chats/proposalKey'
@@ -709,6 +729,11 @@ export {
   ContactRefSchema,
   OutsideContactSchema,
   ChatCardSchema,
+  ProposalLinkSchema,
+  PROPOSAL_SENT_MARKER,
+  ProposalAudienceFiltersSchema,
+  type ProposalAudienceFilters,
+  type ProposalLink,
   type ChatCardKind,
   type ProposalChannel,
   type OutreachProposal,
@@ -816,6 +841,8 @@ export {
 export {
   ComposeHandoffPayloadSchema,
   type ComposeHandoffPayload,
+  type ComposeHandoffChannel,
+  COMPOSE_HANDOFF_CHANNEL_SCHEMAS,
 } from './chats/ComposeHandoff.schema'
 
 export {
@@ -982,6 +1009,12 @@ export {
   RobocallScriptDraftResponseSchema,
   type RobocallScriptDraftResponse,
 } from './outreach/RobocallScript.schema'
+export {
+  deriveRobocallProtectedParts,
+  formatRobocallCallbackNumber,
+  robocallDisclosureLine,
+  type RobocallProtectedPart,
+} from './outreach/RobocallProtectedParts'
 export {
   RobocallNumberResponseSchema,
   type RobocallNumberResponse,
@@ -1170,6 +1203,12 @@ export {
 } from './people/PeopleOverlapCount.schema'
 
 export {
+  MAX_LIST_SAMPLE_SIZE,
+  ListSampleSchema,
+  type ListSample,
+} from './people/ListSample.schema'
+
+export {
   DoorKnockingEvaluateRequestSchema,
   type DoorKnockingEvaluateRequest,
   DoorKnockingEvaluatedPersonSchema,
@@ -1258,6 +1297,8 @@ export {
   type GeoJsonPolygon,
   CreateDoorKnockingTurfSchema,
   type CreateDoorKnockingTurf,
+  CreateServeDoorKnockingTurfSchema,
+  type CreateServeDoorKnockingTurf,
   UpdateDoorKnockingTurfSchema,
   type UpdateDoorKnockingTurf,
   DoorKnockingTurfSchema,

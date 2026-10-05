@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import type {
   OutreachDetail,
+  ProposalLink,
   ServeSocialDraftRequest,
   ServeSocialGenerateRequest,
   ServeSocialPurpose,
@@ -67,7 +68,7 @@ interface SocialFlowGenerateInput {
   platforms: SocialAssetPlatform[]
 }
 
-interface SocialFlowSaveInput {
+interface SocialFlowSaveInput extends ProposalLink {
   name: string
   purpose: SocialFlowPurpose
   draftMessage: string
@@ -122,11 +123,15 @@ const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
       )
       return data.assets
     },
-    save: async (input) => {
-      const { data } = await clientRequest(
-        'POST /v1/outreach/social',
-        input as SocialSaveRequest,
-      )
+    save: async ({ name, purpose, draftMessage, assets }) => {
+      // Named, not rest-spread: a proposal link is a Serve chat card's, and
+      // Win's save never carries one, whatever fields the link grows.
+      const { data } = await clientRequest('POST /v1/outreach/social', {
+        name,
+        purpose,
+        draftMessage,
+        assets,
+      } as SocialSaveRequest)
       return data
     },
   },
@@ -169,6 +174,9 @@ export const SERVE_SOCIAL_SURFACE: SocialFlowSurface = {
 export interface SocialFlowPrefill {
   draftText: string
   purpose?: string | null
+  // From a chat card's proposal: saved with the post, linking it to its
+  // priority and making a second save of the same proposal return the first.
+  proposalLink?: ProposalLink
 }
 
 interface SocialFlowProps {
@@ -280,6 +288,7 @@ export const SocialFlow = ({
         purpose: purpose as SocialFlowPurpose,
         draftMessage: draft.trim(),
         assets: assets as SocialAsset[],
+        ...prefill?.proposalLink,
       }),
     onSuccess: (detail) => {
       setSaved(true)
@@ -581,7 +590,6 @@ export const SocialFlow = ({
         />
       ) : stepId === 'compose' ? (
         <ComposeStep
-          isServe={surface.isServe}
           tone={tone}
           onToneChange={handleToneChange}
           draft={draft}
@@ -607,7 +615,6 @@ export const SocialFlow = ({
         />
       ) : (
         <ShareStep
-          isServe={surface.isServe}
           platforms={platforms}
           assets={assets}
           isGenerating={generateMutation.isPending}

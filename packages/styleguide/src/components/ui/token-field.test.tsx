@@ -206,4 +206,55 @@ describe('TokenField', () => {
     expect(box).toHaveAttribute('aria-invalid', 'true')
     expect(box).toHaveAttribute('contenteditable', 'false')
   })
+
+  // As a textarea's maxlength: nothing grows past it, a cut always lands.
+  it('refuses an edit past maxLength and allows one that shortens', async () => {
+    const { editor, onChange } = await mount({
+      value: 'Hi there.',
+      tokens: [],
+      protectedRanges: [],
+      maxLength: 12,
+    })
+    act(() => {
+      editor.commands.insertContentAt(positionOf(editor, '.'), ' you all')
+    })
+    expect(editor.getText()).toBe('Hi there.')
+    expect(onChange).not.toHaveBeenCalled()
+
+    act(() => {
+      editor.commands.insertContentAt(positionOf(editor, '.'), ' yo')
+    })
+    expect(editor.getText()).toBe('Hi there yo.')
+    act(() => {
+      editor.commands.insertContentAt(positionOf(editor, '.'), '!')
+    })
+    expect(editor.getText()).toBe('Hi there yo.')
+    act(() => {
+      const at = positionOf(editor, ' yo')
+      editor.view.dispatch(editor.state.tr.delete(at, at + 3))
+    })
+    expect(editor.getText()).toBe('Hi there.')
+  })
+
+  // A body may quote the line the message closes on; the caller says which
+  // copy is the locked one, and an edit to the other is the user's.
+  it('anchors a phrase at its given start, not its first copy', async () => {
+    const value = 'It ends "Reply STOP to opt out."\n\nReply STOP to opt out.'
+    const { editor, onChange } = await mount({
+      value,
+      tokens: [],
+      protectedRanges: [
+        { ...OPT_OUT, start: value.lastIndexOf('Reply STOP to opt out.') },
+      ],
+    })
+    // The quote is plain text: deleting a character of it goes through.
+    act(() => {
+      const at = positionOf(editor, 'STOP')
+      editor.view.dispatch(editor.state.tr.delete(at, at + 1))
+    })
+    expect(editor.getText({ blockSeparator: '\n' })).toBe(
+      'It ends "Reply TOP to opt out."\n\nReply STOP to opt out.',
+    )
+    expect(onChange).toHaveBeenCalled()
+  })
 })

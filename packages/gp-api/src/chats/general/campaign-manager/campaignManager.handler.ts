@@ -53,6 +53,7 @@ import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
+import { buildComposeHandoffTool } from '../chief-of-staff/services/composeHandoff.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -105,15 +106,15 @@ export const buildStoryGreeting = (story: StoryState): string => {
   const intro =
     answered === 0
       ? [
-          "Before I build your plan and tracker, let's get your Campaign " +
-            "Story down, since it's what personalizes your Campaign Plan " +
+          "Before I build your campaign and outreach plan, let's get your " +
+            "Campaign Story down, since it's what personalizes your plan " +
             'and your GoodParty.org experience.',
           "It's just three short questions, in your own words, and I can " +
             'help sharpen anything you write.',
         ]
       : [
           "Welcome back. Let's finish your Campaign Story so I can build " +
-            'your plan and tracker.',
+            'your campaign and outreach plan.',
         ]
   const lead = answered === 0 ? 'First' : 'Next'
   return [...intro, `${lead}, ${STORY_QUESTION_PROMPTS[next]}`].join('\n\n')
@@ -124,8 +125,8 @@ export const buildStoryGreeting = (story: StoryState): string => {
 // answers the same way whether the story is missing, in progress, or done.
 const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW = [
   "I'm your campaign manager, here to help you run and win.",
-  'GoodParty.org gives you a personalized campaign plan, a weekly tracker ' +
-    'of your highest-impact tasks, voter outreach tools like texting, ' +
+  'GoodParty.org gives you a personalized campaign and outreach plan with ' +
+    'your highest-impact tasks each week, voter outreach tools like texting, ' +
     'door-knocking scripts, and social posts, and a free candidate website.',
   'Tell me what you are working on and I will point you to the next best ' +
     'step. When you are ready, tap Personalize your campaign and I will ' +
@@ -432,6 +433,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         raceId: ctx.raceId,
       })
     }
+
+    // Compose handoff: drafts a social post for the candidate to review in
+    // a prefilled Win social-flow compose drawer.
+    tools.compose_handoff = buildComposeHandoffTool('win_social')
 
     // Campaign Story intake: read/elaborate/save the candidate's story and,
     // once complete, kick off plan + tracker generation. Registered whenever

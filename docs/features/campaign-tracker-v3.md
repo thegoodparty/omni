@@ -107,6 +107,85 @@ renders dynamic rows only, so the static story row never appears in it). Ballot
 access still outranks it: a missed filing deadline cannot be undone. All three
 surfaces share the same title and caption.
 
+### Regeneration when the story changes
+
+A plan goes stale whenever the story it was built from changes, in a way the
+`raceId` comparison can't see — whether that is a candidate finishing a story
+they never had, or editing an answer years later.
+`CampaignStrategy.storyFingerprint` holds a hash of the three answers the plan
+was last generated from (`fingerprintStory`, beside the one story reader), and
+`alignPlanWithStory` (the same shape as `alignPlanWithRace`) wipes the content
+in place and lets `dispatchPending` regenerate whenever the current story
+hashes to something else. Attempt counters deliberately survive.
+
+The hash **is** the claim, as a compare-and-swap rather than a one-way flag:
+every write is conditional on the row still holding the fingerprint that call
+read, which is what stops two concurrent polls from both resetting and
+double-dispatching. It also makes the write path cheap enough to fire on every
+story save: the story page saves each field independently, so one edit arrives
+as several messages that all hash alike once it settles, and only a hash that
+actually differs reaches the reset.
+
+`generatedWithStory`, the boolean this replaced, survives for one job: telling
+a pre-fingerprint row that was built *from* a story (adopt the current hash
+silently) apart from one built *without* one (regenerate). Without that, adding
+the column would have billed a regeneration for every campaign with a finished
+story at once. It is dead weight once every row carries a fingerprint and can
+be dropped then.
+
+The decision is per-section, not per-plan, and reading it per-plan cost two
+bugs in a row. Each section owns a runId and a `persistedAt`, so a section
+holding a runId with no stamp has a generation on the wire whose output is
+still coming. If **any** section is in that state the align stands aside
+without claiming, including the partial case where opposition has landed and
+opportunities is still running: wiping nulls both runIds, which is how
+`onExperimentRunCompleted` finds the plan, so the live run finishes into a
+plan that no longer references it and its output is dropped. Claiming would
+be wrong the other way, flagging a plan story-aware whose in-flight params
+predate the story, which the one-shot claim then makes permanent. Otherwise
+persisted content takes the reset above, and a plan with no content and
+nothing dispatched stamps the claim and lets the dispatch that follows carry
+the story.
+
+That read-path alignment is the backstop; the trigger is the write path, so a
+candidate who finishes their story in the manager chat doesn't have to open the
+plan tab for it to take effect. The story spans three fields across two tables
+(`background` on `campaign_story`; the why and the issues on the website),
+written from the story page, `PUT /v1/websites/mine` and the chat agent — so
+each of those writes enqueues `QueueType.CAMPAIGN_STORY_COMPLETED` through
+`CampaignStoryCompletedProducer`, and the consumer calls
+`CampaignStrategyService.regenerateOnStoryComplete`. The websites guard watches
+`about.bio` and `about.issues` specifically rather than `about`, which also
+carries `committee`: announcing on that would wipe and regenerate a
+complete-story campaign's plan for an edit that had nothing to do with the
+story. Enqueued rather than
+called directly because `campaignStrategy` already depends on both
+`campaignStory` and `websites`, so a direct call would need a module cycle at
+each edge, and because a story autosave should not wait on a regeneration.
+Messages are deliberately **not** deduped per campaign. The story page saves
+each field independently, and a per-campaign dedup id would collapse the burst
+inside SQS FIFO's 5-minute window and keep the *first* message — the one
+written while the story was still incomplete, which the handler correctly
+no-ops on. The write that actually completes the story would be the one
+discarded, so the eager path would silently never fire. Every write gets its
+own message; the handler is cheap when the story is incomplete and one-shot
+when it is not.
+
+`regenerateOnStoryComplete` only acts on a plan that **already exists**:
+generation is otherwise user-triggered, and dispatching for a campaign that
+never asked for a plan would bill it. It never throws — a story save must not
+fail because a regeneration could not be dispatched, and if the dispatch fails
+after the reset lands, the next plan read dispatches it.
+
+It does **not** dispatch the tracker itself. The tracker agent's params are
+built from the plan in the database, which the reset has just wiped, so a run
+started there would spend a full generation against a null plan. Instead the
+reset **releases `trackerBootstrapped`**, so when the regenerated sections
+persist the completion handler finds an unclaimed tracker and dispatches a run
+against the finished plan. That also covers the case where a concurrent plan
+poll wins the `generatedWithStory` claim first: whoever wins releases the
+tracker claim, so the refresh happens either way.
+
 ## Data model
 
 One table, `campaign_tracker_tasks` (`prisma/schema/campaignTrackerTask.prisma`),
@@ -123,7 +202,12 @@ completion / CTA / update-history machinery is reused against it.
 | `completed` | per-task completion; `updateHistoryId` links voter-contact logging |
 
 `CampaignStrategy.trackerBootstrapped` (boolean) is the one-shot bootstrap
-claim (see Bootstrap below).
+claim (see Bootstrap below). Both in-place plan resets release it —
+`alignPlanWithStory` when the story lands and `alignPlanWithRace` when the
+office changes — because the tasks are built from the plan, so whatever
+stales the plan stales them. A reset that kept the claim would leave the
+campaign on the old race's or the pre-story tasks until the weekly cron came
+round.
 
 ### The append (generation) model
 

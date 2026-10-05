@@ -18,7 +18,6 @@ import {
 import { useUser } from '@shared/hooks/useUser'
 import { useOrganization } from '@shared/organization-picker'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
-import { useAttachmentsEnabled } from '../shared/agent-chat/hooks/useAttachmentsEnabled'
 import { useChatHistory } from '../chief-of-staff/data/use-chat-history'
 import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
 import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
@@ -119,7 +118,6 @@ export function CampaignManagerChatProvider({
   const { isComplete: storyComplete } = useCampaignStoryComplete(true)
   // Off for campaign_assistant today; the footer paperclip appears the moment
   // the hook enables attachments for this scope.
-  const attachmentsEnabled = useAttachmentsEnabled('campaign_assistant')
 
   // Fetched at mount so a general open can resume the latest conversation
   // synchronously. The chat body invalidates this key when a conversation is
@@ -323,7 +321,7 @@ export function CampaignManagerChatProvider({
         chatApi={campaignManagerChatApi}
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         openLabel="Open campaign manager chat"
-        showAttachIcon={attachmentsEnabled.enabled}
+        showAttachIcon
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}

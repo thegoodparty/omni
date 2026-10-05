@@ -164,7 +164,14 @@ export const ciContextFromEnv = (
   // anyway, and refusing the whole context over it would throw away the ids.
   const attempt = Number.parseInt(env.GITHUB_RUN_ATTEMPT ?? '1', 10)
   const fromRef = /^refs\/pull\/(\d+)\//.exec(env.GITHUB_REF ?? '')?.[1]
-  const prNumber = Number.parseInt(fromRef ?? env.PR_NUMBER ?? '', 10)
+  // JUDGE_PR_NUMBER FIRST: it is what judge.yml hands the arms, and a sweep is
+  // dispatched or commented from main, so its GITHUB_REF is never a pull ref.
+  // Reading only the ref and PR_NUMBER, every live sweep's records carried no
+  // PR at all, and the report could not say which change it judged.
+  const prNumber = Number.parseInt(
+    env.JUDGE_PR_NUMBER || fromRef || env.PR_NUMBER || '',
+    10,
+  )
   return {
     repo,
     ...(Number.isInteger(prNumber) && prNumber > 0 && { prNumber }),

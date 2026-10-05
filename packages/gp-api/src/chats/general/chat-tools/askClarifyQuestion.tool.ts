@@ -12,7 +12,38 @@ export const buildAskClarifyQuestionTool = (): LlmStreamTool<
     'options; a factual option should cite a source, a pure-judgment option ' +
     'need not. The UI always adds an "Or write your own..." freeform option, ' +
     'so never add one yourself. Do not ask the next question until this one is ' +
-    'answered.',
+    'answered. Set multiSelect when more than one answer can be true, such as ' +
+    'options the user could pursue together or symptoms of one problem; the ' +
+    'options become checkboxes and the answer comes back as the chosen labels ' +
+    'joined into one line. Leave it off when the answers rule each other out. ' +
+    'The UI shows the question above its options, so never write ' +
+    'the question, or any rewording of it, as chat text. Any text before ' +
+    'this call is context and never ends in a question. Use this tool ' +
+    'whenever the user has to choose; never end a message with an either/or ' +
+    'or pick-one question in prose.',
   inputSchema: ChatClarifyQuestionSchema,
-  execute: ({ questionId }) => ({ asked: true, questionId }),
+  execute: ({ questionId, options, multiSelect }) => {
+    // A multi-select answer comes back as labels joined into one line, so a
+    // label that contains another would read two ways on reload.
+    const labels = options.map((option) => option.label.trim().toLowerCase())
+    if (labels.some((label) => label === '')) {
+      return {
+        error:
+          'Every option needs a label. Give each one a few words, then ask ' +
+          'again.',
+      }
+    }
+    const overlaps =
+      multiSelect &&
+      labels.some((label, i) =>
+        labels.some((other, j) => i !== j && label.includes(other)),
+      )
+    return overlaps
+      ? {
+          error:
+            'In a multiSelect question no option label can contain another. ' +
+            'Reword the options so each stands alone, then ask again.',
+        }
+      : { asked: true, questionId }
+  },
 })

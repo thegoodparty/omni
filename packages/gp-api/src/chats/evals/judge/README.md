@@ -11,6 +11,52 @@ of it, which is the only reason one judge can cover every agent.
 Design: the [TDD](https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-139733)
 and the shorter [review doc](https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-140793).
 
+## Asking for a judgment
+
+You ask about a pull request, and the judge compares the PR's branch with what
+it branches from (normally `main`).
+
+**On the PR, comment `/judge`.** The bot replies with a plan: which agents it
+would compare and what that would cost. No sweep runs and nothing is spent.
+Then confirm it:
+
+| Comment | What it does |
+| --- | --- |
+| `/judge` | Plan only, for the agents your diff touched |
+| `/judge --live` | Runs it for those agents |
+| `/judge chief_of_staff --live` | Runs it for the agent you name |
+| `/judge chief_of_staff,opposition_research --live` | Several, comma-separated, no spaces |
+| `/judge all --live` | Every agent with a case list. Expensive; for changes to shared code |
+
+The comment has to start with `/judge`. Only people with write access to the
+repository can run one, because it spends on the organization's model
+account. Fork PRs are skipped.
+
+**Or from Actions.** Open **Actions → Universal Judge request → Run
+workflow**, fill in the PR number and the agents (`auto` by default), and tick
+**Actually run the sweep and spend on model calls** to spend. Leave it
+unticked for the plan.
+
+**Reading the result.** The verdict is in the run's summary: open **Actions →
+Universal Judge comment** (or **request**, for a dispatch) and pick the run.
+Every comment on any PR starts a comment run, most of them skipped, so look
+for the one at the time you posted. The PR thread says the sweep started but
+not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
+**CAN'T SAY**. Most are CAN'T SAY today, and that's expected for two reasons.
+Almost all the case lists are still placeholders (see below), and every list
+has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
+measured difference still shown beside it. The summary also lists what was
+excluded and why, and an agent that couldn't be compared is listed as
+refused, with the reason.
+
+A sweep of one chat agent takes about half an hour. The plan comment shows the
+estimate before anything runs: about $7 for a chat agent, $48 for a background
+agent, $35 for `ordinance_flow`.
+
+**A second request on the same PR cancels the first**, from a comment or from
+Actions. That includes a plan-only `/judge`: posting one while a live sweep is
+running throws away what that sweep already spent, and no verdict comes out.
+
 ## Running a sweep: THREE PROCESSES, NOT ONE
 
 This is the shape of the whole thing, and it is forced rather than chosen. An
@@ -49,9 +95,10 @@ naming it.
 | `JUDGE_SPEND`             | all   | Only the exact string `true` calls a real model. Anything else uses a canned reply, which is how the pipeline is exercised for nothing. **Step 3 spends too** — one panel call per judgeable pair, per seat — so all three must agree; step 3 refuses a setting that differs from what the arms' manifests recorded.                                                                                                                                                                                                                                                                                                                                                  |
 | `JUDGE_DATA_VERSION`      | 1, 2  | The Delta version both arms read. Resolved ONCE by `dataVersion.ts` in a `sweep` step of its own, before either arm runs, and published as a step output both arms read: an arm that looked up "current" itself would look it up an hour after the other and get a different answer. Empty when the mart could not be read — no credential, a dead one, a history the warehouse will not hand over — which reads here as "not pinned". The sweep then proceeds against the live mart rather than refusing, because most agents never query it, and `report.ts` names every run that queried the mart anyway.                                                          |
 | `JUDGE_BACKGROUND_ATTEMPTS` / `JUDGE_BACKGROUND_MAX_CASES` / `JUDGE_BACKGROUND_ADMITTED` | 1, 2 | The background case and attempt budget, and which background agents it admits, decided ONCE by `armBudget.ts` for both arms — after the base worktree exists and before either arm runs. The base arm reads the base ref's `config.ts` and manifests, so a budget or an admission each arm decided for itself would differ whenever a branch changed either, and with the budget spent down in walk order one disagreement moves every agent after it. Every admitted run starts at once and the arm is done when the slowest is, so an agent is admitted when one of its runs fits the arm on whichever arm is slower and its runs fit the `config.background.maxInFlight` slots left; one missing from the base ref is refused before anyone pays. Against a base ref whose arm still walks runs one after another (no `BACKGROUND_WALKS_CONCURRENTLY` in its `sweepArm.ts`), admission spends the arm's wall clock down run by run instead. `ATTEMPTS` switches the mode: present, a blank `MAX_CASES` means no cap and a blank `ADMITTED` means none admitted; absent, the arm decides for itself (a local run). Either of the other two without `ATTEMPTS` is refused as half a budget. A base ref older than these inputs ignores them. |
-| `JUDGE_FIXTURE_ORG_SLUG` / `JUDGE_FIXTURE_RACE_ID` / `JUDGE_FIXTURE_USER_EMAIL` | 1, 2 | The dev test organization every background dispatch runs against, minted ONCE by `judgeFixture.ts` for both arms when the budget admitted a background agent, and deleted after the verdict. Empty reads as "not minted", and every background agent is then refused by name before anything is staged. See [Six background agents need a real identifier](#six-background-agents-need-a-real-identifier-and-it-cannot-be-a-literal) below. |
+| `JUDGE_FIXTURE_ORG_SLUG` / `JUDGE_FIXTURE_RACE_ID` / `JUDGE_FIXTURE_USER_EMAIL` | 1, 2 | The identifiers six background case lists cannot carry, resolved ONCE by `judgeIdentifiers.ts` for both arms: a `judge-` slug from the sweep id, a BallotReady race id, a reserved address. The three agents that read gp-api use the fixed `judge-fixture` slug instead. Empty reads as "not resolved", and every background agent is then refused by name before anything is staged. See [Six background agents need identifiers a case list cannot carry](#six-background-agents-need-identifiers-a-case-list-cannot-carry). |
 | `JUDGE_SELECTION`         | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead: the digest is the rendered prompt plus the tool names, so a branch that changes only the model, the provider, the sampling settings or a tool's implementation hashes identically, and refusing to judge it would refuse the comparison somebody asked for. Resolved once by judge.yml's `select` step and read by all three processes.       |
 | `JUDGE_ANTHROPIC_API_KEY` | 1, 2  | The real Anthropic key, and it cannot arrive as `ANTHROPIC_API_KEY`: `vitest.config.ts` applies `.env.test` over the process environment and `.env.test` defines that name as a stub, so a key exported under it is replaced before any test line runs — which is how the first live sweep spent two arms collecting `invalid x-api-key`. `modelKey.ts` moves this into place at module scope, ahead of the app boot that constructs LlmService. **Required when `JUDGE_SPEND=true`** and ignored otherwise, so a dry run keeps the stub and cannot reach the real API. Export it in the shell; a `.env` file will not do it, because nothing on this path loads one. |
+| `JUDGE_AWS_ACCESS_KEY_ID` / `JUDGE_AWS_SECRET_ACCESS_KEY` / `JUDGE_AWS_SESSION_TOKEN` | 1, 2 | The credentials for staging and dispatching a background agent, under these names for the same reason as the key above: `.env.test` stubs `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, so credentials exported under the SDK's own names arrive as a stub key, and AWS refuses it. `awsCredentials.ts` hands them to the judge's own S3 and SQS clients and nothing else; the app under test keeps the stubs. judge.yml passes the role's; locally, export these to run a background agent. Not needed for a chat-only sweep. |
 | `AI_MODELS`               | 3     | LlmService refuses to construct without it. It is the default fallback chain, which the panel never reaches — each seat pins its own model — so step 3 derives it from `panel.seats` when the environment has not set it. Steps 1 and 2 get it from `.env.test`.                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `JUDGE_CANDIDATE_REF`     | 1, 2  | Optional. The head ref name, for readability.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `JUDGE_PR_NUMBER`         | all   | Optional.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -108,7 +155,8 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `cases.ts`                                             | Loads and validates one agent's case list.                                     |
 | `cases/*.json`                                         | The case lists themselves. One per agent — see below.                          |
 | `caseParams.ts`                                        | The placeholder vocabulary, its substitution, and the pre-dispatch guard.      |
-| `sweepFixture.ts`                                      | Mints one dev fixture per sweep, for the six agents that need a real id.       |
+| `judgeIdentifiers.ts` / `sweepFixture.ts`              | Resolves the three per-sweep identifiers, and threads them to both arms.       |
+| `judgeFixtureIdentity.ts` / `judgeFixtureSeed.ts`      | The dev account the three gp-api readers run as, and the rows that seed it.    |
 | `records.ts`                                           | The record store: local directory or S3, behind one narrow interface.          |
 | `sweepArm.ts`                                          | Walks a case list for **one** arm. The runner is injected.                     |
 | `sweep.eval.test.ts`                                   | Steps 1 and 2: the vitest shell that wires `sweepArm` to the real app.         |
@@ -117,7 +165,28 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                     |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                             |
 
-## Case lists: nineteen of twenty agents, and all nineteen are placeholders
+## Marking an agent wired
+
+The report ends with `**Coverage: N of M agents wired (P on placeholder
+inputs).**` M is every registry entry except the blocked ones. N counts the
+`wired` entries, and **an agent is wired once a live sweep from main has
+judged at least one of its pairs.** "From main" means the run was dispatched
+from main (its `headBranch` is `main`); the candidate arm is a PR as always. A
+case list or a dry run does not count.
+
+To mark one, set it in `WIRED_BY` in `agents.ts` with the evidence: the
+sweep's run URL (`https://github.com/thegoodparty/omni/actions/runs/<id>`)
+and the run's date (`gh run view <id> --repo thegoodparty/omni --json
+createdAt`). The schema refuses a `wired` entry without that evidence, and
+evidence on any other entry.
+
+P is how many wired agents were judged on a case list marked `placeholder:
+true`, read from the list itself. Those verdicts prove the pipeline reaches
+the agent, not that the agent is good, so they stay visible in the number
+rather than counted the same as a real bench. The parenthetical is left out
+when P is 0. The `--dry-run` plan prints the same counts.
+
+## Case lists: nineteen of twenty agents, and all but one are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-first agent is a
@@ -141,14 +210,14 @@ what its inputs should be, not an unwritten file. `briefing_annotation` is not
 that gap: it is `blocked`, has no handler, and is out of the denominator on
 purpose, so inputs for it would be inputs for a runner that cannot drive it.
 
-**Every one of them is `placeholder: true`.** Each background list is
+**All but one are `placeholder: true`.** The exception is
+`race_opponent_summary.json`, a real bench of nine cases. Each other background list is
 schema-valid against its experiment manifest's `input_schema` and each value
 is plausible; each chat list asks a question the seeded fixture org can
-actually be asked. But nobody has dispatched or driven one, so a verdict drawn
+actually be asked. But nobody wrote them to test the agent, so a verdict drawn
 from any of them is a statement about the pipeline and not about the agent.
-`coverage()` counts `wired`, which means _has produced a real verdict at least
-once_, so all nineteen stay `pending` and `wired` is still 0. A case list is
-not a verdict.
+That holds for a wired agent too, which is why the coverage line counts the
+wired ones on placeholder inputs separately. A case list is not a verdict.
 
 **A chat question has to be answerable against the state the harness seeds,
 and the seed is what decides which tools register.** A scope handler
@@ -430,7 +499,7 @@ different conditions and reporting the difference as a verdict about the
 branch. A case carrying only `turns` fails the older ref's schema outright,
 which surfaces as a named skip in that arm's manifest. Both are loud.
 
-## Six background agents need a real identifier, and it cannot be a literal
+## Six background agents need identifiers a case list cannot carry
 
 Nine of the fifteen authored background lists carry plain data. Six do not:
 `campaign_tracker_tasks`, `opportunities_and_challenges` and
@@ -438,50 +507,36 @@ Nine of the fifteen authored background lists carry plain data. Six do not:
 `top_community_issues` and `trending_issues` require an `organization_slug`;
 the two research agents also require a `user_email`.
 
-The mechanism for a dev org in a known state already exists — `POST
-/v1/test-fixtures/users` — but **its users are swept after about 24 hours**.
-So a case list that hardcoded a slug from one would be right for a day and
-would then dispatch every later sweep against an organization that no longer
-exists, which arrives as an agent failure rather than as a stale fixture.
+A case list carries a token and the sweep carries the value:
+`{judgeOrgSlug}`, `{judgeRaceId}`, `{judgeUserEmail}`. One step in the sweep
+job, before either arm, runs `judgeIdentifiers.ts` to make them: a `judge-`
+slug from the sweep id, the BallotReady race id of `JUDGE_FIXTURE_RACE` from
+gp-api's public races route, and the reserved `judge-sweep@example.com`.
+`caseParams.ts` substitutes them at dispatch time, recursively, because
+`user_email` also has to land inside `campaign_strategy_context.candidates[]`
+for `is_user` to match. No credential is involved. A resolution that fails
+does not fail the sweep: `fixtureValues` is `{}`, and each background agent is
+refused by name on both arms before anything is staged, except the
+`readsGpApi` ones, which run as `judge-fixture` and need none of the three
+unless their cases name a race or an email.
 
-Instead a case list carries a token and the sweep carries the value:
-`{judgeOrgSlug}`, `{judgeRaceId}`, `{judgeUserEmail}`. `sweepFixture.ts` mints
-ONE fixture per sweep in state `serve-won-race` — the only state that produces
-both an `eo-` organization and a launched campaign bound to a real BallotReady
-race — and `caseParams.ts` substitutes the tokens at dispatch time,
-recursively, because `user_email` also has to land inside
-`campaign_strategy_context.candidates[]` for `is_user` to match.
+**For most agents, none of the three names anything that has to exist.** The
+dispatch pins the organization slug to `judge-*` (`JUDGE_ORG_SLUG_PREFIX`) so a
+run cannot overwrite a real organization's `latest.json`, and the slug in
+params is echoed into the artifact and scopes nothing. `race_id` is a trace
+and idempotency identifier in all three manifests, and `user_email` is matched
+only against the roster inside the same params object. They still come from
+the sweep rather than the case list for two reasons: a field documented as a
+BallotReady brHashId should carry one, and a public case list should carry no
+address. The three agents in the next section are the exception.
 
 **Both arms get the same values, and that is the whole point.** The two arms
 are two processes in two worktrees, so the identifiers travel exactly the way
 `JUDGE_DATA_VERSION` does: resolved once outside the arms, exported into each
-one's environment, read back through `parseArmEnv`. An arm that minted its own
-would compare two organizations, and every verdict would be an artifact of the
-fixture rather than of the branch. A variable nobody set arrives from Actions
-as an **empty string, not as an absent one**, and reads here as "not
-supplied" — the same rule `JUDGE_DATA_VERSION` needed, and for a harder
-reason: `''` would substitute cleanly and dispatch a params object the agent's
-own `minLength` refuses.
-
-**judge.yml mints it, in a job of its own.** The `fixture` job runs alongside
-the plan on every live sweep, checks out main, trades
-`JUDGE_CLERK_MACHINE_SECRET` for a short-lived M2M token, mints the fixture
-against the dev gp-api through `judgeFixture.ts`, and publishes four outputs:
-the three identifiers both arms read, and the user id the `fixture-cleanup`
-job deletes after the sweep, on every outcome. Never the password, session
-token or sign-in ticket the mint response also carries. A failed mint does not
-fail the sweep: `fixtureValues` is `{}`, and each background agent is refused
-by name on both arms before anything is staged.
-
-**Why two extra jobs rather than two steps.** The M2M token passes gp-api's
-`AdminOrM2MGuard`, which opens every admin route on dev, not only test
-fixtures. The sweep job runs the branch's code from its first `npx tsx`, and
-code that has run on a runner can rewrite any file or `$GITHUB_ENV` a later
-step there trusts. So the secret only ever reaches a fresh runner running
-main's code, and it lives in the `judge-fixture` environment, restricted to
-main, so a branch's own copy of the workflow cannot read it either. The
-`sweepTestUsers` cron reaps a fixture the cleanup missed a day later.
-`judgeWorkflow.test.ts` pins all of that.
+one's environment, read back through `parseArmEnv`. A variable nobody set
+arrives from Actions as an **empty string, not as an absent one**, and reads
+here as "not supplied", for a hard reason: `''` would substitute cleanly and
+dispatch a params object the agent's own `minLength` refuses.
 
 **An unsubstituted token fails before the first dispatch, and nothing further
 down would catch it.** `substituteBackgroundCases` checks the WHOLE list and
@@ -489,46 +544,50 @@ returns none of it if any case is short a value, and `buildDispatchMessage`
 refuses one as a backstop. There is no third line of defence: every one of
 these params is a plain string with at most `minLength: 1` — no pattern, no
 format — so a literal `{judgeOrgSlug}` is fifteen valid characters. The
-manifest passes it, the message is accepted, a task launches, and a roughly
-\$13 sweep is spent running both arms against an organization that does not
-exist. The artifacts come back as errors or inventions, they come back
-_identical_, and the verdict looks like a real comparison.
+manifest passes it, the message is accepted, a task launches, and the run is
+spent against an input nobody meant. The artifacts come back as errors or
+inventions, they come back _identical_, and the verdict looks like a real
+comparison.
 
-**None of the three is a live lookup under this harness, and that changes
-what a fixture is worth.** This started out claiming `organization_slug` was
-the real one, because `top_community_issues` and `trending_issues` do read the
-issue feed. They do — but `GET_community_issues` takes no slug argument (its
-query is `{ list }` alone); the org comes from `@UseElectedOffice()`, which
-reads `X-Organization-Slug`; the broker sets that header from
-`ticket.organization_slug`; and a judge dispatch pins that to `judge-*`
-(`JUDGE_ORG_SLUG_PREFIX`) so a run cannot overwrite a real organization's
-`latest.json`. The slug in params is echoed into the artifact and scopes
-nothing. `race_id` never was a lookup — all three manifests call it a trace and
-idempotency identifier — and `user_email` is matched only against the roster
-inside the same params object.
+## Three agents read gp-api, and run as a seeded dev account
 
-Two reasons to take them from the fixture survive that: a field documented as a
-BallotReady brHashId should carry one, and a public case list should carry no
-email address. The stronger reason — that an `eo-` organization has to exist
-for the feed read to work — does not. **So whether these three agents need a
-minted Clerk identity at all is open**, and it is recorded on the PR rather
-than decided here, because the alternative (putting the fixture's
-`clerk_user_id` and `eo-` slug on the dispatch message) means unpinning the
-judge slug, which that pin exists to prevent.
+`meeting_briefing` reads the official's priorities and community issues, and
+`top_community_issues` and `trending_issues` read the issue feed
+(`GET_community_issues`). The broker reaches gp-api as the run ticket's user,
+so a dispatch that names no user gets nothing back and the agent takes its
+empty-data fallback on both arms.
 
-One consequence worth stating plainly: because the ticket is pinned to
-`judge-*`, these two agents read the feed of an organization that does not
-exist rather than the fixture's. That is identical on both arms, so the
-comparison is valid — but the carry-forward-existing-issues path is not
-exercised by this harness at all, and a verdict from them speaks only to the
-cold-start path.
+These three are marked `readsGpApi` in `agents.ts`, and only they run as the
+fixture account in `judgeFixtureIdentity.ts`: the dispatch carries
+`clerk_user_id: user_judge_fixture` and the slug `judge-fixture` instead of
+the per-sweep one, and `{judgeOrgSlug}` in their params resolves to the same
+slug. Every other background dispatch is unchanged and names no user.
+`buildDispatchMessage` refuses any other user, and the fixture user on any
+other slug.
 
-**Nothing derived from a fixture response is ever logged.** The response
-carries the user's password, a session token and a single-use Clerk sign-in
-ticket by contract (`src/testFixtures/AGENTS.md`). `mintJudgeFixture` returns
-the three identifiers and the user id it needs to delete again, and drops the
-rest; the one network adapter reports a failure as its method, route and
-status, never its body.
+**One-time setup.** The account has to exist in the dev database, which is
+the one the broker's gp-api reads. Seed it from `packages/gp-api`, with
+`DATABASE_URL` set to the dev cluster's real writer endpoint
+(`gp-api-db.cluster-<hash>.us-west-2.rds.amazonaws.com`):
+
+```bash
+DATABASE_URL='<dev cluster writer url>' \
+  npx tsx scripts/seed-judge-fixture.ts --confirm-dev
+```
+
+It prints the target host (never the password) and refuses every other host:
+prod, the `cluster-ro-` reader, other clusters, and localhost or an IP, since
+a tunnel can point anywhere and there is no way to confirm one. A second
+run writes nothing. The rows are `judgeFixtureSeed.ts`: a user, its
+organization, an elected office, four priorities and three issues on each
+list. There is **no campaign and no website**, so the write tools a broker
+token can reach (website edits, domain purchase, Peerly submission) 404
+against it, and the seed refuses an organization that has gained a campaign.
+`judgeFixtureSeed.db.test.ts` pins the other half: every office-scoped
+`@McpTool` is a GET, and every tool that writes needs a campaign.
+
+The feed is office-agnostic on purpose: each case names a different real place
+in its own params, and every case reads the same rows on both arms.
 
 ## Two refusals, and they are not the same one
 

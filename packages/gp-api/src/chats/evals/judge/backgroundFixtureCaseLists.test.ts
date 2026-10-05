@@ -63,12 +63,13 @@ const pairsFor = (agentId: (typeof AUTHORED)[number]) =>
 const casesFor = (agentId: string) => loadBackgroundCases(requireAgent(agentId))
 
 describe('the six fixture-backed background case lists', () => {
-  // `wired` means an agent has produced a real verdict at least once. None of
-  // these has been dispatched.
-  it('leaves all six pending', () => {
-    expect(AUTHORED.map((id) => requireAgent(id).status)).toEqual(
-      AUTHORED.map(() => 'pending'),
-    )
+  // `wired` means a live sweep from main has judged one of its pairs.
+  // opposition_research has; the rest have not been dispatched yet.
+  it('wires opposition_research and leaves the other five pending', () => {
+    for (const id of AUTHORED)
+      expect(requireAgent(id).status, id).toBe(
+        id === 'opposition_research' ? 'wired' : 'pending',
+      )
   })
 
   it.each(AUTHORED)(

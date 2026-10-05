@@ -507,7 +507,9 @@ describe('judgeSweep', () => {
     )
     // Two entries, one blocked, so the denominator is 1 and not 2 — a
     // blocked agent in it would make the number permanently unreachable.
-    expect(result.markdown).toContain('**Coverage: 1 of 1 agents wired.**')
+    expect(result.markdown).toContain(
+      '**Coverage: 1 of 1 agents wired (1 on placeholder inputs).**',
+    )
     expect(result.markdown).toContain(
       '- blocked: briefing_annotation — No ChatScopeHandler yet.',
     )

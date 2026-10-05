@@ -11,6 +11,9 @@ export enum QueueType {
   POLL_EXPANSION = 'pollExpansion',
   CAMPAIGN_PLAN_COMPLETE = 'campaignPlanComplete',
   WEEKLY_TASKS_DIGEST = 'weeklyTasksDigest',
+  // A campaign story field was written. The handler decides whether the story
+  // is now complete and, if so, regenerates the plan; producers don't.
+  CAMPAIGN_STORY_COMPLETED = 'campaignStoryCompleted',
   AGENT_EXPERIMENT_RESULT = 'agentExperimentResult',
   AGENTIC_COMPLIANCE_KICKOFF = 'agenticComplianceKickoff',
   OCR_ATTACHMENT = 'ocrAttachment',
@@ -52,6 +55,10 @@ export type QueueMessage =
   | {
       type: QueueType.WEEKLY_TASKS_DIGEST
       data: WeeklyTasksDigestMessage
+    }
+  | {
+      type: QueueType.CAMPAIGN_STORY_COMPLETED
+      data: CampaignStoryCompletedMessage
     }
   | {
       type: QueueType.AGENT_EXPERIMENT_RESULT
@@ -199,6 +206,14 @@ export type WeeklyTasksDigestMessage = z.infer<
   typeof WeeklyTasksDigestMessageSchema
 >
 
+export const CampaignStoryCompletedMessageSchema = z.object({
+  campaignId: z.number().int().positive(),
+})
+
+export type CampaignStoryCompletedMessage = z.infer<
+  typeof CampaignStoryCompletedMessageSchema
+>
+
 export enum MessageGroup {
   content = 'content',
   tcrCompliance = 'tcrCompliance',
@@ -212,6 +227,7 @@ export enum MessageGroup {
   peerlyVendorEscalation = 'peerlyVendorEscalation',
   cvStatusPoll = 'cvStatusPoll',
   extractChatAttachment = 'extractChatAttachment',
+  campaignStoryCompleted = 'campaignStoryCompleted',
 }
 
 const PollResponseJsonRowSchema = z.object({

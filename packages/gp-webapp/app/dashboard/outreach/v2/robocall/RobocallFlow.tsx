@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { addDays } from 'date-fns'
 import { useMutation } from '@tanstack/react-query'
 import {
+  deriveRobocallProtectedParts,
   type OutreachDetail,
   type RecommendedListVariant,
+  robocallDisclosureLine,
   type RobocallAuthorizeResponse,
   type RobocallComplianceRequest,
   type RobocallScriptDraftRequest,
@@ -43,6 +45,8 @@ import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useUser } from '@shared/hooks/useUser'
+import { provisionalCommitteeName } from '../sms/smsCompose.util'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
 import { RobocallComposeStep } from './RobocallComposeStep'
@@ -181,6 +185,20 @@ export const RobocallFlow = ({
 
   const [campaign] = useCampaign()
   const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
+  const [user] = useUser()
+  // Who the disclosure says paid for the call: the recorded committee, or,
+  // until verification records one, the candidate's name, as on SMS.
+  // The candidate's name is the campaign owner's, then the compliance
+  // record's, then the signed-in user's, so the line always has a sponsor:
+  // a script with no disclosure cannot pass the recording check, and "the
+  // campaign" is never a sponsor (docs/features/message-composer.md).
+  const ownerName = campaign?.ownerName ?? ''
+  const sponsorName =
+    ownerName ||
+    gate.tcrCompliance?.candidateName ||
+    `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+  const sponsor =
+    gate.tcrCompliance?.committeeName ?? provisionalCommitteeName(sponsorName)
 
   // Every saved-draft and gate concern — the row, the resume switch, the
   // gate/explainer visibility, and the origin that says what finishing the
@@ -251,7 +269,18 @@ export const RobocallFlow = ({
   const { reset: resetAudience } = audience
 
   const [tone, setTone] = useState<SocialTone>('warm')
+  // The whole script the candidate reads, the closing disclosure included.
   const [script, setScript] = useState('')
+  // The script as the system last wrote it (a draft, a polish, a resume).
+  // Locks are found in this, not in what is being typed, as on SMS.
+  const [lockSource, setLockSource] = useState('')
+  // Whether the words are the candidate's (typed, custom or polished) rather
+  // than an untouched fresh draft: picks Regenerate or Improve with AI.
+  const [ownWords, setOwnWords] = useState(false)
+  const loadScript = (next: string) => {
+    setScript(next)
+    setLockSource(next)
+  }
   // Stale-response guard: a tone switch / regenerate bumps this, and a draft
   // response is discarded unless it's still the latest request.
   const draftRequestRef = useRef(0)
@@ -312,6 +341,73 @@ export const RobocallFlow = ({
   // on entering compose so the draft can carry the required "paid for by" +
   // callback-number disclosure; held in flow state and reused across redrafts.
   const [callbackNumber, setCallbackNumber] = useState<string | null>(null)
+  // The spoken disclosure, the script's closing line. Written here, never by
+  // the model, and locked in the field.
+  const disclosure =
+    sponsor && callbackNumber
+      ? robocallDisclosureLine(sponsor, callbackNumber)
+      : null
+  // Read when a draft lands, not when it was asked for: the first draft is
+  // requested in the same tick the number is rented and can land before a
+  // render has seen it, so the rent writes the number here directly.
+  const disclosureInputs = useRef({ sponsor, callbackNumber })
+  disclosureInputs.current.sponsor = sponsor
+  if (callbackNumber) disclosureInputs.current.callbackNumber = callbackNumber
+  const latestDisclosure = (): string | null => {
+    const latest = disclosureInputs.current
+    return latest.sponsor && latest.callbackNumber
+      ? robocallDisclosureLine(latest.sponsor, latest.callbackNumber)
+      : null
+  }
+  const withDisclosure = (body: string): string => {
+    const line = latestDisclosure()
+    return line ? `${body.trim()}\n\n${line}` : body
+  }
+  // An Improve reply keeps the disclosure line exactly, because gp-api masks
+  // it. One that does not (a gp-api from before masking, mid-deploy) has any
+  // paid-for-by close it wrote dropped and the real line put back, so a polish
+  // can never leave the script without it.
+  // Judged by structure: the disclosure counts as there only as the closing
+  // line (a quote of it mid-script is not the close), and only a separate
+  // closing paragraph that reads as a disclosure is replaced, so a body
+  // sentence that mentions "paid for by" is never clipped.
+  const keepDisclosure = (reply: string): string => {
+    const line = latestDisclosure()
+    if (!line) return reply
+    const text = reply.trimEnd()
+    if (text.split('\n').pop()?.trim() === line) return reply
+    const body = text.replace(/\n\n\s*Paid for by [^\n]*$/i, '').trimEnd()
+    return `${body}\n\n${line}`
+  }
+  // Whether there is anything to read besides the disclosure.
+  const hasWrittenBody =
+    (disclosure ? script.replace(disclosure, '') : script).trim().length > 0
+  const protectedParts = deriveRobocallProtectedParts(lockSource, {
+    candidateNames: [ownerName, gate.tcrCompliance?.candidateName].filter(
+      (name): name is string => !!name,
+    ),
+  })
+  // The disclosure follows the committee and number it names: when either
+  // changes (the committee is recorded, a number is rented), the script's
+  // closing paid-for-by line is rewritten to match. Only a closing line is,
+  // so a script whose last line is the candidate's own is left alone.
+  useEffect(() => {
+    if (!disclosure || !script || script.endsWith(disclosure)) return
+    const closing = /\n\nPaid for by [^\n]*$/.exec(script)
+    if (!closing) return
+    loadScript(script.slice(0, closing.index) + `\n\n${disclosure}`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadScript is two setters
+  }, [disclosure, script])
+  // A script with nothing written yet (custom, or a first draft that failed)
+  // starts as its disclosure line, with room above it to write.
+  const disclosureOnly = disclosure ? `\n\n${disclosure}` : ''
+  // The custom script is set up on entering compose, which can come before
+  // the number is rented: fill it in once the number exists.
+  useEffect(() => {
+    if (stepId !== 'compose' || !isCustomPurpose || script.trim()) return
+    if (disclosureOnly) loadScript(disclosureOnly)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadScript is two setters
+  }, [stepId, isCustomPurpose, disclosureOnly])
   // The authorize outcome, held here (not in the pay step) so it survives Back
   // out of and back into the pay step — a settled outcome makes re-entry show
   // the result rather than re-opening the Authorize form.
@@ -393,33 +489,49 @@ export const RobocallFlow = ({
   })
   const { mutate: runRent, reset: resetRent } = rentMutation
 
-  // Fire an AI script draft; a superseded response is discarded. Custom
-  // purpose writes its own script, so it never drafts. A callbackNumber makes
-  // the draft end with the spoken disclosure.
+  // Fire an AI script draft; a superseded response is discarded. A fresh
+  // draft is the body only, and the disclosure line is put after it here:
+  // the app writes who paid for the call and the number, never the model.
+  // Improve sends the whole script and gets it back with its locked parts
+  // restored by gp-api. Custom purpose writes its own script, so it only
+  // ever improves.
   const requestDraft = (
     p: RobocallPurpose,
     t: SocialTone,
-    callback: string | null,
+    currentDraft?: string,
   ) => {
-    if (p === 'custom') return
+    if (p === 'custom' && currentDraft === undefined) return
     const requestId = draftRequestRef.current + 1
     draftRequestRef.current = requestId
     runDraft(
       {
         purpose: p,
         tone: t,
-        ...(callback ? { callbackNumber: callback } : {}),
+        ...(currentDraft === undefined ? {} : { currentDraft }),
       },
       {
         onSuccess: (draft) => {
-          if (requestId === draftRequestRef.current) setScript(draft)
+          if (requestId !== draftRequestRef.current) return
+          loadScript(
+            currentDraft === undefined
+              ? withDisclosure(draft)
+              : keepDisclosure(draft),
+          )
+          setOwnWords(currentDraft !== undefined)
         },
         onError: () => {
           // Defensive: TanStack detaches the superseded observer on re-mutate,
           // so a stale request's error shouldn't reach isError today — but if
           // that ever changes, drop a superseded error so it can't show the
           // error card over a newer good draft.
-          if (requestId !== draftRequestRef.current) draftMutation.reset()
+          if (requestId !== draftRequestRef.current) {
+            draftMutation.reset()
+            return
+          }
+          if (currentDraft === undefined && !script.trim()) {
+            const line = latestDisclosure()
+            loadScript(line ? `\n\n${line}` : '')
+          }
         },
       },
     )
@@ -457,7 +569,11 @@ export const RobocallFlow = ({
     setNow(new Date())
     setTone('warm')
     setScript(resumeDraft?.script ?? '')
+    setLockSource(resumeDraft?.script ?? '')
+    setOwnWords(Boolean(resumeDraft?.script))
     setCallbackNumber(resumeDraft?.robocall?.callbackNumber ?? null)
+    disclosureInputs.current.callbackNumber =
+      resumeDraft?.robocall?.callbackNumber ?? null
     setPayOutcome(null)
     resetRent()
     resetCompliance()
@@ -568,7 +684,8 @@ export const RobocallFlow = ({
     // guided purpose (or vice-versa), and a stale saved clip would satisfy the
     // Continue gate.
     if (selected !== purpose) {
-      setScript('')
+      loadScript('')
+      setOwnWords(selected === 'custom')
       invalidateRecording()
       // Clear any prior draft error/success so it can't linger across the
       // switch — e.g. a failed guided draft leaving a stuck error card above
@@ -683,9 +800,9 @@ export const RobocallFlow = ({
   // First AI draft on entry (non-custom, and only if we don't already have one
   // from a prior visit). Custom writes its own words, so it never drafts — but
   // it still needs the rented number to read aloud, shown in the compose step.
-  const draftIfNeeded = (callback: string | null) => {
+  const draftIfNeeded = () => {
     if (purpose && purpose !== 'custom' && !script.trim()) {
-      requestDraft(purpose, tone, callback)
+      requestDraft(purpose, tone)
     }
   }
 
@@ -696,9 +813,10 @@ export const RobocallFlow = ({
     const rentedForPurpose = purpose
     runRent(undefined, {
       onSuccess: (number) => {
+        disclosureInputs.current.callbackNumber = number
         setCallbackNumber(number)
         // A purpose change while renting must not draft the old purpose.
-        if (purposeRef.current === rentedForPurpose) draftIfNeeded(number)
+        if (purposeRef.current === rentedForPurpose) draftIfNeeded()
       },
     })
   }
@@ -708,24 +826,42 @@ export const RobocallFlow = ({
     // Rent the caller-ID number once, then draft with it so the script carries
     // the disclosure. A revisit reuses the number already in hand.
     if (callbackNumber) {
-      draftIfNeeded(callbackNumber)
+      draftIfNeeded()
       return
     }
     rentCallbackNumber()
   }
 
+  // The candidate's own words are polished in the new tone, never replaced
+  // by a fresh draft in it, as on SMS.
   const handleToneChange = (t: SocialTone) => {
     setTone(t)
-    if (purpose) requestDraft(purpose, t, callbackNumber)
+    if (!purpose) return
+    if (ownWords) {
+      if (!hasWrittenBody) return
+      requestDraft(purpose, t, script)
+    } else {
+      requestDraft(purpose, t)
+    }
     // The new draft supersedes the script a recording was read against.
     invalidateRecording()
   }
 
-  const handleRegenerate = () => {
-    if (purpose) {
-      requestDraft(purpose, tone, callbackNumber)
-      invalidateRecording()
+  const aiAction = ownWords ? 'improve' : 'regenerate'
+  const handleAiAction = () => {
+    if (!purpose) return
+    if (aiAction === 'improve') {
+      if (!hasWrittenBody) return
+      requestDraft(purpose, tone, script)
+    } else {
+      requestDraft(purpose, tone)
     }
+    invalidateRecording()
+  }
+
+  const handleScriptChange = (next: string) => {
+    setScript(next)
+    setOwnWords(true)
   }
 
   const hasBuilderSelection = hasAnyVoterFileSelection(
@@ -1014,13 +1150,14 @@ export const RobocallFlow = ({
           <RobocallComposeStep
             tone={tone}
             onToneChange={handleToneChange}
-            isCustomPurpose={isCustomPurpose}
-            draft={script}
-            onDraftChange={setScript}
-            onRegenerate={handleRegenerate}
+            script={script}
+            onScriptChange={handleScriptChange}
+            protectedParts={protectedParts}
+            hasWrittenBody={hasWrittenBody}
+            aiAction={aiAction}
+            onAiAction={handleAiAction}
             isDrafting={draftMutation.isPending}
             isDraftError={draftMutation.isError}
-            audienceName={audience.selectedList?.name ?? 'your list'}
             callbackNumber={callbackNumber}
             isRentingNumber={rentMutation.isPending}
             rentError={rentMutation.isError}

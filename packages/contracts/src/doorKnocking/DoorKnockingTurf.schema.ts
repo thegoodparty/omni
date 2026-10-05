@@ -11,6 +11,7 @@ import {
   COMMUNITY_INPUT_PURPOSE,
   COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
 } from '../outreach/OutreachPurpose.schema'
+import { ProposalLinkSchema } from '../chats/ChatCard.schema'
 
 export {
   DoorKnockingModeSchema,
@@ -71,102 +72,124 @@ export type GeoJsonPolygon = z.infer<typeof GeoJsonPolygonSchema>
 // body carrying `mode` and no `loop` validated, saved the turf unrouted and
 // dropped the travel mode on the floor — a client asking to be routed got a
 // 201 and no route, with nothing anywhere saying why.
-export const CreateDoorKnockingTurfSchema = z
-  .object({
-    voterFileFilterId: z.number().int().positive(),
-    name: z.string().min(1).max(120),
-    color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-    geoPoly: GeoJsonPolygonSchema,
-    mode: DoorKnockingModeSchema.optional(),
-    loop: z.boolean().optional(),
-    // The goal the candidate picked on the wizard's first step. It has always
-    // been asked and never persisted — until now it decided a suggested list
-    // name and was dropped on submit.
-    //
-    // Optional on the wire, and the column is nullable to match: the flow can
-    // reach submit without it (the "Something else" card carries no slug the
-    // server would store), and a client that has not shipped this field yet
-    // must keep creating lists.
-    //
-    // The union of both rails' vocabularies, because door knocking has ONE
-    // route for both surfaces — the server does not re-derive which rail is
-    // asking, so a Serve-only slug and a Win-only slug both have to be
-    // acceptable here. The wizard only ever offers the six for the rail it is
-    // drawing.
-    purpose: DoorKnockingPurposeSchema.optional(),
-    // What this effort is asking, when the purpose is `community_input`. The
-    // wizard requires it on that branch and omits it on every other, and the
-    // server refuses the mismatch both ways below — a question recorded
-    // against a purpose that never asks one would be read as context by the
-    // extraction that runs at every door.
-    communityInputQuestion: z
-      .string()
-      .min(1)
-      .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
-      .optional(),
-    // The generated talking points, frozen with the list.
-    //
-    // Plain text, one line per section, landing on the `Outreach.script`
-    // column that every other channel already uses for exactly this. Sent by
-    // the client rather than generated here because generation is a separate,
-    // stateless draft endpoint — the create transaction already carries a paid
-    // Geoapify round trip inside a 120-second window, and an LLM call has no
-    // business inside it.
-    talkingPoints: z
-      .string()
-      .max(DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH)
-      .optional(),
-    // The Outreach id of an existing turf whose campaign this new turf
-    // should join — the "Add another turf" flow reads it back from the
-    // sibling-list drawer and threads it through save. Omitted (or
-    // absent from a legacy client) means the new turf is its own
-    // campaign anchor, matching how a solo campaign already looks.
-    campaignOutreachId: z.number().int().positive().optional(),
-    // What the CAMPAIGN is called, as opposed to `name` above, which is what
-    // this one turf is called. A campaign has no row of its own — it is the
-    // anchor Outreach plus every sibling pointing at it — so its title has to
-    // live on an envelope, and history surfaces read the anchor's.
-    //
-    // Written onto EVERY turf's envelope in the campaign, not just the
-    // anchor's, even though only the anchor's is ever displayed. Deleting the
-    // anchor makes `collapseDoorKnockingCampaigns` fall back to the earliest
-    // surviving sibling, and a campaign that silently renames itself to
-    // whatever that sibling's turf was called is the failure this avoids.
-    //
-    // Optional, and absent falls back to the turf's own name: a client that
-    // predates the multi-turf flow sends one turf and means it to title the
-    // campaign, which is exactly what the fallback does.
-    campaignName: z.string().min(1).max(120).optional(),
-  })
-  .strict()
-  // Both walk settings or neither. They are one decision — how this turf
-  // gets travelled — and the server reads them as a pair, so half of one is
-  // a request nothing can honour.
-  .refine(
-    (input) => (input.mode === undefined) === (input.loop === undefined),
-    {
-      message: 'mode and loop must be sent together, or neither',
-      path: ['loop'],
-    },
-  )
-  // The question and the purpose that asks it travel together. Refused in
-  // both directions: a `community_input` effort with no question leaves every
-  // extraction reading its notes blind, and a question on any other purpose
-  // is context the canvasser was never given and the model would still be
-  // handed.
-  .refine(
-    (input) =>
-      (input.purpose === COMMUNITY_INPUT_PURPOSE) ===
-      (input.communityInputQuestion !== undefined),
-    {
-      message:
-        'communityInputQuestion is required for community_input and refused otherwise',
-      path: ['communityInputQuestion'],
-    },
-  )
+const CreateDoorKnockingTurfFields = z.object({
+  voterFileFilterId: z.number().int().positive(),
+  name: z.string().min(1).max(120),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  geoPoly: GeoJsonPolygonSchema,
+  mode: DoorKnockingModeSchema.optional(),
+  loop: z.boolean().optional(),
+  // The goal the candidate picked on the wizard's first step. It has always
+  // been asked and never persisted — until now it decided a suggested list
+  // name and was dropped on submit.
+  //
+  // Optional on the wire, and the column is nullable to match: the flow can
+  // reach submit without it (the "Something else" card carries no slug the
+  // server would store), and a client that has not shipped this field yet
+  // must keep creating lists.
+  //
+  // The union of both rails' vocabularies, because door knocking has ONE
+  // route for both surfaces — the server does not re-derive which rail is
+  // asking, so a Serve-only slug and a Win-only slug both have to be
+  // acceptable here. The wizard only ever offers the six for the rail it is
+  // drawing.
+  purpose: DoorKnockingPurposeSchema.optional(),
+  // What this effort is asking, when the purpose is `community_input`. The
+  // wizard requires it on that branch and omits it on every other, and the
+  // server refuses the mismatch both ways below — a question recorded
+  // against a purpose that never asks one would be read as context by the
+  // extraction that runs at every door.
+  communityInputQuestion: z
+    .string()
+    .min(1)
+    .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
+    .optional(),
+  // The generated talking points, frozen with the list.
+  //
+  // Plain text, one line per section, landing on the `Outreach.script`
+  // column that every other channel already uses for exactly this. Sent by
+  // the client rather than generated here because generation is a separate,
+  // stateless draft endpoint — the create transaction already carries a paid
+  // Geoapify round trip inside a 120-second window, and an LLM call has no
+  // business inside it.
+  talkingPoints: z
+    .string()
+    .max(DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH)
+    .optional(),
+  // The Outreach id of an existing turf whose campaign this new turf
+  // should join — the "Add another turf" flow reads it back from the
+  // sibling-list drawer and threads it through save. Omitted (or
+  // absent from a legacy client) means the new turf is its own
+  // campaign anchor, matching how a solo campaign already looks.
+  campaignOutreachId: z.number().int().positive().optional(),
+  // What the CAMPAIGN is called, as opposed to `name` above, which is what
+  // this one turf is called. A campaign has no row of its own — it is the
+  // anchor Outreach plus every sibling pointing at it — so its title has to
+  // live on an envelope, and history surfaces read the anchor's.
+  //
+  // Written onto EVERY turf's envelope in the campaign, not just the
+  // anchor's, even though only the anchor's is ever displayed. Deleting the
+  // anchor makes `collapseDoorKnockingCampaigns` fall back to the earliest
+  // surviving sibling, and a campaign that silently renames itself to
+  // whatever that sibling's turf was called is the failure this avoids.
+  //
+  // Optional, and absent falls back to the turf's own name: a client that
+  // predates the multi-turf flow sends one turf and means it to title the
+  // campaign, which is exactly what the fallback does.
+  campaignName: z.string().min(1).max(120).optional(),
+})
+
+// Both walk settings or neither. They are one decision — how this turf
+// gets travelled — and the server reads them as a pair, so half of one is
+// a request nothing can honour.
+const walkSettingsTogether = (input: {
+  mode?: DoorKnockingMode
+  loop?: boolean
+}): boolean => (input.mode === undefined) === (input.loop === undefined)
+
+const WALK_SETTINGS_MESSAGE = {
+  message: 'mode and loop must be sent together, or neither',
+  path: ['loop'],
+}
+
+// The question and the purpose that asks it travel together. Refused in
+// both directions: a `community_input` effort with no question leaves every
+// extraction reading its notes blind, and a question on any other purpose
+// is context the canvasser was never given and the model would still be
+// handed. Shared by both create schemas, since the Serve one is built from
+// the same fields.
+const questionTravelsWithPurpose = (input: {
+  purpose?: string
+  communityInputQuestion?: string
+}): boolean =>
+  (input.purpose === COMMUNITY_INPUT_PURPOSE) ===
+  (input.communityInputQuestion !== undefined)
+
+const QUESTION_MESSAGE = {
+  message:
+    'communityInputQuestion is required for community_input and refused otherwise',
+  path: ['communityInputQuestion'],
+}
+
+export const CreateDoorKnockingTurfSchema =
+  CreateDoorKnockingTurfFields.strict()
+    .refine(walkSettingsTogether, WALK_SETTINGS_MESSAGE)
+    .refine(questionTravelsWithPurpose, QUESTION_MESSAGE)
 
 export type CreateDoorKnockingTurf = z.infer<
   typeof CreateDoorKnockingTurfSchema
+>
+
+// The Serve create also takes a chat card's proposal link. Only the anchor
+// turf of a new campaign carries it, since the campaign is one walk.
+export const CreateServeDoorKnockingTurfSchema =
+  CreateDoorKnockingTurfFields.extend(ProposalLinkSchema.shape)
+    .strict()
+    .refine(walkSettingsTogether, WALK_SETTINGS_MESSAGE)
+    .refine(questionTravelsWithPurpose, QUESTION_MESSAGE)
+
+export type CreateServeDoorKnockingTurf = z.infer<
+  typeof CreateServeDoorKnockingTurfSchema
 >
 
 // Name and colour only, and deliberately NOT derived from the create schema by

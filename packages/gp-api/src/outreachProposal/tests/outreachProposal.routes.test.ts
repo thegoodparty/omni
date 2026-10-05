@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { Person, mintProposalKey } from '@goodparty_org/contracts'
+import {
+  Person,
+  mintProposalKey,
+  parsePriorityStatus,
+} from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import {
@@ -193,6 +197,36 @@ describe('outreach proposal routes', () => {
       expect(get.data.id).toBe(put.data.id)
     })
 
+    // A card on a gate's check names the check, and the key it is sent under
+    // is what records it, so the list is built and that side goes out.
+    it('builds a list for a proposal on a check and puts that side out', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075660009' })])
+
+      const put = await service.client.put(
+        `/v1/outreach/by-proposal-key/${proposalKey}`,
+        proposal({ stepId: 'define', side: 'main' }),
+        allowFailure(),
+      )
+
+      expect(put.status).toBe(HttpStatus.OK)
+      expect(
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: put.data.id },
+        }),
+      ).toMatchObject({
+        proposalKey,
+        priorityStepId: 'define',
+        priorityCheckSide: 'main',
+      })
+      const row = await service.prisma.priority.findUniqueOrThrow({
+        where: { id: priority.id },
+      })
+      expect(
+        parsePriorityStatus(row.status).steps.find((s) => s.id === 'define')
+          ?.check,
+      ).toMatchObject({ state: 'out', sentProposalKey: proposalKey })
+    })
+
     // The double click. Nothing about the second call may reach the create.
     it('is a no-op on a repeat, returning the same outreach', async () => {
       mockPeoplePage([fakePerson({ cellPhone: '3075660002' })])
@@ -310,7 +344,7 @@ describe('outreach proposal routes', () => {
       expect(persisted.priorityId).toBeNull()
     })
 
-    it.each(['social', 'text'])(
+    it.each(['social', 'text', 'doorKnocking'])(
       'refuses to send a %s proposal from the card',
       async (channel) => {
         const res = await service.client.put(

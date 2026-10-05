@@ -31,6 +31,7 @@ describe('useOutreachAudience reset paths', () => {
     'setBuilderSupportStatus([])',
     'setBuilderPrecincts([])',
     "setBuilderName('')",
+    'setBuilderSample(undefined)',
   ]
 
   it.each(RESETTERS.flatMap((fn) => BUILDER_CLEARS.map((c) => [fn, c])))(

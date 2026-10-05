@@ -5,6 +5,7 @@ import {
   OUTREACH_PURPOSE_VALUES,
   SERVE_OUTREACH_PURPOSE_VALUES,
 } from '../outreach/OutreachPurpose.schema'
+import { ProposalLinkSchema } from '../chats/ChatCard.schema'
 
 // Phone banking shares the canonical outreach vocabulary
 // (OutreachPurpose.schema.ts) — its storage enum used to be the one
@@ -55,8 +56,8 @@ export const PhoneBankingCreateSchema = z
 
 export type PhoneBankingCreate = z.infer<typeof PhoneBankingCreateSchema>
 
-// Identical shape to PhoneBankingCreateSchema with the purpose field swapped
-// to the serve vocabulary.
+// PhoneBankingCreateSchema with the purpose field swapped to the serve
+// vocabulary, plus the proposal link a Serve chat card hands the flow.
 export const ServePhoneBankingCreateSchema = z
   .object({
     name: z.string().min(1).max(PHONE_BANKING_NAME_MAX_LENGTH),
@@ -74,6 +75,7 @@ export const ServePhoneBankingCreateSchema = z
       .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
       .optional(),
   })
+  .extend(ProposalLinkSchema.shape)
   .strict()
   .refine(
     (input) =>

@@ -19,6 +19,7 @@ import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.se
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { buildComposeHandoffTool } from './services/composeHandoff.tool'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -85,7 +86,6 @@ describe('ChiefOfStaffHandler', () => {
           anchor: null,
           districtFilters: null,
           constituentToolEnabled: false,
-          attachmentsEnabled: false,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -122,6 +122,7 @@ describe('ChiefOfStaffHandler', () => {
     // layer on ANTHROPIC_API_KEY, not on an injected provider).
     expect(Object.keys(tools).sort()).toEqual([
       'ask_clarify_question',
+      'compose_handoff',
       'crud_priorities',
       'get_briefing',
       'list_briefings',
@@ -242,7 +243,6 @@ describe('ChiefOfStaffHandler', () => {
             anchor: ANCHOR,
             districtFilters: null,
             constituentToolEnabled: false,
-            attachmentsEnabled: false,
           }),
         ),
       } as unknown as ChiefOfStaffContextService
@@ -286,7 +286,6 @@ describe('ChiefOfStaffHandler', () => {
             anchor: anchorWithHighlight,
             districtFilters: null,
             constituentToolEnabled: false,
-            attachmentsEnabled: false,
           }),
         ),
       } as unknown as ChiefOfStaffContextService
@@ -330,6 +329,68 @@ describe('ChiefOfStaffHandler', () => {
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
         'read_community_issues',
+      )
+    })
+  })
+
+  describe('check reminder tool', () => {
+    const priorityWith = (state: 'deferred' | 'out') => ({
+      id: 'pri-1',
+      title: 'Rents',
+      description: 'Keep renters near transit.',
+      archivedAt: null,
+      flow: {
+        currentStep: 'evidence' as const,
+        nextAction: null,
+        checks: [
+          {
+            stepId: 'define' as const,
+            check: { state, who: '', question: '', raised: 0 },
+          },
+        ],
+      },
+    })
+    const buildWithStatus = () =>
+      new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          buildCheckReminderTool: vi.fn(() => ({
+            record_check_reminder: {
+              description: 'stub',
+              inputSchema: undefined,
+              execute: () => ({}),
+            },
+          })),
+        } as unknown as PriorityStatusService,
+      )
+
+    it('registers only when a priority has a check put off', async () => {
+      const handler = buildWithStatus()
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'record_check_reminder',
+      )
+      expect(
+        Object.keys(
+          handler.buildTools({ ...ctx, priorities: [priorityWith('out')] }),
+        ),
+      ).not.toContain('record_check_reminder')
+      const withDeferral = { ...ctx, priorities: [priorityWith('deferred')] }
+      expect(Object.keys(handler.buildTools(withDeferral))).toContain(
+        'record_check_reminder',
+      )
+      expect(handler.buildSystemPrompt(withDeferral)).toContain(
+        'CHECKS THEY PUT OFF',
       )
     })
   })
@@ -590,8 +651,8 @@ describe('ChiefOfStaffHandler', () => {
     })
   })
 
-  describe('serve-chat-attachments flag gate (compose_handoff tool)', () => {
-    const buildCtxWith = (attachmentsEnabled: boolean) =>
+  describe('compose_handoff tool', () => {
+    const buildCtx = () =>
       ({
         load: vi.fn(() =>
           Promise.resolve({
@@ -613,14 +674,13 @@ describe('ChiefOfStaffHandler', () => {
             anchor: null,
             districtFilters: null,
             constituentToolEnabled: false,
-            attachmentsEnabled,
           }),
         ),
       }) as unknown as ChiefOfStaffContextService
 
-    it('registers compose_handoff when the flag is on', async () => {
+    it('registers compose_handoff', async () => {
       const handler = new ChiefOfStaffHandler(
-        buildCtxWith(true),
+        buildCtx(),
         buildBriefings(),
         port,
         [],
@@ -629,35 +689,22 @@ describe('ChiefOfStaffHandler', () => {
       expect(Object.keys(handler.buildTools(ctx))).toContain('compose_handoff')
     })
 
-    it('omits compose_handoff when the flag is off', async () => {
-      const handler = new ChiefOfStaffHandler(
-        buildCtxWith(false),
-        buildBriefings(),
-        port,
-        [],
-      )
-      const ctx = await handler.loadContext('c1', USER_ID)
-      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
-        'compose_handoff',
-      )
-    })
-
     it('inputSchema converts to a top-level object json schema (Anthropic rejects anyOf roots)', async () => {
-      const tool = buildComposeHandoffTool()
+      const tool = buildComposeHandoffTool('serve_social')
       const converted = await asSchema(tool.inputSchema).jsonSchema
       expect(converted.type).toBe('object')
       expect(converted.anyOf).toBeUndefined()
     })
 
     it('execute returns the validated payload verbatim on valid input', async () => {
-      const tool = buildComposeHandoffTool()
+      const tool = buildComposeHandoffTool('serve_social')
       const input = { channel: 'serve_social' as const, draftText: 'Hello!' }
       const result = await tool.execute(input)
       expect(result).toEqual(input)
     })
 
     it('execute throws on invalid input (schema parse error)', () => {
-      const tool = buildComposeHandoffTool()
+      const tool = buildComposeHandoffTool('serve_social')
       type Input = Parameters<typeof tool.execute>[0]
       expect(() =>
         tool.execute({ channel: 'unknown' } as unknown as Input),

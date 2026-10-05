@@ -1,12 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { Editor } from '@tiptap/react'
 import type { PhoneBankingCreate } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { PhoneBankingFlow } from './PhoneBankingFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 import { gateRef } from '../gate/testing/mockReactiveGate'
+
+// The script field is a TokenField: its text lives in the editor TipTap
+// hangs on the textbox, not in a `value`.
+const scriptEditor = () =>
+  (
+    screen.getByRole('textbox', { name: 'Call script' }) as HTMLElement & {
+      editor: Editor
+    }
+  ).editor
+const scriptText = () => scriptEditor().getText({ blockSeparator: '\n' })
 
 // Same convention as the other flow tests: the gate's own flag/membership
 // plumbing has its own tests, so the hook is driven directly through the
@@ -122,9 +133,7 @@ const advanceToSheets = async () => {
     await screen.findByRole('button', { name: /Continue \([\d,]+\)/ }),
   )
   await screen.findAllByText('Write your call script')
-  await waitFor(() =>
-    expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-  )
+  await waitFor(() => expect(scriptText()).not.toBe(''))
   await user.click(screen.getByRole('button', { name: 'Continue' }))
   await screen.findAllByText(
     'How many call sheets would you like me to create?',

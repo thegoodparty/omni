@@ -1,11 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import CreateListFlow from './CreateListFlow'
 import type { PolygonRing } from '../VoterMapCanvas'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
+
+// Each line is a TokenField: its text lives in the editor TipTap hangs on
+// the textbox, not in a `value`.
+const lineEditor = (label: string) =>
+  (screen.getByLabelText(label) as HTMLElement & { editor: Editor }).editor
+const lineText = (label: string) =>
+  lineEditor(label).getText({ blockSeparator: '\n' })
+const setLine = (label: string, text: string) =>
+  act(() => {
+    lineEditor(label).commands.setContent(text)
+  })
 
 // The create flow mounts milestone 2's in-flow gate, whose membership read
 // reaches for the organization provider this file does not stand up. Ungated
@@ -161,9 +173,7 @@ const renderAtPoints = async (
     target: { value: 'Westside turnout' },
   })
   view.rerender(<CreateListFlow {...baseProps} {...props} step="points" />)
-  await waitFor(() =>
-    expect(screen.getByLabelText('Context')).toHaveValue(POINTS.context),
-  )
+  await waitFor(() => expect(lineText('Context')).toBe(POINTS.context))
   return view
 }
 
@@ -233,11 +243,9 @@ describe('the talking points step', () => {
 
     await renderAtPoints()
 
-    expect(screen.getByLabelText('Opening question')).toHaveValue(
-      POINTS.engagementQuestion,
-    )
-    expect(screen.getByLabelText('Context')).toHaveValue(POINTS.context)
-    expect(screen.getByLabelText('The ask')).toHaveValue(POINTS.ask)
+    expect(lineText('Opening question')).toBe(POINTS.engagementQuestion)
+    expect(lineText('Context')).toBe(POINTS.context)
+    expect(lineText('The ask')).toBe(POINTS.ask)
   })
 
   // The two composed sections are shown so the candidate reviews the whole
@@ -263,7 +271,7 @@ describe('the talking points step', () => {
 
     await renderAtPoints()
 
-    expect(screen.getByLabelText('Call to action')).toHaveValue(
+    expect(lineText('Call to action')).toBe(
       'Point them to janedoe.org to learn more — no commitment needed.',
     )
   })
@@ -274,7 +282,7 @@ describe('the talking points step', () => {
 
     await renderAtPoints()
 
-    expect(screen.getByLabelText('Call to action')).toHaveValue('')
+    expect(lineText('Call to action')).toBe('')
   })
 
   describe('regenerate and improve', () => {
@@ -297,9 +305,7 @@ describe('the talking points step', () => {
       mockDraft()
 
       await renderAtPoints()
-      fireEvent.change(screen.getByLabelText('Context'), {
-        target: { value: 'Roads are bad.' },
-      })
+      setLine('Context', 'Roads are bad.')
       fireEvent.click(screen.getByRole('button', { name: /Improve with AI/ }))
 
       await waitFor(() => expect(drafts).toHaveLength(2))
@@ -356,9 +362,7 @@ describe('the talking points step', () => {
         screen.queryByRole('button', { name: /Improve with AI/ }),
       ).toBeNull()
 
-      fireEvent.change(screen.getByLabelText('Context'), {
-        target: { value: 'Roads.' },
-      })
+      setLine('Context', 'Roads.')
       fireEvent.click(screen.getByRole('button', { name: /Improve with AI/ }))
       await waitFor(() => expect(drafts).toHaveLength(1))
       expect(drafts[0]?.currentDraft).toBe('Roads.')
@@ -621,7 +625,7 @@ describe('freezing the card with the list', () => {
     )
     // The seeded line is really there — this is the state the guard has to
     // recognise, not an absent one.
-    expect(screen.getByLabelText('Call to action')).toHaveValue(
+    expect(lineText('Call to action')).toBe(
       'Point them to janedoe.org to learn more — no commitment needed.',
     )
 
@@ -642,9 +646,7 @@ describe('freezing the card with the list', () => {
     const props = { onStepChange: vi.fn() }
 
     const view = await renderAtPoints(props)
-    fireEvent.change(screen.getByLabelText('Context'), {
-      target: { value: 'Fix the roads.\nAnd the sidewalks.' },
-    })
+    setLine('Context', 'Fix the roads.\nAnd the sidewalks.')
     rerenderWith(view, props, 'draw')
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
@@ -654,11 +656,11 @@ describe('freezing the card with the list', () => {
     expect(stored.split('\n')[1]).toBe('Fix the roads. And the sidewalks.')
   })
 
-  // The boxes are hidden behind the thinking stream while the first draft is
-  // written — the composed call to action lands in state before that request
-  // is made, and counting it as drafted content would put the boxes on screen
-  // with a generation about to overwrite whatever was typed into them.
-  it('shows no editable boxes while the first draft is being written', async () => {
+  // The boxes are read-only while the first draft is written — the composed
+  // call to action lands in state before that request is made, and counting
+  // it as drafted content would leave the boxes open with a generation about
+  // to overwrite whatever was typed into them.
+  it('keeps the boxes read-only while the first draft is being written', async () => {
     api.mock(
       'POST /v1/outreach/door-knocking/draft',
       () => new Promise<never>(() => undefined),
@@ -675,7 +677,10 @@ describe('freezing the card with the list', () => {
     view.rerender(<CreateListFlow {...baseProps} step="points" />)
 
     await waitFor(() =>
-      expect(screen.queryByLabelText('Context')).not.toBeInTheDocument(),
+      expect(screen.getByLabelText('Context')).toHaveAttribute(
+        'aria-readonly',
+        'true',
+      ),
     )
   })
 
@@ -701,9 +706,7 @@ describe('freezing the card with the list', () => {
     const props = { onStepChange: vi.fn() }
 
     const view = await renderAtPoints(props)
-    fireEvent.change(screen.getByLabelText('Context'), {
-      target: { value: 'My own words.' },
-    })
+    setLine('Context', 'My own words.')
     // Back to the goal cards, pick a different one, and return to a card they
     // have already made theirs. `purpose`, `who` and `filters` are three
     // stages of one page step, so how many Backs that takes depends on which
@@ -716,18 +719,14 @@ describe('freezing the card with the list', () => {
     }
     fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
     rerenderWith(view, props, 'points')
-    await waitFor(() =>
-      expect(screen.getByLabelText('Context')).toHaveValue('My own words.'),
-    )
+    await waitFor(() => expect(lineText('Context')).toBe('My own words.'))
     expect(drafts).toHaveLength(1)
 
     fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
 
     await waitFor(() => expect(drafts).toHaveLength(2))
     // The regenerate and nothing after it.
-    await waitFor(() =>
-      expect(screen.getByLabelText('Context')).toHaveValue(POINTS.context),
-    )
+    await waitFor(() => expect(lineText('Context')).toBe(POINTS.context))
     expect(drafts).toHaveLength(2)
   })
 })

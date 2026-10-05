@@ -7,7 +7,7 @@ import {
 } from 'app/dashboard/outreach/v2/channelMeta'
 
 // A separate vocabulary from historyStatus.util.ts's getHistoryStatusLabel:
-// that helper resolves off a full Outreach row (p2pJob, phoneListId) this
+// that helper resolves off a full Outreach row (projectId, phoneListId) this
 // assignment row doesn't carry, so it can't be called with a MyAssignment
 // without faking those fields. Same non-p2p label strings on purpose — they
 // register into channelMeta.tsx's shared STATUS_DISPLAY icon/tone table, so

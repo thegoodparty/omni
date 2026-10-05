@@ -430,6 +430,35 @@ describe('CampaignManagerHandler.buildTools — help center tool', () => {
   })
 })
 
+describe('CampaignManagerHandler.buildTools — compose_handoff', () => {
+  it('registers compose_handoff', () => {
+    const tools = buildHandler().buildTools(ctxWith({}))
+    expect(Object.keys(tools)).toContain('compose_handoff')
+  })
+
+  it("the registered tool's input schema accepts only win_social", async () => {
+    const tools = buildHandler().buildTools(ctxWith({}))
+    const tool = tools.compose_handoff
+    if (!tool || !('execute' in tool)) {
+      throw new Error('expected compose_handoff to register with execute')
+    }
+    const result = await tool.execute({
+      channel: 'win_social',
+      draftText: 'hello voters',
+    })
+    expect(result).toEqual({
+      channel: 'win_social',
+      draftText: 'hello voters',
+    })
+    expect(() =>
+      tool.execute({
+        channel: 'serve_social',
+        draftText: 'hello constituents',
+      }),
+    ).toThrow()
+  })
+})
+
 describe('buildCampaignManagerGreeting', () => {
   it('interpolates the first name when present', () => {
     const greeting = buildCampaignManagerGreeting('Dana')
@@ -456,7 +485,7 @@ describe('buildStoryGreeting', () => {
     const greeting = buildStoryGreeting(
       story(['why', 'background', 'positions']),
     )
-    expect(greeting).toContain('Before I build your plan and tracker')
+    expect(greeting).toContain('Before I build your campaign and outreach plan')
     expect(greeting).toContain('First, your why')
     // No self-introduction: it must not re-greet after the general greeting on
     // the in-chat "Personalize" chip path.

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { Editor } from '@tiptap/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type {
@@ -15,6 +16,20 @@ import {
   PhoneBankingFlow,
   SERVE_PHONE_BANKING_SURFACE,
 } from './PhoneBankingFlow'
+
+// The script field is a TokenField: its text lives in the editor TipTap
+// hangs on the textbox, not in a `value`.
+const scriptEditor = () =>
+  (
+    screen.getByRole('textbox', { name: 'Call script' }) as HTMLElement & {
+      editor: Editor
+    }
+  ).editor
+const scriptText = () => scriptEditor().getText({ blockSeparator: '\n' })
+const typeScript = (text: string) =>
+  act(() => {
+    scriptEditor().commands.setContent(text)
+  })
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -146,9 +161,7 @@ const advanceToScript = async () => {
 
 const advanceToSheets = async () => {
   await advanceToScript()
-  await waitFor(() =>
-    expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-  )
+  await waitFor(() => expect(scriptText()).not.toBe(''))
   await user.click(screen.getByRole('button', { name: 'Continue' }))
   expect(
     (
@@ -222,9 +235,7 @@ describe('PhoneBankingFlow', () => {
     )
 
     await screen.findAllByText('Write your call script')
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -274,6 +285,41 @@ describe('PhoneBankingFlow', () => {
     expect(router.push).toHaveBeenCalledWith(
       `/dashboard/outreach/phone-banking/${createResponse.id}`,
     )
+  })
+
+  // Win's create is strict, and a chat card's link is Serve's: none of it,
+  // the check fields included, may reach the Win route.
+  it('sends nothing of a proposal link to the Win create', async () => {
+    mockDraft()
+    const createCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    render(
+      <PhoneBankingFlow
+        source="outreach_page"
+        open
+        onClose={vi.fn()}
+        proposalLink={{
+          proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7',
+          priorityId: 'priority-1',
+          stepId: 'define',
+          side: 'main',
+        }}
+      />,
+    )
+    await advanceToSheets()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(createCalls).toHaveLength(1))
+    expect(Object.keys(createCalls[0] ?? {}).sort()).toEqual([
+      'name',
+      'purpose',
+      'script',
+      'sheetCount',
+      'voterFileFilterId',
+    ])
   })
 
   it('offers a ZIP download link for a multi-sheet list', async () => {
@@ -421,9 +467,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToWho()
     await pickSavedListAndContinue('Huge list')
     await screen.findAllByText('Write your call script')
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -458,9 +502,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToWho()
     await pickSavedListAndContinue('Huge list')
     await screen.findAllByText('Write your call script')
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -489,9 +531,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToWho()
     await pickSavedListAndContinue('Huge list')
     await screen.findAllByText('Write your call script')
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -531,9 +571,7 @@ describe('PhoneBankingFlow', () => {
     mockCreateList(99, 'My audience')
     await user.click(screen.getByRole('button', { name: 'Create list' }))
     await screen.findAllByText('Write your call script')
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -598,7 +636,7 @@ describe('PhoneBankingFlow', () => {
       ]),
     )
     await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).toHaveValue(
+      expect(scriptText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
       ),
     )
@@ -608,9 +646,7 @@ describe('PhoneBankingFlow', () => {
       screen.getByRole('button', { name: /Improve with AI/ }),
     ).toBeInTheDocument()
 
-    const textarea = screen.getByLabelText('Call script')
-    await user.clear(textarea)
-    await user.type(textarea, 'My own words')
+    typeScript('My own words')
     await user.click(
       await screen.findByRole('button', { name: /Improve with AI/ }),
     )
@@ -645,9 +681,7 @@ describe('PhoneBankingFlow', () => {
       instructions: 'mention the school levy',
     })
 
-    const textarea = screen.getByLabelText('Call script')
-    await user.clear(textarea)
-    await user.type(textarea, 'My own words')
+    typeScript('My own words')
     await user.click(
       await screen.findByRole('button', { name: /Improve with AI/ }),
     )
@@ -664,7 +698,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToScript()
 
     await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).toHaveValue(
+      expect(scriptText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
       ),
     )
@@ -677,12 +711,8 @@ describe('PhoneBankingFlow', () => {
       previousDraft: draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
     })
 
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
-    const scriptBeforeToneChange = (
-      screen.getByLabelText('Call script') as HTMLTextAreaElement
-    ).value
+    await waitFor(() => expect(scriptText()).not.toBe(''))
+    const scriptBeforeToneChange = scriptText()
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     await waitFor(() => expect(draftCalls).toHaveLength(3))
     expect(draftCalls[2]).toMatchObject({
@@ -696,14 +726,10 @@ describe('PhoneBankingFlow', () => {
     openFlow()
     await advanceToScript()
 
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     expect(draftCalls).toHaveLength(1)
 
-    const textarea = screen.getByLabelText('Call script')
-    await user.clear(textarea)
-    await user.type(textarea, 'My hand-edited script')
+    typeScript('My hand-edited script')
 
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     await waitFor(() => expect(draftCalls).toHaveLength(2))
@@ -714,7 +740,7 @@ describe('PhoneBankingFlow', () => {
     // landed, goes back to sending previousDraft — the guard is per-edit,
     // not sticky for the rest of the session.
     await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).toHaveValue(
+      expect(scriptText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
       ),
     )
@@ -768,9 +794,7 @@ describe('PhoneBankingFlow', () => {
     expect(nameInput).toHaveValue('Introduction calls')
 
     await user.clear(nameInput)
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
     await user.type(nameInput, 'GOTV calls')
@@ -787,7 +811,7 @@ describe('PhoneBankingFlow', () => {
     await screen.findAllByText('Write your call script')
 
     expect(screen.getByLabelText('Campaign name')).toHaveValue('')
-    await user.type(screen.getByLabelText('Call script'), 'My own script')
+    typeScript('My own script')
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 
@@ -995,9 +1019,7 @@ describe('PhoneBankingFlow', () => {
       partyDemocrat: true,
     })
 
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -1061,9 +1083,7 @@ describe('PhoneBankingFlow', () => {
     expect(body).not.toHaveProperty('supportStatus')
     expect(body).not.toHaveProperty('precincts')
 
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -1261,9 +1281,7 @@ describe('PhoneBankingFlow with the serve surface', () => {
       'Decision update calls',
     )
 
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -1291,7 +1309,7 @@ describe('PhoneBankingFlow with the serve surface', () => {
     await screen.findAllByText('Write your call script')
 
     expect(screen.getByLabelText('Campaign name')).toHaveValue('')
-    await user.type(screen.getByLabelText('Call script'), 'My own script')
+    typeScript('My own script')
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 })

@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   PRIORITY_STEP_LABELS,
   emptyPriorityStatus,
   mintProposalKey,
+  PROPOSAL_SENT_MARKER,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
@@ -20,6 +21,9 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   streamMessage: vi.fn(),
   fetchPriorityStatus: vi.fn(),
+  sentListener: null as
+    | null
+    | ((proposal: Record<string, string | number | boolean>) => void),
 }))
 
 vi.mock('../data/chat-api', () => ({
@@ -46,22 +50,47 @@ vi.mock('../../../shared/dictation/useDictationAppend', () => ({
 }))
 
 // The card components are another surface's concern; this asserts only that a
-// card tool call reaches the renderer, and with which key.
-vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', () => ({
-  ChatCardRenderer: ({
-    card,
-    conversationId,
-  }: {
-    card: { kind: string; proposalKey?: string }
-    conversationId: string
-  }) => (
-    <div
-      data-testid="chat-card"
-      data-kind={card.kind}
-      data-proposal-key={card.proposalKey ?? ''}
-      data-conversation-id={conversationId}
-    />
-  ),
+// card tool call reaches the renderer, and with which key. The outside contact
+// is the exception, rendered for real, because where its detail opens is this
+// surface's concern.
+vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', async () => {
+  const { OutsideContactCard } = await vi.importActual<
+    typeof import('../../../shared/agent-chat/cards/OutsideContactCard')
+  >('../../../shared/agent-chat/cards/OutsideContactCard')
+  return {
+    ChatCardRenderer: ({
+      card,
+      detailKey,
+    }: {
+      card: { kind: string; proposalKey?: string }
+      detailKey?: string
+    }) =>
+      card.kind === 'outside_contact' ? (
+        <OutsideContactCard
+          card={card as Parameters<typeof OutsideContactCard>[0]['card']}
+          {...(detailKey !== undefined && { detailKey })}
+        />
+      ) : (
+        <div
+          data-testid="chat-card"
+          data-kind={card.kind}
+          data-proposal-key={card.proposalKey ?? ''}
+        />
+      ),
+  }
+})
+
+// The outreach flows are the outreach page's components; mounting them here
+// is covered in proposalFlows.test.tsx.
+vi.mock('../../../shared/agent-chat/cards/proposalFlows', () => ({
+  ProposalFlowsProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
+  useProposalFlows: () => null,
+  useOnProposalSent: (
+    listener: (proposal: Record<string, string | number | boolean>) => void,
+  ) => {
+    mocks.sentListener = listener
+  },
 }))
 
 const deferred = (): { promise: Promise<void>; resolve: () => void } => {
@@ -142,7 +171,7 @@ describe('PriorityWorkspace', () => {
             toolCallId: 'tc-status',
             args: {
               steps: [
-                { id: 'define', state: 'settled', summary: 'Maple floods.' },
+                { id: 'evidence', state: 'settled', summary: 'Maple floods.' },
               ],
               nextAction: 'Pick two blocks to walk',
             },
@@ -158,7 +187,7 @@ describe('PriorityWorkspace', () => {
     // Mid-turn: the rail has moved although `done` has not arrived.
     await waitFor(() =>
       expect(
-        within(railRow(PRIORITY_STEP_LABELS.define)).getByText('Done'),
+        within(railRow(PRIORITY_STEP_LABELS.evidence)).getByText('Done'),
       ).toBeInTheDocument(),
     )
     expect(mocks.fetchPriorityStatus).not.toHaveBeenCalled()
@@ -168,7 +197,7 @@ describe('PriorityWorkspace', () => {
     const persisted: PriorityStatus = {
       ...emptyPriorityStatus(),
       steps: emptyPriorityStatus().steps.map((step) =>
-        step.id === 'define'
+        step.id === 'evidence'
           ? { ...step, state: 'stale' as const, caveat: 'Report disagrees.' }
           : step,
       ),
@@ -195,7 +224,7 @@ describe('PriorityWorkspace', () => {
 
     await waitFor(() =>
       expect(
-        within(railRow(PRIORITY_STEP_LABELS.define)).getByText(
+        within(railRow(PRIORITY_STEP_LABELS.evidence)).getByText(
           'Needs another look',
         ),
       ).toBeInTheDocument(),
@@ -285,7 +314,66 @@ describe('PriorityWorkspace', () => {
       'data-proposal-key',
       mintProposalKey(CONVERSATION_ID, 'tc-proposal'),
     )
-    expect(card).toHaveAttribute('data-conversation-id', CONVERSATION_ID)
+  })
+
+  it('opens a card in a sheet over the page, leaving the rail, and the X closes it', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          { kind: 'text', text: 'He runs the permit desk.' },
+          {
+            kind: 'tool',
+            toolName: 'present_outside_contact',
+            toolCallId: 'tc-contact',
+            payload: {
+              name: 'Mark Matheny',
+              role: 'Director, Development Services Department',
+              why: 'He signs off on the drainage permits.',
+              askFor: 'The stormwater review',
+              script: 'Calling about the Maple Street drains.',
+              phone: '(828) 555-0100',
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    const chip = await screen.findByRole('button', { name: /Mark Matheny/ })
+    const rail = screen.getByRole('complementary')
+    expect(
+      screen.queryByText('Calling about the Maple Street drains.'),
+    ).toBeNull()
+
+    chip.focus()
+    fireEvent.click(chip)
+
+    const sheet = await screen.findByRole('dialog')
+    expect(
+      within(sheet).getByText('Calling about the Maple Street drains.'),
+    ).toBeInTheDocument()
+    expect(within(sheet).getByRole('link', { name: /Call/ })).toHaveAttribute(
+      'href',
+      'tel:8285550100',
+    )
+    expect(
+      within(rail).getByText(PRIORITY_STEP_LABELS.evidence),
+    ).toBeInTheDocument()
+    expect(chip).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(
+      screen.queryByText('Calling about the Maple Street drains.'),
+    ).toBeNull()
+    await waitFor(() => expect(chip).toHaveFocus())
   })
 
   it('renders a clarify question, and answering it sends an ordinary turn', async () => {
@@ -387,6 +475,58 @@ describe('PriorityWorkspace', () => {
     expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
   })
 
+  it('reloads a multi-select answer with the chosen set checked', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-clarify',
+            payload: {
+              questionId: 'q1',
+              question: 'Which of these hold up for you?',
+              multiSelect: true,
+              options: [
+                { label: 'Curbside pilot in select neighborhoods' },
+                { label: 'Do nothing' },
+                { label: 'Expand drop-off sites' },
+              ],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+      {
+        id: 'u1',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content:
+          'Curbside pilot in select neighborhoods and Expand drop-off sites',
+        createdAt: '2026-09-01T00:01:00.000Z',
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Which of these hold up for you?'),
+    ).toBeInTheDocument()
+    const box = (name: string): HTMLElement =>
+      screen.getByRole('checkbox', { name })
+    expect(box('Curbside pilot in select neighborhoods')).toBeChecked()
+    expect(box('Do nothing')).not.toBeChecked()
+    expect(box('Expand drop-off sites')).toBeChecked()
+    expect(box('Do nothing')).toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: 'Use these' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('reloads a written-in answer as what the official said', async () => {
     mocks.listMessages.mockResolvedValue([
       {
@@ -447,5 +587,43 @@ describe('PriorityWorkspace', () => {
 
     expect(await screen.findByText('Counting constituents')).toBeInTheDocument()
     expect(screen.queryByTestId('chat-card')).not.toBeInTheDocument()
+  })
+
+  // The check already moved on the server; the rail catches up and the agent
+  // hears about it once, without the official seeing a message they never
+  // typed.
+  it('refetches the rail and tells the agent once when a card’s outreach is sent', async () => {
+    const proposalKey = mintProposalKey(CONVERSATION_ID, 'tc-proposal')
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: 'Here is the check.',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [{ kind: 'text', text: 'Here is the check.' }],
+      } satisfies ChatMessageDto,
+    ])
+    renderWorkspace()
+    await screen.findByText('Here is the check.')
+    mocks.fetchPriorityStatus.mockClear()
+
+    const proposal = { ...proposalArgs, proposalKey, deepLinkOnly: false }
+    act(() => mocks.sentListener?.(proposal))
+    act(() => mocks.sentListener?.(proposal))
+
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+    expect(mocks.streamMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: CONVERSATION_ID,
+        content: expect.stringMatching(
+          new RegExp(
+            `^\\${PROPOSAL_SENT_MARKER.slice(0, -1)}\\].*412 people.*${proposalKey}$`,
+          ),
+        ),
+      }),
+    )
+    expect(mocks.fetchPriorityStatus).toHaveBeenCalledWith('pri-1')
+    expect(screen.queryByText(new RegExp(proposalKey))).toBeNull()
   })
 })

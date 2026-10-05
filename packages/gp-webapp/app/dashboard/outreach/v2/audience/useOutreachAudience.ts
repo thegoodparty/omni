@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ListDetailReachability,
+  ListSample,
   RecommendedList,
   RecommendedListChannel,
   RecommendedListFilter,
@@ -83,6 +84,20 @@ interface UseOutreachAudienceParams {
   // card would. Whether that has happened lives here rather than in the
   // step, which unmounts between steps.
   preselectedRecommendedVariant?: RecommendedListVariant
+  // An audience counted but not saved yet (a chat card's proposal). Opens the
+  // builder already filled in, so the list is saved where it always is: when
+  // the official confirms the audience and names it.
+  proposedAudience?: ProposedAudience
+}
+
+export type ProposedAudience = {
+  filters: VoterFileFilters
+  supportStatus: SupportStatusRollup[]
+  precincts: string[]
+  name: string
+  // Saved as a random draw of this size rather than as the live filter: a
+  // check asks enough people for a read, not everyone it could reach.
+  sample?: ListSample
 }
 
 export interface OutreachAudience {
@@ -231,6 +246,7 @@ export const useOutreachAudience = ({
   recommendedListIntent = null,
   preselectedListId,
   preselectedRecommendedVariant,
+  proposedAudience,
 }: UseOutreachAudienceParams): OutreachAudience => {
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
@@ -256,6 +272,7 @@ export const useOutreachAudience = ({
   >([])
   const [builderPrecincts, setBuilderPrecincts] = useState<string[]>([])
   const [builderName, setBuilderName] = useState('')
+  const [builderSample, setBuilderSample] = useState<ListSample | undefined>()
   // Which carried-in variant the audience step has already applied. Held
   // here and not in the step because the step unmounts between steps, and
   // Back into it must not reopen a naming drawer the candidate dismissed.
@@ -451,6 +468,8 @@ export const useOutreachAudience = ({
   listsRef.current = lists
   const preselectedListIdRef = useRef(preselectedListId)
   preselectedListIdRef.current = preselectedListId
+  const proposedAudienceRef = useRef(proposedAudience)
+  proposedAudienceRef.current = proposedAudience
 
   // Apply the caller's preselected list once its row arrives. Spent on
   // application rather than bound to the prop: the candidate must be able to
@@ -566,6 +585,12 @@ export const useOutreachAudience = ({
         {
           name: builderName.trim(),
           ...createPayload,
+          // A sample is drawn from the people this channel can reach, so
+          // the reach the count added is saved with it. Drawn from the
+          // overlay-free criteria, a text sample would hold landlines.
+          ...(builderSample
+            ? { ...(countOverlay ?? {}), sample: builderSample }
+            : {}),
           // recommendedFilter is the recommendation's own unsaved filter
           // shape, sent alongside the submitted criteria purely so gp-api
           // can diff the two and persist recommendedModified — nothing
@@ -600,9 +625,19 @@ export const useOutreachAudience = ({
     setBuilderSupportStatus([])
     setBuilderPrecincts([])
     setBuilderName('')
+    setBuilderSample(undefined)
     setRecommendedMeta(null)
     resetCreateMutation()
   }, [resetCreateMutation])
+
+  const seedProposedAudience = useCallback((proposed: ProposedAudience) => {
+    setMode('filters')
+    setBuilderFilters(proposed.filters)
+    setBuilderSupportStatus(proposed.supportStatus)
+    setBuilderPrecincts(proposed.precincts)
+    setBuilderName(proposed.name)
+    setBuilderSample(proposed.sample)
+  }, [])
 
   const reset = useCallback(() => {
     // A preselected list whose row is already here survives the reset: the
@@ -630,9 +665,14 @@ export const useOutreachAudience = ({
     setBuilderSupportStatus([])
     setBuilderPrecincts([])
     setBuilderName('')
+    setBuilderSample(undefined)
     setRecommendedMeta(null)
     resetCreateMutation()
-  }, [resetCreateMutation, resetUniverseMutation])
+    // Seeded here rather than beside the flow's own open effect, which calls
+    // this reset after anything it could set first.
+    const proposed = preselectReady ? undefined : proposedAudienceRef.current
+    if (proposed) seedProposedAudience(proposed)
+  }, [resetCreateMutation, resetUniverseMutation, seedProposedAudience])
 
   // Opening the builder leaves a selected recommendation behind: what gets
   // cut from here is a new audience, not that card.
@@ -903,7 +943,12 @@ export const useOutreachAudience = ({
     builderName,
     setBuilderName,
     isElectedOfficial,
-    builderCount: builderCountResult.count,
+    // What the saved list will hold, so Continue never promises the whole
+    // audience to a list that keeps a sample of it.
+    builderCount:
+      builderSample && builderCountResult.count !== undefined
+        ? Math.min(builderCountResult.count, builderSample.size)
+        : builderCountResult.count,
     builderCounting,
     builderCapError: builderCountResult.isCapError,
     builderCountErrorMessage: builderCountResult.errorMessage,

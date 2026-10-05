@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DOOR_KNOCK_STATUSES,
   DoorKnockingTurf,
+  type ProposalLink,
   type RecommendedListVariant,
 } from '@goodparty_org/contracts'
 import { Spinner } from '@styleguide'
@@ -130,6 +131,8 @@ interface NativeDoorKnockingPageProps {
   // and used to fetch the sibling turfs whose colors seed the picker's
   // default and whose count decides the "Turf N" name default.
   campaignOutreachId?: number
+  // A priority chat card's link, carried onto the walk's create.
+  proposalLink?: ProposalLink
   // Where the `?create=1` link was pressed.
   createSource?: OutreachFlowSource
 }
@@ -173,6 +176,7 @@ export default function NativeDoorKnockingPage({
   fromOutreachId,
   openCreateFlow,
   campaignOutreachId,
+  proposalLink,
   createSource,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
@@ -1549,6 +1553,7 @@ export default function NativeDoorKnockingPage({
                   }
                   siblingTurfs={siblingTurfs}
                   campaignOutreachId={campaignOutreachId}
+                  {...(proposalLink && { proposalLink })}
                   turfDrafts={turfDrafts}
                   draftStats={draftStats}
                   onSelectDraft={selectDraft}

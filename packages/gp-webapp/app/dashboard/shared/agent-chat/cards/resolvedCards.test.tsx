@@ -1,19 +1,32 @@
 import { describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ChatCard, OutreachDetail, Person } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { toChatCard } from './toChatCard'
 import { ChatCardRenderer } from './ChatCardRenderer'
 
-const renderCard = (card: ChatCard) =>
-  render(
-    <ChatCardRenderer
-      card={card}
-      priorityId="priority-1"
-      conversationId="conversation-1"
-    />,
-  )
+// The record reads the selected org to key its person query, and the hook
+// throws outside the dashboard provider.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'eo-riverside' }),
+}))
+
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    displaySnackbar: vi.fn(),
+    successSnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+  }),
+}))
+
+const renderCard = (card: ChatCard) => render(<ChatCardRenderer card={card} />)
+
+const openChip = async (name: RegExp) => {
+  await userEvent.click(await screen.findByRole('button', { name }))
+  return within(await screen.findByRole('dialog'))
+}
 
 const outreachDetail = (id: number, name: string): OutreachDetail => ({
   id,
@@ -96,13 +109,23 @@ describe('PastOutreachCard', () => {
       note: 'Both of these reached the same block.',
     })
 
-    expect(
-      await screen.findByRole('link', { name: /Send 11/ }),
-    ).toHaveAttribute('href', '/dashboard/constituent-outreach?outreachId=11')
+    // One chip per send, each opening that send in outreach history. No
+    // panel here: history already owns what a send looks like afterwards.
+    const first = await screen.findByRole('link', { name: /Send 11/ })
+    expect(first).toHaveAttribute(
+      'href',
+      '/dashboard/constituent-outreach?outreachId=11',
+    )
     expect(screen.getByRole('link', { name: /Send 12/ })).toBeInTheDocument()
+    expect(
+      await within(first).findByText(
+        'SMS · 310 constituents · 22 responses · Sep 2',
+      ),
+    ).toBeInTheDocument()
     expect(
       screen.getByText('Both of these reached the same block.'),
     ).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('renders nothing when every id fails to resolve', async () => {
@@ -123,11 +146,15 @@ describe('PastOutreachCard', () => {
 })
 
 describe('ConstituentsCard', () => {
-  it('renders a row per contact that resolves, and links each one', async () => {
+  it("is one row per person, and each opens that constituent's own record", async () => {
     api.mock('GET /v1/contacts/:id', ({ params }) => ({
       status: 200,
       data: person(params.id, params.id === 'p1' ? 'Ada' : 'Ben'),
     }))
+    api.mock('GET /v1/contacts/:personId/notes', {
+      status: 200,
+      data: { results: [] },
+    })
 
     renderCard({
       kind: 'constituents',
@@ -135,13 +162,22 @@ describe('ConstituentsCard', () => {
       note: 'Both chair neighborhood groups on the west side.',
     })
 
+    const ada = await screen.findByRole('button', { name: /Ada Okafor/ })
+    expect(within(ada).getByText('14 Mill St, Riverside')).toBeInTheDocument()
     expect(
-      await screen.findByRole('link', { name: /Ada Okafor/ }),
-    ).toHaveAttribute('href', '/dashboard/contacts/p1')
-    expect(screen.getByRole('link', { name: /Ben Okafor/ })).toBeInTheDocument()
-    expect(
-      screen.getByText('Both chair neighborhood groups on the west side.'),
+      screen.getByRole('button', { name: /Ben Okafor/ }),
     ).toBeInTheDocument()
+    // The agent says why in its message; the card does not repeat it.
+    expect(
+      screen.queryByText('Both chair neighborhood groups on the west side.'),
+    ).toBeNull()
+
+    const panel = await openChip(/Ada Okafor/)
+    // PersonRecord, the contacts page's own rendering of a person.
+    expect(
+      panel.getByRole('heading', { name: 'Ada Okafor' }),
+    ).toBeInTheDocument()
+    expect(panel.getByText('Contact Information')).toBeInTheDocument()
   })
 
   it.each(['present_constituents', 'present_contacts'])(
@@ -163,8 +199,8 @@ describe('ConstituentsCard', () => {
       renderCard(card)
 
       expect(
-        await screen.findByRole('link', { name: /Ada Okafor/ }),
-      ).toHaveAttribute('href', '/dashboard/contacts/p1')
+        await screen.findByRole('button', { name: /Ada Okafor/ }),
+      ).toBeInTheDocument()
     },
   )
 

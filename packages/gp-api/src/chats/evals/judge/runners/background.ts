@@ -8,7 +8,9 @@ import { createHash } from 'crypto'
 import { differenceInMilliseconds } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
+import { findAgent } from '../agents'
 import { assertNoPlaceholders } from '../caseParams'
+import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
 import {
   isComparable,
@@ -123,6 +125,9 @@ export interface BackgroundRunInput {
   // so the override key and the record can never name different content.
   variant: Omit<Variant, 'configDigest'>
   organizationSlug: string
+  // Only for an agent the registry marks readsGpApi, and only ever the
+  // fixture account's id; see buildDispatchMessage.
+  clerkUserId?: string
   metadataBucket: string
   artifactBucket: string
   poll: PollOptions
@@ -188,7 +193,8 @@ const requireSegment = (label: string, value: string): string => {
 const EXPERIMENT_ID = /^[a-z][a-z0-9_]{0,63}$/
 
 // dispatch_handler's _IDENTIFIER_RE.
-const ORG_SLUG = /^[a-zA-Z0-9_-]{1,64}$/
+// Exported so judgeIdentifiers.ts makes slugs by this rule, not a copy of it.
+export const ORG_SLUG = /^[a-zA-Z0-9_-]{1,64}$/
 
 const sha256 = (...parts: string[]): string => {
   const hash = createHash('sha256')
@@ -470,6 +476,7 @@ export interface DispatchMessage {
   run_id: string
   experiment_type: string
   organization_slug: string
+  clerk_user_id?: string
   params: Record<string, JsonValue>
   priority: 'HIGH' | 'DEFAULT'
   _judge_override: JudgeOverride
@@ -483,13 +490,16 @@ export interface DispatchMessage {
 // prefix override prevents it. Confining judge dispatches to a slug no real
 // organization uses puts the pointer somewhere nothing reads, and the slug is
 // not load-bearing anywhere else: scope derivation and the SQL rewriter bind
-// the district from params, never from this.
+// the district from params, never from this. The one exception is the
+// fixture slug, which the broker sends to gp-api as X-Organization-Slug for
+// the agents that read it.
 export const JUDGE_ORG_SLUG_PREFIX = 'judge-'
 
 export const buildDispatchMessage = (args: {
   runId: string
   agentId: string
   organizationSlug: string
+  clerkUserId?: string
   agentCase: BackgroundCase
   override: JudgeOverride
 }): DispatchMessage => {
@@ -510,6 +520,29 @@ export const buildDispatchMessage = (args: {
       `judge dispatch needs a "${JUDGE_ORG_SLUG_PREFIX}" organization slug ` +
         `so it cannot overwrite a real organization's latest.json, got ` +
         `"${args.organizationSlug}"`,
+    )
+  }
+  // A judge run may act as one user only, the seeded fixture, and only on its
+  // own organization. Anything else would let a sweep read, and through the
+  // broker's proxy write, as whoever a caller happened to name.
+  if (
+    args.clerkUserId !== undefined &&
+    (args.clerkUserId !== JUDGE_FIXTURE.clerkUserId ||
+      args.organizationSlug !== JUDGE_FIXTURE.orgSlug)
+  ) {
+    throw new Error(
+      `a judge dispatch may name only the fixture user ` +
+        `"${JUDGE_FIXTURE.clerkUserId}" on "${JUDGE_FIXTURE.orgSlug}", got ` +
+        `"${args.clerkUserId}" on "${args.organizationSlug}"`,
+    )
+  }
+  if (
+    args.clerkUserId !== undefined &&
+    findAgent(args.agentId)?.readsGpApi !== true
+  ) {
+    throw new Error(
+      `${args.agentId} does not read gp-api, so its judge dispatch names no ` +
+        'user; only a readsGpApi agent runs as the fixture account',
     )
   }
   // The backstop for the sweep-wide check in substituteBackgroundCases. That
@@ -596,10 +629,11 @@ export const buildDispatchMessage = (args: {
     ...args.agentCase.params,
     ...(refs.length > 0 ? { [INPUT_FILES_KEY]: refs } : {}),
   }
-  // No clerk_user_id: omitting it makes broker mint skip the Clerk actor-token
-  // round trip, and no judge agent needs a user-scoped tool. It also closes
-  // /agent-mcp to these runs, so a write-action experiment fails at that
-  // route's guard rather than writing product data.
+  // clerk_user_id only for the agents that read gp-api, and then only the
+  // fixture account. Omitted, the ticket names no user and /agent/mcp refuses
+  // the run, which is what every other judge dispatch wants. Named, the run
+  // can reach gp-api's MCP tools as an account with no campaign and no
+  // website, so the write tools it could call 404 rather than write.
   //
   // Nothing about a results queue. A judge dispatch has no experiment_run row,
   // so a callback logs `Experiment run not found` once per run — noise, not
@@ -613,6 +647,7 @@ export const buildDispatchMessage = (args: {
     run_id: args.runId,
     experiment_type: args.agentId,
     organization_slug: args.organizationSlug,
+    ...(args.clerkUserId !== undefined && { clerk_user_id: args.clerkUserId }),
     params,
     priority: 'DEFAULT',
     _judge_override: args.override,
@@ -1059,7 +1094,7 @@ const readTraceBody = async (
 }
 
 // The affirmative spend switch. Nothing on this branch constructs a real store
-// or queue yet, so nothing can spend today — but this module is where the ~$13
+// or queue yet, so nothing can spend today — but this module is where the ~$8
 // per run is committed, so the gate belongs here rather than in whatever wires
 // it up later.
 //
@@ -1123,6 +1158,7 @@ export const runBackgroundCase = async (
     runId,
     agentId: input.agentId,
     organizationSlug: input.organizationSlug,
+    clerkUserId: input.clerkUserId,
     agentCase: input.agentCase,
     override,
   })
@@ -1292,7 +1328,7 @@ export const runBackgroundCase = async (
 // contract in the feature to need a marker, and the reason is specific: this
 // envelope is written by one checkout and read by another weeks later, and
 // leaning on the record's `schemaVersion: z.literal(1)` alone means that the
-// day that literal moves, every sweep pays ~$13 per case forever while
+// day that literal moves, every sweep pays ~$8 per case forever while
 // reporting `cache: 'miss'`, which reads as a first capture rather than as a
 // cache nothing can use. Versioning the envelope makes the skew nameable.
 export const CACHED_BASE_ARM_SCHEMA_VERSION = 1
@@ -1330,7 +1366,7 @@ export type CacheMissReason =
 // A fifth outcome, and deliberately NOT a fifth CacheMissReason: a miss is a
 // statement about the cache's CONTENTS, and this is a statement about our own
 // read. Folding the two together would report a transient bucket error as
-// 'absent', which reads as "no entry, go spend ~$13" when the honest answer is
+// 'absent', which reads as "no entry, go spend ~$8" when the honest answer is
 // "we do not know whether an entry exists".
 export type CacheRead =
   | { kind: 'entry'; entry: CachedBaseArm }

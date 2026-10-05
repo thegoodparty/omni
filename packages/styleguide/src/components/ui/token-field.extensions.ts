@@ -10,7 +10,9 @@ import { cn } from '@styleguide/lib/utils'
 import { tokenPillClassName } from './token-pill'
 import {
   PROTECTED_MARK,
+  SKIP_GUARD_META,
   TOKEN_NODE,
+  docToValue,
   guardTransaction,
   isInsideProtectedPhrase,
   lockedRanges,
@@ -179,12 +181,15 @@ const setPillDragImage = (view: EditorView, event: DragEvent): void => {
 interface GuardOptions {
   // Called once per blocked edit with the id of what it ran into.
   onBlocked: (id: string) => void
+  // The most characters the value may hold, tokens counted as their text.
+  // Read on every edit, so the caller can change it after the editor exists.
+  maxLength?: () => number | undefined
 }
 
 export const TokenFieldGuard = Extension.create<GuardOptions>({
   name: 'tokenFieldGuard',
   addOptions() {
-    return { onBlocked: () => undefined }
+    return { onBlocked: () => undefined, maxLength: () => undefined }
   },
   // The drop cursor marks where a dragged pill will land, so it must not
   // offer a spot the guard will refuse: none inside a locked phrase. The
@@ -197,9 +202,21 @@ export const TokenFieldGuard = Extension.create<GuardOptions>({
     }
   },
   addProseMirrorPlugins() {
-    const { onBlocked } = this.options
+    const { onBlocked, maxLength } = this.options
     let view: EditorView | null = null
     return [
+      // As a textarea's maxlength: an edit that would take the value past the
+      // limit does not happen. One that shortens a value already over it (a
+      // loaded draft) does, so the candidate can always cut their way back.
+      new Plugin({
+        filterTransaction(tr, state) {
+          const limit = maxLength?.()
+          if (limit === undefined || !tr.docChanged) return true
+          if (tr.getMeta(SKIP_GUARD_META)) return true
+          const next = docToValue(tr.doc).length
+          return next <= limit || next <= docToValue(state.doc).length
+        },
+      }),
       new Plugin({
         view(editorView) {
           view = editorView

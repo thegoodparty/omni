@@ -5,7 +5,7 @@
   title: Top district issues (sweep quality)
   prompt: What issues does my district care about most?
   expected_route: query_constituent_data
-  gold_sql: null   # behavioral; recover actual SQL and breadth from the trace
+  gold_sql: null # behavioral; recover actual SQL and breadth from the trace
   required_behavior:
     - surveys multiple hs_* issue areas rather than cherry-picking one or two
     - segments where the story is in subgroups (district-wide modeled averages
@@ -87,7 +87,7 @@
   gold_sql: >
     SELECT FLOOR(Voters_Age/10)*10 AS decade, COUNT(*) AS n
     FROM serve_agent_voters WHERE {{DISTRICT_FILTER}} GROUP BY 1 ORDER BY 1
-  gold_provisional: "bands must sum to 156,587 minus 25 null ages"
+  gold_provisional: 'bands must sum to 156,587 minus 25 null ages'
   required_behavior:
     - sensible contiguous bands; shares consistent with under-35 = 27.5%,
       65+ = 25.3%

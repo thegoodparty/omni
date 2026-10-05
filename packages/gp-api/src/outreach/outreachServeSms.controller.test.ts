@@ -134,7 +134,28 @@ describe('POST /v1/outreach/serve/sms/draft', () => {
         "The official's bio, in their own words:",
       ],
       SERVE_SMS_VOICE,
+      undefined,
     )
+  })
+
+  // Improve gets the whole message, so the generator is told what Serve
+  // locks in it: the official's name and the double-brace merge tag, never
+  // a paid-for-by line an elected official has no committee for.
+  it('hands Improve the official and the Serve locks', async () => {
+    const res = await postDraft({
+      purpose: 'community_input',
+      tone: 'warm',
+      currentDraft:
+        'Hello {{first_name}}, this is Johnny. Join us Thursday.\n\nReply STOP to opt out.',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(generateDraftWithVoice.mock.calls[0]?.[6]).toEqual({
+      candidateNames: ['Johnny Goodparty'],
+      committeeName: null,
+      channel: 'serve',
+      ignoredRules: ['paid_for_by'],
+    })
   })
 
   // Office and place are prompt enrichment: election-api is not on the
@@ -155,6 +176,7 @@ describe('POST /v1/outreach/serve/sms/draft', () => {
       String(service.user.id),
       ["The official's bio, in their own words:"],
       SERVE_SMS_VOICE,
+      undefined,
     )
   })
 
@@ -175,7 +197,7 @@ describe('POST /v1/outreach/serve/sms', () => {
     const res = await postCreate(createInput)
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(createDraft).toHaveBeenCalledWith(eoOrgSlug, createInput)
+    expect(createDraft).toHaveBeenCalledWith(eoOrgSlug, createInput, {})
     expect(res.data).toEqual({
       outreachId: 12,
       recipientCount: 480,
@@ -194,6 +216,7 @@ describe('POST /v1/outreach/serve/sms', () => {
     expect(createDraft).toHaveBeenCalledWith(
       eoOrgSlug,
       expect.not.objectContaining({ organizationSlug: 'eo-somebody-else' }),
+      {},
     )
   })
 

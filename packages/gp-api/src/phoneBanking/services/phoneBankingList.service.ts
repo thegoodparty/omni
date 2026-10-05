@@ -1,8 +1,14 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import {
+  resolveProposalLink,
+  type ProposalOutreachLink,
+} from '@/priorities/util/proposalLink.util'
 import {
   IdOverrides,
   PHONE_BANKING_SHEET_SIZE,
@@ -14,6 +20,7 @@ import {
   PhoneBankingListPerson,
   Person,
   ServePhoneBankingCreate,
+  type ProposalLink,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
@@ -95,7 +102,7 @@ type PersonName = { personId: string; name: string; firstName: string | null }
 // ElectedOffice's org. A null scope (Win's continueIfNotFound case — no
 // Campaign row) writes no envelope at all, same as before this change.
 //
-// proposalKey/priorityId ride along when the list was created from a chat
+// The proposal link rides along when the list was created from a chat
 // card. The key goes into the envelope's INSERT rather than onto it
 // afterwards: its unique index is what makes two simultaneous sends of the
 // same proposal produce one list instead of two, and a post-create stamp
@@ -103,9 +110,7 @@ type PersonName = { personId: string; name: string; firstName: string | null }
 export type PhoneBankingScope = {
   campaignId: number | null
   organizationSlug: string
-  proposalKey?: string
-  priorityId?: string
-}
+} & ProposalOutreachLink
 
 const formatAddress = (address: Person['address']): string | null => {
   const cityState = [address.city, address.state].filter(Boolean).join(', ')
@@ -123,11 +128,110 @@ export class PhoneBankingListService extends createPrismaBase(
     private readonly contactStatus: ContactStatusService,
     private readonly voterQuery: VoterQueryService,
     private readonly access: PhoneBankingAccessService,
+    private readonly priorityStatus: PriorityStatusService,
   ) {
     super()
   }
 
+  resolveProposalLink(link: ProposalLink, electedOfficeId: string) {
+    return resolveProposalLink(this.client, link, electedOfficeId)
+  }
+
+  // A create carrying a proposal key is idempotent on it: the official can
+  // finish the flow a chat card opened twice (a second tab, a reopened card)
+  // and get the one list the first completion built. The unique index on
+  // Outreach.proposalKey settles a race; the loser reads the winner back.
   async create(
+    organization: Organization,
+    scope: PhoneBankingScope | null,
+    input: PhoneBankingCreate | ServePhoneBankingCreate,
+  ): Promise<PhoneBankingCreateResponse> {
+    const proposalKey = scope?.proposalKey
+    if (!scope || proposalKey === undefined) {
+      return this.build(organization, scope, input)
+    }
+    const created = await this.createOnce(
+      organization,
+      scope,
+      proposalKey,
+      input,
+    )
+    // A replay records it too, so a status write that failed the first time
+    // heals on the next completion.
+    if (created.outreachId !== null) {
+      await this.priorityStatus.recordOutreachSentOrLog(
+        created.outreachId,
+        proposalKey,
+      )
+    }
+    return created
+  }
+
+  private async createOnce(
+    organization: Organization,
+    scope: PhoneBankingScope,
+    proposalKey: string,
+    input: PhoneBankingCreate | ServePhoneBankingCreate,
+  ): Promise<PhoneBankingCreateResponse> {
+    const existing = await this.replayProposal(proposalKey, scope)
+    if (existing) return existing
+    try {
+      return await this.build(organization, scope, input)
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const winner = await this.replayProposal(proposalKey, scope)
+        if (winner) return winner
+      }
+      throw err
+    }
+  }
+
+  private async replayProposal(
+    proposalKey: string,
+    scope: PhoneBankingScope,
+  ): Promise<PhoneBankingCreateResponse | null> {
+    const outreach = await this.client.outreach.findUnique({
+      where: { proposalKey },
+      select: { id: true, organizationSlug: true, phoneBankingListId: true },
+    })
+    if (!outreach) return null
+    // Another org's key, or a key a different channel already spent: neither
+    // is a list this caller may be handed.
+    if (
+      outreach.organizationSlug !== scope.organizationSlug ||
+      outreach.phoneBankingListId === null
+    ) {
+      throw new ConflictException('Proposal key is already in use')
+    }
+    const list = await this.client.phoneBankingList.findUniqueOrThrow({
+      where: { id: outreach.phoneBankingListId },
+      select: {
+        id: true,
+        name: true,
+        sheetCount: true,
+        _count: { select: { entries: true } },
+      },
+    })
+    const personCount = await this.client.phoneBankingListEntryPerson.count({
+      where: { entry: { phoneBankingListId: list.id } },
+    })
+    return {
+      id: list.id,
+      name: list.name,
+      sheetCount: list.sheetCount,
+      entryCount: list._count.entries,
+      personCount,
+      outreachId: outreach.id,
+      // A replay hands back what was built, not a fresh build, so it makes
+      // no promise about a next batch.
+      hasMore: false,
+    }
+  }
+
+  private async build(
     organization: Organization,
     scope: PhoneBankingScope | null,
     input: PhoneBankingCreate | ServePhoneBankingCreate,
@@ -486,6 +590,8 @@ export class PhoneBankingListService extends createPrismaBase(
               organizationSlug: scope.organizationSlug,
               proposalKey: scope.proposalKey,
               priorityId: scope.priorityId,
+              priorityStepId: scope.priorityStepId,
+              priorityCheckSide: scope.priorityCheckSide,
               outreachType: OutreachType.nativePhoneBanking,
               status: OutreachStatus.in_progress,
               name: input.name,

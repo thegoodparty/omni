@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common'
 import { Injectable } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
@@ -8,6 +12,12 @@ import {
   GeoJsonPolygon,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import {
+  resolveProposalLink,
+  type ProposalOutreachLink,
+} from '@/priorities/util/proposalLink.util'
+import type { ProposalLink } from '@goodparty_org/contracts'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import {
@@ -203,8 +213,42 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // Lazy: the assignment check reaches OutreachModule, which imports this
     // module back through the door-knocking detail block.
     private readonly moduleRef: ModuleRef,
+    private readonly priorityStatus: PriorityStatusService,
   ) {
     super()
+  }
+
+  resolveProposalLink(link: ProposalLink, electedOfficeId: string) {
+    return resolveProposalLink(this.client, link, electedOfficeId)
+  }
+
+  // A chat card's link goes on the anchor envelope only: a campaign is one
+  // walk, and a sibling turf joins it. A key this org already spent on a walk
+  // means that walk is the send, so a second walk from the same card is its
+  // own campaign, and the first is recorded again in case its status write
+  // never landed.
+  private async anchorLink(
+    organizationSlug: string,
+    input: CreateDoorKnockingTurf,
+    link: ProposalOutreachLink,
+  ): Promise<ProposalOutreachLink> {
+    if (input.campaignOutreachId !== undefined || !link.proposalKey) return {}
+    const holder = await this.client.outreach.findUnique({
+      where: { proposalKey: link.proposalKey },
+      select: { id: true, organizationSlug: true, outreachType: true },
+    })
+    if (!holder) return link
+    if (
+      holder.organizationSlug !== organizationSlug ||
+      holder.outreachType !== OutreachType.nativeDoorKnocking
+    ) {
+      throw new ConflictException('Proposal key is already in use')
+    }
+    await this.priorityStatus.recordOutreachSentOrLog(
+      holder.id,
+      link.proposalKey,
+    )
+    return {}
   }
 
   // A Serve org's scope is no longer a reason to skip the envelope — it is
@@ -216,6 +260,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     scope: DoorKnockingOutreachScope,
     input: CreateDoorKnockingTurf,
     actorUserId: number,
+    link: ProposalOutreachLink = {},
   ): Promise<DoorKnockingTurf> {
     // Which product's words a create failure speaks in. The `eo-` prefix is
     // the whole rule, the same way every other Serve answer resolves it.
@@ -302,162 +347,208 @@ export class DoorKnockingCreateService extends createPrismaBase(
     })
     const stops = this.buildStops(people, input.geoPoly, isServe)
 
-    const turfId = await this.client.$transaction(
-      async (tx) => {
-        // The filter was read before the people-db scan, and a delete can land
-        // in that window: `assertNotLocked` only refuses a filter already used
-        // for outreach, and this create stamps that further down. Re-read it
-        // here, where the turf insert that follows takes a key-share lock on
-        // the row and holds the gap shut, so a racing delete gets "Voter file
-        // filter not found" rather than a foreign-key violation surfacing as a
-        // 500.
-        const filterStillExists = await tx.voterFileFilter.findFirst({
-          where: { id: filter.id, organizationSlug: organization.slug },
-          select: { id: true },
-        })
-        if (!filterStillExists) {
-          throw new NotFoundException('Voter file filter not found')
-        }
+    const envelopeLink = await this.anchorLink(organization.slug, input, link)
 
-        // A caller adding a turf to an existing campaign names the anchor
-        // Outreach on the wire; we validate it belongs to this same scope
-        // (Win same campaign, Serve same org) and is still a live
-        // door-knocking envelope, so a client can't glue a new turf onto a
-        // stranger's campaign or an archived one. Any legacy solo turf
-        // remains its own anchor by leaving campaignOutreachId null.
-        //
-        // The anchor's own name comes back with it: a turf joining an
-        // existing campaign inherits that campaign's title rather than
-        // trusting one off the wire, so a late-added turf cannot rename a
-        // campaign it is only joining.
-        let anchorCampaignName: string | null = null
-        if (input.campaignOutreachId !== undefined) {
-          const anchor = await tx.outreach.findFirst({
-            where: {
-              id: input.campaignOutreachId,
-              outreachType: OutreachType.nativeDoorKnocking,
-              archivedAt: null,
-              // Anchors only. Without this a caller can pass a SIBLING's id:
-              // it matches on scope, type and archive state, so the new turf
-              // is written pointing at a sibling — and
-              // `collapseDoorKnockingCampaigns` resolves
-              // `campaignOutreachId ?? id` to an id with no anchor row in the
-              // result set, so the turf surfaces as a broken solo campaign
-              // instead of joining the one it asked for. The webapp always
-              // sends the anchor, so this closes an API-only hole rather than
-              // a reachable bug, and it corrupts silently rather than erroring.
-              campaignOutreachId: null,
-              ...(scope.campaignId !== null
-                ? { campaignId: scope.campaignId }
-                : {
-                    campaignId: null,
-                    organizationSlug: scope.organizationSlug,
-                  }),
-            },
-            select: { id: true, name: true },
+    const created = await this.client
+      .$transaction(
+        async (tx) => {
+          // The filter was read before the people-db scan, and a delete can land
+          // in that window: `assertNotLocked` only refuses a filter already used
+          // for outreach, and this create stamps that further down. Re-read it
+          // here, where the turf insert that follows takes a key-share lock on
+          // the row and holds the gap shut, so a racing delete gets "Voter file
+          // filter not found" rather than a foreign-key violation surfacing as a
+          // 500.
+          const filterStillExists = await tx.voterFileFilter.findFirst({
+            where: { id: filter.id, organizationSlug: organization.slug },
+            select: { id: true },
           })
-          if (!anchor) {
-            throw new BadRequestException(
-              'Campaign anchor outreach not found in this scope',
-            )
+          if (!filterStillExists) {
+            throw new NotFoundException('Voter file filter not found')
           }
-          anchorCampaignName = anchor.name
-        }
 
-        // The turf is inserted before the vendor call so the spend ledger can
-        // name the turf that caused it, exactly as it did when the turf
-        // already existed. The ledger holds a plain int and never joins, so a
-        // rollback below leaving it pointing at an id that no longer exists is
-        // the documented, intended behaviour: the money was still spent.
-        const turf = await tx.doorKnockingTurf.create({
-          data: {
-            voterFileFilterId: filter.id,
-            name: input.name,
-            color: input.color,
-            geoPoly: input.geoPoly,
-            // Why the list was walked, kept on the turf beside the audience
-            // it selected. Optional because every turf created before the
-            // talking-points step existed has none, and because the wizard
-            // does not require a purpose to route a walk.
-            purpose: input.purpose,
-            // Set only on a `community_input` effort, which the contract
-            // enforces both ways. It is what gives issue capture's extraction
-            // its context at every door on this turf.
-            communityInputQuestion: input.communityInputQuestion,
-          },
-        })
+          // A caller adding a turf to an existing campaign names the anchor
+          // Outreach on the wire; we validate it belongs to this same scope
+          // (Win same campaign, Serve same org) and is still a live
+          // door-knocking envelope, so a client can't glue a new turf onto a
+          // stranger's campaign or an archived one. Any legacy solo turf
+          // remains its own anchor by leaving campaignOutreachId null.
+          //
+          // The anchor's own name comes back with it: a turf joining an
+          // existing campaign inherits that campaign's title rather than
+          // trusting one off the wire, so a late-added turf cannot rename a
+          // campaign it is only joining.
+          let anchorCampaignName: string | null = null
+          if (input.campaignOutreachId !== undefined) {
+            const anchor = await tx.outreach.findFirst({
+              where: {
+                id: input.campaignOutreachId,
+                outreachType: OutreachType.nativeDoorKnocking,
+                archivedAt: null,
+                // Anchors only. Without this a caller can pass a SIBLING's id:
+                // it matches on scope, type and archive state, so the new turf
+                // is written pointing at a sibling — and
+                // `collapseDoorKnockingCampaigns` resolves
+                // `campaignOutreachId ?? id` to an id with no anchor row in the
+                // result set, so the turf surfaces as a broken solo campaign
+                // instead of joining the one it asked for. The webapp always
+                // sends the anchor, so this closes an API-only hole rather than
+                // a reachable bug, and it corrupts silently rather than erroring.
+                campaignOutreachId: null,
+                ...(scope.campaignId !== null
+                  ? { campaignId: scope.campaignId }
+                  : {
+                      campaignId: null,
+                      organizationSlug: scope.organizationSlug,
+                    }),
+              },
+              select: { id: true, name: true },
+            })
+            if (!anchor) {
+              throw new BadRequestException(
+                'Campaign anchor outreach not found in this scope',
+              )
+            }
+            anchorCampaignName = anchor.name
+          }
 
-        // A travel mode is what turns a create into a purchase. Sent, the
-        // route is bought here exactly as it always was. Omitted, the turf
-        // is saved unrouted and `buildRouteForTurf` buys it at first knock,
-        // which is the only moment walk-or-drive has an honest answer.
-        //
-        // The contract refuses one without the other, so testing both is
-        // narrowing rather than a third branch: there is no body that
-        // reaches here with a mode and no loop.
-        const route =
-          input.mode !== undefined && input.loop !== undefined
-            ? await this.buildRoute(tx, organization.slug, turf.id, stops, {
-                mode: input.mode,
-                loop: input.loop,
+          // The turf is inserted before the vendor call so the spend ledger can
+          // name the turf that caused it, exactly as it did when the turf
+          // already existed. The ledger holds a plain int and never joins, so a
+          // rollback below leaving it pointing at an id that no longer exists is
+          // the documented, intended behaviour: the money was still spent.
+          const turf = await tx.doorKnockingTurf.create({
+            data: {
+              voterFileFilterId: filter.id,
+              name: input.name,
+              color: input.color,
+              geoPoly: input.geoPoly,
+              // Why the list was walked, kept on the turf beside the audience
+              // it selected. Optional because every turf created before the
+              // talking-points step existed has none, and because the wizard
+              // does not require a purpose to route a walk.
+              purpose: input.purpose,
+              // Set only on a `community_input` effort, which the contract
+              // enforces both ways. It is what gives issue capture's extraction
+              // its context at every door on this turf.
+              communityInputQuestion: input.communityInputQuestion,
+            },
+          })
+
+          // A travel mode is what turns a create into a purchase. Sent, the
+          // route is bought here exactly as it always was. Omitted, the turf
+          // is saved unrouted and `buildRouteForTurf` buys it at first knock,
+          // which is the only moment walk-or-drive has an honest answer.
+          //
+          // The contract refuses one without the other, so testing both is
+          // narrowing rather than a third branch: there is no body that
+          // reaches here with a mode and no loop.
+          const route =
+            input.mode !== undefined && input.loop !== undefined
+              ? await this.buildRoute(tx, organization.slug, turf.id, stops, {
+                  mode: input.mode,
+                  loop: input.loop,
+                })
+              : null
+
+          // The audience, frozen here and never resolved again — with the walk
+          // order already on it when this create bought one. Written after the
+          // vendor call so a failure here still leaves the spend recorded, the
+          // ledger's whole reason for living on its own connection.
+          await this.freezeStops(tx, turf.id, stops, route?.plan ?? null)
+
+          // First use of this filter locks it from edits, same as any other
+          // outreach launch (first-write-wins, never rolled back).
+          await tx.voterFileFilter.updateMany({
+            where: { id: filter.id, firstUsedForOutreachAt: null },
+            data: { firstUsedForOutreachAt: new Date() },
+          })
+
+          // The envelope is the walk: it carries the lifecycle and it is what
+          // outreach surfaces list.
+          const envelope = await tx.outreach.create({
+            data: {
+              ...scope,
+              outreachType: OutreachType.nativeDoorKnocking,
+              status: OutreachStatus.in_progress,
+              // The CAMPAIGN's title, not this turf's — history surfaces read
+              // the anchor envelope and never a sibling, so this column is
+              // where a campaign is named. Written on every sibling too, so
+              // that deleting the anchor (which promotes the earliest survivor)
+              // cannot rename the campaign out from under the candidate.
+              //
+              // Three sources, narrowest first: a campaign being joined owns
+              // its name already, a campaign being created takes the one the
+              // wizard asked for, and a client that sends neither is the
+              // single-turf flow, where the turf's name IS the campaign's.
+              name: anchorCampaignName ?? input.campaignName ?? turf.name,
+              voterFileFilterId: filter.id,
+              // The turf is the envelope's authoritative link and what the
+              // CHECK requires, and it is what keeps a campaign in outreach
+              // history before anybody walks it. The route is recorded when
+              // this create bought one; `buildRouteForTurf` fills it in later
+              // otherwise.
+              doorKnockingTurfId: turf.id,
+              doorKnockingRouteId: route?.id ?? null,
+              date: new Date(),
+              // The talking points, frozen with the walk on the same column
+              // every other channel already stores its script in. Frozen for
+              // the same reason the route is: a canvasser who started the list
+              // and a canvasser who picks it up next week read the same card.
+              script: input.talkingPoints,
+              // Null on a solo turf; the anchor Outreach id when this turf
+              // joins an existing campaign (validated above).
+              campaignOutreachId: input.campaignOutreachId ?? null,
+              ...envelopeLink,
+            },
+            select: { id: true },
+          })
+
+          return { turfId: turf.id, outreachId: envelope.id }
+        },
+        { timeout: CREATE_TX_TIMEOUT_MS },
+      )
+      // Two presses of the same card raced past `anchorLink`, and the unique
+      // index on the key let one through. Hand back that walk, as the other
+      // proposal paths hand back theirs, and record it.
+      .catch(async (err: Error) => {
+        const replay =
+          envelopeLink.proposalKey &&
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+            ? await this.client.outreach.findUnique({
+                where: { proposalKey: envelopeLink.proposalKey },
+                select: {
+                  id: true,
+                  organizationSlug: true,
+                  outreachType: true,
+                  doorKnockingTurfId: true,
+                },
               })
             : null
-
-        // The audience, frozen here and never resolved again — with the walk
-        // order already on it when this create bought one. Written after the
-        // vendor call so a failure here still leaves the spend recorded, the
-        // ledger's whole reason for living on its own connection.
-        await this.freezeStops(tx, turf.id, stops, route?.plan ?? null)
-
-        // First use of this filter locks it from edits, same as any other
-        // outreach launch (first-write-wins, never rolled back).
-        await tx.voterFileFilter.updateMany({
-          where: { id: filter.id, firstUsedForOutreachAt: null },
-          data: { firstUsedForOutreachAt: new Date() },
-        })
-
-        // The envelope is the walk: it carries the lifecycle and it is what
-        // outreach surfaces list.
-        await tx.outreach.create({
-          data: {
-            ...scope,
-            outreachType: OutreachType.nativeDoorKnocking,
-            status: OutreachStatus.in_progress,
-            // The CAMPAIGN's title, not this turf's — history surfaces read
-            // the anchor envelope and never a sibling, so this column is
-            // where a campaign is named. Written on every sibling too, so
-            // that deleting the anchor (which promotes the earliest survivor)
-            // cannot rename the campaign out from under the candidate.
-            //
-            // Three sources, narrowest first: a campaign being joined owns
-            // its name already, a campaign being created takes the one the
-            // wizard asked for, and a client that sends neither is the
-            // single-turf flow, where the turf's name IS the campaign's.
-            name: anchorCampaignName ?? input.campaignName ?? turf.name,
-            voterFileFilterId: filter.id,
-            // The turf is the envelope's authoritative link and what the
-            // CHECK requires, and it is what keeps a campaign in outreach
-            // history before anybody walks it. The route is recorded when
-            // this create bought one; `buildRouteForTurf` fills it in later
-            // otherwise.
-            doorKnockingTurfId: turf.id,
-            doorKnockingRouteId: route?.id ?? null,
-            date: new Date(),
-            // The talking points, frozen with the walk on the same column
-            // every other channel already stores its script in. Frozen for
-            // the same reason the route is: a canvasser who started the list
-            // and a canvasser who picks it up next week read the same card.
-            script: input.talkingPoints,
-            // Null on a solo turf; the anchor Outreach id when this turf
-            // joins an existing campaign (validated above).
-            campaignOutreachId: input.campaignOutreachId ?? null,
-          },
-        })
-
-        return turf.id
-      },
-      { timeout: CREATE_TX_TIMEOUT_MS },
-    )
+        if (
+          !replay ||
+          replay.organizationSlug !== organization.slug ||
+          replay.outreachType !== OutreachType.nativeDoorKnocking ||
+          replay.doorKnockingTurfId === null
+        ) {
+          throw err
+        }
+        await this.priorityStatus.recordOutreachSentOrLog(
+          replay.id,
+          envelopeLink.proposalKey ?? null,
+        )
+        return { replayedTurfId: replay.doorKnockingTurfId }
+      })
+    if ('replayedTurfId' in created) {
+      return this.turfs.get(
+        created.replayedTurfId,
+        organization.slug,
+        actorUserId,
+        undefined,
+      )
+    }
+    const { turfId, outreachId } = created
 
     // Fired after the transaction commits so the rollup counts the turf that
     // was actually persisted, and void-and-caught so a Segment hiccup cannot
@@ -465,6 +556,15 @@ export class DoorKnockingCreateService extends createPrismaBase(
     void this.stats
       .emitCanvassingTotals(actorUserId, organization.slug)
       .catch(() => undefined)
+
+    // Drawing the walk is when a door-knocking check is out, the way a phone
+    // list being built is for a call.
+    if (envelopeLink.proposalKey) {
+      await this.priorityStatus.recordOutreachSentOrLog(
+        outreachId,
+        envelopeLink.proposalKey,
+      )
+    }
 
     // Read back outside the transaction so the response is built by the one
     // function that builds every turf response, counts included — the new

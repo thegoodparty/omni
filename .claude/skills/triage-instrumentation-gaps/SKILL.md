@@ -599,11 +599,25 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    already covers the event). For A or C, continue only once the business
    group's ruling is in hand: stop and wait if it is not, and carry on if it is. A rename can hold a C inside a
    B; step 5 is where that surfaces, and it stops there.
-2. **Read both gotchas books** in full: `books/analytics-governance-gotchas.md` here,
-   and gp-data-platform's `.claude/skills/win-analytics-knowledge/references/gotchas.md`
-   (or `serve-…`). After drafting the plan, check it against them row by row and say
-   which rows applied. On DATA-2584 this check found four defects in a plan drafted
-   without it.
+
+   **For drift A there is no old-to-new name map**, so steps 3 to 6 read differently.
+   Step 3 pins the dates of the cliff that prompted the ruling and cross-checks them
+   against the product DB, so "the event broke" and "usage stopped" are told apart.
+   Step 4 is skipped unless a leg is being retired. Steps 5 and 6 become an inventory:
+   every event that fires for each channel the ruling names, its call sites, the
+   property that separates the products (`product`), and every reader of the
+   metric's flag. A flag can feed a second metric that nobody asked to change (on
+   DATA-2609, `is_active_serve_user` also gated the People Served cohort), so name
+   each one and let the reviewer decide whether it follows.
+2. **Read every gotchas book** in full: `books/analytics-governance-gotchas.md` here,
+   and **both** of gp-data-platform's product books,
+   `.claude/skills/win-analytics-knowledge/references/gotchas.md` and
+   `serve-analytics-knowledge/references/gotchas.md`. The outreach events are shared
+   across products, so a trap recorded under one applies to the other: read both,
+   whichever product the metric is for. A shared cross-product book is being split
+   out of the two (path TBD).
+   After drafting the plan, check it against them row by row and say which rows
+   applied. On DATA-2584 this check found four defects in a plan drafted without it.
 3. **Pin the dates** from the warehouse, and the prod release from `release.yml`, not
    from a ticket:
    ```sql
@@ -672,8 +686,22 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
    and read each test against the new rule.
    Then **measure the gap**: users whose only qualifying event since the cutover is the
    new name, split into headcount lost (never qualified otherwise) and activity lost.
+
+   **Then put the reviewer's decisions to them as one batch**, before any plan. These
+   four come up on every drift, and asked one at a time they cost a round each:
+   - **Does the rule have more than one condition** (an AND, such as "sent a poll AND
+     pledged")? Say which condition the change touches, and whether the others stay.
+   - **Does the metric's flag feed anything else?** Name every other metric or cohort
+     that reads it (a column, a gold view, a resolver). Changing it moves them too.
+   - **Is any channel the rule names uninstrumented?** For each, say whether it is a
+     definitional exclusion (nothing happens in the product) or a gap to ticket.
+   - **Is the metric compiled from its declaration, or hard-coded in SQL?** If the leg
+     list is only documentation, moving it onto a macro is part of the plan.
+
+   Add anything specific to this drift to the same message, and stop until it is
+   answered.
 7. **Plan the PRs in the SOP's order** and show the plan. gp-data-platform branches are
-   `<ticket>/<slug>` from `origin/main`, opened through that repo's `pull-request`
+   lowercase `data-<number>/<slug>` from `origin/main`, opened through that repo's `pull-request`
    skill, titled `[<TICKET>] …`:
    1. **Preparation PR (no `sem_*.yml`).** Literal readers, de-duplication and property
       fixes, `assert_*` tests. Intermediate yaml docs may ride here; a mart yaml
@@ -695,6 +723,15 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
         change itself recomputes upstream (the win_activity rollups read
         `is_recurrent` from the event catalog) runs against a stale prod copy of
         that column. Validate it in the CI build, and say so in the PR.
+      - **A model whose SQL comes from the declaration is not "modified".** A model
+        that compiles its legs from `anchored_on` through a macro changes what it
+        computes when only the sem file changes, but `state:modified+` does not
+        select it. Neither the PR's CI nor the merge-time job rebuilds it; prod
+        picks up the new legs only on the next scheduled full build, while its
+        downstream models rebuild at merge against the stale copy. Select it
+        explicitly in the dev build, say so in the sem PR, and in step 8 check its
+        `last_altered` before reading the value. DATA-2614 makes the merge job select
+        these models; delete this note when it ships.
    2. **Sem PR.** Before editing any `sem_*.yml`, ask the reviewer, as its own question
       and nothing else: "This will change the semantic layer and notify people. Are you
       sure?" Then add the new leg, keep the old one with

@@ -64,7 +64,11 @@ data "aws_region" "current" {}
 #      correct expression of "only this judge's own runs" — it still refuses
 #      every artifact belonging to a real experiment run.
 #
-#   3. SendMessage on the dispatch queue. Send only: the sweep never receives,
+#   3. SendMessage on the dispatch queue, and GetQueueUrl on it, which is how
+#      judge.yml finds the queue to send to: a lookup on the one queue,
+#      returning its URL and nothing else. Without it the lookup fails, the
+#      sweep has nowhere to dispatch, and every background agent is refused.
+#      Send only otherwise: the sweep never receives,
 #      deletes, or changes queue attributes.
 #
 #   4. ListBucket on both buckets, which is NOT about enumeration and is the
@@ -103,14 +107,8 @@ data "aws_region" "current" {}
 #   * No access to the inputs bucket (gp-agent-run-inputs-*). That holds
 #     user-uploaded files; no judge case supplies one.
 #
-# NOT ATTACHED HERE, and this is the part that needs a human. The GitHub
-# Actions OIDC provider and the role the workflows assume (`vars.AWS_ROLE_ARN`)
-# are NOT managed in this repository — there is no
-# aws_iam_openid_connect_provider and no token.actions.githubusercontent
-# anywhere in this tree. So this module can define the policy and hand back its
-# ARN, but someone with account access has to attach it to the role the judge
-# workflow assumes, and should prefer a dedicated judge role over the shared
-# deploy role, which is far more privileged than a test harness needs.
+# ATTACHED BELOW to a role of the judge's own, not to the shared deploy role,
+# which is far more privileged than a test harness needs.
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_policy" "judge_sweep" {
@@ -154,7 +152,7 @@ resource "aws_iam_policy" "judge_sweep" {
       {
         Sid    = "DispatchJudgeRuns"
         Effect = "Allow"
-        Action = ["sqs:SendMessage"]
+        Action = ["sqs:SendMessage", "sqs:GetQueueUrl"]
         Resource = [
           "arn:aws:sqs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:${local.dispatch_queue}"
         ]
@@ -171,4 +169,72 @@ output "policy_arn" {
 output "policy_name" {
   description = "Name of the managed policy, for locating it in the console."
   value       = aws_iam_policy.judge_sweep.name
+}
+
+# ---------------------------------------------------------------------------
+# The role the judge's sweep job assumes, and who may assume it.
+#
+# THE TRUST IS THE PART THAT MATTERS, more than the grants above: it decides
+# which workflow runs get AWS credentials at all. Two pins, both exact:
+#
+#   * `sub`, the run's ref: main in omni. A sweep is always ABOUT a pull
+#     request and never RUNS on one; both entry points are default-branch
+#     events. A pull_request subject would let a PR's own edited judge.yml
+#     assume this role.
+#   * `job_workflow_ref`, the one workflow file: judge.yml on main. `sub` is
+#     per-ref, not per-workflow, so without this every job in omni that runs on
+#     main could assume a role that starts agents and spends money. The two
+#     claims name the same ref, or neither pin means anything.
+#
+# judgeWorkflow.test.ts (gp-api) holds this block to all of that, and to the
+# role name and session length judge.yml relies on. Widen it there first.
+#
+# The GitHub OIDC provider is not managed here (thegoodparty/ops owns it), so
+# its ARN is built rather than looked up: a lookup needs
+# iam:GetOpenIDConnectProvider, which the deploy role does not hold.
+# ---------------------------------------------------------------------------
+
+locals {
+  judge_role_name = "github-actions-judge-sweep"
+  github_oidc     = "token.actions.githubusercontent.com"
+}
+
+resource "aws_iam_role" "judge_sweep" {
+  name        = local.judge_role_name
+  description = "Universal Judge background sweep. Assumable only by omni's judge.yml on main, via GitHub OIDC. ${var.environment} only."
+
+  # Longer than the sweep job's three hours, because the job waits rather than
+  # deploys: a background run's poll outlasting its credentials dies after the
+  # dispatch, with the task still billing. judge.yml asks for exactly this.
+  max_session_duration = 14400
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${local.github_oidc}"
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud"              = "sts.amazonaws.com"
+            "token.actions.githubusercontent.com:sub"              = "repo:thegoodparty/omni:ref:refs/heads/main"
+            "token.actions.githubusercontent.com:job_workflow_ref" = "thegoodparty/omni/.github/workflows/judge.yml@refs/heads/main"
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "judge_sweep" {
+  role       = aws_iam_role.judge_sweep.name
+  policy_arn = aws_iam_policy.judge_sweep.arn
+}
+
+output "role_arn" {
+  description = "The role judge.yml's sweep job assumes."
+  value       = aws_iam_role.judge_sweep.arn
 }

@@ -6,19 +6,19 @@ an id, a prompt (or `prompts:` for multi-turn), an oracle, and a severity.
 
 ## Domains and files
 
-| Domain | Files | id prefix | Cases | Grading | Notes |
-|---|---|---|---|---|---|
-| A. Data handling | A_retrieval, B_segmentation, C_aggregation, D_routing, E_probes | A / B / C / D#- / E | 54 | rule + human | The original sweep. Unchanged. |
-| B. Qual regressions | qual_regressions | QR- | 10 | constraint + rubric | Synthetic recreations of the qualitative-review failure classes. |
-| C. Factual grounding | grounding | GR- | 12 | constraint + rubric | Civic/legal/procedural fabrication resistance. |
-| D. Sycophancy / pushback | sycophancy | SY- | 9 | rubric | Willingness to correct a wrong or improper official. |
-| E. Election integrity | election_integrity | EI- | 14 | rubric | **GATED: bryan_legal.** Drafted red lines + symmetry pairs + controls. |
-| F. Adversarial | adversarial | AX- | 11 | trace + rubric/constraint | Multi-turn, role-play, indirect injection. |
-| G. Privacy under pressure | privacy | PR- | 8 | trace + constraint | Triangulation, named lookups, re-identification. |
-| H. Multi-turn integrity | multiturn | MT- | 10 | rubric + trace | Uses `prompts:` list; needs the multi-turn runner (turn.py). MT-10's second prompt is the verbatim turn the webapp sends when a boundary is drawn from the transcript. |
-| I. Capability honesty | capability | CH- | 12 | trace + constraint + rubric | No false capability/action claims; no invented tool failures; no ethnicity segment; honest limits. |
-| J. Input robustness | input_robustness | IR- | 10 | constraint + rubric | Intent over surface form (typos, terse, Spanish, paste). |
-| K. Crisis handling | crisis | CR- | 4 | rubric | Threats, self-harm signals, official distress. |
+| Domain                    | Files                                                           | id prefix           | Cases | Grading                     | Notes                                                                                                                                                                  |
+| ------------------------- | --------------------------------------------------------------- | ------------------- | ----- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A. Data handling          | A_retrieval, B_segmentation, C_aggregation, D_routing, E_probes | A / B / C / D#- / E | 54    | rule + human                | The original sweep. Unchanged.                                                                                                                                         |
+| B. Qual regressions       | qual_regressions                                                | QR-                 | 10    | constraint + rubric         | Synthetic recreations of the qualitative-review failure classes.                                                                                                       |
+| C. Factual grounding      | grounding                                                       | GR-                 | 12    | constraint + rubric         | Civic/legal/procedural fabrication resistance.                                                                                                                         |
+| D. Sycophancy / pushback  | sycophancy                                                      | SY-                 | 9     | rubric                      | Willingness to correct a wrong or improper official.                                                                                                                   |
+| E. Election integrity     | election_integrity                                              | EI-                 | 14    | rubric                      | **GATED: bryan_legal.** Drafted red lines + symmetry pairs + controls.                                                                                                 |
+| F. Adversarial            | adversarial                                                     | AX-                 | 11    | trace + rubric/constraint   | Multi-turn, role-play, indirect injection.                                                                                                                             |
+| G. Privacy under pressure | privacy                                                         | PR-                 | 8     | trace + constraint          | Triangulation, named lookups, re-identification.                                                                                                                       |
+| H. Multi-turn integrity   | multiturn                                                       | MT-                 | 10    | rubric + trace              | Uses `prompts:` list; needs the multi-turn runner (turn.py). MT-10's second prompt is the verbatim turn the webapp sends when a boundary is drawn from the transcript. |
+| I. Capability honesty     | capability                                                      | CH-                 | 12    | trace + constraint + rubric | No false capability/action claims; no invented tool failures; no ethnicity segment; honest limits.                                                                     |
+| J. Input robustness       | input_robustness                                                | IR-                 | 10    | constraint + rubric         | Intent over surface form (typos, terse, Spanish, paste).                                                                                                               |
+| K. Crisis handling        | crisis                                                          | CR-                 | 4     | rubric                      | Threats, self-harm signals, official distress.                                                                                                                         |
 
 Distribution: severity blocker 46 / high 68 / medium 38 / low 2; oracle exact 14 / trace 20 / constraint 67 / rubric 53 (D3-04 regraded rubric to exact and raised high to blocker at n=5, AX-10 raised high to blocker, D3-01 regraded constraint to trace, 2026-08-03).
 
@@ -26,27 +26,27 @@ Distribution: severity blocker 46 / high 68 / medium 38 / low 2; oracle exact 14
 
 Each fix item that is reachable through the chat API maps to at least one case.
 
-| Fix item | Reachable? | Cases |
-|---|---|---|
-| 1. Professional-advice disclaimer | yes | QR-01..04, SY-03, CR-04 |
-| 2. Guardrail over-refusal | yes | A09, D4-03, E03, E08, E09 (anchors; D3-04 regraded to decline_exact 2026-08-03) + IR-01..10 (format sensitivity) |
-| 3. count_contacts silent filter drop | yes | A03, B08 (existing) |
-| 4a. query_constituent_data outage | infra | not a prompt test — monitored, resolved 7/29 |
-| 4b. Silent retry loop ("stuck") | partial | multi-dimension probes in A/C; re-test after 7/29 fixes |
-| 5. Turn ends with no answer | yes | A04 (existing) |
-| 6. Retry-churn monitoring | no (telemetry) | out of bench |
-| 7. Logging gaps | no (infra) | out of bench |
-| 8. describe under-exposes values/affluence | yes | CH-05, QR-10, and existing A02/A05/B08 wrong-code cases |
-| 9. Scores as headcounts | yes | QR-08, SY-06, plus existing B02/C01 |
-| 10. Unknown/null groups dropped | yes | QR-09, plus existing B03/C06 |
-| 11. Sensitive-attribute targeting | yes | CH-05, CH-12, D3-06 (existing), AX-11, EI-06/07 |
-| 12. Platform awareness (billing/upload) | yes | QR-05, QR-06 |
-| 13. URL/document handling | yes | QR-07, IR-03, IR-10 |
-| 14. Web-search citations dropped | yes | D1-07 (existing), GR-03/04/05/10/11 (citation-dependent) |
-| 15. Serve dashboard routing | no (UI) | out of bench |
-| 16. Priorities UI persistence | no (UI) | out of bench |
-| 17. Durable working-style profile | partial | CH-07, MT-04 (in-session adoption + honesty; cross-session persistence is a product check) |
-| 18. "Still working" indicator | no (UI) | out of bench |
+| Fix item                                   | Reachable?     | Cases                                                                                                            |
+| ------------------------------------------ | -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1. Professional-advice disclaimer          | yes            | QR-01..04, SY-03, CR-04                                                                                          |
+| 2. Guardrail over-refusal                  | yes            | A09, D4-03, E03, E08, E09 (anchors; D3-04 regraded to decline_exact 2026-08-03) + IR-01..10 (format sensitivity) |
+| 3. count_contacts silent filter drop       | yes            | A03, B08 (existing)                                                                                              |
+| 4a. query_constituent_data outage          | infra          | not a prompt test — monitored, resolved 7/29                                                                     |
+| 4b. Silent retry loop ("stuck")            | partial        | multi-dimension probes in A/C; re-test after 7/29 fixes                                                          |
+| 5. Turn ends with no answer                | yes            | A04 (existing)                                                                                                   |
+| 6. Retry-churn monitoring                  | no (telemetry) | out of bench                                                                                                     |
+| 7. Logging gaps                            | no (infra)     | out of bench                                                                                                     |
+| 8. describe under-exposes values/affluence | yes            | CH-05, QR-10, and existing A02/A05/B08 wrong-code cases                                                          |
+| 9. Scores as headcounts                    | yes            | QR-08, SY-06, plus existing B02/C01                                                                              |
+| 10. Unknown/null groups dropped            | yes            | QR-09, plus existing B03/C06                                                                                     |
+| 11. Sensitive-attribute targeting          | yes            | CH-05, CH-12, D3-06 (existing), AX-11, EI-06/07                                                                  |
+| 12. Platform awareness (billing/upload)    | yes            | QR-05, QR-06                                                                                                     |
+| 13. URL/document handling                  | yes            | QR-07, IR-03, IR-10                                                                                              |
+| 14. Web-search citations dropped           | yes            | D1-07 (existing), GR-03/04/05/10/11 (citation-dependent)                                                         |
+| 15. Serve dashboard routing                | no (UI)        | out of bench                                                                                                     |
+| 16. Priorities UI persistence              | no (UI)        | out of bench                                                                                                     |
+| 17. Durable working-style profile          | partial        | CH-07, MT-04 (in-session adoption + honesty; cross-session persistence is a product check)                       |
+| 18. "Still working" indicator              | no (UI)        | out of bench                                                                                                     |
 
 **Out of this bench by construction** (not reachable from the chat API, tracked on the fix page only): items 6, 7, 15, 16, 18, and the infra half of 4a.
 

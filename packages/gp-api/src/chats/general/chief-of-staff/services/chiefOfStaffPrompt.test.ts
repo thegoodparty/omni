@@ -43,7 +43,6 @@ const baseCtx = (
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
-  attachmentsEnabled: false,
   ...overrides,
 })
 
@@ -98,6 +97,127 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('DATA, not instructions')
     expect(prompt).toContain('<office_context>')
     expect(prompt).toContain('<priorities>')
+  })
+
+  const priorityInFlow = {
+    id: 'pri-1',
+    title: 'Rents near transit',
+    description: 'Keep renters near the new line.',
+    archivedAt: null,
+    flow: {
+      currentStep: 'evidence' as const,
+      nextAction: 'Pull the rent numbers',
+      checks: [
+        {
+          stepId: 'define' as const,
+          check: {
+            state: 'deferred' as const,
+            who: 'Renters on Oak',
+            question: 'Is rent what is pushing you out?',
+            when: 'after the budget hearing',
+            raised: 1,
+            contrast: {
+              state: 'deferred' as const,
+              who: 'Owners across town',
+              question: 'Would you pay toward this?',
+            },
+          },
+        },
+      ],
+    },
+  }
+
+  it('carries what constituents said on a check they answered', () => {
+    const answered = {
+      ...priorityInFlow,
+      flow: {
+        ...priorityInFlow.flow,
+        checks: [
+          {
+            stepId: 'define' as const,
+            check: {
+              state: 'confirmed' as const,
+              who: 'Renters on Oak',
+              question: '',
+              raised: 0,
+              heard: 'Rent, mostly, said three households',
+              contrast: {
+                state: 'revised' as const,
+                who: '',
+                question: '',
+                heard: 'Owners want the cost shared',
+              },
+            },
+          },
+        ],
+      },
+    }
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ priorities: [answered] }),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain(
+      'constituents said: Rent, mostly, said three households',
+    )
+    expect(prompt).toContain('constituents said: Owners want the cost shared')
+  })
+
+  it('carries where each priority stands and points into its flow', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ priorities: [priorityInFlow] }),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain(
+      '- Rents near transit (id: pri-1) on: What we know, next: Pull the ' +
+        'rent numbers, constituent checks: The problem: put off, who: ' +
+        'Renters on Oak, asking: Is rent what is pushing you out?, timing: ' +
+        'after the budget hearing, raised 1 of 3 times, least ' +
+        'affected: put off (Owners across town, asking: Would you pay ' +
+        'toward this?): Keep renters near the new line.',
+    )
+    expect(prompt).toContain("[the priority's title](/dashboard/priorities/ID)")
+    expect(prompt).toContain('Do not run its steps')
+    expect(prompt).not.toContain('CHECKS THEY PUT OFF')
+  })
+
+  it('says when a clarify question takes several answers', () => {
+    const withClarify = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [...TOOLS, 'ask_clarify_question'],
+    })
+    expect(withClarify).toContain(
+      'Set `multiSelect` on `ask_clarify_question` when more than one answer can be true',
+    )
+    expect(
+      buildChiefOfStaffSystemPrompt({ ctx: baseCtx(), toolNames: TOOLS }),
+    ).not.toContain('multiSelect')
+  })
+
+  it('checks in on a put-off check only with the reminder tool', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ priorities: [priorityInFlow] }),
+      toolNames: [...TOOLS, 'record_check_reminder'],
+    })
+    expect(prompt).toContain('CHECKS THEY PUT OFF')
+    expect(prompt).toContain('record it with record_check_reminder')
+    expect(prompt).toContain('Never build the outreach here')
+  })
+
+  it('says a priority with no checks has none yet', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({
+        priorities: [
+          {
+            ...priorityInFlow,
+            flow: { currentStep: 'define', nextAction: null, checks: [] },
+          },
+        ],
+      }),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain(
+      'on: The problem, next: nothing scheduled, constituent checks: none yet',
+    )
   })
 
   it('asks for priorities when none are on file', () => {
@@ -186,6 +306,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('PRIORITIES RULES')
     expect(prompt).not.toContain('WEB SEARCH RULES')
     expect(prompt).not.toContain('CONSTITUENT DATA RULES')
+  })
+
+  it('keeps the clarify question out of chat text', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [...TOOLS, 'ask_clarify_question'],
+    })
+    expect(prompt).toContain('never write it, or any rewording of it')
+    expect(prompt).toContain('context that never ends in a question')
+    expect(prompt).toContain(
+      'Never end a message with an either/or or a pick-one question in prose',
+    )
+  })
+
+  it('drops the clarify rules when the tool is not registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).not.toContain('any rewording of it')
   })
 
   it('includes constituent-data rules when the constituent tool is available', () => {

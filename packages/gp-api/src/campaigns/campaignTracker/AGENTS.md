@@ -178,9 +178,3 @@ true AND flow_type IN (text, robocall))`), matching what `buildActiveWeeks`
   latest generation index; and it is a `LEFT JOIN latest_gen` so a campaign with
   outreach dated in the window still surfaces if its dynamic generation is
   momentarily absent. Outreach ranks ahead of the dynamic picks.
-- **A pre-existing campaign with no `campaign_story` row never bootstraps the
-  tracker** (gating is purely on story data, not a flag), so it has no
-  `campaign_tracker_tasks` rows and gets no weekly digest. Its legacy
-  `campaign_task` rows (if any were generated before ENG-11015) are still
-  readable/completable via `CampaignTasksController`, but nothing generates new
-  ones or emails a digest for them anymore.

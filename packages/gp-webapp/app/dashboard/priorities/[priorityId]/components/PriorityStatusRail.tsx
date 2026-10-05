@@ -22,8 +22,14 @@ import {
 import {
   PRIORITY_STEP_LABELS,
   PRIORITY_STEP_PURPOSE,
+  type PriorityCheckState,
   type PriorityStatus,
   type PriorityStep,
+  PRIORITY_GATE_STEPS,
+  PRIORITY_LISTEN_GATES,
+  isCheckAnswered,
+  openListenBefore,
+  type PriorityStepCheck,
   type PriorityStepId,
   type PriorityStepState,
 } from '@goodparty_org/contracts'
@@ -91,6 +97,93 @@ const StepStateChip = ({
   )
 }
 
+// Whether the people a step lands on have been heard from. Shown because an
+// unchecked conclusion should never read the same as a checked one.
+export const STEP_CHECK_LABELS: Record<PriorityCheckState, string> = {
+  asked: 'Waiting on you: check with constituents',
+  out: 'Waiting to hear back',
+  confirmed: 'Constituents agreed',
+  revised: 'Changed after hearing from constituents',
+  deferred: 'Checking with constituents later',
+  declined: 'Not checked with constituents',
+}
+
+// One line per step, whichever side it is about. The main side leads: the
+// other side only shows through when it is out with people and the main side
+// is not, so a yes still owed there never hides what the official decided.
+const checkLineState = (check: PriorityStepCheck): PriorityCheckState => {
+  if (check.state === 'asked') return 'asked'
+  if (check.state === 'out' || check.contrast?.state === 'out') return 'out'
+  return check.state
+}
+
+// A gate is not done until its check has actually gone out with people, come
+// back, or been turned down. Until then the conclusion is the official's own,
+// so the rail keeps it in progress, whatever the agent recorded.
+const SENT_OR_DECIDED: readonly PriorityCheckState[] = [
+  'out',
+  'confirmed',
+  'revised',
+  'declined',
+]
+
+const shownState = (
+  step: PriorityStep,
+  steps: PriorityStep[],
+): PriorityStepState => {
+  if (step.state !== 'settled') return step.state
+  if (openListenBefore(steps, step.id) !== undefined) return 'active'
+  return PRIORITY_GATE_STEPS.includes(step.id) &&
+    !(step.check && SENT_OR_DECIDED.includes(step.check.state))
+    ? 'active'
+    : step.state
+}
+
+// A listening step shows the check it is waiting on, so "Who to hear from"
+// reads "Waiting to hear back" while the problem's check is out.
+// An open listening step says what it is waiting on: the replies, once the
+// check is out, or the check itself going out.
+const LISTEN_WAITING = {
+  out: 'Waiting to hear back',
+  notSent: 'Waiting on the check to go out',
+} as const
+
+const listenLine = (
+  step: PriorityStep,
+  steps: PriorityStep[],
+): string | null => {
+  const gate = PRIORITY_LISTEN_GATES[step.id]
+  if (gate === undefined || step.state === 'settled') return null
+  const check = steps.find((other) => other.id === gate)?.check
+  if (isCheckAnswered(check)) return null
+  return check && checkLineState(check) === 'out'
+    ? LISTEN_WAITING.out
+    : LISTEN_WAITING.notSent
+}
+
+const checkLineFor = (
+  step: PriorityStep,
+  steps: PriorityStep[],
+): string | null => {
+  if (PRIORITY_LISTEN_GATES[step.id] !== undefined) {
+    return listenLine(step, steps)
+  }
+  return step.check ? STEP_CHECK_LABELS[checkLineState(step.check)] : null
+}
+
+const StepCheckLine = ({
+  step,
+  steps,
+}: {
+  step: PriorityStep
+  steps: PriorityStep[]
+}): React.JSX.Element | null => {
+  const line = checkLineFor(step, steps)
+  return line ? (
+    <span className="block text-xs text-muted-foreground">{line}</span>
+  ) : null
+}
+
 const changedOn = (step: PriorityStep): string | null => {
   if (!step.updatedAt) return null
   const parsed = new Date(step.updatedAt)
@@ -103,9 +196,11 @@ const changedOn = (step: PriorityStep): string | null => {
 
 const StepDetail = ({
   step,
+  steps,
   onBack,
 }: {
   step: PriorityStep
+  steps: PriorityStep[]
   onBack: () => void
 }): React.JSX.Element => {
   const changed = changedOn(step)
@@ -125,7 +220,7 @@ const StepDetail = ({
           <p className="text-sm font-medium text-foreground">
             {PRIORITY_STEP_LABELS[step.id]}
           </p>
-          <StepStateChip state={step.state} />
+          <StepStateChip state={shownState(step, steps)} />
         </div>
         <p className="text-xs text-muted-foreground">
           {PRIORITY_STEP_PURPOSE[step.id]}
@@ -134,6 +229,7 @@ const StepDetail = ({
       <p className="text-sm text-muted-foreground">
         {step.summary || 'Nothing here yet.'}
       </p>
+      <StepCheckLine step={step} steps={steps} />
       {step.caveat ? (
         <div className="rounded-lg border border-warning/40 bg-warning/5 p-3">
           <p className="text-sm text-foreground">{step.caveat}</p>
@@ -156,21 +252,34 @@ const StepList = ({
   <ul className="divide-y divide-border">
     {steps.map((step) => (
       <li key={step.id}>
+        {/* The check line sits under the label visually, but it describes the
+            step rather than naming it, so it is announced after the name. */}
         <button
           type="button"
           onClick={() => onSelect(step.id)}
+          aria-labelledby={`step-${step.id}-label step-${step.id}-state`}
+          {...(checkLineFor(step, steps) !== null && {
+            'aria-describedby': `step-${step.id}-check`,
+          })}
           className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/40"
         >
-          <StepStateIcon state={step.state} />
+          <StepStateIcon state={shownState(step, steps)} />
           <span
             className={cn(
               'flex-1 text-sm',
               step.state === 'open' && 'text-muted-foreground',
             )}
           >
-            {PRIORITY_STEP_LABELS[step.id]}
+            <span id={`step-${step.id}-label`}>
+              {PRIORITY_STEP_LABELS[step.id]}
+            </span>
+            <span id={`step-${step.id}-check`} className="block">
+              <StepCheckLine step={step} steps={steps} />
+            </span>
           </span>
-          <StepStateChip state={step.state} />
+          <span id={`step-${step.id}-state`}>
+            <StepStateChip state={shownState(step, steps)} />
+          </span>
         </button>
       </li>
     ))}
@@ -193,7 +302,9 @@ export const PriorityStatusRail = ({
 }): React.JSX.Element => {
   const [selectedId, setSelectedId] = useState<PriorityStepId | null>(null)
   const selected = status.steps.find((step) => step.id === selectedId) ?? null
-  const settled = status.steps.filter((step) => step.state === 'settled').length
+  const settled = status.steps.filter(
+    (step) => shownState(step, status.steps) === 'settled',
+  ).length
 
   return (
     <Card className={cn('gap-0 py-0', className)}>
@@ -206,7 +317,11 @@ export const PriorityStatusRail = ({
       <Separator />
       <CardContent className="px-0">
         {selected ? (
-          <StepDetail step={selected} onBack={() => setSelectedId(null)} />
+          <StepDetail
+            step={selected}
+            steps={status.steps}
+            onBack={() => setSelectedId(null)}
+          />
         ) : (
           <StepList steps={status.steps} onSelect={setSelectedId} />
         )}

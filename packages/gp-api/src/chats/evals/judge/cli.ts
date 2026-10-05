@@ -71,7 +71,7 @@ export const formatPlan = (
   selection: Selection,
   agents: readonly AgentEntry[] = AGENTS,
 ): string => {
-  const { wired, judgeable, blocked } = coverage(agents)
+  const { wired, placeholder, judgeable, blocked } = coverage(agents)
   const lines: string[] = []
 
   lines.push(`Universal Judge — plan (${selection.selected.length} agents)`)
@@ -92,9 +92,13 @@ export const formatPlan = (
     lines.push(`  unknown agent ids: ${selection.unknown.join(', ')}`)
   }
   lines.push('')
+  const notes = [
+    ...(placeholder > 0 ? [`${placeholder} on placeholder inputs`] : []),
+    ...(blocked.length > 0 ? [`${blocked.length} blocked`] : []),
+  ]
   lines.push(
     `coverage: ${wired} of ${judgeable} agents wired` +
-      (blocked.length > 0 ? ` (${blocked.length} blocked)` : ''),
+      (notes.length > 0 ? ` (${notes.join(', ')})` : ''),
   )
   return lines.join('\n')
 }

@@ -26,7 +26,7 @@ const REGISTRY: readonly AgentEntry[] = [
   {
     agentId: 'chief_of_staff',
     shape: 'chat',
-    cases: 'cos.yaml',
+    cases: 'chief_of_staff.json',
     status: 'wired',
   },
   {
@@ -156,7 +156,37 @@ describe('the coverage line', () => {
   // like coverage and is not.
   it('counts the wired agents against the judgeable ones', () => {
     expect(coverageLines(REGISTRY)[0]).toBe(
+      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
+    )
+  })
+
+  // race_opponent_summary.json is the one case list not marked placeholder.
+  it('leaves the placeholder count out when there is none', () => {
+    const real: AgentEntry = {
+      agentId: 'race_opponent_summary',
+      shape: 'background',
+      cases: 'race_opponent_summary.json',
+      status: 'wired',
+    }
+    expect(coverageLines([real, ...REGISTRY.slice(1)])[0]).toBe(
       '**Coverage: 1 of 2 agents wired.**',
+    )
+  })
+
+  // Wired and placeholder differ here, so the parenthetical cannot be
+  // printing the wired count by mistake.
+  it('counts placeholder inputs apart from wired', () => {
+    const mixed: readonly AgentEntry[] = [
+      ...REGISTRY,
+      {
+        agentId: 'race_opponent_summary',
+        shape: 'background',
+        cases: 'race_opponent_summary.json',
+        status: 'wired',
+      },
+    ]
+    expect(coverageLines(mixed)[0]).toBe(
+      '**Coverage: 2 of 3 agents wired (1 on placeholder inputs).**',
     )
   })
 
@@ -170,7 +200,9 @@ describe('the coverage line', () => {
   // so this prints even when the sweep produced nothing at all.
   it('prints even when no agent was judged', () => {
     const report = renderReport({ agents: [], registry: REGISTRY })
-    expect(report).toContain('**Coverage: 1 of 2 agents wired.**')
+    expect(report).toContain(
+      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
+    )
     expect(report).toContain('No agent produced a verdict')
   })
 })
@@ -412,7 +444,9 @@ describe('provenance', () => {
   it('links the verdict back to the PR and the workflow run', async () => {
     const score = await pipeline(sweepRecords(3))
     const report = renderReport({ agents: [score] })
-    expect(report).toContain('Change under test: thegoodparty/omni #2198')
+    expect(report).toContain(
+      'Change under test: thegoodparty/omni [#2198](https://github.com/thegoodparty/omni/pull/2198)',
+    )
     expect(report).toContain(
       'https://github.com/thegoodparty/omni/actions/runs/36592029654',
     )
@@ -541,7 +575,9 @@ describe('refusals', () => {
     })
     expect(report).toContain('### ordinance_flow — refused')
     expect(report).toContain('both arms hashed to the same config digest')
-    expect(report).toContain('**Coverage: 1 of 2 agents wired.**')
+    expect(report).toContain(
+      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
+    )
   })
 })
 

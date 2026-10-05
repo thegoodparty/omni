@@ -133,7 +133,9 @@ const changeLine = (ci: CiContext | null): string =>
     ? '_No CI context on these records, so this verdict cannot be traced ' +
       'back to a pull request. That means it came from a local run._'
     : `Change under test: ${ci.repo}` +
-      (ci.prNumber === undefined ? '' : ` #${ci.prNumber}`) +
+      (ci.prNumber === undefined
+        ? ''
+        : ` [#${ci.prNumber}](https://github.com/${ci.repo}/pull/${ci.prNumber})`) +
       ` — [workflow run ${ci.workflowRunId}](${ci.workflowRunUrl})` +
       (ci.workflowRunAttempt > 1 ? ` (attempt ${ci.workflowRunAttempt})` : '')
 
@@ -312,8 +314,12 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
 export const coverageLines = (
   registry: readonly AgentEntry[] = AGENTS,
 ): string[] => {
-  const { wired, judgeable, blocked } = coverage(registry)
-  const lines = [`**Coverage: ${wired} of ${judgeable} agents wired.**`]
+  const { wired, placeholder, judgeable, blocked } = coverage(registry)
+  const onPlaceholder =
+    placeholder > 0 ? ` (${placeholder} on placeholder inputs)` : ''
+  const lines = [
+    `**Coverage: ${wired} of ${judgeable} agents wired${onPlaceholder}.**`,
+  ]
   for (const agent of blocked) {
     lines.push(`- blocked: ${agent.agentId} — ${agent.blockedReason}`)
   }

@@ -7,7 +7,9 @@ import { OutsideContactCard } from './OutsideContactCard'
 export type ChatCardRendererProps = {
   card: ChatCard
   priorityId?: string
-  conversationId: string
+  // Which detail this card opens. The live and the persisted copy of one tool
+  // call share it, so a panel opened mid-turn stays open across the swap.
+  detailKey?: string
 }
 
 /**
@@ -17,23 +19,23 @@ export type ChatCardRendererProps = {
 export const ChatCardRenderer = ({
   card,
   priorityId,
-  conversationId,
+  detailKey,
 }: ChatCardRendererProps) => {
+  const keyProp = detailKey !== undefined ? { detailKey } : {}
   switch (card.kind) {
     case 'outreach_proposal':
       return (
         <OutreachProposalCard
           proposal={card}
           {...(priorityId !== undefined && { priorityId })}
-          conversationId={conversationId}
         />
       )
     case 'past_outreach':
       return <PastOutreachCard card={card} />
     case 'constituents':
-      return <ConstituentsCard card={card} />
+      return <ConstituentsCard card={card} {...keyProp} />
     case 'outside_contact':
-      return <OutsideContactCard card={card} />
+      return <OutsideContactCard card={card} {...keyProp} />
     default:
       return null
   }

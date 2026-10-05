@@ -304,6 +304,51 @@ describe('GeneralChatsService', () => {
     },
   )
 
+  it('passes the handler scope to the chat stream', async () => {
+    for (const scope of [
+      ChatScope.chief_of_staff,
+      ChatScope.campaign_assistant,
+      ChatScope.ordinance_flow,
+    ]) {
+      const scopedHandler = buildHandler({ scope })
+      const scopedStore = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: 'existing' }),
+        ) as never,
+      })
+      const streamArgs: { value?: unknown } = {}
+      const chatStream = {
+        stream: vi.fn((args: unknown) => {
+          streamArgs.value = args
+          return {
+            [Symbol.asyncIterator]: async function* () {
+              yield { type: 'done' } as ChatStreamChunk
+            },
+          }
+        }),
+      }
+      const service = new GeneralChatsService(
+        buildRegistry(scopedHandler),
+        scopedStore,
+        {} as never,
+        chatStream as never,
+        {} as never,
+      )
+      await collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage: 'hi',
+        }),
+      )
+      // The shared ChatStreamService gates attachment injection and
+      // attributes AttachedDocumentQueried on this scope.
+      expect(streamArgs.value).toMatchObject({ scope })
+    }
+  })
+
   it('passes handler.maxSteps through to the chat stream', async () => {
     handler = buildHandler({ maxSteps: 8 })
     store = buildStore({

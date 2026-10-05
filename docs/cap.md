@@ -103,8 +103,9 @@ persisted in normalized Postgres tables.
 **Eval.** For background agents, `packages/runbooks` holds a two-axis eval system
 that reads real runs' artifacts and traces out of S3 and gates prompt changes — a
 mechanical performance gate that can block, and an LLM-as-judge quality rubric that
-only advises. For interactive agents there is **no comprehensive eval yet**; this is
-a known, growing area of investment.
+only advises. Across both kinds, the **Universal Judge** compares a PR's branch
+with its base for any registered agent: comment `/judge` on a PR. How to ask and how
+to read the verdict: `packages/gp-api/src/chats/evals/judge/README.md`.
 
 ## Glossary
 
