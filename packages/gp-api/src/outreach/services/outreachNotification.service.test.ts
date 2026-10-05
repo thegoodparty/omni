@@ -543,6 +543,44 @@ describe('OutreachNotificationService', () => {
       expect(blob).not.toContain('a'.repeat(201))
     })
 
+    it('renders the failed send as the candidate-local day and time', async () => {
+      await service.notifyFailure({
+        user: mockUser,
+        campaign: {
+          ...baseCampaign,
+          details: { state: 'CA' },
+        } as unknown as Campaign,
+        createOutreachDto: {
+          outreachType: OutreachType.p2p,
+          date: '2026-10-05T19:00:00-07:00',
+          scheduledLocalTime: '19:00',
+        },
+        step: 'validation',
+        error: new Error('boom'),
+      })
+
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
+      const blob = JSON.stringify(blocks)
+      expect(blob).toContain('Mon, Oct 5, 2026 at 7:00 PM PDT')
+      expect(blob).not.toContain('2026-10-05T19:00:00-07:00')
+    })
+
+    it('falls back to the raw string for an unparseable date', async () => {
+      await service.notifyFailure({
+        user: mockUser,
+        campaign: baseCampaign,
+        createOutreachDto: {
+          outreachType: OutreachType.p2p,
+          date: 'next tuesday',
+        },
+        step: 'validation',
+        error: new Error('boom'),
+      })
+
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
+      expect(JSON.stringify(blocks)).toContain('next tuesday')
+    })
+
     it('shows "Not provided" for missing date', async () => {
       await service.notifyFailure({
         user: mockUser,

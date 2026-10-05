@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { parseISO } from 'date-fns'
 import { Campaign, OutreachType, User } from '../../generated/prisma'
 import { ZodValidationException } from 'nestjs-zod'
 import { PinoLogger } from 'nestjs-pino'
@@ -327,7 +328,7 @@ export class OutreachNotificationService {
       scheduledLocalDate: outreach.scheduledLocalDate,
       scheduledLocalTime: outreach.scheduledLocalTime,
       timeZone: resolveSendWindowTimeZone(
-        outreach.didState ?? campaign.details.state,
+        outreach.didState ?? campaign.details?.state,
       ),
     })
 
@@ -409,9 +410,20 @@ export class OutreachNotificationService {
         ? createOutreachDto.script.slice(0, 200)
         : 'None'
 
-    const dateText = createOutreachDto?.date
-      ? String(createOutreachDto.date)
-      : 'Not provided'
+    // The failure notice renders the same local label as the request
+    // notice. The DTO here may be the raw body of a rejected request, so an
+    // unparseable date falls back to the string as sent.
+    const dateText =
+      typeof createOutreachDto?.date === 'string'
+        ? (formatScheduledSend({
+            date: parseISO(createOutreachDto.date),
+            scheduledLocalDate: createOutreachDto.date.slice(0, 10),
+            scheduledLocalTime: createOutreachDto.scheduledLocalTime,
+            timeZone: resolveSendWindowTimeZone(
+              createOutreachDto.didState ?? campaign?.details?.state,
+            ),
+          }) ?? createOutreachDto.date)
+        : 'Not provided'
     const outreachTypeText = createOutreachDto?.outreachType
       ? String(createOutreachDto.outreachType)
       : 'Unknown'
