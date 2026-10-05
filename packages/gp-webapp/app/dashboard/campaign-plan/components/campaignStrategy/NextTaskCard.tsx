@@ -476,11 +476,12 @@ const NextTaskCard = ({
                 <p className="text-muted-foreground text-sm">
                   {frontTask.description}
                 </p>
-                <div className="flex flex-wrap gap-2 pt-3">
+                <div className="flex flex-col gap-2 pt-3 sm:flex-row sm:flex-wrap">
                   {frontTask.prompt ? (
                     <Button
                       type="button"
                       size="small"
+                      className="w-full sm:w-auto"
                       onClick={frontTask.prompt.onCta}
                     >
                       {frontTask.prompt.ctaLabel}
@@ -488,7 +489,11 @@ const NextTaskCard = ({
                   ) : (
                     <>
                       {action && (
-                        <Button asChild size="small">
+                        <Button
+                          asChild
+                          size="small"
+                          className="w-full sm:w-auto"
+                        >
                           {action.external ? (
                             <a
                               href={action.href}
@@ -511,6 +516,7 @@ const NextTaskCard = ({
                           type="button"
                           variant={action ? 'outline' : 'default'}
                           size="small"
+                          className="w-full sm:w-auto"
                           onClick={() =>
                             chat.discussTask(discussTaskMessage(frontTask))
                           }
