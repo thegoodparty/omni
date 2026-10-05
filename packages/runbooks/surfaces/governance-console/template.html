@@ -1953,7 +1953,7 @@
             if (refs.indexOf(ref) < 0) refs.push(ref)
           })
           proof.value = refs.join(', ')
-          if (refs.length) proof.hidden = false
+          if (refs.length && subset) proof.hidden = false
         }
       },
     }
