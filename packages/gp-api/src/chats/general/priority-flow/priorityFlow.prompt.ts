@@ -1,5 +1,4 @@
 import {
-  DEFAULT_TEXT_REPLY_RATE,
   HIGH_CONFIDENCE_MIN_REPLIES,
   HIGH_CONFIDENCE_MIN_SHARE,
   MAX_CHECK_RAISES,
@@ -8,8 +7,6 @@ import {
   PRIORITY_STEP_LABELS,
   type PriorityStep,
   type PriorityStepId,
-  recommendedSampleSize,
-  SAMPLE_TARGET_REPLIES,
 } from '@goodparty_org/contracts'
 import { format } from 'date-fns'
 import {
@@ -19,6 +16,7 @@ import {
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type { PriorityFlowContext } from './services/priorityFlowContext.service'
 import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
+import { buildSampleSizingRules } from '../chat-tools/outreachSampling.prompt'
 
 export const PRIORITY_FLOW_GUARDRAIL_DECLINE =
   "I'm here to help you move this priority forward. Ask me about the " +
@@ -251,23 +249,17 @@ const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
   ].join('\n')
 
 const pct = (fraction: number): string => `${fraction * 100}%`
-const people = (n: number): string => n.toLocaleString('en-US')
-const EXAMPLE_AUDIENCE = 58_520
-const EXAMPLE_SAMPLE = recommendedSampleSize({ audience: EXAMPLE_AUDIENCE })
 
 const buildSamplingBlock = (has: (name: string) => boolean): string =>
   [
     'HOW MANY PEOPLE TO ASK',
     '- A check is a directional read, not a vote. It needs enough replies to tell whether a step holds, not everyone you could reach. So a text check goes to a random sample of its audience, not to all of it.',
-    `- Size a text sample the way polls do, for ${SAMPLE_TARGET_REPLIES} replies: the replies you want divided by the reply rate, rounded up. ${SAMPLE_TARGET_REPLIES} replies at ${pct(DEFAULT_TEXT_REPLY_RATE)} is ${people(EXAMPLE_SAMPLE)} people.`,
-    has('read_past_outreach')
-      ? `- Use this office's own reply rate when it has one: call read_past_outreach and take replyRate from its past texts that went to a few hundred people or more. Otherwise assume ${pct(DEFAULT_TEXT_REPLY_RATE)}.`
-      : `- Assume a ${pct(DEFAULT_TEXT_REPLY_RATE)} reply rate.`,
     '- Each side of a check gets its own sample, sized the same way from its own audience.',
-    '- Never sample more people than the audience holds. When the audience is no bigger than the sample, send to all of it, leave sampleSize out, and say so.',
-    '- A phone bank is sized by the calls the official or their volunteers can realistically make, not by a reply rate. Use judgment from what you know of them, and say what you chose and why. Door knocking the same way, by the doors they can walk. A social post has no audience to sample.',
-    `- On the card, count stays the whole audience. Set sampleSize to the people you would reach, and for a text set targetResponses and assumedReplyRate as a fraction, ${DEFAULT_TEXT_REPLY_RATE} for ${pct(DEFAULT_TEXT_REPLY_RATE)}.`,
-    `- Explain the number once, in one line, in your message: "I'd text a random sample of them. About ${SAMPLE_TARGET_REPLIES} replies is enough to tell if this is the problem." Give the sample you sized and the count count_contacts returned, never a number from an example. Never call it statistically proven or representative. It is directional, because the 3 in 100 who reply choose themselves.`,
+    ...buildSampleSizingRules({
+      has,
+      sender: 'the official',
+      replyGoal: 'if this is the problem',
+    }),
   ].join('\n')
 
 const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
@@ -276,7 +268,7 @@ const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
     `- Count the replies on each side before you treat them as an answer. Polls hold a read to the same bar: more than ${HIGH_CONFIDENCE_MIN_REPLIES} replies, or replies from at least ${pct(HIGH_CONFIDENCE_MIN_SHARE)} of that side's whole audience. Short of both, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
     ...(has('present_outreach_proposal')
       ? [
-          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized for the replies still missing, with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
+          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized with size_outreach_sample, with audience set to the full count_contacts count for those audienceFilters (not the people left, since the tool leaves out the people already asked itself), repliesAlready set to the replies already in, and alreadyAsked set to how many people those sends went to (from read_past_outreach), with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
         ]
       : []),
     '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',

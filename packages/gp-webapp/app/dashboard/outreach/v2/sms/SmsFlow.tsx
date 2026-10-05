@@ -1135,7 +1135,10 @@ export const SmsFlow = ({
     setMessage(value)
     setManuallyEdited(true)
     setOwnWords(true)
-    if (draftMutation.isError) resetDraftMutation()
+    // An edit wins over a reply still in flight, which would otherwise land
+    // on top of it. Dropping the call also clears a failed one's error.
+    draftRequestRef.current += 1
+    if (draftMutation.isPending || draftMutation.isError) resetDraftMutation()
   }
 
   const aiAction = ownWords ? 'improve' : 'regenerate'
@@ -1150,6 +1153,8 @@ export const SmsFlow = ({
 
   const handleUndo = () => {
     if (undoText === null) return
+    draftRequestRef.current += 1
+    resetDraftMutation()
     loadMessage(undoText)
     setUndoText(null)
     setManuallyEdited(true)

@@ -11,6 +11,7 @@ import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnow
 import {
   MAX_CHECK_RAISES,
   PRIORITY_STEP_LABELS,
+  SAMPLE_TARGET_REPLIES,
   type ChatAnchor,
   type PriorityStepCheck,
   type PriorityStepContrast,
@@ -18,6 +19,12 @@ import {
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { PriorityRecord } from './prioritiesPort'
 import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
+import {
+  buildSampleSizingRules,
+  EXAMPLE_AUDIENCE,
+  EXAMPLE_SAMPLE,
+} from '../../chat-tools/outreachSampling.prompt'
+import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 
 export const COS_GUARDRAIL_DECLINE =
   "I'm your Chief of Staff. Please ask me something about your office, " +
@@ -242,6 +249,25 @@ const COMPOSE_HANDOFF_RULES =
   '- The result opens a prefilled drawer for the official to review before ' +
   'anything sends. Confirm you called it and let them take it from there.'
 
+const people = (n: number): string => n.toLocaleString('en-US')
+const dollars = (texts: number): string =>
+  `$${people(Math.round(calcTextAmountInCents(texts) / 100))}`
+
+const outreachSamplingBlock = (toolNames: string[]): string => {
+  const has = (name: string): boolean => toolNames.includes(name)
+  return [
+    'SAMPLING RULES (apply whenever you propose a text with `present_outreach_proposal`):',
+    '- Texting a whole audience costs real money, and most texts do not need everyone. Before you present a text, size a random sample with `size_outreach_sample` and offer it.',
+    '- When the text asks people something (a question, a survey, what they think of a plan), propose the sample by default. When it tells people something they all need to know, propose the whole audience and mention the sample in one line as the cheaper option.',
+    `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
+    ...buildSampleSizingRules({
+      has,
+      sender: 'the official',
+      replyGoal: 'how this lands',
+    }),
+  ].join('\n')
+}
+
 const cardRulesBlock = (toolNames: string[]): string | null => {
   const has = (name: string): boolean => toolNames.includes(name)
   const lines = [
@@ -314,6 +340,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'read the office’s recent sends, with reach and reply counts',
   present_past_outreach: 'show past sends as a card',
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
+  size_outreach_sample:
+    'size a random sample for a text and price it against texting everyone',
   present_constituents:
     'show people from the user’s own contact records as a card',
   present_outside_contact:
@@ -534,6 +562,10 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...[cardRulesBlock(toolNames)].filter(
       (block): block is string => block !== null,
     ),
+    ...(toolNames.includes('present_outreach_proposal') &&
+    toolNames.includes('size_outreach_sample')
+      ? [outreachSamplingBlock(toolNames)]
+      : []),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.
     //

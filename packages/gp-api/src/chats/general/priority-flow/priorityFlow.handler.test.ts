@@ -242,6 +242,7 @@ describe('PriorityFlowHandler', () => {
       'present_outside_contact',
       'present_past_outreach',
       'read_past_outreach',
+      'size_outreach_sample',
       'update_priority_status',
       'web_search',
     ])
@@ -471,13 +472,14 @@ describe('PriorityFlowHandler', () => {
   it('sizes a check as a random sample, one per side', () => {
     const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('HOW MANY PEOPLE TO ASK')
-    expect(prompt).toContain('83 replies at 3% is 2,767 people')
+    expect(prompt).toContain('Size a text sample with size_outreach_sample')
+    expect(prompt).toContain('never work out a sample or a cost yourself')
+    expect(prompt).toContain('When wholeAudience comes back true')
     expect(prompt).toContain('take replyRate from its past texts')
     expect(prompt).toContain('Each side of a check gets its own sample')
     expect(prompt).toContain('Never sample more people than the audience holds')
     expect(prompt).toContain('not by a reply rate')
-    expect(prompt).toContain('never a number from an example')
-    expect(prompt).not.toContain('58,520')
+    expect(prompt).toContain("I'd text 2,767 of the 58,520, picked at random")
     expect(prompt).toContain('Never call it statistically proven')
     expect(prompt).toContain('It is directional')
     expect(prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT')).toBeLessThan(
@@ -495,6 +497,9 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('Short of both, the read is thin')
     expect(prompt).toContain('do not record that side confirmed or revised')
     expect(prompt).toContain('widensOutreachIds')
+    expect(prompt).toContain('repliesAlready set to the replies already in')
+    expect(prompt).toContain('alreadyAsked set to how many people')
+    expect(prompt).toContain('audience set to the full count_contacts count')
   })
 
   it('says a sample no smaller than its audience goes to all of it', async () => {

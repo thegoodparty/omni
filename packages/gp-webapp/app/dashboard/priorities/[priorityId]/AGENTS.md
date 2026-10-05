@@ -184,13 +184,20 @@ A check is a directional read, so the agent proposes a random sample of each
 side's audience rather than the whole of it. Texting 58,520 people, about
 $2,050, for a read that needs 83 replies is what this exists to stop.
 The rules live in the prompt (`buildSamplingBlock` and
-`buildReadingRepliesBlock` in `priorityFlow.prompt.ts`), and every number in
-them is the polls methodology, read from `outreach/SampleSizing.const.ts` in
-contracts. Change a number there, never in the prompt.
+`buildReadingRepliesBlock` in `priorityFlow.prompt.ts`). The sizing lines in
+them are `buildSampleSizingRules`
+(`gp-api/src/chats/general/chat-tools/outreachSampling.prompt.ts`), which the
+Chief of Staff shares, and every number is the polls methodology, read from
+`outreach/SampleSizing.const.ts` in contracts. Change a number there, never in
+a prompt.
 
 - **Text** is sized like a poll: `SAMPLE_TARGET_REPLIES` (83) over the
   office's own reply rate (`replyRate` on `read_past_outreach` rows), or
-  `DEFAULT_TEXT_REPLY_RATE` (3%) without one. **Phone banking and door
+  `DEFAULT_TEXT_REPLY_RATE` (3%) without one. The agent never does this
+  arithmetic: it calls `size_outreach_sample`
+  (`gp-api/src/chats/general/chat-tools/sizeOutreachSample.tool.ts`), which
+  returns the sample, whether it is the whole audience, and what the sample
+  and the whole audience would cost. A widen passes `repliesAlready`. **Phone banking and door
   knocking** are sized by what the official can actually work, and the agent
   says what it chose. Each side gets its own sample.
 - **The proposal carries it** (`OutreachProposalSchema` in contracts):
@@ -239,7 +246,7 @@ the link and how current it is. On a clarify option that goes in the existing
 one clause in the message. The prompt carries today's date so the agent can
 call a source stale. This is guidance, not a gate, and it uses the shared
 source shape as it is, without extending it. Numbers in prose come from a tool
-call or a named source; the examples carry none, because the model echoed them.
+call or a named source, and a text sample's size from `size_outreach_sample`.
 
 ## How sure it sounds is shared with ordinances
 

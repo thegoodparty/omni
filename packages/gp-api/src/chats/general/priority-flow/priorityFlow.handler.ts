@@ -55,6 +55,7 @@ import {
   proposalResult,
 } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import {
   PriorityFlowContext,
@@ -279,6 +280,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       },
       present_outside_contact: buildPresentOutsideContactTool(),
       present_past_outreach: buildPresentPastOutreachTool(),
+      size_outreach_sample: buildSizeOutreachSampleTool(),
       read_past_outreach: buildReadPastOutreachTool({
         outreach: this.outreach,
         priorityId: ctx.priorityId,
