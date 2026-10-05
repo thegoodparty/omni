@@ -496,7 +496,9 @@ gp-api's public races route, and the reserved `judge-sweep@example.com`.
 `user_email` also has to land inside `campaign_strategy_context.candidates[]`
 for `is_user` to match. No credential is involved. A resolution that fails
 does not fail the sweep: `fixtureValues` is `{}`, and each background agent is
-refused by name on both arms before anything is staged.
+refused by name on both arms before anything is staged, except the
+`readsGpApi` ones, which run as `judge-fixture` and need none of the three
+unless their cases name a race or an email.
 
 **For most agents, none of the three names anything that has to exist.** The
 dispatch pins the organization slug to `judge-*` (`JUDGE_ORG_SLUG_PREFIX`) so a

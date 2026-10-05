@@ -1125,6 +1125,24 @@ describe('refusedBeforeSpend', () => {
     ).toBe(JUDGE_FIXTURE.orgSlug)
   })
 
+  // Only the slug is the fixture's. Everything else still refuses a reader.
+  it('still refuses a gp-api reader with no queue or a value it lacks', () => {
+    const reader = { ...background, readsGpApi: true as const }
+    expect(
+      refusedBeforeSpend(
+        reader,
+        env({ fixtureValues: {}, dispatchQueueUrl: undefined }),
+        () => one,
+      ),
+    ).toBe(true)
+    const raceCase: BackgroundCase[] = [
+      { caseId: 'case-1', params: { race_id: '{judgeRaceId}' } },
+    ]
+    expect(
+      refusedBeforeSpend(reader, env({ fixtureValues: {} }), () => raceCase),
+    ).toBe(true)
+  })
+
   // A VALUE THE SWEEP COULD NOT RESOLVE. The race goes missing once the named
   // election has passed; the loader then refuses exactly the lists that need
   // it, and that has to read as a refusal by design, or the base arm goes red
