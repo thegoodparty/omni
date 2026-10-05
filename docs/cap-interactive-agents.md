@@ -32,7 +32,9 @@ on those axes.
 
 `src/llm/services/llm.service.ts`. The whole interactive model funnels through this
 one class. Dependencies (`package.json`): `ai` and `@ai-sdk/anthropic`.
-`ANTHROPIC_API_KEY` is required at startup.
+`LlmService` throws at construction when `ANTHROPIC_API_KEY` is unset. Local
+setup vends it from `LOCAL_DEV_ENV`; left at its `.env.example` placeholder,
+the API boots and every chat call fails with a 401.
 
 All paths resolve to Anthropic via `@ai-sdk/anthropic` (`resolveChatModel` always
 calls `anthropicProvider.languageModel(model)`). DI tokens:
