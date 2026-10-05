@@ -175,7 +175,11 @@ contracts. Change a number there, never in the prompt.
 
 - **Text** is sized like a poll: `SAMPLE_TARGET_REPLIES` (83) over the
   office's own reply rate (`replyRate` on `read_past_outreach` rows), or
-  `DEFAULT_TEXT_REPLY_RATE` (3%) without one. **Phone banking and door
+  `DEFAULT_TEXT_REPLY_RATE` (3%) without one. The agent never does this
+  arithmetic: it calls `size_outreach_sample`
+  (`gp-api/src/chats/general/chat-tools/sizeOutreachSample.tool.ts`), which
+  returns the sample, whether it is the whole audience, and what the sample
+  and the whole audience would cost. A widen passes `repliesAlready`. **Phone banking and door
   knocking** are sized by what the official can actually work, and the agent
   says what it chose. Each side gets its own sample.
 - **The proposal carries it** (`OutreachProposalSchema` in contracts):

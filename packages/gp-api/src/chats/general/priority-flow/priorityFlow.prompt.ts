@@ -231,14 +231,14 @@ const buildSamplingBlock = (has: (name: string) => boolean): string =>
   [
     'HOW MANY PEOPLE TO ASK',
     '- A check is a directional read, not a vote. It needs enough replies to tell whether a step holds, not everyone you could reach. So a text check goes to a random sample of its audience, not to all of it.',
-    `- Size a text sample the way polls do, for ${SAMPLE_TARGET_REPLIES} replies: the replies you want divided by the reply rate, rounded up. ${SAMPLE_TARGET_REPLIES} replies at ${pct(DEFAULT_TEXT_REPLY_RATE)} is ${people(EXAMPLE_SAMPLE)} people.`,
+    `- Size a text sample with size_outreach_sample, which sizes it the way polls do, for about ${SAMPLE_TARGET_REPLIES} replies. Pass the audience count. Use its numbers as given; never work out a sample or a cost yourself.`,
     has('read_past_outreach')
-      ? `- Use this office's own reply rate when it has one: call read_past_outreach and take replyRate from its past texts that went to a few hundred people or more. Otherwise assume ${pct(DEFAULT_TEXT_REPLY_RATE)}.`
-      : `- Assume a ${pct(DEFAULT_TEXT_REPLY_RATE)} reply rate.`,
+      ? `- Pass this office's own reply rate when it has one: call read_past_outreach and take replyRate from its past texts that went to a few hundred people or more. Otherwise leave it out, and ${pct(DEFAULT_TEXT_REPLY_RATE)} is assumed.`
+      : `- Leave replyRate out, and ${pct(DEFAULT_TEXT_REPLY_RATE)} is assumed.`,
     '- Each side of a check gets its own sample, sized the same way from its own audience.',
-    '- Never sample more people than the audience holds. When the audience is no bigger than the sample, send to all of it, leave sampleSize out, and say so.',
+    '- Never sample more people than the audience holds. When wholeAudience comes back true, send to all of it, leave sampleSize out, and say so.',
     '- A phone bank is sized by the calls the official or their volunteers can realistically make, not by a reply rate. Use judgment from what you know of them, and say what you chose and why. Door knocking the same way, by the doors they can walk. A social post has no audience to sample.',
-    `- On the card, count stays the whole audience. Set sampleSize to the people you would reach, and for a text set targetResponses and assumedReplyRate as a fraction, ${DEFAULT_TEXT_REPLY_RATE} for ${pct(DEFAULT_TEXT_REPLY_RATE)}.`,
+    '- On the card, count stays the whole audience. For a text, set sampleSize, targetResponses and assumedReplyRate to the sampleSize, targetReplies and replyRate that size_outreach_sample returned. For a phone bank or door knocking, set sampleSize to what you chose.',
     `- Explain the number once, in one line, in your message: "I'd text ${people(EXAMPLE_SAMPLE)} of the ${people(EXAMPLE_AUDIENCE)}, picked at random. About ${SAMPLE_TARGET_REPLIES} replies is enough to tell if this is the problem." Never call it statistically proven or representative. It is directional, because the 3 in 100 who reply choose themselves.`,
   ].join('\n')
 
@@ -248,7 +248,7 @@ const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
     `- Count the replies on each side before you treat them as an answer. Polls hold a read to the same bar: more than ${HIGH_CONFIDENCE_MIN_REPLIES} replies, or replies from at least ${pct(HIGH_CONFIDENCE_MIN_SHARE)} of that side's whole audience. Short of both, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
     ...(has('present_outreach_proposal')
       ? [
-          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized for the replies still missing, with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
+          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized with size_outreach_sample and repliesAlready set to the replies already in, with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
         ]
       : []),
     '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',
