@@ -199,6 +199,18 @@ The rules live in the prompt (`buildSamplingBlock` and
   counted nobody is refused outright. Nothing calls a result statistically proven; the 2 or
   3 in 100 who reply choose themselves.
 
+## What it brings in carries its source
+
+Programs, grants, organizations, contacts, laws and figures the agent finds
+outside the conversation are things the official may repeat in public, so the
+prompt (`SOURCES_BLOCK` in `priorityFlow.prompt.ts`) asks for the publisher,
+the link and how current it is. On a clarify option that goes in the existing
+`ChatSource` (`source`), with the page's date in `excerpt`; anywhere else it is
+one clause in the message. The prompt carries today's date so the agent can
+call a source stale. This is guidance, not a gate, and it uses the shared
+source shape as it is, without extending it. Numbers in prose come from a tool
+call or a named source; the examples carry none, because the model echoed them.
+
 ## Cards are keyed, not trusted
 
 A card is a tool call rendered inline through `shared/agent-chat/cards/ChatCardRenderer`.

@@ -404,6 +404,17 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('asks for a source, a link and a date on what it brings in', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('SAYING WHERE IT CAME FROM')
+    expect(prompt).toContain("put it in that option's source")
+    expect(prompt).toContain('Never build or guess a URL')
+    expect(prompt).toContain('more than about two years old')
+    expect(prompt).toContain('comes from a tool you called or a source')
+    expect(prompt).not.toContain('"what I found"')
+    expect(prompt).toMatch(/Today is \w+ \d{1,2}, \d{4}\./)
+  })
+
   it('sizes a check as a random sample, one per side', () => {
     const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('HOW MANY PEOPLE TO ASK')
@@ -412,7 +423,8 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('Each side of a check gets its own sample')
     expect(prompt).toContain('Never sample more people than the audience holds')
     expect(prompt).toContain('not by a reply rate')
-    expect(prompt).toContain("I'd text 4,000 of the 58,520, picked at random")
+    expect(prompt).toContain('never a number from an example')
+    expect(prompt).not.toContain('58,520')
     expect(prompt).toContain('Never call it statistically proven')
     expect(prompt).toContain('It is directional')
     expect(prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT')).toBeLessThan(

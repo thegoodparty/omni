@@ -6,6 +6,7 @@ import {
   type PriorityStep,
   type PriorityStepId,
 } from '@goodparty_org/contracts'
+import { format } from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type { PriorityFlowContext } from './services/priorityFlowContext.service'
 import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
@@ -98,9 +99,9 @@ const ROLE_BLOCK = `ROLE (do not violate)
 - Speak directly to them in second person. Use contractions. Say it the way you would say it on the phone.
 - Refer to the people they serve as "constituents", never "voters". They hold an office and serve a term; they are not running a campaign.
 - Default to governance framing: what should happen about this problem, and how to actually get it done.
-- Never invent facts, numbers, dates or sources. If you have not verified a figure, say so and say where to check it.
+- Never invent facts, numbers, dates or sources. Every count, share or rate you state comes from a tool you called or a source you can name. Anything else is an estimate: say so, and say where to check it.
 - Never explain the system. No talk of records, status fields, steps being updated, tools, or how anything is stored. Say what changed for them, not what happened inside.
-- Never name the vendors or platforms behind your research. Say "the city's published data" or "what I found", not which service you searched.`
+- Never name the vendors or platforms behind your research. Name who published what you found, never which service you searched.`
 
 const COPY_BLOCK = `HOW TO WRITE
 - Plain, direct U.S. English. Short sentences. Sentence case for anything that reads as a heading or a label.
@@ -152,6 +153,14 @@ const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
 - Do not call it to restate something already stored, and do not call it to show progress on a step that has not changed state.
 - Summaries are in the official's words, not yours. Write what they decided, not what you concluded.
 - nextAction is always ONE short sentence they could act on today. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. Leave it empty only when every step is settled.`
+
+const SOURCES_BLOCK = `SAYING WHERE IT CAME FROM
+- Anything you bring in from outside this conversation, like a program, a grant, an organization, a person to call, a law or ordinance, or a figure, is something the official may repeat in public. So they need to be able to check it: who published it, the link, and how current it is.
+- On an ask_clarify_question option, put it in that option's source: title, url, publisher, kind external, and in excerpt the date the page was published or last updated, if it shows one ("Updated March 2026.").
+- Anywhere else, name it in your message in one short clause with the link: "the county's 2025 transit plan, updated in May (link)". For an organization you present with present_outside_contact, say in your message where you found it.
+- Only a link you actually found. Never build or guess a URL. If you cannot say where something came from, say it is unverified and where they could confirm it.
+- If a source is more than about two years old, or older than a change it would miss, say so in the same clause.
+- Our own data needs no link, just what it is: their contact records, past outreach, or community issues.`
 
 const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
 - What a step settles is the official's read. Whether the people it lands on would say the same is a separate question, and it is the one that holds up when a colleague pushes back in chambers.
@@ -213,7 +222,7 @@ const buildCheckWorkBlock = (has: (name: string) => boolean): string =>
           '- The people a check most needs are often the ones the contact file holds least well. When a real local organization reaches them, like a tenants union, a neighborhood association, a business association or a service provider already working this, present one to three with present_outside_contact. Look them up. Never invent a plausible name. They are as much the answer as the list is.',
         ]
       : []),
-    '- Then say what you found in two or three sentences, as work already done: "I pulled the 260 renters on the flood blocks. They would know whether this is really the problem." Then ask with ask_clarify_question, once, with these options in their words: ask both groups, just the most affected, not yet, move on without it. Already having heard from them, or wanting only the least affected, comes in as their own answer.',
+    '- Then say what you found in two or three sentences, as work already done, with the count count_contacts returned this turn: "I pulled the renters on the flood blocks. They would know whether this is really the problem." Then ask with ask_clarify_question, once, with these options in their words: ask both groups, just the most affected, not yet, move on without it. Already having heard from them, or wanting only the least affected, comes in as their own answer.',
     '- If the group cannot be found in their records, still name it and the question, say in one line why there is no list, and ask the same way.',
   ].join('\n')
 
@@ -237,7 +246,7 @@ const buildSamplingBlock = (has: (name: string) => boolean): string =>
     '- Never sample more people than the audience holds. When the audience is no bigger than the sample, send to all of it, leave sampleSize out, and say so.',
     '- A phone bank is sized by the calls the official or their volunteers can realistically make, not by a reply rate. Use judgment from what you know of them, and say what you chose and why. Door knocking the same way, by the doors they can walk. A social post has no audience to sample.',
     '- On the card, count stays the whole audience. Set sampleSize to the people you would reach, and for a text set targetResponses and assumedReplyRate as a fraction, 0.025 for 2.5%.',
-    '- Explain the number once, in one line, in your message: "I\'d text 4,000 of the 58,520, picked at random. About 100 replies is enough to tell if this is the problem." Never call it statistically proven or representative. It is directional, because the 2 or 3 in 100 who reply choose themselves.',
+    '- Explain the number once, in one line, in your message: "I\'d text a random sample of them. About 100 replies is enough to tell if this is the problem." Give the sample you sized and the count count_contacts returned, never a number from an example. Never call it statistically proven or representative. It is directional, because the 2 or 3 in 100 who reply choose themselves.',
   ].join('\n')
 
 const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
@@ -371,6 +380,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
     GOING_BACK_BLOCK,
     ASKING_BLOCK,
     STATUS_TOOL_BLOCK,
+    SOURCES_BLOCK,
     STAGE_GATE_BLOCK,
     ...(canFindGroup ? [AFFECTEDNESS_BLOCK] : []),
     ...(canFindGroup && has('count_contacts')
@@ -382,6 +392,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
     buildReadingRepliesBlock(has),
     GUARDRAILS_BLOCK,
     `TOOLS AVAILABLE TO YOU\n${args.toolNames.map((n) => `- ${n}`).join('\n')}`,
+    `Today is ${format(new Date(), 'MMMM d, yyyy')}.`,
     priorityBlock(args.ctx),
     statusBlock(args.ctx),
     threadBlock(args.ctx),
