@@ -302,7 +302,7 @@ describe('CampaignStrategySection — tracker viewed event', () => {
     render(<CampaignStrategySection />)
 
     expect(
-      screen.getByText(/Setting up your campaign tracker/),
+      screen.getByText(/Setting up your campaign plan/),
     ).toBeInTheDocument()
     expect(mockTrackEvent).not.toHaveBeenCalled()
   })
