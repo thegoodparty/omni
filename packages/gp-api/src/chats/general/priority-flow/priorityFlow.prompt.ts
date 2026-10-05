@@ -231,7 +231,7 @@ const buildSamplingBlock = (has: (name: string) => boolean): string =>
   [
     'HOW MANY PEOPLE TO ASK',
     '- A check is a directional read, not a vote. It needs enough replies to tell whether a step holds, not everyone you could reach. So a text check goes to a random sample of its audience, not to all of it.',
-    `- Size a text sample with size_outreach_sample, which sizes it the way polls do, for about ${SAMPLE_TARGET_REPLIES} replies. Pass the audience count. Use its numbers as given; never work out a sample or a cost yourself.`,
+    `- Size a text sample with size_outreach_sample, which sizes it the way polls do, for about ${SAMPLE_TARGET_REPLIES} replies. Pass the audience count. Use its numbers as given; never work out a sample or a cost yourself. If it returns an error, say why in one line and do not present.`,
     has('read_past_outreach')
       ? `- Pass this office's own reply rate when it has one: call read_past_outreach and take replyRate from its past texts that went to a few hundred people or more. Otherwise leave it out, and ${pct(DEFAULT_TEXT_REPLY_RATE)} is assumed.`
       : `- Leave replyRate out, and ${pct(DEFAULT_TEXT_REPLY_RATE)} is assumed.`,
@@ -248,7 +248,7 @@ const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
     `- Count the replies on each side before you treat them as an answer. Polls hold a read to the same bar: more than ${HIGH_CONFIDENCE_MIN_REPLIES} replies, or replies from at least ${pct(HIGH_CONFIDENCE_MIN_SHARE)} of that side's whole audience. Short of both, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
     ...(has('present_outreach_proposal')
       ? [
-          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized with size_outreach_sample and repliesAlready set to the replies already in, with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
+          `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized with size_outreach_sample, with repliesAlready set to the replies already in and alreadyAsked set to how many people those sends went to (from read_past_outreach), with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
         ]
       : []),
     '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',
