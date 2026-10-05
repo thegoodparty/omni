@@ -151,6 +151,8 @@ class TestCollectWorkspaceFilesSecurity:
 
         (tmp_path / "data.json").write_text('{"ok": true}')
         (tmp_path / "params.json").write_text('{"page": "token: abcd1234"}')
+        (tmp_path / "output").mkdir()
+        (tmp_path / "output" / "params.json").write_text('{"nested": "token: abcd1234"}')
 
         files = _collect_workspace_files(str(tmp_path))
         filenames = [k.split("/")[-1] for k in files.keys()]

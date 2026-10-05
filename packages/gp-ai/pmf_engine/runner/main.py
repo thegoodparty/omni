@@ -420,8 +420,8 @@ def _collect_workspace_files(
                 continue
             # The run's own params, which session.jsonl already carries through
             # _redact_line. Uploading the file too would ship the same data
-            # unredacted.
-            if dirpath == root_dir and filename == PARAMS_FILENAME:
+            # unredacted — and at any depth, since the agent can copy it.
+            if filename == PARAMS_FILENAME:
                 continue
             if allowed_extensions is not None:
                 _, ext = os.path.splitext(filename)
