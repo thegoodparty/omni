@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import { ProBadge } from '@styleguide'
 import {
   ArrowRightIcon,
+  BadgeCheckIcon,
   ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
+import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useFeatureFlags } from 'app/shared/experiments/FeatureFlagsProvider'
 import {
@@ -55,6 +58,25 @@ export const isMembershipSurfaceVisible = (
     !(state.tier === 'pro' && state.texting === 'cleared'),
   )
 
+// Approved texting is the payoff of verification, so the banner stays up to
+// point the candidate at their first text, and goes once a text exists
+// (scheduled or sent). It is not part of the Pro gating experiment: cleared Pro
+// campaigns are outside its population, so this state never fires exposure.
+export const isApprovedBannerVisible = (
+  state: MembershipState | null,
+): boolean =>
+  Boolean(
+    state &&
+    !state.isElectedOffice &&
+    state.tier === 'pro' &&
+    state.texting === 'cleared',
+  )
+
+const OUTREACH_PATH = '/outreach'
+
+// A broadcast text or a peer-to-peer one both count as the first text.
+const TEXT_OUTREACH_TYPES = new Set(['text', 'p2p'])
+
 const BANNER_CLASS_NAME =
   'mb-2 flex w-full flex-col items-start gap-1.5 rounded-lg bg-info-50 p-3 text-left'
 
@@ -77,6 +99,18 @@ export const MembershipBanner = (): React.JSX.Element | null => {
   const [pinOpen, setPinOpen] = useState(false)
 
   const visible = Boolean(enabled && ready && isMembershipSurfaceVisible(state))
+  const approved = Boolean(enabled && ready && isApprovedBannerVisible(state))
+  const { data: outreaches } = useQuery({
+    queryKey: ['membership-banner-outreach'],
+    queryFn: () => clientRequest('GET /v1/outreach', {}).then((r) => r.data),
+    enabled: approved,
+  })
+  const showApproved =
+    approved &&
+    outreaches !== undefined &&
+    !outreaches.some((outreach) =>
+      TEXT_OUTREACH_TYPES.has(outreach.outreachType ?? ''),
+    )
 
   // Exposure belongs to the population the experiment can treat, so it waits
   // for a membership surface to actually render. Reading the flag would expose
@@ -86,6 +120,33 @@ export const MembershipBanner = (): React.JSX.Element | null => {
     if (!visible) return
     exposure(OUTREACH_PRO_GATING_V2_FLAG_KEY)
   }, [visible, exposure])
+
+  if (showApproved) {
+    const copy = MEMBERSHIP_COPY.banner.approved
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          trackEvent(EVENTS.ProUpgrade.Membership.ApprovedBannerClicked, {
+            path: pathname,
+          })
+          router.push(OUTREACH_PATH)
+        }}
+        className={BANNER_CLASS_NAME}
+      >
+        <BadgeCheckIcon className="size-4 text-success" aria-hidden />
+        <span className="text-[13px] font-semibold leading-snug text-foreground">
+          {copy.title}
+        </span>
+        <span className="text-[13px] leading-snug text-foreground">
+          {copy.body}
+        </span>
+        <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-primary">
+          {copy.cta} <ArrowRightIcon className="size-3.5" aria-hidden />
+        </span>
+      </button>
+    )
+  }
 
   if (!visible || !state) return null
 

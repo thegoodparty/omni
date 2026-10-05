@@ -16,6 +16,11 @@ export const MEMBERSHIP_COPY = {
       body: 'You will be sent a PIN within 7 business days to either your email, phone or address.',
       cta: 'Enter your PIN',
     },
+    approved: {
+      title: 'Your profile has been approved!',
+      body: 'Schedule your introduction text message to voters today.',
+      cta: 'Schedule',
+    },
   },
   chip: {
     // The free chip reads as three inline parts so the Pro badge sits between

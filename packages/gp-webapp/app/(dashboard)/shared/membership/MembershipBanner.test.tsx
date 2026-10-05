@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
+import { api } from 'helpers/test-utils/api-mocking'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/(dashboard)/campaign-verification/campaignVerificationPath'
 import { OUTREACH_PRO_GATING_V2_FLAG_KEY } from 'app/shared/experiments/outreachProGatingV2Flag'
@@ -225,11 +226,43 @@ describe('MembershipBanner', () => {
     )
   })
 
-  it('renders nothing once a Pro campaign is cleared to text', () => {
-    setup({ state: membership({ texting: 'cleared' }) })
+  describe('once a Pro campaign is cleared to text', () => {
+    const cleared = membership({ texting: 'cleared' })
 
-    expect(screen.queryByRole('button')).toBeNull()
-    expect(trackEvent).not.toHaveBeenCalled()
+    it('points to the first text while none exists', async () => {
+      api.mock('GET /v1/outreach', { status: 200, data: [] })
+      setup({ state: cleared })
+
+      expect(
+        await screen.findByText(MEMBERSHIP_COPY.banner.approved.title),
+      ).toBeInTheDocument()
+      await userEvent.click(
+        screen.getByRole('button', {
+          name: new RegExp(MEMBERSHIP_COPY.banner.approved.cta),
+        }),
+      )
+      expect(router.push).toHaveBeenCalledWith('/outreach')
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Membership.ApprovedBannerClicked,
+        expect.objectContaining({ path: expect.anything() }),
+      )
+      // Approved campaigns are outside the Pro gating experiment.
+      expect(mockExposure).not.toHaveBeenCalled()
+    })
+
+    it.each(['text', 'p2p'] as const)(
+      'goes away once a %s outreach exists',
+      async (outreachType) => {
+        api.mock('GET /v1/outreach', {
+          status: 200,
+          data: [{ id: 1, outreachType }],
+        })
+        setup({ state: cleared })
+
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(screen.queryByRole('button')).toBeNull()
+      },
+    )
   })
 
   it('keeps the upsell for a lapsed Pro campaign whose texting is still cleared', () => {

@@ -400,6 +400,8 @@ export const EVENTS = {
       BannerClicked: 'Pro Upgrade - Banner Clicked',
       VerificationBannerClicked: '10DLC - Verification Banner Clicked',
       PinBannerClicked: '10DLC - PIN Banner Clicked',
+      // Approved texting, nothing sent yet: the banner's Schedule press.
+      ApprovedBannerClicked: '10DLC - Approved Banner Clicked',
     },
     // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
     // campaign verification 2.0).
