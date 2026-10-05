@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
@@ -636,6 +637,66 @@ describe('CreateListFlow', () => {
     // is merely still in flight fails this rather than passing it.
     await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
     expect(filterPosts).toBe(0)
+  })
+
+  // A Regenerate reply can land after the candidate has started editing a
+  // different section than the one it is replacing — `onLineChange` bumps
+  // `draftRequestRef` and resets the pending draft mutation so that edit
+  // wins rather than being overwritten by the stale reply.
+  it('keeps a talking point typed while a reply is still in flight', async () => {
+    const POINTS = {
+      engagementQuestion: 'What would you fix around here first?',
+      context: 'Fix our roads with a real maintenance plan.',
+      ask: 'Ask whether we can count on them in November.',
+    }
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
+      if (body.previousDraft === undefined) {
+        return { status: 200, data: POINTS }
+      }
+      await held
+      answered.done = true
+      return { status: 200, data: { ...POINTS, context: 'The AI reply.' } }
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const contextBox = () =>
+      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    await waitFor(() =>
+      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+        POINTS.context,
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    act(() => {
+      const { editor } = contextBox()
+      // One short of the doc's end, which is inside the last paragraph —
+      // the doc boundary itself would open a new one.
+      editor.commands.insertContentAt(
+        editor.state.doc.content.size - 1,
+        ' Sarah Chen said the roads need work too.',
+      )
+    })
+
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+      `${POINTS.context} Sarah Chen said the roads need work too.`,
+    )
+    expect(contextBox().editor.getText({ blockSeparator: '\n' })).not.toContain(
+      'The AI reply.',
+    )
   })
 
   // The regression this line shipped with: two counts side by side, one

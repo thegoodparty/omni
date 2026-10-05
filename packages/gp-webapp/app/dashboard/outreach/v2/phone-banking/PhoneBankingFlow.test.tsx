@@ -663,6 +663,49 @@ describe('PhoneBankingFlow', () => {
     )
   })
 
+  // A reply held until the candidate has acted, so the test can edit while
+  // the call is still in flight.
+  const mockHeldImprove = () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/phone-banking/draft', async ({ body }) => {
+      if (body.currentDraft === undefined) {
+        return { status: 200, data: { draft: draftFor(body) } }
+      }
+      await held
+      answered.done = true
+      return { status: 200, data: { draft: 'The AI rewrite.' } }
+    })
+    return { release, answered }
+  }
+
+  it('keeps what the candidate types while Improve is running', async () => {
+    const { release, answered } = mockHeldImprove()
+    openFlow()
+    await advanceToScript()
+    const initialDraft = draftFor({ purpose: 'introduce_myself', tone: 'warm' })
+    await waitFor(() => expect(scriptText()).toBe(initialDraft))
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        initialDraft.length + 1,
+        ' Sarah Chen will call at 5pm.',
+      )
+    })
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(scriptText()).toMatch(/Sarah Chen will call at 5pm\./)
+    expect(scriptText()).not.toMatch(/The AI rewrite/)
+  })
+
   it('sends trimmed instructions on Regenerate and Improve with AI, omitting them when blank', async () => {
     const draftCalls = mockDraft()
     openFlow()

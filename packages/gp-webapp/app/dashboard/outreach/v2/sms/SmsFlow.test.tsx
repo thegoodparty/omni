@@ -762,6 +762,89 @@ describe('SmsFlow', () => {
       expect(calls[1]?.currentDraft).toContain('Vote soon.')
     })
 
+    // A reply held until the candidate has acted, so the test can edit while
+    // the call is still in flight.
+    const mockHeldImprove = () => {
+      let release!: () => void
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const answered = { done: false }
+      api.mock('POST /v1/outreach/sms/draft', async ({ body }) => {
+        if (!body.currentDraft) {
+          return {
+            status: 200,
+            data: { draft: `AI body (${body.tone}) for ${body.purpose}` },
+          }
+        }
+        await held
+        answered.done = true
+        return { status: 200, data: { draft: 'The AI rewrite.' } }
+      })
+      return { release, answered }
+    }
+
+    it('keeps what the candidate types while Improve is running', async () => {
+      const { release, answered } = mockHeldImprove()
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'Vote soon.'),
+          ' Bring a friend.',
+        )
+      })
+      release()
+      await waitFor(() => expect(answered.done).toBe(true))
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+      expect(box).toHaveTextContent(/Vote soon\. Bring a friend\./)
+      expect(box).not.toHaveTextContent(/The AI rewrite/)
+    })
+
+    it('keeps an Undo made while Improve is running', async () => {
+      const { release, answered } = mockHeldImprove()
+      const { box, editor } = await reachCompose()
+      // A first Improve that lands, so Undo has something to go back to.
+      api.mockOrdered('POST /v1/outreach/sms/draft', [
+        ({ body }) => ({
+          status: 200,
+          data: {
+            draft: (body.currentDraft ?? '').replace('Vote soon.', 'Go vote!'),
+          },
+        }),
+      ])
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Go vote!/))
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Improve with AI' }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+      release()
+      await waitFor(() => expect(answered.done).toBe(true))
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+      expect(box).toHaveTextContent(/Vote soon\./)
+      expect(box).not.toHaveTextContent(/The AI rewrite/)
+    })
+
     it('gives a failed first draft the locked parts to write between', async () => {
       api.mock('POST /v1/outreach/sms/draft', {
         status: 502,
