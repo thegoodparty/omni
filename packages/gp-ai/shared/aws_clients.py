@@ -1,9 +1,8 @@
 """Memoized boto3 client factory.
 
 Consolidates the "_xxx_client = None + def get_xxx_client()" pattern that was
-copy-pasted across dispatch_handler, callback_handler, runner/main, and
-campaign_plan_lambda. Call `reset_client_cache()` between tests that need
-isolated state.
+copy-pasted across dispatch_handler, callback_handler, and runner/main.
+Call `reset_client_cache()` between tests that need isolated state.
 """
 
 from __future__ import annotations
