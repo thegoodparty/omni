@@ -1088,6 +1088,26 @@ describe('RobocallFlow', () => {
     ).not.toBeInTheDocument()
   })
 
+  // Typing is the candidate taking over from the failed draft, as in the
+  // other flows, so the card goes and Try again cannot improve their words.
+  it('clears the draft error once the candidate types', async () => {
+    mockDraftError()
+    await gotoComposeRaw()
+    expect(
+      await screen.findByText(/We couldn't draft your script just now/),
+    ).toBeInTheDocument()
+
+    act(() => {
+      scriptEditor().commands.insertContentAt(1, 'This is Sarah Chen.')
+    })
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/We couldn't draft your script just now/),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
   it('clears the draft error when switching to a custom purpose', async () => {
     mockDraftError()
     await gotoComposeRaw()
