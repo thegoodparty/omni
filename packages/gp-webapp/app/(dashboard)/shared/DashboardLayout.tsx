@@ -151,7 +151,13 @@ const DashboardLayout = ({
           <DashboardMenu pathname={currentPath} />
         </Sidebar>
       )}
-      <SidebarInset className="bg-[#f5f5f5]">
+      {/* Win pages share the sidebar's background so the app reads as one
+          surface; Serve keeps its own page grey. */}
+      <SidebarInset
+        className={
+          organization?.electedOfficeId ? 'bg-[#f5f5f5]' : 'bg-sidebar'
+        }
+      >
         {!hideMenu && <MobileMenuTrigger />}
         <ImpersonationBanner />
         <ElectedOfficeTermDatesModalController />
