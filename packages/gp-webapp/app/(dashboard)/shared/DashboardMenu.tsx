@@ -106,7 +106,7 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
     label: NAV_LABELS.home,
     icon: <MdFactCheck />,
-    v2Icon: NAV_HEADER_ICONS.dashboard,
+    v2Icon: NAV_HEADER_ICONS.house,
     link: '/home',
     v2Category: 'campaign',
     id: 'campaign-tracker-dashboard',
@@ -338,12 +338,11 @@ export const getDashboardMenuItems = (
     menuItems.splice(chiefOfStaffShown ? 1 : 0, 0, PRIORITIES_MENU_ITEM)
   }
 
-  // Campaign Manager (dashboard home) is index 0, pushed down by each item
-  // unshifted above it: BRIEFINGS and COMMUNITY_ISSUES for an elected office,
-  // then Chief of Staff when shown. Insert the Plan/Tracker item right after
-  // Campaign Manager to render the campaign-category nav as [Campaign
-  // Manager, Campaign Plan, …].
-  const afterCampaignManager =
+  // Home is index 0, pushed down by each item unshifted above it: BRIEFINGS and
+  // COMMUNITY_ISSUES for an elected office, then Chief of Staff when shown.
+  // Insert Campaign Plan right after Home so the campaign-category nav opens
+  // [Home, Campaign Plan, Voter Outreach, Voter Data, …].
+  const afterHome =
     1 +
     (isElectedOffice ? 1 : 0) +
     (communityIssuesShown ? 1 : 0) +
@@ -351,10 +350,16 @@ export const getDashboardMenuItems = (
     (chiefOfStaffShown ? 1 : 0) +
     (prioritiesShown ? 1 : 0)
 
-  // The campaign tracker tab, and the "Your Story" tab just above it (the
-  // story is what the tracker + plan are generated from).
-  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
-  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+  menuItems.splice(afterHome, 0, CAMPAIGN_PLAN_MENU_ITEM)
+
+  // "Your Story" follows the daily-use tabs, right after Voter Data.
+  const voterDataItemIndex = menuItems.findIndex(
+    (item) =>
+      item === WIN_CONTACTS_MENU_ITEM ||
+      item === VOTER_DATA_UPGRADE_ITEM ||
+      item === CONTACTS_MENU_ITEM,
+  )
+  menuItems.splice(voterDataItemIndex + 1, 0, CAMPAIGN_STORY_MENU_ITEM)
 
   // Visible to non-Pro users too: the page renders a locked upgrade view
   // rather than the feature — the content is gated on isPro at the route.

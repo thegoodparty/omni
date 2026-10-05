@@ -63,15 +63,22 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
 })
 
 describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
-  it('always renders "Your Story" just above the tracker', () => {
+  it('opens with Home, Campaign Plan, Voter Outreach and Voter Data, then Your Story', () => {
     const items = links()
-    const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
-    const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
+    const campaignTabs = items
+      .filter((i) => i.v2Category === 'campaign')
+      .map((i) => i.id)
 
-    expect(storyIdx).toBeGreaterThanOrEqual(0)
-    expect(items[storyIdx]?.label).toBe('Your Story')
-    // It sits directly above the Campaign Plan tab.
-    expect(planIdx).toBe(storyIdx + 1)
+    expect(campaignTabs.slice(0, 5)).toEqual([
+      'campaign-tracker-dashboard',
+      'campaign-plan-dashboard',
+      'outreach-dashboard',
+      'win-contacts-dashboard',
+      'campaign-story-dashboard',
+    ])
+    expect(items.find((i) => i.id === 'campaign-story-dashboard')?.label).toBe(
+      'Your Story',
+    )
   })
 })
 
@@ -195,13 +202,10 @@ describe('getDashboardMenuItems — Priorities tab gating', () => {
     expect(serveRail[1]?.id).toBe('priorities-dashboard')
   })
 
-  it('keeps Campaign Plan under Campaign Manager when Priorities shows', () => {
+  it('keeps Campaign Plan under Home when Priorities shows', () => {
     const items = links({ isElectedOffice: true, prioritiesEnabled: true })
-    const campaignManager = items.findIndex(
-      (i) => i.id === 'campaign-tracker-dashboard',
-    )
-    expect(items[campaignManager + 1]?.id).toBe('campaign-story-dashboard')
-    expect(items[campaignManager + 2]?.id).toBe('campaign-plan-dashboard')
+    const home = items.findIndex((i) => i.id === 'campaign-tracker-dashboard')
+    expect(items[home + 1]?.id).toBe('campaign-plan-dashboard')
   })
 })
 
