@@ -10,6 +10,7 @@ import {
   shapePartCount,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.util'
 import {
@@ -226,7 +227,7 @@ export class VoterFileFilterService extends createPrismaBase(
       ? findEquivalentFilter(rest, [{ ...recommendedFilter, id: -1 }]) === null
       : null
 
-    return this.client.$transaction(async (tx) => {
+    const write = this.client.$transaction(async (tx) => {
       const created = await tx.voterFileFilter.create({
         data: {
           organizationSlug,
@@ -260,6 +261,22 @@ export class VoterFileFilterService extends createPrismaBase(
       }
       return created
     })
+    if (!rest.proposalKey) return write
+    // Two presses of one card can both miss the read above, from two tabs or
+    // a reload racing the first press. The loser trips the unique key; the
+    // winner's list exists by then, and it is the answer to both.
+    const { proposalKey } = rest
+    try {
+      return await write
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error
+      const winner = await this.findByProposalKeyAndOrganizationSlug(
+        proposalKey,
+        organizationSlug,
+      )
+      if (!winner) throw error
+      return winner
+    }
   }
 
   async update(
