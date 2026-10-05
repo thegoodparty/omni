@@ -46,7 +46,7 @@ export default function HomeComposer(): React.JSX.Element | null {
   return (
     <div className="flex flex-col gap-2">
       <form
-        className="flex flex-col gap-3 rounded-2xl border border-grayscale-300 bg-card px-4 pb-3 pt-4 transition-colors lg:px-5 lg:pt-5 focus-within:border-primary"
+        className="flex flex-col gap-2 rounded-2xl border border-grayscale-300 bg-card px-4 pb-3 pt-4 transition-colors lg:px-5 lg:pt-5 focus-within:border-primary"
         onSubmit={(event) => {
           event.preventDefault()
           send()
@@ -55,11 +55,11 @@ export default function HomeComposer(): React.JSX.Element | null {
         <Textarea
           id="home-composer"
           ref={inputRef}
-          rows={3}
+          rows={2}
           value={message}
           placeholder={PLACEHOLDER}
           aria-label={PLACEHOLDER}
-          className="min-h-[72px] resize-none border-0 bg-transparent p-1 text-base shadow-none md:text-base focus-visible:ring-0"
+          className="min-h-12 resize-none border-0 bg-transparent p-1 text-base shadow-none md:text-base focus-visible:ring-0"
           onChange={(event) => setMessage(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
