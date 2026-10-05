@@ -125,6 +125,8 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
   readonly isSensitive = true
   readonly models = [...BRIEFING_CHAT_MODELS]
   readonly traceName = BRIEFING_CHAT_TRACE_NAME
+  // The briefing route never titled a conversation; /v1/chats must not either.
+  readonly setsTitle = false
 
   constructor(
     private readonly briefingContext: BriefingContextService,

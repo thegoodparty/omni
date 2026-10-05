@@ -300,7 +300,7 @@ export class GeneralChatsService {
         return
       }
 
-      if (conversation.title === null) {
+      if (handler.setsTitle !== false && conversation.title === null) {
         await self.store.setTitleIfUnset(
           args.conversationId,
           toTitle(args.userMessage),

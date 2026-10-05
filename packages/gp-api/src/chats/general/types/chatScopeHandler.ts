@@ -36,6 +36,10 @@ export interface ChatScopeHandler<
   // Set it only to keep a name that predates the registry: briefing chat's
   // traces were filtered as `briefing-chat-stream` before it registered here.
   readonly traceName?: string
+  // Whether the first user message titles a still-untitled conversation.
+  // Defaults to true. Off for briefing chat, whose conversations are named by
+  // their annotation and were never titled on the briefing route.
+  readonly setsTitle?: boolean
   // Optional override of the session model. Leave it off to get the default
   // every conversational scope shares: one fresh conversation per open, with
   // resuming done by opening a past conversation by id (history → listMessages

@@ -646,6 +646,27 @@ describe('BriefingChatsController (integration)', () => {
       await expectAll404(conversationId, asMember)
     })
 
+    it('does not title a briefing chat sent to through /v1/chats', async () => {
+      const conversationId = await createNewChat()
+
+      const sent = await service.client.post(
+        `/v1/chats/${conversationId}/messages?scope=briefing_annotation`,
+        { content: 'would become a title' },
+        { headers: { 'X-Organization-Slug': fixtures.slug } },
+      )
+
+      expect(sent.status).toBe(HttpStatus.OK)
+      expect(
+        parseSseFrames(String(sent.data)).map(
+          (f) => (f.parsed as { type?: string }).type,
+        ),
+      ).toEqual(['text', 'done'])
+      const row = await service.prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+      })
+      expect(row?.title).toBeNull()
+    })
+
     it("404s the owner under another of the owner's organizations", async () => {
       const conversationId = await createNewChat()
       const { slug: otherSlug } = await createOrgAndElectedOffice(
