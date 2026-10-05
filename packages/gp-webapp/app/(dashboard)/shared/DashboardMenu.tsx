@@ -106,14 +106,14 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
 // The sidebar is Win's only "you are here" cue (its pages have no title bar),
 // so the current tab layers three signals: a tinted pill with a solid leading
 // bar (the bar carries the 3:1 contrast the pale tint can't), a semibold
-// label, and a heavier brand-colored icon. Hover stays the faint neutral fill
-// so it never reads as the current page.
+// label, and a heavier icon, in the info palette the page alerts use. Hover
+// stays the faint neutral fill so it never reads as the current page.
 const WIN_ACTIVE_ITEM_CLASSES = cn(
   'relative',
-  'data-[active=true]:bg-primary-light data-[active=true]:hover:bg-primary-light',
-  'data-[active=true]:font-semibold data-[active=true]:text-primary-dark data-[active=true]:hover:text-primary-dark',
-  'data-[active=true]:[&>svg]:text-primary data-[active=true]:[&>svg]:stroke-[2.5]',
-  'data-[active=true]:before:absolute data-[active=true]:before:inset-y-2 data-[active=true]:before:left-0 data-[active=true]:before:w-1 data-[active=true]:before:rounded-full data-[active=true]:before:bg-primary',
+  'data-[active=true]:bg-info-50 data-[active=true]:hover:bg-info-50',
+  'data-[active=true]:font-semibold data-[active=true]:text-info-600 data-[active=true]:hover:text-info-600',
+  'data-[active=true]:[&>svg]:text-info-600 data-[active=true]:[&>svg]:stroke-[2.5]',
+  'data-[active=true]:before:absolute data-[active=true]:before:inset-y-2 data-[active=true]:before:left-0 data-[active=true]:before:w-1 data-[active=true]:before:rounded-full data-[active=true]:before:bg-info-600',
 )
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
