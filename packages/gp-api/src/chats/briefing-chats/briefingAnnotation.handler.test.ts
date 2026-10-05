@@ -29,6 +29,7 @@ import { HENDERSONVILLE_FIXTURE } from './evals/fixtures/hendersonvilleBriefing.
 
 const USER_ID = 42
 const CONVERSATION_ID = 'conv-hville-1'
+const ORG_SLUG = 'org-hendersonville'
 
 const HENDERSONVILLE_FILTERS = [
   { column: 'state_postal_code', value: 'NC' },
@@ -42,6 +43,7 @@ const loadedContext = (): BriefingContextResult =>
     artifactContent: HENDERSONVILLE_FIXTURE.artifactContent,
     user: HENDERSONVILLE_FIXTURE.user,
     office: HENDERSONVILLE_FIXTURE.office,
+    organizationSlug: ORG_SLUG,
   }) as BriefingContextResult
 
 // The same context the fixture describes, so the handler's prompt mapping can
@@ -86,7 +88,7 @@ const fakeDatabricks = (): DatabricksProvider =>
 
 const fakeResolver = () =>
   ({
-    resolveByUserId: vi.fn(() =>
+    resolveByOrgSlug: vi.fn(() =>
       Promise.resolve({
         state: 'NC',
         l2DistrictType: 'City',
@@ -196,7 +198,7 @@ describe('BriefingAnnotationHandler', () => {
       fakeDatabricks(),
       resolver,
     ).loadContext(CONVERSATION_ID, USER_ID)
-    expect(resolver.resolveByUserId).toHaveBeenCalledWith(USER_ID)
+    expect(resolver.resolveByOrgSlug).toHaveBeenCalledWith(ORG_SLUG)
     expect(withProvider.districtFilters).toEqual(HENDERSONVILLE_FILTERS)
     expect(
       Object.keys(buildHandler(fakeDatabricks()).buildTools(withProvider)),
@@ -212,7 +214,7 @@ describe('BriefingAnnotationHandler', () => {
       undefined,
       resolverOnly,
     ).loadContext(CONVERSATION_ID, USER_ID)
-    expect(resolverOnly.resolveByUserId).not.toHaveBeenCalled()
+    expect(resolverOnly.resolveByOrgSlug).not.toHaveBeenCalled()
     expect(withoutProvider.districtFilters).toBeNull()
   })
 

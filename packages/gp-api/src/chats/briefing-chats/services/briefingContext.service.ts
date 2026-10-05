@@ -30,6 +30,9 @@ export interface BriefingContextResult {
   artifactContent: BriefingArtifactContent
   user: BriefingContextUser | null
   office: BriefingContextOffice | null
+  // The briefing's own org. Scope anything per-office (the voter-data district)
+  // by this, never by the user: a user can hold offices in several orgs.
+  organizationSlug: string
 }
 
 @Injectable()
@@ -109,6 +112,7 @@ export class BriefingContextService extends createPrismaBase(
       artifactContent,
       user,
       office,
+      organizationSlug: briefing.electedOffice.organizationSlug,
     }
   }
 

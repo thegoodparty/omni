@@ -33,6 +33,7 @@ import {
 // passed there); from here on it is the contract, and the old code is gone.
 
 const USER_ID = 42
+const ORG_SLUG = 'org-hendersonville'
 const FILTERS = [
   { column: 'state_postal_code', value: 'NC' },
   { column: 'City', value: 'Hendersonville' },
@@ -230,7 +231,14 @@ describe('briefing chat prompt and tool parity', () => {
       else delete process.env.ANTHROPIC_API_KEY
 
       const { briefing, user, office } = HENDERSONVILLE_FIXTURE
-      const loaded = { annotation, briefing, artifactContent, user, office }
+      const loaded = {
+        annotation,
+        briefing,
+        artifactContent,
+        user,
+        office,
+        organizationSlug: ORG_SLUG,
+      }
       // Each fake answers only for the right caller and key, so a path that
       // looked something up under the wrong id would render a different turn.
       const only = (ok: boolean) =>
@@ -264,9 +272,9 @@ describe('briefing chat prompt and tool parity', () => {
           : ({
               query: vi.fn(() => Promise.resolve({ columns: [], rows: [] })),
             } as unknown as DatabricksProvider)
-      const resolveByUserId = vi.fn(() =>
+      const resolveByOrgSlug = vi.fn((slug: string) =>
         Promise.resolve(
-          district === 'resolves-null'
+          district === 'resolves-null' || slug !== ORG_SLUG
             ? null
             : {
                 state: 'NC',
@@ -280,7 +288,7 @@ describe('briefing chat prompt and tool parity', () => {
         district === 'none' || district === 'no-resolver'
           ? undefined
           : ({
-              resolveByUserId,
+              resolveByOrgSlug,
               toMandatoryFilters: vi.fn(() => FILTERS),
             } as unknown as DistrictResolverService)
 
@@ -351,11 +359,11 @@ describe('briefing chat prompt and tool parity', () => {
       expect(streamed!.models).toEqual(['claude-sonnet-4-6', 'claude-opus-4-7'])
       expect(streamed!.traceName).toBe('briefing-chat-stream')
       expect(streamed).not.toHaveProperty('scope')
-      // District scoping stays keyed on the caller's user id.
+      // District scoping is keyed on the briefing's own org, not the user.
       if (databricks && resolver) {
-        expect(resolveByUserId).toHaveBeenCalledWith(USER_ID)
+        expect(resolveByOrgSlug).toHaveBeenCalledWith(ORG_SLUG)
       } else {
-        expect(resolveByUserId).not.toHaveBeenCalled()
+        expect(resolveByOrgSlug).not.toHaveBeenCalled()
       }
 
       // The registry entry, keyed on the conversation, renders the same turn.
