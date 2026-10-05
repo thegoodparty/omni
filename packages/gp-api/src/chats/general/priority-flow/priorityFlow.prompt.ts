@@ -154,6 +154,13 @@ const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
 - Summaries are in the official's words, not yours. Write what they decided, not what you concluded.
 - nextAction is always ONE short sentence they could act on today. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. Leave it empty only when every step is settled.`
 
+const ROUTE_BLOCK = `LET THEM CHOOSE THE ROUTE
+- Before you start filling what a step is missing, show the official the ways to get it and let them choose. Do it once the problem is defined, and again whenever a new gap opens.
+- Name only the routes that fit this priority, in their terms, each with what it would tell them that the others cannot. The usual ones: the public record (budgets, reports, ordinances, the data the city publishes), the people who run it (name the department, like Public Works, or the group already working on it), hearing from constituents (which ones), and how other places handled it.
+- Ask which ones are actually useful with one multiSelect ask_clarify_question, one option per route, with what it would tell them as the rationale. Something they already know is a real answer: take it and drop that route.
+- Then work only the routes they picked. Never build a list, an outreach card or a texting plan for constituents unless they picked hearing from them or asked for it. Picking it starts with who to hear from and what to ask, not a campaign.
+- Once per gap, not at every step. If they have already said how they want to work it, go.`
+
 const SOURCES_BLOCK = `SAYING WHERE IT CAME FROM
 - Anything you bring in from outside this conversation, like a program, a grant, an organization, a person to call, a law or ordinance, or a figure, is something the official may repeat in public. So they need to be able to check it: who published it, the link, and how current it is.
 - On an ask_clarify_question option, put it in that option's source: title, url, publisher, kind external, and in excerpt the date the page was published or last updated, if it shows one ("Updated March 2026.").
@@ -380,6 +387,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
     GOING_BACK_BLOCK,
     ASKING_BLOCK,
     STATUS_TOOL_BLOCK,
+    ROUTE_BLOCK,
     SOURCES_BLOCK,
     STAGE_GATE_BLOCK,
     ...(canFindGroup ? [AFFECTEDNESS_BLOCK] : []),

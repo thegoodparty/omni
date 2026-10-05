@@ -404,6 +404,17 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('lets the official choose the route before any outreach', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('LET THEM CHOOSE THE ROUTE')
+    expect(prompt).toContain('like Public Works')
+    expect(prompt).toContain('one multiSelect ask_clarify_question')
+    expect(prompt).toContain('unless they picked hearing from them')
+    expect(prompt.indexOf('LET THEM CHOOSE THE ROUTE')).toBeLessThan(
+      prompt.indexOf('CHECKING A STEP WITH THE PEOPLE IT LANDS ON'),
+    )
+  })
+
   it('asks for a source, a link and a date on what it brings in', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('SAYING WHERE IT CAME FROM')

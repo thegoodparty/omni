@@ -199,6 +199,16 @@ The rules live in the prompt (`buildSamplingBlock` and
   counted nobody is refused outright. Nothing calls a result statistically proven; the 2 or
   3 in 100 who reply choose themselves.
 
+## The official picks the route before the work
+
+Once the problem is defined, and when a new gap opens, the agent lays out the
+routes that fit (the public record, the department that runs it, hearing from
+constituents, how other places did it) and asks which are useful as one
+multi-select question (`ROUTE_BLOCK` in `priorityFlow.prompt.ts`). It works
+only the routes picked and builds no constituent outreach unless that route
+was chosen, because jumping straight into a texting campaign read as the
+agent deciding for them.
+
 ## What it brings in carries its source
 
 Programs, grants, organizations, contacts, laws and figures the agent finds
