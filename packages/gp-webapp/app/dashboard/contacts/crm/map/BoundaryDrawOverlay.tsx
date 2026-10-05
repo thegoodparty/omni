@@ -1,6 +1,14 @@
 import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Button,
   Dialog,
   DialogContent,
@@ -20,7 +28,7 @@ import {
   type ListShape,
 } from 'app/dashboard/shared/listShapes'
 import type { ContactPoint } from './contactListPoints'
-import { ListShapePanel } from './ListShapePanel'
+import { DIALOG_LAYER, ListShapePanel } from './ListShapePanel'
 
 // maplibre-gl touches `window` at module scope, so the canvas cannot be part
 // of the server bundle — the same reason ListMapSection loads it this way.
@@ -119,6 +127,7 @@ export default function BoundaryDrawOverlay({
     initialActiveIndex ?? initialShapes.length - 1,
   )
   const [chromeBottomPx, setChromeBottomPx] = useState<number | null>(16)
+  const [discardOpen, setDiscardOpen] = useState(false)
   // The fit reads this once, at the size the panel opened at. Re-fitting as
   // the sheet is dragged would yank the camera out from under a holder who
   // has already aimed it.
@@ -173,6 +182,11 @@ export default function BoundaryDrawOverlay({
   // a change anybody has to be asked about discarding.
   const dirty =
     JSON.stringify(drawn) !== JSON.stringify(initialShapes.filter(isDrawnShape))
+
+  // Every way out — Cancel, Escape — asks first when there is something to
+  // lose, so no key throws shapes away that the button would have asked
+  // about.
+  const requestCancel = () => (dirty ? setDiscardOpen(true) : onCancel())
 
   const writeActiveRing = (ring: PolygonRing) => {
     if (active) {
@@ -249,7 +263,7 @@ export default function BoundaryDrawOverlay({
     )
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onCancel()}>
+    <Dialog open onOpenChange={(next) => !next && requestCancel()}>
       {/* Full-bleed rather than the centred card DialogContent defaults to:
           `sm:max-w-none` is NOT redundant beside `max-w-none` — the base
           component carries `sm:max-w-lg`, and a responsive variant wins over
@@ -260,6 +274,13 @@ export default function BoundaryDrawOverlay({
       <DialogContent
         className="flex h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 flex-row gap-0 rounded-none border-0 p-0 top-0 left-0 z-[1400] sm:max-w-none [&>button:last-child]:hidden"
         data-testid="boundary-overlay"
+        onEscapeKeyDown={(event) => {
+          event.preventDefault()
+          // Escape in a name field abandons the rename, and nothing more.
+          const target = event.target as HTMLElement | null
+          if (target?.closest('input, textarea')) return
+          requestCancel()
+        }}
       >
         <DialogTitle className="sr-only">{labels.boundaryDrawCta}</DialogTitle>
         <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -316,13 +337,32 @@ export default function BoundaryDrawOverlay({
           onRename={(name) => updateActive({ name })}
           onPickColor={(color) => updateActive({ color })}
           onSave={() => onSave(shapes.filter(isDrawnShape))}
-          onCancel={onCancel}
-          dirty={dirty}
+          onCancel={requestCancel}
           isSaving={isSaving}
           saveBlocked={!allowEmptyShape && hasRing && inside === 0}
           notes={notes}
           onMapControlsOffsetChange={setChromeBottomPx}
         />
+        <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
+          <AlertDialogContent
+            className={DIALOG_LAYER}
+            overlayClassName={DIALOG_LAYER}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Discard your changes?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The shapes will go back to how they were when you opened the
+                map.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep drawing</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={onCancel}>
+                Discard
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   )

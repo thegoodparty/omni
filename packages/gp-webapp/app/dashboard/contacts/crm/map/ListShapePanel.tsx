@@ -1,17 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  EmptyState,
-  PlusIcon,
-} from '@styleguide'
+import { Button, EmptyState, PlusIcon } from '@styleguide'
 import { TurfCard } from 'app/dashboard/door-knocking/native/createFlow/TurfCard'
 import {
   useSheetControlsOffset,
@@ -32,8 +20,9 @@ interface ListShapePanelProps {
   onRename: (name: string) => void
   onPickColor: (color: string) => void
   onSave: () => void
+  // Asks to leave. The surface decides whether that needs a confirm, because
+  // Escape reaches it without going through this panel.
   onCancel: () => void
-  dirty: boolean
   isSaving: boolean
   // Whether Save is refused outright. The saved-list surfaces write on Save,
   // so a boundary that catches nobody has nothing behind it.
@@ -50,7 +39,7 @@ const DOCKED_CONTROLS_BOTTOM_PX = 16
 
 // The surface this panel sits in is a full-screen layer at z-[1400], above
 // the drawers it is opened from, so its confirms have to clear it.
-const DIALOG_LAYER = 'z-[1500]'
+export const DIALOG_LAYER = 'z-[1500]'
 
 // Beside the map rather than over it. Decides only what the panel reports
 // to the map, never what it renders; the arrangement is CSS's alone, for the
@@ -89,7 +78,6 @@ export const ListShapePanel = ({
   onPickColor,
   onSave,
   onCancel,
-  dirty,
   isSaving,
   saveBlocked,
   notes,
@@ -98,7 +86,6 @@ export const ListShapePanel = ({
   const { snap, cycle, gripHandlers, heightClass, sheetRef } =
     useSheetSnap('half')
   const docked = useIsDocked()
-  const [discardOpen, setDiscardOpen] = useState(false)
   const [attemptedSave, setAttemptedSave] = useState(false)
   // The first shape is introduced, as door knocking's first turf is: a
   // surface that opens straight onto a card asks for a boundary before the
@@ -255,7 +242,7 @@ export const ListShapePanel = ({
             type="button"
             variant="ghost"
             className="flex-1"
-            onClick={() => (dirty ? setDiscardOpen(true) : onCancel())}
+            onClick={onCancel}
           >
             Cancel
           </Button>
@@ -276,26 +263,6 @@ export const ListShapePanel = ({
           </Button>
         </div>
       </div>
-
-      <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
-        <AlertDialogContent
-          className={DIALOG_LAYER}
-          overlayClassName={DIALOG_LAYER}
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Discard your changes?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The shapes will go back to how they were when you opened the map.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep drawing</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={onCancel}>
-              Discard
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </aside>
   )
 }
