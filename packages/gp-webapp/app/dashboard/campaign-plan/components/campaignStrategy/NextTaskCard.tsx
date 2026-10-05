@@ -10,6 +10,7 @@ import {
 } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import {
   AlertDialog,
+  CheckIcon,
   ChevronDownIcon,
   Collapsible,
   CollapsibleContent,
@@ -89,7 +90,7 @@ const discussTaskMessage = (task: DeckTask): string => {
 // channel opens that flow in the hub (with the due date and task attached,
 // like the rail's "Start outreach"). Static rows carry no channel, so the call
 // list is matched on its title. A task with nowhere to go returns null and
-// "Discuss in chat" leads instead.
+// "Mark as done" leads instead.
 const taskAction = (
   row: CampaignTrackerTask | undefined,
   surface: 'plan' | 'manager',
@@ -372,7 +373,6 @@ const NextTaskCard = ({
     setConfirmTaskId(frontTask.id)
   }
   const menuItems = [
-    ...(frontTask.prompt ? [] : [{ label: 'Mark as done', onClick: markDone }]),
     ...(deck.length > 1
       ? [
           {
@@ -462,9 +462,8 @@ const NextTaskCard = ({
                   ) : (
                     <Overline>{phaseTitle}</Overline>
                   )}
-                  {/* Done and Skip close the card rather than do the task, so
-                      they sit behind the menu and the visible buttons stay on
-                      doing it. */}
+                  {/* Skip is a quiet escape hatch, so it sits behind the menu
+                      rather than beside the actions. */}
                   {menuItems.length > 0 && <MoreMenu menuItems={menuItems} />}
                 </div>
                 <h3 className="font-opensans text-lg font-medium text-card-foreground">
@@ -511,12 +510,22 @@ const NextTaskCard = ({
                           )}
                         </Button>
                       )}
+                      <Button
+                        type="button"
+                        variant={action ? 'outline' : 'default'}
+                        size="medium"
+                        className="w-full sm:w-auto"
+                        onClick={markDone}
+                      >
+                        <CheckIcon className="size-4" aria-hidden />
+                        Mark as done
+                      </Button>
                       {chat && (
                         <Button
                           type="button"
-                          variant={action ? 'outline' : 'default'}
+                          variant="ghost"
                           size="medium"
-                          className="w-full sm:w-auto"
+                          className="w-full text-primary hover:bg-primary/5 sm:ml-auto sm:w-auto"
                           onClick={() =>
                             chat.discussTask(discussTaskMessage(frontTask))
                           }
