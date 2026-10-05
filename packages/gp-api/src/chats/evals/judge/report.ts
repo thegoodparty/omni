@@ -6,7 +6,7 @@ import type { IdenticalConfigNotice } from './normalize'
 import type { Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { PRICING_VERSION } from './pricing'
-import type { AgentScore, DimensionScore } from './score'
+import type { AgentScore, DimensionScore, ToolErrorCause } from './score'
 import type { CiContext, RunRecord } from './record'
 
 // The PR comment.
@@ -224,17 +224,32 @@ const MAX_CAUSE_LINES = 5
 // Tool name and error class only, both allowlisted upstream. The error text
 // itself is never printed: this page is public and the text can carry voter
 // data that no redaction can recognise.
-const toolErrorCauseLines = (score: AgentScore): string[] => {
-  const causes = score.exclusions.toolErrorCauses
+const causeLines = (
+  agentId: string,
+  causes: readonly ToolErrorCause[],
+): string[] => {
   const lines = causes
     .slice(0, MAX_CAUSE_LINES)
     .map(
       (cause) =>
-        `- ${score.agentId}: \`${cause.tool}\` — ${cause.errorClass} ` +
+        `- ${agentId}: \`${cause.tool}\` — ${cause.errorClass} ` +
         `(×${cause.pairs}, ${cause.arms.join(' and ')})`,
     )
   const more = causes.length - MAX_CAUSE_LINES
   return more > 0 ? [...lines, `- and ${more} more`] : lines
+}
+
+// Under the "Excluded pairs" line, the causes of the tool-error exclusions
+// (chat only). Then, for a background agent, the causes on pairs that were
+// scored anyway, under their own heading so a reader never takes them for
+// exclusions: the pairs are in the verdict, and the list is evidence beside it.
+const toolErrorCauseLines = (score: AgentScore): string[] => {
+  const excluded = causeLines(score.agentId, score.exclusions.toolErrorCauses)
+  const scored = causeLines(score.agentId, score.scoredToolErrorCauses)
+  if (scored.length === 0) return excluded
+  // The blank line is load-bearing: without it Markdown folds the heading
+  // into the "Excluded pairs" paragraph or the last cause above it.
+  return [...excluded, '', 'Tool errors (scored, not excluded):', ...scored]
 }
 
 const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {

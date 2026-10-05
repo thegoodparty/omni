@@ -7,7 +7,6 @@ import {
   isCheckAnswered,
   openListenBefore,
   PRIORITY_STATUS_VERSION,
-  PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
   PriorityCheckSideSchema,
   PriorityStatusSchema,
@@ -101,15 +100,13 @@ const lacksEvidence = (
   return heard === '' || !(stored?.state === 'out' || shownBefore)
 }
 
-// Why the agent may not make a move yet, or null. The check is the step's
-// one ask for its stage, and a model left to itself records it and moves on
-// without ever showing it, or calls the official's own agreement a
-// constituent answer. So the moves that wait on it are: a check on a step
-// that is not a gate; recording `asked` before anything was put in front of
-// the official this turn; recording an answer nobody gave; opening a step
-// past a settled gate that has no check (an `asked` never shown reads as
-// none); and going more than one step past a gate still waiting on the
-// official's yes.
+// Why the agent may not make a move yet, or null. A check is optional, but
+// a model left to itself records one without ever showing it, or calls the
+// official's own agreement a constituent answer. So the moves refused are:
+// a check on a step that is not a gate; recording `asked` before anything
+// was put in front of the official this turn; recording an answer nobody
+// gave; and closing or passing a listening step while its check is still
+// pending.
 const refusalFor = (
   current: PriorityStatus,
   update: UpdatePriorityStatusInput,
@@ -184,58 +181,12 @@ const refusalFor = (
       'active, and say plainly what it is waiting on.'
     )
   }
-  const opening = update.steps.filter(
-    (step) => step.state === STEP_STATE.active,
-  )
-  const openingId = opening[opening.length - 1]?.id
-  if (openingId === undefined) return null
-  const openingAt = PRIORITY_STEP_IDS.indexOf(openingId)
-  const patches = new Map(update.steps.map((step) => [step.id, step]))
-  const after = (step: PriorityStep) => {
-    const patch = patches.get(step.id)
-    return {
-      state: patch?.state ?? step.state,
-      check: mergeStepCheck(
-        step.check,
-        patch?.check,
-        turn.startedAt,
-        turn.offered(),
-      ),
-    }
-  }
-  const gatesBefore = current.steps.filter(
-    (step) => isGate(step.id) && PRIORITY_STEP_IDS.indexOf(step.id) < openingAt,
-  )
-  const bare = gatesBefore.find((step) => {
-    const { state, check } = after(step)
-    return (
-      state === STEP_STATE.settled &&
-      (check === undefined ||
-        (check.state === 'asked' && check.offeredAt === undefined))
-    )
-  })
-  if (bare !== undefined) {
-    return (
-      `${PRIORITY_STEP_LABELS[bare.id]} is settled but its check was never ` +
-      `shown. Offer it now, before ${PRIORITY_STEP_LABELS[openingId]}: ` +
-      CHECK_HOW
-    )
-  }
-  const waiting = gatesBefore.find(
-    (step) =>
-      after(step).check?.state === 'asked' &&
-      openingAt >= PRIORITY_STEP_IDS.indexOf(step.id) + 2,
-  )
-  return waiting === undefined
-    ? null
-    : `The check on ${PRIORITY_STEP_LABELS[waiting.id]} is still waiting on ` +
-        "the official's answer, and nothing is out with constituents yet. " +
-        'Ask it again, with the cards, or record their answer (out, ' +
-        `deferred or declined) before ${PRIORITY_STEP_LABELS[openingId]}.`
+  return null
 }
 
-// A gate settled in this call with no check yet: the tool result says what
-// has to happen next, in this turn, before any next-step work.
+// A gate settled in this call with no check yet: the tool result reminds the
+// agent to name what is missing before it reaches for a check, because left
+// alone it turns every gap into outreach.
 const checkDueFor = (
   status: PriorityStatus,
   update: UpdatePriorityStatusInput,
@@ -248,12 +199,12 @@ const checkDueFor = (
   )
   if (due.length === 0) return null
   const labels = due.map((patch) => PRIORITY_STEP_LABELS[patch.id])
-  return due.length === 1
-    ? `${labels[0]} is settled. Offer its check now, in this turn, before ` +
-        `any work on the next step. ${CHECK_HOW}`
-    : `${labels.join(' and ')} are settled. Offer each one's check now, in ` +
-        `this turn, one at a time, before any work on the next step. ` +
-        CHECK_HOW
+  return (
+    `${labels.join(' and ')} settled with no check. That is fine. If ` +
+    'something it rests on is still unknown, say what. Offer a check only ' +
+    'when the gap is what people think and nothing on hand shows it; a ' +
+    'missing fact gets looked up. Otherwise move on.'
+  )
 }
 
 // Sides holding what constituents said, which a late send must not erase.

@@ -59,3 +59,21 @@ def test_voter_records_removal_flags_the_nav_click():
 def test_dashboard_view_first_break_fires():
     r = _replay("88aedb541", {"Dashboard - Candidate Dashboard Viewed": "win_active_candidates_30d"})
     assert "Dashboard - Candidate Dashboard Viewed" in _hits(r, "okr_call_site_lost")
+
+
+def _warns(report: gg.Report, rule: str) -> set[str]:
+    return {f.event for f in report.warns if f.rule == rule}
+
+
+def test_the_onboarding_redirect_warns_that_office_events_moved():
+    """d4687047d (2026-05-05) turned onboarding/[slug]/[step] into a bare redirect while
+    CampaignOfficeSelectionModal kept importing OfficeStep (DATA-2525)."""
+    report = _replay("d4687047d", {})
+    assert "Onboarding - Office Step: Click Next" in _warns(report, "surface_moved")
+
+
+def test_removing_running_against_from_profile_warns():
+    """93cb4a414 (2026-06-19) took RunningAgainstSection off the campaign details page,
+    leaving QuestionsPage as its only mount (DATA-2531 probe)."""
+    report = _replay("93cb4a414", {})
+    assert "Profile - Running Against: Click Save" in _warns(report, "surface_moved")

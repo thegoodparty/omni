@@ -3,6 +3,7 @@ import {
   buildMergedEnv,
   findPlaceholderFeatures,
   parseEnvFile,
+  serializeBuiltEnv,
   serializeEnvFile,
 } from './env'
 
@@ -41,6 +42,16 @@ describe('serializeEnvFile', () => {
   it('writes one KEY=value per line in the given key order', () => {
     const out = serializeEnvFile({ B: '2', A: '1' }, ['A', 'B', 'C'])
     expect(out).toBe('A=1\nB=2\nC=\n')
+  })
+})
+
+describe('serializeBuiltEnv', () => {
+  it('leaves blank and missing keys out so code defaults apply', () => {
+    const out = serializeBuiltEnv(
+      { A: '1', TEST_SEND_COOLDOWN_MS: '', B: '0' },
+      ['A', 'TEST_SEND_COOLDOWN_MS', 'B', 'C'],
+    )
+    expect(out).toBe('A=1\nB=0\n')
   })
 })
 

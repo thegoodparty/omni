@@ -69,7 +69,6 @@ packages/gp-ai/                  # uv workspace root
 │
 ├── ai_generated_campaign_plan/  # not a member — older module
 ├── api/                         # not a member — top-level entry points
-├── campaign_plan_lambda/        # not a member — Lambda with its own deploy workflow
 ├── llm_deployment/              # not a member
 ├── serve/hierarchical_discovery/ # not a member — sibling to serve/v1_pipeline/
 ├── serve/analyze_texts/         # not a member — sibling to serve/v1_pipeline/
@@ -89,8 +88,8 @@ packages/gp-ai/                  # uv workspace root
 - **Assume Linux.** This suite ran only on macOS until CI existed, which hid failures: an unset region, and assertions that a path is not under `/tmp` (true on macOS, where temp dirs are `/var/folders/...`, false on Linux). Don't assert on temp-dir _locations_ — assert the invariant the code actually guarantees.
 - Single test: `uv run pytest <path>::TestClass::test_case -v`.
 - Per-member: each workspace member has its own `tests/` and runs them with `cd <member> && uv run pytest tests/`.
-- **There is no repo-root `tests/` directory.** Find the real suites with `git ls-files '*test_*.py' | xargs -n1 dirname | sort -u`. The set CI runs is: `broker/tests`, `pmf_engine/tests`, `shared/tests`, `serve/v1_pipeline/tests`, `clickup_bot/tests`, `engineer_agent/tests`, `campaign_plan_lambda/tests`, `autopilot/tests`.
-- `addopts = "--import-mode=importlib"` in `pyproject.toml` is load-bearing: `clickup_bot/tests/test_handler.py` and `campaign_plan_lambda/tests/test_handler.py` share a basename and their `tests/` dirs are not packages, so the default `prepend` mode aborts collection with "import file mismatch". (pytest has no `import-mode` ini key — it must go through `addopts`.)
+- **There is no repo-root `tests/` directory.** Find the real suites with `git ls-files '*test_*.py' | xargs -n1 dirname | sort -u`. The set CI runs is: `broker/tests`, `pmf_engine/tests`, `shared/tests`, `serve/v1_pipeline/tests`, `clickup_bot/tests`, `engineer_agent/tests`, `autopilot/tests`, `alert_filter/tests`.
+- `addopts = "--import-mode=importlib"` in `pyproject.toml` is load-bearing: `clickup_bot/tests/test_handler.py` and `alert_filter/tests/test_handler.py` share a basename and their `tests/` dirs are not packages, so the default `prepend` mode aborts collection with "import file mismatch". (pytest has no `import-mode` ini key — it must go through `addopts`.)
 
 ## Never
 
