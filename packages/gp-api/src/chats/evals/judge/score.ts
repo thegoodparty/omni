@@ -7,7 +7,7 @@ import {
   type Magnitude,
   type SlotVerdict,
 } from './judge'
-import type { ExcludedCase, NormalizedAgent, SlotMap } from './normalize'
+import type { NormalizedAgent, SlotMap } from './normalize'
 import { errorClass, publicToolName } from './toolErrorDetails'
 import { priceUsd, sharesPricing } from './pricing'
 import {
@@ -115,6 +115,8 @@ export interface ExclusionCounts {
   ungradedReasons: readonly string[]
   // The same treatment for tool-error exclusions, which had only a count.
   // Grouped so nine pairs failing one way read as one line, not nine.
+  // Only a chat pair is ever excluded for a tool error, so this is empty for
+  // a background agent; its causes are in `scoredToolErrorCauses`.
   toolErrorCauses: readonly ToolErrorCause[]
 }
 
@@ -124,7 +126,8 @@ export interface ToolErrorCause {
   // A fixed class from errorClass, never the error text: the report is
   // public and the text can carry voter data.
   errorClass: string
-  // Excluded pairs this cause appeared in, whichever arm it hit.
+  // Pairs this cause appeared in, whichever arm it hit: excluded pairs in
+  // `exclusions.toolErrorCauses`, judged pairs in `scoredToolErrorCauses`.
   pairs: number
   arms: readonly Arm[]
 }
@@ -172,6 +175,12 @@ export interface AgentScore {
   // and never changes the label.
   regressions: readonly string[]
   exclusions: ExclusionCounts
+  // Tool errors on pairs that were JUDGED anyway, grouped like
+  // `exclusions.toolErrorCauses`. Only a background agent has any: its
+  // verdict is on the final artifact, so a run that hit a failing Bash
+  // snippet and recovered is scored rather than excluded (see isComparable),
+  // and this keeps the evidence of what failed beside the verdict.
+  scoredToolErrorCauses: readonly ToolErrorCause[]
   positionConsistency: number | null
   // THE DENOMINATOR, reported with the rate and never without it. 3 of 5 and
   // 60 of 100 are both "60%", and only one of them says anything.
@@ -609,15 +618,27 @@ const UNRECORDED = 'unrecorded'
 
 // Built from errorClass and publicToolName only, never from the message:
 // this is what reaches the public report. See toolErrorDetails.ts.
-const toolErrorCauses = (
-  excluded: readonly ExcludedCase[],
-): ToolErrorCause[] => {
+// Judged pairs where either arm hit a tool error, naming those arms. Empty for
+// a chat agent, whose tool-error pairs never reach `judgeable`.
+const scoredWithToolErrors = (normalized: NormalizedAgent): ToolErrorPair[] =>
+  normalized.judgeable.flatMap(({ records }) => {
+    const arms = ArmSchema.options.filter(
+      (arm) => records[arm].telemetry.toolErrors > 0,
+    )
+    return arms.length > 0 ? [{ arms, records }] : []
+  })
+
+interface ToolErrorPair {
+  arms: readonly Arm[]
+  records: { base: RunRecord; candidate: RunRecord }
+}
+
+const toolErrorCauses = (pairs: readonly ToolErrorPair[]): ToolErrorCause[] => {
   const causes = new Map<
     string,
     { tool: string; errorClass: string; pairs: number; arms: Set<Arm> }
   >()
-  for (const pair of excluded) {
-    if (pair.reason !== 'toolError') continue
+  for (const pair of pairs) {
     const seen = new Set<string>()
     for (const arm of pair.arms) {
       const details = pair.records[arm].toolErrorDetails ?? []
@@ -762,8 +783,11 @@ export const scoreAgent = (
           judgments.filter((j) => j.kind === 'ungraded').map((j) => j.reason),
         ),
       ],
-      toolErrorCauses: toolErrorCauses(normalized.excluded),
+      toolErrorCauses: toolErrorCauses(
+        normalized.excluded.filter((e) => e.reason === 'toolError'),
+      ),
     },
+    scoredToolErrorCauses: toolErrorCauses(scoredWithToolErrors(normalized)),
     positionConsistency,
     swappedPairs: swappedPairs.length,
     orderUnstablePairs: overallResult.pairs

@@ -1283,9 +1283,10 @@ export const runBackgroundCase = async (
   // tool calls and zero tool errors, which makes isComparable() true, which
   // lets runBackgroundBaseArm cache a base arm whose every Databricks read may
   // have failed — a permanent baseline claiming zero tool errors, with the
-  // evidence in the trace that never arrived. That defeats the "a tool error
-  // is never a quality signal" protection for every later sweep of the digest,
-  // which is the exact outcome the notCached guard exists to prevent.
+  // evidence in the trace that never arrived. A background tool error no
+  // longer excludes a pair, but it is still measured and reported beside the
+  // verdict, and a cached baseline that silently claims zero would falsify
+  // that figure for every later sweep of the digest.
   //
   // Absence is not normal for a healthy run: the harness writes
   // conversation.jsonl unconditionally and uploads it on the timeout and kill
@@ -1588,8 +1589,10 @@ export const runBackgroundBaseArm = async (
 
   const record = await runBackgroundCase(deps, input)
   // Never cache a run that cannot be compared. A cached timeout, or a cached
-  // run whose data read failed, would be reused by every later sweep — so a
-  // dead credential would become a permanent baseline rather than one bad run.
+  // run with no readable artifact or trace, would be reused by every later
+  // sweep, so one bad run would become a permanent baseline. A run that hit
+  // tool errors and still published a valid artifact IS comparable for a
+  // background agent (see isComparable), so it is cached like any other.
   if (!isComparable(record)) {
     return {
       record,

@@ -417,14 +417,14 @@ with no answer to compare.
 \*\*The mark covers a seeded transcript and not the other two conditions, which
 is a judgement rather than an omission. A forced tool failure already separates
 itself more strongly than a report line could: `isComparable()` is false for
-it, so the pair never reaches a delta at all. And an account state is a state
+it on a chat run, so the pair never reaches a delta at all. And an account state is a state
 production really produces — a campaign without Pro, an organization without a
 position — seeded through the same rows the app writes, so a verdict under one
 is a verdict about a real account. Only the transcript is a context the harness
 authored and production would not have built.
 
 One consequence to read before authoring these:\*\* `isComparable()` is false
-for any run that hit a tool error, so a forced-failure pair resolves CAN'T SAY
+for any chat run that hit a tool error, so a forced-failure pair resolves CAN'T SAY
 rather than entering the delta. Telling an injected failure from an incidental
 one needs a field `record.ts` does not have, and `record.ts` is the frozen
 cross-track contract — so that is a change to review, not a drive-by. Until
@@ -788,12 +788,27 @@ this one the Actions run. They are named apart on purpose.
 
 ## Two rules that are easy to get wrong
 
-**A tool failure is never a quality signal.** The Databricks client resolves
-lazily, so a broken credential does not fail a run — the agent answers with
-less information instead. Both arms degrade identically, and a judge shown two
-degraded outputs will confidently report a code regression. Use
-`isComparable()`; any case where either arm hit a tool error resolves to
-CAN'T SAY and leaves the delta.
+**For a chat agent, a tool failure is never a quality signal.** The
+Databricks client resolves lazily, so a broken credential does not fail a run —
+the agent answers with less information instead. Both arms degrade
+identically, and a judge shown two degraded outputs will confidently report a
+code regression. Use `isComparable()`; any chat case where either arm hit a
+tool error resolves to CAN'T SAY and leaves the delta.
+
+**For a background agent, a tool error does not exclude the pair.** What the
+judge scores is the final artifact. Live sweeps showed background agents
+routinely writing a Python snippet in Bash, hitting `exit code 1` or a
+`ValueError`, fixing it and carrying on: run 37355882821 excluded 7 of 9
+`race_opponent_summary` pairs for `Bash — exit code 1`, and run 37352629792
+excluded all but one pair across the three gp-api agents. So `isComparable()`
+is true for a background record with tool errors, and its pair is judged. A
+background pair is still excluded for `infraError` (which is also how the
+runner records a missing or unparseable artifact, or a trace it could not
+read) and for an identical config, exactly as before. The base-arm cache
+follows the same rule: a background base arm with tool errors, a valid
+artifact and no infraError is cached. The tool-error count is still measured
+(`tool errors: +X per run pair`) and its causes still listed, so the evidence
+stays beside the verdict.
 
 Each record names its failures in `toolErrorDetails`: the tool and its error
 text, for the first 10 failing calls, each cut to 300 characters (head and
@@ -829,7 +844,11 @@ lets a name through whenever it has the right shape (`MariaGonzalezError`,
   `other`. To name a new one, add it to the list in `toolErrorDetails.ts`.
 
 Causes are grouped by tool and class under the "Excluded pairs" line, with the
-pair count and the arms hit. A record written before the field existed shows
+pair count and the arms hit. Only a chat pair is ever excluded for a tool
+error, so for a background agent that list is empty and the causes come after
+it under **Tool errors (scored, not excluded):**, covering every judged pair
+where either arm hit one. The two lists never mix, so a reader cannot take a
+scored pair for an excluded one. A record written before the field existed shows
 as `unknown`, `unrecorded`. Anything new that renders a tool error publicly must
 go through `errorClass` and `publicToolName`, never the record's text.
 

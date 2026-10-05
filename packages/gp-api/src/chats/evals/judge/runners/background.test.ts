@@ -1631,7 +1631,10 @@ describe('runBackgroundBaseArm', () => {
     )
   })
 
-  it('refuses to cache a base arm whose tools failed', async () => {
+  // A background agent is judged on its artifact, so a run that hit a tool
+  // error and still published a valid one is comparable, and a comparable
+  // base arm is cached like any other.
+  it('caches a base arm whose tools failed but whose artifact is valid', async () => {
     const input = baseInput()
     const runId = idFor(input)
     const store = fakeStore({
@@ -1654,7 +1657,14 @@ describe('runBackgroundBaseArm', () => {
     expect(result.record.toolErrorDetails).toEqual([
       { tool: 'Bash', message: 'no error text' },
     ])
-    expect(result.cache).toBe('notCached')
+    expect(result.cache).toBe('miss')
+    expect(store.puts.map((p) => p.key)).toContain(
+      baseArmCacheKey(
+        AGENT,
+        backgroundConfigDigest(config),
+        input.agentCase.caseId,
+      ),
+    )
   })
 
   it('treats a cache entry that no longer fits the contract as a miss', async () => {
@@ -1722,6 +1732,18 @@ describe('runBackgroundBaseArm', () => {
     store.objects.set(path(METADATA_BUCKET, key), planted(honest))
     expect((await read()).kind).toBe('entry')
 
+    // A tool error alone no longer disqualifies a background entry: the run
+    // still produced its artifact, so it is the same baseline a fresh capture
+    // would have cached.
+    store.objects.set(
+      path(METADATA_BUCKET, key),
+      planted({
+        ...honest,
+        telemetry: { ...honest.telemetry, toolCalls: 1, toolErrors: 1 },
+      }),
+    )
+    expect((await read()).kind).toBe('entry')
+
     for (const wrong of [
       { ...honest, agentId: 'top_community_issues' },
       { ...honest, caseId: 'some-other-case' },
@@ -1730,10 +1752,7 @@ describe('runBackgroundBaseArm', () => {
         ...honest,
         variant: { ...honest.variant, configDigest: 'a-different-digest' },
       },
-      {
-        ...honest,
-        telemetry: { ...honest.telemetry, toolCalls: 1, toolErrors: 1 },
-      },
+      { ...honest, status: 'infraError' as const, output: null },
     ]) {
       store.objects.set(path(METADATA_BUCKET, key), planted(wrong))
       expect(await read()).toEqual({ kind: 'miss', reason: 'keyMismatch' })
