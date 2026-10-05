@@ -584,6 +584,180 @@ describe('SocialFlow', () => {
     ).toBeInTheDocument()
   })
 
+  // A reply held until the candidate has acted, so the test can edit while
+  // the call is still in flight.
+  const mockHeldImprove = () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/social/draft', async ({ body }) => {
+      if (body.currentDraft === undefined) {
+        return { status: 200, data: { draft: draftFor(body) } }
+      }
+      await held
+      answered.done = true
+      return { status: 200, data: { draft: 'The AI rewrite.' } }
+    })
+    return { release, answered }
+  }
+
+  const endOf = (editor: Editor, needle: string): number => {
+    let found = -1
+    editor.state.doc.descendants((node, pos) => {
+      if (found !== -1 || !node.isText) return
+      const index = node.text?.indexOf(needle) ?? -1
+      if (index !== -1) found = pos + index + needle.length
+    })
+    return found
+  }
+
+  it('keeps what the candidate types while Improve is running', async () => {
+    const { release, answered } = mockHeldImprove()
+    openFlow()
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    const box = screen.getByRole('textbox', {
+      name: 'Draft message',
+    }) as HTMLElement & { editor: Editor }
+    const editor = box.editor
+
+    act(() => {
+      editor.commands.insertContentAt(
+        endOf(editor, 'introduce_myself'),
+        ' Vote soon.',
+      )
+    })
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+    act(() => {
+      editor.commands.insertContentAt(
+        endOf(editor, 'Vote soon.'),
+        ' Bring a friend.',
+      )
+    })
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(box).toHaveTextContent(/Vote soon\. Bring a friend\./)
+    expect(box).not.toHaveTextContent(/The AI rewrite/)
+  })
+
+  // A call the candidate edited past can still fail. Its error must not
+  // come back over words they already fixed.
+  it("keeps the candidate's words when a superseded call fails late", async () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/social/draft', async ({ body }) => {
+      if (body.currentDraft === undefined) {
+        return { status: 200, data: { draft: draftFor(body) } }
+      }
+      await held
+      answered.done = true
+      return {
+        status: 502,
+        data: { message: 'Social draft generation failed' },
+      }
+    })
+    openFlow()
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    const box = screen.getByRole('textbox', {
+      name: 'Draft message',
+    }) as HTMLElement & { editor: Editor }
+    const editor = box.editor
+
+    act(() => {
+      editor.commands.insertContentAt(
+        endOf(editor, 'introduce_myself'),
+        ' Vote soon.',
+      )
+    })
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+    act(() => {
+      editor.commands.insertContentAt(
+        endOf(editor, 'Vote soon.'),
+        ' Bring a friend.',
+      )
+    })
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(
+      screen.queryByText(/couldn.t draft your message/),
+    ).not.toBeInTheDocument()
+    expect(box).toHaveTextContent(/Vote soon\. Bring a friend\./)
+  })
+
+  it('keeps an Undo made while a new draft is running', async () => {
+    mockDraft()
+    openFlow()
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    const box = screen.getByRole('textbox', {
+      name: 'Draft message',
+    }) as HTMLElement & { editor: Editor }
+    const editor = box.editor
+
+    // An Improve that lands, so Undo has something to go back to, then a
+    // Regenerate held until the candidate has clicked Undo.
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mockOrdered('POST /v1/outreach/social/draft', [
+      ({ body }) => ({
+        status: 200,
+        data: {
+          draft: (body.currentDraft ?? '').replace('Vote soon.', 'Go vote!'),
+        },
+      }),
+      async () => {
+        await held
+        answered.done = true
+        return { status: 200, data: { draft: 'The AI rewrite.' } }
+      },
+    ])
+    act(() => {
+      editor.commands.insertContentAt(
+        endOf(editor, 'introduce_myself'),
+        ' Vote soon.',
+      )
+    })
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+    await waitFor(() => expect(box).toHaveTextContent(/Go vote!/))
+
+    await user.click(screen.getByRole('button', { name: /Regenerate/ }))
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(box).toHaveTextContent(/Vote soon\./)
+    expect(box).not.toHaveTextContent(/The AI rewrite/)
+  })
+
   it('treats dictation as manual input: clears errors, shows Improve, and improves the dictated text', async () => {
     api.mock('POST /v1/outreach/social/draft', { status: 500, data: {} })
     openFlow()

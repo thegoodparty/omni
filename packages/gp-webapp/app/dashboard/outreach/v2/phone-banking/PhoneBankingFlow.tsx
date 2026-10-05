@@ -700,7 +700,10 @@ export const PhoneBankingFlow = ({
   const handleScriptChange = (value: string) => {
     setScript(value)
     setScriptManuallyEdited(true)
-    if (draftMutation.isError) resetDraftMutation()
+    // An edit wins over a reply still in flight, which would otherwise land
+    // on top of it. Dropping the call also clears a failed one's error.
+    draftRequestRef.current += 1
+    if (draftMutation.isPending || draftMutation.isError) resetDraftMutation()
   }
 
   // Auto-suggests the campaign name from the purpose on entering the script
