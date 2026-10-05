@@ -1041,23 +1041,17 @@ describe('tool-error exclusions say which tool and why', () => {
     const report = await withCauses([
       {
         tool: 'Bash',
-        message: "KeyError: 'PARAMS_JSON'",
+        errorClass: 'KeyError',
         pairs: 9,
         arms: ['base', 'candidate'],
       },
-      {
-        tool: 'Read',
-        message: 'File does not exist.',
-        pairs: 1,
-        arms: ['base'],
-      },
+      { tool: 'Read', errorClass: 'exit code 1', pairs: 1, arms: ['base'] },
     ])
     const lines = report.split('\n')
     const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
     expect(lines.slice(at + 1, at + 3)).toEqual([
-      "- chief_of_staff: `Bash` — `KeyError: 'PARAMS_JSON'` " +
-        '(×9, base and candidate)',
-      '- chief_of_staff: `Read` — `File does not exist.` (×1, base)',
+      '- chief_of_staff: `Bash` — KeyError (×9, base and candidate)',
+      '- chief_of_staff: `Read` — exit code 1 (×1, base)',
     ])
   })
 
@@ -1065,7 +1059,7 @@ describe('tool-error exclusions say which tool and why', () => {
     const report = await withCauses(
       Array.from({ length: 7 }, (_, i) => ({
         tool: `tool${i}`,
-        message: 'boom',
+        errorClass: 'other',
         pairs: 1,
         arms: ['candidate' as const],
       })),
@@ -1075,25 +1069,57 @@ describe('tool-error exclusions say which tool and why', () => {
     expect(report).toContain('- and 2 more')
   })
 
-  // Tool output on a public summary: a backtick would close the code span and
-  // let the rest render as markdown or HTML.
-  it('keeps error text inside its code span', async () => {
-    const report = await withCauses([
-      {
-        tool: 'Bash',
-        message: 'bad `<img src=x>` here',
-        pairs: 1,
-        arms: ['base'],
-      },
-    ])
-    expect(report).toContain("`bad '<img src=x>' here`")
-  })
-
   it('adds nothing when no pair was excluded for a tool error', async () => {
     const report = await withCauses([])
     const lines = report.split('\n')
     const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
     expect(lines[at + 1]).toBe('')
+  })
+
+  // THE PUBLIC-PAGE GUARANTEE, end to end. omni is public and this report
+  // reaches the run log and the step summary. Each message below is the
+  // kind of thing a tool really prints, carrying voter data or a secret that
+  // redaction cannot be trusted to recognise. None of it may reach the page:
+  // only the tool name and a fixed error class do.
+  it('never prints error text, whatever the record holds', async () => {
+    const leaks = [
+      'Jane',
+      '123 Oak St',
+      'Jane Smith, 742 Evergreen Terrace',
+      '555-867-5309',
+      '078-05-1120',
+      'QWxhZGRpbjpvcGVuIHNlc2FtZQ==',
+      'warehouse.cloud.internal',
+      'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      'PARAMS_JSON',
+    ]
+    const messages = [
+      "statement failed: SELECT * FROM voters WHERE first_name='Jane' " +
+        "AND address='123 Oak St'",
+      'Exit code 1\nTraceback (most recent call last):\n' +
+        "KeyError: 'Jane Smith, 742 Evergreen Terrace'",
+      'no voter at 555-867-5309 or 078-05-1120',
+      'Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==',
+      'could not reach warehouse.cloud.internal:8443',
+      'aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      "KeyError: 'PARAMS_JSON'",
+    ]
+    const records = messages.flatMap((message, i) =>
+      [BASE, CANDIDATE].map((record) => ({
+        ...record,
+        caseId: `leak-${i}`,
+        runId: `run_${record.arm}_leak_${i}`,
+        telemetry: { ...record.telemetry, toolCalls: 1, toolErrors: 1 },
+        toolErrorDetails: [{ tool: 'Bash', message }],
+      })),
+    )
+    const report = renderReport({
+      agents: [await pipeline([...sweepRecords(3), ...records])],
+    })
+
+    expect(report).toContain('`Bash` — KeyError (×2, base and candidate)')
+    for (const leak of leaks) expect(report).not.toContain(leak)
   })
 })
 

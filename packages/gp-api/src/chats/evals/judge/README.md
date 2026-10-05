@@ -797,13 +797,21 @@ CAN'T SAY and leaves the delta.
 
 Each record names its failures in `toolErrorDetails`: the tool and its error
 text, for the first 10 failing calls, each cut to 300 characters (head and
-tail, so a traceback keeps the exception that ends it). Both runners fill it,
-and `toolErrorDetails.ts` redacts it first, since it reaches the public step
-summary: the arm's secrets by value, then keys, tokens, credentialed URLs,
-emails, ids and long digit runs by shape. The report lists the causes under
-the "Excluded pairs" line, grouped by tool and the error's last line, with the
-pair count and the arms it hit. A record written before the field existed
-shows as `unknown`, `no detail in the record`.
+tail, so a traceback keeps the exception that ends it). Both runners fill it.
+The text is redacted on the way in (`toolErrorDetails.ts`: the arm's secrets
+by value, then keys, tokens, URLs, internal hosts, IPs, emails, phones, SSNs,
+ids and long digit runs by shape), but redaction cannot recognise a name or an
+address, so **the text never reaches a public page**. It stays in the record,
+which lives on the runner and in the private bucket.
+
+The report, which is public (run log, step summary), prints only the tool name
+(allowlisted by `publicToolName`, else `unknown`) and a fixed class from
+`errorClass`: an exception type such as `KeyError`, an upper-case code such as
+`PARSE_SYNTAX_ERROR`, `HTTP 503`, `timeout`, `exit code N`, or `other`. Causes
+are grouped by tool and class under the "Excluded pairs" line, with the pair
+count and the arms hit. A record written before the field existed shows as
+`unknown`, `unrecorded`. Anything new that renders a tool error publicly must
+go through `errorClass`, never the message.
 
 **A refusal is a result, not a failure.** `blocked` keeps its output and stays
 judgeable, because whether declining was correct is exactly what a verdict

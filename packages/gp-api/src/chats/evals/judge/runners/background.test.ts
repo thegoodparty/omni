@@ -999,6 +999,70 @@ describe('parseTrace', () => {
     ])
   })
 
+  // The CLI dialect carries the call's id on its result, which survives a
+  // batch answered out of order where call order would not.
+  it('pairs a CLI result with its call by tool_use_id', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","id":"tu_1","name":"Bash","input":{}},' +
+          '{"type":"tool_use","id":"tu_2","name":"Read","input":{}}]}}',
+        JSON.stringify({
+          type: 'user',
+          message: {
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'tu_2',
+                content: 'missing',
+                is_error: true,
+              },
+              {
+                type: 'tool_result',
+                tool_use_id: 'tu_1',
+                content: 'ok',
+                is_error: false,
+              },
+            ],
+          },
+        }),
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrorDetails).toEqual([
+      { tool: 'Read', message: 'missing' },
+    ])
+    expect(summary.trace[0]?.error).toBeUndefined()
+    expect(summary.trace[1]?.error).toBeDefined()
+  })
+
+  it('pins an unknown tool_use_id to no call rather than the oldest', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","id":"tu_1","name":"Bash","input":{}}]}}',
+        JSON.stringify({
+          type: 'user',
+          message: {
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'tu_gone',
+                content: 'boom',
+                is_error: true,
+              },
+            ],
+          },
+        }),
+      ].join('\n'),
+    )
+
+    expect(summary.trace[0]?.error).toBeUndefined()
+    expect(summary.toolErrorDetails).toEqual([
+      { tool: 'unknown', message: 'boom' },
+    ])
+  })
+
   it('bounds the detail list and each message', () => {
     const calls = Array.from({ length: 12 }, (_, i) => [
       '{"type":"assistant","message":{"content":[' +

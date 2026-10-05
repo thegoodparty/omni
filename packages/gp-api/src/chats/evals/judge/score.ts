@@ -8,6 +8,7 @@ import {
   type SlotVerdict,
 } from './judge'
 import type { ExcludedCase, NormalizedAgent, SlotMap } from './normalize'
+import { errorClass, publicToolName } from './toolErrorDetails'
 import { priceUsd, sharesPricing } from './pricing'
 import {
   ArmSchema,
@@ -118,10 +119,11 @@ export interface ExclusionCounts {
 }
 
 export interface ToolErrorCause {
+  // Allowlisted by publicToolName, so safe to print.
   tool: string
-  // One line of the error: the last non-blank one, since that is where a
-  // traceback or a shell failure names its cause.
-  message: string
+  // A fixed class from errorClass, never the error text: the report is
+  // public and the text can carry voter data.
+  errorClass: string
   // Excluded pairs this cause appeared in, whichever arm it hit.
   pairs: number
   arms: readonly Arm[]
@@ -600,41 +602,37 @@ const floorVerdicts = (
   }
 }
 
-// Graded judgments only. A judgment whose every seat failed came back
-// `ungraded`, which is already counted in `exclusions.ungraded` and named in
-// the report; counting it here as well would report one failure twice and
-// bury the case this exists for — a panel that lost SOME seats and returned
-// a verdict anyway.
 // A record written before toolErrorDetails existed has the count and no
 // detail. It still gets a line, so the causes always account for every
 // tool-error exclusion.
-const UNRECORDED = { tool: 'unknown', message: 'no detail in the record' }
+const UNRECORDED = 'unrecorded'
 
-const headline = (message: string): string =>
-  message
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-    .at(-1) ?? message
-
+// Built from errorClass and publicToolName only, never from the message:
+// this is what reaches the public report. See toolErrorDetails.ts.
 const toolErrorCauses = (
   excluded: readonly ExcludedCase[],
 ): ToolErrorCause[] => {
   const causes = new Map<
     string,
-    { tool: string; message: string; pairs: number; arms: Set<Arm> }
+    { tool: string; errorClass: string; pairs: number; arms: Set<Arm> }
   >()
   for (const pair of excluded) {
     if (pair.reason !== 'toolError') continue
     const seen = new Set<string>()
     for (const arm of pair.arms) {
       const details = pair.records[arm].toolErrorDetails ?? []
-      for (const detail of details.length > 0 ? details : [UNRECORDED]) {
-        const message = headline(detail.message)
-        const key = `${detail.tool}\u0000${message}`
+      const found =
+        details.length > 0
+          ? details.map((detail) => ({
+              tool: publicToolName(detail.tool),
+              errorClass: errorClass(detail.message),
+            }))
+          : [{ tool: 'unknown', errorClass: UNRECORDED }]
+      for (const { tool, errorClass: cls } of found) {
+        const key = `${tool}\u0000${cls}`
         const cause = causes.get(key) ?? {
-          tool: detail.tool,
-          message,
+          tool,
+          errorClass: cls,
           pairs: 0,
           arms: new Set<Arm>(),
         }
@@ -654,10 +652,15 @@ const toolErrorCauses = (
       (a, b) =>
         b.pairs - a.pairs ||
         a.tool.localeCompare(b.tool) ||
-        a.message.localeCompare(b.message),
+        a.errorClass.localeCompare(b.errorClass),
     )
 }
 
+// Graded judgments only. A judgment whose every seat failed came back
+// `ungraded`, which is already counted in `exclusions.ungraded` and named in
+// the report; counting it here as well would report one failure twice and
+// bury the case this exists for — a panel that lost SOME seats and returned
+// a verdict anyway.
 const degradedPanel = (
   judgments: readonly GradedJudgment[],
 ): DegradedPanel | null => {

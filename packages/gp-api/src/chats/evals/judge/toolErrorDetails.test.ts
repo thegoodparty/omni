@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { capToolErrorDetails, toolErrorDetail } from './toolErrorDetails'
+import {
+  capToolErrorDetails,
+  errorClass,
+  publicToolName,
+  toolErrorDetail,
+} from './toolErrorDetails'
 
 const NO_ENV: NodeJS.ProcessEnv = {}
 
@@ -38,6 +43,36 @@ describe('toolErrorDetail redaction', () => {
       'connect postgres://u:p@host/db failed',
       'connect [redacted url] failed',
     ],
+    [
+      'an aws_secret_access_key',
+      'aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      'aws_secret_access_key = [redacted]',
+    ],
+    [
+      'an unlabelled AWS secret',
+      'got wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY back',
+      'got [redacted token] back',
+    ],
+    [
+      'basic auth',
+      'Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==',
+      'Authorization: [redacted] [redacted token]',
+    ],
+    [
+      'a basic credential',
+      'sent Basic QWxhZGRpbjpvcGVu',
+      'sent Basic [redacted token]',
+    ],
+    ['a dashed phone', 'call 555-867-5309 now', 'call [phone] now'],
+    ['a bracketed phone', 'call (555) 867-5309 now', 'call [phone] now'],
+    ['an SSN', 'ssn 078-05-1120 on file', 'ssn [ssn] on file'],
+    [
+      'an internal host',
+      'could not reach warehouse.cloud.internal:8443',
+      'could not reach [host]:8443',
+    ],
+    ['an ip', 'refused by 10.0.12.7', 'refused by [ip]'],
+    ['a url', 'GET https://x.example/a?b=c failed', 'GET [url] failed'],
   ])('strips %s', (_, input, expected) => {
     expect(messageOf(input)).toBe(expected)
   })
@@ -88,4 +123,64 @@ describe('toolErrorDetail bounds', () => {
       details.slice(0, 10).map((d) => d.tool),
     )
   })
+})
+
+// THE PUBLIC VOCABULARY. Anything this returns can land on a public page, so
+// every class is built from a captured token alone, never the message.
+describe('errorClass', () => {
+  it.each([
+    ['Exit code 2\nsomething went wrong', 'exit code 2'],
+    ["Exit code 1\nTraceback ...\nKeyError: 'PARAMS_JSON'", 'KeyError'],
+    ['json.decoder.JSONDecodeError: Expecting value', 'JSONDecodeError'],
+    [
+      'PeopleDbxUnavailableError: credential not configured',
+      'PeopleDbxUnavailableError',
+    ],
+    ['Traceback ...\nRuntimeWarning: overflow', 'RuntimeWarning'],
+    [
+      '[PARSE_SYNTAX_ERROR] Syntax error at or near SELECT',
+      'PARSE_SYNTAX_ERROR',
+    ],
+    ['request failed with status 503', 'HTTP 503'],
+    ['HTTP/1.1 404 Not Found', 'HTTP 404'],
+    ['Command timed out after 120s', 'timeout'],
+    ['something odd happened', 'other'],
+    ['', 'other'],
+  ])('classifies %j as %s', (message, expected) => {
+    expect(errorClass(message)).toBe(expected)
+  })
+
+  it.each([
+    // A name inside a KeyError is the KeyError, not the name.
+    ["KeyError: 'Jane Smith, 742 Evergreen Terrace'", 'KeyError'],
+    // A last line that is just data is not an exception name.
+    ['Traceback ...\nJane Smith', 'other'],
+    ['Jane Smith: 742 Evergreen Terrace', 'other'],
+    // A number that is not beside status wording is not a status.
+    ['voter 404 lives at 500 Main St', 'other'],
+    ['status 200', 'other'],
+    // Lowercase or embedded fake codes are not error codes.
+    ['jane_smith_error at 12 Oak', 'other'],
+    ['Jane_Smith_ERRORS here', 'other'],
+    // An exception-looking name must be one identifier.
+    ['Jane Smith Error: x', 'other'],
+    ['exit code 1; rm -rf', 'exit code 1'],
+  ])('does not leak from %j', (message, expected) => {
+    expect(errorClass(message)).toBe(expected)
+  })
+})
+
+describe('publicToolName', () => {
+  it('keeps an ordinary tool name', () => {
+    expect(publicToolName('mcp__databricks:query_v2')).toBe(
+      'mcp__databricks:query_v2',
+    )
+  })
+
+  it.each(['Jane Smith', '<img src=x>', '`Bash`', '', 'x'.repeat(81)])(
+    'refuses %j',
+    (tool) => {
+      expect(publicToolName(tool)).toBe('unknown')
+    },
+  )
 })

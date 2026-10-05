@@ -220,21 +220,17 @@ const exclusionLine = (score: AgentScore): string => {
 }
 
 const MAX_CAUSE_LINES = 5
-const MAX_CAUSE_CHARS = 160
 
-// Inside a code span, so error text from a tool cannot become markdown or
-// HTML on a public summary. A backtick would close the span, so it goes.
-const codeSpan = (text: string): string =>
-  `\`${text.replaceAll('`', "'").slice(0, MAX_CAUSE_CHARS)}\``
-
+// Tool name and error class only, both allowlisted upstream. The error text
+// itself is never printed: this page is public and the text can carry voter
+// data that no redaction can recognise.
 const toolErrorCauseLines = (score: AgentScore): string[] => {
   const causes = score.exclusions.toolErrorCauses
   const lines = causes
     .slice(0, MAX_CAUSE_LINES)
     .map(
       (cause) =>
-        `- ${score.agentId}: ${codeSpan(cause.tool)} — ` +
-        `${codeSpan(cause.message)} ` +
+        `- ${score.agentId}: \`${cause.tool}\` — ${cause.errorClass} ` +
         `(×${cause.pairs}, ${cause.arms.join(' and ')})`,
     )
   const more = causes.length - MAX_CAUSE_LINES

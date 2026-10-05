@@ -963,7 +963,7 @@ describe('exclusion counts', () => {
       toolErrorCauses: [
         {
           tool: 'query_constituent_data',
-          message: 'PeopleDbxUnavailableError: credential not configured',
+          errorClass: 'PeopleDbxUnavailableError',
           pairs: 1,
           arms: ['candidate'],
         },
@@ -1159,7 +1159,7 @@ describe('tool error causes', () => {
   })
   const params = [{ tool: 'Bash', message: TRACEBACK }]
 
-  it('groups by tool and cause line, counting pairs and naming arms', () => {
+  it('groups by tool and error class, counting pairs and naming arms', () => {
     const agent = normalizeAgent(
       [
         failing(BASE, 'a', params),
@@ -1178,18 +1178,31 @@ describe('tool error causes', () => {
     expect(score([], noFloor(), agent).exclusions.toolErrorCauses).toEqual([
       {
         tool: 'Bash',
-        message: "KeyError: 'PARAMS_JSON'",
+        errorClass: 'KeyError',
         pairs: 2,
         arms: ['base', 'candidate'],
       },
-      { tool: 'Bash', message: 'boom', pairs: 1, arms: ['candidate'] },
+      { tool: 'Bash', errorClass: 'other', pairs: 1, arms: ['candidate'] },
       {
         tool: 'unknown',
-        message: 'no detail in the record',
+        errorClass: 'unrecorded',
         pairs: 1,
         arms: ['base'],
       },
     ])
+  })
+
+  it('never carries a tool name outside the allowlist', () => {
+    const agent = normalizeAgent(
+      [
+        failing(BASE, 'a', [{ tool: 'Jane Smith <b>', message: 'boom' }]),
+        clean(CANDIDATE, 'a'),
+      ],
+      () => 0,
+    )
+    expect(
+      score([], noFloor(), agent).exclusions.toolErrorCauses.map((c) => c.tool),
+    ).toEqual(['unknown'])
   })
 
   it('is empty when nothing was excluded for a tool error', () => {

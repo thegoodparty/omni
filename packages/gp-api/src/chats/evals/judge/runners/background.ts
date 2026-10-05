@@ -776,6 +776,9 @@ const ContentBlockSchema = z.object({
   input: z.record(z.string(), JsonValueSchema).nullish(),
   is_error: z.boolean().nullish(),
   content: ToolResultContentSchema,
+  // The CLI dialect ties a result to its call by id; the flat one cannot.
+  id: z.string().nullish(),
+  tool_use_id: z.string().nullish(),
 })
 
 const UsageSchema = z.object({
@@ -903,13 +906,34 @@ export const parseTrace = (jsonl: string): TraceSummary => {
   // in one assistant message then two results, first failing, marks the SECOND
   // call as the failure. Every attribution after that is wrong too.
   const awaitingResult: number[] = []
+  // When a result does carry its call's id, that beats order: it stays right
+  // even if the harness ever answers a batch out of order.
+  const callById = new Map<string, number>()
+
+  const takeCall = (
+    toolUseId: string | null | undefined,
+  ): number | undefined => {
+    if (toolUseId === null || toolUseId === undefined) {
+      return awaitingResult.shift()
+    }
+    const index = callById.get(toolUseId)
+    callById.delete(toolUseId)
+    const at = index === undefined ? -1 : awaitingResult.indexOf(index)
+    // An id naming no unanswered recorded call — its tool_use fell past the
+    // step cap or was lost — pins to nothing rather than stealing the
+    // oldest unanswered call from the result that really owns it.
+    if (at === -1) return undefined
+    awaitingResult.splice(at, 1)
+    return index
+  }
 
   const consumeResult = (
     isError: boolean,
     error: string,
     content: z.infer<typeof ToolResultContentSchema>,
+    toolUseId?: string | null,
   ): void => {
-    const index = awaitingResult.shift()
+    const index = takeCall(toolUseId)
     if (!isError) return
     const step = index === undefined ? undefined : trace[index]
     if (toolErrorDetails.length < MAX_TOOL_ERROR_DETAILS) {
@@ -945,7 +969,10 @@ export const parseTrace = (jsonl: string): TraceSummary => {
         // mis-align the rest, because results arrive in call order: every
         // pre-cap call is answered before a post-cap one is, so the queue only
         // ever holds recorded steps that are still genuinely unanswered.
-        if (index !== undefined) awaitingResult.push(index)
+        if (index !== undefined) {
+          awaitingResult.push(index)
+          if (block.id) callById.set(block.id, index)
+        }
         if (LIVE_WEB_TOOLS.has(tool)) liveWeb = true
         // Only a structured `sql` field is taken. A background agent reaches
         // the warehouse by curling the broker from Bash, so its SQL is buried
@@ -966,7 +993,12 @@ export const parseTrace = (jsonl: string): TraceSummary => {
       if (block.type === 'tool_result') {
         const isError = block.is_error === true
         if (isError) rawToolErrors += 1
-        consumeResult(isError, 'tool call failed', block.content)
+        consumeResult(
+          isError,
+          'tool call failed',
+          block.content,
+          block.tool_use_id,
+        )
       }
     }
   }
