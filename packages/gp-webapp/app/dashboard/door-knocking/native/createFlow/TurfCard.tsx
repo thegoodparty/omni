@@ -72,6 +72,12 @@ interface TurfCardProps {
   // refusal is attached to the turf it is about rather than announced
   // somewhere else on the screen.
   error?: string | null
+  // What the card calls the thing it is about. Constituent lists cut their
+  // boundary into shapes with this same card, and a shape is not a turf.
+  noun?: 'turf' | 'shape'
+  // Passed to the delete confirm, for a card rendered inside a full-screen
+  // layer that sits above the page's own dialogs.
+  dialogLayerClassName?: string
 }
 
 // One turf in the panel's list, closed to a row or open onto its settings.
@@ -97,12 +103,16 @@ export const TurfCard = ({
   onAssign,
   onRename,
   error = null,
+  noun = 'turf',
+  dialogLayerClassName,
 }: TurfCardProps) => {
   const member = team.find((option) => option.userId === assigneeId)
   // What delete calls a turf nobody has named yet. "Delete ?" is the
   // alternative, and the turf being cut can now be thrown away before it
   // has either a name or a third corner.
-  const deleteLabel = name || 'this turf'
+  const deleteLabel = name || `this ${noun}`
+  const unnamedLabel =
+    noun === 'turf' ? UNNAMED_TURF_LABEL : `Name this ${noun}...`
   // Only the open card. A closed row is for comparing turfs, and an input on
   // every one of them would put five focus targets in a list whose job is to
   // be scanned.
@@ -146,8 +156,8 @@ export const TurfCard = ({
           <input
             key={name}
             defaultValue={name}
-            aria-label="Turf name"
-            placeholder={UNNAMED_TURF_LABEL}
+            aria-label={noun === 'turf' ? 'Turf name' : 'Shape name'}
+            placeholder={unnamedLabel}
             maxLength={MAX_TURF_NAME_LENGTH}
             className="min-w-0 flex-1 truncate rounded-sm border-0 bg-transparent p-0 text-sm font-medium outline-none placeholder:font-normal placeholder:text-muted-foreground focus:ring-2 focus:ring-primary-focus"
             onClick={(event) => event.stopPropagation()}
@@ -173,7 +183,7 @@ export const TurfCard = ({
               name ? 'font-medium' : 'text-muted-foreground'
             }`}
           >
-            {name || UNNAMED_TURF_LABEL}
+            {name || unnamedLabel}
           </span>
         )}
         {/* The canvasser and the count are one group, right-aligned, so the
@@ -315,6 +325,8 @@ export const TurfCard = ({
               {onRemove && (
                 <RemoveTurfDialog
                   turfName={deleteLabel}
+                  noun={noun}
+                  layerClassName={dialogLayerClassName}
                   onRemove={onRemove}
                   open={confirmOpen}
                   onOpenChange={setConfirmOpen}
@@ -323,7 +335,12 @@ export const TurfCard = ({
             </>
           ) : (
             onRemove && (
-              <RemoveTurfDialog turfName={deleteLabel} onRemove={onRemove}>
+              <RemoveTurfDialog
+                turfName={deleteLabel}
+                noun={noun}
+                layerClassName={dialogLayerClassName}
+                onRemove={onRemove}
+              >
                 <button
                   type="button"
                   aria-label={`Delete ${deleteLabel}`}
