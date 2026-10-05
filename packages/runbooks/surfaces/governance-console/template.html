@@ -2170,7 +2170,8 @@
     if (item.queue === 'surface') add(body, renderRelabel(item.relabel))
 
     const rows = item.evidence || []
-    const selectable = item.queue === 'flags' && rows.length > 1
+    const selectable =
+      item.queue === 'flags' && new Set(rows.map((r) => r.event_type)).size > 1
     const picker = selectable ? renderEventVerdicts(item, row, summary) : null
     const evidence = renderEvidence(rows, {
       selectable,
