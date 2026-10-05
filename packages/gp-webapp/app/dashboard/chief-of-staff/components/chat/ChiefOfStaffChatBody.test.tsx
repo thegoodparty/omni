@@ -1468,7 +1468,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_map" />)
 
       await user.click(
-        await screen.findByRole('button', { name: /draw an area/i }),
+        await screen.findByRole('button', { name: /draw shapes/i }),
       )
 
       expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
@@ -1495,7 +1495,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+        screen.queryByRole('button', { name: /draw shapes|edit shapes/i }),
       ).not.toBeInTheDocument()
     })
 
@@ -1589,7 +1589,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_two" />)
 
       const buttons = await screen.findAllByRole('button', {
-        name: /draw an area/i,
+        name: /draw shapes/i,
       })
       expect(buttons).toHaveLength(2)
 
@@ -1599,7 +1599,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       // Both, including the one that opened it: re-clicking its own card
       // would remount the overlay just as readily.
       expect(
-        screen.queryAllByRole('button', { name: /draw an area/i }),
+        screen.queryAllByRole('button', { name: /draw shapes/i }),
       ).toHaveLength(0)
     })
 
@@ -1653,7 +1653,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_saved" />)
 
       await user.click(
-        await screen.findByRole('button', { name: /edit area/i }),
+        await screen.findByRole('button', { name: /edit shapes/i }),
       )
       await user.click(
         await within(await screen.findByTestId('boundary-overlay')).findByRole(
@@ -1737,7 +1737,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       // Draw and save while the first turn is still streaming.
       await user.click(
-        await screen.findByRole('button', { name: /edit area/i }),
+        await screen.findByRole('button', { name: /edit shapes/i }),
       )
       await user.click(
         await within(await screen.findByTestId('boundary-overlay')).findByRole(
@@ -1790,7 +1790,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       // The card itself renders — only the button waits.
       expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+        screen.queryByRole('button', { name: /draw shapes|edit shapes/i }),
       ).not.toBeInTheDocument()
     })
 
@@ -1832,7 +1832,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       // Opened while the turn is still streaming, off the live card.
       await user.click(
-        await screen.findByRole('button', { name: /draw an area/i }),
+        await screen.findByRole('button', { name: /draw shapes/i }),
       )
       expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
 

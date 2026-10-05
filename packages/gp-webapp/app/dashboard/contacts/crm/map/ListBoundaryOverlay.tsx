@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import type { ContactsLabels } from 'app/dashboard/shared/contactsLabels'
-import { drawnRings, type PolygonRing } from 'app/dashboard/shared/ringGeometry'
+import { isDrawnShape, type ListShape } from 'app/dashboard/shared/listShapes'
 import type { Person } from '../shared/contacts-types'
 import { toContactPoints } from './contactListPoints'
 import BoundaryDrawOverlay from './BoundaryDrawOverlay'
@@ -10,11 +10,11 @@ import BoundaryDrawOverlay from './BoundaryDrawOverlay'
 interface ListBoundaryOverlayProps {
   people: Person[]
   truncated: boolean
-  initialRings: PolygonRing[]
+  initialShapes: ListShape[]
   labels: ContactsLabels
   isSaving: boolean
   onCancel: () => void
-  onSave: (rings: PolygonRing[]) => void
+  onSave: (shapes: ListShape[]) => void
 }
 
 // A SAVED list's half of the drawing surface: person records in, coordinates
@@ -23,7 +23,7 @@ interface ListBoundaryOverlayProps {
 export default function ListBoundaryOverlay({
   people,
   truncated,
-  initialRings,
+  initialShapes,
   labels,
   isSaving,
   onCancel,
@@ -39,12 +39,12 @@ export default function ListBoundaryOverlay({
       points={points}
       truncated={truncated}
       unmappable={unmappable}
-      initialRings={initialRings}
+      initialShapes={initialShapes}
       labels={labels}
       // Truncated means the dots are a page of a longer list, and a boundary
       // already saved means they are the people it kept — either way the
       // running count describes what is drawn and not what will be saved.
-      isEstimate={truncated || drawnRings(initialRings).length > 0}
+      isEstimate={truncated || initialShapes.some(isDrawnShape)}
       isSaving={isSaving}
       onCancel={onCancel}
       onSave={onSave}

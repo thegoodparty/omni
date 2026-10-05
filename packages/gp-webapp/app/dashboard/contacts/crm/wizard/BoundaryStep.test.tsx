@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
+import type { ListShape } from 'app/dashboard/shared/listShapes'
 import type { PolygonRing } from 'app/dashboard/shared/ringGeometry'
 import BoundaryStep from './BoundaryStep'
 
@@ -12,30 +13,22 @@ const TAPS: PolygonRing = [
   [-85.61, 44.77],
 ]
 
-// deck.gl and maplibre don't run in jsdom. The stub reports whether it was
-// handed a writer, and offers a tap per scripted corner only when it was —
-// so a query for "place point 1" can only ever reach the drawing surface.
+// deck.gl and maplibre don't run in jsdom. The stub offers a tap per
+// scripted corner, appended to whatever ring it was handed — so three taps
+// cut one shape in whichever shape the surface has under the cursor.
 vi.mock('../map/ContactListMap', () => ({
   __esModule: true,
   default: function ContactListMapStub({
-    contactPoints,
     drawRing,
-    otherRings,
+    drawColor,
     onDrawRingChange,
   }: {
-    contactPoints?: unknown[]
     drawRing?: PolygonRing
-    otherRings?: PolygonRing[]
+    drawColor?: string
     onDrawRingChange?: (ring: PolygonRing) => void
   }) {
     return (
-      <div
-        data-testid="contact-map-stub"
-        data-points={(contactPoints ?? []).length}
-        data-ring={JSON.stringify(drawRing ?? [])}
-        data-other-rings={JSON.stringify(otherRings ?? [])}
-        data-draw-enabled={String(Boolean(onDrawRingChange))}
-      >
+      <div data-testid="contact-map-stub" data-draw-color={drawColor ?? ''}>
         {onDrawRingChange &&
           TAPS.map((tap, index) => (
             <button
@@ -66,17 +59,19 @@ vi.mock('./useFilterPoints', () => ({
 const LABELS = getContactsLabels(false)
 
 const Harness = ({
-  onRingsChange,
+  onShapesChange,
+  initial = [],
 }: {
-  onRingsChange: (r: PolygonRing[]) => void
+  onShapesChange: (s: ListShape[]) => void
+  initial?: ListShape[]
 }) => {
-  const [rings, setRings] = useState<PolygonRing[]>([])
+  const [shapes, setShapes] = useState<ListShape[]>(initial)
   return (
     <BoundaryStep
-      rings={rings}
-      onRingsChange={(next) => {
-        setRings(next)
-        onRingsChange(next)
+      shapes={shapes}
+      onShapesChange={(next) => {
+        setShapes(next)
+        onShapesChange(next)
       }}
       labels={LABELS}
       filters={{}}
@@ -90,66 +85,109 @@ const Harness = ({
   )
 }
 
-describe('BoundaryStep — the shape is cut full-screen', () => {
-  it('shows a read-only preview until the CTA opens the drawing surface', async () => {
+const DOWNTOWN: ListShape = { name: 'Downtown', color: '#2563eb', ring: TAPS }
+
+const cutOneShape = async (user: ReturnType<typeof userEvent.setup>) => {
+  for (const label of ['place point 1', 'place point 2', 'place point 3']) {
+    await user.click(await screen.findByRole('button', { name: label }))
+  }
+}
+
+describe('BoundaryStep — shapes are cut full-screen, the door-knocking way', () => {
+  it('opens the drawing surface on an empty state', async () => {
     const user = userEvent.setup()
-    render(<Harness onRingsChange={vi.fn()} />)
+    render(<Harness onShapesChange={vi.fn()} />)
 
-    expect(await screen.findByTestId('contact-map-stub')).toHaveAttribute(
-      'data-draw-enabled',
-      'false',
-    )
+    await user.click(screen.getByRole('button', { name: 'Draw shapes' }))
 
-    await user.click(screen.getByRole('button', { name: 'Draw an area' }))
-
-    expect(await screen.findByRole('dialog')).toBeInTheDocument()
-    const maps = screen.getAllByTestId('contact-map-stub')
-    expect(
-      maps.some((map) => map.getAttribute('data-draw-enabled') === 'true'),
-    ).toBe(true)
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('No shapes yet')).toBeInTheDocument()
   })
 
-  // The ring reaches the wizard on Save and not before, so a shape abandoned
-  // half-drawn leaves the step exactly as it was.
-  it('hands the ring back only when the overlay saves', async () => {
+  // A shape's name is set on the surface that draws it, and reaches the
+  // wizard with its ring on Save and not before.
+  it('names a shape and hands it back only when the surface saves', async () => {
     const user = userEvent.setup()
-    const onRingChange = vi.fn()
-    render(<Harness onRingsChange={onRingChange} />)
+    const onShapesChange = vi.fn()
+    render(<Harness onShapesChange={onShapesChange} />)
 
-    await user.click(screen.getByRole('button', { name: 'Draw an area' }))
-    for (const label of ['place point 1', 'place point 2', 'place point 3']) {
-      await user.click(await screen.findByRole('button', { name: label }))
-    }
-    expect(onRingChange).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Draw shapes' }))
+    await cutOneShape(user)
+    const nameInput = screen.getByRole('textbox', { name: 'Shape name' })
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Downtown{Enter}')
+    expect(onShapesChange).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(onRingChange).toHaveBeenCalledWith([TAPS])
+    expect(onShapesChange).toHaveBeenCalledWith([DOWNTOWN])
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-other-rings',
-      JSON.stringify([TAPS]),
-    )
+    expect(screen.getByText('Downtown')).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Edit area' }),
+      screen.getByRole('button', { name: 'Draw another shape' }),
     ).toBeInTheDocument()
   })
 
-  it('discards the ring on Cancel', async () => {
+  it('opens on a fresh shape in the next colour when adding another', async () => {
     const user = userEvent.setup()
-    const onRingChange = vi.fn()
-    render(<Harness onRingsChange={onRingChange} />)
+    const onShapesChange = vi.fn()
+    render(<Harness onShapesChange={onShapesChange} initial={[DOWNTOWN]} />)
 
-    await user.click(screen.getByRole('button', { name: 'Draw an area' }))
+    await user.click(screen.getByRole('button', { name: 'Draw another shape' }))
+    await cutOneShape(user)
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onShapesChange).toHaveBeenCalledWith([
+      DOWNTOWN,
+      { name: 'Shape 1', color: '#16a34a', ring: TAPS },
+    ])
+  })
+
+  it('reopens the map on the shape a card asks to edit', async () => {
+    const user = userEvent.setup()
+    render(<Harness onShapesChange={vi.fn()} initial={[DOWNTOWN]} />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Options for Downtown' }),
+    )
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+
+    await screen.findByRole('dialog')
+    expect(screen.getByRole('textbox', { name: 'Shape name' })).toHaveValue(
+      'Downtown',
+    )
+    expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
+      'data-draw-color',
+      '#2563eb',
+    )
+  })
+
+  it('deletes a shape from its card after a confirm', async () => {
+    const user = userEvent.setup()
+    const onShapesChange = vi.fn()
+    render(<Harness onShapesChange={onShapesChange} initial={[DOWNTOWN]} />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Options for Downtown' }),
+    )
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }))
+    await user.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    expect(onShapesChange).toHaveBeenCalledWith([])
+  })
+
+  it('discards what was drawn on Cancel', async () => {
+    const user = userEvent.setup()
+    const onShapesChange = vi.fn()
+    render(<Harness onShapesChange={onShapesChange} />)
+
+    await user.click(screen.getByRole('button', { name: 'Draw shapes' }))
     await user.click(
       await screen.findByRole('button', { name: 'place point 1' }),
     )
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
-    expect(onRingChange).not.toHaveBeenCalled()
-    expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-other-rings',
-      '[]',
-    )
+    expect(onShapesChange).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

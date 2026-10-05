@@ -4,6 +4,7 @@ import { FetchError } from 'ofetch'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSaveListBoundary } from './useSaveListBoundary'
+import type { ListShape } from 'app/dashboard/shared/listShapes'
 
 vi.mock('gpApi/typed-request', () => ({ clientRequest: vi.fn() }))
 vi.mock('helpers/useSnackbar', () => ({
@@ -23,11 +24,15 @@ vi.mock('helpers/analyticsHelper', () => ({
 
 const mockedRequest = vi.mocked(clientRequest)
 
-const RING: Array<[number, number]> = [
-  [0, 0],
-  [1, 0],
-  [1, 1],
-]
+const SHAPE: ListShape = {
+  name: 'Downtown',
+  color: '#2563eb',
+  ring: [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+  ],
+}
 
 describe('useSaveListBoundary', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -74,7 +79,7 @@ describe('useSaveListBoundary', () => {
         },
       )
 
-      result.current.mutate([RING])
+      result.current.mutate([SHAPE])
 
       await waitFor(() => expect(onClose).toHaveBeenCalled())
       // Closing is last whatever happened; how many caches were refreshed
@@ -90,13 +95,13 @@ describe('useSaveListBoundary', () => {
     },
   )
 
-  // The chat's turn says one of two things and the rings are the only thing
-  // that decides which, so the flag has to come off the same `drawnRings`
-  // the event reads rather than off the caller's own idea of what it sent.
+  // The chat's turn says one of two things and the shapes are the only thing
+  // that decides which, so the flag has to come off the same write the
+  // event reads rather than off the caller's own idea of what it sent.
   it.each([
-    ['a drawn shape', [RING], false],
+    ['a drawn shape', [SHAPE], false],
     ['a cleared boundary', [], true],
-  ])('reports %s to onSaved', async (_label, rings, cleared) => {
+  ])('reports %s to onSaved', async (_label, shapes, cleared) => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
@@ -114,8 +119,38 @@ describe('useSaveListBoundary', () => {
       },
     )
 
-    result.current.mutate(rings)
+    result.current.mutate(shapes)
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ cleared }))
+  })
+
+  // The names ride beside the geometry, one per part in the same order, or
+  // gp-api has nothing to call the shapes by when the list reopens.
+  it("sends each shape's name and colour beside the boundary", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    mockedRequest.mockResolvedValue({ data: { id: 7 } } as never)
+
+    const { result } = renderHook(() => useSaveListBoundary(7, 'chat'), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    })
+
+    result.current.mutate([SHAPE])
+
+    await waitFor(() =>
+      expect(mockedRequest).toHaveBeenCalledWith(
+        'PUT /v1/voters/voter-file/filter/:id',
+        expect.objectContaining({
+          id: '7',
+          geoPoly: expect.objectContaining({ type: 'Polygon' }),
+          geoPolyLabels: [{ name: 'Downtown', color: '#2563eb' }],
+        }),
+      ),
+    )
   })
 })

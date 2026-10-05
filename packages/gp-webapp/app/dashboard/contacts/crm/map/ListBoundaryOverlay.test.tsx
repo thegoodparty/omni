@@ -5,14 +5,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
 import ListBoundaryOverlay from './ListBoundaryOverlay'
 
-vi.mock('./BoundaryDrawPanel', () => ({
+vi.mock('./ContactListMap', () => ({
   __esModule: true,
-  default: function BoundaryDrawPanelStub() {
-    return (
-      <div data-testid="draw-panel">
-        <button type="button">Undo last point</button>
-      </div>
-    )
+  default: function ContactListMapStub() {
+    return <div data-testid="contact-map" />
   },
 }))
 
@@ -28,7 +24,7 @@ const renderOverlay = (over: Partial<{ onCancel: () => void }> = {}) =>
       <ListBoundaryOverlay
         people={[]}
         truncated={false}
-        initialRings={[]}
+        initialShapes={[]}
         labels={LABELS}
         isSaving={false}
         onCancel={over.onCancel ?? vi.fn()}
@@ -106,13 +102,13 @@ describe('ListBoundaryOverlay focus handling', () => {
       return (
         <>
           <button type="button" onClick={() => setOpen(true)}>
-            Draw an area
+            Draw shapes
           </button>
           {open && (
             <ListBoundaryOverlay
               people={[]}
               truncated={false}
-              initialRings={[]}
+              initialShapes={[]}
               labels={LABELS}
               isSaving={false}
               onCancel={() => setOpen(false)}
@@ -124,7 +120,7 @@ describe('ListBoundaryOverlay focus handling', () => {
     }
     render(<Harness />)
 
-    const opener = screen.getByRole('button', { name: 'Draw an area' })
+    const opener = screen.getByRole('button', { name: 'Draw shapes' })
     await user.click(opener)
     await screen.findByRole('dialog')
     expect(opener).not.toHaveFocus()
