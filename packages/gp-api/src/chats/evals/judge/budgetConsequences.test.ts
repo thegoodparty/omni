@@ -93,7 +93,7 @@ describe('what it makes possible, with every run started at once', () => {
   // than one after another. Run in sequence, eleven of these did not fit.
   it('admits every agent on its own', () => {
     expect(sweepable.filter((one) => !fitsAlone(one))).toEqual([])
-    expect(sweepable.length).toBe(12)
+    expect(sweepable.length).toBe(15)
   })
 
   // TOGETHER IS NOT THE SUM OF ALONE. One arm fills twelve slots in registry

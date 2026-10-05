@@ -229,16 +229,17 @@ Failure: the call raises (connection error, scope violation, or `UpstreamError`)
 Before classifying agenda items, fetch the official's priorities and community issues over MCP. These shape both tier selection (Step 5) and the stamping rule (Step 17):
 
 ```
-GET /v1/priorities          → org's durable priority list (may be empty)
-GET /v1/community-issues → latest community issues for the org (may be empty)
+GET /v1/priorities                          → org's durable priority list (may be empty)
+GET /v1/community-issues?list=top_community → top community issues for the org (may be empty)
+GET /v1/community-issues?list=trending      → trending issues for the org (may be empty)
 ```
 
-Both are `@McpTool` endpoints; call them with the org's auth context. Store the results in memory:
+All three are `@McpTool` endpoints; call them with the org's auth context. The community-issues tool requires `list`, so call it once per list (`GET_community_issues` with `query: { list: "top_community" }`, then with `query: { list: "trending" }`). A call without `list` is rejected. Store the results in memory:
 
 - `PRIORITIES` — array of `{ id, title, description }` objects (non-archived, active)
-- `COMMUNITY_ISSUES` — array of `{ id, title, summary, list, category }` objects (non-archived)
+- `COMMUNITY_ISSUES` — the `issues` from both list calls combined, an array of `{ id, title, summary, list, category }` objects (non-archived)
 
-If either call fails or returns empty, treat that pool as empty and proceed without it. Do not abort the run — Haystaq district data is the fallback.
+Each call contributes on its own. If the priorities call fails or returns empty, `PRIORITIES` is empty. If one community-issues list call fails or returns empty, keep the issues from the other; `COMMUNITY_ISSUES` is empty only when both list calls fail or return nothing. Do not abort the run — Haystaq district data is the fallback.
 
 ### Step 1c — Determine the triage hierarchy for this org
 

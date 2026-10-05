@@ -9,6 +9,7 @@ import {
   substituteBackgroundCases,
   UnsubstitutedPlaceholderError,
 } from '../caseParams'
+import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
 import { RunRecordSchema, type Arm, type RunRecord } from '../record'
 import {
@@ -465,6 +466,55 @@ describe('buildDispatchMessage', () => {
     ])
   })
 
+  // The three agents that read gp-api run as the seeded fixture account, and
+  // the broker can only reach gp-api for a ticket that names a user.
+  it('names the fixture user when asked to, on the fixture organization', () => {
+    const message = buildDispatchMessage({
+      ...base,
+      organizationSlug: JUDGE_FIXTURE.orgSlug,
+      clerkUserId: JUDGE_FIXTURE.clerkUserId,
+      agentCase: { caseId: 'c1', params: {} },
+    })
+
+    expect(message.clerk_user_id).toBe('user_judge_fixture')
+    expect(message.organization_slug).toBe('judge-fixture')
+  })
+
+  // A judge run must never act as a real person: the proxy would let it read,
+  // and write, as them.
+  it('refuses any user but the fixture one', () => {
+    expect(() =>
+      buildDispatchMessage({
+        ...base,
+        organizationSlug: JUDGE_FIXTURE.orgSlug,
+        clerkUserId: 'user_2abcRealPerson',
+        agentCase: { caseId: 'c1', params: {} },
+      }),
+    ).toThrow(/only the fixture user/)
+  })
+
+  it('refuses the fixture user for an agent that does not read gp-api', () => {
+    expect(() =>
+      buildDispatchMessage({
+        ...base,
+        agentId: 'self_research',
+        organizationSlug: JUDGE_FIXTURE.orgSlug,
+        clerkUserId: JUDGE_FIXTURE.clerkUserId,
+        agentCase: { caseId: 'c1', params: {} },
+      }),
+    ).toThrow(/does not read gp-api/)
+  })
+
+  it('refuses the fixture user on any other organization', () => {
+    expect(() =>
+      buildDispatchMessage({
+        ...base,
+        clerkUserId: JUDGE_FIXTURE.clerkUserId,
+        agentCase: { caseId: 'c1', params: {} },
+      }),
+    ).toThrow(/only the fixture user/)
+  })
+
   // Both are the silent-stall class the other ceilings in this function guard:
   // the Lambda rejects them, and with the result callback suppressed the sweep
   // would just wait out the whole poll window.
@@ -643,6 +693,30 @@ describe('dispatch envelope', () => {
     // A shared group id would serialize the sweep: FIFO delivers one group in
     // order, so five 20-minute runs would take an hour and a half.
     expect(queue.sent[0]?.groupId).toBe(runId)
+  })
+
+  it('sends the user the run input names, and none when it names none', async () => {
+    const send = async (input: BackgroundRunInput) => {
+      const queue = fakeQueue()
+      await runBackgroundCase(
+        deps(completedRun(input, idFor(input)), queue, fakeClock()),
+        input,
+      )
+      return JSON.parse(queue.sent[0]?.body ?? '{}')
+    }
+
+    expect(
+      await send(
+        runInput({
+          organizationSlug: JUDGE_FIXTURE.orgSlug,
+          clerkUserId: JUDGE_FIXTURE.clerkUserId,
+        }),
+      ),
+    ).toMatchObject({
+      organization_slug: 'judge-fixture',
+      clerk_user_id: 'user_judge_fixture',
+    })
+    expect(await send(runInput())).not.toHaveProperty('clerk_user_id')
   })
 })
 

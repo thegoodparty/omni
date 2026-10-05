@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import {
   ARM_BUDGET_MS,
   CHAT_TURN_MS,
@@ -113,6 +114,40 @@ describe('backgroundRunInputFor', () => {
         intervalMs: 10 * 1000,
       },
     })
+  })
+
+  // OPT-IN PER AGENT. Only an entry the registry marks readsGpApi runs as the
+  // fixture account; the whole-object test above is the agent that does not.
+  it('dispatches a gp-api reader as the fixture account', () => {
+    const built = config()
+    const reader = request({
+      agent: { ...request().agent, readsGpApi: true },
+    })
+    expect(backgroundRunInputFor(reader, env(), () => built)).toEqual({
+      sweepId: 'sweep-from-request',
+      agentId: 'meeting_briefing',
+      arm: 'candidate',
+      attempt: 2,
+      agentCase: { caseId: 'case-1', params: { meeting_id: 'm-1' } },
+      config: built,
+      variant: { ref: 'feature', commit: 'deadbeef', model: 'sonnet' },
+      organizationSlug: 'judge-fixture',
+      clerkUserId: 'user_judge_fixture',
+      metadataBucket: 'agent-experiment-metadata-dev',
+      artifactBucket: 'gp-agent-artifacts-dev',
+      poll: {
+        timeoutMs: 1800 * 1000 + POLL_HEADROOM_MS,
+        intervalMs: 10 * 1000,
+      },
+    })
+  })
+
+  // toEqual reads an undefined key as absent, so the whole-object test above
+  // cannot tell "no user" from "a user key set to undefined".
+  it('names no user for an agent that does not read gp-api', () => {
+    const built = backgroundRunInputFor(request(), env(), () => config())
+    expect(built).not.toHaveProperty('clerkUserId')
+    expect(built.organizationSlug).toBe('judge-fixture-1')
   })
 
   // The config is loaded for the agent the request names. Hardcoding an id
@@ -305,6 +340,29 @@ describe('caseLoaderFor', () => {
     )(agent)
     expect(list.cases).toEqual([
       { caseId: 'c1', params: { organization_slug: 'judge-fixture-1' } },
+    ])
+  })
+
+  // The params must name the organization the dispatch runs against, or the
+  // artifact echoes one slug while the agent's reads used another.
+  it("fills a gp-api reader's slug from the fixture, not the sweep", () => {
+    const reader = { ...agent, readsGpApi: true as const }
+    const list = caseLoaderFor(
+      { orgSlug: 'judge-fixture-1' },
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 3,
+        maxCases: undefined,
+        maxInFlight: 99,
+      },
+      {
+        load: () => caseList('background', reader.agentId, withToken),
+        loadBackground: () => withToken,
+        loadConfig: () => config(),
+      },
+    )(reader)
+    expect(list.cases).toEqual([
+      { caseId: 'c1', params: { organization_slug: 'judge-fixture' } },
     ])
   })
 
@@ -1049,6 +1107,41 @@ describe('refusedBeforeSpend', () => {
       expect(refusedBeforeSpend(agent, arm, () => one)).toBe(true)
     },
   )
+
+  // A GP-API READER NEEDS NONE OF THE SWEEP'S IDENTIFIERS. It dispatches as
+  // the seeded fixture, so a sweep whose identifiers step produced nothing
+  // must still run it, slug placeholder included, on both checks that decide.
+  it('runs a gp-api reader when the sweep resolved no identifiers', () => {
+    const reader = { ...background, readsGpApi: true as const }
+    const slugCase: BackgroundCase[] = [
+      { caseId: 'case-1', params: { organization_slug: '{judgeOrgSlug}' } },
+    ]
+    const arm = env({ fixtureValues: {} })
+    expect(armRefusal(reader, arm, slugCase)).toBe('')
+    expect(refusedBeforeSpend(reader, arm, () => slugCase)).toBe(false)
+    expect(
+      backgroundRunInputFor(request({ agent: reader }), arm, () => config())
+        .organizationSlug,
+    ).toBe(JUDGE_FIXTURE.orgSlug)
+  })
+
+  // Only the slug is the fixture's. Everything else still refuses a reader.
+  it('still refuses a gp-api reader with no queue or a value it lacks', () => {
+    const reader = { ...background, readsGpApi: true as const }
+    expect(
+      refusedBeforeSpend(
+        reader,
+        env({ fixtureValues: {}, dispatchQueueUrl: undefined }),
+        () => one,
+      ),
+    ).toBe(true)
+    const raceCase: BackgroundCase[] = [
+      { caseId: 'case-1', params: { race_id: '{judgeRaceId}' } },
+    ]
+    expect(
+      refusedBeforeSpend(reader, env({ fixtureValues: {} }), () => raceCase),
+    ).toBe(true)
+  })
 
   // A VALUE THE SWEEP COULD NOT RESOLVE. The race goes missing once the named
   // election has passed; the loader then refuses exactly the lists that need

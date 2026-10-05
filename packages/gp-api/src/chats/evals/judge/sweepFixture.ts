@@ -20,8 +20,8 @@ import {
 // that header from `ticket.organization_slug`, and a judge dispatch pins that
 // to `judge-*` (JUDGE_ORG_SLUG_PREFIX in runners/background.ts). So the slug
 // in params is echoed into the artifact and scopes nothing. (Those two agents
-// are blocked in agents.ts for a further reason: the broker calls gp-api as
-// the ticket's user, and a judge dispatch carries none.)
+// run as the seeded fixture account instead — judgeFixtureIdentity.ts — since
+// the broker calls gp-api as the ticket's user.)
 //
 // `race_id` never was: all three manifests call it a trace and idempotency
 // identifier the agent does not reason over or look anything up with.

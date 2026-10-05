@@ -54,17 +54,13 @@ describe('coverage', () => {
   it('excludes blocked agents from the denominator', () => {
     const { wired, judgeable, blocked } = coverage()
     // Named rather than dropped, so each gap stays visible: briefing
-    // annotation has no handler yet, compliance_setup must not be swept at
-    // all, and three agents' main path reads from gp-api, which a judge
-    // dispatch cannot authenticate.
+    // annotation has no handler yet, and compliance_setup must not be swept
+    // at all.
     expect(blocked.map((a) => a.agentId).sort()).toEqual([
       'briefing_annotation',
       'compliance_setup',
-      'meeting_briefing',
-      'top_community_issues',
-      'trending_issues',
     ])
-    expect(judgeable).toBe(16)
+    expect(judgeable).toBe(19)
     expect(wired).toBe(0)
   })
 
@@ -101,6 +97,24 @@ describe('coverage', () => {
     }
   })
 
+  // The flag is what hands an agent the fixture account, so it is pinned to
+  // exactly the three that read gp-api: one more is an agent acting as a user
+  // it has no need of, one fewer is an agent judged on its empty-data
+  // fallback.
+  it('marks exactly the three gp-api readers, all sweepable', () => {
+    const readers = AGENTS.filter((a) => a.readsGpApi === true)
+    expect(readers.map((a) => a.agentId).sort()).toEqual([
+      'meeting_briefing',
+      'top_community_issues',
+      'trending_issues',
+    ])
+    for (const reader of readers) {
+      expect(reader.shape).toBe('background')
+      expect(reader.status).toBe('pending')
+      expect(reader.cases).toBe(`${reader.agentId}.json`)
+    }
+  })
+
   it('counts a wired agent', () => {
     const result = coverage([
       { agentId: 'a', shape: 'chat', cases: 'a.yaml', status: 'wired' },
@@ -117,5 +131,44 @@ describe('findAgent', () => {
 
   it('returns undefined for an unknown id', () => {
     expect(findAgent('not_an_agent')).toBeUndefined()
+  })
+})
+
+// The issue route requires `list`, and gp-api's MCP layer rejects a call
+// without it before the controller runs. Three instructions once told the
+// agent to call it bare, and each silently read an empty feed in production.
+describe('every experiment that reads the issue feed', () => {
+  it('names a list on each call it tells the agent to make', () => {
+    const dir = path.resolve(
+      __dirname,
+      '../../../../../..',
+      'packages/runbooks/experiments',
+    )
+    const calls = readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => path.join(dir, e.name, 'instruction.md'))
+      .filter((file) => existsSync(file))
+      .flatMap((file) =>
+        readFileSync(file, 'utf8')
+          .split('\n')
+          .map((line, index) => ({ at: `${file}:${index + 1}`, line })),
+      )
+      // Table rows are troubleshooting notes about the tool ("404 → treat
+      // as empty"), not calls the agent is told to make.
+      .filter(
+        ({ line }) =>
+          /GET_community_issues|\/v1\/community-issues\b/i.test(line) &&
+          !line.trimStart().startsWith('|'),
+      )
+
+    expect(calls.length).toBeGreaterThanOrEqual(7)
+    // A real enum value, not any prose that happens to contain "list:".
+    expect(
+      calls
+        .filter(
+          ({ line }) => !/list(?::\s*"|=)(top_community|trending)\b/.test(line),
+        )
+        .map(({ at }) => at),
+    ).toEqual([])
   })
 })
