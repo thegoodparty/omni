@@ -153,13 +153,22 @@ describe('every experiment that reads the issue feed', () => {
           .split('\n')
           .map((line, index) => ({ at: `${file}:${index + 1}`, line })),
       )
-      .filter(({ line }) =>
-        /Call `GET_community_issues`|GET \/v1\/community-issues\b/.test(line),
+      // Table rows are troubleshooting notes about the tool ("404 → treat
+      // as empty"), not calls the agent is told to make.
+      .filter(
+        ({ line }) =>
+          /GET_community_issues|\/v1\/community-issues\b/i.test(line) &&
+          !line.trimStart().startsWith('|'),
       )
 
     expect(calls.length).toBeGreaterThanOrEqual(7)
+    // A real enum value, not any prose that happens to contain "list:".
     expect(
-      calls.filter(({ line }) => !/list[=:]/.test(line)).map(({ at }) => at),
+      calls
+        .filter(
+          ({ line }) => !/list(?::\s*"|=)(top_community|trending)\b/.test(line),
+        )
+        .map(({ at }) => at),
     ).toEqual([])
   })
 })

@@ -99,8 +99,27 @@ describe('databaseTarget', () => {
     'evil-gp-api-db.cluster-abc123.us-west-2.rds.amazonaws.com',
     'gp-api-db.cluster-abc123.us-west-2.rds.amazonaws.com.evil.example',
     'gp-api-db.example.com',
+    'gp-api-db.cluster-abc123..rds.amazonaws.com',
   ])('cannot place %s', (host) => {
     expect(databaseTarget(url(host)).kind).toBe('unknown')
+  })
+
+  // Prisma connects to these over the URL's host, so a dev hostname is no
+  // evidence of where the writes go once one is present.
+  const DEV =
+    'postgresql://u:p@gp-api-db.cluster-abc123.us-west-2.rds.amazonaws.com:5432/gpdb'
+  it.each([
+    '?host=localhost',
+    '?hostaddr=127.0.0.1',
+    '?schema=public&host=localhost',
+  ])('cannot place a dev hostname redirected by %s', (query) => {
+    expect(databaseTarget(`${DEV}${query}`).kind).toBe('unknown')
+  })
+
+  it('places a dev URL with the parameters the README uses', () => {
+    expect(databaseTarget(`${DEV}?schema=public&sslmode=require`).kind).toBe(
+      'dev',
+    )
   })
 })
 

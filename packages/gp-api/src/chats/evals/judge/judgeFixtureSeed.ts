@@ -215,12 +215,26 @@ export interface DatabaseTarget {
 const DEV_WRITER_ENDPOINT =
   /^gp-api-db\.cluster-[a-z0-9]+\.[a-z0-9-]+\.rds\.amazonaws\.com$/
 
+// Prisma connects to a `host` (or `hostaddr`) query parameter over the URL's
+// own host, so a dev hostname with `?host=localhost` would pass the check
+// above and write through a tunnel to anywhere. Only parameters that cannot
+// move the connection are allowed; any other makes the target unknown.
+const SAFE_PARAMS = new Set([
+  'schema',
+  'sslmode',
+  'connection_limit',
+  'pool_timeout',
+  'connect_timeout',
+])
+
 export const databaseTarget = (url: string): DatabaseTarget => {
   const parsed = new URL(url)
   const host = parsed.hostname.toLowerCase()
+  const params = [...parsed.searchParams.keys()]
   const kind: DatabaseTargetKind = host.includes('prod')
     ? 'prod'
-    : DEV_WRITER_ENDPOINT.test(host)
+    : DEV_WRITER_ENDPOINT.test(host) &&
+        params.every((name) => SAFE_PARAMS.has(name))
       ? 'dev'
       : 'unknown'
   return {
