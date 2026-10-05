@@ -68,7 +68,7 @@ export default function HomeComposer(): React.JSX.Element | null {
   return (
     <div className="flex flex-col gap-2">
       <form
-        className="flex flex-col gap-3 rounded-3xl border border-grayscale-300 bg-card px-4 pb-3 pt-4 transition-colors focus-within:border-primary"
+        className="flex flex-col gap-3 rounded-2xl border border-grayscale-300 bg-card px-4 pb-3 pt-4 transition-colors lg:px-5 lg:pt-5 focus-within:border-primary"
         onSubmit={(event) => {
           event.preventDefault()
           send()
