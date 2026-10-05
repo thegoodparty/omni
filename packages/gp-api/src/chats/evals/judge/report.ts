@@ -314,8 +314,12 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
 export const coverageLines = (
   registry: readonly AgentEntry[] = AGENTS,
 ): string[] => {
-  const { wired, judgeable, blocked } = coverage(registry)
-  const lines = [`**Coverage: ${wired} of ${judgeable} agents wired.**`]
+  const { wired, placeholder, judgeable, blocked } = coverage(registry)
+  const onPlaceholder =
+    placeholder > 0 ? ` (${placeholder} on placeholder inputs)` : ''
+  const lines = [
+    `**Coverage: ${wired} of ${judgeable} agents wired${onPlaceholder}.**`,
+  ]
   for (const agent of blocked) {
     lines.push(`- blocked: ${agent.agentId} — ${agent.blockedReason}`)
   }

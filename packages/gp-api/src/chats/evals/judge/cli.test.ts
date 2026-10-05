@@ -13,7 +13,7 @@ const AGENTS: AgentEntry[] = [
   {
     agentId: 'meeting_briefing',
     shape: 'background',
-    cases: null,
+    cases: 'meeting_briefing.json',
     status: 'wired',
   },
   {
@@ -109,7 +109,23 @@ describe('formatPlan', () => {
   // tell a correct line from one reporting the global list by accident.
   it('reports coverage for the registry it was given', () => {
     const plan = formatPlan(selectAgents({ kind: 'all' }, AGENTS), AGENTS)
-    expect(plan).toContain('coverage: 1 of 2 agents wired (1 blocked)')
+    expect(plan).toContain(
+      'coverage: 1 of 2 agents wired (1 on placeholder inputs, 1 blocked)',
+    )
+  })
+
+  // race_opponent_summary.json is the one case list not marked placeholder.
+  it('leaves the placeholder count out when there is none', () => {
+    const agents: AgentEntry[] = [
+      {
+        agentId: 'race_opponent_summary',
+        shape: 'background',
+        cases: 'race_opponent_summary.json',
+        status: 'wired',
+      },
+    ]
+    const plan = formatPlan(selectAgents({ kind: 'all' }, agents), agents)
+    expect(plan.endsWith('coverage: 1 of 1 agents wired')).toBe(true)
   })
 
   it('does not fall back to the real registry', () => {
@@ -138,7 +154,7 @@ describe('run', () => {
 
   it('threads a caller-supplied registry all the way to the coverage line', () => {
     expect(run(['--agents=all', '--dry-run'], AGENTS).plan).toContain(
-      'coverage: 1 of 2 agents wired (1 blocked)',
+      'coverage: 1 of 2 agents wired (1 on placeholder inputs, 1 blocked)',
     )
   })
 

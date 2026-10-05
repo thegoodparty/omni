@@ -1,7 +1,26 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { AGENTS, AgentEntrySchema, coverage, findAgent } from './agents'
+import {
+  AGENTS,
+  AgentEntrySchema,
+  coverage,
+  findAgent,
+  requireAgent,
+  type AgentEntry,
+} from './agents'
+import { loadCaseList } from './cases'
+
+const WIRED = {
+  agentId: 'x',
+  shape: 'chat',
+  cases: 'x.json',
+  status: 'wired',
+  wiredBy: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/123',
+    date: '2026-10-02',
+  },
+} as const
 
 describe('the agent registry', () => {
   it('every entry is valid', () => {
@@ -48,6 +67,80 @@ describe('the agent registry', () => {
     })
     expect(bad.success).toBe(false)
   })
+
+  it('accepts a wired agent with its evidence', () => {
+    expect(AgentEntrySchema.safeParse(WIRED).success).toBe(true)
+  })
+
+  it('refuses a wired agent with no evidence', () => {
+    const { wiredBy: _, ...bare } = WIRED
+    expect(AgentEntrySchema.safeParse(bare).success).toBe(false)
+  })
+
+  it('refuses evidence on an agent that is not wired', () => {
+    const bad = AgentEntrySchema.safeParse({ ...WIRED, status: 'pending' })
+    expect(bad.success).toBe(false)
+  })
+
+  it('refuses a wired agent with no case list', () => {
+    const bad = AgentEntrySchema.safeParse({ ...WIRED, cases: null })
+    expect(bad.success).toBe(false)
+  })
+
+  it.each([
+    'https://github.com/thegoodparty/omni/actions/runs/abc',
+    'https://github.com/someone-else/omni/actions/runs/123',
+    'https://github.com/thegoodparty/omni/pull/123',
+    'http://github.com/thegoodparty/omni/actions/runs/123',
+    'https://github.com/thegoodparty/omni/actions/runs/123/job/4',
+  ])('refuses evidence that is not an omni run URL: %s', (runUrl) => {
+    const bad = AgentEntrySchema.safeParse({
+      ...WIRED,
+      wiredBy: { ...WIRED.wiredBy, runUrl },
+    })
+    expect(bad.success).toBe(false)
+  })
+
+  it('refuses evidence with no real date', () => {
+    const bad = AgentEntrySchema.safeParse({
+      ...WIRED,
+      wiredBy: { ...WIRED.wiredBy, date: 'last week' },
+    })
+    expect(bad.success).toBe(false)
+  })
+
+  // Each one links the live sweep from main that judged its pairs.
+  it('marks the two agents a live sweep has judged', () => {
+    expect(
+      AGENTS.filter((a) => a.status === 'wired').map((a) => [
+        a.agentId,
+        a.wiredBy,
+      ]),
+    ).toEqual([
+      [
+        'chief_of_staff',
+        {
+          runUrl:
+            'https://github.com/thegoodparty/omni/actions/runs/36999748321',
+          date: '2026-10-02',
+        },
+      ],
+      [
+        'opposition_research',
+        {
+          runUrl:
+            'https://github.com/thegoodparty/omni/actions/runs/37161231631',
+          date: '2026-10-03',
+        },
+      ],
+    ])
+  })
+
+  it('can read the placeholder flag of every wired case list', () => {
+    for (const agent of AGENTS.filter((a) => a.status === 'wired')) {
+      expect(() => loadCaseList(agent), agent.agentId).not.toThrow()
+    }
+  })
 })
 
 describe('coverage', () => {
@@ -61,7 +154,13 @@ describe('coverage', () => {
       'compliance_setup',
     ])
     expect(judgeable).toBe(19)
-    expect(wired).toBe(0)
+    expect(wired).toBe(2)
+  })
+
+  // Both wired agents were judged on placeholder case lists, so the line
+  // claims nothing about how they do on inputs written to test them.
+  it('counts the wired agents that ran on placeholder inputs', () => {
+    expect(coverage()).toMatchObject({ wired: 2, placeholder: 2 })
   })
 
   // THE ONE EXPERIMENT THAT BYPASSES PERMISSION PROMPTS, and the reason this
@@ -116,11 +215,35 @@ describe('coverage', () => {
   })
 
   it('counts a wired agent', () => {
-    const result = coverage([
-      { agentId: 'a', shape: 'chat', cases: 'a.yaml', status: 'wired' },
-      { agentId: 'b', shape: 'chat', cases: null, status: 'pending' },
-    ])
-    expect(result).toMatchObject({ wired: 1, judgeable: 2 })
+    const result = coverage(
+      [
+        { ...WIRED, agentId: 'a' },
+        { agentId: 'b', shape: 'chat', cases: null, status: 'pending' },
+      ],
+      () => false,
+    )
+    expect(result).toMatchObject({ wired: 1, placeholder: 0, judgeable: 2 })
+  })
+
+  it('splits out the wired agents whose case list is a placeholder', () => {
+    const registry: AgentEntry[] = [
+      { ...WIRED, agentId: 'real' },
+      { ...WIRED, agentId: 'fake' },
+      { agentId: 'pending_fake', shape: 'chat', cases: 'x', status: 'pending' },
+    ]
+    const result = coverage(registry, (a) => a.agentId.endsWith('fake'))
+    expect(result).toMatchObject({ wired: 2, placeholder: 1, judgeable: 3 })
+  })
+
+  // The default reads the case list itself, not a value the caller passed.
+  it('reads the placeholder flag from the case list by default', () => {
+    expect(coverage([requireAgent('chief_of_staff')]).placeholder).toBe(1)
+    const real = {
+      ...requireAgent('race_opponent_summary'),
+      status: 'wired',
+      wiredBy: WIRED.wiredBy,
+    } as const
+    expect(coverage([real]).placeholder).toBe(0)
   })
 })
 

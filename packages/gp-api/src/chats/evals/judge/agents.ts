@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { loadCaseList } from './cases'
 import { AgentShapeSchema } from './record'
 
 // Every agent the judge is meant to cover, wired or not. This file is the
@@ -12,7 +13,8 @@ import { AgentShapeSchema } from './record'
 export const AgentStatusSchema = z.enum([
   // Judgeable, not yet verified. The normal starting state.
   'pending',
-  // Has produced a real verdict at least once.
+  // A live sweep from main has judged at least one of its pairs. The entry
+  // links that run, so the count can be checked rather than believed.
   'wired',
   // Cannot be judged yet for a reason outside this build. Excluded from the
   // coverage denominator so the number is not permanently unreachable, and
@@ -20,6 +22,17 @@ export const AgentStatusSchema = z.enum([
   'blocked',
 ])
 export type AgentStatus = z.infer<typeof AgentStatusSchema>
+
+export const WiredBySchema = z.object({
+  runUrl: z
+    .string()
+    .regex(
+      /^https:\/\/github\.com\/thegoodparty\/omni\/actions\/runs\/\d+$/,
+      'runUrl must be a github.com/thegoodparty/omni/actions/runs/<id> URL',
+    ),
+  date: z.iso.date(),
+})
+export type WiredBy = z.infer<typeof WiredBySchema>
 
 export const AgentEntrySchema = z
   .object({
@@ -35,10 +48,23 @@ export const AgentEntrySchema = z
     // these run as the seeded account in judgeFixtureIdentity.ts; every other
     // dispatch names no user, so the broker cannot reach gp-api for it.
     readsGpApi: z.literal(true).optional(),
+    // Required on a wired entry, so "wired" can never be a claim with no run
+    // behind it.
+    wiredBy: WiredBySchema.optional(),
   })
   .refine((a) => (a.status === 'blocked') === (a.blockedReason !== undefined), {
     message: 'blockedReason is required on a blocked agent, and only there',
     path: ['blockedReason'],
+  })
+  .refine((a) => (a.status === 'wired') === (a.wiredBy !== undefined), {
+    message: 'wiredBy is required on a wired agent, and only there',
+    path: ['wiredBy'],
+  })
+  // The coverage line reads a wired agent's case list for its placeholder
+  // flag, and a judged pair was drawn from one.
+  .refine((a) => a.status !== 'wired' || a.cases !== null, {
+    message: 'a wired agent needs a case list',
+    path: ['cases'],
   })
 export type AgentEntry = z.infer<typeof AgentEntrySchema>
 
@@ -64,9 +90,8 @@ type ChatAgentId = (typeof CHAT_AGENT_IDS)[number]
 // briefing_annotation is absent on purpose. It is blocked, not unwritten, so
 // a case list would be inputs for a runner that cannot drive it.
 //
-// All four are placeholder lists — see the `note` in each file — so status
-// stays `pending`. `wired` means an agent has produced a real verdict at
-// least once, and none of these has driven a turn.
+// All four are placeholder lists — see the `note` in each file. That does
+// not stop an agent being wired; the coverage line counts it separately.
 const CHAT_CASE_LISTS: Partial<Record<ChatAgentId, string>> = {
   chief_of_staff: 'chief_of_staff.json',
   campaign_assistant: 'campaign_assistant.json',
@@ -138,9 +163,8 @@ type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
 // above: it is blocked, so a case list would be inputs for a sweep that must
 // not run.
 //
-// All fifteen are placeholder lists — see the `note` in each file — so status
-// stays `pending`. `wired` means an agent has produced a real verdict at
-// least once, and none of these has been dispatched.
+// All but race_opponent_summary are placeholder lists — see the `note` in
+// each file. As above, the coverage line counts a wired one separately.
 const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
   campaign_tracker_tasks: 'campaign_tracker_tasks.json',
   district_issue_pulse: 'district_issue_pulse.json',
@@ -203,25 +227,52 @@ const BACKGROUND_AGENTS: AgentEntry[] = BACKGROUND_AGENT_IDS.map((agentId) => {
   }
 })
 
+// The runs that wired each agent. See "Marking an agent wired" in the README.
+// Applied over the entries above rather than inside them: a blocked agent
+// listed here keeps its blockedReason, which the schema then refuses.
+const WIRED_BY: Partial<Record<string, WiredBy>> = {
+  chief_of_staff: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/36999748321',
+    date: '2026-10-02',
+  },
+  opposition_research: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/37161231631',
+    date: '2026-10-03',
+  },
+} satisfies Partial<Record<ChatAgentId | BackgroundAgentId, WiredBy>>
+
+const withWiring = (entry: AgentEntry): AgentEntry => {
+  const wiredBy = WIRED_BY[entry.agentId]
+  return wiredBy === undefined ? entry : { ...entry, status: 'wired', wiredBy }
+}
+
 // Readonly: nine build tracks import this, and a coverage number that any
 // one of them could push onto is not a number anyone should trust.
-export const AGENTS: readonly AgentEntry[] = Object.freeze([
-  ...CHAT_AGENTS,
-  ...BACKGROUND_AGENTS,
-])
+export const AGENTS: readonly AgentEntry[] = Object.freeze(
+  [...CHAT_AGENTS, ...BACKGROUND_AGENTS].map(withWiring),
+)
 
 export interface Coverage {
   wired: number
+  // Wired agents whose case list is marked placeholder: judged, but on inputs
+  // written to exercise the pipeline rather than to test the agent.
+  placeholder: number
   // Agents that could be wired: everything except the blocked ones. This is
   // the denominator the report prints.
   judgeable: number
   blocked: readonly AgentEntry[]
 }
 
-export const coverage = (agents: readonly AgentEntry[] = AGENTS): Coverage => {
+export const coverage = (
+  agents: readonly AgentEntry[] = AGENTS,
+  isPlaceholder: (agent: AgentEntry) => boolean = (agent) =>
+    loadCaseList(agent).placeholder,
+): Coverage => {
   const blocked = agents.filter((a) => a.status === 'blocked')
+  const wired = agents.filter((a) => a.status === 'wired')
   return {
-    wired: agents.filter((a) => a.status === 'wired').length,
+    wired: wired.length,
+    placeholder: wired.filter(isPlaceholder).length,
     judgeable: agents.length - blocked.length,
     blocked,
   }
