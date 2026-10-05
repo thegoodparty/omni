@@ -8,6 +8,7 @@ import { createHash } from 'crypto'
 import { differenceInMilliseconds } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
+import { findAgent } from '../agents'
 import { assertNoPlaceholders } from '../caseParams'
 import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
@@ -533,6 +534,15 @@ export const buildDispatchMessage = (args: {
       `a judge dispatch may name only the fixture user ` +
         `"${JUDGE_FIXTURE.clerkUserId}" on "${JUDGE_FIXTURE.orgSlug}", got ` +
         `"${args.clerkUserId}" on "${args.organizationSlug}"`,
+    )
+  }
+  if (
+    args.clerkUserId !== undefined &&
+    findAgent(args.agentId)?.readsGpApi !== true
+  ) {
+    throw new Error(
+      `${args.agentId} does not read gp-api, so its judge dispatch names no ` +
+        'user; only a readsGpApi agent runs as the fixture account',
     )
   }
   // The backstop for the sweep-wide check in substituteBackgroundCases. That

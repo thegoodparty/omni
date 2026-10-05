@@ -544,20 +544,25 @@ slug. Every other background dispatch is unchanged and names no user.
 other slug.
 
 **One-time setup.** The account has to exist in the dev database, which is
-the one the broker's gp-api reads. Seed it from `packages/gp-api` with the dev
-`DATABASE_URL`:
+the one the broker's gp-api reads. Seed it from `packages/gp-api`, with
+`DATABASE_URL` set to the dev cluster's real writer endpoint
+(`gp-api-db.cluster-<hash>.us-west-2.rds.amazonaws.com`):
 
 ```bash
-DATABASE_URL='<dev url>' npx tsx scripts/seed-judge-fixture.ts --confirm-dev
+DATABASE_URL='<dev cluster writer url>' \
+  npx tsx scripts/seed-judge-fixture.ts --confirm-dev
 ```
 
-It prints the target host (never the password), refuses `gp-api-db-prod`, and
-asks you to type back any host that is not the `gp-api-db` cluster. A second
+It prints the target host (never the password) and refuses every other host:
+prod, the `cluster-ro-` reader, other clusters, and localhost or an IP, since
+a tunnel can point anywhere and there is no way to confirm one. A second
 run writes nothing. The rows are `judgeFixtureSeed.ts`: a user, its
 organization, an elected office, four priorities and three issues on each
 list. There is **no campaign and no website**, so the write tools a broker
 token can reach (website edits, domain purchase, Peerly submission) 404
 against it, and the seed refuses an organization that has gained a campaign.
+`judgeFixtureSeed.db.test.ts` pins the other half: every office-scoped
+`@McpTool` is a GET, and every tool that writes needs a campaign.
 
 The feed is office-agnostic on purpose: each case names a different real place
 in its own params, and every case reads the same rows on both arms.

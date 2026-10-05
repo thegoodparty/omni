@@ -493,6 +493,18 @@ describe('buildDispatchMessage', () => {
     ).toThrow(/only the fixture user/)
   })
 
+  it('refuses the fixture user for an agent that does not read gp-api', () => {
+    expect(() =>
+      buildDispatchMessage({
+        ...base,
+        agentId: 'self_research',
+        organizationSlug: JUDGE_FIXTURE.orgSlug,
+        clerkUserId: JUDGE_FIXTURE.clerkUserId,
+        agentCase: { caseId: 'c1', params: {} },
+      }),
+    ).toThrow(/does not read gp-api/)
+  })
+
   it('refuses the fixture user on any other organization', () => {
     expect(() =>
       buildDispatchMessage({

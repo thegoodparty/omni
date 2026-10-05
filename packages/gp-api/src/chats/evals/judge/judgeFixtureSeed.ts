@@ -199,9 +199,10 @@ export const judgeFixturePlan = (): JudgeFixturePlan => ({
 
 // WHERE THE SEED IS ABOUT TO WRITE. The cluster identifiers come from
 // deploy/index.ts (`gp-api-db` for dev, `gp-api-db-prod` for prod), and an RDS
-// endpoint's first DNS label is its cluster identifier. Anything that names
-// prod is refused outright; only the dev cluster passes without a typed
-// confirmation, because a localhost URL can be a tunnel to anything.
+// cluster endpoint is `<cluster id>.cluster-<hash>.<region>.rds.amazonaws.com`.
+// Only the dev cluster's WRITER endpoint passes. Everything else is refused:
+// prod, the `cluster-ro-` reader, another cluster, and localhost or an IP,
+// because a tunnel can point anywhere and nothing here can tell where.
 export type DatabaseTargetKind = 'dev' | 'prod' | 'unknown'
 
 export interface DatabaseTarget {
@@ -211,16 +212,15 @@ export interface DatabaseTarget {
   kind: DatabaseTargetKind
 }
 
-const DEV_CLUSTER = 'gp-api-db'
-const RDS_SUFFIX = '.rds.amazonaws.com'
+const DEV_WRITER_ENDPOINT =
+  /^gp-api-db\.cluster-[a-z0-9]+\.[a-z0-9-]+\.rds\.amazonaws\.com$/
 
 export const databaseTarget = (url: string): DatabaseTarget => {
   const parsed = new URL(url)
   const host = parsed.hostname.toLowerCase()
-  const cluster = host.split('.')[0] ?? ''
   const kind: DatabaseTargetKind = host.includes('prod')
     ? 'prod'
-    : cluster === DEV_CLUSTER && host.endsWith(RDS_SUFFIX)
+    : DEV_WRITER_ENDPOINT.test(host)
       ? 'dev'
       : 'unknown'
   return {
@@ -231,20 +231,16 @@ export const databaseTarget = (url: string): DatabaseTarget => {
   }
 }
 
-// Why the seed must not run, or undefined when it may. `typedHost` is what the
-// operator typed back for a host this file cannot place.
-export const seedRefusal = (
-  target: DatabaseTarget,
-  typedHost?: string,
-): string | undefined => {
-  if (target.kind === 'prod') {
-    return `${target.host} is a production database; the judge fixture is dev only`
-  }
-  if (target.kind === 'dev') return undefined
-  return typedHost?.trim().toLowerCase() === target.host
+// Why the seed must not run, or undefined when it may.
+export const seedRefusal = (target: DatabaseTarget): string | undefined =>
+  target.kind === 'dev'
     ? undefined
-    : `${target.host} is not the dev cluster, and the host typed back did not match it`
-}
+    : target.kind === 'prod'
+      ? `${target.host} is a production database; the judge fixture is ` +
+        'dev only'
+      : `${target.host} is not the dev cluster's writer endpoint ` +
+        '(gp-api-db.cluster-…rds.amazonaws.com); the judge fixture is seeded ' +
+        'there and nowhere else'
 
 type Scalar = string | number | boolean | Date | null
 
@@ -262,6 +258,10 @@ const differs = <T extends Record<string, Scalar>>(
   }
   return false
 }
+
+// A remote dev cluster over a VPN is far slower than Prisma's 5s default for
+// a transaction of this many round trips.
+const TRANSACTION_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
 
 export interface SeedReport {
   created: string[]
@@ -423,4 +423,4 @@ export const seedJudgeFixture = (
     }
 
     return report
-  })
+  }, TRANSACTION_OPTIONS)

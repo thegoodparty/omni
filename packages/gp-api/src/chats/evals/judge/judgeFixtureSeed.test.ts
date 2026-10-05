@@ -65,17 +65,13 @@ describe('judgeFixturePlan', () => {
 })
 
 describe('databaseTarget', () => {
-  const DEV =
-    'postgresql://gpuser:s3cret@gp-api-db.cluster-abc123.us-west-2.rds.' +
-    'amazonaws.com:5432/gpdb'
-  const PROD =
-    'postgresql://gpuser:s3cret@gp-api-db-prod.cluster-abc123.us-west-2.rds.' +
-    'amazonaws.com:5432/gpdb'
+  const url = (host: string) => `postgresql://gpuser:s3cret@${host}:5432/gpdb`
+  const DEV_HOST = 'gp-api-db.cluster-abc123.us-west-2.rds.amazonaws.com'
 
-  it('reads the dev cluster as dev, and never carries the password', () => {
-    const target = databaseTarget(DEV)
+  it('reads the dev writer endpoint as dev, and never carries the password', () => {
+    const target = databaseTarget(url(DEV_HOST))
     expect(target).toEqual({
-      host: 'gp-api-db.cluster-abc123.us-west-2.rds.amazonaws.com',
+      host: DEV_HOST,
       port: '5432',
       database: 'gpdb',
       kind: 'dev',
@@ -83,48 +79,48 @@ describe('databaseTarget', () => {
     expect(JSON.stringify(target)).not.toContain('s3cret')
   })
 
-  it('reads the prod cluster as prod', () => {
-    expect(databaseTarget(PROD).kind).toBe('prod')
-  })
-
-  it('reads any host naming prod as prod', () => {
-    expect(databaseTarget('postgresql://u:p@db.prod.example:5432/x').kind).toBe(
-      'prod',
-    )
-  })
-
-  // A localhost URL can be a tunnel to any cluster, and the reader endpoint
-  // or a preview cluster is not the database the dev gp-api reads.
   it.each([
-    'postgresql://postgres:postgres@localhost:5432/gpdb',
-    'postgresql://u:p@gp-api-preview-shared-db.cluster-x.us-west-2.rds.amazonaws.com/gpdb_pr_1',
-    'postgresql://u:p@gp-api-db.example.com/gpdb',
-  ])('cannot place %s', (url) => {
-    expect(databaseTarget(url).kind).toBe('unknown')
+    'gp-api-db-prod.cluster-abc123.us-west-2.rds.amazonaws.com',
+    'gp-api-db-production-1.cluster-x.us-west-2.rds.amazonaws.com',
+    'db.prod.example',
+  ])('reads %s as prod', (host) => {
+    expect(databaseTarget(url(host)).kind).toBe('prod')
+  })
+
+  // A tunnel or an IP can point anywhere, the reader is not where writes go,
+  // and a preview or staging cluster is not the database the dev gp-api reads.
+  it.each([
+    'localhost',
+    '127.0.0.1',
+    'gp-api-db.cluster-ro-abc123.us-west-2.rds.amazonaws.com',
+    'gp-api-db-staging.cluster-x.us-west-2.rds.amazonaws.com',
+    'gp-api-preview-shared-db.cluster-x.us-west-2.rds.amazonaws.com',
+    'gp-api-db.amazonaws.com.evil.example',
+    'evil-gp-api-db.cluster-abc123.us-west-2.rds.amazonaws.com',
+    'gp-api-db.cluster-abc123.us-west-2.rds.amazonaws.com.evil.example',
+    'gp-api-db.example.com',
+  ])('cannot place %s', (host) => {
+    expect(databaseTarget(url(host)).kind).toBe('unknown')
   })
 })
 
 describe('seedRefusal', () => {
   const target = (kind: 'dev' | 'prod' | 'unknown') => ({
-    host: 'localhost',
+    host: 'some-host',
     port: '5432',
     database: 'gpdb',
     kind,
   })
 
-  it('lets the dev cluster through without asking', () => {
+  it('lets only the dev cluster through', () => {
     expect(seedRefusal(target('dev'))).toBeUndefined()
   })
 
-  it('refuses prod, whatever is typed', () => {
-    expect(seedRefusal(target('prod'), 'localhost')).toMatch(/production/)
+  it('refuses prod', () => {
+    expect(seedRefusal(target('prod'))).toMatch(/production/)
   })
 
-  it('lets an unknown host through only when it is typed back', () => {
-    expect(seedRefusal(target('unknown'), ' localhost ')).toBeUndefined()
-    expect(seedRefusal(target('unknown'), 'other-host')).toMatch(
-      /did not match/,
-    )
-    expect(seedRefusal(target('unknown'))).toMatch(/did not match/)
+  it('refuses a host it cannot place, with no way to confirm it', () => {
+    expect(seedRefusal(target('unknown'))).toMatch(/not the dev cluster/)
   })
 })

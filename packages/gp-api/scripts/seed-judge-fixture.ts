@@ -5,62 +5,70 @@
  * community issue feed. The rows are src/chats/evals/judge/judgeFixtureSeed.ts;
  * this file only decides whether it may write them.
  *
- *   DATABASE_URL='<dev url>' npx tsx scripts/seed-judge-fixture.ts --confirm-dev
+ *   DATABASE_URL='<dev cluster writer url>' \
+ *     npx tsx scripts/seed-judge-fixture.ts --confirm-dev
  *
- * Safe to run twice: the second run writes nothing. Refuses a prod host, and
- * asks you to type back any host that is not the dev cluster.
+ * Safe to run twice: the second run writes nothing. Refuses every host but the
+ * dev cluster's writer endpoint, including localhost and tunnels.
  */
-import { createInterface } from 'node:readline/promises'
-import { stdin, stdout } from 'node:process'
 import { PrismaClient } from '../src/generated/prisma'
 import {
   databaseTarget,
   seedJudgeFixture,
   seedRefusal,
+  type SeedReport,
 } from '../src/chats/evals/judge/judgeFixtureSeed'
 
-const askForHost = async (): Promise<string | undefined> => {
-  if (!stdin.isTTY) return undefined
-  const rl = createInterface({ input: stdin, output: stdout })
-  const answer = await rl.question('Type the host to confirm: ')
-  rl.close()
-  return answer
+export interface SeedCliDeps {
+  seed: (databaseUrl: string) => Promise<SeedReport>
+  log: (line: string) => void
 }
 
-const main = async (): Promise<void> => {
-  if (!process.argv.includes('--confirm-dev')) {
-    throw new Error(
-      'pass --confirm-dev to say you mean to write to a dev database',
-    )
-  }
-  const url = process.env.DATABASE_URL
-  if (!url) throw new Error('DATABASE_URL is not set')
-
-  const target = databaseTarget(url)
-  console.log(
-    `Target: ${target.host}:${target.port || '5432'}/${target.database} ` +
-      `(${target.kind})`,
-  )
-  const refusal = seedRefusal(
-    target,
-    target.kind === 'unknown' ? await askForHost() : undefined,
-  )
-  if (refusal !== undefined) throw new Error(refusal)
-
-  const prisma = new PrismaClient({ datasourceUrl: url })
+const seedWithPrisma = async (databaseUrl: string): Promise<SeedReport> => {
+  const prisma = new PrismaClient({ datasourceUrl: databaseUrl })
   try {
-    const report = await seedJudgeFixture(prisma)
-    for (const outcome of ['created', 'updated', 'unchanged'] as const) {
-      console.log(`${outcome}: ${report[outcome].length}`)
-      for (const label of report[outcome]) console.log(`  ${label}`)
-    }
+    return await seedJudgeFixture(prisma)
   } finally {
     await prisma.$disconnect()
   }
 }
 
+const defaultDeps: SeedCliDeps = {
+  seed: seedWithPrisma,
+  log: (line) => console.log(line),
+}
+
+export const main = async (
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv,
+  deps: SeedCliDeps = defaultDeps,
+): Promise<SeedReport> => {
+  if (!argv.includes('--confirm-dev')) {
+    throw new Error(
+      'pass --confirm-dev to say you mean to write to the dev database',
+    )
+  }
+  const url = env.DATABASE_URL
+  if (!url) throw new Error('DATABASE_URL is not set')
+
+  const target = databaseTarget(url)
+  deps.log(
+    `Target: ${target.host}:${target.port || '5432'}/${target.database} ` +
+      `(${target.kind})`,
+  )
+  const refusal = seedRefusal(target)
+  if (refusal !== undefined) throw new Error(refusal)
+
+  const report = await deps.seed(url)
+  for (const outcome of ['created', 'updated', 'unchanged'] as const) {
+    deps.log(`${outcome}: ${report[outcome].length}`)
+    for (const label of report[outcome]) deps.log(`  ${label}`)
+  }
+  return report
+}
+
 if (require.main === module) {
-  main().catch((err: unknown) => {
+  main(process.argv.slice(2), process.env).catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : err)
     process.exit(1)
   })
