@@ -19,6 +19,8 @@ import {
   SlackMessageType,
 } from 'src/vendors/slack/slackService.types'
 import { getPeerlyJobUrl } from 'src/vendors/peerly/utils/peerlyJobUrl.util'
+import { resolveSendWindowTimeZone } from 'src/vendors/peerly/utils/sendWindowTimeZone.util'
+import { formatScheduledSend } from '../util/scheduledSendLabel.util'
 import {
   AudienceSlackBlock,
   buildSlackBlocks,
@@ -318,6 +320,17 @@ export class OutreachNotificationService {
       )
     }
 
+    // The same zone Peerly books the send in: the row's didState for a text,
+    // the campaign's state otherwise (a robocall has no didState).
+    const scheduledSend = formatScheduledSend({
+      date: outreach.date,
+      scheduledLocalDate: outreach.scheduledLocalDate,
+      scheduledLocalTime: outreach.scheduledLocalTime,
+      timeZone: resolveSendWindowTimeZone(
+        outreach.didState ?? campaign.details.state,
+      ),
+    })
+
     return buildSlackBlocks({
       name: `${(user.firstName || '').trim()} ${(user.lastName || '').trim()}`,
       email: user.email,
@@ -326,7 +339,7 @@ export class OutreachNotificationService {
       crmCompanyId,
       voterFileUrl,
       type: outreach.outreachType,
-      date: outreach.date ?? undefined,
+      scheduledSend,
       script,
       ...(outreach.imageUrl ? { imageUrl: outreach.imageUrl } : {}),
       message: outreach.message ? sanitizeHtml(outreach.message) : '',
