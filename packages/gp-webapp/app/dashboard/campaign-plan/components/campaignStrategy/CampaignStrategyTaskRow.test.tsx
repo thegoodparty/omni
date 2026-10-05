@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import CampaignStrategyTaskRow, {
   formatTaskDate,
@@ -40,7 +41,7 @@ describe('start outreach CTA', () => {
     completed: false,
   } as const
 
-  it('opens the outreach flow in place with the channel and due date', () => {
+  it('opens the outreach flow in place with the channel and due date', async () => {
     const onStartOutreach = vi.fn()
     render(
       <ul>
@@ -51,7 +52,12 @@ describe('start outreach CTA', () => {
         />
       </ul>,
     )
-    fireEvent.click(screen.getByRole('button', { name: /start outreach/i }))
+    // The row's own actions sit in its "More options" menu.
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /start outreach/i }),
+    )
     // The task id rides the callback so the hub can put `trackerTaskId` on
     // the outreach completion event — see
     // docs/features/voter-outreach-analytics.md.
@@ -72,8 +78,9 @@ describe('start outreach CTA', () => {
         />
       </ul>,
     )
+    // With no outreach to start and nothing else to do, the row has no menu.
     expect(
-      screen.queryByRole('button', { name: /start outreach/i }),
+      screen.queryByRole('button', { name: 'More options' }),
     ).not.toBeInTheDocument()
   })
 
@@ -87,8 +94,9 @@ describe('start outreach CTA', () => {
         />
       </ul>,
     )
+    // With no outreach to start and nothing else to do, the row has no menu.
     expect(
-      screen.queryByRole('button', { name: /start outreach/i }),
+      screen.queryByRole('button', { name: 'More options' }),
     ).not.toBeInTheDocument()
   })
 })

@@ -11,8 +11,8 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
+  Button,
   DownloadIcon,
-  IconButton,
 } from '@styleguide'
 import PlanView, {
   type PlanDownloadSource,
@@ -21,6 +21,9 @@ import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPla
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
 import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
 import NextTaskCard from './campaignStrategy/NextTaskCard'
+import ProgressSection from '../../components/campaignManager/ProgressSection'
+import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
+import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
 import CampaignTrackerHero from './CampaignTrackerHero'
 import CampaignPlanStoryCard from './CampaignPlanStoryCard'
 
@@ -160,8 +163,8 @@ const CampaignPlanView = ({
     <>
       {/* The next step leads the page, ruled off across the full content
           width from the candidate's headline and the tracker below it. */}
-      <div className="w-full border-b border-border bg-muted">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10 has-[[data-slot=collapsible][data-state=closed]]:pb-6">
+      <div className="w-full border-b border-border bg-background">
+        <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-10 has-[[data-slot=collapsible][data-state=closed]]:pb-4">
           <NextTaskCard surface="plan" heading="Here’s what to do next" />
         </div>
       </div>
@@ -185,6 +188,13 @@ const CampaignPlanView = ({
             when, so you always know your next move.
           </p>
         </div>
+        <div className="mb-6">
+          <VoterContactsProvider>
+            <CampaignUpdateHistoryProvider>
+              <ProgressSection />
+            </CampaignUpdateHistoryProvider>
+          </VoterContactsProvider>
+        </div>
         <CampaignPlanStoryCard />
         <CampaignStrategySection />
       </div>
@@ -197,7 +207,7 @@ const CampaignPlanView = ({
             className="bg-card relative overflow-hidden rounded-xl border px-0 shadow-sm"
           >
             <AccordionTrigger className="py-5 pr-6 pl-6 hover:no-underline">
-              <span className="flex flex-1 flex-col gap-1 pr-12 text-left">
+              <span className="flex flex-1 flex-col gap-1 text-left">
                 <span className="text-base font-semibold">
                   Executive Summary
                 </span>
@@ -209,18 +219,22 @@ const CampaignPlanView = ({
             </AccordionTrigger>
             {/* A sibling of the trigger, not inside it: a button can't nest
                 in the trigger's own button. Sits just left of its chevron. */}
-            <IconButton
-              type="button"
-              variant="outline"
-              size="small"
-              onClick={handleHeroDownload}
-              loading={heroDownloading}
-              disabled={!data.planReady}
-              aria-label="Download Campaign Plan"
-              className="absolute top-3.5 right-14"
-            >
-              <DownloadIcon className="size-4" aria-hidden />
-            </IconButton>
+            {/* Below the description, left-aligned with it: a sibling of
+                the trigger, since a button can't nest in its own button. */}
+            <div className="px-6 pb-5">
+              <Button
+                type="button"
+                variant="outline"
+                size="small"
+                onClick={handleHeroDownload}
+                loading={heroDownloading}
+                disabled={!data.planReady}
+                className="w-full sm:w-auto"
+              >
+                <DownloadIcon className="size-4" aria-hidden />
+                Download PDF
+              </Button>
+            </div>
             <AccordionContent className="border-border border-t pt-6">
               <PlanView
                 showHero={false}

@@ -74,7 +74,7 @@ type DeckTask = Pick<CampaignStrategyTask, 'id' | 'title' | 'description'> & {
 
 // Sent as the candidate's first message, so the manager answers about this
 // task instead of opening on its greeting.
-const discussTaskMessage = (task: DeckTask): string => {
+export const discussTaskMessage = (task: DeckTask): string => {
   const due = formatTaskDate(task.date)
   return [
     `Help me with this task from my campaign plan: "${task.title}".`,
@@ -91,7 +91,7 @@ const discussTaskMessage = (task: DeckTask): string => {
 // like the rail's "Start outreach"). Static rows carry no channel, so the call
 // list is matched on its title. A task with nowhere to go returns null and
 // "Mark as done" leads instead.
-const taskAction = (
+export const taskAction = (
   row: CampaignTrackerTask | undefined,
   surface: 'plan' | 'manager',
 ): { label: string; href: string; external: boolean } | null => {
@@ -231,6 +231,7 @@ const NextTaskCard = ({
   heading,
   subheading,
   surface,
+  tone = 'default',
   className,
 }: {
   heading: string
@@ -240,6 +241,9 @@ const NextTaskCard = ({
   // Only the manager draws the cards behind it; the plan has the full list
   // below.
   surface: 'plan' | 'manager'
+  // 'inverse' for a host that sets the section on a dark band: the heading
+  // and the collapse toggle switch to light text; the card stays white.
+  tone?: 'default' | 'inverse'
   className?: string
 }): React.JSX.Element | null => {
   const [campaign] = useCampaign()
@@ -363,6 +367,12 @@ const NextTaskCard = ({
         surface,
       )
 
+  // A task done inside the product (its action opens one of our own screens)
+  // should close itself when that work happens, so it offers no manual "Mark
+  // as done". Only the story task does so today; outreach still needs the
+  // backend to close the task it was launched from. Offline work and external
+  // links keep the button, since we can't see them.
+  const completesItself = Boolean(action && !action.external)
   const markDone = () => {
     const row = tasks.find((task) => task.id === frontTask.id)
     // The count modal already stands in front of these.
@@ -394,19 +404,40 @@ const NextTaskCard = ({
       asChild
     >
       <section className={cn('flex w-full flex-col gap-4', className)}>
-        <div className="flex items-start justify-between gap-4">
+        {/* The whole heading row toggles the section, a bigger target than
+            the chevron. The chevron stays the real (keyboard-reachable)
+            trigger; it stops its click here so one press toggles once. */}
+        <div
+          className={cn(
+            'flex items-start justify-between gap-4',
+            collapsible && 'cursor-pointer',
+          )}
+          onClick={collapsible ? () => writeCollapsed(open) : undefined}
+        >
           <div className="flex flex-col gap-1">
             <h2
-              className={
+              className={cn(
                 surface === 'manager'
-                  ? 'text-2xl font-semibold text-foreground'
-                  : 'text-lg font-medium text-foreground'
-              }
+                  ? 'text-2xl font-semibold'
+                  : 'text-lg font-medium',
+                tone === 'inverse'
+                  ? 'text-primary-foreground'
+                  : 'text-foreground',
+              )}
             >
               {heading}
             </h2>
             {subheading && (
-              <p className="text-base text-muted-foreground">{subheading}</p>
+              <p
+                className={cn(
+                  'text-base',
+                  tone === 'inverse'
+                    ? 'text-primary-foreground/80'
+                    : 'text-muted-foreground',
+                )}
+              >
+                {subheading}
+              </p>
             )}
           </div>
           {collapsible && (
@@ -415,10 +446,15 @@ const NextTaskCard = ({
                 type="button"
                 variant="ghost"
                 size="small"
+                onClick={(event) => event.stopPropagation()}
                 aria-label={
                   open ? 'Hide your next step' : 'Show your next step'
                 }
-                className="shrink-0"
+                className={cn(
+                  'shrink-0',
+                  tone === 'inverse' &&
+                    'text-primary-foreground hover:bg-primary-foreground/10',
+                )}
               >
                 <ChevronDownIcon
                   className={cn(
@@ -510,22 +546,24 @@ const NextTaskCard = ({
                           )}
                         </Button>
                       )}
-                      <Button
-                        type="button"
-                        variant={action ? 'outline' : 'default'}
-                        size="medium"
-                        className="w-full sm:w-auto"
-                        onClick={markDone}
-                      >
-                        <CheckIcon className="size-4" aria-hidden />
-                        Mark as done
-                      </Button>
+                      {!completesItself && (
+                        <Button
+                          type="button"
+                          variant={action ? 'outline' : 'default'}
+                          size="medium"
+                          className="w-full sm:w-auto"
+                          onClick={markDone}
+                        >
+                          <CheckIcon className="size-4" aria-hidden />
+                          Mark as done
+                        </Button>
+                      )}
                       {chat && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="medium"
-                          className="w-full text-primary hover:bg-primary/5 sm:ml-auto sm:w-auto"
+                          className="w-full text-primary hover:bg-primary/5 sm:w-auto"
                           onClick={() =>
                             chat.discussTask(discussTaskMessage(frontTask))
                           }

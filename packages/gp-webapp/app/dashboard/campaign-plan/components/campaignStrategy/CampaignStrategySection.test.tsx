@@ -74,6 +74,15 @@ const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   ...over,
 })
 
+// The row's completion toggle lives in its "More options" menu.
+const chooseFromMenu = async (
+  user: ReturnType<typeof userEvent.setup>,
+  item: string,
+) => {
+  await user.click(screen.getByRole('button', { name: 'More options' }))
+  await user.click(await screen.findByRole('menuitem', { name: item }))
+}
+
 // Phases start closed, so a test reaches a task row by opening its phase.
 const openLaunch = (user: ReturnType<typeof userEvent.setup>) =>
   user.click(screen.getByRole('button', { name: /^Launch/ }))
@@ -102,7 +111,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
+    await chooseFromMenu(user, 'Mark as done')
     expect(mockToggle).not.toHaveBeenCalled()
     expect(screen.getByText('count-modal:events')).toBeInTheDocument()
 
@@ -123,8 +132,8 @@ describe('CampaignStrategySection — completing tasks', () => {
       settled([
         task({
           id: 't1',
-          title: 'Knock doors',
-          flowType: 'doorKnocking',
+          title: 'Host a meet-and-greet',
+          flowType: 'events',
         }),
       ]),
     )
@@ -132,7 +141,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
+    await chooseFromMenu(user, 'Mark as done')
     // Still pending the count, so nothing is reported yet — the candidate can
     // still cancel out of the modal.
     expect(
@@ -144,13 +153,13 @@ describe('CampaignStrategySection — completing tasks', () => {
     await user.click(screen.getByRole('button', { name: 'submit-count' }))
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.Dashboard.CampaignPlan.TaskCompleted,
-      { trackerTaskId: 't1', medium: 'doorKnocking', phase: 'launch' },
+      { trackerTaskId: 't1', medium: 'event', phase: 'launch' },
     )
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.Dashboard.VoterContact.CampaignCompleted,
       expect.objectContaining({
-        medium: 'doorKnocking',
-        fanout: 'one-to-one',
+        medium: 'event',
+        fanout: 'one-to-many',
         product: 'win',
         recipientCount: 7,
         trackerTaskId: 't1',
@@ -165,6 +174,9 @@ describe('CampaignStrategySection — completing tasks', () => {
     expect(completed?.[1]).not.toHaveProperty('price')
   })
 
+  // Offline work the product can't see (here a community event), so it is
+  // still completed by hand. Door knocking used to stand in here; it now
+  // closes itself through its own screen and offers no manual toggle.
   // Un-completing is a correction, not an activation signal, so an event
   // named Completed must stay silent on it.
   it('stays silent when a task is un-completed', async () => {
@@ -172,8 +184,8 @@ describe('CampaignStrategySection — completing tasks', () => {
       settled([
         task({
           id: 't3',
-          title: 'Knock doors',
-          flowType: 'doorKnocking',
+          title: 'Host a meet-and-greet',
+          flowType: 'events',
           completed: true,
         }),
       ]),
@@ -182,9 +194,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await user.click(
-      screen.getByRole('button', { name: 'Mark task incomplete' }),
-    )
+    await chooseFromMenu(user, 'Mark as not done')
     expect(mockToggle).toHaveBeenCalledWith({ id: 't3', completed: false })
     expect(
       mockTrackEvent.mock.calls.filter(
@@ -204,7 +214,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
+    await chooseFromMenu(user, 'Mark as done')
     expect(mockToggle).toHaveBeenCalledWith({ id: 't2', completed: true })
     expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
   })

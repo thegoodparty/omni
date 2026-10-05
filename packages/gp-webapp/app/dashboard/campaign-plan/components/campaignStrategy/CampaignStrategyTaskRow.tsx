@@ -1,6 +1,9 @@
 'use client'
 
 import { format } from 'date-fns'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { MoreMenu } from 'app/shared/utils/MoreMenu'
 import {
   Badge,
   Button,
@@ -8,7 +11,6 @@ import {
   CalendarIcon,
   CheckIcon,
   ClipboardListIcon,
-  ExternalLinkIcon,
   LockIcon,
   MailIcon,
   MapPinIcon,
@@ -33,6 +35,14 @@ interface CampaignStrategyTaskRowProps {
     date: string | null,
     taskId: string,
   ) => void
+  // Opens the Campaign Manager chat about this task; the row's one visible
+  // action. Everything else it can do sits in its menu.
+  onDiscuss?: (task: CampaignStrategyTask) => void
+  // The task's real action (the same mapping the next-task card leads with).
+  // When given, it replaces the older link / "Start outreach" menu items.
+  getAction?: (
+    task: CampaignStrategyTask,
+  ) => { label: string; href: string; external: boolean } | null
 }
 
 const CHANNEL_ICONS: Record<
@@ -58,7 +68,8 @@ export const formatTaskDate = (date: string | null): string | null =>
   date ? format(new Date(date.slice(0, 10).replace(/-/g, '/')), 'MMM d') : null
 
 // One task row: status marker, date chip, type icon, title, optional Pro and
-// "Do this next" badges, description, parameter, prerequisite hint, link.
+// "Do this next" badges, description, parameter, prerequisite hint, a chat
+// action, and a menu holding the task's own actions.
 const isComposeChannel = (
   channel: TaskChannel,
 ): channel is 'text' | 'robocall' =>
@@ -69,7 +80,10 @@ const CampaignStrategyTaskRow = ({
   index,
   onToggleComplete,
   onStartOutreach,
+  onDiscuss,
+  getAction,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
+  const router = useRouter()
   const formattedDate = formatTaskDate(task.date)
   const Icon = CHANNEL_ICONS[task.channel]
   const composeChannel = isComposeChannel(task.channel) ? task.channel : null
@@ -88,6 +102,63 @@ const CampaignStrategyTaskRow = ({
     String(index).padStart(2, '0')
   )
 
+  // Every action that does or closes the task lives in the row's menu, so the
+  // row itself only offers chat.
+  const href = task.href
+  const resolvedAction = getAction ? getAction(task) : null
+  const action = task.completed ? null : resolvedAction
+  // Same rule as the next-task card: work done on our own screens should close
+  // itself, so only offline tasks and external links get a manual toggle.
+  const completesItself = Boolean(resolvedAction && !resolvedAction.external)
+  // The "Do this next" row leads with its action as a real button, like the
+  // next-task card; every other row keeps it in the menu.
+  const actionInRow = Boolean(action && task.isNext)
+  const menuItems = [
+    ...(action && !actionInRow
+      ? [
+          {
+            label: action.label,
+            onClick: () => {
+              if (action.external)
+                window.open(action.href, '_blank', 'noreferrer')
+              else router.push(action.href)
+            },
+          },
+        ]
+      : []),
+    ...(!getAction &&
+    !href &&
+    !task.completed &&
+    onStartOutreach &&
+    composeChannel
+      ? [
+          {
+            label: 'Start outreach',
+            onClick: () => onStartOutreach(composeChannel, task.date, task.id),
+          },
+        ]
+      : []),
+    ...(!getAction && href
+      ? [
+          {
+            label: task.hrefLabel ?? 'Open',
+            onClick: () => {
+              if (href.startsWith('/')) router.push(href)
+              else window.open(href, '_blank', 'noreferrer')
+            },
+          },
+        ]
+      : []),
+    ...(onToggleComplete && !completesItself
+      ? [
+          {
+            label: task.completed ? 'Mark as not done' : 'Mark as done',
+            onClick: () => onToggleComplete(task.id, !task.completed),
+          },
+        ]
+      : []),
+  ]
+
   return (
     <li
       className={cn(
@@ -95,33 +166,7 @@ const CampaignStrategyTaskRow = ({
         task.isNext && 'bg-primary/5',
       )}
     >
-      {onToggleComplete ? (
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => onToggleComplete(task.id, !task.completed)}
-          aria-pressed={task.completed}
-          aria-label={
-            task.completed ? 'Mark task incomplete' : 'Mark task complete'
-          }
-          className={cn(markerClassName, 'group p-0 hover:opacity-80')}
-        >
-          {task.completed ? (
-            <CheckIcon className="size-4" />
-          ) : (
-            // Show the number normally; swap to a check on hover so it reads as
-            // a "click to complete" affordance.
-            <>
-              <span className="group-hover:hidden">
-                {String(index).padStart(2, '0')}
-              </span>
-              <CheckIcon className="hidden size-4 group-hover:block" />
-            </>
-          )}
-        </Button>
-      ) : (
-        <span className={markerClassName}>{markerContent}</span>
-      )}
+      <span className={markerClassName}>{markerContent}</span>
       <div className="flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           {formattedDate && (
@@ -138,7 +183,11 @@ const CampaignStrategyTaskRow = ({
           >
             {task.title}
           </span>
-          {task.isNext && <Badge>Do this next</Badge>}
+          {task.isNext && (
+            <Badge className="border-transparent bg-primary/10 text-primary">
+              Do this next
+            </Badge>
+          )}
           {task.proRequired && (
             <Badge className="border-transparent bg-secondary text-secondary-foreground">
               Pro
@@ -155,38 +204,42 @@ const CampaignStrategyTaskRow = ({
             Unlocks after {task.unlocksAfter}
           </p>
         )}
-        {!task.href && !task.completed && onStartOutreach && composeChannel && (
-          <Button
-            type="button"
-            variant="link"
-            size="small"
-            className="text-primary h-auto p-0"
-            onClick={() => onStartOutreach(composeChannel, task.date, task.id)}
-          >
-            Start outreach
-          </Button>
-        )}
-        {task.href && (
-          <Button
-            asChild
-            variant="link"
-            size="small"
-            className="text-primary h-auto p-0"
-          >
-            {task.href.startsWith('/') ? (
-              <a href={task.href}>
-                {task.hrefLabel ?? 'Open'}
-                <ExternalLinkIcon className="size-3" />
-              </a>
-            ) : (
-              <a href={task.href} target="_blank" rel="noreferrer">
-                {task.hrefLabel ?? 'Open'}
-                <ExternalLinkIcon className="size-3" />
-              </a>
+        {(actionInRow || onDiscuss) && (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {action && actionInRow && (
+              <Button asChild size="small">
+                {action.external ? (
+                  <a href={action.href} target="_blank" rel="noreferrer">
+                    {action.label}
+                  </a>
+                ) : (
+                  <Link href={action.href}>{action.label}</Link>
+                )}
+              </Button>
             )}
-          </Button>
+            {onDiscuss && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="small"
+                className={cn(
+                  'text-primary hover:bg-primary/5',
+                  !actionInRow && '-ml-3',
+                )}
+                onClick={() => onDiscuss(task)}
+              >
+                <MessageSquareIcon className="size-4" aria-hidden />
+                Discuss in chat
+              </Button>
+            )}
+          </div>
         )}
       </div>
+      {menuItems.length > 0 && (
+        <div className="shrink-0">
+          <MoreMenu menuItems={menuItems} />
+        </div>
+      )}
     </li>
   )
 }

@@ -10,6 +10,8 @@ import { buildTrackerStrategy } from './buildTrackerStrategy'
 import { useGenerateTrackerTasks, useTrackerTasks } from './useTrackerTasks'
 import { trackerOrigin, useCompleteTrackerTask } from './useCompleteTrackerTask'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
+import { discussTaskMessage, taskAction } from './NextTaskCard'
+import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
 import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
 
@@ -42,6 +44,7 @@ const CampaignStrategySection = (): React.JSX.Element => {
     [router, tasks],
   )
   const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks)
+  const chat = useCampaignManagerChat()
 
   const metrics = campaign?.raceTargetMetrics
   const electionDateIso =
@@ -125,8 +128,8 @@ const CampaignStrategySection = (): React.JSX.Element => {
       {!IS_PROD && (
         <div className="mb-5 flex justify-start">
           <Button
-            variant="outline"
-            size="small"
+            size="medium"
+            className="w-full sm:w-auto"
             onClick={generate}
             loading={isGenerating}
             loadingText="Generating…"
@@ -180,6 +183,17 @@ const CampaignStrategySection = (): React.JSX.Element => {
                 phase={phase}
                 onToggleComplete={onToggleComplete}
                 onStartOutreach={openOutreachFlow}
+                getAction={(task) =>
+                  taskAction(
+                    tasks.find((row) => row.id === task.id),
+                    'plan',
+                  )
+                }
+                onDiscuss={
+                  chat
+                    ? (task) => chat.discussTask(discussTaskMessage(task))
+                    : undefined
+                }
               />
             ))}
           </Accordion>

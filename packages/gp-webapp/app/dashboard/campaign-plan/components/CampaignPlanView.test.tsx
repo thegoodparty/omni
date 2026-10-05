@@ -20,6 +20,20 @@ vi.mock('app/onboarding/success/pdf/downloadCampaignPlanPdf', () => ({
 vi.mock('./campaignStrategy/CampaignStrategySection', () => ({
   default: () => <div data-testid="tracker-section" />,
 }))
+vi.mock('../../components/campaignManager/ProgressSection', () => ({
+  default: () => <div data-testid="progress-section" />,
+}))
+vi.mock('@shared/hooks/VoterContactsProvider', () => ({
+  VoterContactsProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
+}))
+vi.mock('@shared/hooks/CampaignUpdateHistoryProvider', () => ({
+  CampaignUpdateHistoryProvider: ({
+    children,
+  }: {
+    children: React.ReactNode
+  }) => children,
+}))
 vi.mock('./CampaignTrackerHero', () => ({
   default: () => <div data-testid="tracker-hero" />,
 }))

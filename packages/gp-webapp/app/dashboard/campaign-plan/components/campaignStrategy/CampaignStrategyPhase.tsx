@@ -15,6 +15,7 @@ import {
 } from '@styleguide'
 import type {
   CampaignStrategyPhase as CampaignStrategyPhaseModel,
+  CampaignStrategyTask,
   CampaignStrategyWeek,
 } from './campaignStrategy.types'
 import CampaignStrategyTaskRow from './CampaignStrategyTaskRow'
@@ -27,6 +28,10 @@ interface CampaignStrategyPhaseProps {
     date: string | null,
     taskId: string,
   ) => void
+  onDiscuss?: (task: CampaignStrategyTask) => void
+  getAction?: (
+    task: CampaignStrategyTask,
+  ) => { label: string; href: string; external: boolean } | null
 }
 
 // `start` is the Monday (yyyy-MM-dd); show the Mon-Sun span. Parse via the same
@@ -46,6 +51,8 @@ const WeekNavigator = ({
   weeks,
   onToggleComplete,
   onStartOutreach,
+  onDiscuss,
+  getAction,
 }: {
   weeks: CampaignStrategyWeek[]
   onToggleComplete?: (id: string, completed: boolean) => void
@@ -54,6 +61,10 @@ const WeekNavigator = ({
     date: string | null,
     taskId: string,
   ) => void
+  onDiscuss?: (task: CampaignStrategyTask) => void
+  getAction?: (
+    task: CampaignStrategyTask,
+  ) => { label: string; href: string; external: boolean } | null
 }): React.JSX.Element => {
   const rawIndex = weeks.findIndex((w) => w.isCurrent)
   const currentIndex = rawIndex === -1 ? weeks.length - 1 : rawIndex
@@ -117,6 +128,8 @@ const WeekNavigator = ({
               index={index + 1}
               onToggleComplete={onToggleComplete}
               onStartOutreach={onStartOutreach}
+              onDiscuss={onDiscuss}
+              getAction={getAction}
             />
           ))}
         </ul>
@@ -140,7 +153,7 @@ const PhaseStatus = ({
   }
   if (status === 'active') {
     return (
-      <Badge className="border-transparent bg-primary text-white">
+      <Badge className="border-transparent bg-primary/10 text-primary">
         Happening now
       </Badge>
     )
@@ -159,6 +172,8 @@ const CampaignStrategyPhase = ({
   phase,
   onToggleComplete,
   onStartOutreach,
+  onDiscuss,
+  getAction,
 }: CampaignStrategyPhaseProps): React.JSX.Element => (
   <AccordionItem
     value={phase.key}
@@ -191,6 +206,8 @@ const CampaignStrategyPhase = ({
           weeks={phase.weeks}
           onToggleComplete={onToggleComplete}
           onStartOutreach={onStartOutreach}
+          onDiscuss={onDiscuss}
+          getAction={getAction}
         />
       ) : (
         phase.groups.map((group) => (
@@ -210,6 +227,8 @@ const CampaignStrategyPhase = ({
                   index={index + 1}
                   onToggleComplete={onToggleComplete}
                   onStartOutreach={onStartOutreach}
+                  onDiscuss={onDiscuss}
+                  getAction={getAction}
                 />
               ))}
             </ul>

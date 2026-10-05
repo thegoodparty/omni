@@ -1,18 +1,15 @@
 'use client'
 
-import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
-import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
 import NextTaskCard from '../campaign-plan/components/campaignStrategy/NextTaskCard'
 import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
 import ProUpgrade3ComplianceCard from '../components/campaignManager/ProUpgrade3ComplianceCard'
-import ProgressSection from '../components/campaignManager/ProgressSection'
 import { useUser } from '@shared/hooks/useUser'
 import type { TcrCompliance } from 'helpers/types'
 
 /**
  * The Campaign Manager dashboard home for the campaign-story cohort: the Pro
- * banner, the texting-compliance surfaces, the progress section, the first-run
+ * banner, the texting-compliance surfaces, the first-run
  * "meet your campaign manager" card, and the top tracker tasks.
  *
  * The two compliance surfaces split the TCR states between them and never
@@ -50,11 +47,6 @@ export default function CampaignManagerHome({
         <ProUpgradeBanner />
         <TextingSetupBanner tcrCompliance={tcrCompliance} />
         <ProUpgrade3ComplianceCard tcrCompliance={tcrCompliance} />
-        <VoterContactsProvider>
-          <CampaignUpdateHistoryProvider>
-            <ProgressSection />
-          </CampaignUpdateHistoryProvider>
-        </VoterContactsProvider>
       </div>
     </div>
   )
