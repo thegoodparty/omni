@@ -13,6 +13,10 @@ import {
   type ChatScopeHandler,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import {
+  CLAIM_STRENGTH_RULE,
+  LEGAL_VALUES_RULE,
+} from '../services/claimConfidence'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import {
   PRIORITY_FLOW_MODELS,
@@ -401,6 +405,21 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('present_outside_contact')
     expect(prompt.indexOf('HOW TO CHOOSE WHO TO HEAR FROM')).toBeLessThan(
       prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT'),
+    )
+  })
+
+  it('holds claims and legal readings to the shared confidence rules', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(CLAIM_STRENGTH_RULE)
+    expect(prompt).toContain(LEGAL_VALUES_RULE)
+  })
+
+  it('backstops a legal reading with the professional-advice line', () => {
+    expect(
+      build().finalizeAssistantText('Under RCW 35.21.766 you can do this.'),
+    ).toContain('not a substitute for professional advice')
+    expect(build().finalizeAssistantText('Potholes cluster downtown.')).toBe(
+      null,
     )
   })
 

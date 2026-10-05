@@ -7,6 +7,10 @@ import {
   type PriorityStepId,
 } from '@goodparty_org/contracts'
 import { format } from 'date-fns'
+import {
+  CLAIM_STRENGTH_RULE,
+  LEGAL_VALUES_RULE,
+} from '../services/claimConfidence'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type { PriorityFlowContext } from './services/priorityFlowContext.service'
 import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
@@ -389,6 +393,8 @@ export const buildPriorityFlowSystemPrompt = (args: {
     STATUS_TOOL_BLOCK,
     ROUTE_BLOCK,
     SOURCES_BLOCK,
+    CLAIM_STRENGTH_RULE,
+    LEGAL_VALUES_RULE,
     STAGE_GATE_BLOCK,
     ...(canFindGroup ? [AFFECTEDNESS_BLOCK] : []),
     ...(canFindGroup && has('count_contacts')

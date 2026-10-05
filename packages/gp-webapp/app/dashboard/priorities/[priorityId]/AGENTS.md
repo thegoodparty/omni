@@ -221,6 +221,19 @@ call a source stale. This is guidance, not a gate, and it uses the shared
 source shape as it is, without extending it. Numbers in prose come from a tool
 call or a named source; the examples carry none, because the model echoed them.
 
+## How sure it sounds is shared with ordinances
+
+The agent strengthened what officials told it into causal conclusions and
+read the law too confidently. The confidence rules live once, in
+`gp-api/src/chats/general/services/claimConfidence.ts`, and both the priority
+and ordinance prompts include them: `CLAIM_STRENGTH_RULE` (what they said,
+what a source shows and what is inferred stay apart; a legal question gets a
+likely reading, the provision, what could change it, and the attorney) and
+`LEGAL_VALUES_RULE` (no legal figure unless a source read this conversation
+gave it). The priority handler also uses Chief of Staff's
+`professionalAdviceDisclaimer` backstop through `finalizeAssistantText`.
+Change the wording there, not in either prompt.
+
 ## Cards are keyed, not trusted
 
 A card is a tool call rendered inline through `shared/agent-chat/cards/ChatCardRenderer`.
