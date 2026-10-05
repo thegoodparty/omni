@@ -35,7 +35,7 @@ test.describe('Navigation Menu by Org Type', () => {
     await expect(sidebar.getByText('Home', { exact: true })).toBeVisible({
       timeout: 10000,
     })
-    await expect(sidebar.getByText('Voter Outreach')).toBeVisible()
+    await expect(sidebar.getByText('Outreach', { exact: true })).toBeVisible()
 
     // The Website tab was retired with the new compliance flow (ENG-10505).
     await expect(sidebar.getByText('Website')).not.toBeVisible()
@@ -56,7 +56,9 @@ test.describe('Navigation Menu by Org Type', () => {
     await expect(sidebar.getByText('Polls')).toBeVisible()
 
     await expect(sidebar.getByText('Home', { exact: true })).not.toBeVisible()
-    await expect(sidebar.getByText('Voter Outreach')).not.toBeVisible()
+    await expect(
+      sidebar.getByText('Outreach', { exact: true }),
+    ).not.toBeVisible()
     await expect(sidebar.getByText('Website')).not.toBeVisible()
   })
 })

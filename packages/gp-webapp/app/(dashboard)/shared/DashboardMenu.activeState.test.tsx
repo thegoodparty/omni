@@ -74,12 +74,12 @@ beforeEach(() => {
 describe('DashboardMenu current page (Win)', () => {
   it('marks only the current tab as the current page', () => {
     renderMenu('/campaign-plan')
-    expect(currentLinks()).toEqual(['Campaign Plan'])
+    expect(currentLinks()).toEqual(['Plan'])
   })
 
   it('keeps a tab current on its sub-pages', () => {
     renderMenu('/outreach/phone-banking/5')
-    expect(currentLinks()).toEqual(['Voter Outreach'])
+    expect(currentLinks()).toEqual(['Outreach'])
   })
 
   it('does not mark a tab whose path is only a prefix of the word', () => {

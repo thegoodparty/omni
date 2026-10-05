@@ -134,7 +134,7 @@ export default function PhoneBankingCallerPage({
   const hubPathname =
     surface?.exitHref ?? (isServe ? '/constituent-outreach' : '/outreach')
   const hubLabel =
-    surface?.exitLabel ?? (isServe ? 'Constituent Outreach' : 'Voter Outreach')
+    surface?.exitLabel ?? (isServe ? 'Constituent Outreach' : 'Outreach')
   const showDeleteAction = surface?.showDeleteAction ?? true
 
   // Removal-mid-session is an expected flow for a volunteer (a manager can

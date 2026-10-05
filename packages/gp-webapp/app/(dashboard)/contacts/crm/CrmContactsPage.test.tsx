@@ -241,12 +241,12 @@ describe('CrmContactsPage — mode-aware universe title', () => {
 })
 
 describe('CrmContactsPage — data-title nav header (ENG-10747)', () => {
-  it('reads "Voter Data" for a Win campaign', () => {
+  it('reads "Voters" for a Win campaign', () => {
     setContext({ isWinContext: true })
 
     render(<CrmContactsPage />)
 
-    expect(screen.getByTestId('nav-header')).toHaveTextContent('Voter Data')
+    expect(screen.getByTestId('nav-header')).toHaveTextContent('Voters')
   })
 
   it('reads "Constituent Data" for the Serve/elected-office path', () => {
@@ -468,7 +468,7 @@ describe('CrmContactsPage — voter data unavailable', () => {
 
     render(<CrmContactsPage />)
 
-    expect(screen.getByTestId('nav-header')).toHaveTextContent('Voter Data')
+    expect(screen.getByTestId('nav-header')).toHaveTextContent('Voters')
   })
 
   it('uses Serve copy for an elected-office org', () => {

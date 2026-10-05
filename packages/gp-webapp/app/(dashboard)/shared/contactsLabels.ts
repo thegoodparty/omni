@@ -2,7 +2,7 @@
 // nouns: Win never says "constituent" (ENG-10448). Keep the menu, mobile
 // title, page heading, and stat labels in one place so they can't drift apart.
 export const CONTACTS_DATA_TITLE = {
-  win: 'Voter Data',
+  win: 'Voters',
   serve: 'Constituent Data',
 } as const
 

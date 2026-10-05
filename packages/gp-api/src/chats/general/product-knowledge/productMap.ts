@@ -133,7 +133,7 @@ const WIN_AREAS: ProductArea[] = [
       'The paperclip in the message box attaches a PDF, Word document, image, or text file to the message; dragging a file onto the chat does the same',
       'Pasting a link attaches it as a source the assistant can read',
       'A citation in a reply opens the document it points to, to the cited page when there is one',
-      'Asking to turn a reply into a social post opens Voter Outreach’s social flow with the draft already written in, to review before you post it',
+      'Asking to turn a reply into a social post opens Outreach’s social flow with the draft already written in, to review before you post it',
     ],
   },
   {
@@ -150,7 +150,7 @@ const WIN_AREAS: ProductArea[] = [
   },
   {
     navId: 'campaign-plan-dashboard',
-    name: 'Campaign Plan',
+    name: 'Plan',
     path: '/campaign-plan',
     modes: ['win'],
     does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
@@ -158,7 +158,7 @@ const WIN_AREAS: ProductArea[] = [
   },
   {
     navId: 'outreach-dashboard',
-    name: 'Voter Outreach',
+    name: 'Outreach',
     path: '/outreach',
     modes: ['win'],
     does: 'Build and send outreach to a voter audience, and see the history of what has gone out.',
@@ -176,7 +176,7 @@ const WIN_AREAS: ProductArea[] = [
   },
   {
     navId: 'win-contacts-dashboard',
-    name: 'Voter Data',
+    name: 'Voters',
     path: '/contacts',
     modes: ['win'],
     does: 'Browse the district’s voter file, filter it, and save lists to use for outreach.',
@@ -224,9 +224,9 @@ const WIN_AREAS: ProductArea[] = [
     ],
   },
   {
-    // The nav id belongs to a placeholder that holds the Voter Data slot
+    // The nav id belongs to a placeholder that holds the Voters slot
     // for the moment before we know whether the org is a campaign.
-    // Describing it as a second "Voter Data" tab would be wrong: what a
+    // Describing it as a second "Voters" tab would be wrong: what a
     // candidate can actually reach here is the upgrade flow.
     navId: 'upgrade-pro-dashboard',
     name: 'Pro upgrade',
@@ -427,7 +427,7 @@ export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
   win: [
     'The Campaign Story you write with me is saved to Your Story. A campaign and outreach plan does not wait on it: every candidate gets one, and finishing the story is what personalizes it with your own answers.',
     'Your Public Profile is separate. It has its own "Why I’m running" on the Public Profile page, and writing your story here does not change it. If someone wants their story on their public page, say plainly that it has to be entered there and point them at the tab.',
-    'Saved lists I create are real, and appear under Voter Data.',
+    'Saved lists I create are real, and appear under Voters.',
     'I cannot edit the campaign and outreach plan, your public page, your website, your account, or your billing. I also cannot export a list, a script, or a draft to a file.',
   ],
   serve: [

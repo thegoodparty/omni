@@ -251,9 +251,7 @@ describe('<PhoneBankingCallerPage>', () => {
     render(<PhoneBankingCallerPage listId={LIST_ID} />)
     await screen.findByText('August GOTV')
 
-    await user.click(
-      screen.getByRole('link', { name: 'Back to Voter Outreach' }),
-    )
+    await user.click(screen.getByRole('link', { name: 'Back to Outreach' }))
 
     expect(mockRefresh).toHaveBeenCalled()
   })

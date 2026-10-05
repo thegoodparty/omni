@@ -89,8 +89,8 @@ describe('product knowledge blocks', () => {
 
   it('shows Win its own tabs and none of Serve’s', () => {
     const prompt = render('win')
-    expect(prompt).toContain('Voter Data')
-    expect(prompt).toContain('Campaign Plan')
+    expect(prompt).toContain('- Voters (/contacts)')
+    expect(prompt).toContain('- Plan (/campaign-plan)')
     expect(prompt).toContain('Know Your Opponent')
     expect(prompt).not.toContain('Briefing Assistant')
     expect(prompt).not.toContain('Community Issues')
@@ -103,7 +103,7 @@ describe('product knowledge blocks', () => {
     expect(prompt).toContain('Briefing Assistant')
     expect(prompt).toContain('Ordinances')
     expect(prompt).not.toContain('Know Your Opponent')
-    expect(prompt).not.toContain('Campaign Plan')
+    expect(prompt).not.toContain('- Plan (/campaign-plan)')
   })
 
   // The "where are my lists" session took six turns and ended with the
@@ -118,14 +118,14 @@ describe('product knowledge blocks', () => {
   // Listing a district's precincts is gated in the service, but the map used
   // to say only that filtering was, so a campaign without Pro was told the
   // dimension did not exist instead of where it unlocks.
-  it('says precinct coverage needs Pro, in the Voter Data access note', () => {
+  it('says precinct coverage needs Pro, in the Voters access note', () => {
     expect(render('win')).toContain('seeing which precincts it covers')
   })
 
   // No voter file tool is registered for a campaign without Pro, the filter
   // catalog included, so this line is the only place the assistant learns
   // what filtering covers.
-  it('says what filters cover, in the Voter Data entry', () => {
+  it('says what filters cover, in the Voters entry', () => {
     expect(render('win')).toContain('Filters cover voter likelihood')
   })
 
@@ -148,10 +148,10 @@ describe('product knowledge blocks', () => {
     }
     const win = render('win')
     const serve = render('serve')
-    expect(win).toContain('Voter Outreach’s social flow')
+    expect(win).toContain('opens Outreach’s social flow')
     expect(win).not.toContain('Constituent Outreach’s social flow')
     expect(serve).toContain('Constituent Outreach’s social flow')
-    expect(serve).not.toContain('Voter Outreach’s social flow')
+    expect(serve).not.toContain('opens Outreach’s social flow')
   })
 
   // The prompt must never advertise a tool that did not register, same rule
@@ -256,7 +256,7 @@ describe('product knowledge blocks', () => {
 
     it('names no feature, tab, or tool in the rule', () => {
       expect(accessRule(false)).not.toMatch(
-        /voter|Voter Data|Know Your Opponent|count_contacts|precinct/i,
+        /voter|Voters|Know Your Opponent|count_contacts|precinct/i,
       )
     })
 

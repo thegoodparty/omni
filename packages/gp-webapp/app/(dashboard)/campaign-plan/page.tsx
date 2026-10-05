@@ -4,7 +4,7 @@ import { getServerUser } from 'helpers/userServerHelper'
 import CampaignPlanRouter from './components/CampaignPlanRouter'
 
 const meta = pageMetaData({
-  title: 'Campaign Plan | GoodParty.org',
+  title: 'Plan | GoodParty.org',
   description: 'Your AI-generated campaign plan.',
   slug: '/campaign-plan',
 })

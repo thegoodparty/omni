@@ -42,10 +42,10 @@ export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
 export const NAV_LABELS = {
   home: 'Home',
   campaignStory: 'Your Story',
-  campaignPlan: 'Campaign Plan',
+  campaignPlan: 'Plan',
   knowYourOpponent: 'Know Your Opponent',
   publicProfile: 'Public Profile',
-  voterOutreach: 'Voter Outreach',
+  voterOutreach: 'Outreach',
   constituentOutreach: 'Constituent Outreach',
   priorities: 'Priorities',
   // The Team page's H1 (ENG-11061: the sidebar account-menu item that links

@@ -29,13 +29,13 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
     // Win orgs render under the 'campaign' category, so the item must be
     // categorized there to survive the sidebar's category filter.
     expect(contacts?.v2Category).toBe('campaign')
-    // Win reads "Voter Data" (v2Name is the displayed label), never
+    // Win reads "Voters" (v2Name is the displayed label), never
     // "Constituents" (ENG-10448).
-    expect(contacts?.v2Name).toBe('Voter Data')
+    expect(contacts?.v2Name).toBe('Voters')
     expect(items.some((i) => i.id === 'upgrade-pro-dashboard')).toBe(false)
   })
 
-  it('does not commit to the Win "Voter Data" item while the elected-office query is loading', () => {
+  it('does not commit to the Win "Voters" item while the elected-office query is loading', () => {
     // A Serve elected-official reads as not-elected-office until the query
     // settles; selecting WIN_CONTACTS during that window would flash "Voter
     // Data" at them. Hold the generic placeholder instead (ENG-10448).
@@ -63,7 +63,7 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
 })
 
 describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
-  it('opens with Home, Campaign Plan, Voter Outreach and Voter Data, then Your Story', () => {
+  it('opens with Home, Plan, Outreach and Voters, then Your Story', () => {
     const items = links()
     const campaignTabs = items
       .filter((i) => i.v2Category === 'campaign')
@@ -82,11 +82,11 @@ describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
   })
 })
 
-describe('getDashboardMenuItems — Campaign Plan tab label', () => {
-  it('always labels the item "Campaign Plan"', () => {
+describe('getDashboardMenuItems — Plan tab label', () => {
+  it('always labels the item "Plan"', () => {
     const items = links()
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
-    expect(planItem?.label).toBe('Campaign Plan')
+    expect(planItem?.label).toBe('Plan')
   })
 })
 
@@ -151,7 +151,7 @@ describe('getDashboardMenuItems — Community Issues nav gating', () => {
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
   })
 
-  it('still renders Campaign Plan alongside Community Issues for an elected office', () => {
+  it('still renders Plan alongside Community Issues for an elected office', () => {
     const items = links({
       isElectedOffice: true,
     })
@@ -202,7 +202,7 @@ describe('getDashboardMenuItems — Priorities tab gating', () => {
     expect(serveRail[1]?.id).toBe('priorities-dashboard')
   })
 
-  it('keeps Campaign Plan under Home when Priorities shows', () => {
+  it('keeps Plan under Home when Priorities shows', () => {
     const items = links({ isElectedOffice: true, prioritiesEnabled: true })
     const home = items.findIndex((i) => i.id === 'campaign-tracker-dashboard')
     expect(items[home + 1]?.id).toBe('campaign-plan-dashboard')
@@ -253,7 +253,7 @@ describe('getDashboardMenuItems — Team not a primary-nav item (ENG-11061)', ()
 })
 
 describe('getDashboardMenuItems — Door Knocking has no standalone nav item', () => {
-  // Door knocking is a channel of Voter Outreach, not a peer of it: the outreach
+  // Door knocking is a channel of Outreach, not a peer of it: the outreach
   // hub's channel tile (`v2/ChannelTileGrid.tsx`) is the only entry, since it's
   // the only one that can carry a saved list across as `?listId=`.
   it('never includes a door-knocking item', () => {

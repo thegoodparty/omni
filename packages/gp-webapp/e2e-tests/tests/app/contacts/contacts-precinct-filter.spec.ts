@@ -121,7 +121,7 @@ test('precinct filter: option list, counts and the View all sheet', async ({
   test.setTimeout(TEST_TIMEOUT)
   const { client } = await setupProCampaignUser(page)
   await gotoCrmContacts(page)
-  await expect(page.getByRole('heading', { name: 'Voter Data' })).toBeVisible({
+  await expect(page.getByRole('heading', { name: 'Voters' })).toBeVisible({
     timeout: 20_000,
   })
 

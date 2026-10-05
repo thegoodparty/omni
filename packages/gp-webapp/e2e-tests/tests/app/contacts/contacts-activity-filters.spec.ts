@@ -122,9 +122,9 @@ test.describe('Contacts activity filters', () => {
     )
 
     await gotoCrmContacts(page)
-    await expect(page.getByRole('heading', { name: 'Voter Data' })).toBeVisible(
-      { timeout: 20_000 },
-    )
+    await expect(page.getByRole('heading', { name: 'Voters' })).toBeVisible({
+      timeout: 20_000,
+    })
 
     const wizard = crmSheet(page)
     const build = wizardBuildButton(page)

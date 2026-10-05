@@ -95,7 +95,7 @@ interface DashboardMenuProps {
 }
 
 const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
-  label: 'Voter Data',
+  label: CONTACTS_DATA_TITLE.win,
   icon: <MdFolderShared />,
   v2Icon: UsersRound,
   v2Category: 'campaign',

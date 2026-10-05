@@ -44,9 +44,10 @@ test.describe('Pro upgrade dashboard entry (non-Pro)', () => {
     // targets the Contacts page — the district-aggregate upsell surface
     // (ENG-10495) — not the wizard index. Assert the href (stable route)
     // rather than the lock icon (less stable than the route).
-    await expect(
-      page.getByRole('link', { name: 'Voter Data' }),
-    ).toHaveAttribute('href', '/contacts')
+    await expect(page.getByRole('link', { name: 'Voters' })).toHaveAttribute(
+      'href',
+      '/contacts',
+    )
 
     // Get Pro opens the wizard, which re-derives the resume step and lands a
     // zero-progress non-Pro candidate on the value-prop intro.
