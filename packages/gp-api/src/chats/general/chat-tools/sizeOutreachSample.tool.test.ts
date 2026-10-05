@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { sizeOutreachSample } from './sizeOutreachSample.tool'
+import {
+  buildSizeOutreachSampleTool,
+  sizeOutreachSample,
+} from './sizeOutreachSample.tool'
 
 describe('sizeOutreachSample', () => {
   it('sizes a big audience the way polls do and prices both options', () => {
@@ -30,5 +33,13 @@ describe('sizeOutreachSample', () => {
     expect(sized.sampleSize).toBe(1_200)
     expect(sized.wholeAudience).toBe(true)
     expect(sized.sampleCost).toBe(sized.wholeAudienceCost)
+  })
+
+  it('refuses an audience that counted nobody', () => {
+    const parsed = buildSizeOutreachSampleTool().inputSchema.safeParse({
+      audience: 0,
+    })
+    expect(parsed.success).toBe(false)
+    expect(parsed.error?.issues[0]?.message).toContain('counted nobody')
   })
 })

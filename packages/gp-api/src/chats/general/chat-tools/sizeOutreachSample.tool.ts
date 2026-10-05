@@ -11,7 +11,11 @@ const sizeOutreachSampleInput = z.object({
   audience: z
     .number()
     .int()
-    .nonnegative()
+    .min(
+      1,
+      'That audience counted nobody, so there is no one to text. Change ' +
+        'the filter and count again before you size a sample.',
+    )
     .describe('The whole audience, as count_contacts counted it.'),
   replyRate: z
     .number()
