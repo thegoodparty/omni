@@ -204,6 +204,7 @@ export class OutreachCompletionService extends createPrismaBase(
     const isUnbookedP2p =
       outreach.outreachType === OutreachType.p2p &&
       outreach.canvassRequestedAt === null &&
+      !job.has_canvassers_scheduled &&
       !job.canvassers_schedule?.approved
     const nextStatus =
       mappedStatus === OutreachStatus.completed && isUnbookedP2p

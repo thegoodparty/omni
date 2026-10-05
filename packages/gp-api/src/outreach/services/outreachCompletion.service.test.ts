@@ -191,6 +191,25 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
     expect(updated.status).toBe(OutreachStatus.completed)
   })
 
+  it('completes an unbooked-in-console p2p row Peerly reports canvassers scheduled on', async () => {
+    const outreach = await createOutreach({
+      status: OutreachStatus.in_progress,
+      canvassRequestedAt: null,
+    })
+    getJob.mockResolvedValue({
+      ...buildJob({
+        status: PeerlyJobStatus.PAUSED,
+        start_date: PAST_START_DATE,
+      }),
+      has_canvassers_scheduled: true,
+    })
+
+    await completionService.sweepOutreachCompletions()
+
+    const updated = await findOutreach(outreach.id)
+    expect(updated.status).toBe(OutreachStatus.completed)
+  })
+
   // Peerly has no terminal-success status: finished jobs read PAUSED
   // (ENG-10727). PAUSED past its day must complete, or every finished
   // send would sit in_progress forever.
