@@ -155,6 +155,52 @@ describe('the chief of staff vocabulary invariant', () => {
   })
 })
 
+// The same sentence is in the briefing chat prompt (systemPromptBuilder.ts),
+// so the same rule applies to its records.
+describe('the briefing chat vocabulary invariant', () => {
+  const briefing = (record: RunRecord): RunRecord => ({
+    ...record,
+    agentId: 'briefing_annotation',
+  })
+
+  it('reports a candidate that says voters where the base did not', () => {
+    const found = invariantViolations([
+      withText(briefing(BASE), CONSTITUENTS, NEUTRAL),
+      withText(briefing(CANDIDATE), VOTERS, NEUTRAL),
+    ])
+    expect(found).toHaveLength(1)
+    expect(found[0]?.agentId).toBe('briefing_annotation')
+    expect(found[0]?.invariant).toBe('constituents-not-voters')
+    expect(found[0]?.candidateRuns).toBe(1)
+    expect(found[0]?.baseRuns).toBe(0)
+  })
+
+  // The briefing list's own probe says "registered voters" and nothing about
+  // voting, so it detects the regression rather than exempting it.
+  it('does not exempt the case that asks about registered voters', () => {
+    const file = path.resolve(__dirname, 'cases', 'briefing_annotation.json')
+    const parsed: { cases: { caseId: string; question: string }[] } =
+      JSON.parse(readFileSync(file, 'utf8'))
+    const probe = parsed.cases.find(
+      (c) => c.caseId === 'vocabulary-registered-voters',
+    )
+    expect(probe?.question).toMatch(/registered voters/i)
+    const found = invariantViolations([
+      withText(briefing(BASE), CONSTITUENTS, probe?.question ?? ''),
+      withText(briefing(CANDIDATE), VOTERS, probe?.question ?? ''),
+    ])
+    expect(found).toHaveLength(1)
+    expect(found[0]?.candidateRuns).toBe(1)
+  })
+
+  it('allows voters where the user raised an election', () => {
+    const found = invariantViolations([
+      withText(briefing(CANDIDATE), VOTERS, 'How did turnout look last time?'),
+    ])
+    expect(found).toEqual([])
+  })
+})
+
 describe('the invariant registry', () => {
   it('is keyed by agent id and reaches the chief of staff', () => {
     expect(AGENT_INVARIANTS.chief_of_staff).toBeDefined()
