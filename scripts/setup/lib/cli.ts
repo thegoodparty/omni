@@ -43,7 +43,7 @@
 import { execFileSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
-import { fileURLToPath } from 'url'
+import { fileURLToPath, pathToFileURL } from 'url'
 import {
   AccessDeniedError,
   awaitAccessToken,
@@ -130,7 +130,7 @@ const fail = (message: string): never => {
 }
 
 const loadSchemaModule = async (pkg: PackageConfig): Promise<SchemaModule> =>
-  import(resolve(REPO_ROOT, pkg.schemaPath))
+  import(pathToFileURL(resolve(REPO_ROOT, pkg.schemaPath)).href)
 
 const printMissing = (
   result: Extract<SafeParseResult, { success: false }>,
