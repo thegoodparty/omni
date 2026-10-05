@@ -194,7 +194,7 @@ describe('OutreachNotificationService', () => {
 
       const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(findLabeledValue(message, 'Scheduled Date: ')).toBe(
-        'Mon, Oct 5, 2026 at 7:00 PM PDT',
+        'Mon, Oct 5, 2026, 7:00 PM PDT',
       )
     })
 
@@ -561,7 +561,7 @@ describe('OutreachNotificationService', () => {
 
       const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
       const blob = JSON.stringify(blocks)
-      expect(blob).toContain('Mon, Oct 5, 2026 at 7:00 PM PDT')
+      expect(blob).toContain('Mon, Oct 5, 2026, 7:00 PM PDT')
       expect(blob).not.toContain('2026-10-05T19:00:00-07:00')
     })
 
@@ -651,7 +651,7 @@ describe('OutreachNotificationService', () => {
 
       const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(findLabeledValue(message, 'Scheduled Date: ')).toBe(
-        'Tue, Oct 6, 2026 at 6:00 PM PDT',
+        'Tue, Oct 6, 2026, 6:00 PM PDT',
       )
       expect(JSON.stringify(message)).not.toContain('Oct 07')
     })

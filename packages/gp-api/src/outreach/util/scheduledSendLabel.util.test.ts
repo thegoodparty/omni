@@ -12,7 +12,7 @@ describe('formatScheduledSend', () => {
         scheduledLocalTime: null,
         timeZone: 'US/Pacific',
       }),
-    ).toBe('Tue, Oct 6, 2026 at 6:00 PM PDT')
+    ).toBe('Tue, Oct 6, 2026, 6:00 PM PDT')
   })
 
   it('renders the stored wall clock in the campaign zone when a time is stored', () => {
@@ -23,7 +23,7 @@ describe('formatScheduledSend', () => {
         scheduledLocalTime: '19:00',
         timeZone: 'US/Pacific',
       }),
-    ).toBe('Mon, Oct 5, 2026 at 7:00 PM PDT')
+    ).toBe('Mon, Oct 5, 2026, 7:00 PM PDT')
   })
 
   it('labels an Eastern send with its own zone', () => {
@@ -34,7 +34,7 @@ describe('formatScheduledSend', () => {
         scheduledLocalTime: '17:00',
         timeZone: 'US/Eastern',
       }),
-    ).toBe('Tue, Sep 22, 2026 at 5:00 PM EDT')
+    ).toBe('Tue, Sep 22, 2026, 5:00 PM EDT')
   })
 
   it('returns undefined with nothing to render', () => {

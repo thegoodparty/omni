@@ -5,7 +5,9 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 // Never the raw instant: the API runs in UTC, so Date.toString() on an
 // evening US send names the NEXT day (a Tuesday 6 PM Pacific robocall posted
 // as "Wed Oct 07", 2026-10-05).
-const SCHEDULED_SEND_FORMAT = "EEE, MMM d, yyyy 'at' h:mm a zzz"
+// Comma-separated, no connective word: the CAS Zapier task feed parses this
+// line out of the Slack post to set the ClickUp due date.
+const SCHEDULED_SEND_FORMAT = 'EEE, MMM d, yyyy, h:mm a zzz'
 
 export const formatScheduledSend = ({
   date,
