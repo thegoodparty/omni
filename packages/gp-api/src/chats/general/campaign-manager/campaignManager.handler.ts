@@ -106,15 +106,15 @@ export const buildStoryGreeting = (story: StoryState): string => {
   const intro =
     answered === 0
       ? [
-          "Before I build your plan and tracker, let's get your Campaign " +
-            "Story down, since it's what personalizes your Campaign Plan " +
+          "Before I build your campaign and outreach plan, let's get your " +
+            "Campaign Story down, since it's what personalizes your plan " +
             'and your GoodParty.org experience.',
           "It's just three short questions, in your own words, and I can " +
             'help sharpen anything you write.',
         ]
       : [
           "Welcome back. Let's finish your Campaign Story so I can build " +
-            'your plan and tracker.',
+            'your campaign and outreach plan.',
         ]
   const lead = answered === 0 ? 'First' : 'Next'
   return [...intro, `${lead}, ${STORY_QUESTION_PROMPTS[next]}`].join('\n\n')

@@ -43,9 +43,9 @@ export default function StoryReadyCard(): React.JSX.Element | null {
 
   return (
     <ManagerPromptCard
-      title="Your campaign tracker and plan are ready"
-      description="Your personalized campaign tracker and outreach plan are ready for you."
-      ctaLabel="Review your campaign tracker"
+      title="Your campaign plan is ready"
+      description="Your personalized campaign and outreach plan are ready for you."
+      ctaLabel="Review your campaign plan"
       onCta={() => {
         dismiss()
         router.push('/dashboard/campaign-plan')

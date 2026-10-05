@@ -134,7 +134,7 @@ const raceContext = (ctx: CampaignManagerContext): string => {
 
 const tasksBlock = (ctx: CampaignManagerContext): string =>
   ctx.topTasks.length > 0
-    ? `This week's top tasks (from the campaign tracker):\n${ctx.topTasks
+    ? `This week's top tasks (from the campaign plan):\n${ctx.topTasks
         .map((t) => `- ${t.title} (due ${format(t.date, 'EEE, MMM d')})`)
         .join('\n')}`
     : 'There are no generated tracker tasks yet; guide the candidate from the ' +
@@ -550,7 +550,7 @@ const storyBlock = (ctx: CampaignManagerContext): string | null => {
     `Still missing: ${ctx.story.missing.join(', ')}. Say up front it is three short questions, then ask ONLY for what is missing, one at a time, in a warm guiding voice, not a form and not a wall of text.`,
     'Let the candidate answer in their own words, and save each answer (campaign_story save with that field and their exact words) as soon as they give it. Never hold an answer back waiting for the other questions or for a rewrite: a candidate who answers one question and stops must still have that answer saved.',
     'After saving, offer to "Help me rewrite" it (call campaign_story elaborate with the field and their text) and show them the suggestion. A rewrite replaces the saved answer only once they approve it: on approval, call campaign_story save again for that field with the rewritten text verbatim. Never save a rewrite they have not approved. They can revise any answer without starting over; check current answers with campaign_story read.',
-    'Once why, background, and positions are all saved, call campaign_story generate straight away. Do not ask whether to generate it and do not offer it as a choice: finishing the story IS the request. Tell the candidate their Campaign Story is ready and that you are personalizing their Campaign Plan and Tracker from what they just told you.',
+    'Once why, background, and positions are all saved, call campaign_story generate straight away. Do not ask whether to generate it and do not offer it as a choice: finishing the story IS the request. Tell the candidate their Campaign Story is ready and that you are personalizing their campaign and outreach plan from what they just told you.',
     GENERATE_STATUS_GUIDANCE,
   ].join('\n\n')
 }
