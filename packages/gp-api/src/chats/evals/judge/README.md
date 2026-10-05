@@ -165,6 +165,27 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                     |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                             |
 
+## Marking an agent wired
+
+The report ends with `**Coverage: N of M agents wired (P on placeholder
+inputs).**` M is every registry entry except the blocked ones. N counts the
+`wired` entries, and **an agent is wired once a live sweep from main has
+judged at least one of its pairs.** "From main" means the run was dispatched
+from main (its `headBranch` is `main`); the candidate arm is a PR as always. A
+case list or a dry run does not count.
+
+To mark one, set it in `WIRED_BY` in `agents.ts` with the evidence: the
+sweep's run URL (`https://github.com/thegoodparty/omni/actions/runs/<id>`)
+and the run's date (`gh run view <id> --repo thegoodparty/omni --json
+createdAt`). The schema refuses a `wired` entry without that evidence, and
+evidence on any other entry.
+
+P is how many wired agents were judged on a case list marked `placeholder:
+true`, read from the list itself. Those verdicts prove the pipeline reaches
+the agent, not that the agent is good, so they stay visible in the number
+rather than counted the same as a real bench. The parenthetical is left out
+when P is 0. The `--dry-run` plan prints the same counts.
+
 ## Case lists: nineteen of twenty agents, and all but one are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
@@ -193,11 +214,10 @@ purpose, so inputs for it would be inputs for a runner that cannot drive it.
 `race_opponent_summary.json`, a real bench of nine cases. Each other background list is
 schema-valid against its experiment manifest's `input_schema` and each value
 is plausible; each chat list asks a question the seeded fixture org can
-actually be asked. But nobody has dispatched or driven one, so a verdict drawn
+actually be asked. But nobody wrote them to test the agent, so a verdict drawn
 from any of them is a statement about the pipeline and not about the agent.
-`coverage()` counts `wired`, which means _has produced a real verdict at least
-once_, so all nineteen stay `pending` and `wired` is still 0. A case list is
-not a verdict.
+That holds for a wired agent too, which is why the coverage line counts the
+wired ones on placeholder inputs separately. A case list is not a verdict.
 
 **A chat question has to be answerable against the state the harness seeds,
 and the seed is what decides which tools register.** A scope handler
