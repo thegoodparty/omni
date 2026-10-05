@@ -1287,6 +1287,54 @@ describe('RobocallFlow', () => {
     expect(scriptText()).not.toMatch(/The AI rewrite/)
   })
 
+  // A call the candidate edited past can still fail. Its error must not
+  // come back over words they already fixed.
+  it("keeps the candidate's words when a superseded call fails late", async () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/robocall/draft', async ({ body }) => {
+      if (!body.currentDraft) {
+        return { status: 200, data: { draft: 'A grounded script.' } }
+      }
+      await held
+      answered.done = true
+      return {
+        status: 502,
+        data: { message: 'Robocall draft generation failed' },
+      }
+    })
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script.'.length + 1,
+        ' Vote early.',
+      )
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script. Vote early.'.length + 1,
+        ' Bring a friend.',
+      )
+    })
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(
+      screen.queryByText(/We couldn.t draft your script just now/),
+    ).not.toBeInTheDocument()
+    expect(scriptText()).toMatch(/Vote early\. Bring a friend\./)
+  })
+
   // An owner with no name on file still gets a sponsor: the script has to
   // carry the disclosure to pass the recording check.
   it('names the signed-in user as sponsor when the owner has no name', async () => {

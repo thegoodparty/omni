@@ -810,6 +810,54 @@ describe('SmsFlow', () => {
       expect(box).not.toHaveTextContent(/The AI rewrite/)
     })
 
+    // A call the candidate edited past can still fail. Its error must not
+    // come back over words they already fixed.
+    it("keeps the candidate's words when a superseded call fails late", async () => {
+      let release!: () => void
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const answered = { done: false }
+      api.mock('POST /v1/outreach/sms/draft', async ({ body }) => {
+        if (!body.currentDraft) {
+          return {
+            status: 200,
+            data: { draft: `AI body (${body.tone}) for ${body.purpose}` },
+          }
+        }
+        await held
+        answered.done = true
+        return {
+          status: 502,
+          data: { message: 'SMS draft generation failed' },
+        }
+      })
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'Vote soon.'),
+          ' Bring a friend.',
+        )
+      })
+      release()
+      await waitFor(() => expect(answered.done).toBe(true))
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+      expect(
+        screen.queryByText(/We couldn.t draft your message just now/),
+      ).not.toBeInTheDocument()
+      expect(box).toHaveTextContent(/Vote soon\. Bring a friend\./)
+    })
+
     it('keeps an Undo made while Improve is running', async () => {
       const { release, answered } = mockHeldImprove()
       const { box, editor } = await reachCompose()
