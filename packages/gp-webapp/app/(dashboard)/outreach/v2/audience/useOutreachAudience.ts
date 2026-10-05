@@ -1,0 +1,1010 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type {
+  ListDetailReachability,
+  ListSample,
+  RecommendedList,
+  RecommendedListChannel,
+  RecommendedListFilter,
+  RecommendedListIntent,
+  RecommendedListVariant,
+} from '@goodparty_org/contracts'
+import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachChannel } from 'app/(dashboard)/outreach/util/outreachAnalytics'
+import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { useOrganization } from '@shared/organization-picker'
+import { fetchListDetailThrottled } from 'app/(dashboard)/contacts/crm/lists/useListRowDetail'
+import { getContactsLabels } from 'app/(dashboard)/shared/contactsLabels'
+import { isUniverseList } from './universeList.util'
+import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/(dashboard)/outreach/util/autoVoterFilterName.util'
+import type {
+  SegmentResponse,
+  SupportStatusRollup,
+} from 'app/(dashboard)/contacts/crm/shared/contacts-types'
+import {
+  transformVoterFileFiltersForBackend,
+  type VoterFileFilters,
+} from 'app/(dashboard)/contacts/crm/shared/voterFileFilterTransform.util'
+import {
+  usePrecinctOptions,
+  type PrecinctOptionsResult,
+} from 'app/(dashboard)/contacts/crm/wizard/usePrecinctOptions'
+import { useListWizardCount } from 'app/(dashboard)/contacts/crm/wizard/useListWizardCount'
+import type { OutreachAudienceMode } from './OutreachAudienceStep'
+import {
+  builderFiltersFromRecommendation,
+  intentForOutreachPurpose,
+} from './recommendedListMapping.util'
+
+export { intentForOutreachPurpose }
+
+// The reachability leaf that matches the feature's channel: SMS/polls read the
+// cell-phone count, robocall/phoneBanking the landline count, doorKnocking the
+// address count. The list-detail endpoint computes each server-side, so a
+// feature only names its leaf — it never re-derives the overlay for a saved
+// list. `polls` is excluded: it isn't an outreach audience target.
+export type ReachabilityKey = keyof Omit<ListDetailReachability, 'polls'>
+
+// The saved-lists query key, exported as the single source of truth so the CRM
+// list mutations (rename/delete/duplicate) can invalidate it alongside their own
+// `custom-segments` key — both are backed by GET /v1/voters/voter-file/filters,
+// so a stale name/deleted/duplicated list must not linger in this picker. A
+// shared helper (vs. a re-typed string) keeps the two in sync if the key changes.
+export const outreachAudienceListsKey = (orgSlug: string | undefined) =>
+  ['outreach-audience-lists', orgSlug] as const
+
+interface UseOutreachAudienceParams {
+  open: boolean
+  // stepId === 'audience' — gates the debounced builder count so it doesn't
+  // run on steps that don't show it.
+  active: boolean
+  reachabilityKey: ReachabilityKey
+  // The channel's reachability overlay applied to the in-flow BUILDER count so
+  // the running total matches what the feature will actually reach (robocall:
+  // { hasLandline: true }). It is deliberately NOT written into the saved list
+  // — the list stays general so other features can reuse it; the overlay (and
+  // the equivalent server-side reachability leaf) re-applies per send.
+  countOverlay?: Record<string, unknown>
+  // The outreach purpose's mapped intent (docs/features/recommended-lists.md).
+  // Null/undefined means "no recommendations for this purpose" (custom, or a
+  // channel that hasn't wired a purpose->intent mapping yet) — the
+  // recommendations query simply never fires.
+  recommendedListIntent?: RecommendedListIntent | null
+  // A saved list the caller wants selected on open (the outreach hub's
+  // `?listId=` deep link). Applied once, and only if it names a row the
+  // picker actually has — a deleted, archived or foreign id is a missed
+  // preselection, never a broken step, the same rule door knocking's
+  // CreateListFlow applies to the id it carries.
+  preselectedListId?: number
+  // A recommendation carried in from the voter data page (`?recommended=`),
+  // not saved yet. Fetched for THIS channel from open — so it is cut and
+  // priced the way the flow will send it, and ready by the audience step —
+  // and handed to the step, which applies it on arrival the way a tap on its
+  // card would. Whether that has happened lives here rather than in the
+  // step, which unmounts between steps.
+  preselectedRecommendedVariant?: RecommendedListVariant
+  // An audience counted but not saved yet (a chat card's proposal). Opens the
+  // builder already filled in, so the list is saved where it always is: when
+  // the official confirms the audience and names it.
+  proposedAudience?: ProposedAudience
+}
+
+export type ProposedAudience = {
+  filters: VoterFileFilters
+  supportStatus: SupportStatusRollup[]
+  precincts: string[]
+  name: string
+  // Saved as a random draw of this size rather than as the live filter: a
+  // check asks enough people for a read, not everyone it could reach.
+  sample?: ListSample
+}
+
+export interface OutreachAudience {
+  mode: OutreachAudienceMode
+  setMode: (mode: OutreachAudienceMode) => void
+  selectedListId: number | null
+  lists: SegmentResponse[]
+  listsLoading: boolean
+  // isFetching, not isLoading: with staleTime 0 a re-opened flow serves the
+  // cached lists while a refetch is in flight, and isLoading reads false the
+  // moment any cache exists. A consumer acting once on the resolved lists
+  // (PhoneBankingFlow's deep-link preselect) must wait on this so it never
+  // matches against a stale cache — same distinction reachableLoading below
+  // already applies.
+  listsFetching: boolean
+  selectedList: SegmentResponse | null
+  reachableCount: number | null
+  // The selected list's TOTAL people count (list-detail demographics), so a
+  // channel can render the reachable-of-total delta (ENG-10957). Null on the
+  // same terms as reachableCount.
+  selectedListTotal: number | null
+  reachableLoading: boolean
+  builderFilters: VoterFileFilters
+  setBuilderFilters: (filters: VoterFileFilters) => void
+  builderSupportStatus: SupportStatusRollup[]
+  setBuilderSupportStatus: (value: SupportStatusRollup[]) => void
+  builderPrecincts: string[]
+  setBuilderPrecincts: (value: string[]) => void
+  precinctOptions: PrecinctOptionsResult
+  builderName: string
+  setBuilderName: (name: string) => void
+  // Whether the campaign is an elected official: gates party/voter-likely
+  // filter pills in the builder. Resolved here so every consuming feature
+  // gets the gate right without re-wiring it (VoterFileStep is dumb).
+  isElectedOfficial: boolean
+  builderCount: number | undefined
+  builderCounting: boolean
+  builderCapError: boolean
+  builderCountErrorMessage: string | undefined
+  // Settled-zero: the only count state that should block advancing.
+  builderZeroMatch: boolean
+  onSelect: (id: number) => void
+  // The whole constituency, offered as a row of its own — the audience the
+  // CRM lists index has always shown first, which every outreach picker was
+  // missing. Its name is the CRM's own label, so the two surfaces cannot
+  // drift apart.
+  // Null until the elected-office query settles: until then we do not know
+  // whether this product says voters or constituents, and a guess becomes a
+  // wrongly named saved list the moment the row is picked. The step withholds
+  // the row while this is null.
+  universeName: string | null
+  // The saved list that IS the universe, or null when the org has none yet.
+  // Resolved by its CRITERIA, never by its name: a candidate is free to call
+  // a filtered list "All voters", and reusing that would select a narrower
+  // audience than the row promises. Exposed so the step and this hook cannot
+  // disagree about which row is the universe.
+  universeListId: number | null
+  // Counted from `GET /v1/contacts/list-detail` with NO segment, which is
+  // exactly what the CRM's universe row reads, so the number on the row is
+  // the same number the contacts tab shows.
+  universeCount: number | null
+  universeLoading: boolean
+  // Resolves the row to a REAL criteria-free saved list — reused when the org
+  // already has one, created when it does not — and RETURNS its id without
+  // selecting it. Selecting is the caller's job, through the same `onSelect`
+  // every other row goes through: that is what clears a pressed
+  // recommendation (`selectList`) and runs each flow's own side effects (see
+  // the note above `seedBuilderFromRecommendation`, and SmsFlow clearing a
+  // stale phone-list token). Null when the create failed.
+  selectUniverse: () => Promise<number | null>
+  universePending: boolean
+  // Surfaced because `selectUniverse` swallows the rejection to return null:
+  // without this the row's failure is a silent no-op, since nothing else on
+  // the step knows the create was even attempted.
+  universeError: boolean
+  // Told when the picker itself opens and closes, which does two jobs.
+  //
+  // It gates the universe count: that read is
+  // `GET /v1/contacts/list-detail` over the WHOLE district, measured at 12s
+  // p50 and 17s p95 under concurrency (see `useListRowDetail`'s cap), and
+  // nothing shows it until the popover is up — so firing it when the flow
+  // opens spent a slow warehouse read on every candidate who never touched
+  // the picker.
+  //
+  // And it clears a failed create. React Query keeps a mutation's error
+  // until it is reset or retried, and the banner lives inside the picker, so
+  // without this one blip read as failed on every reopen for the rest of the
+  // session. Same reason `clearCreateError` exists above.
+  onPickerOpenChange: (open: boolean) => void
+  startBuilder: () => void
+  // Persist the built filters as a saved list (overlay-free), refresh the
+  // picker, and return the created row so the flow can select it.
+  createList: () => Promise<SegmentResponse>
+  createListPending: boolean
+  createListError: boolean
+  // Clears a failed-create error without touching the built filters — for the
+  // name -> filters Back path, so a stale error can't re-flash on re-entry.
+  clearCreateError: () => void
+  resetBuilder: () => void
+  // Full reset for flow open.
+  reset: () => void
+  recommendations: RecommendedList[]
+  recommendationsLoading: boolean
+  recommendationsError: boolean
+  // The channel the recommendations were requested for — a recommendation
+  // carries no channel of its own (it's the query param, one per request).
+  recommendedListsChannel: RecommendedListChannel
+  // Seeds the builder from a recommendation and creates the saved list in
+  // one call, using the caller's chosen name (the picker's naming drawer
+  // pre-fills it from the recommendation's copy.title and lets the
+  // candidate edit before submit). Only for a recommendation with no
+  // existingFilterId — a caller with one should call
+  // onSelect(existingFilterId) instead of this.
+  createRecommendedList: (
+    recommendation: RecommendedList,
+    name: string,
+  ) => Promise<SegmentResponse>
+  createRecommendedListPending: boolean
+  // The message for a createRecommendedList that failed from the step's
+  // Continue (the naming drawer shows its own); cleared by the next
+  // selection or attempt.
+  createRecommendedListError: string | null
+  // A recommendation chosen as the audience without being saved yet — the
+  // carried-in card on arrival. Mutually exclusive with selectedListId:
+  // picking a saved list or opening the builder drops it, and Continue
+  // saves it (under its own title) before advancing.
+  selectedRecommendation: RecommendedList | null
+  selectRecommendation: (recommendation: RecommendedList) => void
+  // The conversion event for a recommendation that resolved to a list the
+  // candidate already has. `applyRecommendation` deliberately does not
+  // handle that case (each flow attaches its own side effects to selecting
+  // a list), so the accept has to be reported from the same branch.
+  trackRecommendationReused: (recommendation: RecommendedList) => void
+  // The carried-in recommendation, once fetched for this channel, and
+  // whether the audience step has applied it yet.
+  preselectedRecommendation: RecommendedList | null
+  preselectedRecommendationApplied: boolean
+  markPreselectedRecommendationApplied: () => void
+}
+
+export const useOutreachAudience = ({
+  open,
+  active,
+  reachabilityKey,
+  countOverlay,
+  recommendedListIntent = null,
+  preselectedListId,
+  preselectedRecommendedVariant,
+  proposedAudience,
+}: UseOutreachAudienceParams): OutreachAudience => {
+  const [mode, setMode] = useState<OutreachAudienceMode>('picker')
+  const [selectedListId, setSelectedListId] = useState<number | null>(null)
+  const [selectedRecommendation, setSelectedRecommendation] =
+    useState<RecommendedList | null>(null)
+  // The count of the recommendation the selected saved list came from, kept
+  // against that list's id. Both accept branches record it — the card that
+  // resolved to a list the candidate already had, and the card saved for the
+  // first time — because it is the only reach figure available when the
+  // Pro-gated list-detail read is off.
+  const [recommendationSnapshot, setRecommendationSnapshot] = useState<{
+    listId: number
+    count: number
+  } | null>(null)
+  const [createRecommendedListPending, setCreateRecommendedListPending] =
+    useState(false)
+  const [createRecommendedListError, setCreateRecommendedListError] = useState<
+    string | null
+  >(null)
+  const [builderFilters, setBuilderFilters] = useState<VoterFileFilters>({})
+  const [builderSupportStatus, setBuilderSupportStatus] = useState<
+    SupportStatusRollup[]
+  >([])
+  const [builderPrecincts, setBuilderPrecincts] = useState<string[]>([])
+  const [builderName, setBuilderName] = useState('')
+  const [builderSample, setBuilderSample] = useState<ListSample | undefined>()
+  // Which carried-in variant the audience step has already applied. Held
+  // here and not in the step because the step unmounts between steps, and
+  // Back into it must not reopen a naming drawer the candidate dismissed.
+  const [appliedPreselectedVariant, setAppliedPreselectedVariant] =
+    useState<RecommendedListVariant | null>(null)
+  // Provenance of the current builder selection, when it originated from a
+  // recommendation. gp-api persists variant/channel/intent on the created
+  // filter and diffs the submitted filter against `filter` (the
+  // recommendation's own unsaved shape) to set recommendedModified — this
+  // is just the carrier, plus what the analytics event needs on accept.
+  const [recommendedMeta, setRecommendedMeta] = useState<{
+    variant: RecommendedListVariant
+    channel: RecommendedListChannel
+    intent: RecommendedListIntent
+    filter: RecommendedListFilter
+    count: number
+    voteGoalShare?: number
+  } | null>(null)
+
+  const { data: electedOffice, isFetched: electedOfficeFetched } =
+    useElectedOffice()
+  const isElectedOfficial = !!electedOffice
+  // Same gating as the builder's count below: the flow host stays mounted, so
+  // an ungated fetch would run for every outreach page view. 'picker' mode
+  // shows saved lists only — the precinct control cannot render until the
+  // builder is open on its filters step.
+  const precinctOptions = usePrecinctOptions(
+    open && active && mode !== 'picker',
+  )
+
+  // Scope the saved-lists cache by org: with staleTime 0 the cached entry is
+  // still served during an in-flight refetch, so an unscoped key would briefly
+  // surface a prior org's lists after an org switch (matches the CRM callers'
+  // ['custom-segments', orgSlug] scoping).
+  const orgSlug = useOrganization()?.slug
+  const queryClient = useQueryClient()
+
+  const recommendationsQuery = useQuery({
+    queryKey: [
+      'outreach-audience-recommendations',
+      orgSlug,
+      reachabilityKey,
+      recommendedListIntent,
+    ],
+    queryFn: async () => {
+      const { data } = await clientRequest(
+        'GET /v1/campaigns/mine/recommended-lists',
+        {
+          channel: reachabilityKey,
+          // Guarded by `enabled` below.
+          intent: recommendedListIntent ?? undefined,
+        },
+      )
+      return data
+    },
+    // Same gating as precinctOptions/builderCountResult elsewhere in this
+    // hook: the flow host stays mounted (open never goes false between
+    // steps), so without active/mode this kept refetching a
+    // warehouse-backed call on window-focus for schedule/compose/review —
+    // steps that don't show it.
+    enabled:
+      open && active && mode === 'picker' && recommendedListIntent !== null,
+    staleTime: 0,
+  })
+
+  // Fetched from open rather than from the audience step, so the candidate
+  // never waits on a warehouse aggregate they already saw on the voter data
+  // page. Cut for this channel: the count and price are the flow's own.
+  const preselectedRecommendationQuery = useQuery({
+    queryKey: [
+      'outreach-audience-preselected-recommendation',
+      orgSlug,
+      reachabilityKey,
+      preselectedRecommendedVariant,
+    ],
+    queryFn: async () => {
+      const { data } = await clientRequest(
+        'GET /v1/campaigns/mine/recommended-lists',
+        {
+          channel: reachabilityKey,
+          // Guarded by `enabled` below.
+          variant: preselectedRecommendedVariant,
+        },
+      )
+      return data[0] ?? null
+    },
+    enabled: open && preselectedRecommendedVariant !== undefined,
+    refetchOnWindowFocus: false,
+    // Always refetch on open: whether the list exists yet can change
+    // between opens, and recommendationsLoading holds the step until the
+    // fresh copy lands (see below).
+    staleTime: 0,
+  })
+
+  const listsQuery = useQuery({
+    queryKey: outreachAudienceListsKey(orgSlug),
+    queryFn: async () => {
+      const { data } = await clientRequest(
+        'GET /v1/voters/voter-file/filters',
+        {},
+      )
+      return (data ?? []).filter(
+        (list): list is SegmentResponse =>
+          typeof list?.name === 'string' &&
+          !AUTO_VOTER_FILTER_NAME_PATTERN.test(list.name),
+      )
+    },
+    enabled: open,
+    // A list created in the CRM tab (or by the builder here) must appear on
+    // return — bypass the app's default staleTime.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  })
+  const lists = useMemo(() => listsQuery.data ?? [], [listsQuery.data])
+  const selectedList = lists.find((l) => l.id === selectedListId) ?? null
+
+  // The universe row's name is the CRM's own label for the same audience, so
+  // "All voters" on Win and "All constituents" on Serve — and so a list
+  // created here is the one the contacts tab already talks about.
+  // Null until we know which product's label to use. While the
+  // elected-office query is in flight `electedOffice` is undefined, which
+  // reads as Win — so on a cold cache a Serve org would have been offered a
+  // row called "All voters" and, if they picked it, had a list SAVED under
+  // that name. Better to have no row for a moment than the wrong one.
+  const universeName = electedOfficeFetched
+    ? getContactsLabels(!isElectedOfficial).allContactsTitle
+    : null
+
+  // Our label AND no criteria — see `universeList.util.ts` for why either
+  // test alone is wrong in a different direction.
+  const universeList =
+    universeName === null
+      ? null
+      : (lists.find((l) => isUniverseList(l, universeName)) ?? null)
+
+  // Omitted segment = the whole unfiltered district (ENG-10778), the same
+  // read the CRM's universe row makes. Only needed until the row resolves to
+  // a real list, after which the ordinary reachability query answers.
+  // Whether the saved-list popover is up. The step owns that state; this is
+  // its copy, so the count below can wait for it.
+  const [pickerOpen, setPickerOpen] = useState(false)
+
+  const universeQuery = useQuery({
+    queryKey: ['outreach-audience-universe', orgSlug, reachabilityKey],
+    queryFn: async ({ signal }) => {
+      const { data } = await clientRequest(
+        'GET /v1/contacts/list-detail',
+        {},
+        { signal },
+      )
+      return data.reachability[reachabilityKey]
+    },
+    // Not merely `open`: see `onPickerOpenChange`. The flow being open is not
+    // a reason to read the whole district.
+    enabled: open && pickerOpen,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+
+  const universeMutation = useMutation({
+    mutationFn: async (): Promise<SegmentResponse> => {
+      // Reuse before create, so tapping the row twice — or on a later visit —
+      // cannot litter the org with duplicate all-constituents lists. Matched
+      // on criteria rather than name; see `isCriteriaFree`.
+      // Refused rather than guessed: the step does not offer the row until
+      // the name is known, so reaching here without one is a bug, not a
+      // state to paper over with a default label.
+      if (universeName === null) {
+        throw new Error('Universe list name is not resolved yet')
+      }
+      const existing = listsRef.current.find((l) =>
+        isUniverseList(l, universeName),
+      )
+      if (existing) return existing
+      // No criteria at all: ENG-10960 established that the backend accepts a
+      // criteria-free saved filter, and that is precisely "everyone".
+      const { data } = await clientRequest(
+        'POST /v1/voters/voter-file/filter',
+        { name: universeName },
+      )
+      await queryClient.invalidateQueries({
+        queryKey: outreachAudienceListsKey(orgSlug),
+      })
+      return data as SegmentResponse
+    },
+  })
+  const { reset: resetUniverseMutation } = universeMutation
+
+  // Read by `reset` through refs so a lists refetch (staleTime 0, window
+  // focus) never changes reset's identity: the flows key their open-time
+  // reset effect on it, and a new identity would wipe the flow mid-edit.
+  const listsRef = useRef(lists)
+  listsRef.current = lists
+  const preselectedListIdRef = useRef(preselectedListId)
+  preselectedListIdRef.current = preselectedListId
+  const proposedAudienceRef = useRef(proposedAudience)
+  proposedAudienceRef.current = proposedAudience
+
+  // Apply the caller's preselected list once its row arrives. Spent on
+  // application rather than bound to the prop: the candidate must be able to
+  // pick something else and have that stick, including across the refetches
+  // this query does on window focus. Re-arms on a different id, so a second
+  // deep link into a still-mounted flow preselects too.
+  const appliedPreselectRef = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (preselectedListId === undefined) return
+    if (appliedPreselectRef.current === preselectedListId) return
+    if (!lists.some((l) => l.id === preselectedListId)) return
+    appliedPreselectRef.current = preselectedListId
+    setSelectedListId(preselectedListId)
+  }, [preselectedListId, lists])
+
+  const reachabilityQuery = useQuery({
+    queryKey: [
+      'outreach-audience-reachability',
+      orgSlug,
+      reachabilityKey,
+      selectedListId,
+    ],
+    queryFn: async ({ signal }) => {
+      // Guarded by `enabled` below; narrow rather than cast so a future change
+      // to the enable condition can't silently pass null through.
+      if (selectedListId === null) throw new Error('No list selected')
+      const detail = await fetchListDetailThrottled(selectedListId, signal)
+      return {
+        reachable: detail.reachability[reachabilityKey],
+        total: detail.demographics.people,
+      }
+    },
+    // A list built in the flow is selected as we leave the audience step
+    // (createList -> the flow's goToSchedule in the same tick), so gating this
+    // on `active` meant the count never fetched for a built list and the
+    // review/pay steps read a null (rendered 0) reachable count. Fetch whenever
+    // a list is selected; the automatic refetches the `active` gate used to
+    // guard against are suppressed directly below.
+    enabled: open && selectedListId !== null,
+    // Both window-focus and reconnect refetches are disabled for the same
+    // reason: on a post-audience step (schedule/compose/review) a focus regain
+    // or a network reconnect (common on mobile) would, under staleTime:0, refire
+    // fetchListDetailThrottled and burn one of the global MAX_IN_FLIGHT (3)
+    // list-detail slots — with no UI benefit, since the count is already
+    // resolved by then. The initial fetch on selection still runs (the query
+    // observer mounts once at the flow root and persists across steps, so
+    // refetchOnMount is not a factor here).
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    // Refetch on every (re)selection so the isFetching-driven spinner below
+    // actually fires: under the app's 5-min default staleTime a re-picked list
+    // is still "fresh", no background refetch runs, isFetching stays false, and
+    // a stale count would render with no loading state (matches listsQuery).
+    staleTime: 0,
+  })
+  // A selected recommendation was already counted for this channel by the
+  // endpoint, so its count is the reach — there is no saved list to ask.
+  // A recommendation that resolved to a list the candidate already has is
+  // selected AS that list, so its own count is the only one on hand when
+  // list-detail is off (second visit, free build path).
+  const reachableCount = selectedRecommendation
+    ? selectedRecommendation.count
+    : (reachabilityQuery.data?.reachable ??
+      (recommendationSnapshot?.listId === selectedListId
+        ? recommendationSnapshot.count
+        : null))
+  const selectedListTotal = reachabilityQuery.data?.total ?? null
+
+  // Filters the user built, translated for the backend. The saved list is
+  // created from THIS (overlay-free); the count adds the overlay on top.
+  const createPayload = useMemo(
+    () => ({
+      ...transformVoterFileFiltersForBackend(builderFilters),
+      ...(builderSupportStatus.length
+        ? { supportStatus: builderSupportStatus }
+        : {}),
+      ...(builderPrecincts.length ? { precincts: builderPrecincts } : {}),
+    }),
+    [builderFilters, builderSupportStatus, builderPrecincts],
+  )
+  // Key the memo on the overlay's VALUE, not its identity, so a caller passing
+  // an inline `{ hasLandline: true }` each render can't churn the payload and
+  // spin useListWizardCount's debounce effect into an update loop.
+  const overlayKey = JSON.stringify(countOverlay ?? {})
+  const countPayload = useMemo(
+    () => ({ ...createPayload, ...(countOverlay ?? {}) }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [createPayload, overlayKey],
+  )
+
+  const builderCountResult = useListWizardCount(
+    countPayload,
+    open && active && mode !== 'picker',
+  )
+  // Guard the undefined-count clause with !isError: on a non-cap count failure
+  // the count is undefined but the query has settled, so treating it as "still
+  // counting" would spin the CTA forever with no recovery (matches the isError
+  // guard on builderZeroMatch below).
+  const builderCounting =
+    builderCountResult.isLoading ||
+    builderCountResult.isStale ||
+    (!builderCountResult.isError && builderCountResult.count === undefined)
+  const builderZeroMatch =
+    !builderCountResult.isLoading &&
+    !builderCountResult.isStale &&
+    !builderCountResult.isError &&
+    builderCountResult.count === 0
+
+  const createListMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await clientRequest(
+        'POST /v1/voters/voter-file/filter',
+        {
+          name: builderName.trim(),
+          ...createPayload,
+          // A sample is drawn from the people this channel can reach, so
+          // the reach the count added is saved with it. Drawn from the
+          // overlay-free criteria, a text sample would hold landlines.
+          ...(builderSample
+            ? { ...(countOverlay ?? {}), sample: builderSample }
+            : {}),
+          // recommendedFilter is the recommendation's own unsaved filter
+          // shape, sent alongside the submitted criteria purely so gp-api
+          // can diff the two and persist recommendedModified — nothing
+          // recommendation-time is otherwise saved anywhere to diff against.
+          ...(recommendedMeta
+            ? {
+                recommendedVariant: recommendedMeta.variant,
+                recommendedChannel: recommendedMeta.channel,
+                recommendedIntent: recommendedMeta.intent,
+                recommendedFilter: recommendedMeta.filter,
+              }
+            : {}),
+        },
+      )
+      return data
+    },
+  })
+  // react-query's mutate/reset are stable references; destructure so the
+  // callbacks below can depend on them without churning identity (a fresh
+  // closure each render would re-fire consumers' open/reset effects — an
+  // update loop).
+  const {
+    mutateAsync: runCreateList,
+    reset: resetCreateMutation,
+    isPending: createListPending,
+    isError: createListError,
+  } = createListMutation
+
+  const resetBuilder = useCallback(() => {
+    setMode('picker')
+    setBuilderFilters({})
+    setBuilderSupportStatus([])
+    setBuilderPrecincts([])
+    setBuilderName('')
+    setBuilderSample(undefined)
+    setRecommendedMeta(null)
+    resetCreateMutation()
+  }, [resetCreateMutation])
+
+  const seedProposedAudience = useCallback((proposed: ProposedAudience) => {
+    setMode('filters')
+    setBuilderFilters(proposed.filters)
+    setBuilderSupportStatus(proposed.supportStatus)
+    setBuilderPrecincts(proposed.precincts)
+    setBuilderName(proposed.name)
+    setBuilderSample(proposed.sample)
+  }, [])
+
+  const reset = useCallback(() => {
+    // A preselected list whose row is already here survives the reset: the
+    // hook's own preselect effect runs BEFORE the flow's open effect calls
+    // this (hooks' effects fire first), so with the saved lists already
+    // cached it had applied the resumed draft's list, and clearing it here
+    // left nothing to re-apply — the effect's deps had not changed. That
+    // read as "The voter list for this call is no longer available" on
+    // every resume after the first. A list not loaded yet stays with the
+    // effect, which applies it when the rows arrive.
+    const preselect = preselectedListIdRef.current
+    const preselectReady =
+      preselect !== undefined &&
+      listsRef.current.some((l) => l.id === preselect)
+    setMode('picker')
+    setPickerOpen(false)
+    resetUniverseMutation()
+    setSelectedListId(preselectReady ? preselect : null)
+    setSelectedRecommendation(null)
+    setRecommendationSnapshot(null)
+    setCreateRecommendedListError(null)
+    appliedPreselectRef.current = preselectReady ? preselect : undefined
+    setAppliedPreselectedVariant(null)
+    setBuilderFilters({})
+    setBuilderSupportStatus([])
+    setBuilderPrecincts([])
+    setBuilderName('')
+    setBuilderSample(undefined)
+    setRecommendedMeta(null)
+    resetCreateMutation()
+    // Seeded here rather than beside the flow's own open effect, which calls
+    // this reset after anything it could set first.
+    const proposed = preselectReady ? undefined : proposedAudienceRef.current
+    if (proposed) seedProposedAudience(proposed)
+  }, [resetCreateMutation, resetUniverseMutation, seedProposedAudience])
+
+  // Opening the builder leaves a selected recommendation behind: what gets
+  // cut from here is a new audience, not that card.
+  const startBuilder = useCallback(() => {
+    setSelectedRecommendation(null)
+    setMode('filters')
+  }, [])
+
+  const selectList = useCallback((id: number | null) => {
+    setSelectedListId(id)
+    setSelectedRecommendation(null)
+  }, [])
+
+  const selectRecommendation = useCallback(
+    (recommendation: RecommendedList) => {
+      setSelectedRecommendation(recommendation)
+      setSelectedListId(null)
+      setCreateRecommendedListError(null)
+    },
+    [],
+  )
+
+  // Only for a recommendation whose existingFilterId is null — the caller is
+  // expected to route that case at onSelect(existingFilterId) instead, since
+  // that path already carries each flow's own side effects (e.g. SmsFlow
+  // clearing a stale phone-list token on audience change).
+  // Seeds the builder state that createList (and its recommendedMeta-driven
+  // Accepted event) reads. Kept private — the picker's flow is
+  // createRecommendedList below, which seeds + creates in one atomic call
+  // rather than staging the seed for a separate submit.
+  const seedFromRecommendation = useCallback(
+    (recommendation: RecommendedList, name: string) => {
+      setBuilderFilters(builderFiltersFromRecommendation(recommendation.filter))
+      setBuilderSupportStatus(recommendation.filter.supportStatus ?? [])
+      setBuilderPrecincts(recommendation.filter.precincts ?? [])
+      setBuilderName(name)
+      setRecommendedMeta({
+        variant: recommendation.variant,
+        channel: reachabilityKey,
+        // The variant's own intent, not this flow's purpose: a recommendation
+        // carried in from the voter data page belongs to whichever intent
+        // the registry says, whatever purpose the candidate picked here.
+        intent: recommendation.intent,
+        filter: recommendation.filter,
+        count: recommendation.count,
+        voteGoalShare: recommendation.voteGoalShare,
+      })
+    },
+    [reachabilityKey],
+  )
+
+  // The other half of the conversion measurement. A recommendation the
+  // candidate has already taken once resolves to an existing saved list, so
+  // it is selected rather than created — which routes around `createList`
+  // entirely and, unmeasured, biased the accepted population to first-time
+  // accepts. `modified` is false by construction: nothing was submitted, so
+  // there is nothing for gp-api to diff. `reusedExistingList` is what keeps
+  // the two kinds of accept separable in the funnel rather than conflated.
+  const trackRecommendationReused = useCallback(
+    (recommendation: RecommendedList) => {
+      if (recommendation.existingFilterId !== null) {
+        setRecommendationSnapshot({
+          listId: recommendation.existingFilterId,
+          count: recommendation.count,
+        })
+      }
+      trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
+        variant: recommendation.variant,
+        channel: reachabilityKey,
+        medium: outreachChannel(reachabilityKey),
+        intent: recommendation.intent,
+        count: recommendation.count,
+        voteGoalShare: recommendation.voteGoalShare,
+        modified: false,
+        reusedExistingList: true,
+      })
+    },
+    [reachabilityKey],
+  )
+
+  // A save changes the answer to "does this list exist yet" for every card
+  // that describes it, so both recommendation caches are refetched: the
+  // purpose's own cards and the carried-in copy.
+  const invalidateRecommendations = useCallback(() => {
+    queryClient.invalidateQueries({
+      queryKey: ['outreach-audience-recommendations', orgSlug],
+    })
+    queryClient.invalidateQueries({
+      queryKey: ['outreach-audience-preselected-recommendation', orgSlug],
+    })
+  }, [queryClient, orgSlug])
+
+  // Seeds the builder from a recommendation, then POSTs the create with an
+  // explicitly-passed name — the drawer's name input is the source of truth,
+  // so building the payload from arguments (rather than from useState that
+  // may not have flushed) avoids a stale-name race. Fires the same Accepted
+  // event createList's `recommendedMeta` branch does, then does the same
+  // cache invalidation + select-and-reset. Errors bubble; the drawer catches
+  // and shows an inline message.
+  const createRecommendedList = useCallback(
+    async (
+      recommendation: RecommendedList,
+      name: string,
+    ): Promise<SegmentResponse> => {
+      seedFromRecommendation(recommendation, name)
+      const trimmed = name.trim()
+      const filters = builderFiltersFromRecommendation(recommendation.filter)
+      const supportStatus = recommendation.filter.supportStatus ?? []
+      const precincts = recommendation.filter.precincts ?? []
+      setCreateRecommendedListPending(true)
+      setCreateRecommendedListError(null)
+      let data: SegmentResponse
+      try {
+        const response = await clientRequest(
+          'POST /v1/voters/voter-file/filter',
+          {
+            name: trimmed,
+            ...transformVoterFileFiltersForBackend(filters),
+            ...(supportStatus.length ? { supportStatus } : {}),
+            ...(precincts.length ? { precincts } : {}),
+            recommendedVariant: recommendation.variant,
+            recommendedChannel: reachabilityKey,
+            recommendedIntent: recommendation.intent,
+            recommendedFilter: recommendation.filter,
+          },
+        )
+        data = response.data
+      } catch (error) {
+        // Same identifying properties as Accepted below, minus the two that are
+        // only knowable from the response that never arrived, so the two can be
+        // compared as one rate.
+        trackEvent(EVENTS.Outreach.RecommendedList.Failed, {
+          variant: recommendation.variant,
+          channel: reachabilityKey,
+          medium: outreachChannel(reachabilityKey),
+          intent: recommendation.intent,
+          count: recommendation.count,
+          voteGoalShare: recommendation.voteGoalShare,
+        })
+        setCreateRecommendedListError("We couldn't save this list. Try again.")
+        throw error
+      } finally {
+        setCreateRecommendedListPending(false)
+      }
+      trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
+        variant: recommendation.variant,
+        channel: reachabilityKey,
+        medium: outreachChannel(reachabilityKey),
+        intent: recommendation.intent,
+        count: recommendation.count,
+        voteGoalShare: recommendation.voteGoalShare,
+        modified: data.recommendedModified ?? false,
+        reusedExistingList: false,
+      })
+      await queryClient.invalidateQueries({
+        queryKey: outreachAudienceListsKey(orgSlug),
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['custom-segments', orgSlug],
+      })
+      invalidateRecommendations()
+      setSelectedListId(data.id)
+      // The card's own count is the reach figure for the list it just
+      // became: selecting it drops `selectedRecommendation`, and with the
+      // Pro-gated list-detail read off nothing else can supply one.
+      setRecommendationSnapshot({
+        listId: data.id,
+        count: recommendation.count,
+      })
+      setSelectedRecommendation(null)
+      resetBuilder()
+      return data
+    },
+    [
+      seedFromRecommendation,
+      reachabilityKey,
+      queryClient,
+      resetBuilder,
+      orgSlug,
+      invalidateRecommendations,
+    ],
+  )
+
+  const createList = useCallback(async (): Promise<SegmentResponse> => {
+    let created: SegmentResponse
+    try {
+      created = await runCreateList()
+    } catch (error) {
+      // The twin for this route. A candidate who seeds the builder from a
+      // recommendation, edits it and fails to save has accepted nothing, and
+      // without this the route's acceptance is a success count with no
+      // denominator — the same defect the create path above carries. Gated on
+      // recommendedMeta for the same reason Accepted is: a hand-built list has
+      // no recommendation to accept or fail to accept.
+      if (recommendedMeta) {
+        trackEvent(EVENTS.Outreach.RecommendedList.Failed, {
+          variant: recommendedMeta.variant,
+          channel: recommendedMeta.channel,
+          medium: outreachChannel(recommendedMeta.channel),
+          intent: recommendedMeta.intent,
+          count: recommendedMeta.count,
+          voteGoalShare: recommendedMeta.voteGoalShare,
+        })
+      }
+      throw error
+    }
+    // Only knowable now: whether the candidate accepted the recommendation
+    // as-is or edited it first (gp-api's recommendedModified, computed at
+    // create time). Fires here rather than on card selection, and not at
+    // all for a hand-built list (recommendedMeta null).
+    if (recommendedMeta) {
+      trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
+        variant: recommendedMeta.variant,
+        channel: recommendedMeta.channel,
+        medium: outreachChannel(recommendedMeta.channel),
+        intent: recommendedMeta.intent,
+        count: recommendedMeta.count,
+        voteGoalShare: recommendedMeta.voteGoalShare,
+        modified: created.recommendedModified ?? false,
+        reusedExistingList: false,
+      })
+    }
+    await queryClient.invalidateQueries({
+      queryKey: outreachAudienceListsKey(orgSlug),
+    })
+    invalidateRecommendations()
+    // The CRM lists tab reads the same endpoint under its own key; refresh it
+    // too (fire-and-forget — it isn't mounted here) so a list built in this
+    // flow shows up there without waiting out its default staleTime, mirroring
+    // the reverse sync the CRM dialogs now do for this key.
+    queryClient.invalidateQueries({
+      queryKey: ['custom-segments', orgSlug],
+    })
+    setSelectedListId(created.id)
+    resetBuilder()
+    return created
+  }, [
+    runCreateList,
+    recommendedMeta,
+    queryClient,
+    resetBuilder,
+    orgSlug,
+    invalidateRecommendations,
+  ])
+
+  return {
+    mode,
+    setMode,
+    selectedListId,
+    lists,
+    listsLoading: listsQuery.isLoading,
+    listsFetching: listsQuery.isFetching,
+    selectedList,
+    reachableCount,
+    selectedListTotal,
+    // isFetching (not isLoading) so a re-selected, already-cached list still
+    // shows the spinner during its background refetch — isLoading is true only
+    // on the first-ever fetch, so under the 5-min default staleTime a stale
+    // count would otherwise render with no loading state.
+    reachableLoading: reachabilityQuery.isFetching,
+    builderFilters,
+    setBuilderFilters,
+    builderSupportStatus,
+    setBuilderSupportStatus,
+    builderPrecincts,
+    setBuilderPrecincts,
+    precinctOptions,
+    builderName,
+    setBuilderName,
+    isElectedOfficial,
+    // What the saved list will hold, so Continue never promises the whole
+    // audience to a list that keeps a sample of it.
+    builderCount:
+      builderSample && builderCountResult.count !== undefined
+        ? Math.min(builderCountResult.count, builderSample.size)
+        : builderCountResult.count,
+    builderCounting,
+    builderCapError: builderCountResult.isCapError,
+    builderCountErrorMessage: builderCountResult.errorMessage,
+    builderZeroMatch,
+    onSelect: selectList,
+    universeName,
+    universeListId: universeList?.id ?? null,
+    universeCount: universeQuery.data ?? null,
+    universeLoading: universeQuery.isFetching,
+    selectUniverse: async () => {
+      try {
+        return (await universeMutation.mutateAsync()).id
+      } catch {
+        // The mutation's own error state is what the row reads; a failed
+        // create must not leave an unhandled rejection behind it.
+        return null
+      }
+    },
+    universePending: universeMutation.isPending,
+    universeError: universeMutation.isError,
+    onPickerOpenChange: (next: boolean) => {
+      setPickerOpen(next)
+      // Cleared on the way IN: the banner belongs to the attempt just made,
+      // so it survives closing the picker to think and is gone by the time
+      // they come back to try again.
+      if (next) universeMutation.reset()
+    },
+    startBuilder,
+    selectedRecommendation,
+    selectRecommendation,
+    createRecommendedListPending,
+    createRecommendedListError,
+    createList,
+    createListPending,
+    createListError,
+    clearCreateError: resetCreateMutation,
+    resetBuilder,
+    reset,
+    recommendations: recommendationsQuery.data ?? [],
+    // The carried-in recommendation shares the landing skeleton: applying it
+    // is the first thing the step does, so the picker must not paint first.
+    // isFetching, not isLoading: the cache outlives the flow, and a copy
+    // fetched before the list was saved still says existingFilterId null —
+    // applied during the refetch, it saved the same list a second time.
+    recommendationsLoading:
+      recommendationsQuery.isLoading ||
+      preselectedRecommendationQuery.isFetching,
+    recommendationsError: recommendationsQuery.isError,
+    recommendedListsChannel: reachabilityKey,
+    createRecommendedList,
+    trackRecommendationReused,
+    preselectedRecommendation: preselectedRecommendationQuery.data ?? null,
+    preselectedRecommendationApplied:
+      preselectedRecommendedVariant !== undefined &&
+      appliedPreselectedVariant === preselectedRecommendedVariant,
+    markPreselectedRecommendationApplied: () =>
+      setAppliedPreselectedVariant(preselectedRecommendedVariant ?? null),
+  }
+}

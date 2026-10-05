@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import pageMetaData from 'helpers/metadataHelper'
-import PhoneBankingCallerPage from 'app/dashboard/outreach/phone-banking/[listId]/PhoneBankingCallerPage'
+import PhoneBankingCallerPage from 'app/(dashboard)/outreach/phone-banking/[listId]/PhoneBankingCallerPage'
 
 export const metadata = pageMetaData({
   title: 'Phone banking | GoodParty.org',

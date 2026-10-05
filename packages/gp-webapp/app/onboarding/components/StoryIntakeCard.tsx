@@ -1,11 +1,11 @@
 'use client'
 
 import { Card, Textarea } from '@styleguide'
-import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
+import { useDictationAppend } from 'app/(dashboard)/shared/dictation/useDictationAppend'
 import {
   useStoryRewrite,
   type StoryRewriteField,
-} from 'app/dashboard/campaign-story/components/useStoryRewrite'
+} from 'app/(dashboard)/campaign-story/components/useStoryRewrite'
 import StoryFieldBar, { type StorySaveState } from './StoryFieldBar'
 import { useReportDictationActive } from './useReportDictationActive'
 

@@ -182,7 +182,7 @@ const TeamInvitePage = () => {
       // single source of truth for that check, so this doesn't need to
       // re-check it.
       window.location.href =
-        res.data.role === 'volunteer' ? '/volunteer' : '/dashboard'
+        res.data.role === 'volunteer' ? '/volunteer' : '/home'
       return
     }
     if (res.status === 404) {
@@ -446,7 +446,7 @@ const TeamInvitePage = () => {
                 expecting one, ask whoever invited you to send a new link.
               </p>
               <Button size="large" className="mt-8 px-8" asChild>
-                <Link href="/dashboard">Go to dashboard</Link>
+                <Link href="/home">Go to dashboard</Link>
               </Button>
             </>
           )}

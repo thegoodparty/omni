@@ -8,9 +8,9 @@ import { personContactPanel } from 'src/helpers/contacts-e2e'
 // to reach it.
 
 export const gotoCrmContacts = async (page: Page): Promise<void> => {
-  await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
+  await page.goto('/contacts', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
-  await expect(page).toHaveURL(/\/dashboard\/contacts/)
+  await expect(page).toHaveURL(/\/contacts/)
 }
 
 // The full-width top sheet (vaul bottom drawer, crm/shared/CrmSheet.tsx) that
@@ -108,7 +108,7 @@ export const readSettledWizardCount = async (
 }
 
 // Complete the wizard's name step and save. Resolves the new list's id from
-// the /dashboard/contacts/lists/<id> URL the on-create navigation lands on
+// the /contacts/lists/<id> URL the on-create navigation lands on
 // (the detail sheet opens via shallow pushState).
 export const saveWizardList = async (
   page: Page,
@@ -132,7 +132,7 @@ export const saveWizardList = async (
   await expect(nameInput).toBeVisible({ timeout: 15_000 })
   await nameInput.fill(name)
   await page.getByRole('button', { name: 'Save list' }).click()
-  await page.waitForURL(/\/dashboard\/contacts\/lists\/\d+/, {
+  await page.waitForURL(/\/contacts\/lists\/\d+/, {
     timeout: 30_000,
   })
   const listId = page.url().match(/\/lists\/(\d+)/)?.[1]

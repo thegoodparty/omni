@@ -78,7 +78,7 @@ export class OutreachComposeContextService extends createPrismaBase(
 
     // Two stores, because the product has two and only ever read one.
     //
-    // `details.customIssues` is written by the legacy `/dashboard/questions`
+    // `details.customIssues` is written by the legacy `/questions`
     // flow, which has no nav entry and is reachable only by detouring through
     // Content Builder. Current onboarding writes the candidate's issues to
     // `website.content.about.issues` instead (`saveAboutFields({ issues })` in

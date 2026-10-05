@@ -35,7 +35,7 @@ donation processor).
 
 ## What the candidate sees
 
-The Campaign Plan page (`/dashboard/campaign-plan`) shows a four-phase rail:
+The Campaign Plan page (`/campaign-plan`) shows a four-phase rail:
 **Pre-launch, Launch, Active campaign, Get out the vote**. Each phase holds
 dated task cards the candidate works through and marks complete.
 
@@ -369,7 +369,7 @@ and gotchas. Read those first when working in the code:
 - `packages/gp-api/src/campaigns/campaignTracker/CLAUDE.md` (backend): bootstrap
   (atomic claim), the append/generation model, weekly dispatch, persistence,
   completion.
-- `packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CLAUDE.md`
+- `packages/gp-webapp/app/(dashboard)/campaign-plan/components/campaignStrategy/CLAUDE.md`
   (frontend): latest-generation rendering, phase status, the GOTV window gate,
   polling, the date-format gotcha.
 
@@ -387,7 +387,7 @@ The table below is the cross-package file index:
 | Catalog generator | `gp-api/scripts/generate-tracker-catalog.ts` |
 | CAP experiment | `packages/runbooks/experiments/campaign_tracker_tasks/` |
 | Task catalog (source of truth) | `@goodparty_org/contracts` (`CampaignTaskCatalog`) |
-| Frontend rendering | `gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/buildTrackerStrategy.ts` |
+| Frontend rendering | `gp-webapp/app/(dashboard)/campaign-plan/components/campaignStrategy/buildTrackerStrategy.ts` |
 | Frontend data hook | `…/campaignStrategy/useTrackerTasks.ts` |
 | Frontend section | `…/campaignStrategy/CampaignStrategySection.tsx` |
 

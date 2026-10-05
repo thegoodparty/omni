@@ -120,7 +120,7 @@ describe('dashboard cards: generation -> read API', () => {
     )
     expect(briefingCard).toMatchObject({
       title: 'City Council',
-      ctaHref: `/dashboard/briefings/${meetingDate}`,
+      ctaHref: `/briefings/${meetingDate}`,
       sourceItemId: null,
     })
 
@@ -128,7 +128,7 @@ describe('dashboard cards: generation -> read API', () => {
     expect(itemCard).toMatchObject({
       type: DashboardCardType.agenda_item,
       title: 'Rezoning',
-      ctaHref: `/dashboard/briefings/${meetingDate}#briefing-item-item_a`,
+      ctaHref: `/briefings/${meetingDate}#briefing-item-item_a`,
     })
   })
 

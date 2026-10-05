@@ -6,7 +6,7 @@ import {
 } from 'src/helpers/navigation.helper'
 
 // The Chief of Staff route is gated by the server `serveAccess()` helper
-// (redirects to /dashboard when the user has no elected office) — no feature
+// (redirects to /home when the user has no elected office) — no feature
 // flag; `setupElectedOfficeUser` satisfies the gate.
 // The chat test drives the real Anthropic-backed agent, but that's an OUTBOUND
 // call the preview's own gp-api makes (it runs on the dev secret) — not an
@@ -19,14 +19,14 @@ test.describe('Chief of Staff', () => {
   test('renders the dashboard for an elected office', async ({ page }) => {
     await setupElectedOfficeUser(page)
 
-    await page.goto('/dashboard/chief-of-staff', {
+    await page.goto('/chief-of-staff', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
 
-    // serveAccess() redirects to /dashboard when the user has no elected
+    // serveAccess() redirects to /home when the user has no elected
     // office, so staying on the route is itself the access assertion.
-    await expect(page).toHaveURL(/\/dashboard\/chief-of-staff/, {
+    await expect(page).toHaveURL(/\/chief-of-staff/, {
       timeout: 15_000,
     })
     await expect(
@@ -39,7 +39,7 @@ test.describe('Chief of Staff', () => {
   }) => {
     await setupElectedOfficeUser(page)
 
-    await page.goto('/dashboard/chief-of-staff', {
+    await page.goto('/chief-of-staff', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -62,7 +62,7 @@ test.describe('Chief of Staff', () => {
 
     // The skipped card moves to the archive's Skipped bucket (default tab is
     // This week, so select Skipped explicitly).
-    await page.goto('/dashboard/chief-of-staff/archive', {
+    await page.goto('/chief-of-staff/archive', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -78,7 +78,7 @@ test.describe('Chief of Staff', () => {
   test('chat streams an assistant reply', async ({ page }) => {
     await setupElectedOfficeUser(page)
 
-    await page.goto('/dashboard/chief-of-staff', {
+    await page.goto('/chief-of-staff', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -192,7 +192,7 @@ test.describe('Chief of Staff', () => {
           }),
       )
 
-      await page.goto('/dashboard/chief-of-staff', {
+      await page.goto('/chief-of-staff', {
         waitUntil: 'domcontentloaded',
       })
       await NavigationHelper.dismissOverlays(page)

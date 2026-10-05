@@ -19,7 +19,7 @@ test.describe('Mobile Navigation', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
     await authenticateTestUser(page)
-    await page.goto('/dashboard')
+    await page.goto('/home')
     await NavigationHelper.dismissOverlays(page)
     // Ensure the campaign-gated dashboard has rendered and no stray task modal is
     // aria-hiding it before any test reaches for the greeting or the mobile menu.
@@ -29,7 +29,7 @@ test.describe('Mobile Navigation', () => {
   test('should display mobile dashboard', async ({ page }) => {
     test.setTimeout(120000)
     await WaitHelper.waitForPageReady(page)
-    await expect(page).toHaveURL(/\/dashboard$/)
+    await expect(page).toHaveURL(/\/home$/)
 
     await expect(dashboardGreetingHeading(page)).toBeVisible()
 
@@ -49,8 +49,8 @@ test.describe('Mobile Navigation', () => {
     test.setTimeout(120000)
     await WaitHelper.waitForPageReady(page)
 
-    await page.goto('/dashboard/profile')
-    await page.waitForURL(/\/dashboard\/profile/)
+    await page.goto('/profile')
+    await page.waitForURL(/\/profile/)
     await WaitHelper.waitForPageReady(page)
     await expect(
       page.getByRole('heading', { name: 'Office Details' }).first(),

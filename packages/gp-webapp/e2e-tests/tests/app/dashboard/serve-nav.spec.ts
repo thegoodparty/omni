@@ -25,7 +25,7 @@ test.describe('Serve nav renders without flag overrides', () => {
     page,
   }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/chief-of-staff', {
+    await page.goto('/chief-of-staff', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -49,7 +49,7 @@ test.describe('Serve nav renders without flag overrides', () => {
     page,
   }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/chief-of-staff', {
+    await page.goto('/chief-of-staff', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -59,7 +59,7 @@ test.describe('Serve nav renders without flag overrides', () => {
     })
 
     await page.locator('#community-issues-dashboard').click()
-    await page.waitForURL(/\/dashboard\/community-issues/, {
+    await page.waitForURL(/\/community-issues/, {
       timeout: 15_000,
     })
     // Deep page behavior (seeded issues, prioritize, chat) is covered by
@@ -72,7 +72,7 @@ test.describe('Serve nav renders without flag overrides', () => {
 
   test('a Win candidate sees no Serve tabs', async ({ page }) => {
     await authenticateTestUser(page)
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    await page.goto('/home', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // Settle guard: the Win Contacts slot only commits once the same

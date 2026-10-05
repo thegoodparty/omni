@@ -20,7 +20,7 @@ test.describe('Website Management', () => {
       formattedAddress: '1600 Pennsylvania Ave NW, Washington, DC',
       placeId: 'ChIJGVtI4by3t4kRr51d_Qm_x58',
     })
-    await NavigationHelper.navigateToPage(page, '/dashboard/website')
+    await NavigationHelper.navigateToPage(page, '/website')
     await NavigationHelper.dismissOverlays(page)
 
     await expect(

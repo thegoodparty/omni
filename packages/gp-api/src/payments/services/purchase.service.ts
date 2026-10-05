@@ -165,7 +165,7 @@ export class PurchaseService {
 
     const returnUrl =
       dto.returnUrl ||
-      `${WEBAPP_ROOT_URL}/dashboard/purchase/complete?session_id={CHECKOUT_SESSION_ID}`
+      `${WEBAPP_ROOT_URL}/purchase/complete?session_id={CHECKOUT_SESSION_ID}`
 
     const checkoutPayload: CustomCheckoutSessionPayload = {
       type: this.getPaymentType(dto.type),

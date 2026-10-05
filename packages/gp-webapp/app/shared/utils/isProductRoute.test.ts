@@ -26,8 +26,8 @@ describe('isProductRoute', () => {
   })
 
   it('treats dashboard, polls, and profile as product routes', () => {
-    expect(isProductRoute('/dashboard')).toBe(true)
-    expect(isProductRoute('/dashboard/profile')).toBe(true)
+    expect(isProductRoute('/home')).toBe(true)
+    expect(isProductRoute('/profile')).toBe(true)
     expect(isProductRoute('/polls')).toBe(true)
   })
 

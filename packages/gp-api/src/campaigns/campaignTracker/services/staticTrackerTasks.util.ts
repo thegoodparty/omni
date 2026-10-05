@@ -119,7 +119,7 @@ export const CAMPAIGN_STORY_TASK_TITLES = CAMPAIGN_TASK_CATALOG.filter(
 // Where the story task sends the candidate. The manager auto-launches the
 // story intake chat flow on this param, the same deep link the manager's own
 // story card uses.
-const CAMPAIGN_STORY_LINK = '/dashboard?personalize=1'
+const CAMPAIGN_STORY_LINK = '/home?personalize=1'
 
 // The campaign-story row. Built separately from the rest of the static catalog
 // only because it carries the link/CTA columns, which the catalog schema does

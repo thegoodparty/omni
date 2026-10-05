@@ -208,7 +208,7 @@ describe('SignUpPhoneForm with a next deep link', () => {
     })
 
   it('forwards next after saving the number', async () => {
-    withSearch('?next=%2Fdashboard%2Fbriefings')
+    withSearch('?next=%2Fbriefings')
     const user = userEvent.setup()
     await renderForm()
 
@@ -217,13 +217,13 @@ describe('SignUpPhoneForm with a next deep link', () => {
 
     await waitFor(() =>
       expect(replaceSpy).toHaveBeenCalledWith(
-        '/post-auth-redirect?next=%2Fdashboard%2Fbriefings&source=signup',
+        '/post-auth-redirect?next=%2Fbriefings&source=signup',
       ),
     )
   })
 
   it('forwards next when a number is already on record', async () => {
-    withSearch('?next=%2Fdashboard%2Fbriefings')
+    withSearch('?next=%2Fbriefings')
     api.mock('GET /v1/users/me', {
       status: 200,
       data: { phone: '5551234567' } as never,
@@ -233,7 +233,7 @@ describe('SignUpPhoneForm with a next deep link', () => {
 
     await waitFor(() =>
       expect(replaceSpy).toHaveBeenCalledWith(
-        '/post-auth-redirect?next=%2Fdashboard%2Fbriefings&source=signup',
+        '/post-auth-redirect?next=%2Fbriefings&source=signup',
       ),
     )
   })

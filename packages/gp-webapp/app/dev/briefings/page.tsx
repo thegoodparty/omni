@@ -12,14 +12,14 @@ import {
   BRIEFING_EXECUTIVE_SUMMARY_TITLE_PATH,
   briefingItemDomId,
 } from '@shared/briefings/routes'
-import ExecutiveSummaryCard from '../../dashboard/briefings/components/detail/ExecutiveSummaryCard'
-import AgendaItemCard from '../../dashboard/briefings/components/detail/AgendaItemCard'
-import AnnotationsScope from '../../dashboard/briefings/components/annotations/AnnotationsScope'
-import ActiveCardScrollSpy from '../../dashboard/briefings/components/detail/ActiveCardScrollSpy'
-import DetailHeader from '../../dashboard/briefings/components/detail/DetailHeader'
-import DetailToc from '../../dashboard/briefings/components/detail/DetailToc'
-import ShareScope from '../../dashboard/briefings/components/detail/ShareScope'
-import BriefingAwaitingPage from '../../dashboard/briefings/components/BriefingAwaitingPage'
+import ExecutiveSummaryCard from '../../(dashboard)/briefings/components/detail/ExecutiveSummaryCard'
+import AgendaItemCard from '../../(dashboard)/briefings/components/detail/AgendaItemCard'
+import AnnotationsScope from '../../(dashboard)/briefings/components/annotations/AnnotationsScope'
+import ActiveCardScrollSpy from '../../(dashboard)/briefings/components/detail/ActiveCardScrollSpy'
+import DetailHeader from '../../(dashboard)/briefings/components/detail/DetailHeader'
+import DetailToc from '../../(dashboard)/briefings/components/detail/DetailToc'
+import ShareScope from '../../(dashboard)/briefings/components/detail/ShareScope'
+import BriefingAwaitingPage from '../../(dashboard)/briefings/components/BriefingAwaitingPage'
 
 type GalleryEntry = { slug: string; artifact: MeetingBriefingFull }
 
@@ -62,7 +62,7 @@ const isFullArtifact = (artifact: MeetingBriefingFull): boolean =>
   artifact.briefing_status === 'briefing_ready' ||
   artifact.briefing_status === 'agenda_provided_by_user'
 
-// The briefing page BODY, replicating app/dashboard/briefings/[slug]/layout.tsx
+// The briefing page BODY, replicating app/(dashboard)/briefings/[slug]/layout.tsx
 // exactly — same bg-muted wrapper, DetailHeader, DetailToc sidebar + scrolling
 // content pane (via ActiveCardScrollSpy) — minus only the global DashboardLayout
 // nav. AnnotationsScope is required by the cards' useAnnotationsCtx; ShareScope

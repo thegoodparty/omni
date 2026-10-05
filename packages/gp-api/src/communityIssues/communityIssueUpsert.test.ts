@@ -721,7 +721,7 @@ describe('CommunityIssueService dashboard task cards', () => {
       title: 'Broken streetlights',
       summary: 'Summary for issue 2.',
       ctaLabel: 'View issue',
-      ctaHref: `/dashboard/community-issues/${issue.id}`,
+      ctaHref: `/community-issues/${issue.id}`,
       sourceExternalId: issue.id,
       sourceItemId: null,
     })

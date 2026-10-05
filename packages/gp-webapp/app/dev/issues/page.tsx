@@ -9,8 +9,8 @@ import type {
   CommunityIssueSource,
 } from 'gpApi/api-endpoints'
 import type { GalleryEntry, Issue, IssueArtifact, IssueSource } from './types'
-import IssueFeedList from '../../dashboard/community-issues/components/IssueFeedList'
-import IssueDetail from '../../dashboard/community-issues/components/IssueDetail'
+import IssueFeedList from '../../(dashboard)/community-issues/components/IssueFeedList'
+import IssueDetail from '../../(dashboard)/community-issues/components/IssueDetail'
 
 const LIST_LABEL: Record<IssueArtifact['list'], string> = {
   top_community: 'Top community',
@@ -73,7 +73,7 @@ const makeFeed = (issues: CommunityIssueCard[]) => ({
   refresh: { status: 'completed' as const, lastCompletedAt: null },
 })
 
-const ISSUES_BASE = '/dashboard/community-issues'
+const ISSUES_BASE = '/community-issues'
 
 // Renders a single artifact through the production Serve UI: the feed list an
 // elected official lands on, then the full issue detail when they click through.

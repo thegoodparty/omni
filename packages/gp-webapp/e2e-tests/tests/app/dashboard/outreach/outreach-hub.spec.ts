@@ -29,7 +29,7 @@ test.describe('outreach hub — default-on channel tiles', () => {
   }) => {
     await authenticateTestUser(page)
 
-    await page.goto('/dashboard/outreach')
+    await page.goto('/outreach')
     await expect(
       page.getByRole('heading', { name: 'Create a campaign' }),
     ).toBeVisible({ timeout: 30_000 })
@@ -50,7 +50,7 @@ test.describe('outreach hub — default-on channel tiles', () => {
   }) => {
     await authenticateTestUser(page)
 
-    await page.goto('/dashboard/outreach')
+    await page.goto('/outreach')
     await expect(
       page.getByRole('heading', { name: 'Create a campaign' }),
     ).toBeVisible({ timeout: 30_000 })
@@ -72,7 +72,7 @@ test.describe('outreach hub — default-on channel tiles', () => {
     await setFlagOverrides(page, { [GATE_V2]: 'off' })
     await authenticateTestUser(page)
 
-    await page.goto('/dashboard/outreach')
+    await page.goto('/outreach')
     // The tile ignores clicks while the elected-office query is pending —
     // wait for it to settle first, anchored on the Voter Data nav entry
     // (same technique as dashboard-nav-door-knocking.spec.ts).
@@ -81,14 +81,14 @@ test.describe('outreach hub — default-on channel tiles', () => {
     })
 
     await page.getByRole('button', { name: /^Phone banking/ }).click()
-    await page.waitForURL(/\/dashboard\/pro-upgrade/, { timeout: 30_000 })
+    await page.waitForURL(/\/pro-upgrade/, { timeout: 30_000 })
   })
 
   test('phone-banking tile, Pro: opens PhoneBankingFlow', async ({ page }) => {
     test.setTimeout(3 * 60 * 1000)
     await setupProCampaignUser(page)
 
-    await page.goto('/dashboard/outreach')
+    await page.goto('/outreach')
     await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
       timeout: 30_000,
     })
@@ -107,7 +107,7 @@ test.describe('outreach hub — default-on channel tiles', () => {
     // in the suite has touched.
     await authenticateTestUser(page, { isolated: true })
 
-    await page.goto('/dashboard/outreach')
+    await page.goto('/outreach')
     // The empty message is rendered twice (desktop table cell + mobile
     // card layout, toggled by CSS breakpoint) — scope to the table cell so
     // this doesn't hit a strict-mode ambiguity.
@@ -133,13 +133,13 @@ test.describe('outreach hub — sms tile upgrade-at-entry', () => {
     await setFlagOverrides(page, { [GATE_V2]: 'off' })
     await authenticateTestUser(page)
 
-    await page.goto('/dashboard/outreach')
+    await page.goto('/outreach')
     await expect(
       page.getByRole('heading', { name: 'Create a campaign' }),
     ).toBeVisible({ timeout: 30_000 })
     await page.getByRole('button', { name: /^SMS/ }).click()
 
-    await page.waitForURL(/\/dashboard\/pro-upgrade/, { timeout: 30_000 })
+    await page.waitForURL(/\/pro-upgrade/, { timeout: 30_000 })
     // The legacy marketing modal must not be what a non-Pro click gets.
     await expect(
       page.getByRole('heading', { name: 'Level the playing field for less' }),
@@ -162,7 +162,7 @@ test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () =>
   }) => {
     await authenticateTestUser(page)
 
-    await page.goto('/dashboard/outreach')
+    await page.goto('/outreach')
     await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
       timeout: 30_000,
     })
@@ -174,7 +174,7 @@ test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () =>
         name: /Pro is needed to see voter names and phone numbers/,
       }),
     ).toBeVisible({ timeout: 30_000 })
-    await expect(page).not.toHaveURL(/\/dashboard\/pro-upgrade/)
+    await expect(page).not.toHaveURL(/\/pro-upgrade/)
   })
 
   test('Text tile, non-Pro: opens the flow with the two-step banner', async ({
@@ -182,7 +182,7 @@ test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () =>
   }) => {
     await authenticateTestUser(page)
 
-    await page.goto('/dashboard/outreach')
+    await page.goto('/outreach')
     await expect(
       page.getByRole('heading', { name: 'Create a campaign' }),
     ).toBeVisible({ timeout: 30_000 })
@@ -195,6 +195,6 @@ test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () =>
         name: /Two things are needed before this text can send/,
       }),
     ).toBeVisible({ timeout: 30_000 })
-    await expect(page).not.toHaveURL(/\/dashboard\/pro-upgrade/)
+    await expect(page).not.toHaveURL(/\/pro-upgrade/)
   })
 })

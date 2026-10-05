@@ -69,7 +69,7 @@ describe('Nav global-nav visibility', () => {
   })
 
   // ENG-11052: the volunteer shell draws its own top bar, same reasoning as
-  // /dashboard and /serve.
+  // /home and /serve.
   it('hides the global nav inside the volunteer shell', () => {
     mockPathname = '/volunteer/dashboard'
     const { container, queryByTestId } = render(<Nav />)

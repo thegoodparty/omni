@@ -69,7 +69,7 @@ test.describe('Team page', () => {
       })
     })
 
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    await page.goto('/home', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // Settle guard: wait for a sibling nav item to resolve before opening
@@ -82,7 +82,7 @@ test.describe('Team page', () => {
       timeout: 30_000,
     })
     await page.locator('#nav-dash-team').click()
-    await page.waitForURL(/\/dashboard\/team/, { timeout: 30_000 })
+    await page.waitForURL(/\/team/, { timeout: 30_000 })
 
     await expect(page.getByText('1 person on this campaign')).toBeVisible({
       timeout: 30_000,
@@ -133,7 +133,7 @@ test.describe('Team page', () => {
       })
     })
 
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    await page.goto('/home', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
@@ -144,7 +144,7 @@ test.describe('Team page', () => {
       timeout: 30_000,
     })
     await page.locator('#nav-dash-team').click()
-    await page.waitForURL(/\/dashboard\/team/, { timeout: 30_000 })
+    await page.waitForURL(/\/team/, { timeout: 30_000 })
 
     await expect(page.getByText('1 person on this campaign')).toBeVisible({
       timeout: 30_000,

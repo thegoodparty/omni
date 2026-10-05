@@ -34,7 +34,7 @@ import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 
 export default function Page() {
   return (
-    <FeatureFlagGuard flagKey="my-feature-key" redirectTo="/dashboard">
+    <FeatureFlagGuard flagKey="my-feature-key" redirectTo="/home">
       <MyFeature />
     </FeatureFlagGuard>
   )
@@ -77,7 +77,7 @@ It's honored on every environment **except production** (`process.env.VERCEL_ENV
 The **provider and its hooks are client-only**, so a server component can't call `useFlagOn`. It can, however, call the same resolver that produces the SSR seed: `await getFlagVariants()` returns the variant map (or `null` for an anonymous request or a gp-api failure, in which case every flag reads off). That is the way to gate a route without rendering it at all:
 
 ```tsx
-// app/dashboard/<feature>/layout.tsx — server component
+// app/(dashboard)/<feature>/layout.tsx — server component
 const variants = await getFlagVariants()
 if (variants?.[MY_FLAG_KEY]?.value === 'on') {
   redirect('/somewhere-else')
@@ -112,7 +112,7 @@ Reach for this when the gated surface must not render or fetch — `dashboard/pr
 
 - Don't read flags during render without the `ready` check — variant defaults to `undefined` while loading and you'll flash the wrong branch.
 - Don't keep flags around forever. Once an experiment ships, delete the gate.
-- Don't gate critical security checks behind a feature flag — gate the UX, but enforce auth/permission in `app/dashboard/shared/candidateAccess.ts` (client) / `serveAccess.ts` (server) and at gp-api.
+- Don't gate critical security checks behind a feature flag — gate the UX, but enforce auth/permission in `app/(dashboard)/shared/candidateAccess.ts` (client) / `serveAccess.ts` (server) and at gp-api.
 
 ## Related
 

@@ -17,7 +17,7 @@ interface FeatureFlagGuardProps {
 
 export default function FeatureFlagGuard({
   flagKey,
-  redirectTo = '/dashboard',
+  redirectTo = '/home',
   trackExposure = true,
   children,
 }: FeatureFlagGuardProps): React.JSX.Element | null {

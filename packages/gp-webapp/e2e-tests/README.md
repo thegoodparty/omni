@@ -54,7 +54,7 @@ import { authenticateTestUser } from '../utils/api-registration'
 
 test('my authenticated test', async ({ page }) => {
   await authenticateTestUser(page)
-  await page.goto('/dashboard')
+  await page.goto('/home')
   // ...
 })
 ```

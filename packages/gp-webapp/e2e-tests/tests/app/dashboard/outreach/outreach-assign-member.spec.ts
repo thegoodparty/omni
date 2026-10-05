@@ -8,7 +8,7 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 
 // win-team-accounts (ENG-11056/ENG-11059): the manager-side "Assign to"
 // modal on a nativePhoneBanking outreach's details drawer
-// (app/dashboard/outreach/v2/OutreachAssignModal.tsx +
+// (app/(dashboard)/outreach/v2/OutreachAssignModal.tsx +
 // OutreachAssigneesSection.tsx) had unit coverage only. Everything this
 // section reads/writes is a client-side fetch
 // (GET /v1/outreach, GET /v1/outreach/:id, GET /v1/outreach/:id/assignments,
@@ -229,7 +229,7 @@ test.describe('Outreach assign-to-member modal', () => {
     await authenticateTestUser(page)
     await stubOutreachAssignFlow(page)
 
-    await page.goto(`/dashboard/outreach?outreachId=${FIXTURE_OUTREACH_ID}`, {
+    await page.goto(`/outreach?outreachId=${FIXTURE_OUTREACH_ID}`, {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)

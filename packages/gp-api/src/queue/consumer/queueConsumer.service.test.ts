@@ -1011,7 +1011,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         to: officeUserEmail,
         customProperties: {
           poll_id: pollId,
-          path: `/dashboard/polls/${pollId}`,
+          path: `/polls/${pollId}`,
         },
       })
       // The Segment event keeps firing unchanged alongside the single-send.

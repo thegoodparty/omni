@@ -14,8 +14,8 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { identifyUser } from '@shared/utils/analytics'
 import { PickSendDateStep } from './steps/PickSendDateStep'
 import { format } from 'date-fns'
-import { useDistrictStats } from 'app/dashboard/polls/shared/queries'
-import { ConstituentDataUnavailable } from 'app/dashboard/polls/shared/ConstituentDataUnavailable'
+import { useDistrictStats } from 'app/(dashboard)/polls/shared/queries'
+import { ConstituentDataUnavailable } from 'app/(dashboard)/polls/shared/ConstituentDataUnavailable'
 import { Button } from '@styleguide'
 
 interface Step {
@@ -115,7 +115,7 @@ const NotEnoughConstituents: React.FC<{
               <p className="text-left md:text-center ext-lg font-normal text-muted-foreground">
                 Visit Contacts to see your constituents
               </p>
-              <Button onClick={() => router.push('/dashboard/contacts')}>
+              <Button onClick={() => router.push('/contacts')}>
                 Visit Contacts
               </Button>
             </div>

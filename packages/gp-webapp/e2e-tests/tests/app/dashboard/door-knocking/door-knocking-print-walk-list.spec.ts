@@ -45,7 +45,7 @@ test.describe('printable door-knocking walk list', () => {
 
   // This one DOES need an authenticated user, unlike the bounce above and for
   // exactly the reason that test proves: middleware.ts intercepts every
-  // `/dashboard/**` URL, so a signed-out visitor asking for a mangled id is
+  // dashboard URL, so a signed-out visitor asking for a mangled id is
   // redirected to login and served a 200 login page — the refusal asserted here
   // is the page's, and the page never runs. No turf is seeded though, which is
   // the whole saving: the id is rejected before gp-api is asked about it, since

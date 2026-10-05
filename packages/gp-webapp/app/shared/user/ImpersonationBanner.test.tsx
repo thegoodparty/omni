@@ -14,7 +14,7 @@ vi.mock('gpApi/typed-request', () => ({
 }))
 
 const mockClearElectionResultDismissed = vi.fn()
-vi.mock('app/dashboard/election-result/dismissal', () => ({
+vi.mock('app/(dashboard)/election-result/dismissal', () => ({
   clearElectionResultDismissed: () => mockClearElectionResultDismissed(),
 }))
 

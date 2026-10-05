@@ -89,7 +89,7 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
 
   // 1–2: reload so the picker's eligibility query refetches, then open the
   // switcher and start the re-election flow.
-  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  await page.goto('/home', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
   await openOrgSwitcher(page)
   const reelectionAction = page.getByRole('menuitem', {
@@ -151,7 +151,7 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
   await expect(submit).toBeVisible({ timeout: 15_000 })
   await expect(submit).toBeEnabled()
   await submit.click()
-  await page.waitForURL(/\/dashboard/, { timeout: 30_000 })
+  await page.waitForURL(/\/home/, { timeout: 30_000 })
 
   // 7: the new campaign org is active (produced state, verified via the API).
   const newCampaignSlug = await eventually(

@@ -92,7 +92,7 @@ describe('DashboardCardsService.syncFromBriefing', () => {
       title: 'City Council',
       summary: 'The following items require action:',
       ctaLabel: 'Prepare for the meeting',
-      ctaHref: `/dashboard/briefings/${DATE}`,
+      ctaHref: `/briefings/${DATE}`,
       sourceExternalId: briefing.id,
     })
 
@@ -102,7 +102,7 @@ describe('DashboardCardsService.syncFromBriefing', () => {
       title: 'Rezoning',
       summary: 'Vote on rezoning',
       ctaLabel: 'Learn more',
-      ctaHref: `/dashboard/briefings/${DATE}#briefing-item-item_a`,
+      ctaHref: `/briefings/${DATE}#briefing-item-item_a`,
     })
   })
 

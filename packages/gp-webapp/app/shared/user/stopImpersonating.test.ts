@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { stopImpersonatingAndReturnToAdmin } from './stopImpersonating'
 
 const mockClearElectionResultDismissed = vi.fn()
-vi.mock('app/dashboard/election-result/dismissal', () => ({
+vi.mock('app/(dashboard)/election-result/dismissal', () => ({
   clearElectionResultDismissed: () => mockClearElectionResultDismissed(),
 }))
 

@@ -76,5 +76,5 @@ test timeout and the test dies before its own tolerance applies.
 
 ## Gold-standard examples
 
-- `app/dashboard/polls/` — typed-request + MSW + tests, end-to-end.
+- `app/(dashboard)/polls/` — typed-request + MSW + tests, end-to-end.
 - `gpApi/typed-request.test.ts` — tests for the request layer itself.

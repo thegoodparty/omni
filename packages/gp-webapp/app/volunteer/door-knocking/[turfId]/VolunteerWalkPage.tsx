@@ -21,18 +21,18 @@ import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import WalkSurface, {
   useWalkMapSession,
   WalkMapHint,
-} from 'app/dashboard/door-knocking/native/WalkSurface'
-import { useWalkSession } from 'app/dashboard/door-knocking/native/useWalkSession'
-import { useLiveLocation } from 'app/dashboard/door-knocking/native/useLiveLocation'
-import { useWalkCompletion } from 'app/dashboard/door-knocking/native/walkCompletion'
-import { routeQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
-import { DoorKnockingSurface } from 'app/dashboard/door-knocking/native/doorKnockingSurface'
+} from 'app/(dashboard)/door-knocking/native/WalkSurface'
+import { useWalkSession } from 'app/(dashboard)/door-knocking/native/useWalkSession'
+import { useLiveLocation } from 'app/(dashboard)/door-knocking/native/useLiveLocation'
+import { useWalkCompletion } from 'app/(dashboard)/door-knocking/native/walkCompletion'
+import { routeQueryOptions } from 'app/(dashboard)/door-knocking/native/turfQueries'
+import { DoorKnockingSurface } from 'app/(dashboard)/door-knocking/native/doorKnockingSurface'
 
 // Same seam VoterMapCanvas has behind `NativeDoorKnockingPage` — this page is
 // the second mount site (ENG-11055), so it needs its own dynamic import to
 // avoid pulling maplibre/deck.gl into a server bundle.
 const VoterMapCanvas = dynamic(
-  () => import('app/dashboard/door-knocking/native/VoterMapCanvas'),
+  () => import('app/(dashboard)/door-knocking/native/VoterMapCanvas'),
   {
     ssr: false,
     loading: () => (
@@ -86,7 +86,7 @@ const LoadErrorCard = ({ onRetry }: { onRetry: () => void }) => (
 // volunteer server-side, and this page never calls it — `VoterMapCanvas`'s
 // `pack`/`filterResult` props are null here, which omits the district dot
 // layer and leaves the camera to the route-fit effect already in that
-// component. See `app/dashboard/door-knocking/AGENTS.md` for the seam this
+// component. See `app/(dashboard)/door-knocking/AGENTS.md` for the seam this
 // composes and `NativeDoorKnockingPage` for the candidate/manager equivalent
 // this deliberately does not touch.
 export default function VolunteerWalkPage({
@@ -225,7 +225,7 @@ export default function VolunteerWalkPage({
       {/* 3.5rem = the volunteer top bar's fixed `h-14`, at every width —
           unlike the dashboard's mobile menu bar (`lg:hidden`), so a bare calc
           here does not carry the breakpoint trap
-          `app/dashboard/door-knocking/AGENTS.md` documents for that page. */}
+          `app/(dashboard)/door-knocking/AGENTS.md` documents for that page. */}
       <div className="relative h-[calc(100dvh-3.5rem)] w-full">
         <VoterMapCanvas
           pack={null}

@@ -17,7 +17,7 @@ Backend (gp-api):
 
 Frontend (gp-webapp):
 
-- `/dashboard/chief-of-staff` page (support hero, task list, onboarding cards)
+- `/chief-of-staff` page (support hero, task list, onboarding cards)
 - the footer chat surface (send a message, see a streamed reply)
 
 All CoS endpoints are guarded by `@UseElectedOffice()`, so every test needs an
@@ -29,7 +29,7 @@ elected office.
 A helper already exists. `setupElectedOfficeUser(page, raceOptions?)` in
 `packages/gp-webapp/e2e-tests/src/helpers/organizations.ts` does the whole
 thing: it authenticates an isolated test user, walks "I won my race" at
-`/dashboard/election-result`, waits for the `eo-` org to be created, and sets
+`/election-result`, waits for the `eo-` org to be created, and sets
 `x-organization-slug` on the returned API `client`. It returns `{ user, client }`.
 There is also `setupReelectionEligibleUser` for the re-election case.
 
@@ -137,9 +137,9 @@ bar (see the convention in `e2e-tests/CLAUDE.md`).
 `packages/gp-webapp/e2e-tests/tests/app/chief-of-staff/chief-of-staff.spec.ts`,
 using the existing `setupElectedOfficeUser` helper.
 
-1. `renders the dashboard for an elected office` — `goto('/dashboard/chief-of-staff')`,
+1. `renders the dashboard for an elected office` — `goto('/chief-of-staff')`,
    assert the URL stays on the route (the server `serveAccess()` gate redirects
-   to `/dashboard` when the user has no elected office, so staying is the
+   to `/home` when the user has no elected office, so staying is the
    access assertion) and
    the heading "Your prioritized tasks this week" is visible. NOTE: the
    SupportHero ("Likely supporters") is currently hidden in `DashboardContent`
@@ -176,7 +176,7 @@ layer, it belongs in the gp-webapp spec using the helper's returned `client`
 `GET /v1/priorities`), not in a new gp-api harness.
 
 A follow-up could add a third UI case: dismiss ("Skip") a task card and assert
-it moves to the Archive sub-view at `/dashboard/chief-of-staff/archive`. Not
+it moves to the Archive sub-view at `/chief-of-staff/archive`. Not
 built yet (needs a generated card present, which depends on the dev briefing
 pipeline having run for the test office).
 
@@ -232,7 +232,7 @@ material, and watch tool-use reliability if we do.
       works against the real model). Note: the Archive filter is a Radix
       single-toggle (role="radio"); target its `data-value`, not a button
       role. The real-LLM chat test can need a retry.
-- [x] Archive sub-view (`/dashboard/chief-of-staff/archive`) — covered for a
+- [x] Archive sub-view (`/chief-of-staff/archive`) — covered for a
       skipped onboarding card (the Skipped bucket includes skipped onboarding
       cards, so no briefing is needed).
 - [ ] UI coverage of a real **briefing task card** loading + skipping is NOT

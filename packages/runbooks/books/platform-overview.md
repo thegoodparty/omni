@@ -291,7 +291,7 @@ New candidates go through: **Signup → Campaign Creation → 4-Step Onboarding 
 2. Post-Auth Redirect (doPostAuthRedirect in ajaxActions.ts)
    └── POST /campaigns/create → creates Campaign with:
        isActive: false, data.currentStep: "registration", details: { zip }
-   └── If currentStep = "onboarding-complete" → /dashboard
+   └── If currentStep = "onboarding-complete" → /home
    └── Otherwise → /onboarding/{slug}/{step+1}
 
 3. Onboarding Steps (/onboarding/[slug]/[step])
@@ -301,7 +301,7 @@ New candidates go through: **Signup → Campaign Creation → 4-Step Onboarding 
    Step 4 — CompleteStep: Click "View Dashboard" → calls:
        a. updateCampaign({ data.currentStep: "onboarding-complete" })
        b. POST /campaigns/launch → sets isActive=true, launchStatus="launched"
-       c. window.location.href = '/dashboard'
+       c. window.location.href = '/home'
 
 4. Dashboard Access
    └── candidateAccess() checks user exists (no campaign status check)
@@ -521,9 +521,9 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 | Route                         | Components                                                                                                                                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/dashboard/outreach`         | `OutreachPage` — create/list outreach campaigns. `OutreachCreateCards` (text + P2P options), `OutreachTable` (campaign list with P2P job status from Peerly), `FreeTextsBanner`, `OutreachContext` provider |
-| `/dashboard/outreach/v2/audience` | Audience step of the v2 outreach flow — recommended lists, custom audience builder, list details under `listDetails`                                                                                    |
-| `/dashboard/contacts`         | Contacts CRM — the voter/contact records surface, with download and outreach actions                                                                                                                        |
+| `/outreach`         | `OutreachPage` — create/list outreach campaigns. `OutreachCreateCards` (text + P2P options), `OutreachTable` (campaign list with P2P job status from Peerly), `FreeTextsBanner`, `OutreachContext` provider |
+| `/outreach/v2/audience` | Audience step of the v2 outreach flow — recommended lists, custom audience builder, list details under `listDetails`                                                                                    |
+| `/contacts`         | Contacts CRM — the voter/contact records surface, with download and outreach actions                                                                                                                        |
 | `/profile/texting-compliance` | TCR compliance form                                                                                                                                                                                         |
 
 ### Key Database Models

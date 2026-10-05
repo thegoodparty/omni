@@ -1,0 +1,287 @@
+import Link from 'next/link'
+import { format } from 'date-fns'
+import { Badge } from '@styleguide'
+import type {
+  DoorKnockOutcome,
+  FollowUpAnswer,
+  PhoneBankCallOutcome,
+  SupportAnswer,
+  WillVoteAnswer,
+} from '@goodparty_org/contracts'
+import { useUser } from '@shared/hooks/useUser'
+import type {
+  ContactStatusField,
+  DoorKnockConstituentActivity,
+  PhoneBankingConstituentActivity,
+  RobocallConstituentActivity,
+  StatusChangeConstituentActivity,
+  TextConstituentActivity,
+} from '../shared/contacts-types'
+
+// Shared with PersonOverlay's OUTREACH/POLL rows so the two files don't carry
+// independent copies of the same date formatting (PersonOverlay imports this
+// rather than redefining it, avoiding a circular import back into this file).
+export const formatDateTime = (dateStr: string): string => {
+  const d = new Date(dateStr)
+  return format(d, "EEEE, MMMM d, yyyy, 'at' h:mm a")
+    .replace(' AM', ' a.m.')
+    .replace(' PM', ' p.m.')
+}
+
+const DOOR_KNOCK_OUTCOME_LABELS: Record<DoorKnockOutcome, string> = {
+  answered: 'Answered',
+  not_home: 'Not Home',
+  refused_to_engage: 'Refused to Engage',
+  inaccessible: 'Inaccessible',
+  not_a_voter: 'Not a Voter',
+}
+
+const SUPPORT_ANSWER_LABELS: Record<SupportAnswer, string> = {
+  supporter: 'Supporter',
+  unsure: 'Unsure',
+  non_supporter: 'Non-supporter',
+}
+
+const PHONE_BANK_CALL_OUTCOME_LABELS: Record<PhoneBankCallOutcome, string> = {
+  answered: 'Answered',
+  no_answer: 'No Answer',
+  voicemail: 'Voicemail',
+  wrong_number: 'Wrong Number',
+  refused: 'Refused',
+  disconnected: 'Disconnected',
+  hung_up: 'Hung Up',
+}
+
+const WILL_VOTE_ANSWER_LABELS: Record<WillVoteAnswer, string> = {
+  yes: 'Yes',
+  no: 'No',
+  unsure: 'Unsure',
+}
+
+// Serve's answer, in its place. Binary where the Win pair is three-way, and
+// only ever populated for an `eo-` org — the feed decides which vocabulary a
+// row carries server-side (contactEngagement.service.ts), so each line here
+// renders on exactly one surface without this file checking which.
+const FOLLOW_UP_ANSWER_LABELS: Record<FollowUpAnswer, string> = {
+  yes: 'Yes',
+  no: 'No',
+}
+
+// The field's own display name — a fixed title per field, not part of what
+// resolveContactStatusLabel resolves server-side (that's the fromValue/
+// toValue vocabulary, a different and larger axis). Do Not Knock is written
+// from the door rather than edited here (ADR 0007), as is Not A Voter (ADR
+// 0008), but both land in the same event log, so the feed has to name them.
+const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
+  voter_likelihood: 'Voter Likelihood',
+  support_status: 'Support Status',
+  do_not_knock: 'Do Not Knock',
+  not_a_voter: 'Not A Voter',
+  follow_up: 'Follow-up',
+}
+
+// No per-outreach detail route exists in this app (app/(dashboard)/outreach has
+// no [id] page) — link to the outreach hub with ?outreachId= so it opens that
+// campaign's details drawer (ENG-10769; consumed and stripped on mount).
+const outreachHref = (outreachId: number): string =>
+  `/outreach?outreachId=${outreachId}`
+
+const ManualBadge: React.FC = () => (
+  <Badge variant="soft" shape="pill">
+    Manual
+  </Badge>
+)
+
+const ActivityNote: React.FC<{ note: string | null }> = ({ note }) =>
+  note ? (
+    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{note}</p>
+  ) : null
+
+export const DoorKnockActivityRow: React.FC<{
+  activity: DoorKnockConstituentActivity
+}> = ({ activity }) => (
+  <div className="flex flex-col gap-1 mb-3">
+    <div className="flex items-center gap-2">
+      <p className="text-sm font-semibold text-foreground">
+        {/* Responses aren't Zod-parsed client-side — an enum value newer
+            than this build must render as itself, not a blank. */}
+        Door Knock:{' '}
+        {DOOR_KNOCK_OUTCOME_LABELS[activity.data.outcome] ??
+          activity.data.outcome}
+      </p>
+      {activity.data.manual ? <ManualBadge /> : null}
+    </div>
+    {activity.data.supportAnswer ? (
+      <p className="text-sm font-normal text-muted-foreground">
+        Support:{' '}
+        {SUPPORT_ANSWER_LABELS[activity.data.supportAnswer] ??
+          activity.data.supportAnswer}
+      </p>
+    ) : null}
+    {activity.data.followUp ? (
+      <p className="text-sm font-normal text-muted-foreground">
+        Needs follow-up:{' '}
+        {FOLLOW_UP_ANSWER_LABELS[activity.data.followUp] ??
+          activity.data.followUp}
+      </p>
+    ) : null}
+    <ActivityNote note={activity.data.note} />
+    <p className="text-sm font-normal text-muted-foreground">
+      {formatDateTime(activity.date)}
+    </p>
+  </div>
+)
+
+export const TextActivityRow: React.FC<{
+  activity: TextConstituentActivity
+}> = ({ activity }) => (
+  <div className="flex flex-col gap-1 mb-3">
+    <div className="flex items-center gap-2">
+      <p className="text-sm font-semibold text-foreground">Text</p>
+      {activity.data.manual ? <ManualBadge /> : null}
+    </div>
+    <div className="flex flex-col text-sm font-normal text-muted-foreground">
+      {activity.data.respondedAt ? (
+        <p>Responded {formatDateTime(activity.data.respondedAt)}</p>
+      ) : null}
+      {activity.data.optedOutAt ? (
+        <p>Opted out {formatDateTime(activity.data.optedOutAt)}</p>
+      ) : null}
+    </div>
+    <ActivityNote note={activity.data.note} />
+    <p className="text-sm font-normal text-muted-foreground">
+      {formatDateTime(activity.date)}
+    </p>
+    {activity.data.outreachId ? (
+      <Link
+        className="text-sm font-medium text-info underline"
+        href={outreachHref(activity.data.outreachId)}
+      >
+        View outreach
+      </Link>
+    ) : null}
+  </div>
+)
+
+export const RobocallActivityRow: React.FC<{
+  activity: RobocallConstituentActivity
+}> = ({ activity }) => (
+  <div className="flex flex-col gap-1 mb-3">
+    <div className="flex items-center gap-2">
+      <p className="text-sm font-semibold text-foreground">Robocall</p>
+      {activity.data.manual ? <ManualBadge /> : null}
+    </div>
+    <div className="flex flex-col text-sm font-normal text-muted-foreground">
+      {activity.data.answeredAt ? (
+        <p>Answered {formatDateTime(activity.data.answeredAt)}</p>
+      ) : null}
+      {activity.data.voicemailLeftAt ? (
+        <p>Voicemail left {formatDateTime(activity.data.voicemailLeftAt)}</p>
+      ) : null}
+      {!activity.data.answeredAt && !activity.data.voicemailLeftAt ? (
+        <p>No answer</p>
+      ) : null}
+    </div>
+    <ActivityNote note={activity.data.note} />
+    <p className="text-sm font-normal text-muted-foreground">
+      {formatDateTime(activity.date)}
+    </p>
+    {activity.data.outreachId ? (
+      <Link
+        className="text-sm font-medium text-info underline"
+        href={outreachHref(activity.data.outreachId)}
+      >
+        View outreach
+      </Link>
+    ) : null}
+  </div>
+)
+
+// "You" when the viewing user made the call; the resolved actorName for a
+// teammate; and — unlike StatusChangeActivityRow's "Someone" fallback — NO
+// author line at all when neither is available (a legacy row logged before
+// ENG-10946 added attribution to this channel).
+export const PhoneBankingActivityRow: React.FC<{
+  activity: PhoneBankingConstituentActivity
+}> = ({ activity }) => {
+  const [user] = useUser()
+  const isViewer = user != null && user.id === activity.data.actorUserId
+  const actor = isViewer ? 'You' : activity.data.actorName
+
+  return (
+    <div className="flex flex-col gap-1 mb-3">
+      <div className="flex items-center gap-2">
+        <p className="text-sm font-semibold text-foreground">
+          Phone Banking:{' '}
+          {PHONE_BANK_CALL_OUTCOME_LABELS[activity.data.outcome] ??
+            activity.data.outcome}
+        </p>
+        {activity.data.manual ? <ManualBadge /> : null}
+      </div>
+      {activity.data.supportAnswer ? (
+        <p className="text-sm font-normal text-muted-foreground">
+          Support:{' '}
+          {SUPPORT_ANSWER_LABELS[activity.data.supportAnswer] ??
+            activity.data.supportAnswer}
+        </p>
+      ) : null}
+      {activity.data.willVote ? (
+        <p className="text-sm font-normal text-muted-foreground">
+          Will vote:{' '}
+          {WILL_VOTE_ANSWER_LABELS[activity.data.willVote] ??
+            activity.data.willVote}
+        </p>
+      ) : null}
+      {activity.data.followUp ? (
+        <p className="text-sm font-normal text-muted-foreground">
+          Needs follow-up:{' '}
+          {FOLLOW_UP_ANSWER_LABELS[activity.data.followUp] ??
+            activity.data.followUp}
+        </p>
+      ) : null}
+      <ActivityNote note={activity.data.note} />
+      {actor ? (
+        <p className="text-sm font-normal text-muted-foreground">
+          Logged by {actor}
+        </p>
+      ) : null}
+      <p className="text-sm font-normal text-muted-foreground">
+        {formatDateTime(activity.date)}
+      </p>
+    </div>
+  )
+}
+
+// Win-only (the feed itself never returns this type for a Serve context —
+// gated server-side and again in the ActivitiesContent switch). "You" when
+// the viewing user made the change; actorName (or a graceful "Someone" when
+// neither is available — a future non-manual source with no actor) covers
+// everyone else. fromLabel null is the never-seen-before edge: no prior
+// override row existed for this (org, personId, field).
+export const StatusChangeActivityRow: React.FC<{
+  activity: StatusChangeConstituentActivity
+}> = ({ activity }) => {
+  const [user] = useUser()
+  const isViewer = user != null && user.id === activity.data.actorUserId
+  const actor = isViewer ? 'You' : (activity.data.actorName ?? 'Someone')
+  const fieldLabel = STATUS_CHANGE_FIELD_LABELS[activity.data.field]
+  const valueClause =
+    activity.data.fromLabel === null
+      ? `to '${activity.data.toLabel}'`
+      : `from '${activity.data.fromLabel}' to '${activity.data.toLabel}'`
+  const verb = activity.data.fromLabel === null ? 'set' : 'changed'
+
+  return (
+    <div className="flex flex-col gap-1 mb-3">
+      <p className="text-sm font-semibold text-foreground">
+        {fieldLabel} updated
+      </p>
+      <p className="text-sm font-normal text-muted-foreground">
+        {actor} {verb} {fieldLabel} {valueClause}
+      </p>
+      <p className="text-sm font-normal text-muted-foreground">
+        {formatDateTime(activity.date)}
+      </p>
+    </div>
+  )
+}

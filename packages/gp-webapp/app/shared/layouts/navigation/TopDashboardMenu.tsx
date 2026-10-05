@@ -1,5 +1,5 @@
 'use client'
-import DashboardMenu from 'app/dashboard/shared/DashboardMenu'
+import DashboardMenu from 'app/(dashboard)/shared/DashboardMenu'
 import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { useEffect } from 'react'
 import { noop } from '@shared/utils/noop'

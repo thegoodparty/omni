@@ -74,7 +74,7 @@ const orgFixture = {
 }
 
 describe('PostAuthRedirectPage', () => {
-  it('happy path: orgs returned, resolves to /dashboard for active candidate', async () => {
+  it('happy path: orgs returned, resolves to /home for active candidate', async () => {
     api.mock('GET /v1/organizations', {
       status: 200,
       data: { organizations: [orgFixture] },
@@ -92,7 +92,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
     expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-one')
   })
 
@@ -114,7 +114,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'), {
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'), {
       timeout: 3000,
     })
     expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-one')
@@ -197,7 +197,7 @@ describe('PostAuthRedirectPage', () => {
   })
 
   it('routes to /team-invite even when a ?next= param is present (pending invite takes priority)', async () => {
-    setLocation('?next=%2Fdashboard%2Fbriefings')
+    setLocation('?next=%2Fbriefings')
     const clerkMod = await import('@clerk/nextjs')
     vi.mocked(clerkMod.useUser).mockReturnValueOnce({
       isSignedIn: true,
@@ -261,7 +261,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
   })
 
   it('routes to /team-invite when a zero-org session has a pending invitation on its email (ENG-11027 fallback)', async () => {
@@ -308,7 +308,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
     expect(mineProbed).toBe(false)
   })
 
@@ -347,7 +347,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
     expect(crmRegistrationBodies).toEqual([{ hutk: 'test-hutk-cookie' }])
     expect(mockTrackRegistration).toHaveBeenCalledTimes(1)
     expect(mockTrackRegistration).toHaveBeenCalledWith(
@@ -390,7 +390,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
     expect(crmRegistrationBodies).toEqual([{}])
   })
 
@@ -426,13 +426,13 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
     expect(mockTrackRegistration).not.toHaveBeenCalled()
     expect(crmRegistrationBodies).toEqual([])
   })
 
   it('next param: honors a same-origin deep link over the resolved path', async () => {
-    setLocation('?next=%2Fdashboard%2Fbriefings')
+    setLocation('?next=%2Fbriefings')
     api.mock('GET /v1/organizations', {
       status: 200,
       data: { organizations: [orgFixture] },
@@ -450,15 +450,13 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() =>
-      expect(replaceSpy).toHaveBeenCalledWith('/dashboard/briefings'),
-    )
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/briefings'))
     // Org context is still established before navigating to the deep link.
     expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-one')
   })
 
   it('next param: selects the elected-office org for a briefings deep link', async () => {
-    setLocation('?next=%2Fdashboard%2Fbriefings')
+    setLocation('?next=%2Fbriefings')
     const electedOfficeOrg = {
       ...orgFixture,
       slug: 'serve-org',
@@ -492,7 +490,7 @@ describe('PostAuthRedirectPage', () => {
         'serve-org',
       ),
     )
-    expect(replaceSpy).toHaveBeenCalledWith('/dashboard/briefings')
+    expect(replaceSpy).toHaveBeenCalledWith('/briefings')
   })
 
   it('next param: ignores protocol-relative/open-redirect values', async () => {
@@ -514,7 +512,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
   })
 
   it('routes an incomplete serve-lead EO (no campaign) to serve onboarding even when a campaign org is listed first', async () => {
@@ -592,14 +590,14 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
   })
 
-  it('routes to /dashboard (not serve onboarding) when an EO org exists but no EO record resolves', async () => {
+  it('routes to /home (not serve onboarding) when an EO org exists but no EO record resolves', async () => {
     // Legacy win→serve user: an elected-office org is present, but /current
     // 404s (campaign org sorts first) and /mine returns empty. With no
     // resolvable EO record we must default to "complete" and land on
-    // /dashboard rather than looping back into /serve/onboarding every login.
+    // /home rather than looping back into /serve/onboarding every login.
     const electedOfficeOrg = {
       ...orgFixture,
       slug: 'serve-org',
@@ -623,7 +621,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
   })
 
   // ENG-11052: this is the client-side OTP counterpart to
@@ -688,8 +686,8 @@ describe('PostAuthRedirectPage', () => {
   // wrong for a confirmed volunteer — it would create them a campaign. Force
   // the resolver to throw after `activeOrgIsVolunteer` has already been
   // established (organizations resolved successfully) and confirm the catch
-  // lands on /dashboard instead.
-  it('outer catch: resolver throws after a volunteer-role org is confirmed; falls back to /dashboard, not onboarding', async () => {
+  // lands on /home instead.
+  it('outer catch: resolver throws after a volunteer-role org is confirmed; falls back to /home, not onboarding', async () => {
     const resolverSpy = vi
       .spyOn(resolverModule, 'resolvePostAuthRedirectPath')
       .mockImplementationOnce(() => {
@@ -713,7 +711,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
     expect(replaceSpy).not.toHaveBeenCalledWith('/onboarding/office-selection')
     resolverSpy.mockRestore()
   })
@@ -774,7 +772,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/home'))
     expect(mockTrackRegistration).not.toHaveBeenCalled()
   })
 })

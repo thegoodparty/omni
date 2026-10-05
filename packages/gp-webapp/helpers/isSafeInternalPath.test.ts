@@ -3,9 +3,9 @@ import { isSafeInternalPath } from './isSafeInternalPath'
 
 describe('isSafeInternalPath', () => {
   it('accepts root-relative paths', () => {
-    expect(isSafeInternalPath('/dashboard/briefings')).toBe(true)
-    expect(isSafeInternalPath('/dashboard/briefings/2026-01-15')).toBe(true)
-    expect(isSafeInternalPath('/dashboard/polls?tab=open')).toBe(true)
+    expect(isSafeInternalPath('/briefings')).toBe(true)
+    expect(isSafeInternalPath('/briefings/2026-01-15')).toBe(true)
+    expect(isSafeInternalPath('/polls?tab=open')).toBe(true)
     expect(isSafeInternalPath('/')).toBe(true)
   })
 

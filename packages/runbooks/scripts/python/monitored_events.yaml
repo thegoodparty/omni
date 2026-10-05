@@ -168,7 +168,7 @@ behaviors:
       # The only export surface in the product as of 2026-09-16. The outreach-wizard and
       # outreach-table download surfaces were deleted in the v2 rewrite, not silenced —
       # their entries are gone rather than declared gaps (DATA-2343 sweep).
-      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+      - path: packages/gp-webapp/app/(dashboard)/contacts/crm/lists/ListDetailSheet.tsx
         label: crm_list_detail
         instrumented_by: "Voter Data - List Exported"
     superseded:
@@ -195,13 +195,13 @@ behaviors:
     surfaces:
       # Every path that produces a saved list, enumerated 2026-09-16. Four different events and
       # one silence — the inventory is the answer to "across every path", not any one row.
-      - path: packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx
+      - path: packages/gp-webapp/app/(dashboard)/contacts/crm/wizard/CreateListWizard.tsx
         label: crm_wizard_voter_file
         instrumented_by: "Voter Data - List Created"
-      - path: packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx
+      - path: packages/gp-webapp/app/(dashboard)/contacts/crm/wizard/CreateListWizard.tsx
         label: crm_wizard_activity
         instrumented_by: "Voter Data - Activity List Created"
-      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/useDuplicateList.ts
+      - path: packages/gp-webapp/app/(dashboard)/contacts/crm/lists/useDuplicateList.ts
         label: crm_list_duplicate
         instrumented_by: "Contacts - Segment Created"
       # DATA-2307, relocated: the ticket names components/tasks/flows/AudienceStep.tsx, which the
@@ -209,13 +209,13 @@ behaviors:
       # mandatory in every v2 channel flow, so this is now the majority creation path. A
       # recommendation-driven create fires Outreach - Recommended List Accepted; a hand-built one
       # fires nothing.
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/audience/useOutreachAudience.ts
+      - path: packages/gp-webapp/app/(dashboard)/outreach/v2/audience/useOutreachAudience.ts
         label: outreach_v2_audience_step
         instrumented_by: null          # DATA-2307
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx
+      - path: packages/gp-webapp/app/(dashboard)/door-knocking/native/createFlow/CreateListFlow.tsx
         label: door_knocking_list
         instrumented_by: "Door Knocking - List Created"
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx
+      - path: packages/gp-webapp/app/(dashboard)/outreach/v2/phone-banking/PhoneBankingFlow.tsx
         label: phone_banking_call_list
         instrumented_by: "Voter Outreach - Phone Banking Call List Created"
     superseded:
@@ -278,16 +278,16 @@ behaviors:
         instrumented_by: "Voter Outreach - Campaign Scheduled"
       # Phone banking has no send, so the call logged in the product is its activation
       # moment (ruled 2026-09-30). List creation and call-sheet download stay preparation.
-      - path: packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx
+      - path: packages/gp-webapp/app/(dashboard)/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx
         label: phone_banking_call_logged
         instrumented_by: "Outreach - Phone Banking Call Logged"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/RecordKnockForm.tsx
+      - path: packages/gp-webapp/app/(dashboard)/door-knocking/native/RecordKnockForm.tsx
         label: door_knocked
         instrumented_by: "Outreach - Door Knocking Door Logged"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
+      - path: packages/gp-webapp/app/(dashboard)/door-knocking/native/turfLifecycle.ts
         label: door_knocking_walk_completed
         instrumented_by: "Outreach - Campaign Completed"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx
+      - path: packages/gp-webapp/app/(dashboard)/door-knocking/native/createFlow/CreateListFlow.tsx
         label: door_knocking_list_created
         instrumented_by: "Door Knocking - List Created"
     review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
@@ -309,10 +309,10 @@ behaviors:
       # strategy resolving, latched per campaign id — not from a navigation event — so direct and
       # email-link arrivals are counted. The legacy-checklist pointer was removed: the file was
       # deleted and its event is a constant nothing fires, so it is lineage now, not a surface.
-      - path: packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
+      - path: packages/gp-webapp/app/(dashboard)/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
         label: campaign_plan_tracker
         instrumented_by: "Campaign Plan - Campaign Tracker Viewed"
-      - path: packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
+      - path: packages/gp-webapp/app/(dashboard)/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
         label: campaign_plan_read_through
         instrumented_by: null          # no scroll-depth instrument; Nate asked for this
     superseded:
@@ -343,25 +343,25 @@ behaviors:
       - path: packages/gp-webapp/app/polls/onboarding/components/OnboardingPage.tsx
         label: onboarding_poll_sent
         instrumented_by: "Serve Onboarding - SMS Poll Sent"
-      - path: packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx
+      - path: packages/gp-webapp/app/(dashboard)/polls/create/CreatePoll.tsx
         label: poll_sent
         instrumented_by: null          # DATA-2611
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx
+      - path: packages/gp-webapp/app/(dashboard)/outreach/v2/sms/SmsFlow.tsx
         label: serve_sms_paid
         instrumented_by: "Outreach - Campaign Completed"
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx
+      - path: packages/gp-webapp/app/(dashboard)/outreach/v2/social/SocialFlow.tsx
         label: serve_social_shared
         instrumented_by: "Outreach - Campaign Completed"
-      - path: packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingCallerPage.tsx
+      - path: packages/gp-webapp/app/(dashboard)/outreach/phone-banking/[listId]/PhoneBankingCallerPage.tsx
         label: serve_call_list_completed
         instrumented_by: "Outreach - Campaign Completed"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
+      - path: packages/gp-webapp/app/(dashboard)/door-knocking/native/turfLifecycle.ts
         label: serve_walk_completed
         instrumented_by: "Outreach - Campaign Completed"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/RecordKnockForm.tsx
+      - path: packages/gp-webapp/app/(dashboard)/door-knocking/native/RecordKnockForm.tsx
         label: serve_door_knocked
         instrumented_by: "Outreach - Door Knocking Door Logged"
-      - path: packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx
+      - path: packages/gp-webapp/app/(dashboard)/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx
         label: serve_call_logged
         instrumented_by: "Outreach - Phone Banking Call Logged"
     review: {interval_days: 90, last_reviewed: 2026-10-01, reviewed_by: tristan@goodparty.org}
@@ -434,16 +434,16 @@ behaviors:
       action whose output leaves the product — every event below already fires. The same list
       doubles as the "active" definition weekly_active_candidates needs.
     surfaces:
-      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+      - path: packages/gp-webapp/app/(dashboard)/contacts/crm/lists/ListDetailSheet.tsx
         label: first_value_export
         instrumented_by: "Voter Data - List Exported"
       - path: packages/gp-api/src/outreach/services/outreachRobocall.service.ts
         label: first_value_robocall
         instrumented_by: "Robocall - Scheduled"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
+      - path: packages/gp-webapp/app/(dashboard)/door-knocking/native/turfLifecycle.ts
         label: first_value_door_knocking
         instrumented_by: "Outreach - Campaign Completed"
-      - path: packages/gp-webapp/app/dashboard/website
+      - path: packages/gp-webapp/app/(dashboard)/website
         label: first_value_website
         instrumented_by: "Candidate Website - Published"
     review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
@@ -464,13 +464,13 @@ behaviors:
       Create` still double-fires, so any step counted off it is inflated; that is a query-time
       de-duplication decision, not a gap.
     surfaces:
-      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+      - path: packages/gp-webapp/app/(dashboard)/contacts/crm/lists/ListDetailSheet.tsx
         label: outreach_funnel_entry
         instrumented_by: "Voter Data - Send Outreach Clicked"
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/OutreachHubPage.tsx
+      - path: packages/gp-webapp/app/(dashboard)/outreach/v2/OutreachHubPage.tsx
         label: outreach_hub_viewed
         instrumented_by: "Outreach - View Accessed"
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/ChannelTileGrid.tsx
+      - path: packages/gp-webapp/app/(dashboard)/outreach/v2/ChannelTileGrid.tsx
         label: outreach_channel_chosen
         instrumented_by: "Outreach - Click Create"
       - path: packages/gp-api/src/outreach/services/outreach.service.ts
@@ -492,19 +492,19 @@ behaviors:
       no copy/edit/use event, and dashboard/campaign-manager has no analytics calls at all — it is
       in the same investment bucket and this question cannot see it.
     surfaces:
-      - path: packages/gp-webapp/app/dashboard/campaign-plan
+      - path: packages/gp-webapp/app/(dashboard)/campaign-plan
         label: plan_artifact_displayed
         instrumented_by: "Dashboard - Campaign Plan: Media Displayed"
-      - path: packages/gp-webapp/app/dashboard/campaign-story
+      - path: packages/gp-webapp/app/(dashboard)/campaign-story
         label: campaign_story_acted_on
         instrumented_by: "Campaign Story - Rewrite Accepted"
       - path: packages/gp-api/src/raceOpponent
         label: opponent_contrast_acted_on
         instrumented_by: "Win - Contrast Used"
-      - path: packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
+      - path: packages/gp-webapp/app/(dashboard)/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
         label: plan_acted_on
         instrumented_by: null
-      - path: packages/gp-webapp/app/dashboard/campaign-manager
+      - path: packages/gp-webapp/app/(dashboard)/campaign-manager
         label: campaign_manager_any_usage
         instrumented_by: null
     review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
@@ -544,10 +544,10 @@ behaviors:
       undefined terms: "activate" belongs to first_value_reached and "active" to
       weekly_active_candidates. Settle those and this closes with no code.
     surfaces:
-      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+      - path: packages/gp-webapp/app/(dashboard)/contacts/crm/lists/ListDetailSheet.tsx
         label: retention_activity_export
         instrumented_by: "Voter Data - List Exported"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
+      - path: packages/gp-webapp/app/(dashboard)/door-knocking/native/turfLifecycle.ts
         label: retention_activity_outreach
         instrumented_by: "Outreach - Campaign Completed"
     review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
@@ -571,7 +571,7 @@ behaviors:
       is as-of-run-time and cannot be sliced historically. Defining what "active" should mean
       beyond a dashboard view is a separate question and still open.
     surfaces:
-      - path: packages/gp-webapp/app/dashboard/page.tsx
+      - path: packages/gp-webapp/app/(dashboard)/page.tsx
         label: dashboard_visit
         instrumented_by: "Viewed"
         page_path: /dashboard
@@ -597,10 +597,10 @@ behaviors:
       banner renders elsewhere without firing, conversion looks better than it is. Step events also
       repeat on funnel re-entry, so count distinct users per step.
     surfaces:
-      - path: packages/gp-webapp/app/dashboard/pro-upgrade
+      - path: packages/gp-webapp/app/(dashboard)/pro-upgrade
         label: pro_funnel_entry
         instrumented_by: "Pro Upgrade - Banner: Click Get Pro"
-      - path: packages/gp-webapp/app/dashboard/pro-upgrade
+      - path: packages/gp-webapp/app/(dashboard)/pro-upgrade
         label: pro_filing_details
         instrumented_by: "Pro Upgrade - Filing Details Submitted"
       - path: packages/gp-api/src/payments/services/paymentEventsService.ts
@@ -624,7 +624,7 @@ behaviors:
       confident conversion number is available while the "what did they want" question is
       unanswerable, which is a good number buying a wrong conclusion.
     surfaces:
-      - path: packages/gp-webapp/app/dashboard/pro-upgrade
+      - path: packages/gp-webapp/app/(dashboard)/pro-upgrade
         label: value_prop_feature_identity
         instrumented_by: null
     review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
@@ -649,7 +649,7 @@ behaviors:
       - path: packages/gp-api/src/payments/services/paymentEventsService.ts
         label: upgrade_timestamp
         instrumented_by: "pro_upgrade_complete"
-      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+      - path: packages/gp-webapp/app/(dashboard)/contacts/crm/lists/ListDetailSheet.tsx
         label: post_upgrade_activity
         instrumented_by: "Voter Data - List Exported"
     review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
@@ -691,13 +691,13 @@ behaviors:
       gate on outreach, so the duration is what decides whether this is a funnel problem or a vendor
       problem.
     surfaces:
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/ChannelTileGrid.tsx
+      - path: packages/gp-webapp/app/(dashboard)/outreach/v2/ChannelTileGrid.tsx
         label: compliance_block_moment
         instrumented_by: "Voter Outreach - 10DLC Compliance Modal Viewed"
-      - path: packages/gp-webapp/app/dashboard/profile/texting-compliance
+      - path: packages/gp-webapp/app/(dashboard)/profile/texting-compliance
         label: compliance_submitted
         instrumented_by: "Voter Outreach - 10DLC Compliance Completed"
-      - path: packages/gp-webapp/app/dashboard/profile/texting-compliance
+      - path: packages/gp-webapp/app/(dashboard)/profile/texting-compliance
         label: compliance_resolution
         instrumented_by: null
     review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
@@ -720,7 +720,7 @@ behaviors:
       correlation is the expected result whether or not the effect is real. An external results feed
       joined on race id is the only fix.
     surfaces:
-      - path: packages/gp-webapp/app/dashboard/election-result/components/ElectionResultPage.tsx
+      - path: packages/gp-webapp/app/(dashboard)/election-result/components/ElectionResultPage.tsx
         label: self_reported_outcome
         instrumented_by: "Candidacy - Did You Win Modal Completed"
       - path: packages/gp-api/src/campaigns/services/campaigns.service.ts

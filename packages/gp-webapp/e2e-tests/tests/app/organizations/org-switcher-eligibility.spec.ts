@@ -38,7 +38,7 @@ test('active-campaign user sees no run-for actions in the switcher', async ({
   const eligibilitySettled = page.waitForResponse(
     (r) => r.url().includes('/v1/eligibility') && r.ok(),
   )
-  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  await page.goto('/home', { waitUntil: 'domcontentloaded' })
   await eligibilitySettled
   await NavigationHelper.dismissOverlays(page)
   await openOrgSwitcher(page)
@@ -120,7 +120,7 @@ test('held-office user sees Past label and both run-for actions', async ({
   )
 
   // reload so the picker's org-list and eligibility queries refetch.
-  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  await page.goto('/home', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
   await openOrgSwitcher(page)
 
@@ -157,7 +157,7 @@ test('held-office user sees Past label and both run-for actions', async ({
   )
 
   // new-office routes with new-office intent and no `from`.
-  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  await page.goto('/home', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
   await openOrgSwitcher(page)
   await page.getByRole('menuitem', { name: 'Run for a new office' }).click()

@@ -83,7 +83,7 @@ describe('FollowOnFlow', () => {
     // rather than trapping the user on it.
     expect(backButton).toBeEnabled()
     fireEvent.click(backButton)
-    expect(router.push).toHaveBeenCalledWith('/dashboard')
+    expect(router.push).toHaveBeenCalledWith('/home')
   })
 
   it('lands on welcome for a new-office candidate', async () => {

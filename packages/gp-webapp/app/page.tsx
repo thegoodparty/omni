@@ -1,6 +1,6 @@
 import { getServerUser } from 'helpers/userServerHelper'
 import { redirect } from 'next/navigation'
-import { getPostAuthRedirectPath } from 'app/dashboard/shared/candidateAccess'
+import { getPostAuthRedirectPath } from 'app/(dashboard)/shared/candidateAccess'
 
 export const dynamic = 'force-dynamic'
 

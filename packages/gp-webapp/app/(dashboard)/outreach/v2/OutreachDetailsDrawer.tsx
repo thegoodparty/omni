@@ -1,0 +1,1477 @@
+'use client'
+
+import { useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type {
+  OutreachReceipt,
+  PhoneBankCallOutcome,
+  PhoneBankingOutreachDetail,
+} from '@goodparty_org/contracts'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  Card,
+  Overline,
+  Progress,
+  StatusText,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
+} from '@styleguide'
+import {
+  ArchiveIcon,
+  CalendarIcon,
+  ChartColumnIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  DollarSignIcon,
+  DoorOpenIcon,
+  FileTextIcon,
+  HashIcon,
+  Loader2Icon,
+  RadioIcon,
+  CircleSlashIcon,
+  ReceiptIcon,
+  ShieldCheckIcon,
+  Trash2Icon,
+  UserMinusIcon,
+  UsersRoundIcon,
+} from '@styleguide/components/ui/icons'
+import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import type { VoterFileFilters } from 'helpers/types'
+import type { MembershipState } from 'app/(dashboard)/shared/membership/deriveMembershipState'
+import { FetchError } from 'ofetch'
+import { clientRequest } from 'gpApi/typed-request'
+import { formatAudienceLabels } from 'app/(dashboard)/outreach/util/formatAudienceLabels.util'
+import {
+  OUTREACH_OPTIONS,
+  OUTREACH_TYPES,
+} from 'app/(dashboard)/outreach/constants'
+import { useOutreach } from 'app/(dashboard)/outreach/hooks/OutreachContext'
+import type { DoorKnockingTurf } from '@goodparty_org/contracts'
+import { campaignTurfsQueryOptions } from 'app/(dashboard)/door-knocking/native/turfQueries'
+import {
+  unfinishedTurfs,
+  useCampaignLifecycle,
+} from 'app/(dashboard)/door-knocking/native/campaignLifecycle'
+import { MarkDoneDialog } from 'app/(dashboard)/door-knocking/native/MarkDoneDialog'
+import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
+import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import { RESUME_COPY, type GateChannel } from './gate/gateCopy'
+import { shortOutreachDate } from './outreachDate.util'
+import {
+  fetchOutreachDetail,
+  outreachDetailQueryKey,
+  useOutreachDetail,
+  type OutreachDetailFetcher,
+} from './useOutreachDetail'
+import { useSmsResults } from './useOutreachResults'
+import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
+import { OutreachAssigneesSection } from './OutreachAssigneesSection'
+import { SocialAssetCard } from './SocialAssetCards'
+import { socialPurposeLabel } from './socialPurposes'
+import {
+  CONTINUE_LABELS,
+  continueLabel,
+  draftFooterAction,
+  listDetailsFooterMode,
+  type ListDetailsLifecycle,
+} from './listDetails/footerMode'
+import { FollowUpOutstandingSection } from './FollowUpOutstandingSection'
+import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
+import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
+import { CampaignTurfList } from './CampaignTurfList'
+import {
+  DetailsSection,
+  FilterGroup,
+  Metric,
+  MetricGrid,
+} from './listDetails/ListDetailsMetric'
+
+// Copy verified against the phone-banking design screenshots — its own
+// vocabulary rather than a reuse of the caller page's
+// phoneBankingOutcome.util.ts labels, though "Refused" was aligned to the
+// caller page's copy (ENG-10945; was "Refused to engage").
+const PHONE_BANKING_OUTCOME_ORDER: PhoneBankCallOutcome[] = [
+  'answered',
+  'no_answer',
+  'voicemail',
+  'wrong_number',
+  'disconnected',
+  'refused',
+  'hung_up',
+]
+const PHONE_BANKING_OUTCOME_LABEL: Record<PhoneBankCallOutcome, string> = {
+  answered: 'Answered',
+  no_answer: 'No answer',
+  voicemail: 'Voicemail left',
+  wrong_number: 'Wrong number',
+  disconnected: 'Disconnected',
+  refused: 'Refused',
+  hung_up: 'Hung up',
+}
+
+const percentLabel = (count: number, total: number): string =>
+  total > 0 ? `${Math.round((count / total) * 100)}%` : '0%'
+
+// The completed-results rows for whichever question this list's callers were
+// actually asked. Both surfaces state every answer even at zero — "nobody
+// needs following up" is an answer, and a row that disappeared when it
+// emptied would make the table's own shape a fact about the list.
+const answerRows = (
+  phoneBanking: PhoneBankingOutreachDetail,
+  isServe: boolean,
+): Array<[string, number]> =>
+  isServe
+    ? [
+        ['Needs follow-up: Yes', phoneBanking.byFollowUp.yes],
+        ['Needs follow-up: No', phoneBanking.byFollowUp.no],
+      ]
+    : [
+        ['Support: Yes', phoneBanking.supporters],
+        ['Support: Unsure', phoneBanking.unsure],
+        ['Support: No', phoneBanking.nonSupporters],
+      ]
+
+const PRICE_PER_TEXT =
+  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
+
+// The status the candidate is reading, mapped onto the canvas's three
+// lifecycle positions. Derived from the displayed label rather than from
+// `status` so the footer can never contradict the badge two inches above it —
+// a p2p row with a live Peerly job reads "Done" while its spine status is
+// still `paid`, and offering it a scheduled campaign's actions would be
+// answering a question about a different row. The statuses with no canvas
+// position (Draft, In review, Denied, Pending payment) map to null, which is
+// the footer's `none`: those are states this drawer has nothing to offer in.
+const lifecycleOf = (
+  statusLabel: string | null,
+): ListDetailsLifecycle | null =>
+  statusLabel === 'Done'
+    ? 'done'
+    : statusLabel === 'In progress' || statusLabel === 'Sending'
+      ? 'in_progress'
+      : statusLabel === 'Scheduled'
+        ? 'scheduled'
+        : null
+
+interface OutreachDetailsDrawerProps {
+  row: HistoryRow | null
+  onOpenChange: (open: boolean) => void
+  // with the drawer's already-fetched detail.
+  // Detail fetch for this row. Defaults to Win's campaign-scoped read; the
+  // Serve caller threads its org-scoped sibling the same bound-function way
+  // SocialFlow's `surface` does, so this drawer never forks per surface.
+  detailFetcher?: OutreachDetailFetcher
+  // Milestone 2's saved drafts (design: the drawer's `verify` footer). The
+  // membership names the step still standing between the row and a send —
+  // with none passed a draft row gets no footer, which is the flag-off hub.
+  membership?: MembershipState | null
+  // The footer's CTA: back into the flow that saved the row, which opens on
+  // whatever the candidate still has to do. Owned by the hub, since it also
+  // owns the tile and deep-link ways in.
+  onResumeDraft?: (row: HistoryRow) => void
+  // History refetch once a draft is gone.
+  onDraftDeleted?: () => Promise<void> | void
+  // Serve has no team-accounts surface: an elected official's org has no
+  // campaign roles to assign a list to, so the assignees section is not
+  // rendered there at all rather than relabelled.
+  isServe?: boolean
+  // Serve only: opens the phone-banking flow on the follow-up list the
+  // results section saves. Omitted by Win, which has no such section.
+  onCallFollowUpList?: (listId: number, listName: string) => void
+}
+
+interface DetailRow extends HistoryRow {
+  // The list endpoint joins the whole VoterFileFilter row, so the saved list's
+  // name rides along with its criteria flags.
+  voterFileFilter?: VoterFileFilters & { name?: string | null }
+}
+
+export const OutreachDetailsDrawer = ({
+  row,
+  onOpenChange,
+  detailFetcher = fetchOutreachDetail,
+  membership = null,
+  onResumeDraft,
+  onDraftDeleted,
+  isServe = false,
+  onCallFollowUpList,
+}: OutreachDetailsDrawerProps) => {
+  const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
+  const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
+  const isDoorKnocking = row?.outreachType === OUTREACH_TYPES.nativeDoorKnocking
+  // A robocall the send chain could not deliver — the spine reads `failed`.
+  const isFailedRobocall =
+    row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'failed'
+  const detailQuery = useOutreachDetail(
+    row?.id ?? null,
+    row !== null,
+    detailFetcher,
+  )
+  const social = detailQuery.data?.social
+  const phoneBanking = detailQuery.data?.phoneBanking
+  const doorKnocking = detailQuery.data?.doorKnocking
+  const isCompleted = row?.status === 'completed'
+  const isSms =
+    row?.outreachType === OUTREACH_TYPES.text ||
+    row?.outreachType === OUTREACH_TYPES.p2p
+  // Only rows created through the paid P2P flow carry a phone list — the
+  // set that has payment details (and possibly a receipt) to show.
+  const isPaidFlowSms = isSms && row?.phoneListId != null
+
+  const [outreaches, setOutreaches] = useOutreach()
+  const queryClient = useQueryClient()
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [draftDeleteConfirmOpen, setDraftDeleteConfirmOpen] = useState(false)
+  const { errorSnackbar, successSnackbar } = useSnackbar()
+  // Ids ride as mutation variables, never read from `row` in onSuccess:
+  // the confirm dialogs portal outside the vaul drawer, so their clicks
+  // count as outside-interactions that null the row mid-mutation (the
+  // page-refresh-to-see-updates bug).
+  const deleteMutation = useMutation({
+    mutationFn: ({ listId }: { listId: number; rowId: number }) =>
+      clientRequest('DELETE /v1/phone-banking/lists/:id', {
+        id: String(listId),
+      }),
+    onSuccess: (_data, { rowId }) => {
+      setOutreaches(outreaches.filter((o) => o.id !== rowId))
+      setDeleteConfirmOpen(false)
+      onOpenChange(false)
+    },
+    onError: () =>
+      errorSnackbar("Couldn't delete this list. Please try again."),
+  })
+  // A saved draft is the one row the typed outreach DELETE accepts. The
+  // history refetch is a courtesy — the row is gone once the 200 lands, so
+  // its failure must not read as a failed delete.
+  const deleteDraftMutation = useMutation({
+    mutationFn: ({ rowId }: { rowId: number; channel: GateChannel }) =>
+      clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) }),
+    onSuccess: async (_data, { rowId, channel }) => {
+      trackEvent(EVENTS.Outreach.Draft.Deleted, { channel })
+      setOutreaches(outreaches.filter((o) => o.id !== rowId))
+      setDraftDeleteConfirmOpen(false)
+      onOpenChange(false)
+      await Promise.resolve(onDraftDeleted?.()).catch(() => undefined)
+    },
+    onError: () =>
+      errorSnackbar("Couldn't delete this draft. Please try again."),
+  })
+
+  // Cancel-before-send: only a paid, scheduled-not-started text campaign
+  // (spine status `pending`, created through the P2P flow) is cancelable —
+  // the backend enforces the same set.
+  const isCancelableSms = isPaidFlowSms && row?.status === 'pending'
+  // A robocall is cancelable until it dials: spine `pending` is before the
+  // send sweep flips it to `in_progress`. The backend enforces the precise
+  // not-yet-dialed settle states.
+  const isCancelableRobocall =
+    row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'pending'
+  const isCancelable = isCancelableSms || isCancelableRobocall
+  // Delete is reserved for canceled campaigns — cancel already unwound the
+  // vendor job and the charge, so the row is pure history. The backend
+  // rejects every other status.
+  const isCanceled = row?.status === 'canceled'
+
+  // Only rows created through the paid P2P flow ever record a checkout
+  // session; the endpoint 404s the rest (free-texts, legacy), which simply
+  // leaves the link unrendered.
+  const receiptQuery = useQuery({
+    queryKey: ['outreach-receipt', row?.id ?? -1],
+    queryFn: async (): Promise<OutreachReceipt> => {
+      const { data } = await clientRequest('GET /v1/outreach/:id/receipt', {
+        id: String(row?.id),
+      })
+      return data
+    },
+    enabled: row !== null && isPaidFlowSms,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  })
+  const receiptUrl = receiptQuery.data?.receiptUrl ?? null
+  // 404 is the expected free-row signal the fallback below exists for;
+  // anything else (Stripe 502, network) must not masquerade as a computed
+  // amount — the section shows an error state instead.
+  const receiptFailed =
+    receiptQuery.isError &&
+    !(
+      receiptQuery.error instanceof FetchError &&
+      receiptQuery.error.status === 404
+    )
+  // The receipt is the charge of record; rows without one (free-texts sends
+  // 404 it) fall back to the billable count at the standard per-text price —
+  // which lands on $0.00, i.e. "Free".
+  const totalCost =
+    receiptQuery.data?.amount ??
+    (row?.billableTextCount ?? row?.textCount ?? 0) * PRICE_PER_TEXT
+  const isFreeSms = totalCost <= 0
+
+  // The Statistics card (design prototype): counts + share of contacts for
+  // a finished text campaign. Numbers refresh with the hourly report sweep.
+  //
+  // The SAME card on both surfaces, from the same three numbers — the design
+  // renders one three-row card for the sms and polls channels alike, which is
+  // exactly SmsOutreachResultsSchema. Only the network differs, so the
+  // surface names itself and the hook picks both the endpoint and the cache
+  // key from that; Win's read is unchanged. The key has to carry the scope —
+  // both surfaces share one QueryClient and number their rows from the same
+  // table, so a scope-less key would let one answer for the other.
+  const resultsQuery = useSmsResults(
+    row?.id ?? null,
+    isSms && isCompleted,
+    isServe ? 'serve' : 'win',
+  )
+  const results = resultsQuery.data ?? null
+  const statRows = results
+    ? [
+        { label: 'Responded', count: results.responded },
+        {
+          label: 'No response',
+          count: Math.max(
+            0,
+            results.contacts - results.responded - results.optedOut,
+          ),
+        },
+        { label: 'Opted out', count: results.optedOut },
+      ].map((stat) => ({
+        ...stat,
+        pct:
+          results.contacts > 0
+            ? Math.round((stat.count / results.contacts) * 100)
+            : 0,
+      }))
+    : null
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const cancelMutation = useMutation({
+    mutationFn: (rowId: number) =>
+      clientRequest('POST /v1/outreach/:id/cancel', { id: String(rowId) }),
+    onSuccess: ({ data }, rowId) => {
+      setOutreaches(
+        outreaches.map((o) =>
+          o.id === rowId ? { ...o, status: data.outreach.status } : o,
+        ),
+      )
+      queryClient.invalidateQueries({
+        queryKey: outreachDetailQueryKey(rowId),
+      })
+      setCancelConfirmOpen(false)
+      onOpenChange(false)
+      successSnackbar(
+        data.refunded
+          ? 'Campaign canceled. Your refund will arrive in 5-10 business days.'
+          : 'Campaign canceled.',
+      )
+    },
+    onError: () =>
+      errorSnackbar("Couldn't cancel this campaign. Please try again."),
+  })
+
+  // Both of these are the same envelope's `archivedAt` for a walk: the block
+  // restates it, and the history row carries it directly. Read off the block
+  // anyway, because it arrives with the detail rather than with the table —
+  // a row this drawer was opened from through a deep link has no cached copy
+  // to be right or wrong about.
+  // The campaign this row anchors, and its turfs. Same query options
+  // `CampaignTurfList` below uses, so React Query serves ONE fetch to two
+  // observers — the list is not lifted into a prop, because the child is the
+  // only thing that renders it and hoisting that render would cost the
+  // section its own tests.
+  //
+  // The drawer needs the list for three answers the anchor's own block cannot
+  // give: which turf "Continue knocking" should open on a campaign whose
+  // anchor is already finished, how many turfs a campaign-level Done would
+  // finish, and whether there is anything left to archive at all.
+  const anchorOutreachId = row?.campaignOutreachId ?? row?.id ?? -1
+  const campaignTurfsQuery = useQuery({
+    ...campaignTurfsQueryOptions(anchorOutreachId),
+    enabled: row !== null && isDoorKnocking,
+  })
+  const campaignTurfs = campaignTurfsQuery.data ?? []
+  const unfinished = unfinishedTurfs(campaignTurfs)
+  // Archive and complete for the WHOLE campaign, one server-side transaction
+  // each. This is what replaced `canArchiveFromDrawer`: the write used to
+  // take a turf id, so on a campaign it shelved the anchor and left every
+  // sibling on the rail, and the button was withheld rather than fanned out
+  // (a fan-out on the turf endpoint would shelve a whole campaign when a
+  // canvasser finished one turf of it). There is a campaign-scoped endpoint
+  // now, so the guard is gone and a solo campaign takes the same path — a
+  // campaign of one is still a campaign, and one code path is what keeps the
+  // two from drifting.
+  const campaignLifecycle = useCampaignLifecycle(anchorOutreachId, isServe)
+  // The CAMPAIGN's shelf, not the anchor turf's. `collapseDoorKnockingCampaigns`
+  // says a campaign is archived only once every turf is, so reading the
+  // anchor's own flag here would contradict the history row two inches away:
+  // shelving the first turf from its walk leaves the campaign on the active
+  // list while this drawer badged it Archived and offered Restore. Computed
+  // off the same predicate the server rollup uses, so the two agree by
+  // construction. A campaign with no live turfs left falls back to the row.
+  const campaignArchived =
+    campaignTurfs.length > 0 && campaignTurfs.every((turf) => turf.archivedAt)
+  const isArchived = Boolean(
+    isDoorKnocking
+      ? campaignTurfs.length > 0
+        ? campaignArchived
+        : row?.archivedAt
+      : row?.archivedAt,
+  )
+  // Shared by both archive writers below. The detail carries the turf's own
+  // `archivedAt`, so a stale cache entry would reopen the drawer on the
+  // pre-archive answer.
+  const applyArchivedAt = (archivedAt: Date | string | null) => {
+    setOutreaches(
+      outreaches.map((o) => (o.id === row?.id ? { ...o, archivedAt } : o)),
+    )
+    queryClient.invalidateQueries({
+      queryKey: outreachDetailQueryKey(row?.id ?? -1),
+    })
+    onOpenChange(false)
+  }
+  const archiveMutation = useMutation({
+    mutationFn: () => {
+      const rowId = row?.id
+      if (!rowId) return Promise.reject(new Error('row unavailable'))
+      return clientRequest('PATCH /v1/outreach/:id/archive', {
+        id: String(rowId),
+        archived: !isArchived,
+      })
+    },
+    onSuccess: ({ data }) => applyArchivedAt(data.archivedAt),
+    onError: () =>
+      errorSnackbar(
+        isArchived
+          ? "Couldn't restore this campaign. Please try again."
+          : "Couldn't archive this campaign. Please try again.",
+      ),
+  })
+
+  // One button, two writers. Door knocking archives the CAMPAIGN, which is
+  // what keeps the turf rail and this record in step — only the door-knocking
+  // routes move both, and `OutreachService.setArchived` can reach the
+  // envelope alone. Every other channel archives its own envelope. The
+  // door-knocking hook already invalidates the two turf caches, which is why
+  // the unconditional pair that used to sit in `onSuccess` above is gone.
+  const toggleArchive = () => {
+    if (!isDoorKnocking) return archiveMutation.mutate()
+    // Mirror the server's own rollup rather than reading the anchor's row out
+    // of the response: the anchor's turf may be tombstoned and absent from it,
+    // which would report the campaign un-archived right after archiving it.
+    const onSuccess = (turfs: DoorKnockingTurf[]) =>
+      applyArchivedAt(
+        turfs.length > 0 && turfs.every((turf) => turf.archivedAt)
+          ? turfs.reduce<Date | null>(
+              (latest, turf) =>
+                turf.archivedAt && (!latest || turf.archivedAt > latest)
+                  ? turf.archivedAt
+                  : latest,
+              null,
+            )
+          : null,
+      )
+    return isArchived
+      ? campaignLifecycle.restore({ onSuccess })
+      : campaignLifecycle.moveToArchive({ onSuccess })
+  }
+  const archivePending =
+    archiveMutation.isPending || campaignLifecycle.pendingAction !== null
+
+  // The campaign-level Done, and the one press in this drawer with no undo.
+  // It closes the drawer on success for the same reason archive does: `row`
+  // is a snapshot the hub holds, so the status this write changes cannot
+  // update underneath an open drawer, and the history row behind it reads
+  // Done the moment it closes. The badge is NOT recomputed here from the
+  // sibling list — the campaign status rollup belongs to
+  // `collapseDoorKnockingCampaigns`, and no surface guards that badge.
+  const [markCampaignDoneOpen, setMarkCampaignDoneOpen] = useState(false)
+  // A sibling row's confirm and its assignee menu are the child's, but their
+  // clicks land outside this drawer exactly like the two below, so the
+  // drawer has to know one is up.
+  //
+  // A REF beside the state, read by the close guard below. The state is what
+  // re-renders; the ref is what a handler firing inside the same pointer
+  // event can read without depending on which of the two updates React has
+  // flushed by then.
+  const [turfOverlayOpen, setTurfOverlayOpen] = useState(false)
+  const turfOverlayRef = useRef(false)
+  const setTurfOverlay = (open: boolean) => {
+    turfOverlayRef.current = open
+    setTurfOverlayOpen(open)
+  }
+  // A per-turf Done from the sibling list moves the campaign without going
+  // through this drawer's own mutation, so the history row's snapshot goes
+  // stale — and the footer reads that snapshot. Finishing the LAST unfinished
+  // turf that way would otherwise leave the footer with nothing at all: Mark
+  // campaign done is withheld once nothing is unfinished, and Archive needs
+  // the row to read `done`. Handled as an event rather than derived from the
+  // turf list, because `row` is the hub's snapshot and does not update when
+  // the context does — a reactive version would re-fire forever.
+  const handleTurfCompleted = (turfId: number) => {
+    if (!row) return
+    queryClient.invalidateQueries({ queryKey: outreachDetailQueryKey(row.id) })
+    if (unfinished.some((turf) => turf.id !== turfId)) return
+    setOutreaches(
+      outreaches.map((o) =>
+        o.id === row.id ? { ...o, status: 'completed' } : o,
+      ),
+    )
+  }
+
+  const markCampaignDone = () =>
+    campaignLifecycle.markDone({
+      onSuccess: () => {
+        setOutreaches(
+          outreaches.map((o) =>
+            o.id === row?.id ? { ...o, status: 'completed' } : o,
+          ),
+        )
+        queryClient.invalidateQueries({
+          queryKey: outreachDetailQueryKey(row?.id ?? -1),
+        })
+        setMarkCampaignDoneOpen(false)
+        onOpenChange(false)
+      },
+    })
+
+  const displayDate = row?.date ?? row?.createdAt
+  const voterFileFilter = (row as DetailRow | null)?.voterFileFilter
+  const audienceLabels = formatAudienceLabels(voterFileFilter || {})
+  // The canvas always shows an audience pill; our rows only have one when the
+  // campaign was sent to a saved list (social has no audience at all, and
+  // phone banking's "all voters" source saves no filter).
+  const audienceName = voterFileFilter?.name?.trim() || null
+  // A robocall's people figure is the landline count its purchase priced,
+  // on the satellite; texting's is the spine's text counts.
+  const sent =
+    row?.outreachType === OUTREACH_TYPES.robocall
+      ? detailQuery.data?.robocall?.billableCount
+      : (row?.textCount ?? row?.billableTextCount)
+
+  // Prototype byline verbs ("Scheduled for {date}" / "Sent {date}"); our
+  // extra legacy statuses (Draft, In review, …) have no prototype verb and
+  // keep the bare date.
+  const statusLabel = row
+    ? getHistoryStatusLabel(row, membership, isServe)
+    : null
+  const bylineVerb =
+    statusLabel === 'Scheduled'
+      ? 'Scheduled for'
+      : statusLabel === 'Done'
+        ? 'Sent'
+        : null
+  // An archived row's pill reads "Archived" (prototype: effStatus) — display
+  // only, so the footer's lifecycle still resolves off the underlying status
+  // and the Restore action stays reachable.
+  const displayStatusLabel = isArchived ? 'Archived' : statusLabel
+
+  // "Is there something this candidate can do about this campaign from here",
+  // which is the second half of the canvas's footer decision. True for the two
+  // channels we run ourselves and false for the paid ones: a scheduled legacy
+  // text or robocall is sent by Peerly with nothing to drive, so `automatic`
+  // is the honest footer. The paid-flow SMS rows are the exception now that
+  // cancel-before-send and canceled-row delete exist for them — they carry
+  // their own footer below instead of the mode machine.
+  const selfServe = isPhoneBanking || isDoorKnocking
+  const footerMode = listDetailsFooterMode(lifecycleOf(statusLabel), selfServe)
+  // Phone banking's alone. Door knocking used to build one here too, into
+  // the campaign's next unfinished turf — and picking a turf for the
+  // candidate is exactly what a campaign's drawer should not do now that
+  // every turf is listed above with its own Continue.
+  //
+  // Null until the detail lands: the list id rides the detail, so a link
+  // built without it could only go to the bare rail. Holding the slot
+  // disabled for a moment beats a press that silently lands somewhere else.
+  const continueHref =
+    isPhoneBanking && phoneBanking
+      ? `/outreach/phone-banking/${phoneBanking.listId}`
+      : null
+
+  // The SMS lifecycle actions this branch added have no mode in the canvas's
+  // footer vocabulary (its `automatic` predates cancel/delete existing for a
+  // paid send), so these rows render their own footer node in the shared
+  // footer's container anatomy.
+  // A saved draft (milestone 2) has one destructive act and one way forward,
+  // and the way forward is named for what still stands between the row and
+  // a send — the same word its status pill reads (design: the drawer's
+  // `verify` footer). Only the two drafting channels save one.
+  const draftChannel: GateChannel =
+    row?.outreachType === OUTREACH_TYPES.robocall ? 'robocall' : 'sms'
+  const draftLabel = row?.status === 'draft' ? statusLabel : null
+  const draftAction =
+    draftLabel === null
+      ? null
+      : draftFooterAction(draftLabel, RESUME_COPY[draftChannel].cta)
+  const draftFooter =
+    row && draftAction ? (
+      <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
+        <div className="mx-auto flex w-full max-w-[608px] items-center gap-3">
+          <Button
+            variant="ghost"
+            className="shrink-0 text-destructive hover:bg-destructive/10"
+            onClick={() => setDraftDeleteConfirmOpen(true)}
+          >
+            <Trash2Icon className="size-4" />
+            Delete
+          </Button>
+          <Button
+            size="large"
+            className="flex-1"
+            disabled={draftAction.disabled}
+            onClick={() => {
+              onOpenChange(false)
+              onResumeDraft?.(row)
+            }}
+          >
+            {draftAction.disabled ? (
+              <Loader2Icon className="size-4 animate-spin" />
+            ) : draftAction.label === 'Start verification' ? (
+              <ShieldCheckIcon className="size-4" />
+            ) : null}
+            {draftAction.label}
+          </Button>
+        </div>
+      </div>
+    ) : null
+
+  const smsFooter = isCancelable ? (
+    <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
+      <div className="mx-auto flex w-full max-w-[608px] gap-3">
+        {/* Candidate editing is gone (the campaign success team fixes
+            messages), so Cancel takes the full width. */}
+        <Button
+          variant="outline"
+          className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
+          disabled={cancelMutation.isPending}
+          onClick={() => setCancelConfirmOpen(true)}
+        >
+          <CircleSlashIcon className="size-4" />
+          Cancel campaign
+        </Button>
+      </div>
+    </div>
+  ) : isCanceled ? (
+    // Canceled rows keep their record (product decision: history is never
+    // hard-deleted — archiving preserves results and generated content off
+    // the main table). Same action pair completed rows get.
+    <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
+      <div className="mx-auto flex w-full max-w-[608px]">
+        <Button
+          variant="outline"
+          className="flex-1"
+          disabled={archivePending}
+          onClick={toggleArchive}
+        >
+          <ArchiveIcon className="size-4" />
+          {isArchived ? 'Restore from archive' : 'Move to archive'}
+        </Button>
+      </div>
+    </div>
+  ) : null
+
+  return (
+    <>
+      <ListDetailsSheetShell
+        open={row !== null}
+        onOpenChange={onOpenChange}
+        // While a turf row's dropdown is open, the sheet is not dismissible
+        // at all: that press belongs to the menu. Cleared a tick after the
+        // menu closes, so the click that dismissed it cannot also reach the
+        // sheet and the next one can.
+        dismissible={!turfOverlayOpen}
+        title={row?.name || row?.title || 'Outreach details'}
+        // Refusing the dismissal here rather than in `onOpenChange` is
+        // load-bearing: vaul starts its close animation on the outside
+        // interaction itself, so an ignored `onOpenChange` leaves a sheet
+        // that has visually gone while its `open` prop still says otherwise.
+        // Only `preventDefault` stops it before that starts.
+        //
+        // The turf overlay is read from a REF, not from the state beside it.
+        // A portaled dropdown dismissed by a click outside is ONE pointer
+        // event — Radix closes the menu, React flushes that discrete update
+        // synchronously, and this handler then runs against whatever the
+        // last render left in scope. The ref is the value now.
+        onInteractOutside={(event) => {
+          if (
+            cancelConfirmOpen ||
+            deleteConfirmOpen ||
+            draftDeleteConfirmOpen ||
+            markCampaignDoneOpen ||
+            turfOverlayOpen ||
+            turfOverlayRef.current
+          ) {
+            event.preventDefault()
+          }
+        }}
+        header={
+          row && (
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-[22px] font-semibold text-foreground">
+                  {row.name || row.title || 'Untitled campaign'}
+                </h2>
+                <HistoryStatusText label={displayStatusLabel} />
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                <ChannelBadge type={row.outreachType} />
+                {displayDate && (
+                  <span className="text-sm text-muted-foreground">
+                    ·{' '}
+                    {bylineVerb
+                      ? `${bylineVerb} ${shortOutreachDate(displayDate)}`
+                      : shortOutreachDate(displayDate)}
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        }
+        footer={
+          // A draft's footer is its own or nothing: until membership names
+          // the step in its way there is no node to draw, and the shared
+          // footer's archive shelf must not stand in for it. Delete is the
+          // draft's way off the list.
+          row &&
+          (row.status === 'draft'
+            ? draftFooter
+            : (smsFooter ?? (
+                <ListDetailsFooter
+                  mode={footerMode}
+                  destructive={
+                    // Delete stays phone-banking-only: it calls the phone list's
+                    // own delete endpoint, and no other channel has one.
+                    footerMode === 'done' &&
+                    isPhoneBanking &&
+                    phoneBanking && (
+                      <Button
+                        variant="ghost"
+                        className="shrink-0 text-destructive hover:bg-destructive/10"
+                        onClick={() => setDeleteConfirmOpen(true)}
+                      >
+                        <Trash2Icon className="size-4" />
+                        Delete
+                      </Button>
+                    )
+                  }
+                  primary={
+                    // Door knocking has none. "Walk this route" was written
+                    // for a drawer about ONE turf; with the campaign's turfs
+                    // listed above, each carrying its own Continue, a single
+                    // bottom CTA has to pick one of them for the candidate.
+                    // Mark campaign done stays, in the secondary slot below:
+                    // it is the one act that is about the campaign.
+                    footerMode !== 'continue' || isDoorKnocking
+                      ? null
+                      : continueHref
+                        ? {
+                            kind: 'link',
+                            label: continueLabel(
+                              'phoneBanking',
+                              phoneBanking?.peopleCalled ?? 0,
+                            ),
+                            href: continueHref,
+                            // Close the details drawer before navigating so the
+                            // destination surface (door knocking's walk sheet
+                            // intercept, phone banking's call list route) doesn't
+                            // render beneath this vaul drawer's z-50 body portal.
+                            // For door knocking specifically the walk sheet lives
+                            // in a fixed z-40 container per DoorKnockingFlow.tsx —
+                            // it can't win a z-fight with the details drawer, so
+                            // we clear it out of the way.
+                            onClick: () => onOpenChange(false),
+                          }
+                        : // Both channels' hrefs are ids that ride the detail —
+                          // phone banking's list, door knocking's turf — so
+                          // neither is known for as long as that query is in
+                          // flight. Holding the slot disabled beats letting the
+                          // whole footer appear a beat after the drawer: the body
+                          // is already showing its own loading line, and a CTA
+                          // that materializes under a thumb already moving is
+                          // worse than one that was visibly not ready yet. Only
+                          // while loading: once the detail has failed the body
+                          // says so and offers the recovery, and a button that can
+                          // never enable is not a state to render.
+                          detailQuery.isLoading
+                          ? {
+                              kind: 'disabled',
+                              label: isDoorKnocking
+                                ? CONTINUE_LABELS.doorKnocking
+                                : CONTINUE_LABELS.phoneBanking,
+                            }
+                          : null
+                  }
+                  secondary={
+                    // Archive now applies to every finished row the history's
+                    // Archive toggle can hide, door knocking included. What used to
+                    // block it was reach, not policy: this row is the projection of
+                    // a saved list, and until the detail carried the turf's id
+                    // there was no way to write the source from here. It has one
+                    // now, so the button calls the turf's endpoint (see the
+                    // mutation) — one writer, both rows, still. Door knocking waits
+                    // for the detail: without the turf id there is nothing to
+                    // archive, and a button that resolves to a rejected mutation is
+                    // worse than one that arrives a beat late.
+                    // One full-width secondary per state, which is what the
+                    // slot is shaped for. A live campaign gets the way to finish
+                    // it; a finished one gets the shelf. Marking done is not
+                    // offered when nothing is unfinished, because then the
+                    // campaign is already done and the row reads `done` anyway.
+                    footerMode === 'continue' &&
+                    isDoorKnocking &&
+                    unfinished.length > 0 ? (
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        disabled={campaignLifecycle.pendingAction !== null}
+                        onClick={() => setMarkCampaignDoneOpen(true)}
+                      >
+                        Mark campaign done
+                      </Button>
+                    ) : (
+                      // `none` alongside `done`, which is the one state this slot
+                      // had no answer for. A row whose displayed label is not one
+                      // of the four `lifecycleOf` knows (Draft, In review, Denied)
+                      // gets mode `none`, and the drawer used to pass nothing at
+                      // all — so a legacy request submitted before VO 2.0 and
+                      // never fulfilled sat in history forever with no control on
+                      // any surface able to move it.
+                      //
+                      // This does NOT invent a fifth mode, which is what the
+                      // closed set exists to prevent: `ListDetailsFooter` renders
+                      // whatever secondary it is given and only returns null when
+                      // there is no action and no note, so nothing in
+                      // `footerMode.ts` changes. Archive is ours rather than the
+                      // canvas's, which is why it can answer for a state the
+                      // canvas has no position for while the primary slot still
+                      // cannot.
+                      //
+                      // Door knocking never reaches `none` (its envelope only
+                      // carries in_progress/completed), and an ARCHIVED row keeps
+                      // its underlying lifecycle here, which is what already keeps
+                      // Restore reachable — so neither is affected.
+                      (footerMode === 'done' || footerMode === 'none') &&
+                      (!isDoorKnocking || campaignTurfs.length > 0) && (
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          disabled={archivePending}
+                          onClick={toggleArchive}
+                        >
+                          <ArchiveIcon className="size-4" />
+                          {isArchived
+                            ? 'Restore from archive'
+                            : 'Move to archive'}
+                        </Button>
+                      )
+                    )
+                  }
+                  note={
+                    // The turf is still the object, and the rail is still where a
+                    // walk is managed — so the line stays, saying where this act
+                    // also shows up rather than sending the candidate away to
+                    // perform it.
+                    footerMode === 'done' &&
+                    isDoorKnocking &&
+                    campaignTurfs.length > 0 &&
+                    (campaignTurfs.length === 1
+                      ? 'This archives the saved list too, so Door knocking and this record stay in step.'
+                      : `This archives all ${campaignTurfs.length} saved lists too, so Door knocking and this record stay in step.`)
+                  }
+                />
+              )))
+        }
+      >
+        {row && (
+          <>
+            {(audienceName || audienceLabels.length > 0) && (
+              // "Applied filters" describes what BUILT the audience, which is
+              // the right title for a send composed out of voter-file
+              // criteria. A walk is cut from a saved list and the list is the
+              // whole answer, so door knocking names the thing rather than
+              // the act — and with the section saying it, the group's own
+              // "Audience" label would say it twice.
+              <DetailsSection
+                title={isDoorKnocking ? 'Voter list used' : 'Applied filters'}
+              >
+                {audienceName && (
+                  <FilterGroup
+                    title={isDoorKnocking ? undefined : 'Audience'}
+                    values={[audienceName]}
+                  />
+                )}
+                {audienceLabels.length > 0 && (
+                  <FilterGroup title="Filters" values={audienceLabels} />
+                )}
+              </DetailsSection>
+            )}
+
+            {isFailedRobocall && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground">
+                This send couldn&apos;t be delivered. You weren&apos;t charged.
+              </div>
+            )}
+
+            {/* Door knocking has no Overview. Its three cells were Date,
+                Name and Channel — all three already in the header two inches
+                above — and the Doors/People pair beside them was the anchor
+                turf's, so it was withheld on every multi-turf campaign
+                anyway. The per-turf figures are on the turfs. */}
+            {!isDoorKnocking && (
+              <DetailsSection title="Overview">
+                <MetricGrid>
+                  <Metric
+                    icon={<CalendarIcon />}
+                    label="Date"
+                    value={displayDate ? shortOutreachDate(displayDate) : '—'}
+                  />
+                  <Metric
+                    icon={<FileTextIcon />}
+                    label="Name"
+                    value={row.name || row.title || 'Untitled campaign'}
+                  />
+                  <Metric
+                    icon={<RadioIcon />}
+                    label="Channel"
+                    value={getChannelLabel(row.outreachType)}
+                  />
+                  {isSocial ? (
+                    <Metric
+                      icon={<FileTextIcon />}
+                      label="Platforms"
+                      value={
+                        social
+                          ? `${social.assets.length} platform${social.assets.length === 1 ? '' : 's'}`
+                          : '—'
+                      }
+                    />
+                  ) : isPhoneBanking ? (
+                    <Metric
+                      icon={<UsersRoundIcon />}
+                      label="People"
+                      value={
+                        phoneBanking
+                          ? phoneBanking.peopleTotal.toLocaleString()
+                          : '—'
+                      }
+                    />
+                  ) : isDoorKnocking ? (
+                    // Doors and people are two figures on a walk, not one: a
+                    // multi-unit building is one stop and many doors, and its
+                    // residents are more people again. Both are the frozen
+                    // route's, from the same aggregate the door-knocking rail
+                    // reads — printing a second derivation of either is the
+                    // two-denominator failure this feature has a rule against.
+                    //
+                    // Solo-campaign only. `OutreachDetail.doorKnocking` carries
+                    // the ANCHOR turf's figures — not the campaign aggregate
+                    // across siblings — so on a multi-turf campaign this pair
+                    // would print anchor-only numbers labelled as campaign
+                    // totals, which is exactly the two-denominator failure
+                    // above. For multi-turf campaigns the per-turf figures live
+                    // on the sibling section above; the drawer-level aggregate
+                    // will need a real backend rollup before it can come back.
+                    //
+                    // A walk whose list is gone renders neither cell rather than
+                    // two em-dashes, which is the rule this drawer already
+                    // followed when it had no block at all: the sentence below
+                    // says what happened, and a cell that can only say "—" adds
+                    // nothing to it.
+                    (row?.turfCount ?? 1) === 1 &&
+                    (doorKnocking || detailQuery.isLoading) && (
+                      <>
+                        <Metric
+                          icon={<DoorOpenIcon />}
+                          label="Doors"
+                          pending={detailQuery.isLoading}
+                          value={
+                            doorKnocking?.doorCount.toLocaleString() ?? '—'
+                          }
+                        />
+                        <Metric
+                          icon={<UsersRoundIcon />}
+                          label="People"
+                          pending={detailQuery.isLoading}
+                          value={
+                            doorKnocking?.peopleCount.toLocaleString() ?? '—'
+                          }
+                        />
+                      </>
+                    )
+                  ) : (
+                    <Metric
+                      icon={<UsersRoundIcon />}
+                      label="People"
+                      value={
+                        typeof sent === 'number' ? sent.toLocaleString() : '—'
+                      }
+                    />
+                  )}
+                  {isSocial && social && (
+                    <Metric
+                      icon={<FileTextIcon />}
+                      label="Purpose"
+                      value={socialPurposeLabel(social.purpose)}
+                    />
+                  )}
+                  {isSms && (
+                    // No per-campaign opt-out feed exists yet (the results
+                    // sweep is a later slice), so this reads 0 — the same
+                    // value the design shows for a not-yet-sent row.
+                    <Metric
+                      icon={<UserMinusIcon />}
+                      label="Unsubscribes"
+                      value="0"
+                    />
+                  )}
+                </MetricGrid>
+              </DetailsSection>
+            )}
+
+            {/* The detail resolves to no block when the saved list behind
+                this walk has been deleted: the envelope and its paid route
+                survive a tombstone, the list does not. It outlived the
+                Overview section it used to sit in, because it is the one
+                thing a walk with no list still has to say. */}
+            {isDoorKnocking && !doorKnocking && !detailQuery.isLoading && (
+              <p className="text-sm text-muted-foreground">
+                This walk&apos;s saved list is no longer available, so its doors
+                and knocking progress can&apos;t be shown.
+              </p>
+            )}
+
+            {/* Manager assign/unassign for a self-run list (ENG-11056).
+                Volunteers never open this drawer (their whole surface is
+                /volunteer's own assignments page), so there's no second gate
+                for them.
+                Serve is excluded outright: team accounts are a Win feature
+                (the roles are campaign roles), so an elected official is
+                offered no assignment rather than one labelled in Win's
+                vocabulary.
+
+                Phone banking's alone. A canvasser is handed a TURF — one
+                walk down one street — and a campaign is several of them, so
+                assigning at this level meant naming somebody for work the
+                product cannot hand them. The turfs carry their own menu
+                (`TurfAssigneeMenu`), which writes to the same assignments
+                endpoint against the turf's own envelope. */}
+            {isPhoneBanking && !isServe && (
+              <OutreachAssigneesSection
+                outreachId={row.id}
+                outreachName={row.name || row.title || undefined}
+              />
+            )}
+
+            {isSms && isCompleted && results && statRows && (
+              <DetailsSection title="Statistics">
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                    <ChartColumnIcon className="size-4" />
+                    Based on {results.contacts.toLocaleString()} SMS contact
+                    {results.contacts === 1 ? '' : 's'}
+                  </div>
+                  {statRows.map((stat) => (
+                    <div
+                      key={stat.label}
+                      className="flex items-center justify-between border-t border-border px-3 py-2"
+                    >
+                      <span className="text-sm">{stat.label}</span>
+                      <span className="flex items-baseline gap-2">
+                        <span className="text-sm font-semibold">
+                          {stat.count.toLocaleString()}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {stat.pct}%
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </DetailsSection>
+            )}
+
+            {/* Read-only for v1: no heart, no unread dot, no composer and no
+                filters — see ServeSmsRepliesSection's own note. Serve-only
+                because reply CONTENT only exists for sends that came back
+                through the shared ingest. */}
+            {isServe && isSms && isCompleted && (
+              <ServeSmsRepliesSection outreachId={row.id} />
+            )}
+
+            {isPaidFlowSms && (
+              <DetailsSection title="Payment details">
+                {receiptFailed && (
+                  <p className="text-sm text-muted-foreground">
+                    We couldn&apos;t load the payment details. Close and try
+                    again.
+                  </p>
+                )}
+                {!receiptFailed && (
+                  <MetricGrid>
+                    <Metric
+                      icon={<DollarSignIcon />}
+                      label="Total cost"
+                      value={isFreeSms ? 'Free' : `$${totalCost.toFixed(2)}`}
+                    />
+                    <Metric
+                      icon={<HashIcon />}
+                      label="Cost per outreach"
+                      value={isFreeSms ? '—' : `$${PRICE_PER_TEXT.toFixed(3)}`}
+                    />
+                  </MetricGrid>
+                )}
+                {receiptUrl && (
+                  <Button
+                    type="button"
+                    // px-0 loses to the size variant's has-[>svg]:px-4
+                    // (different modifier group in tailwind-merge), so
+                    // the icon needs its own zero to sit flush left.
+                    variant="link"
+                    className="h-auto px-0 no-underline has-[>svg]:px-0"
+                    onClick={() => {
+                      window.open(receiptUrl, '_blank', 'noopener')
+                    }}
+                  >
+                    <ReceiptIcon className="size-4" />
+                    View receipt
+                  </Button>
+                )}
+              </DetailsSection>
+            )}
+
+            {isSms && row.script && (
+              <DetailsSection title="Message">
+                {/* The stored script is already the fully composed send
+                    (greeting + body + opt-out footer) — render it verbatim,
+                    line breaks included. */}
+                <Card className="rounded-lg p-3">
+                  <p className="text-sm whitespace-pre-wrap text-foreground">
+                    {row.script}
+                  </p>
+                </Card>
+              </DetailsSection>
+            )}
+
+            {isSocial && detailQuery.isLoading && (
+              <StatusText
+                tone="muted"
+                icon={<Loader2Icon />}
+                spinning
+                className="text-sm"
+              >
+                Loading your posts…
+              </StatusText>
+            )}
+            {isSocial && detailQuery.isError && (
+              <p className="text-sm text-muted-foreground">
+                We couldn&apos;t load this campaign&apos;s posts. Close and try
+                again.
+              </p>
+            )}
+            {social && (
+              <section className="space-y-3">
+                <Overline>Posts · {social.assets.length}</Overline>
+                <p className="text-sm text-muted-foreground">
+                  The text created for each platform. Copy any post again below.
+                </p>
+                <div className="space-y-4">
+                  {social.assets.map((asset) => (
+                    <SocialAssetCard key={asset.platform} asset={asset} />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {isPhoneBanking && detailQuery.isLoading && (
+              <StatusText
+                tone="muted"
+                icon={<Loader2Icon />}
+                spinning
+                className="text-sm"
+              >
+                Loading call progress…
+              </StatusText>
+            )}
+            {isPhoneBanking && detailQuery.isError && (
+              <p className="text-sm text-muted-foreground">
+                We couldn&apos;t load this campaign&apos;s call progress. Close
+                and try again.
+              </p>
+            )}
+
+            {isDoorKnocking && detailQuery.isLoading && (
+              <StatusText
+                tone="muted"
+                icon={<Loader2Icon />}
+                spinning
+                className="text-sm"
+              >
+                Loading knocking progress…
+              </StatusText>
+            )}
+            {isDoorKnocking && detailQuery.isError && (
+              <p className="text-sm text-muted-foreground">
+                We couldn&apos;t load this walk&apos;s knocking progress. Close
+                and try again.
+              </p>
+            )}
+
+            {/* Unlike phone banking's, this section does not give way to a
+                Results table on a finished row: door knocking has no outcomes
+                surface here (ADR 0012), and a walk is routinely ended with
+                doors left unlogged — so how much of the list was covered is
+                the answer on a done walk too, not only on a live one. */}
+            {/* The campaign's own turfs: one row per turf, plus an "Add
+                another turf" affordance that lands on the create flow scoped
+                to this campaign. Rendered for every door-knocking row rather
+                than only for `turfCount > 1`, so the add-turf path is
+                reachable from a solo campaign — otherwise a candidate with
+                one turf can never grow it, chicken-and-egg.
+
+                **This is the only place a door-knocking campaign's progress
+                is drawn.** There was a drawer-level Progress card below,
+                shown only on a solo campaign because its figures are the
+                ANCHOR turf's and would misreport a multi-turf one. Now that
+                every turf card carries its own bar, that card was the same
+                numbers a second time on the one campaign shape it appeared
+                for. A campaign-wide rollup would need a real total rather
+                than the anchor's, and nothing computes one yet. */}
+            {isDoorKnocking && row && (
+              <CampaignTurfList
+                isServe={isServe}
+                anchorOutreachId={anchorOutreachId}
+                outreachId={row.id}
+                onOverlayOpenChange={setTurfOverlay}
+                onTurfCompleted={handleTurfCompleted}
+              />
+            )}
+
+            {isPhoneBanking && phoneBanking && !isCompleted && (
+              <DetailsSection title="Progress">
+                <Card className="gap-3 rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                      {phoneBanking.peopleCalled.toLocaleString()} of{' '}
+                      {phoneBanking.peopleTotal.toLocaleString()} reached
+                    </span>
+                    <span className="text-sm font-medium text-foreground">
+                      {percentLabel(
+                        phoneBanking.peopleCalled,
+                        phoneBanking.peopleTotal,
+                      )}
+                    </span>
+                  </div>
+                  <Progress
+                    value={
+                      phoneBanking.peopleTotal > 0
+                        ? (phoneBanking.peopleCalled /
+                            phoneBanking.peopleTotal) *
+                          100
+                        : 0
+                    }
+                  />
+                  <MetricGrid>
+                    <Metric
+                      icon={<CheckCircleIcon />}
+                      label="Completed"
+                      value={phoneBanking.peopleCalled.toLocaleString()}
+                    />
+                    <Metric
+                      icon={<ClockIcon />}
+                      label="Remaining"
+                      value={(
+                        phoneBanking.peopleTotal - phoneBanking.peopleCalled
+                      ).toLocaleString()}
+                    />
+                  </MetricGrid>
+                </Card>
+              </DetailsSection>
+            )}
+
+            {isPhoneBanking && phoneBanking && !isCompleted && (
+              <DetailsSection title="Payment details">
+                <MetricGrid>
+                  <Metric
+                    icon={<DollarSignIcon />}
+                    label="Total cost"
+                    value="Free"
+                  />
+                  <Metric
+                    icon={<DollarSignIcon />}
+                    label="Cost per outreach"
+                    value="—"
+                  />
+                </MetricGrid>
+              </DetailsSection>
+            )}
+
+            {isPhoneBanking && phoneBanking && isCompleted && (
+              <DetailsSection title="Results">
+                <p className="text-sm text-muted-foreground">
+                  Based on {phoneBanking.entriesCalled.toLocaleString()} phone
+                  banking contacts
+                </p>
+                <Card className="overflow-hidden p-0">
+                  <Table>
+                    <TableBody>
+                      {PHONE_BANKING_OUTCOME_ORDER.map((outcome) => (
+                        <TableRow key={outcome}>
+                          <TableCell>
+                            {PHONE_BANKING_OUTCOME_LABEL[outcome]}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {phoneBanking.byOutcome[outcome]}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {percentLabel(
+                              phoneBanking.byOutcome[outcome],
+                              phoneBanking.entriesCalled,
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {/* The conversation rows, in this list's own
+                          vocabulary. Serve never asks for a stance, so its
+                          support tallies are permanently zero — three rows
+                          reading "Support: Yes 0" is what this branch
+                          exists to stop an official seeing. Picked by
+                          surface and not by which tally is populated, so a
+                          completed list nobody answered still reads in the
+                          right words. */}
+                      {answerRows(phoneBanking, isServe).map(
+                        ([label, count]) => (
+                          <TableRow key={label}>
+                            <TableCell>{label}</TableCell>
+                            <TableCell className="text-right text-muted-foreground">
+                              {count}
+                            </TableCell>
+                            <TableCell className="text-right text-muted-foreground">
+                              {percentLabel(count, phoneBanking.peopleCalled)}
+                            </TableCell>
+                          </TableRow>
+                        ),
+                      )}
+                    </TableBody>
+                  </Table>
+                </Card>
+              </DetailsSection>
+            )}
+            {/* Serve's actionable half of the results: the Needs follow-up
+                row above says what was asked during the campaign, this says
+                what is still owed now and turns it into people to call. */}
+            {isPhoneBanking &&
+              phoneBanking &&
+              isCompleted &&
+              isServe &&
+              row && (
+                <FollowUpOutstandingSection
+                  outreachId={row.id}
+                  outreachName={row.name}
+                  onCallList={onCallFollowUpList}
+                />
+              )}
+          </>
+        )}
+      </ListDetailsSheetShell>
+
+      <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this campaign?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {isCancelableRobocall
+                ? "Are you sure? This can't be undone. Your calls won't be placed, and you won't be charged."
+                : "Are you sure? This can't be undone. Your texts won't send, and any payment is refunded automatically."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep campaign</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={cancelMutation.isPending}
+              onClick={() => row && cancelMutation.mutate(row.id)}
+            >
+              Cancel campaign
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={draftDeleteConfirmOpen}
+        onOpenChange={setDraftDeleteConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the saved campaign. This can not be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteDraftMutation.isPending}
+              onClick={() =>
+                row &&
+                deleteDraftMutation.mutate({
+                  rowId: row.id,
+                  channel: draftChannel,
+                })
+              }
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this list?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the list and every logged call. This can not be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMutation.isPending}
+              onClick={() =>
+                row &&
+                phoneBanking &&
+                deleteMutation.mutate({
+                  listId: phoneBanking.listId,
+                  rowId: row.id,
+                })
+              }
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <MarkDoneDialog
+        target={
+          markCampaignDoneOpen
+            ? { kind: 'campaign', unfinishedTurfCount: unfinished.length }
+            : null
+        }
+        onOpenChange={setMarkCampaignDoneOpen}
+        pending={campaignLifecycle.pendingAction === 'complete'}
+        onConfirm={markCampaignDone}
+      />
+    </>
+  )
+}

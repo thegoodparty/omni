@@ -6,6 +6,7 @@ import Caption from '@shared/typography/Caption'
 import Link from 'next/link'
 import { FaExternalLinkAlt } from 'react-icons/fa'
 import { usePathname } from 'next/navigation'
+import { isDashboardRoute } from '@shared/utils/dashboardRoutes'
 import H3 from '@shared/typography/H3'
 import DashboardMobile from '../DashboardMobile'
 import {
@@ -48,9 +49,9 @@ const RightSideMobile = (): React.JSX.Element => {
       step?: string | number
     }) || {}
   const pathname = usePathname()
-  const isDashboardPath = pathname?.startsWith('/dashboard')
+  const isDashboardPath = isDashboardRoute(pathname)
   const isOnboardingPath = pathname?.startsWith('/onboarding')
-  const dashboardLink = '/dashboard'
+  const dashboardLink = '/home'
 
   const closeMenu = () => {
     setOpen(false)

@@ -40,7 +40,7 @@ test.describe('door knocking is entered from Voter Outreach', () => {
     // pressed on that frame is a button with no handler. `OutreachComposeDeepLink`
     // strips the param in a mount effect, so the strip landing is proof the
     // hub's client code is running.
-    await page.goto('/dashboard/outreach?listId=1', {
+    await page.goto('/outreach?listId=1', {
       waitUntil: 'domcontentloaded',
     })
     await expect(
@@ -63,10 +63,9 @@ test.describe('door knocking is entered from Voter Outreach', () => {
       .getByRole('button', { name: /^Door knocking/ })
       .click({ timeout: 15_000 })
 
-    await page.waitForURL(
-      (url) => url.pathname === '/dashboard/door-knocking',
-      { timeout: 45_000 },
-    )
+    await page.waitForURL((url) => url.pathname === '/door-knocking', {
+      timeout: 45_000,
+    })
     // The sr-only `h1 "Door knocking"` on the page can't be the anchor any
     // more: the create flow now opens itself on arrival (an org with no
     // saved lists lands directly on the purpose step), and Radix's dialog

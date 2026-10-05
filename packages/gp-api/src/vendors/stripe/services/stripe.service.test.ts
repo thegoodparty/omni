@@ -108,7 +108,7 @@ describe('StripeService Pro subscription checkout', () => {
 
       const result = await service.createEmbeddedProSubscriptionCheckoutSession(
         proUser,
-        'https://app.test/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
+        'https://app.test/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
       )
 
       const args = firstOrThrow(sessionsCreate.mock.calls)[0]
@@ -116,7 +116,7 @@ describe('StripeService Pro subscription checkout', () => {
       expect(args.mode).toBe('subscription')
       expect(args.payment_method_types).toEqual(['card'])
       expect(args.return_url).toBe(
-        'https://app.test/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
+        'https://app.test/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
       )
       expect(args.success_url).toBeUndefined()
       expect(args.metadata).toEqual({ userId })

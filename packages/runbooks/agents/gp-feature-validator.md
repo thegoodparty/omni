@@ -60,7 +60,7 @@ concrete manual repro steps, and stop.
    'organization-slug=<orgSlug>;path=/'`) and navigate to the dashboard.
    Verify you landed authenticated as the right identity: the dashboard
    renders and the org context matches (Serve fixtures land on
-   `/dashboard/chief-of-staff`; Win fixtures on `/dashboard`). The ticket is
+   `/chief-of-staff`; Win fixtures on `/home`). The ticket is
    single-use — a retry needs a fresh one from the orchestrator. If ticket
    redemption fails, try one password login through the real sign-in UI (the
    form defaults to the email-code screen — click "Use another method" →

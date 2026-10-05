@@ -325,7 +325,7 @@ portal-cancel → `customer.subscription.deleted` → de-Pro path works; suspect
 (b) admin console `isPro: false` (adminCampaigns.service), which does NOT
 cancel the Stripe subscription (open gap, 86ajenb0v). Also: a passed election
 with `wonGeneral` null force-redirects every dashboard route to
-`/dashboard/election-result`, hiding Profile → Manage Subscription;
+`/election-result`, hiding Profile → Manage Subscription;
 `ActiveProSubscriptionAlert` on the election-result pages (PR #677) is the
 escape hatch.
 

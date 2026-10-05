@@ -17,7 +17,7 @@ test.describe('Navigation Menu by Org Type', () => {
 
   test('campaign org shows campaign menu items', async ({ page }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // Switch to campaign org
@@ -27,7 +27,7 @@ test.describe('Navigation Menu by Org Type', () => {
     expect(campaignOrgName).toBeTruthy()
 
     await switchOrganization(page, campaignOrgName)
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15000 })
+    await expect(page).toHaveURL(/\/home$/, { timeout: 15000 })
     await NavigationHelper.dismissOverlays(page)
 
     const sidebar = page.locator('[data-sidebar="content"]')
@@ -45,7 +45,7 @@ test.describe('Navigation Menu by Org Type', () => {
 
   test('elected office org shows serve menu items', async ({ page }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     const sidebar = page.locator('[data-sidebar="content"]')

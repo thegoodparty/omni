@@ -31,6 +31,19 @@ const nextConfig: NextConfig = {
       },
     ]
   },
+  // The dashboard moved from /dashboard/* to the root. Old URLs live on in
+  // sent emails, persisted task and card links, bookmarks and in-flight Stripe
+  // sessions, so these redirects are permanent in both senses.
+  async redirects() {
+    return [
+      { source: '/dashboard', destination: '/home', permanent: true },
+      {
+        source: '/dashboard/:path*',
+        destination: '/:path*',
+        permanent: true,
+      },
+    ]
+  },
   async rewrites() {
     const apiBase = process.env.NEXT_PUBLIC_API_BASE
     if (!apiBase) {

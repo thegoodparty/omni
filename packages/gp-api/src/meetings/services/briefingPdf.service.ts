@@ -188,7 +188,7 @@ export class BriefingPdfService extends createPrismaBase(
 
     // The QR code on the cover must work for *any* recipient — including
     // unauthenticated ones who got the PDF forwarded via email/SMS. The
-    // previous target (`/dashboard/briefings/<date>`) lives behind the
+    // previous target (`/briefings/<date>`) lives behind the
     // elected-office guard and rejects anonymous scans. Point the QR at
     // the same public share URL the drawer publishes so it stays a
     // drop-in for an unauth viewer.

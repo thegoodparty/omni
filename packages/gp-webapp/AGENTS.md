@@ -127,14 +127,14 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | State / providers / React Query patterns                     | `docs/state-management.md`                                       |
 | Adding or removing a feature flag                            | `docs/feature-flags.md`                                          |
 | Adding or changing analytics instrumentation                 | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
-| Working inside a dashboard feature                           | `app/dashboard/<feature>/AGENTS.md`                              |
-| Know Your Opponent (opposition research)                     | `app/dashboard/race-opponent/AGENTS.md`                          |
+| Working inside a dashboard feature                           | `app/(dashboard)/<feature>/AGENTS.md`                              |
+| Know Your Opponent (opposition research)                     | `app/(dashboard)/race-opponent/AGENTS.md`                          |
 | Working in `app/admin/`, `app/onboarding/`, or `app/shared/` | nested `AGENTS.md` in that dir                                   |
 | Working with helpers                                         | `helpers/AGENTS.md`                                              |
 | Working in `gpApi/`                                          | `gpApi/AGENTS.md`                                                |
 | Writing or running E2E tests                                 | `e2e-tests/AGENTS.md` (and `e2e-tests/README.md`)                |
 | AI rule-by-rule code review                                  | `ai-rules/` (git submodule)                                      |
-| Website feature internals                                    | `app/dashboard/website/README.md`                                |
+| Website feature internals                                    | `app/(dashboard)/website/README.md`                                |
 
 ## Code Style
 

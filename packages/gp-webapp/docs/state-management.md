@@ -27,8 +27,8 @@ Mounted at the root in `app/layout.tsx` (or close to it). Order matters — chil
 
 When state is bound to a single feature, wrap that feature — don't pollute the root tree. Examples:
 
-- `app/dashboard/campaign-assistant/components/ChatProvider.tsx` — current chat thread + send action.
-- `app/dashboard/outreach/hooks/OutreachContext.tsx` — selected outreach + audience filters.
+- `app/(dashboard)/campaign-assistant/components/ChatProvider.tsx` — current chat thread + send action.
+- `app/(dashboard)/outreach/hooks/OutreachContext.tsx` — selected outreach + audience filters.
 - `app/shared/hooks/VoterContactsProvider.tsx` — voter-contact data; mounted by features that need it.
 
 ## Reading the user

@@ -18,7 +18,7 @@ common mistake.
 | Experiments | `race_opponent_collection` → `race_opponent_summary` → `race_opponent_actions` | `self_research` → `opponent_research` |
 | What it produces | `RaceOpponent` (raw collected text) + `RaceOpponentSummary` (threat tier, why-it-matters, issue contrasts) | `RaceOpponentResearch` → sourced `RaceOpponentFinding` → `RaceOpponentContrast` |
 | Sourcing bar | relaxed — structures already-collected text | **sourced-or-silent**: every finding/contrast carries a `source_url` + extract, grounded by the QA gate |
-| What renders it | the live `/dashboard/race-opponent` page (list, threat tiers, issue contrasts) | `OpponentResearch` / contrasts UI (self-research front door, fair-line review) |
+| What renders it | the live `/race-opponent` page (list, threat tiers, issue contrasts) | `OpponentResearch` / contrasts UI (self-research front door, fair-line review) |
 | Routes | `collect`, `opponents/manual`, `get` | `self-research/*`, `opponents/identify·research·profile·activity`, `contrasts/*` |
 | Self-research gate | **no** (manual entry is the candidate's own input) — except `collect`, which is the functional trigger and IS gated | **yes** — hard 403 until the candidate's self-research pass completes |
 

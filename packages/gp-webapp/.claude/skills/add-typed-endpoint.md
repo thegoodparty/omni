@@ -72,5 +72,5 @@ Background: see `gpApi/CLAUDE.md`. The typed system is canonical; legacy fetch h
 ## Common mistakes
 
 - Forgetting that path params live alongside the request body in the payload object — they are stripped out before the body is sent.
-- Pulling response types from feature folders (e.g. `app/dashboard/.../poll-types.ts`) instead of `gpApi/types/`. New types should live next to the route or in `gpApi/types/`.
+- Pulling response types from feature folders (e.g. `app/(dashboard)/.../poll-types.ts`) instead of `gpApi/types/`. New types should live next to the route or in `gpApi/types/`.
 - Using `Record<string, unknown>` to dodge the type system — defeats the typed client.

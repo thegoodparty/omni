@@ -19,13 +19,13 @@ import type {
 } from '@shared/briefings/types'
 import { resolveQuoteFromAnchor } from '@shared/briefings/anchorResolver'
 import { reportErrorToSentry } from '@shared/sentry'
-import { AnnotationSurfaceSheet } from '../../../dashboard/briefings/components/annotations/AnnotationSurfaceSheet'
-import type { EnrichedAnnotation } from '../../../dashboard/briefings/components/annotations/enrichForCycler'
-import { AnchoredQuote } from '../../../dashboard/briefings/components/annotations/AnchoredQuote'
-import { DeleteAnnotationButton } from '../../../dashboard/briefings/components/annotations/DeleteAnnotationButton'
-import { SurfaceEmptyState } from '../../../dashboard/briefings/components/annotations/SurfaceEmptyState'
-import { useEnrichedAnnotations } from '../../../dashboard/briefings/components/annotations/useEnrichedAnnotations'
-import { sectionLabelFromPath } from '../../../dashboard/briefings/components/annotations/sectionLabel'
+import { AnnotationSurfaceSheet } from '../../../(dashboard)/briefings/components/annotations/AnnotationSurfaceSheet'
+import type { EnrichedAnnotation } from '../../../(dashboard)/briefings/components/annotations/enrichForCycler'
+import { AnchoredQuote } from '../../../(dashboard)/briefings/components/annotations/AnchoredQuote'
+import { DeleteAnnotationButton } from '../../../(dashboard)/briefings/components/annotations/DeleteAnnotationButton'
+import { SurfaceEmptyState } from '../../../(dashboard)/briefings/components/annotations/SurfaceEmptyState'
+import { useEnrichedAnnotations } from '../../../(dashboard)/briefings/components/annotations/useEnrichedAnnotations'
+import { sectionLabelFromPath } from '../../../(dashboard)/briefings/components/annotations/sectionLabel'
 
 interface Props {
   open: boolean

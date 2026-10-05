@@ -24,7 +24,7 @@ export default async function VolunteerLayout({
   children: ReactNode
 }): Promise<React.JSX.Element> {
   if (!(await isActiveOrgVolunteer())) {
-    redirect('/dashboard')
+    redirect('/home')
   }
 
   return <VolunteerSidebar>{children}</VolunteerSidebar>

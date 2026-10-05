@@ -28,7 +28,7 @@ Build plan: `docs/features/serve-sms-implementation-plan.md` (waves, file
 ownership per task, the pre-work PR, and a retrospective).
 
 Related: `packages/gp-api/src/outreach/AGENTS.md`,
-`packages/gp-webapp/app/dashboard/constituent-outreach/AGENTS.md`,
+`packages/gp-webapp/app/(dashboard)/constituent-outreach/AGENTS.md`,
 `packages/gp-api/src/polls/`, `packages/gp-ai/serve/v1_pipeline/`.
 
 ## Summary
@@ -856,8 +856,8 @@ Turnaround is no longer open: the estimate is `addBusinessDays(scheduledDate,
 | Serve controller precedent | `gp-api/src/outreach/outreachServeSocial.controller.ts` |
 | Purchase handler to fork | `gp-api/src/outreach/services/outreachPurchase.service.ts:246` |
 | Org-capable checkout | `gp-api/src/payments/purchase.controller.ts:236` |
-| Serve surface precedent (UI) | `gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx:201` |
-| Serve hub | `gp-webapp/app/dashboard/constituent-outreach/` |
+| Serve surface precedent (UI) | `gp-webapp/app/(dashboard)/outreach/v2/phone-banking/PhoneBankingFlow.tsx:201` |
+| Serve hub | `gp-webapp/app/(dashboard)/constituent-outreach/` |
 | Admin console to host the upload | `gp-admin/src/app/dashboard/sms-outreach/` |
 | Current upload instruction to retire | `gp-api/src/polls/utils/polls.utils.ts:210` |
 | Slack client (outbound only, no inbound) | `gp-api/src/vendors/slack/` |

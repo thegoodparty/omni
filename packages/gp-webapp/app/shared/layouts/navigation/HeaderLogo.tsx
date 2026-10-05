@@ -35,7 +35,7 @@ export const HeaderLogo = (): React.JSX.Element => {
     <>
       <Link
         className="flex items-center no-underline"
-        href="/dashboard"
+        href="/home"
         id="nav-logo"
         onClick={() =>
           trackEvent(EVENTS.Navigation.Top.ClickLogo, { pathname })

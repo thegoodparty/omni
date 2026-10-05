@@ -1,6 +1,6 @@
 import { type Page, expect } from '@playwright/test'
 
-// The /dashboard/election-result h1 (still shown once the election has
+// The /election-result h1 (still shown once the election has
 // passed — unrelated to campaign-story), or CampaignManagerTasks' "Your top
 // priorities this week" h2 — the one heading CampaignManagerHome always
 // renders, regardless of task-loading state. Shared so the dashboard and

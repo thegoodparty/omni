@@ -281,7 +281,7 @@ describe('FollowOnFlow — new office', () => {
       screen.getByRole('button', { name: /agree & create my plan/i }),
     )
 
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/dashboard'))
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/home'))
     // The launch endpoint was hit as part of completing the pledge.
     expect(mockClientFetch).toHaveBeenCalledWith(
       expect.objectContaining({ path: '/campaigns/launch' }),

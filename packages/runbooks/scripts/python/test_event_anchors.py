@@ -254,7 +254,7 @@ FILES = {
         "    },\n"
         "  },\n"
         "}\n",
-    "packages/gp-webapp/app/dashboard/page.tsx":
+    "packages/gp-webapp/app/(dashboard)/page.tsx":
         "import { EVENTS } from 'helpers/analyticsHelper'\n"
         "const go = () => trackEvent(EVENTS.Navigation.Dashboard.ClickDoorKnocking)\n",
     "packages/gp-api/src/sms/outreachSmsAdmin.service.ts":
@@ -271,7 +271,7 @@ def test_find_call_sites_finds_the_key_path_use_and_marks_the_declaration():
     )
     kinds = {(h["path"], h["kind"]) for h in hits}
     assert ("packages/gp-webapp/helpers/analyticsHelper.ts", "declaration") in kinds
-    assert ("packages/gp-webapp/app/dashboard/page.tsx", "key_path") in kinds
+    assert ("packages/gp-webapp/app/(dashboard)/page.tsx", "key_path") in kinds
     assert all(h["line"] > 0 for h in hits)
 
 
@@ -489,8 +489,8 @@ def test_find_call_sites_live_repo_cases_verified():
 
 
 PAGES = [
-    "packages/gp-webapp/app/dashboard/page.tsx",
-    "packages/gp-webapp/app/dashboard/campaign-plan/page.tsx",
+    "packages/gp-webapp/app/(dashboard)/page.tsx",
+    "packages/gp-webapp/app/(dashboard)/campaign-plan/page.tsx",
     "packages/gp-admin/app/dashboard/sms-outreach/[id]/page.tsx",
     "packages/gp-webapp/app/(marketing)/about/page.tsx",
 ]
@@ -498,7 +498,7 @@ PAGES = [
 
 def test_derive_url_finds_the_nearest_enclosing_route():
     assert ea.derive_url(
-        "packages/gp-webapp/app/dashboard/campaign-plan/PlanCard.tsx", PAGES
+        "packages/gp-webapp/app/(dashboard)/campaign-plan/PlanCard.tsx", PAGES
     ) == "/dashboard/campaign-plan"
 
 
@@ -540,7 +540,7 @@ def test_derive_url_does_not_treat_the_app_root_as_a_catch_all():
     guard it answers "/" for anything that sits outside a route folder. The calibration
     pilot anchored the whole onboarding flow and the top nav at "/" that way. No route is
     the honest answer; "/" is the confident-wrong anchor this queue exists to avoid."""
-    pages = ["packages/gp-webapp/app/page.tsx", "packages/gp-webapp/app/dashboard/page.tsx"]
+    pages = ["packages/gp-webapp/app/page.tsx", "packages/gp-webapp/app/(dashboard)/page.tsx"]
     assert ea.derive_url(
         "packages/gp-webapp/app/onboarding/components/OnboardingFlow.tsx", pages) is None
     assert ea.derive_url(
@@ -548,20 +548,20 @@ def test_derive_url_does_not_treat_the_app_root_as_a_catch_all():
     # A file that really does sit in the app root still resolves to "/", and a nested
     # route below the root is unaffected.
     assert ea.derive_url("packages/gp-webapp/app/HomeHero.tsx", pages) == "/"
-    assert ea.derive_url("packages/gp-webapp/app/dashboard/Card.tsx", pages) == "/dashboard"
+    assert ea.derive_url("packages/gp-webapp/app/(dashboard)/Card.tsx", pages) == "/dashboard"
 
 
 def test_build_candidate_windows_the_code_and_carries_the_evidence():
-    files = {"packages/gp-webapp/app/dashboard/page.tsx": "\n".join(
+    files = {"packages/gp-webapp/app/(dashboard)/page.tsx": "\n".join(
         f"line {i}" for i in range(1, 101))}
-    hits = [{"path": "packages/gp-webapp/app/dashboard/page.tsx", "line": 50,
+    hits = [{"path": "packages/gp-webapp/app/(dashboard)/page.tsx", "line": 50,
              "kind": "key_path"}]
     c = ea.build_candidate(
         {"event_type": "E", "family": "win_dashboard", "description": "does a thing"},
         hits, "/dashboard", files)
     assert c["id"] == "E"
     assert c["derived_url"] == "/dashboard"
-    assert c["evidence"] == "packages/gp-webapp/app/dashboard/page.tsx:50"
+    assert c["evidence"] == "packages/gp-webapp/app/(dashboard)/page.tsx:50"
     assert "line 50" in c["code"]
     assert len(c["code"].splitlines()) <= 40   # bounded so judge input stays small
 
@@ -971,15 +971,15 @@ def test_read_repo_files_excludes_test_files_and_generated_output(tmp_path):
     """A test file is never a real call site, and sorted() elsewhere in this module would
     put Foo.test.tsx ahead of Foo.tsx — this is the fix for 103/382 live registry events
     picking up a test's mock assertions as their primary evidence."""
-    real = tmp_path / "packages/gp-webapp/app/dashboard/GenerateButton.tsx"
+    real = tmp_path / "packages/gp-webapp/app/(dashboard)/GenerateButton.tsx"
     real.parent.mkdir(parents=True, exist_ok=True)
     real.write_text("real call site")
 
     excluded = {
-        "packages/gp-webapp/app/dashboard/GenerateButton.test.tsx": "mock assertion",
-        "packages/gp-webapp/app/dashboard/GenerateButton.spec.ts": "mock assertion",
-        "packages/gp-webapp/app/dashboard/__tests__/helpers.ts": "test helper",
-        "packages/gp-webapp/app/dashboard/__mocks__/analytics.ts": "mock module",
+        "packages/gp-webapp/app/(dashboard)/GenerateButton.test.tsx": "mock assertion",
+        "packages/gp-webapp/app/(dashboard)/GenerateButton.spec.ts": "mock assertion",
+        "packages/gp-webapp/app/(dashboard)/__tests__/helpers.ts": "test helper",
+        "packages/gp-webapp/app/(dashboard)/__mocks__/analytics.ts": "mock module",
         "packages/gp-webapp/tests/fixture.ts": "fixture",
         "packages/gp-webapp/e2e/flow.spec.ts": "e2e spec",
         "packages/gp-webapp/.next/types/generated.ts": "generated",
@@ -995,7 +995,7 @@ def test_read_repo_files_excludes_test_files_and_generated_output(tmp_path):
         p.write_text(text)
 
     files = ea.read_repo_files(tmp_path)
-    assert "packages/gp-webapp/app/dashboard/GenerateButton.tsx" in files
+    assert "packages/gp-webapp/app/(dashboard)/GenerateButton.tsx" in files
     for rel in excluded:
         assert rel not in files
 
@@ -1030,7 +1030,7 @@ def _fake_run_query(rows):
 
 
 def test_collect_candidates_never_touches_the_network(tmp_path):
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     rows = [{"event_type": "Onboarding - Pledge Completed", "family": "onboarding",
              "event_count_30d": 5}]
     candidates = ea.collect_candidates(repo, {}, run_query=_fake_run_query(rows))
@@ -1038,7 +1038,7 @@ def test_collect_candidates_never_touches_the_network(tmp_path):
 
 
 def test_collect_candidates_skips_events_already_anchored_or_dispositioned(tmp_path):
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     rows = [
         {"event_type": "Onboarding - Pledge Completed", "family": "onboarding",
          "event_count_30d": 5},
@@ -1059,7 +1059,7 @@ def test_collect_candidates_skips_events_already_anchored_or_dispositioned(tmp_p
 
 
 def test_collect_candidates_skips_an_event_whose_govern_description_already_has_fires_on(tmp_path):
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     rows = [{"event_type": "Onboarding - Pledge Completed", "family": "onboarding",
              "event_count_30d": 5,
              "govern_description": "<!-- gp-meta -->\nfires_on: Onboarding, pledge step.\n"
@@ -1068,7 +1068,7 @@ def test_collect_candidates_skips_an_event_whose_govern_description_already_has_
 
 
 def test_collect_candidates_respects_limit_and_sorts_by_volume_desc(tmp_path):
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     rows = [
         {"event_type": "Onboarding - Pledge Completed", "family": "o", "event_count_30d": 9},
         {"event_type": "Navigation - Dashboard: Click My Profile", "family": "n",
@@ -1094,7 +1094,7 @@ _ONLY_ROWS = [
 
 
 def test_collect_candidates_only_restricts_to_the_named_events(tmp_path):
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     candidates = ea.collect_candidates(
         repo, {}, run_query=_fake_run_query(_ONLY_ROWS),
         only=["Navigation - Dashboard: Click Door Knocking", "Onboarding - Pledge Completed"])
@@ -1108,7 +1108,7 @@ def test_collect_candidates_only_restricts_to_the_named_events(tmp_path):
 def test_collect_candidates_only_still_skips_an_already_dispositioned_named_event(tmp_path, capsys):
     """--only is a filter on top of the normal skip rules, never a way to re-draft an
     already-decided row."""
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     state = {"Onboarding - Pledge Completed": {"fires_on": "", "disposition": "accepted"}}
     candidates = ea.collect_candidates(
         repo, state, run_query=_fake_run_query(_ONLY_ROWS),
@@ -1120,7 +1120,7 @@ def test_collect_candidates_only_still_skips_an_already_dispositioned_named_even
 
 
 def test_collect_candidates_only_reports_a_name_absent_from_the_catalog(tmp_path, capsys):
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     candidates = ea.collect_candidates(
         repo, {}, run_query=_fake_run_query(_ONLY_ROWS),
         only=["Onboarding - Pledge Completed", "Voter Outreach - Campaign Approved"])
@@ -1134,7 +1134,7 @@ def test_collect_candidates_only_then_limit_composes_without_a_false_missing_rep
     """--only is applied first, then --limit — --limit trimming an oversized pilot request
     is harmless and expected, not a typo, so the trimmed-off name must NOT be reported as
     missing the way a skip or a catalog miss is."""
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     candidates = ea.collect_candidates(
         repo, {}, run_query=_fake_run_query(_ONLY_ROWS), limit=1,
         only=["Onboarding - Pledge Completed", "Navigation - Dashboard: Click My Profile"])
@@ -1146,7 +1146,7 @@ def test_collect_candidates_only_then_limit_composes_without_a_false_missing_rep
 def test_collect_candidates_without_only_is_unchanged_volume_desc_order(tmp_path):
     """Regression: the default (no --only) path still sorts by volume desc with no
     reporting side effects."""
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     candidates = ea.collect_candidates(repo, {}, run_query=_fake_run_query(_ONLY_ROWS))
     assert [c["id"] for c in candidates] == [
         "Onboarding - Pledge Completed", "Navigation - Dashboard: Click My Profile",
@@ -1281,7 +1281,7 @@ _GOVERN_ANCHORED_ROW = [{
 def test_collect_candidates_warns_when_an_open_row_is_already_anchored_in_govern(tmp_path, capsys):
     """Govern holding a fires_on means there is nothing to draft, so skipping is right — but
     a row the reviewer deliberately left 'open' must not vanish without saying why."""
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     state = {"Already Anchored": {
         "fires_on": "", "url": "", "confidence": "", "flag_reason": "", "evidence": "",
         "disposition": "open", "reason": "", "first_seen": "2026-09-01",
@@ -1295,7 +1295,7 @@ def test_collect_candidates_warns_when_an_open_row_is_already_anchored_in_govern
 
 def test_collect_candidates_skips_a_govern_anchored_new_row_silently(tmp_path, capsys):
     """Only an 'open' row earns the notice — skipping a 'new' row this way is routine."""
-    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/(dashboard)/page.tsx")
     assert ea.collect_candidates(
         repo, {}, run_query=_fake_run_query(_GOVERN_ANCHORED_ROW)) == []
     assert "Already Anchored" not in capsys.readouterr().err

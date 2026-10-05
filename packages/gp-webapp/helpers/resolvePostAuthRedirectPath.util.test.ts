@@ -19,7 +19,7 @@ describe('resolvePostAuthRedirectPath', () => {
 
   it('routes a candidate to the dashboard', () => {
     expect(resolvePostAuthRedirectPath(null, { status: 'candidate' })).toBe(
-      '/dashboard',
+      '/home',
     )
   })
 
@@ -42,9 +42,9 @@ describe('resolvePostAuthRedirectPath', () => {
     ).toBe('/onboarding/jane-doe/1')
   })
 
-  it('falls through to /dashboard/profile when onboarding has no slug', () => {
+  it('falls through to /profile when onboarding has no slug', () => {
     expect(resolvePostAuthRedirectPath(null, { status: 'onboarding' })).toBe(
-      '/dashboard/profile',
+      '/profile',
     )
   })
 
@@ -61,9 +61,9 @@ describe('resolvePostAuthRedirectPath', () => {
   })
 
   it('routes a user with elected office and no campaign to the dashboard', () => {
-    expect(resolvePostAuthRedirectPath(null, null, true)).toBe('/dashboard')
+    expect(resolvePostAuthRedirectPath(null, null, true)).toBe('/home')
     expect(resolvePostAuthRedirectPath(null, { status: false }, true)).toBe(
-      '/dashboard',
+      '/home',
     )
   })
 
@@ -76,15 +76,15 @@ describe('resolvePostAuthRedirectPath', () => {
     ).toBe('/serve/onboarding')
   })
 
-  it('falls back to /dashboard/profile for any other status', () => {
+  it('falls back to /profile for any other status', () => {
     expect(
       resolvePostAuthRedirectPath(null, { status: 'something-else' }),
-    ).toBe('/dashboard/profile')
+    ).toBe('/profile')
   })
 
   it('handles a user without roles', () => {
     expect(resolvePostAuthRedirectPath({}, { status: 'candidate' })).toBe(
-      '/dashboard',
+      '/home',
     )
   })
 
@@ -117,7 +117,7 @@ describe('resolvePostAuthRedirectPath', () => {
 
   it('defaults hasPendingTeamInvite to false, leaving existing callers unaffected', () => {
     expect(resolvePostAuthRedirectPath(null, { status: 'candidate' })).toBe(
-      '/dashboard',
+      '/home',
     )
   })
 
@@ -148,7 +148,7 @@ describe('resolvePostAuthRedirectPath', () => {
         false,
         false,
       ),
-    ).toBe('/dashboard')
+    ).toBe('/home')
     // Active org is the one where they're a volunteer: /volunteer wins even
     // though the user also owns/manages another org elsewhere.
     expect(
@@ -184,7 +184,7 @@ describe('resolvePostAuthRedirectPath', () => {
 
   it('defaults isActiveOrgVolunteer to false, leaving existing callers unaffected', () => {
     expect(resolvePostAuthRedirectPath(null, { status: 'candidate' })).toBe(
-      '/dashboard',
+      '/home',
     )
   })
 })

@@ -37,7 +37,7 @@ docs/                         # this directory
 ai-rules/                     # git submodule of org-wide AI rules
 ```
 
-`app/dashboard/polls/` is a clean reference feature — copy that structure for new dashboard features.
+`app/(dashboard)/polls/` is a clean reference feature — copy that structure for new dashboard features.
 
 ## Auth
 

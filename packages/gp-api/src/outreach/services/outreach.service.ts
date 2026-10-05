@@ -78,7 +78,7 @@ const paymentFailedEmailBody = (user: User, sendDate: Date | null) => {
       'so those texts were not sent and you were not charged.',
     '',
     'To send them, schedule the campaign again with a different payment ' +
-      `method at ${WEBAPP_ROOT}/dashboard/outreach.`,
+      `method at ${WEBAPP_ROOT}/outreach.`,
     '',
     'Questions? Email help@goodparty.org.',
   ].join('\n')

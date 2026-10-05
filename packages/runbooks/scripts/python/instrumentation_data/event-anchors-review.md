@@ -49,7 +49,7 @@ its job; it is not an error to fix before accepting.
 ---
 
 ## Contacts - Download
-  evidence:   packages/gp-webapp/app/dashboard/contacts/crm/shared/useContactsDownload.ts:178
+  evidence:   packages/gp-webapp/app/(dashboard)/contacts/crm/shared/useContactsDownload.ts:178
   confidence: LOW — no_route
 
 - fires_on: Contacts/CRM surface, clicking to download a contacts artifact
@@ -60,7 +60,7 @@ its job; it is not an error to fix before accepting.
 ---
 
 ## Contacts - Segment Viewed
-  evidence:   packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx:161
+  evidence:   packages/gp-webapp/app/(dashboard)/contacts/crm/lists/ListDetailSheet.tsx:161
   confidence: LOW — no_route
 
 - fires_on: Contacts CRM lists, opening a list's detail sheet and its segment resolving.
@@ -390,7 +390,7 @@ its job; it is not an error to fix before accepting.
 ---
 
 ## Dictation - Started
-  evidence:   packages/gp-webapp/app/dashboard/shared/dictation/useDictation.ts:461
+  evidence:   packages/gp-webapp/app/(dashboard)/shared/dictation/useDictation.ts:461
   confidence: LOW — no_route
 
 - fires_on: Any dictation-enabled surface (briefings, onboarding story steps), starting voice dictation
@@ -610,7 +610,7 @@ its job; it is not an error to fix before accepting.
 ---
 
 ## Outreach - Campaign Completed
-  evidence:   packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx:110
+  evidence:   packages/gp-webapp/app/(dashboard)/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx:110
   confidence: high
 
 - fires_on: Campaign plan dashboard, submitting the voter-contact count in the manual outreach log modal after marking a task complete
@@ -621,7 +621,7 @@ its job; it is not an error to fix before accepting.
 ---
 
 ## Outreach - Door Knocking Door Logged
-  evidence:   packages/gp-webapp/app/dashboard/door-knocking/native/RecordKnockForm.tsx:161
+  evidence:   packages/gp-webapp/app/(dashboard)/door-knocking/native/RecordKnockForm.tsx:161
   confidence: high
 
 - fires_on: Door knocking turf canvas, saving the outcome after recording a knock for a voter
@@ -643,7 +643,7 @@ its job; it is not an error to fix before accepting.
 ---
 
 ## Outreach - Phone Banking Call Logged
-  evidence:   packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx:85
+  evidence:   packages/gp-webapp/app/(dashboard)/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx:85
   confidence: high
 
 - fires_on: Phone banking call list page, saving the outcome after logging a call for a voter

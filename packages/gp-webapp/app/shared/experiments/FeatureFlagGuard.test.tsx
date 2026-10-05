@@ -60,12 +60,12 @@ describe('FeatureFlagGuard', () => {
     mockUseFlagOn.mockReturnValue({ ready: true, on: false })
 
     render(
-      <FeatureFlagGuard flagKey="some-flag" redirectTo="/dashboard/elsewhere">
+      <FeatureFlagGuard flagKey="some-flag" redirectTo="/elsewhere">
         <div>gated</div>
       </FeatureFlagGuard>,
     )
 
     expect(screen.queryByText('gated')).not.toBeInTheDocument()
-    expect(router.replace).toHaveBeenCalledWith('/dashboard/elsewhere')
+    expect(router.replace).toHaveBeenCalledWith('/elsewhere')
   })
 })

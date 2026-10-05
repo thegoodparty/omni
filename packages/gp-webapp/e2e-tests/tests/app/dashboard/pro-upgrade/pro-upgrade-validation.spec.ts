@@ -25,7 +25,7 @@ import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 // flow. `isolated: true` because each seeds campaign-level state (filing
 // answer, EIN, filing details) that would leak into a shared cached user.
 
-const PRO_UPGRADE_PATH = '/dashboard/pro-upgrade'
+const PRO_UPGRADE_PATH = '/pro-upgrade'
 
 // The slice of GET /v1/campaigns/mine the EIN test reads to confirm a blocked
 // attempt did not persist. The authed axios `client` is untyped, so annotate

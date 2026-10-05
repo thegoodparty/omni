@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 import pageMetaData from 'helpers/metadataHelper'
 import SuccessPage from './components/SuccessPage'
-import candidateAccess from 'app/dashboard/shared/candidateAccess'
+import candidateAccess from 'app/(dashboard)/shared/candidateAccess'
 import { requireAuth } from 'helpers/authHelper'
 import { redirect } from 'next/navigation'
 
@@ -22,7 +22,7 @@ export default async function Page({
   const { pollId } = await searchParams
 
   if (typeof pollId !== 'string') {
-    return redirect('/dashboard/polls')
+    return redirect('/polls')
   }
 
   return <SuccessPage pollId={pollId} />

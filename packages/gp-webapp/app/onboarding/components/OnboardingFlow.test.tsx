@@ -66,7 +66,7 @@ const IDLE_DICTATION = {
   stop: vi.fn(),
   toggle: vi.fn(),
 }
-vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
+vi.mock('app/(dashboard)/shared/dictation/useDictationAppend', () => ({
   useDictationAppend: (input: { analyticsLabel: string }) =>
     mockUseDictationAppend(input),
 }))
@@ -76,10 +76,10 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
 // the deferred save without exercising the network layer. getUserWebsite feeds
 // the draft's initial values; saveAboutFields is the persist target on the
 // final story step.
-vi.mock('app/dashboard/website/util/website.util', async (importOriginal) => {
+vi.mock('app/(dashboard)/website/util/website.util', async (importOriginal) => {
   const actual =
     await importOriginal<
-      typeof import('app/dashboard/website/util/website.util')
+      typeof import('app/(dashboard)/website/util/website.util')
     >()
   return {
     ...actual,

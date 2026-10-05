@@ -20,14 +20,14 @@ import { Button } from '@styleguide/components/ui/button'
 import { Input } from '@styleguide/components/ui/input'
 import { cn } from '@styleguide/lib/utils'
 import { stopImpersonatingAndReturnToAdmin } from '@shared/user/stopImpersonating'
-import { clearElectionResultDismissed } from 'app/dashboard/election-result/dismissal'
+import { clearElectionResultDismissed } from 'app/(dashboard)/election-result/dismissal'
 
 type SearchResult = { id: number; email: string; name: string | null }
 
 export default function ImpersonationBanner() {
   const isImpersonating = useIsImpersonating()
   const pathname = usePathname()
-  const isReviewMode = !!pathname?.startsWith('/dashboard/admin-review/')
+  const isReviewMode = !!pathname?.startsWith('/admin-review/')
   const { signOut, client, setActive, session } = useClerk()
   const [user] = useUser()
   const { errorSnackbar } = useSnackbar()
@@ -86,7 +86,7 @@ export default function ImpersonationBanner() {
       }
       await setActive({ session: result.createdSessionId })
       clearElectionResultDismissed()
-      window.location.href = '/dashboard'
+      window.location.href = '/home'
     } catch {
       errorSnackbar('Failed to switch impersonation')
     } finally {

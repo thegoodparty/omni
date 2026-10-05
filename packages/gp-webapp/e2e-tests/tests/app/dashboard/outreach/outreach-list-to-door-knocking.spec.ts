@@ -11,7 +11,7 @@ import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // The cross-feature journey a candidate takes when they press "Send outreach"
 // on a voter list and pick door knocking: Voter Data → the "Choose a channel"
-// sheet → `/dashboard/door-knocking?create=1&source=voter_data&listId=` → the create flow's who
+// sheet → `/door-knocking?create=1&source=voter_data&listId=` → the create flow's who
 // step, opened on the list they came from.
 //
 // It pins the answer to "does Send outreach create a saved list in door
@@ -83,7 +83,7 @@ test.describe('outreach list handoff to door knocking', () => {
     // than as a missing preselection a navigation later.
     await expect(doorKnocking).toHaveAttribute(
       'href',
-      `/dashboard/door-knocking?create=1&source=voter_data&listId=${list.id}`,
+      `/door-knocking?create=1&source=voter_data&listId=${list.id}`,
     )
     await doorKnocking.click()
 
@@ -93,7 +93,7 @@ test.describe('outreach list handoff to door knocking', () => {
     // on a press — it still has to survive the navigation to be read at all. ---
     await page.waitForURL(
       (url) =>
-        url.pathname === '/dashboard/door-knocking' &&
+        url.pathname === '/door-knocking' &&
         url.searchParams.get('listId') === String(list.id),
       { timeout: 45_000 },
     )

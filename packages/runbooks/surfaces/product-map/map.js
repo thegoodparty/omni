@@ -182,7 +182,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'SMS outreach wizard',
     route: '/dashboard/outreach',
-    src: 'packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx + v2/OutreachFlowShell.tsx',
+    src: 'packages/gp-webapp/app/(dashboard)/outreach/v2/sms/SmsFlow.tsx + v2/OutreachFlowShell.tsx',
     note: 'five steps behind one route, instrumented by a property rather than by name',
     intro: [
       'warn',
@@ -257,7 +257,7 @@ var ProductMap = (function () {
     kind: 'page',
     name: 'Campaign Manager',
     route: '/dashboard',
-    src: 'packages/gp-webapp/app/dashboard (many components)',
+    src: 'packages/gp-webapp/app/(dashboard) (many components)',
     note: 'not a flow — one screen of banners, modals and panels that appear conditionally',
     intro: [
       'drift',
@@ -552,7 +552,7 @@ var ProductMap = (function () {
     kind: 'page',
     name: 'Campaign Tracker',
     route: '/dashboard/campaign-plan',
-    src: 'packages/gp-webapp/app/dashboard/campaign-plan',
+    src: 'packages/gp-webapp/app/(dashboard)/campaign-plan',
     note: 'two zones, and the only event on this map whose display name differs from its type',
     zones: [
       {
@@ -579,7 +579,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Create a website',
     route: '/dashboard/website/create',
-    src: 'packages/gp-webapp/app/dashboard/website/create/components/WebsiteCreateFlow.tsx',
+    src: 'packages/gp-webapp/app/(dashboard)/website/create/components/WebsiteCreateFlow.tsx',
     note: 'six build steps and a finish screen; resumes at the saved step',
     intro: [
       'warn',
@@ -649,7 +649,7 @@ var ProductMap = (function () {
     kind: 'page',
     name: 'Website editor',
     route: '/dashboard/website/editor',
-    src: 'packages/gp-webapp/app/dashboard/website/editor/components/WebsiteEditFlow.tsx',
+    src: 'packages/gp-webapp/app/(dashboard)/website/editor/components/WebsiteEditFlow.tsx',
     note: 'six sections behind one Save, and one event for all of them',
     intro: [
       'warn',
@@ -682,7 +682,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Campaign verification',
     route: '/dashboard/campaign-verification',
-    src: 'packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationSteps.tsx',
+    src: 'packages/gp-webapp/app/(dashboard)/campaign-verification/components/CampaignVerificationSteps.tsx',
     note: 'three steps; the same steps also open inside the outreach gate',
     steps: [
       {
@@ -724,7 +724,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Draft an ordinance',
     route: '/dashboard/ordinances/solve/[slug]/[step]',
-    src: 'packages/gp-webapp/app/dashboard/ordinances/data/steps.ts + components/OrdinanceFlowChat.tsx',
+    src: 'packages/gp-webapp/app/(dashboard)/ordinances/data/steps.ts + components/OrdinanceFlowChat.tsx',
     note: 'five numbered steps, one page each, a Viewed and Completed pair named after every step',
     steps: [
       {
@@ -808,7 +808,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Create a list',
     route: '/dashboard/contacts',
-    src: 'packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx',
+    src: 'packages/gp-webapp/app/(dashboard)/contacts/crm/wizard/CreateListWizard.tsx',
     note: 'three steps in a drawer, by a different route in Win and in Serve',
     intro: [
       'warn',
@@ -882,7 +882,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Create a poll',
     route: '/dashboard/polls/create',
-    src: 'packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx',
+    src: 'packages/gp-webapp/app/(dashboard)/polls/create/CreatePoll.tsx',
     note: 'six steps and a success page, one Viewed and Completed pair named after each',
     steps: [
       {
@@ -969,7 +969,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Expand a poll',
     route: '/dashboard/polls/[id]/expand',
-    src: 'packages/gp-webapp/app/dashboard/polls/[id]/expand (+ expand-review, expand-payment, expand-payment-success)',
+    src: 'packages/gp-webapp/app/(dashboard)/polls/[id]/expand (+ expand-review, expand-payment, expand-payment-success)',
     note: 'four sibling routes; the footer says three steps, the flow has four and a success page',
     steps: [
       {
@@ -1027,7 +1027,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Create a door-knocking route',
     route: '/dashboard/door-knocking',
-    src: 'packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx + createFlowSteps.ts',
+    src: 'packages/gp-webapp/app/(dashboard)/door-knocking/native/createFlow/CreateListFlow.tsx + createFlowSteps.ts',
     note: 'five steps on the outreach shell, and a sixth for an event invite',
     intro: [
       'warn',
@@ -1136,7 +1136,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Social wizard',
     route: '/dashboard/outreach',
-    src: 'packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx',
+    src: 'packages/gp-webapp/app/(dashboard)/outreach/v2/social/SocialFlow.tsx',
     note: 'four steps on the same shell as SMS; the same steps run on Serve',
     steps: [
       shellStep('purpose', 'What do you want to do?'),
@@ -1168,7 +1168,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Robocall wizard',
     route: '/dashboard/outreach',
-    src: 'packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx',
+    src: 'packages/gp-webapp/app/(dashboard)/outreach/v2/robocall/RobocallFlow.tsx',
     note: 'six steps on the same shell as SMS; a gated account builds three and resumes after the gate',
     intro: [
       'warn',
@@ -1266,7 +1266,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Pro upgrade flow',
     route: '/dashboard/pro-upgrade',
-    src: 'packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeWizard.tsx + ProUpgradeFlow.tsx + proUpgradeStep.ts',
+    src: 'packages/gp-webapp/app/(dashboard)/pro-upgrade/components/ProUpgradeWizard.tsx + ProUpgradeFlow.tsx + proUpgradeStep.ts',
     note: 'drawn in the purchase-only order; with outreach-pro-gating-v2 off, the route wizard adds steps not drawn here',
     intro: [
       'warn',
@@ -1372,7 +1372,7 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Phone banking wizard',
     route: '/dashboard/outreach',
-    src: 'packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx',
+    src: 'packages/gp-webapp/app/(dashboard)/outreach/v2/phone-banking/PhoneBankingFlow.tsx',
     note: 'five steps on the same shell as SMS, and a sixth for an event invite',
     steps: [
       shellStep('purpose', 'What do you want to do?'),
@@ -1424,7 +1424,7 @@ var ProductMap = (function () {
     kind: 'page',
     name: 'Outreach gate',
     route: '/dashboard/outreach',
-    src: 'packages/gp-webapp/app/dashboard/outreach/v2/gate/OutreachGate.tsx + useOutreachGate.ts',
+    src: 'packages/gp-webapp/app/(dashboard)/outreach/v2/gate/OutreachGate.tsx + useOutreachGate.ts',
     note: 'not a sequence: one screen chosen by what the account still needs before it can send',
     intro: [
       'warn',

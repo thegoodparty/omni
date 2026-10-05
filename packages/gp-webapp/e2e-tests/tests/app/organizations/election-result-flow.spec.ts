@@ -23,7 +23,7 @@ test('"I won my race" creates an EO org and auto-selects it', async ({
     race: { zip: '82001', office: 'Cheyenne City Council - Ward 1' },
   })
 
-  await NavigationHelper.navigateToPage(page, '/dashboard')
+  await NavigationHelper.navigateToPage(page, '/home')
   await NavigationHelper.dismissOverlays(page)
   // The dashboard home can have a stray task modal open that aria-hides the
   // sidebar, so the org switcher button isn't in the a11y tree. Settle the
@@ -36,7 +36,7 @@ test('"I won my race" creates an EO org and auto-selects it', async ({
   // Winning now collects term dates inline before the office is created.
   await winRaceWithTermDates(page)
 
-  await NavigationHelper.navigateToPage(page, '/dashboard/polls')
+  await NavigationHelper.navigateToPage(page, '/polls')
   await NavigationHelper.dismissOverlays(page)
 
   const orgsAfter = await getOrgPickerOptions(page)

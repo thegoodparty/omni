@@ -22,7 +22,7 @@ interface NavLink {
 const PROFILE_LINK: NavLink = {
   id: 'profile',
   label: 'Profile',
-  href: '/dashboard/profile',
+  href: '/profile',
   icon: <FaUserCircle />,
   onClick: () => trackEvent(EVENTS.Navigation.Top.AvatarDropdown.ClickProfile),
 }
@@ -32,7 +32,7 @@ const PROFILE_LINK: NavLink = {
 const ACCOUNT_LINK: NavLink = {
   id: 'account',
   label: 'Account Settings',
-  href: '/dashboard/account',
+  href: '/account',
   icon: <Settings size={16} />,
 }
 

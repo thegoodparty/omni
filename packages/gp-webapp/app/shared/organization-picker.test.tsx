@@ -7,7 +7,7 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SidebarProvider } from '@styleguide'
-import { outreachDetailQueryKey } from 'app/dashboard/outreach/v2/useOutreachDetail'
+import { outreachDetailQueryKey } from 'app/(dashboard)/outreach/v2/useOutreachDetail'
 import {
   OrganizationProvider,
   OrganizationPicker,
@@ -27,7 +27,7 @@ vi.mock('next/navigation', async (importOriginal) => {
       replace: mockRouterReplace,
       refresh: mockRouterRefresh,
     })),
-    usePathname: vi.fn(() => '/dashboard'),
+    usePathname: vi.fn(() => '/home'),
   }
 })
 
@@ -339,7 +339,7 @@ describe('OrganizationPicker', () => {
     })
   })
 
-  it('routes to /dashboard/chief-of-staff when switching to an elected office org', async () => {
+  it('routes to /chief-of-staff when switching to an elected office org', async () => {
     const user = userEvent.setup()
     renderPicker()
 
@@ -347,11 +347,11 @@ describe('OrganizationPicker', () => {
     await user.click(screen.getByText('Organization Two'))
 
     await waitFor(() => {
-      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff')
+      expect(mockRouterPush).toHaveBeenCalledWith('/chief-of-staff')
     })
   })
 
-  it('routes to /dashboard when switching to a non-elected-office org', async () => {
+  it('routes to /home when switching to a non-elected-office org', async () => {
     const user = userEvent.setup()
     mockGetCookie.mockImplementation((name: string) =>
       name === 'organization-slug' ? 'org-two' : false,
@@ -362,9 +362,9 @@ describe('OrganizationPicker', () => {
     await user.click(screen.getByText('Organization One'))
 
     await waitFor(() => {
-      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard')
+      expect(mockRouterPush).toHaveBeenCalledWith('/home')
     })
-    expect(mockRouterPush).not.toHaveBeenCalledWith('/dashboard/briefings')
+    expect(mockRouterPush).not.toHaveBeenCalledWith('/briefings')
   })
 
   // ENG-11052: a switch onto an org where the viewer is a volunteer lands on
@@ -782,7 +782,7 @@ describe('outreach-detail query isolation on org switch (ENG-10991)', () => {
     // The switch's broad invalidateQueries call has run by the time the
     // route push fires.
     await waitFor(() =>
-      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff'),
+      expect(mockRouterPush).toHaveBeenCalledWith('/chief-of-staff'),
     )
 
     expect(detailFetcher).toHaveBeenCalledTimes(1)
@@ -819,7 +819,7 @@ describe('outreach-detail query isolation on org switch (ENG-10991)', () => {
     await user.click(screen.getByText('Organization Two'))
 
     await waitFor(() =>
-      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff'),
+      expect(mockRouterPush).toHaveBeenCalledWith('/chief-of-staff'),
     )
 
     expect(notesFetcher).toHaveBeenCalledTimes(1)

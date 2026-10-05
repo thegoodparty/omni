@@ -68,7 +68,7 @@ test.describe('campaign story flow', () => {
     await completeOnboardingUpToPledge(page)
 
     // The pledge CTA is "Meet your campaign manager"; submitting lands on the
-    // Campaign Manager home (/dashboard), which shows the "meet your campaign
+    // Campaign Manager home (/home), which shows the "meet your campaign
     // manager" card for a brand-new candidate (no ?personalize, so the chat
     // does not auto-open here).
     const submit = page
@@ -78,7 +78,7 @@ test.describe('campaign story flow', () => {
     await expect(submit).toBeEnabled()
     await submit.click()
 
-    await page.waitForURL('**/dashboard', { timeout: 30000 })
+    await page.waitForURL('**/home', { timeout: 30000 })
     await expect(
       page.getByRole('heading', {
         name: 'Meet your virtual Campaign Manager',
@@ -94,7 +94,7 @@ test.describe('campaign story flow', () => {
     // must not share an account another test may have filled in.
     await authenticateTestUser(page, { isolated: true })
 
-    await page.goto('/dashboard/campaign-plan')
+    await page.goto('/campaign-plan')
 
     // The story-pinned card is on the plan itself, so reaching it proves the
     // plan rendered rather than a gate standing in front of it.
@@ -108,13 +108,13 @@ test.describe('campaign story flow', () => {
       page.getByRole('button', { name: /generate my campaign plan/i }),
     ).toHaveCount(0)
 
-    // The story is still invited, via the same /dashboard?personalize=1 deep
+    // The story is still invited, via the same /home?personalize=1 deep
     // link, which opens the Campaign Manager chat straight into the story
     // intake (rather than showing the meet-card home) — so assert the intake
     // copy the chat streams, not the meet-card heading, which is hidden once
     // the chat opens.
     await storyLink.click()
-    await page.waitForURL('**/dashboard**', { timeout: 30000 })
+    await page.waitForURL('**/home**', { timeout: 30000 })
     await expect(page.getByText(/get your Campaign Story down/i)).toBeVisible({
       timeout: 30000,
     })
@@ -125,7 +125,7 @@ test.describe('campaign story flow', () => {
   }) => {
     await authenticateTestUser(page, { isolated: true })
 
-    await page.goto('/dashboard')
+    await page.goto('/home')
     await NavigationHelper.dismissOverlays(page)
 
     await expect(page.locator('#campaign-story-dashboard')).toBeVisible()
@@ -134,12 +134,12 @@ test.describe('campaign story flow', () => {
     )
   })
 
-  test('/dashboard/campaign-story renders the editor and persists a saved answer', async ({
+  test('/campaign-story renders the editor and persists a saved answer', async ({
     page,
   }) => {
     await authenticateTestUser(page, { isolated: true })
 
-    await page.goto('/dashboard/campaign-story')
+    await page.goto('/campaign-story')
 
     // No guard redirect: the "Your Story" navHeader renders directly.
     await expect(

@@ -5,7 +5,7 @@ import { eventually } from 'tests/utils/eventually'
 
 // Seed helpers for the pre-payment Pro-upgrade wizard. These write the same
 // canonical state the wizard steps persist, hitting the same gp-api endpoints,
-// so `deriveProUpgradeStep` (app/dashboard/pro-upgrade/proUpgradeStep.ts)
+// so `deriveProUpgradeStep` (app/(dashboard)/pro-upgrade/proUpgradeStep.ts)
 // resolves the resume step from real persisted state — not from anything faked.
 //
 // Live in src/helpers/ (not app/) per e2e-tests/CLAUDE.md: this dir is a
@@ -124,8 +124,8 @@ export const upgradeCampaignToProViaStripe = async (
   page: Page,
   client: AxiosInstance,
 ): Promise<void> => {
-  await page.goto('/dashboard/pro-upgrade')
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/payment/, {
+  await page.goto('/pro-upgrade')
+  await page.waitForURL(/\/pro-upgrade\/payment/, {
     timeout: 60_000,
   })
 
@@ -168,7 +168,7 @@ export const upgradeCampaignToProViaStripe = async (
   await expect(completeButton).toBeEnabled({ timeout: 30_000 })
   await completeButton.click()
 
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/success/, {
+  await page.waitForURL(/\/pro-upgrade\/success/, {
     timeout: 60_000,
   })
 

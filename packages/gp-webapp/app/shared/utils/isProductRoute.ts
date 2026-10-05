@@ -1,15 +1,16 @@
+import { isDashboardRoute } from './dashboardRoutes'
+
 export const isProductRoute = (
   pathname: string | null | undefined,
 ): boolean => {
   const isOnboardingPath = pathname?.startsWith('/onboarding')
   const isDashboardPath =
-    pathname?.startsWith('/dashboard') ||
+    isDashboardRoute(pathname) ||
     pathname?.startsWith('/volunteer-dashboard') ||
-    // The volunteer shell (ENG-11052) — same focused chrome as /dashboard.
+    // The volunteer shell (ENG-11052) — same focused chrome as the dashboard.
     pathname?.startsWith('/volunteer') ||
     pathname?.startsWith('/product-tour')
 
-  const isProfilePath = pathname?.startsWith('/dashboard/profile')
   const isPollsPath = pathname?.startsWith('/polls')
   // Elected-official ("serve") flow: a focused, full-screen onboarding
   // experience (/serve/welcome, /serve/onboarding) with its own header/footer
@@ -26,7 +27,6 @@ export const isProductRoute = (
   return Boolean(
     isOnboardingPath ||
     isDashboardPath ||
-    isProfilePath ||
     isPollsPath ||
     isServePath ||
     isSignInLinkPath ||

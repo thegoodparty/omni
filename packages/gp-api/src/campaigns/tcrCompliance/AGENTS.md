@@ -7,7 +7,7 @@ both the legacy synchronous `create()` path and the agentic flow that the Pro up
 wizard and the `compliance_setup` agent drive through the same endpoints.
 
 Frontend counterpart (the pre-payment wizard that calls these endpoints):
-`packages/gp-webapp/app/dashboard/pro-upgrade/CLAUDE.md`.
+`packages/gp-webapp/app/(dashboard)/pro-upgrade/CLAUDE.md`.
 
 ## Two callers, same endpoints (the Phase 1 contract)
 
@@ -63,7 +63,7 @@ The class is closed at three layers:
    persists them before calling `createAgentic`; a dashboard banner
    (`TextingSetupBanner`, in both dashboard homes) prompts Pro candidates who
    never started. Detail:
-   `packages/gp-webapp/app/dashboard/pro-upgrade/CLAUDE.md` § Existing-Pro
+   `packages/gp-webapp/app/(dashboard)/pro-upgrade/CLAUDE.md` § Existing-Pro
    users.
 2. **Dispatch gate (the invariant).** Every producer path refuses to launch
    a run for a profile that can't pass the publish gate — see the profile
@@ -845,7 +845,7 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
 
 ## Related
 
-- `packages/gp-webapp/app/dashboard/pro-upgrade/CLAUDE.md` — the wizard that feeds these endpoints.
+- `packages/gp-webapp/app/(dashboard)/pro-upgrade/CLAUDE.md` — the wizard that feeds these endpoints.
 - `src/payments/CLAUDE.md` — the `checkout.session.completed` webhook that triggers deferred dispatch.
 - `src/queue/CLAUDE.md` — the FIFO consumer that runs `handleAgenticKickoff`.
 - `src/agentExperiments/CLAUDE.md` — `dispatchRun` and the experiment-run lifecycle.

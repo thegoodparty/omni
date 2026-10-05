@@ -98,7 +98,7 @@ Never edit an applied migration under `prisma/schema/migrations/<timestamp>/`.
 ### Voter / people data path (unified)
 
 Both products that surface voter data — Serve (elected office) and Win (campaign) —
-read it through gp-api, via the same `/dashboard/contacts` experience in
+read it through gp-api, via the same `/contacts` experience in
 gp-webapp. The browser calls gp-api (`GET /v1/contacts`, the voter-file filter
 endpoints, and the contact-engagement endpoints); gp-api runs its own queries
 against the `mart_gp_api` voter tables in Databricks, in-process via
@@ -113,7 +113,7 @@ gp-api implementation details, not something gp-webapp talks to.
 
 Adoption of the unified path is measured via the `Contacts` analytics events, which
 carry a `context: 'win' | 'serve'` property. Detail:
-`packages/gp-webapp/app/dashboard/contacts/AGENTS.md`.
+`packages/gp-webapp/app/(dashboard)/contacts/AGENTS.md`.
 
 ## External repos (not in omni)
 

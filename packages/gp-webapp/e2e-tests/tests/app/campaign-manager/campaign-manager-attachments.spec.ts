@@ -23,7 +23,7 @@ test.describe('Campaign Manager attachments', () => {
   }) => {
     await authenticateTestUser(page, { isolated: true })
 
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    await page.goto('/home', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
     await openFooterChat(page, 'Open campaign manager chat')
 

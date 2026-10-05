@@ -53,7 +53,7 @@ const seed = async (
       anchor: {
         resourceType: 'ordinance',
         resourceId: ordinance.id,
-        url: `/dashboard/ordinances/solve/${ordinance.slug}/authority`,
+        url: `/ordinances/solve/${ordinance.slug}/authority`,
         snapshot: { title: 'Shade trees', summary: 'Require shade trees' },
         step: 'authority',
       },

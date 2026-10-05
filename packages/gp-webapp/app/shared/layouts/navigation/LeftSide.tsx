@@ -4,18 +4,16 @@ import { usePathname } from 'next/navigation'
 import { NavDropdowns } from '@shared/layouts/navigation/NavDropdowns'
 import { useMemo } from 'react'
 import NavButton from './NavButton'
+import { isDashboardRoute } from '@shared/utils/dashboardRoutes'
 
-const HIDE_NAV_PATHS = [
-  '/onboarding',
-  '/dashboard',
-  '/dashboard/profile',
-  '/polls',
-]
+const HIDE_NAV_PATHS = ['/onboarding', '/polls']
 
 const LeftSide = (): React.JSX.Element | null => {
   const pathname = usePathname()
   const shouldHideNav = useMemo(
-    () => HIDE_NAV_PATHS.some((path) => pathname?.startsWith(path)),
+    () =>
+      isDashboardRoute(pathname) ||
+      HIDE_NAV_PATHS.some((path) => pathname?.startsWith(path)),
     [pathname],
   )
 

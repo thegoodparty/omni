@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { SignIn } from '@clerk/nextjs'
-import { getPostAuthRedirectPath } from 'app/dashboard/shared/candidateAccess'
+import { getPostAuthRedirectPath } from 'app/(dashboard)/shared/candidateAccess'
 import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
 import pageMetaData from 'helpers/metadataHelper'
 
@@ -21,7 +21,7 @@ export default async function LoginPage({
   ])
 
   // When the middleware bounces an unauthenticated deep link (e.g.
-  // /dashboard/briefings from a marketing email) through here, it preserves
+  // /briefings from a marketing email) through here, it preserves
   // the original path in `redirect_url`. Only same-origin relative paths are
   // honored so the param can't be abused as an open redirect.
   const redirectUrl = isSafeInternalPath(redirectUrlParam)
@@ -44,7 +44,7 @@ export default async function LoginPage({
   // `/post-auth-redirect` is what resolves the user's org and sets the
   // ORG_SLUG_COOKIE that server requests need, so skipping it leaves pages like
   // briefings without org context (blank render / server-side bounce to
-  // /dashboard). Route through `/post-auth-redirect` and forward the requested
+  // /home). Route through `/post-auth-redirect` and forward the requested
   // path as `next` so it can land the user there once setup is done. Set both
   // sign-in and sign-up redirect props since the embedded "create account" flow
   // on this page uses the sign-up props. A first-time "Sign in with Google"

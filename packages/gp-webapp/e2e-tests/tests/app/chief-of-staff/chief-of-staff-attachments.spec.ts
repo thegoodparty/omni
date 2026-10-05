@@ -25,7 +25,7 @@ test.describe('Chief of Staff attachments', () => {
   }) => {
     await setupElectedOfficeUser(page)
 
-    await page.goto('/dashboard/chief-of-staff', {
+    await page.goto('/chief-of-staff', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)

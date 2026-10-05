@@ -178,7 +178,7 @@ describe('buildCampaignStoryTrackerTaskRows', () => {
   it('sits in pre-launch and carries its own link and CTA', () => {
     const rows = buildCampaignStoryTrackerTaskRows(7, anchor, election)
     expect(rows[0]?.phase).toBe('preLaunch')
-    expect(rows[0]?.link).toBe('/dashboard?personalize=1')
+    expect(rows[0]?.link).toBe('/home?personalize=1')
     expect(rows[0]?.cta).toBe('Add your story')
   })
 

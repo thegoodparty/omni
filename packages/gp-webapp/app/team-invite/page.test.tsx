@@ -149,7 +149,7 @@ describe('TeamInvitePage', () => {
     expect(await screen.findByText('No pending invitation')).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Go to dashboard' }),
-    ).toHaveAttribute('href', '/dashboard')
+    ).toHaveAttribute('href', '/home')
   })
 
   it('shows the neutral state when publicMetadata fails schema validation', async () => {
@@ -194,7 +194,7 @@ describe('TeamInvitePage', () => {
     ).toBeInTheDocument()
   })
 
-  it('accepting sets the org-slug cookie from the response and hard-navigates to /dashboard', async () => {
+  it('accepting sets the org-slug cookie from the response and hard-navigates to /home', async () => {
     mockUser = { publicMetadata: validMetadata }
     api.mock('POST /v1/organizations/team/invites/accept', {
       status: 200,
@@ -214,13 +214,13 @@ describe('TeamInvitePage', () => {
         'jane-doe-for-congress',
       ),
     )
-    await waitFor(() => expect(hrefAssignments).toContain('/dashboard'))
+    await waitFor(() => expect(hrefAssignments).toContain('/home'))
   })
 
   // ENG-11052: a volunteer accept lands on the reductive /volunteer shell,
   // not the campaign dashboard — /volunteer's own layout re-checks the
   // viewer's active org role, so this hard nav doesn't need to.
-  it('accepting as a volunteer hard-navigates to /volunteer instead of /dashboard', async () => {
+  it('accepting as a volunteer hard-navigates to /volunteer instead of /home', async () => {
     mockUser = {
       publicMetadata: { ...validMetadata, role: 'volunteer' },
     }
@@ -243,7 +243,7 @@ describe('TeamInvitePage', () => {
       ),
     )
     await waitFor(() => expect(hrefAssignments).toContain('/volunteer'))
-    expect(hrefAssignments).not.toContain('/dashboard')
+    expect(hrefAssignments).not.toContain('/home')
   })
 
   it('a 404 on accept (invite already used) falls back to the neutral state instead of an error', async () => {
@@ -382,7 +382,7 @@ describe('TeamInvitePage', () => {
           'jane-doe-for-congress',
         ),
       )
-      await waitFor(() => expect(hrefAssignments).toContain('/dashboard'))
+      await waitFor(() => expect(hrefAssignments).toContain('/home'))
       expect(mockSignInCreate).not.toHaveBeenCalled()
       // No session was active — nothing to sign out of.
       expect(mockSignOut).not.toHaveBeenCalled()
@@ -423,7 +423,7 @@ describe('TeamInvitePage', () => {
           session: 'sess_existing',
         }),
       )
-      await waitFor(() => expect(hrefAssignments).toContain('/dashboard'))
+      await waitFor(() => expect(hrefAssignments).toContain('/home'))
     })
 
     it('a consumed/expired ticket shows the request-a-new-link message, not a generic error', async () => {

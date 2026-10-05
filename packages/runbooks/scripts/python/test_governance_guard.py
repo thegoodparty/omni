@@ -40,19 +40,19 @@ def tree(extra: dict[str, str], *, web: str = WEB_REG, api: str = API_REG,
 
 def test_snapshot_counts_key_paths_and_literals_per_file():
     snap = gg.build_snapshot(tree({
-        "packages/gp-webapp/app/dashboard/outreach/Send.tsx": "trackEvent(EVENTS.Outreach.CampaignScheduled)",
-        "packages/gp-webapp/app/dashboard/door/Walk.tsx": "trackEvent('Voter Outreach - Campaign Scheduled')",
+        "packages/gp-webapp/app/(dashboard)/outreach/Send.tsx": "trackEvent(EVENTS.Outreach.CampaignScheduled)",
+        "packages/gp-webapp/app/(dashboard)/door/Walk.tsx": "trackEvent('Voter Outreach - Campaign Scheduled')",
     }))
     assert snap.files_for("Voter Outreach - Campaign Scheduled") == {
-        "packages/gp-webapp/app/dashboard/outreach/Send.tsx": 1,
-        "packages/gp-webapp/app/dashboard/door/Walk.tsx": 1,
+        "packages/gp-webapp/app/(dashboard)/outreach/Send.tsx": 1,
+        "packages/gp-webapp/app/(dashboard)/door/Walk.tsx": 1,
     }
     assert snap.count("Voter Outreach - Campaign Scheduled") == 2
 
 
 def test_tests_and_registries_are_not_call_sites():
     snap = gg.build_snapshot(tree({
-        "packages/gp-webapp/app/dashboard/outreach/Send.test.tsx": "trackEvent(EVENTS.Outreach.CampaignScheduled)",
+        "packages/gp-webapp/app/(dashboard)/outreach/Send.test.tsx": "trackEvent(EVENTS.Outreach.CampaignScheduled)",
         "packages/gp-webapp/__tests__/x.tsx": "trackEvent(EVENTS.Outreach.CampaignScheduled)",
     }))
     assert snap.count("Voter Outreach - Campaign Scheduled") == 0
@@ -72,12 +72,12 @@ def test_hubspot_protected_names_are_read_from_the_backend_registry():
 
 def test_importers_resolve_relative_and_alias_paths():
     snap = gg.build_snapshot(tree({
-        "packages/gp-webapp/app/dashboard/page.tsx": "import Card from './components/Card'",
-        "packages/gp-webapp/app/dashboard/components/Card.tsx": "trackEvent(EVENTS.Settings.Saved)",
+        "packages/gp-webapp/app/(dashboard)/page.tsx": "import Card from './components/Card'",
+        "packages/gp-webapp/app/(dashboard)/components/Card.tsx": "trackEvent(EVENTS.Settings.Saved)",
         "packages/gp-webapp/app/other/page.tsx": "import Card from '@/app/dashboard/components/Card'",
     }))
-    assert sorted(snap.importers("packages/gp-webapp/app/dashboard/components/Card.tsx")) == [
-        "packages/gp-webapp/app/dashboard/page.tsx",
+    assert sorted(snap.importers("packages/gp-webapp/app/(dashboard)/components/Card.tsx")) == [
+        "packages/gp-webapp/app/(dashboard)/page.tsx",
         "packages/gp-webapp/app/other/page.tsx",
     ]
 
@@ -89,7 +89,7 @@ def test_page_routes_drop_route_groups():
     assert "/dashboard" in snap.page_routes
 
 
-SEND = "packages/gp-webapp/app/dashboard/outreach/Send.tsx"
+SEND = "packages/gp-webapp/app/(dashboard)/outreach/Send.tsx"
 
 
 def test_last_call_site_removed_with_key_left_is_a_dead_listing():
@@ -127,9 +127,9 @@ def test_removing_a_hubspot_key_warns():
     assert (f.rule, f.level) == ("hubspot_event_removed", "warn")
 
 
-DOOR = "packages/gp-webapp/app/dashboard/door-knocking/Walk.tsx"
-MODAL = "packages/gp-webapp/app/dashboard/components/RecordModal.tsx"
-TASKFLOW = "packages/gp-webapp/app/dashboard/components/TaskFlow.tsx"
+DOOR = "packages/gp-webapp/app/(dashboard)/door-knocking/Walk.tsx"
+MODAL = "packages/gp-webapp/app/(dashboard)/components/RecordModal.tsx"
+TASKFLOW = "packages/gp-webapp/app/(dashboard)/components/TaskFlow.tsx"
 LEGS = {"win_activated_users": [sa.Leg("Voter Outreach - Campaign Completed"),
                                 sa.Leg("Viewed", path="/dashboard"),
                                 sa.Leg("Old - Thing", era="historical")]}
@@ -157,7 +157,7 @@ def test_losing_one_of_several_okr_call_sites_blocks():
 
 def test_a_git_rename_that_keeps_the_count_is_not_a_finding():
     cc = "trackEvent(EVENTS.Outreach.CampaignCompleted)"
-    moved = "packages/gp-webapp/app/dashboard/components/TaskFlowV2.tsx"
+    moved = "packages/gp-webapp/app/(dashboard)/components/TaskFlowV2.tsx"
     base = gg.build_snapshot(tree({TASKFLOW: cc}))
     head = gg.build_snapshot(tree({moved: cc}))
     events, paths = gg.watched_legs(LEGS)
@@ -165,7 +165,7 @@ def test_a_git_rename_that_keeps_the_count_is_not_a_finding():
 
 
 def test_removing_the_page_behind_a_path_leg_blocks():
-    page = "packages/gp-webapp/app/dashboard/page.tsx"
+    page = "packages/gp-webapp/app/(dashboard)/page.tsx"
     base = gg.build_snapshot(tree({page: "export default function P() {}"}))
     head = gg.build_snapshot(tree({}))
     events, paths = gg.watched_legs(LEGS)
@@ -174,7 +174,7 @@ def test_removing_the_page_behind_a_path_leg_blocks():
 
 
 def test_an_okr_call_site_file_nobody_imports_any_more_blocks():
-    page = "packages/gp-webapp/app/dashboard/door-knocking/page.tsx"
+    page = "packages/gp-webapp/app/(dashboard)/door-knocking/page.tsx"
     cc = "trackEvent(EVENTS.Outreach.CampaignCompleted)"
     base = gg.build_snapshot(tree({page: "import Walk from './Walk'", DOOR: cc}))
     head = gg.build_snapshot(tree({page: "export default function P() {}", DOOR: cc}))
@@ -210,7 +210,7 @@ def test_a_new_key_with_a_colon_and_no_provenance_row_warns():
 
 
 def test_a_directory_surface_counts_as_present_by_its_files():
-    story = "packages/gp-webapp/app/dashboard/story"
+    story = "packages/gp-webapp/app/(dashboard)/story"
     page = f"{story}/Page.tsx"
     wl = ("behaviors:\n  - id: b\n    surfaces:\n      - path: " + story + "\n"
           "        label: x\nintents: []\n")
@@ -221,7 +221,7 @@ def test_a_directory_surface_counts_as_present_by_its_files():
 
 
 def test_a_directory_surface_present_in_both_is_not_stale():
-    story = "packages/gp-webapp/app/dashboard/story"
+    story = "packages/gp-webapp/app/(dashboard)/story"
     page = f"{story}/Page.tsx"
     wl = ("behaviors:\n  - id: b\n    surfaces:\n      - path: " + story + "\n"
           "        label: x\nintents: []\n")
@@ -231,8 +231,8 @@ def test_a_directory_surface_present_in_both_is_not_stale():
 
 
 def test_a_renamed_okr_call_site_file_that_loses_its_importer_blocks():
-    page = "packages/gp-webapp/app/dashboard/door-knocking/page.tsx"
-    moved = "packages/gp-webapp/app/dashboard/door-knocking/WalkV2.tsx"
+    page = "packages/gp-webapp/app/(dashboard)/door-knocking/page.tsx"
+    moved = "packages/gp-webapp/app/(dashboard)/door-knocking/WalkV2.tsx"
     cc = "trackEvent(EVENTS.Outreach.CampaignCompleted)"
     base = gg.build_snapshot(tree({page: "import Walk from './Walk'", DOOR: cc}))
     head = gg.build_snapshot(tree({page: "export default function P() {}", moved: cc}))
@@ -341,7 +341,7 @@ def test_unmatched_path_legs_are_examined_and_reported_separately():
     md = gg.render_markdown(report)
     assert "_Path legs with no matching page (not guarded): Viewed@/dashboard._" in md
 
-    page = "packages/gp-webapp/app/dashboard/page.tsx"
+    page = "packages/gp-webapp/app/(dashboard)/page.tsx"
     base_with_page = gg.build_snapshot(tree({page: "export default function P() {}"}))
     report2 = gg.evaluate(base_with_page, base_with_page, LEGS, "2026-10-01", renames={})
     assert report2.examined["unmatched_path_legs"] == []
@@ -581,8 +581,8 @@ def test_a_used_row_does_not_warn():
 
 
 def test_an_unused_file_finding_names_the_head_path_and_the_rename():
-    page = "packages/gp-webapp/app/dashboard/door-knocking/page.tsx"
-    moved = "packages/gp-webapp/app/dashboard/door-knocking/WalkV2.tsx"
+    page = "packages/gp-webapp/app/(dashboard)/door-knocking/page.tsx"
+    moved = "packages/gp-webapp/app/(dashboard)/door-knocking/WalkV2.tsx"
     cc = "trackEvent(EVENTS.Outreach.CampaignCompleted)"
     base = gg.build_snapshot(tree({page: "import Walk from './Walk'", DOOR: cc}))
     head = gg.build_snapshot(tree({page: "export default function P() {}", moved: cc}))

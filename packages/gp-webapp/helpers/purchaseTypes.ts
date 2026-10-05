@@ -17,7 +17,7 @@ export const PURCHASE_TYPE_LABELS: Record<PurchaseType, string> = {
   [PURCHASE_TYPES.POLL]: 'SMS Poll Payment',
   // Empty for the same reason TEXT is: both are paid from inside the SMS
   // flow's own review step, which writes its own summary. Neither ever
-  // reaches the standalone /dashboard/purchase page these records feed.
+  // reaches the standalone /purchase page these records feed.
   [PURCHASE_TYPES.TEXT]: '',
   [PURCHASE_TYPES.SERVE_TEXT]: '',
 }

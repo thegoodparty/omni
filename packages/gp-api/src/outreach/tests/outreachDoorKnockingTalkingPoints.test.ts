@@ -104,7 +104,7 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
   })
 
   // **The issue store current onboarding actually writes to.**
-  // `details.customIssues` belongs to the legacy /dashboard/questions flow,
+  // `details.customIssues` belongs to the legacy /questions flow,
   // which has no nav entry; onboarding calls `saveAboutFields({ issues })`
   // and lands the candidate's issues on the website instead. Door knocking is
   // the one caller that passes `includeWebsiteIssues`, because the Context

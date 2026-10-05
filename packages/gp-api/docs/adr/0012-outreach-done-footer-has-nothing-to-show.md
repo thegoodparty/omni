@@ -5,7 +5,7 @@ Status: accepted
 ## Context
 
 The list details drawer's footer is a closed set of four modes
-(`packages/gp-webapp/app/dashboard/outreach/v2/listDetails/footerMode.ts`). Three
+(`packages/gp-webapp/app/(dashboard)/outreach/v2/listDetails/footerMode.ts`). Three
 of them render. The fourth, `done`, has a primary slot the Voter Outreach 2.0
 canvas fills with **"Show results"** — or **"Show post"** on social — and ours is
 empty. `SHOW_RESULTS_LABEL` and `SHOW_POST_LABEL` are exported from that file and

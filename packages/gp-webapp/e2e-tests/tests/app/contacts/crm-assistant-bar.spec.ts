@@ -95,7 +95,7 @@ test.describe('CRM assistant bar', () => {
         }),
     )
 
-    await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
+    await page.goto('/contacts', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // The bar is the persistent pill pinned to the bottom of the CRM page.

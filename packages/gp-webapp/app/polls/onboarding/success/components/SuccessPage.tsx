@@ -22,7 +22,7 @@ export default function SuccessPage({ pollId }: { pollId: string }) {
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      router.replace(`/dashboard/polls/${encodeURIComponent(pollId)}`)
+      router.replace(`/polls/${encodeURIComponent(pollId)}`)
     }, 4000)
     return () => clearTimeout(timeoutId)
   }, [router])

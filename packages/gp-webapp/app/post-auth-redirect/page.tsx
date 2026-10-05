@@ -16,7 +16,7 @@ import { resolveSlug } from '@shared/hooks/useSelectedOrgSlug'
 import { trackRegistrationCompleted } from 'helpers/analyticsHelper'
 import { getReadyAnalytics } from '@shared/utils/analytics'
 import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
-import { isServeRoutePath } from 'app/dashboard/shared/serveRoutes'
+import { isServeRoutePath } from 'app/(dashboard)/shared/serveRoutes'
 import { Spinner } from '@styleguide'
 
 const PostAuthRedirectPage = () => {
@@ -42,7 +42,7 @@ const PostAuthRedirectPage = () => {
       try {
         // An explicit deep-link destination forwarded by the login flow when
         // the middleware bounced an unauthenticated deep link (e.g.
-        // /dashboard/briefings from a marketing email). Only same-origin
+        // /briefings from a marketing email). Only same-origin
         // relative paths are honored so this can't be an open redirect.
         const nextParam = new URLSearchParams(window.location.search).get(
           'next',
@@ -79,7 +79,7 @@ const PostAuthRedirectPage = () => {
         // endpoints resolve by the X-Organization-Slug header). When the deep
         // link points there, select that org explicitly — otherwise
         // `resolveSlug` falls back to the first org and those pages can't find
-        // the elected office, bouncing the user to /dashboard.
+        // the elected office, bouncing the user to /home.
         const electedOrg = organizations.find((o) => o.electedOfficeId)
         // Only switch to the elected-office org for actual serve routes. The
         // public /serve/welcome redemption page is deliberately excluded by
@@ -163,7 +163,7 @@ const PostAuthRedirectPage = () => {
         // Route to serve onboarding whenever ANY office the user holds still needs
         // it (scan all orgs, not just the slug-resolved one). An office that needs
         // onboarding wins over a completed `current` so a not-yet-onboarded serve
-        // lead behind a campaign org isn't stranded on /dashboard.
+        // lead behind a campaign org isn't stranded on /home.
         const incompleteEO = myElectedOffices.find(needsServeOnboarding)
         const relevantEO =
           incompleteEO ?? currentEO ?? myElectedOffices[0] ?? null
@@ -171,7 +171,7 @@ const PostAuthRedirectPage = () => {
         // Default to "complete" when we can't resolve a concrete EO record
         // (e.g. `/mine` returns empty and `/current` 404s behind a campaign
         // org) — matching resolvePostAuthRedirectPath's own default so a legacy
-        // win→serve user lands on /dashboard instead of being looped back into
+        // win→serve user lands on /home instead of being looped back into
         // /serve/onboarding on every login.
         const electedOfficeOnboardingComplete = relevantEO
           ? !needsServeOnboarding(relevantEO)
@@ -278,16 +278,16 @@ const PostAuthRedirectPage = () => {
         )
       } catch (e) {
         console.error('post-auth-redirect error', e)
-        // Don't strand new users on a blank /dashboard if something throws —
+        // Don't strand new users on a blank /home if something throws —
         // onboarding is the safe default for unknown state. EXCEPT when
         // `activeOrgIsVolunteer` was already confirmed true before the
         // throw: onboarding there is actively destructive (it creates a
         // campaign for someone who was never meant to have one), while
-        // /dashboard's server-side candidateAccess() gate re-checks the org
+        // /home's server-side candidateAccess() gate re-checks the org
         // role fresh and still bounces a real volunteer to /volunteer
         // (ENG-11071).
         window.location.replace(
-          activeOrgIsVolunteer ? '/dashboard' : WIN_ONBOARDING_PATH,
+          activeOrgIsVolunteer ? '/home' : WIN_ONBOARDING_PATH,
         )
       }
     })()

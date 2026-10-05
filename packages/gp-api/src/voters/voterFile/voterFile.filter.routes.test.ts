@@ -1364,7 +1364,7 @@ describe('webapp create-body keys pinned to what gp-api persists', () => {
     const webappSource = readFileSync(
       join(
         __dirname,
-        '../../../../gp-webapp/app/dashboard/outreach/v2/audience/useOutreachAudience.ts',
+        '../../../../gp-webapp/app/(dashboard)/outreach/v2/audience/useOutreachAudience.ts',
       ),
       'utf-8',
     )

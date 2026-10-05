@@ -1,9 +1,9 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 import { NavigationHelper } from 'src/helpers/navigation.helper'
 
-// Helpers for the door-knocking surface (app/dashboard/door-knocking/).
+// Helpers for the door-knocking surface (app/(dashboard)/door-knocking/).
 
-export const DOOR_KNOCKING_PATH = '/dashboard/door-knocking'
+export const DOOR_KNOCKING_PATH = '/door-knocking'
 
 export const printWalkListPath = (turfId: number | string): string =>
   `${DOOR_KNOCKING_PATH}/print/${turfId}`
@@ -11,7 +11,7 @@ export const printWalkListPath = (turfId: number | string): string =>
 export const gotoDoorKnocking = async (page: Page): Promise<void> => {
   await page.goto(DOOR_KNOCKING_PATH, { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
-  await expect(page).toHaveURL(/\/dashboard\/door-knocking/)
+  await expect(page).toHaveURL(/\/door-knocking/)
 }
 
 // There is deliberately no turf seeder here any more.

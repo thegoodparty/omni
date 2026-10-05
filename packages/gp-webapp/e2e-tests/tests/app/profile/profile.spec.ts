@@ -14,11 +14,11 @@ test.describe('Profile Management', () => {
   test('should access profile page', async ({ page }) => {
     test.setTimeout(120000)
     await authenticateTestUser(page)
-    await page.goto('/dashboard')
+    await page.goto('/home')
     await NavigationHelper.dismissOverlays(page)
 
-    await page.goto('/dashboard/profile')
-    await page.waitForURL(/\/dashboard\/profile/)
+    await page.goto('/profile')
+    await page.waitForURL(/\/profile/)
     await WaitHelper.waitForPageReady(page)
     await expect(
       page.getByRole('heading', { name: 'Office Details' }).first(),
