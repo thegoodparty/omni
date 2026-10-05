@@ -28,10 +28,7 @@ describe('HomeComposer', () => {
   it('is an open chat box that sends what the candidate wrote, as written', async () => {
     render(<HomeComposer />)
 
-    expect(box()).toHaveAttribute(
-      'placeholder',
-      'Ask anything about your campaign',
-    )
+    expect(box()).toHaveAttribute('placeholder', 'How can I help you today?')
     await userEvent.type(box(), 'What is a filing fee?')
     await userEvent.click(screen.getByRole('button', { name: 'Send' }))
 

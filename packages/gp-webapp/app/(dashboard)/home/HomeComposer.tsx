@@ -21,7 +21,7 @@ import { DictationFeedback } from '../briefings/shared/DictationFeedback'
  * lines, and a tool row with attach, past chats, voice and send. Sending opens
  * the chat drawer with the message as the candidate's first turn.
  */
-const PLACEHOLDER = 'Ask anything about your campaign'
+const PLACEHOLDER = 'How can I help you today?'
 
 export default function HomeComposer(): React.JSX.Element | null {
   const chat = useCampaignManagerChat()
