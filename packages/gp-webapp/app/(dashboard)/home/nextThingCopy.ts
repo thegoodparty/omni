@@ -50,11 +50,7 @@ const QUESTIONS: Record<TaskKind, [string, string]> = {
 export const headlineFor = (
   task: CampaignTrackerTask | null,
   needsFiling: boolean,
-  firstName?: string | null,
-): string => {
-  const headline = HEADLINES[kindOf(task, needsFiling)]
-  return firstName ? `${headline}, ${firstName}` : headline
-}
+): string => HEADLINES[kindOf(task, needsFiling)]
 
 export const questionsFor = (
   task: CampaignTrackerTask,

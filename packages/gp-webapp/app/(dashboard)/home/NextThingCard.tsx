@@ -27,7 +27,6 @@ import {
 } from '@goodparty_org/contracts'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useUser } from '@shared/hooks/useUser'
 import {
   isVoterContactFlowType,
   useSkipTrackerTask,
@@ -158,14 +157,13 @@ const NextThingSection = ({
 export default function NextThingCard(): React.JSX.Element {
   const { tasks, isPending, isError, next, progress, needsFiling, eventProps } =
     useNextThing()
-  const [user] = useUser()
   const chat = useCampaignManagerChat()
   const toggleComplete = useToggleTrackerTaskComplete()
   const skipTask = useSkipTrackerTask()
   const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
   const [filingOpen, setFilingOpen] = useState(false)
 
-  const headline = headlineFor(next, needsFiling, user?.firstName)
+  const headline = headlineFor(next, needsFiling)
 
   // Once per task shown, not per render: the tracker query polls.
   const nextId = next?.id ?? null

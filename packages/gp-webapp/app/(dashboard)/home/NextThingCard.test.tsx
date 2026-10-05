@@ -35,10 +35,6 @@ vi.mock('../campaign-manager/CampaignManagerChatProvider', () => ({
   useCampaignManagerChat: () => ({ sendFromComposer: mockSendFromComposer }),
 }))
 
-vi.mock('@shared/hooks/useUser', () => ({
-  useUser: () => [{ firstName: 'Sarah' }],
-}))
-
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
@@ -102,7 +98,7 @@ describe('NextThingCard', () => {
     expect(
       screen.getByRole('heading', {
         level: 2,
-        name: "Let's keep your campaign moving, Sarah",
+        name: "Let's keep your campaign moving",
       }),
     ).toBeInTheDocument()
     expect(
@@ -281,7 +277,7 @@ describe('NextThingCard', () => {
       expect(
         screen.getByRole('heading', {
           level: 2,
-          name: "Let's get you on the ballot, Sarah",
+          name: "Let's get you on the ballot",
         }),
       ).toBeInTheDocument()
       await userEvent.click(
