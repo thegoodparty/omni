@@ -216,7 +216,7 @@ export type Judgment = GradedJudgment | UngradedJudgment
 // https://goodparty.clickup.com/90132012119/docs/2ky4jq2q-154253/2ky4jq2q-139173
 // ---------------------------------------------------------------------------
 
-export const RUBRIC_VERSION = 'uj-rubric-0.4'
+export const RUBRIC_VERSION = 'uj-rubric-0.5'
 
 const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
   chat: [
@@ -232,6 +232,11 @@ const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
     'attached to them, whether the artifact adds claims that appear in no',
     'source, and whether it uses its declared fallback when inputs are',
     'insufficient instead of inventing content.',
+    'When the shared input ends with a line starting "Condition:", it says',
+    'what this case planted in or removed from the input. Judge first',
+    'whether each run handled that condition appropriately. A run that',
+    'reads better but ignores or is misled by the condition is worse than',
+    'one that handles it.',
   ].join(' '),
 }
 

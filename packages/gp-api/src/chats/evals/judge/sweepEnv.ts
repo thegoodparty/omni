@@ -145,6 +145,10 @@ const SweepEnvSchema = z.object({
   // so it arrives as an empty string on any path that did not set one, and a
   // parser that read blank as malformed would refuse the arm.
   [SELECTION_ENV]: BLANK_IS_UNSET,
+  // The base ref's worktree, which the judging step reads one thing from: which
+  // cases the BASE list holds out as controls. Blank on a local run, which
+  // reads as "not readable" and scores every case.
+  JUDGE_BASE_DIR: BLANK_IS_UNSET,
 })
 
 const ArmEnvSchema = SweepEnvSchema.extend({
@@ -263,6 +267,7 @@ export interface SweepEnv {
   // output on every pair, is then reported with a qualifier instead of
   // refused.
   explicitSelection: boolean
+  baseDir?: string
 }
 
 type ParsedSweep = z.infer<typeof SweepEnvSchema>
@@ -281,6 +286,7 @@ const toSweepEnv = (data: ParsedSweep): SweepEnv => ({
   ...(data.JUDGE_RECORDS_BUCKET !== undefined && {
     recordsBucket: data.JUDGE_RECORDS_BUCKET,
   }),
+  ...(data.JUDGE_BASE_DIR !== undefined && { baseDir: data.JUDGE_BASE_DIR }),
 })
 
 export interface ArmEnv extends SweepEnv {

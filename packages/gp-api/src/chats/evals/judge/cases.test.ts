@@ -3,7 +3,9 @@ import { AGENTS } from './agents'
 import { OVERALL } from './judge'
 import {
   CaseListError,
+  caseJudgingOf,
   caseListPath,
+  MAX_CONDITION_CHARS,
   caseTurns,
   loadCaseList,
   parseCaseList,
@@ -579,5 +581,62 @@ describe('a background case with dimensions of its own', () => {
         probe([{ ...sparse, question: 'Something else?' }], 'two'),
       ]),
     ).toThrow(/case 1 asks dimension "sparse_handling" a different question/)
+  })
+})
+
+// Melecia's two per-case fields. Both are for the judging step only; the
+// runner dispatches `params` and nothing else.
+describe('a background case condition and scored flag', () => {
+  const backgroundList = (cases: object[]): string =>
+    JSON.stringify({ agentId: 'meeting_briefing', shape: 'background', cases })
+  const parse = (cases: object[]) =>
+    parseCaseList('b.json', backgroundList(cases), {
+      agentId: 'meeting_briefing',
+      shape: 'background',
+    })
+
+  it('reads both, and defaults a case to scored with no condition', () => {
+    const list = parse([
+      { caseId: 'probe', params: {}, condition: '  Source 3 is stale.  ' },
+      { caseId: 'control', params: {}, scored: false },
+      { caseId: 'plain', params: {} },
+    ])
+    expect([...caseJudgingOf(list)]).toEqual([
+      ['probe', { condition: 'Source 3 is stale.', scored: true }],
+      ['control', { scored: false }],
+      ['plain', { scored: true }],
+    ])
+  })
+
+  // Stripped instead, a misspelled flag would score the control as an
+  // ordinary case and nothing downstream could tell.
+  it('refuses a misspelled field rather than dropping it', () => {
+    expect(() => parse([{ caseId: 'c', params: {}, scorred: false }])).toThrow(
+      /case 0 \(caseId "c"\).*scorred/,
+    )
+  })
+
+  it('refuses an empty or oversized condition', () => {
+    expect(() =>
+      parse([{ caseId: 'c', params: {}, condition: '   ' }]),
+    ).toThrow(CaseListError)
+    expect(() =>
+      parse([
+        {
+          caseId: 'c',
+          params: {},
+          condition: 'x'.repeat(MAX_CONDITION_CHARS + 1),
+        },
+      ]),
+    ).toThrow(CaseListError)
+  })
+
+  it('yields nothing for a chat list', () => {
+    const list = parseCaseList(
+      'a.json',
+      chatList([{ caseId: 'one', question: 'What are my priorities?' }]),
+      expected,
+    )
+    expect(caseJudgingOf(list).size).toBe(0)
   })
 })

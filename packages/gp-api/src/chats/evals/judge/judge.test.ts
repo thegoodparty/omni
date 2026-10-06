@@ -226,6 +226,21 @@ describe('what reaches the model', () => {
     expect(calls[1]?.messages[0]?.content).toContain('artifact')
   })
 
+  // A probe planted something in the input, and a judge left to grade polish
+  // prefers the run that read better while missing what was planted.
+  it('tells an artifact judge a planted condition outranks polish', async () => {
+    const [bgBase, bgCandidate] = BACKGROUND_PAIR
+    const chat = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    const background = blindCase(bgBase, bgCandidate, X_IS_BASE)
+    const { llm, calls } = fake([reply()])
+    await judgeCase(llm, plan(chat), DEFAULT_JUDGE_CONFIG)
+    await judgeCase(llm, plan(background), DEFAULT_JUDGE_CONFIG)
+    expect(calls[1]?.messages[0]?.content).toMatch(
+      /"Condition:".*handled that condition.*reads better but ignores/s,
+    )
+    expect(calls[0]?.messages[0]?.content).not.toContain('Condition:')
+  })
+
   // The dimension set is config, so a trace dimension switched on later
   // must reach the prompt without a code change.
   it('asks for exactly the configured dimensions', async () => {

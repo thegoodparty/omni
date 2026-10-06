@@ -1469,11 +1469,139 @@ describe('a case dimension', () => {
     expect(result.regressions).not.toContain('sparse_handling')
   })
 
+  // A control is the zero reading. Its own question answered by noise would
+  // otherwise print as a probe result on the dimension's row.
+  it('leaves out a control that asks one', () => {
+    const result = scoreAgent(
+      { normalized: asked, judgments, unscoredCaseIds: new Set(['probe']) },
+      { ...DEFAULT_JUDGE_CONFIG, ...noFloor() },
+    )
+    expect(result.caseDimensions).toBeUndefined()
+    expect(result.controls.map((c) => c.caseId)).toEqual(['probe'])
+  })
+
   it('is absent when no case asked one', () => {
     const result = score(judgments, noFloor(), {
       ...asked,
       judgeable: [pairFor('probe'), pairFor('plain')],
     })
     expect(result.caseDimensions).toBeUndefined()
+  })
+})
+
+// A control is the zero reading, so it is judged and then kept out of every
+// number the verdict is built from. `() => 0` puts X on the base, so a control
+// where the judge picks X is one where it preferred the base.
+describe('controls', () => {
+  const asCase = (caseId: string): RunRecord[] =>
+    [BASE, CANDIDATE].map((r) => ({
+      ...r,
+      caseId,
+      runId: `${r.sweepId}:${caseId}:${r.arm}:1`,
+    }))
+  const agent = normalizeAgent(
+    [...asCase('probe'), ...asCase('control')],
+    () => 0,
+  )
+  const CONTROL = new Set(['control'])
+  const judgments = [
+    judgment({ caseId: 'probe', slotMap: X_IS_BASE, verdict: 'Y' }),
+    judgment({
+      caseId: 'control',
+      slotMap: X_IS_BASE,
+      verdict: 'X',
+      magnitude: 'strong',
+      flags: [{ run: 'X', type: 'fabricated_source', explanation: 'x' }],
+      floor: { X_acceptable: 'no', Y_acceptable: 'yes' },
+    }),
+  ]
+  const scored = scoreAgent(
+    { normalized: agent, judgments, unscoredCaseIds: CONTROL },
+    { ...DEFAULT_JUDGE_CONFIG, ...noFloor() },
+  )
+
+  it('leaves the control out of the verdict and every dimension', () => {
+    expect(scored.overall.cases).toBe(1)
+    expect(scored.overall.delta).toBe(1)
+    for (const dimension of Object.values(scored.dimensions)) {
+      expect(dimension.cases).toBe(1)
+    }
+  })
+
+  it('leaves its flags and floor out too', () => {
+    expect(scored.flags).toEqual([])
+    expect(scored.floorFailures).toEqual([])
+  })
+
+  it('reports what the judge said about it, oriented to the candidate', () => {
+    expect(scored.controls).toEqual([
+      { caseId: 'control', attempt: 1, outcome: 'base', magnitude: 'strong' },
+    ])
+  })
+
+  // The control's arms ran slower than the probe's, so a mean that
+  // counted them would move.
+  it('leaves its cost and latency out of the measured evidence', () => {
+    const slow = (r: RunRecord): RunRecord => ({
+      ...r,
+      telemetry: { ...r.telemetry, latencyMs: r.telemetry.latencyMs + 90_000 },
+    })
+    const measured = scoreAgent(
+      {
+        normalized: normalizeAgent(
+          [...asCase('probe'), ...asCase('control').map(slow)],
+          () => 0,
+        ),
+        judgments,
+        unscoredCaseIds: CONTROL,
+      },
+      { ...DEFAULT_JUDGE_CONFIG, ...noFloor() },
+    )
+    expect(measured.evidence.pairs).toBe(1)
+    expect(measured.evidence.latencyMs.base).toBe(BASE.telemetry.latencyMs)
+  })
+
+  it('leaves an excluded control out of the exclusion counts', () => {
+    const [infraBase, infraCandidate] = INFRA_ERROR_PAIR.map((r) => ({
+      ...r,
+      caseId: 'control',
+      runId: `${r.sweepId}:control:${r.arm}:1`,
+    }))
+    if (infraBase === undefined || infraCandidate === undefined) {
+      throw new Error('INFRA_ERROR_PAIR is a pair')
+    }
+    const lost = scoreAgent(
+      {
+        normalized: {
+          ...agent,
+          judgeable: agent.judgeable.filter((c) => c.caseId === 'probe'),
+          excluded: normalizeAgent([infraBase, infraCandidate], () => 0)
+            .excluded,
+        },
+        judgments: judgments.slice(0, 1),
+        unscoredCaseIds: CONTROL,
+      },
+      { ...DEFAULT_JUDGE_CONFIG, ...noFloor() },
+    )
+    expect(lost.exclusions.infraError).toBe(0)
+    expect(lost.controls.map((c) => c.outcome)).toEqual(['not_judged'])
+  })
+
+  it('says a control that never reached the judge was not judged', () => {
+    const lost = scoreAgent(
+      {
+        normalized: normalizeAgent(
+          [...asCase('probe'), ...asCase('control').slice(0, 1)],
+          () => 0,
+        ),
+        judgments: judgments.slice(0, 1),
+        unscoredCaseIds: CONTROL,
+      },
+      { ...DEFAULT_JUDGE_CONFIG, ...noFloor() },
+    )
+    expect(lost.exclusions.unpaired).toBe(0)
+    expect(lost.controls).toEqual([
+      { caseId: 'control', attempt: 1, outcome: 'not_judged', magnitude: null },
+    ])
   })
 })

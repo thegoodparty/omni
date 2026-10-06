@@ -221,7 +221,7 @@ against a real organization. A case list for it would be inputs for a sweep
 that must not run.
 
 **All but one are `placeholder: true`.** The exception is
-`race_opponent_summary.json`, a real bench of nine cases. Each other background list is
+`race_opponent_summary.json`, a real bench of eight probes and a control. Each other background list is
 schema-valid against its experiment manifest's `input_schema` and each value
 is plausible; each chat list asks a question the seeded fixture org can
 actually be asked. But nobody wrote them to test the agent, so a verdict drawn
@@ -580,6 +580,69 @@ case may carry up to four `dimensions` of its own:
 - **One name, one question.** A list that asks a name two different
   questions is refused, since the row would average two answers. The names
   `overall` and the default dimensions are refused too.
+
+## Two things a background case can say beyond its params
+
+Both are for the judging step. The runner dispatches `params` and nothing else,
+so the agent never sees either one.
+
+```json
+{ "caseId": "t7-stale", "params": {}, "condition": "Source 2 is an archived page from the previous cycle." }
+{ "caseId": "control", "params": {}, "scored": false }
+```
+
+- **`condition`** says what the case planted in or took out of `params`. It
+  is added to the judge's shared input as a last line, `Condition: ...`, the
+  same way a chat case's `toolFailure` is. The background rubric tells the
+  judge to decide first whether each run handled the condition. A run that
+  reads better but ignores the condition counts as worse. Up to
+  2,000 characters, trimmed, never empty.
+- **`scored: false`** makes the case a control. It runs and is judged like
+  any other case, but it is kept out of the verdict and everything it is
+  built from: overall, dimensions, case-dimension rows, gates, floor, flags, exclusion counts,
+  measured evidence and the identical-output check. The report prints it
+  under **Controls (not scored)**. Its records still count toward the two
+  checks that read every record whether or not it was judged: the unpinned
+  mart warning and invariant violations. A rule a control's output broke is
+  still a rule the branch broke. On an
+  input built to show no difference, that line shows how often and how
+  strongly the judge calls a difference anyway. Read every other verdict in
+  the section against it. A control still runs, so the plan still prices it,
+  and it does not count toward `gates.minCases`.
+
+**A control needs both refs to agree.** The candidate's list belongs to the
+branch under test. On its own, it could mark the probe it regresses
+`scored: false` and turn the verdict green. So a case is held out only when
+the base ref's copy of the list, read from the base worktree that judge.yml
+passes as `JUDGE_BASE_DIR`, holds it out too. In two situations the case is
+scored anyway, and the report names it on one fixed line:
+
+- the refs disagree
+- the base copy cannot be read, which includes a local run with no
+  `JUDGE_BASE_DIR`
+
+The safe mistake is to count a control, never to drop a probe. So a new
+control takes effect only from the sweep after the PR that adds it merges.
+
+**Both fields are read from case lists, not from records.** Step 3 runs in
+the candidate's tree (`WORKSPACE`), so it reads the condition from its own
+copy of the list. Neither field is written into a record, for two reasons:
+
+- A field written there would have to match on both arms, and a base ref that
+  predates it would strip it from one side. `blindCase` would then see two
+  different inputs and refuse every pair.
+- Read once and added after blinding, the condition is one string, so it is
+  identical across arms by construction.
+
+If step 3 cannot read the list, it refuses that agent by name instead of
+judging without it. Otherwise it would score a control as an ordinary case,
+judge a probe without its condition, and the report would mention neither.
+
+`BackgroundCaseSchema` is `.strict()` for the same reason `ChatCaseSchema` is:
+if a misspelled `scored` were stripped, the control would be scored silently.
+
+`race_opponent_summary.json` marks Melecia's `control` as `scored: false`.
+None of her probes has a `condition` yet. Those strings are hers to write.
 
 ## Six background agents need identifiers a case list cannot carry
 

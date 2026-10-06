@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { z } from 'zod'
 import { hoursToMilliseconds } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
-import { z } from 'zod'
 import { LlmService } from '@/llm/services/llm.service'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import { overrideEnvForEvals } from '../envOverride'
@@ -12,8 +13,10 @@ import { createRng } from './bootstrap'
 import {
   CaseListError,
   caseDimensionsOf,
+  caseJudgingOf,
   loadCaseList,
   type CaseDimension,
+  type CaseJudging,
   type CaseList,
 } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
@@ -33,6 +36,7 @@ import {
   MismatchedInputError,
   normalizeAgent,
   type NormalizedAgent,
+  withConditions,
   type NormalizeOptions,
 } from './normalize'
 import { invariantViolations } from './invariants'
@@ -52,7 +56,7 @@ import {
   type StoredRulings,
   type SweepReport,
 } from './report'
-import { scoreAgent, type AgentScore } from './score'
+import { scoreAgent, type AgentScore, type ControlsScoredAnyway } from './score'
 import {
   parseSweepEnv,
   storeFromEnv,
@@ -85,6 +89,79 @@ export interface JudgingDeps {
   // arms never record the field, and so both slots of a pair are asked the
   // same questions whatever the base ref knew.
   loadCases?: (agent: AgentEntry) => CaseList
+  // Each case's condition and scored flag, read from the case list in THIS
+  // checkout. Injected so a test need not stand a case list on disk.
+  caseJudging?: (agent: AgentEntry) => ReadonlyMap<string, CaseJudging>
+  // The caseIds the BASE ref's list marks `scored: false`, or null when that
+  // list cannot be read. Injected for the same reason.
+  baseControls?: (agent: AgentEntry) => ReadonlySet<string> | null
+}
+
+// Only a background list carries either field, so a chat agent costs no read.
+const readCaseJudging = (
+  agent: AgentEntry,
+): ReadonlyMap<string, CaseJudging> =>
+  agent.shape === 'background'
+    ? caseJudgingOf(loadCaseList(agent))
+    : new Map<string, CaseJudging>()
+
+// Read raw rather than through `parseCaseList`: the base ref's list is held to
+// the base ref's schema, not this one, and the only fact wanted here is which
+// cases it holds out.
+const BaseControlsSchema = z.object({
+  cases: z.array(
+    z.object({ caseId: z.string(), scored: z.boolean().optional() }),
+  ),
+})
+
+const readBaseControls = (
+  baseDir: string | undefined,
+  agent: AgentEntry,
+): ReadonlySet<string> | null => {
+  if (baseDir === undefined || agent.cases === null) return null
+  try {
+    const list = BaseControlsSchema.parse(
+      JSON.parse(
+        readFileSync(
+          path.join(
+            baseDir,
+            'packages/gp-api/src/chats/evals/judge/cases',
+            agent.cases,
+          ),
+          'utf8',
+        ),
+      ),
+    )
+    return new Set(
+      list.cases.filter((one) => one.scored === false).map((one) => one.caseId),
+    )
+  } catch {
+    return null
+  }
+}
+
+// A CONTROL NEEDS BOTH REFS TO AGREE. The candidate's list is the branch under
+// test, so on its own it could mark the very probe it regresses `scored:
+// false` and turn the verdict green. A case is held out only when the base
+// list holds it out too. Every other case the candidate marks is scored and
+// named, and an unreadable base list scores them all: the safe mistake is
+// counting a control, never dropping a probe.
+const resolveControls = (
+  candidate: ReadonlySet<string>,
+  base: ReadonlySet<string> | null,
+): { unscored: Set<string>; scoredAnyway?: ControlsScoredAnyway } => {
+  if (candidate.size === 0) return { unscored: new Set() }
+  if (base === null) {
+    return {
+      unscored: new Set(),
+      scoredAnyway: { caseIds: [...candidate].sort(), why: 'baseUnread' },
+    }
+  }
+  const unscored = new Set([...candidate].filter((id) => base.has(id)))
+  const disputed = [...candidate].filter((id) => !base.has(id)).sort()
+  return disputed.length === 0
+    ? { unscored }
+    : { unscored, scoredAnyway: { caseIds: disputed, why: 'baseDisagrees' } }
 }
 
 export interface SweepResult {
@@ -204,6 +281,10 @@ export const judgeSweep = async (
   const rng = deps.rng ?? createRng(1)
   const registry = deps.registry ?? AGENTS
   const loadCases = deps.loadCases ?? loadCaseList
+  const caseJudging = deps.caseJudging ?? readCaseJudging
+  const baseControls =
+    deps.baseControls ??
+    ((agent: AgentEntry) => readBaseControls(env.baseDir, agent))
 
   // Both manifests, first and fatally. An arm with no manifest never reported
   // a capture, and the failure that produces it is a vitest suite whose tests
@@ -295,17 +376,50 @@ export const judgeSweep = async (
       seededTranscripts.push({ agentId, caseIds: seededCaseIds })
     }
 
+    // Refused rather than defaulted when the list cannot be read. Defaulting
+    // would score a control as an ordinary case and judge a probe without
+    // the condition it was written around, and the report would say neither.
+    let judging: ReadonlyMap<string, CaseJudging> = new Map()
+    const entry = registry.find((a) => a.agentId === agentId)
+    if (entry === undefined) {
+      refusals.push({
+        agentId,
+        reason:
+          'This agent is not in the judge registry, so this checkout cannot ' +
+          'tell which cases carry a condition or are held out as a control.',
+      })
+      continue
+    }
+    try {
+      judging = caseJudging(entry)
+    } catch (err) {
+      if (!(err instanceof CaseListError)) throw err
+      refusals.push({
+        agentId,
+        reason:
+          "This checkout could not read the agent's case list, so it " +
+          'cannot tell which cases carry a condition or are held out as ' +
+          `a control: ${err.message}`,
+      })
+      continue
+    }
+    const candidateControls = new Set(
+      [...judging].filter(([, one]) => !one.scored).map(([caseId]) => caseId),
+    )
+    const controls = resolveControls(
+      candidateControls,
+      candidateControls.size === 0 ? new Set() : baseControls(entry),
+    )
+    const unscoredCaseIds = controls.unscored
+
     try {
       // Refuses two arms that hashed to the same config unless the request
       // named them: on `auto` the agent saw no difference, so there is
       // nothing to compare and a sweep would have spent money proving two
       // identical things identical.
       const normalized = withCaseDimensions(
-        normalizeAgent(forAgent, rng, config, options),
-        caseDimensionsByCase(
-          registry.find((a) => a.agentId === agentId),
-          loadCases,
-        ),
+        withConditions(normalizeAgent(forAgent, rng, config, options), judging),
+        caseDimensionsByCase(entry, loadCases),
       )
       if (normalized.identicalConfig !== null) {
         identicalConfigs.push({ agentId, ...normalized.identicalConfig })
@@ -314,7 +428,12 @@ export const judgeSweep = async (
       // Before any judge call, because a sweep whose arms produced the same
       // bytes has nothing for a judge to read and the calls would be paid
       // for either way.
-      const sameness = identicalOutputs(agentId, normalized.judgeable)
+      // Controls left out: one that differs by noise would otherwise keep
+      // "every pair matched" false and inflate the count beside it.
+      const sameness = identicalOutputs(
+        agentId,
+        normalized.judgeable.filter((c) => !unscoredCaseIds.has(c.caseId)),
+      )
       identical.push(sameness)
       if (sameness.allIdentical && config.gates.failOnAllIdenticalOutputs) {
         if (!env.explicitSelection) {
@@ -325,7 +444,12 @@ export const judgeSweep = async (
       }
 
       const judgments = await judgeAll(deps.llm, normalized.judgeable, config)
-      scores.push(scoreAgent({ normalized, judgments }, config))
+      scores.push({
+        ...scoreAgent({ normalized, judgments, unscoredCaseIds }, config),
+        ...(controls.scoredAnyway !== undefined && {
+          controlsScoredAnyway: controls.scoredAnyway,
+        }),
+      })
       rulings.push({
         agentId,
         location: await storeRulings(deps.store, {
