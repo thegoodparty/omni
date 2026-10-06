@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import {
+  Badge,
   Button,
   Card,
   CircleCheckIcon,
@@ -47,7 +47,7 @@ import FilingInstructionsDetails from '../shared/FilingInstructionsDetails'
 import { useNextThing } from './useNextThing'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import {
-  eyebrowFor,
+  countdownFor,
   kindOf,
   questionsFor,
   type TaskKind,
@@ -147,38 +147,45 @@ const TRAY_TINTS: Record<TaskKind, string> = {
 // below it, it greets the page rather than titling the card.
 const NextThingSection = ({
   headline,
-  eyebrow,
+  countdown,
   children,
 }: {
   headline: string | null
-  eyebrow: string | null
+  countdown: string | null
   children: React.ReactNode
-}): React.JSX.Element => (
-  <section className="flex flex-col gap-5" aria-labelledby="next-thing-heading">
-    {/* Blank lines hold the height until the client fills them in. */}
-    <div className="flex flex-col items-center gap-1 pb-6 pt-2 text-center lg:pb-10 lg:pt-6">
-      {/* The heart is GoodParty's stamp on people and plans across the
-          marketing site, and the greeting is set in its display face, so
-          Home speaks in the brand's voice rather than the app's. */}
-      <Image
-        src="/images/heart.svg"
-        alt=""
-        width={30}
-        height={24}
-        priority
-        className="mb-2 h-6 w-auto"
-      />
-      <p className="text-sm text-muted-foreground">{eyebrow ?? '\u00a0'}</p>
-      <h2
-        id="next-thing-heading"
-        className="text-balance font-outfit text-3xl font-medium text-foreground lg:text-4xl"
-      >
-        {headline ?? '\u00a0'}
-      </h2>
-    </div>
-    {children}
-  </section>
-)
+}): React.JSX.Element => {
+  const ready = headline !== null
+  return (
+    <section
+      className="flex flex-col gap-5"
+      aria-labelledby="next-thing-heading"
+    >
+      {/* Until the client fills them in, a blank headline and an invisible
+          badge hold the height. The greeting is set in the marketing site's
+          display face, so Home speaks in the brand's voice. */}
+      <div className="flex flex-col items-center gap-3 pb-6 pt-2 text-center lg:pb-10 lg:pt-6">
+        {(countdown || !ready) && (
+          <Badge
+            variant="outline"
+            className={cn(
+              'bg-card font-normal text-muted-foreground',
+              !ready && 'invisible',
+            )}
+          >
+            {countdown ?? '\u00a0'}
+          </Badge>
+        )}
+        <h2
+          id="next-thing-heading"
+          className="text-balance font-outfit text-3xl font-medium text-foreground lg:text-4xl"
+        >
+          {headline ?? '\u00a0'}
+        </h2>
+      </div>
+      {children}
+    </section>
+  )
+}
 
 /**
  * The one thing a candidate should do next, chosen by the same
@@ -199,9 +206,10 @@ export default function NextThingCard(): React.JSX.Element {
 
   const headline = useSessionHeadline()
   const [campaign] = useCampaign()
-  // Today is the browser's, so the line waits for the client like the
+  // Today is the browser's, so the countdown waits for the client like the
   // headline does; the server's clock and time zone would mismatch.
-  const eyebrow = headline === null ? null : eyebrowFor(campaign, new Date())
+  const countdown =
+    headline === null ? null : countdownFor(campaign, new Date())
 
   // Once per task shown, not per render: the tracker query polls.
   const nextId = next?.id ?? null
@@ -260,7 +268,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (isPending) {
     return (
-      <NextThingSection headline={headline} eyebrow={eyebrow}>
+      <NextThingSection headline={headline} countdown={countdown}>
         <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
           <p className="text-sm text-muted-foreground">
             Loading your next step.
@@ -272,7 +280,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (isError) {
     return (
-      <NextThingSection headline={headline} eyebrow={eyebrow}>
+      <NextThingSection headline={headline} countdown={countdown}>
         <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
           <p className="text-sm text-muted-foreground">
             We could not load your next step. Refresh to try again.
@@ -284,7 +292,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (!next) {
     return (
-      <NextThingSection headline={headline} eyebrow={eyebrow}>
+      <NextThingSection headline={headline} countdown={countdown}>
         {tasks.length === 0 ? (
           <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
             <p className="text-sm text-muted-foreground">
@@ -312,7 +320,7 @@ export default function NextThingCard(): React.JSX.Element {
   const reasonTag = reasonTagFor(next)
 
   return (
-    <NextThingSection headline={headline} eyebrow={eyebrow}>
+    <NextThingSection headline={headline} countdown={countdown}>
       {/* The card sits in a tray, so the two read as one object: the card's
           border overlaps the tray's top and sides, and "Chat about this" sits
           in the strip below it. The questions about the task open in the

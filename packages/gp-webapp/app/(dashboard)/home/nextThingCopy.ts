@@ -1,4 +1,4 @@
-import { differenceInCalendarDays, format } from 'date-fns'
+import { differenceInCalendarDays } from 'date-fns'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import { getNextElection } from 'helpers/campaignHelper'
 import type { Campaign } from 'helpers/types'
@@ -61,7 +61,9 @@ export const questionsFor = (
   needsFiling: boolean,
 ): [string, string] => QUESTIONS[kindOf(task, needsFiling)]
 
-const countdownFor = (
+// The badge above the headline: how far off the next election is, or nothing
+// when there is no election ahead.
+export const countdownFor = (
   campaign: Campaign | null,
   today: Date,
 ): string | null => {
@@ -82,12 +84,4 @@ const countdownFor = (
       ? 'Your primary is tomorrow'
       : 'Election Day is tomorrow'
   return `${days} days to ${name}`
-}
-
-// The quiet line above the headline: today, and how far off the next election
-// is when we know it.
-export const eyebrowFor = (campaign: Campaign | null, today: Date): string => {
-  const date = format(today, 'EEEE, MMMM d')
-  const countdown = countdownFor(campaign, today)
-  return countdown ? `${date} · ${countdown}` : date
 }
