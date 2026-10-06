@@ -29,6 +29,8 @@ import { liveLocationMessage, type LiveLocation } from './useLiveLocation'
 import { formatDuration } from './formatDuration'
 import { estimateOutingSeconds } from './walkEstimate'
 import PersonSheet from './PersonSheet'
+import type { KnockDraft } from './RecordKnockForm'
+import { useUnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import { ExportWalkSheetButton } from './ExportWalkSheetButton'
 import {
   DoorNoteList,
@@ -342,6 +344,9 @@ export default function WalkView({
   }
   const clientKeyFor = (targetId: number): string =>
     clientKeys.get(targetId) ?? ''
+  // Answers a door's form was given and not saved, kept for this walk so
+  // tapping a housemate and back, or closing the sheet, does not lose them.
+  const knockDrafts = useUnsavedDrafts<KnockDraft>()
 
   const stops = useMemo(
     () => (routeQuery.data?.stops ?? []).slice().sort((a, b) => a.seq - b.seq),
@@ -1022,6 +1027,7 @@ export default function WalkView({
           }}
           statusFor={(target) => target.knockStatus}
           clientKeyFor={clientKeyFor}
+          knockDrafts={knockDrafts}
           onRecorded={(targetId, personId, knockStatus) => {
             applyKnockStatus(personId, knockStatus)
             // ADR 0009. The served payload now predates this resident's own

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { REPORT_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
@@ -13,6 +13,7 @@ import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import IssueCaptureConfirmCard, {
   wasCorrected,
 } from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
@@ -93,6 +94,14 @@ interface CaptureInput {
   captureMethod: 'dictation' | 'typed'
 }
 
+// What a call's form keeps when it unmounts mid-edit. Not a recording in
+// progress, and not a confirm card: the call behind a confirm card is saved.
+export interface CallDraft {
+  draft: PhoneBankingOutcomeDraft
+  memo: string
+  spoken: boolean
+}
+
 interface PhoneBankingOutcomeFormProps {
   listId: number
   entryId: number
@@ -105,6 +114,9 @@ interface PhoneBankingOutcomeFormProps {
   // than re-derived, so one loaded list cannot answer it two ways.
   isServe: boolean
   onSaved: (results: PhoneBankingCallResult[]) => void
+  // Owned by the caller page, keyed by `entryId:personId`: a tab switch
+  // remounts this form, and this is what brings the answers back.
+  drafts?: UnsavedDrafts<CallDraft>
 }
 
 // Keyed by personId from the panel, so switching the active tab remounts
@@ -121,20 +133,49 @@ export default function PhoneBankingOutcomeForm({
   householdHasOthersUnlogged,
   isServe,
   onSaved,
+  drafts,
 }: PhoneBankingOutcomeFormProps): React.JSX.Element {
-  const [draft, setDraft] = useState<PhoneBankingOutcomeDraft>(() =>
-    draftFromInteraction(interaction, isServe),
+  // The call the queue files this save and its memo under, so saving it
+  // again replaces them rather than queueing a second pair. Also the key its
+  // unsaved answers are kept under.
+  const callKey = `${entryId}:${personId}`
+  const [stashed] = useState(() => drafts?.get(callKey))
+  const [draft, setDraft] = useState<PhoneBankingOutcomeDraft>(
+    () => stashed?.draft ?? draftFromInteraction(interaction, isServe),
   )
   // Summary state once something is saved; the cascade form reopens only on
   // Edit — mirrors the canvas's sticky log-call bar.
-  const [isEditing, setIsEditing] = useState(!interaction)
+  const [isEditing, setIsEditing] = useState(
+    stashed !== undefined || !interaction,
+  )
 
   // Issue capture. Behind its flag, and only once the call is
   // answered — there is nothing to summarize about a voicemail.
   const { enabled: captureEnabled } = useIssueCaptureFlag()
   const product = outreachProduct(isServe)
-  const [memo, setMemo] = useState('')
-  const [spoken, setSpoken] = useState(false)
+  const [memo, setMemo] = useState(stashed?.memo ?? '')
+  const [spoken, setSpoken] = useState(stashed?.spoken ?? false)
+  // Read on unmount. Only an open form holds anything unsaved: a save closes
+  // it, and Cancel puts the answers back to what the server has. A memo
+  // counts only under an answer, since Cancel leaves its text behind hidden.
+  const unsavedRef = useRef<CallDraft | null>(null)
+  useEffect(() => {
+    const base = draftFromInteraction(interaction, isServe)
+    const changed = (
+      Object.keys({ ...base, ...draft }) as (keyof PhoneBankingOutcomeDraft)[]
+    ).some((field) => draft[field] !== base[field])
+    unsavedRef.current =
+      isEditing && (changed || (memo !== '' && draft.outcome !== undefined))
+        ? { draft, memo, spoken }
+        : null
+  }, [draft, memo, spoken, isEditing, interaction, isServe])
+  useEffect(() => {
+    const unsaved = unsavedRef
+    return () => {
+      if (unsaved.current === null) drafts?.clear(callKey)
+      else drafts?.set(callKey, unsaved.current)
+    }
+  }, [drafts, callKey])
   const [captured, setCaptured] = useState<{
     id: string
     proposed: RecordConstituentFeedbackResponse['extraction']
@@ -170,9 +211,6 @@ export default function PhoneBankingOutcomeForm({
   // its memo there until there is, call first. Only where a memo can be
   // captured: elsewhere the mic is the ordinary dictation mic.
   const offline = useOfflineMemo({ dictation, enabled: capturesIssues })
-  // The call the queue files this save and its memo under, so saving it
-  // again replaces them rather than queueing a second pair.
-  const callKey = `${entryId}:${personId}`
   // Shown where the confirm card would be: nothing is extracted until the
   // memo reaches the server, so the issues wait in "Notes to review".
   // `saved` when nothing reached the server, `sending` when the call did and
@@ -410,6 +448,7 @@ export default function PhoneBankingOutcomeForm({
     setDraft(draftFromInteraction(interaction, isServe))
     setIsEditing(!interaction)
     offline.discard()
+    drafts?.clear(callKey)
   }
 
   if (captured !== null) {

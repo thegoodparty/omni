@@ -1220,7 +1220,8 @@ describe('WalkView', () => {
     // or the server-side upsert can't dedupe the retry.
     await closePersonSheet()
     await openPersonSheet('105 Elm St')
-    knockNotHome()
+    // The failed knock's answer is still picked, so Save alone retries it.
+    saveKnock()
     await waitFor(() => expect(keys).toHaveLength(2))
     expect(keys[1]).toBe(keys[0])
   })
@@ -1955,6 +1956,117 @@ describe('WalkView auto-advance', () => {
     })
   })
 
+  // Tapping the housemate and back used to remount the form on a blank
+  // walkthrough, losing every answer and the note. Unsaved answers are the
+  // walk's to keep until they are saved or cancelled.
+  it('keeps unsaved answers and the note across a switch to a housemate and back', async () => {
+    mockRoute([
+      stop(11, 1, '105 Elm St', [
+        target(21, 'Dorian Fen'),
+        target(24, 'Winnie Fen'),
+      ]),
+    ])
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-21', knockStatus: 'supporter' },
+      }
+    })
+    const radio = (label: string, option: string) =>
+      within(screen.getByText(label).parentElement as HTMLElement).getByRole(
+        'radio',
+        { name: option },
+      )
+    const noteField = () =>
+      screen.getByPlaceholderText("What did they say? We'll clean it up.")
+    const switchTo = async (name: string) => {
+      fireEvent.click(
+        screen.getByRole('button', { name: new RegExp(name), pressed: false }),
+      )
+      await expectSheetOnResident(name)
+    }
+
+    render(<WalkHarness turfId={3} />)
+    await openHouseholdMember('105 Elm St', 'Dorian Fen')
+    answerQuestion('Did they answer?', 'Answered')
+    answerQuestion('Did they engage?', 'Engaged')
+    answerQuestion('Do they support you?', 'Yes')
+    answerQuestion('Will they vote this election?', 'Unsure')
+    fireEvent.change(noteField(), { target: { value: 'Wants a crosswalk.' } })
+
+    await switchTo('Winnie Fen')
+    expect(radio('Did they answer?', 'Answered')).toHaveAttribute(
+      'data-state',
+      'off',
+    )
+    await switchTo('Dorian Fen')
+
+    expect(radio('Did they answer?', 'Answered')).toHaveAttribute(
+      'data-state',
+      'on',
+    )
+    expect(radio('Did they engage?', 'Engaged')).toHaveAttribute(
+      'data-state',
+      'on',
+    )
+    expect(radio('Do they support you?', 'Yes')).toHaveAttribute(
+      'data-state',
+      'on',
+    )
+    expect(radio('Will they vote this election?', 'Unsure')).toHaveAttribute(
+      'data-state',
+      'on',
+    )
+    expect(noteField()).toHaveValue('Wants a crosswalk.')
+
+    saveKnock()
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      stopTargetId: 21,
+      supportAnswer: 'supporter',
+      willVote: 'unsure',
+      note: 'Wants a crosswalk.',
+    })
+    await expectSheetOnResident('Winnie Fen')
+    await switchTo('Dorian Fen')
+
+    expect(radio('Did they answer?', 'Answered')).toHaveAttribute(
+      'data-state',
+      'off',
+    )
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+
+  it('forgets unsaved answers once they are cancelled', async () => {
+    mockRoute([
+      stop(11, 1, '105 Elm St', [
+        target(21, 'Dorian Fen'),
+        target(24, 'Winnie Fen'),
+      ]),
+    ])
+
+    render(<WalkHarness turfId={3} />)
+    await openHouseholdMember('105 Elm St', 'Dorian Fen')
+    answerQuestion('Did they answer?', 'Not home')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /Winnie Fen/, pressed: false }),
+    )
+    await expectSheetOnResident('Winnie Fen')
+    fireEvent.click(
+      screen.getByRole('button', { name: /Dorian Fen/, pressed: false }),
+    )
+    await expectSheetOnResident('Dorian Fen')
+
+    expect(
+      within(
+        screen.getByText('Did they answer?').parentElement as HTMLElement,
+      ).getByRole('radio', { name: 'Not home' }),
+    ).toHaveAttribute('data-state', 'off')
+  })
+
   // Nothing ahead means the walk is done for this pass; anything skipped is
   // left on the list rather than dragging the canvasser back up the street.
   it('closes the sheet when the last door is logged', async () => {
@@ -2206,7 +2318,7 @@ describe('WalkView auto-advance', () => {
     await waitFor(() =>
       expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
     )
-    knockNotHome()
+    saveKnock()
 
     await waitFor(() => expect(keys).toHaveLength(3))
     expect(keys[2]).toBe(keys[1])
