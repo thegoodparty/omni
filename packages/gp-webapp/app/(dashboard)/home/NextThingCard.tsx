@@ -177,7 +177,7 @@ const NextThingSection = ({
         )}
         <h2
           id="next-thing-heading"
-          className="text-balance font-outfit text-3xl font-medium text-foreground lg:text-4xl"
+          className="text-balance font-outfit text-3xl font-semibold text-foreground lg:text-4xl"
         >
           {headline ?? '\u00a0'}
         </h2>
