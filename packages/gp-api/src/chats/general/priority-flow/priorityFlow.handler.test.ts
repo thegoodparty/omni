@@ -454,7 +454,13 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain(
       'Never put a phone number, email or address in your message',
     )
-    expect(prompt).toContain('end the turn on their card')
+    expect(prompt).toContain('their card is the last thing in the turn')
+    expect(prompt).toContain('Never recap what the cards say')
+    expect(prompt).toContain('Never narrate the research itself')
+    expect(prompt).toContain('A figure in your message carries its source')
+    expect(prompt).toContain('HOW A RESEARCH TURN ENDS')
+    expect(prompt).toContain('Nothing comes after a contact card')
+    expect(prompt).toContain('Never use a pronoun for someone you found')
   })
 
   it('offers the finding cards as display-only tools', async () => {
