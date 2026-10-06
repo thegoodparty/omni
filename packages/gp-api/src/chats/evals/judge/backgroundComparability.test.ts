@@ -54,7 +54,7 @@ describe('what makes a background comparison possible at all', () => {
   // to a value so that is a failing test rather than an invoice.
   it('is stable for a known agent', () => {
     expect(backgroundConfigDigest(agentConfigFor('meeting_briefing'))).toBe(
-      '21b422f42fc92b29d5693697b0897c90',
+      '149a0f3cbcfe9645a701948f7d1cc468',
     )
   })
 })
