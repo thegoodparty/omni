@@ -9,6 +9,20 @@
       "autoPort": false
     },
     {
+      "name": "priorities-flow-api",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd .claude/worktrees/priorities-flow && npm run start:dev -w gp-api"],
+      "port": 3000,
+      "autoPort": false
+    },
+    {
+      "name": "priorities-flow-webapp",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd .claude/worktrees/priorities-flow && npm run dev -w packages/gp-webapp"],
+      "port": 4000,
+      "autoPort": false
+    },
+    {
       "name": "storybook",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "storybook", "-w", "packages/gp-webapp"],
