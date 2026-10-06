@@ -39,7 +39,8 @@ import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
 import {
   createP2pPhoneList,
-  getP2pPhoneListStatus,
+  getP2pPhoneListBuildStatus,
+  type PhoneListBuildStatusResult,
   type PhoneListStatusResponse,
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
@@ -545,12 +546,22 @@ export const SmsFlow = ({
   >({})
 
   const [phoneListToken, setPhoneListToken] = useState<string | null>(null)
+  // The build-status poll's handle — set from the same POST response as
+  // `phoneListToken`, but the poll keys off this rather than the token
+  // (gp-api resolves it before Peerly necessarily has anything to report).
+  const [phoneListBuildId, setPhoneListBuildId] = useState<string | null>(null)
   const [phoneListCreating, setPhoneListCreating] = useState(false)
   const [phoneListError, setPhoneListError] = useState(false)
   const [stopPolling, setStopPolling] = useState(false)
   const [phoneList, setPhoneList] = useState<PhoneListStatusResponse | null>(
     null,
   )
+  // A build the poll resolved to `failed` — a review-step-level state,
+  // distinct from `phoneListError` (which blocks Continue a step earlier,
+  // before a build even starts polling). Carries its own retry rather than
+  // sharing `phoneListError`'s because by review time there's a phone list
+  // build to re-request, not a list create to re-run.
+  const [phoneListBuildFailed, setPhoneListBuildFailed] = useState(false)
 
   const [name, setName] = useState('')
   const [nameEdited, setNameEdited] = useState(false)
@@ -710,10 +721,12 @@ export const SmsFlow = ({
     setToneDrafts({})
     resetAudience()
     setPhoneListToken(null)
+    setPhoneListBuildId(null)
     setPhoneListCreating(false)
     setPhoneListError(false)
     setStopPolling(false)
     setPhoneList(null)
+    setPhoneListBuildFailed(false)
     setName(resumeDraft?.name ?? '')
     setNameEdited(Boolean(resumeDraft?.name))
     setDate(undefined)
@@ -1177,16 +1190,19 @@ export const SmsFlow = ({
         return
       }
       setPhoneListToken(null)
+      setPhoneListBuildId(null)
       setPhoneList(null)
       setStopPolling(false)
+      setPhoneListBuildFailed(false)
       setPhoneListCreating(true)
       const result = await createP2pPhoneList(created, created.id)
       setPhoneListCreating(false)
-      if (!result.ok || !result.token) {
+      if (!result.ok || !result.token || !result.buildId) {
         setPhoneListError(true)
         return
       }
       setPhoneListToken(result.token)
+      setPhoneListBuildId(result.buildId)
       setStepId('schedule')
     } catch {
       setPhoneListCreating(false)
@@ -1217,17 +1233,20 @@ export const SmsFlow = ({
     // list would let a retry skip straight to schedule with the wrong
     // audience.
     setPhoneListToken(null)
+    setPhoneListBuildId(null)
     setPhoneList(null)
     setStopPolling(false)
     setPhoneListError(false)
+    setPhoneListBuildFailed(false)
     setPhoneListCreating(true)
     const result = await createP2pPhoneList(created, created.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token) {
+    if (!result.ok || !result.token || !result.buildId) {
       setPhoneListError(true)
       return
     }
     setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
     setStepId('schedule')
   }
 
@@ -1260,13 +1279,15 @@ export const SmsFlow = ({
     }
     setPhoneListCreating(true)
     setPhoneListError(false)
+    setPhoneListBuildFailed(false)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token) {
+    if (!result.ok || !result.token || !result.buildId) {
       setPhoneListError(true)
       return
     }
     setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
     setStepId('schedule')
   }
 
@@ -1309,14 +1330,37 @@ export const SmsFlow = ({
     if (!selectedList || phoneListCreating) return
     setPhoneListCreating(true)
     setPhoneListError(false)
+    setPhoneListBuildFailed(false)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token) {
+    if (!result.ok || !result.token || !result.buildId) {
       setPhoneListError(true)
       return
     }
     setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
     setStepId('review')
+  }
+
+  // Review-step retry: a build the poll resolved to `failed` has nothing
+  // left to poll (the row stays `failed`), so this re-requests a fresh one
+  // from the same selected list rather than re-polling the dead buildId.
+  const handleRetryPhoneListBuild = async () => {
+    if (!selectedList || phoneListCreating) return
+    setPhoneListBuildFailed(false)
+    setPhoneListToken(null)
+    setPhoneListBuildId(null)
+    setPhoneList(null)
+    setStopPolling(false)
+    setPhoneListCreating(true)
+    const result = await createP2pPhoneList(selectedList, selectedList.id)
+    setPhoneListCreating(false)
+    if (!result.ok || !result.token || !result.buildId) {
+      setPhoneListBuildFailed(true)
+      return
+    }
+    setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
   }
 
   // First compose entry generates the initial draft (custom writes its own).
@@ -1730,19 +1774,44 @@ export const SmsFlow = ({
       }
       dirty={dirty}
     >
-      {phoneListToken && !phoneList && (
-        <LongPoll<PhoneListStatusResponse | false>
-          pollingMethod={async () => getP2pPhoneListStatus(phoneListToken)}
+      {phoneListBuildId && !phoneList && (
+        // Keyed on the buildId so a retry (a fresh buildId) remounts this
+        // rather than resuming a poll loop that already ran out its
+        // setTimeout chain after the previous build's terminal state. No
+        // `limit`: the poll is driven entirely by the terminal states below,
+        // not a hard try ceiling.
+        <LongPoll<PhoneListBuildStatusResult>
+          key={phoneListBuildId}
+          pollingMethod={async () =>
+            getP2pPhoneListBuildStatus(phoneListBuildId)
+          }
           onSuccess={(result) => {
-            if (result === undefined || result === false) {
+            // `getP2pPhoneListBuildStatus` always resolves to a value — this
+            // guard is only here because LongPoll's signature allows `void`.
+            if (!result) return
+            if (result.buildStatus === 'ready') {
+              const {
+                phoneListId,
+                leadsLoaded,
+                excludedOptedOutCount,
+                excludedDuplicatePhoneCount,
+              } = result
+              setPhoneList({
+                phoneListId,
+                leadsLoaded,
+                excludedOptedOutCount,
+                excludedDuplicatePhoneCount,
+              })
               setStopPolling(true)
               return
             }
-            setPhoneList(result)
-            setStopPolling(true)
+            if (result.buildStatus === 'failed') {
+              setPhoneListBuildFailed(true)
+              setStopPolling(true)
+            }
+            // 'building': keep polling, nothing changes yet.
           }}
           stopPolling={stopPolling}
-          limit={60}
         />
       )}
       <GateExplainerModal
@@ -1807,9 +1876,11 @@ export const SmsFlow = ({
               // A different audience needs a fresh phone list, and a stale
               // "couldn't prepare" error from the last attempt is moot.
               setPhoneListToken(null)
+              setPhoneListBuildId(null)
               setPhoneList(null)
               setStopPolling(false)
               setPhoneListError(false)
+              setPhoneListBuildFailed(false)
             }}
             universeName={audience.universeName}
             universeListId={audience.universeListId}
@@ -1833,9 +1904,11 @@ export const SmsFlow = ({
             onSelectRecommendation={(recommendation) => {
               audience.selectRecommendation(recommendation)
               setPhoneListToken(null)
+              setPhoneListBuildId(null)
               setPhoneList(null)
               setStopPolling(false)
               setPhoneListError(false)
+              setPhoneListBuildFailed(false)
             }}
             createRecommendedListError={audience.createRecommendedListError}
             preselectedRecommendation={audience.preselectedRecommendation}
@@ -1987,9 +2060,13 @@ export const SmsFlow = ({
             }
             preparing={
               !buildMode &&
+              !phoneListBuildFailed &&
               (!phoneList || (!draftOutreachId && !draftCreateError))
             }
             prepareError={draftCreateError}
+            buildFailed={phoneListBuildFailed}
+            retryingBuild={phoneListCreating}
+            onRetryBuild={handleRetryPhoneListBuild}
             readOnlySummary={buildMode}
             onComplete={handleScheduled}
           />

@@ -7,6 +7,10 @@ export type PhoneListInput = VoterFileFilters & { name?: string }
 
 export interface PhoneListResponse {
   token: string
+  // The PeerlyPhoneList row id — the handle the build-status poll keys off,
+  // in hand from the moment the POST is accepted (before `token` necessarily
+  // resolves to anything Peerly-side).
+  buildId: string
 }
 
 export interface PhoneListError {
@@ -28,6 +32,15 @@ export interface PhoneListStatusResponse {
   excludedOptedOutCount: number
   excludedDuplicatePhoneCount: number
 }
+
+// The build-status poll's result, collapsed to the three states a caller
+// cares about. `queued`/`building`/`processing` (gp-api's 202) and a
+// transient fetch failure both read as `building` here — there is nothing
+// terminal to show for either, and the poll is meant to keep going.
+export type PhoneListBuildStatusResult =
+  | { buildStatus: 'building' }
+  | ({ buildStatus: 'ready' } & PhoneListStatusResponse)
+  | { buildStatus: 'failed'; buildError: string }
 
 export const createP2pPhoneList = async (
   voterFileFilter: PhoneListInput | undefined,
@@ -67,27 +80,44 @@ export const createP2pPhoneList = async (
   }
 }
 
-export const getP2pPhoneListStatus = async (
-  phoneListToken: string,
-): Promise<PhoneListStatusResponse | false> => {
+// A failed build's body (gp-api's `{ buildStatus: 'failed', buildError }`);
+// the ready body carries no `buildStatus` field at all (identical shape to
+// the token-status route's response), which is how the two are told apart
+// below.
+interface PhoneListBuildFailedBody {
+  buildStatus: 'failed'
+  buildError: string
+}
+
+export const getP2pPhoneListBuildStatus = async (
+  buildId: string,
+): Promise<PhoneListBuildStatusResult> => {
   try {
-    const resp = await clientFetch<PhoneListStatusResponse>(
-      apiRoutes.p2p.phoneListStatus,
-      {
-        phoneListToken,
-      },
-    )
-    // Means the request was accepted but the phone list is still being processed and is not ready yet.
+    const resp = await clientFetch<
+      PhoneListStatusResponse | PhoneListBuildFailedBody
+    >(apiRoutes.p2p.phoneListBuildStatus, {
+      buildId,
+    })
+    // Accepted but still queued/building/processing — nothing terminal yet.
     if (resp.status === 202) {
-      return false
+      return { buildStatus: 'building' }
     }
     if (!resp.ok) {
-      console.error('Error fetching phone list status:', resp.statusText)
-      return false
+      console.error('Error fetching phone list build status:', resp.statusText)
+      return {
+        buildStatus: 'failed',
+        buildError: 'Failed to check phone list build status.',
+      }
     }
-    return resp.data
+    if ('buildStatus' in resp.data && resp.data.buildStatus === 'failed') {
+      return { buildStatus: 'failed', buildError: resp.data.buildError }
+    }
+    return { buildStatus: 'ready', ...resp.data }
   } catch (e) {
+    // A thrown fetch is a transient connectivity blip, not a server-reported
+    // failure — read it the same as still-building so the poll keeps going
+    // rather than flashing a false failure.
     console.error('error', e)
-    return false
+    return { buildStatus: 'building' }
   }
 }
