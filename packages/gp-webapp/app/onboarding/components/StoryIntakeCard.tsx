@@ -1,6 +1,6 @@
 'use client'
 
-import { Card, Textarea } from '@styleguide'
+import { Card, Textarea, cn } from '@styleguide'
 import { useDictationAppend } from 'app/(dashboard)/shared/dictation/useDictationAppend'
 import {
   useStoryRewrite,
@@ -11,6 +11,9 @@ import { useReportDictationActive } from './useReportDictationActive'
 
 interface StoryIntakeCardProps {
   question: string
+  // 'section' sets the question below a page title (the Your story page);
+  // 'page' (default) lets it lead, as onboarding's steps do.
+  questionLevel?: 'page' | 'section'
   // Optional sub-line under the question. The dashboard page passes it (there is
   // no page-level per-question heading there); onboarding leaves it off since
   // the step chrome already shows the description above the card.
@@ -36,6 +39,7 @@ interface StoryIntakeCardProps {
 // char counter, then the shared action bar.
 export default function StoryIntakeCard({
   question,
+  questionLevel = 'page',
   description,
   examplePlaceholder,
   value,
@@ -55,7 +59,16 @@ export default function StoryIntakeCard({
   return (
     <Card className="flex flex-col gap-4 p-6">
       <div className="flex flex-col gap-1">
-        <h2 className="text-2xl font-bold text-foreground">{question}</h2>
+        <h2
+          className={cn(
+            'text-foreground',
+            questionLevel === 'page'
+              ? 'text-2xl font-bold'
+              : 'text-lg font-semibold',
+          )}
+        >
+          {question}
+        </h2>
         {description && (
           <p className="text-base text-muted-foreground">{description}</p>
         )}
