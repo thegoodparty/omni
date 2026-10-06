@@ -635,6 +635,24 @@ describe('PriorityWorkspace', () => {
     gate.resolve()
   })
 
+  it('drops the shimmer once the turn has finished streaming', async () => {
+    mocks.streamMessage.mockImplementation(
+      streamOf([
+        { type: 'text', delta: 'Here is where this stands. ' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/Here is where this stands/),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByText('Thinking...')).not.toBeInTheDocument(),
+    )
+  })
+
   it('shows an ordinary tool as a quiet pill rather than a card', async () => {
     mocks.listMessages.mockResolvedValue([
       {

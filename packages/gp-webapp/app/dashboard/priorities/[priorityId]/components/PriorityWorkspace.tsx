@@ -156,6 +156,7 @@ const PriorityWorkspaceBody = ({
   const [composer, setComposer] = useState('')
   const [streamError, setStreamError] = useState<string | null>(null)
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
+  const [streamDone, setStreamDone] = useState(false)
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
@@ -185,10 +186,12 @@ const PriorityWorkspaceBody = ({
       setStreamError(null)
       setLiveWidgets([])
       setGeneratingTool(null)
+      setStreamDone(false)
     },
     onTurnSettle: () => {
       setLiveWidgets([])
       setGeneratingTool(null)
+      setStreamDone(false)
       void reconcile()
     },
     onError: (message) => setStreamError(message),
@@ -198,6 +201,7 @@ const PriorityWorkspaceBody = ({
         return true
       }
       if (event.type === 'tool_call') setGeneratingTool(null)
+      if (event.type === 'done') setStreamDone(true)
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
         const update = parseStatusUpdate(event.args)
         if (!update) return true
@@ -405,14 +409,17 @@ const PriorityWorkspaceBody = ({
   // empty flash between "Thinking..." and the first word. After that it
   // comes back whenever the agent is working with nothing moving on screen:
   // between tool calls, and while a card's arguments stream in. Gated on the
-  // reveal catching up so it never sits under text still typing out, and off
-  // while a tool's own pill is shimmering.
+  // reveal catching up so it never sits under text still typing out, off
+  // while a tool's own pill is shimmering, and off once the stream is done:
+  // the turn can stay sending while it commits, and a shimmer under a
+  // finished question reads as more coming.
   const revealDone = revealedTextLength >= segmentsTextLength(liveSegments)
   const pillRunning = liveSegments.some(
     (segment) => segment.kind === 'tool' && segment.running,
   )
   const working =
-    sending && (blocks.length === 0 || (revealDone && !pillRunning))
+    sending &&
+    (blocks.length === 0 || (revealDone && !pillRunning && !streamDone))
   const pillLabel = generatingTool ? priorityToolLabel(generatingTool) : null
   const workingLabel =
     (generatingTool && GENERATING_LABELS[generatingTool]) ||
