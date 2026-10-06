@@ -74,6 +74,8 @@ data "aws_region" "current" {}
 #      probe after the job is gone. Unlike grant 2 this one IS head-anchored:
 #      real artifact keys start with an experiment id, which the dispatch
 #      Lambda holds to `^[a-z]`, so no run's key can start with `_judge/`.
+#      That check is the only one: the broker's mint pattern also admits a
+#      leading underscore, so loosening the Lambda's would reopen this.
 #      This is restricted data: a record carries the agent's whole answer
 #      and every SQL statement it ran against the constituent tables. It
 #      belongs in this private bucket and nowhere public, which is why the

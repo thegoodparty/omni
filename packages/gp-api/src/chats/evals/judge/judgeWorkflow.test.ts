@@ -1020,16 +1020,20 @@ describe('the judge policy grants what the sweep job calls', () => {
       's3:GetObject',
       's3:PutObject',
     ])
-    expect(statement('KeepJudgeRecords')).toContain(
+    // The whole list, so a second and wider ARN beside this one fails too.
+    const resources = statement('KeepJudgeRecords').match(
+      /Resource\s*=\s*\[([^\]]*)\]/,
+    )?.[1]
+    expect(resources?.split(',').map((one) => one.trim())).toEqual([
       `"arn:aws:s3:::\${local.artifacts_bucket}/${JUDGE_PREFIX}/*"`,
-    )
+    ])
     // Read off the Action lists, not the whole file: the header comment names
     // DeleteObject in order to say it is absent.
     const granted = [...tf.matchAll(/Action\s*=\s*\[([^\]]*)\]/g)]
       .map((match) => match[1] ?? '')
       .join(',')
     expect(granted).toContain('s3:PutObject')
-    expect(granted).not.toMatch(/Delete/)
+    expect(granted).not.toMatch(/Delete|Acl|Tagging/)
   })
 })
 
