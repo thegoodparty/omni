@@ -78,12 +78,11 @@ offers generation to everyone and invites the story alongside it.
 
 ### The campaign story prompt
 
-Two surfaces, deliberately:
+Two surfaces:
 
-- **A pinned card** above the tracker rail (`CampaignPlanStoryCard`, between
-  the hero and `CampaignStrategySection`), shown while the story is incomplete
-  and **not dismissible**, sized like the dashboard's Pro banner: one card, one
-  CTA. It is what makes the prompt the first thing on the page.
+- **The "Your story" card** in the row at the top of the Game Plan
+  (`CampaignPlanOverviewCards`), which reads "Add yours to make this plan
+  about you" while the story is incomplete and opens `/campaign-story`.
 - **A real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static` catalog
   entry) at the **end of pre-launch**, so the prompt flows through the same row
   machinery as everything else rather than being a bespoke surface.

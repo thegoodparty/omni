@@ -154,6 +154,9 @@ const WIN_AREAS: ProductArea[] = [
     path: '/campaign-plan',
     modes: ['win'],
     does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
+    inside: [
+      'Three cards across the top, Your race, Your story and Your opponents, open the pages where each can be reviewed and changed: race details on Profile, the story on Your Story, opponents on Know Your Opponent',
+    ],
     gate: 'No gate. A candidate with no Campaign Story still gets a campaign and outreach plan, just a generic one, and completing the story regenerates it from their own answers.',
   },
   {

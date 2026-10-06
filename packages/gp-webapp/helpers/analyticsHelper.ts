@@ -253,6 +253,10 @@ export const EVENTS = {
       NextThingStarted: 'Campaign Plan - Next Thing Started',
       NextThingCompleted: 'Campaign Plan - Next Thing Completed',
       NextThingSkipped: 'Campaign Plan - Next Thing Skipped',
+      // A card at the top of the Game Plan opened (`card`: 'race' | 'story' |
+      // 'opponents'), each a way into reviewing and editing what the plan is
+      // built from.
+      OverviewCardClicked: 'Campaign Plan - Overview Card Clicked',
     },
     PathToVictory: {
       ClickUnderstand:

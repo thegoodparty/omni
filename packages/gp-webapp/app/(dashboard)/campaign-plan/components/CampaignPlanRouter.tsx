@@ -53,9 +53,8 @@ const CampaignPlanRouter = ({
   const primaryElectionDate = campaign?.details?.primaryElectionDate
 
   // Icon + name are the sidebar tab's, so the title bar can't disagree with
-  // the rail. Only the tracker hero puts a CTA in the bar (the passed-election
-  // gate has none) — the bar tracks that itself, so the same config serves
-  // both branches below.
+  // the rail. Neither branch puts a CTA in the bar, so on Win it stays hidden
+  // and this names the page's visually hidden h1.
   const navHeader: DashboardNavHeaderConfig = {
     icon: 'checklist',
     label: NAV_LABELS.campaignPlan,

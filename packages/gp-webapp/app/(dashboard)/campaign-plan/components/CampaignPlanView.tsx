@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
@@ -12,8 +12,7 @@ import PlanView, {
 import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPlanData'
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
 import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
-import CampaignTrackerHero from './CampaignTrackerHero'
-import CampaignPlanStoryCard from './CampaignPlanStoryCard'
+import CampaignPlanOverviewCards from './CampaignPlanOverviewCards'
 
 const planEvents = EVENTS.Dashboard.CampaignPlan
 
@@ -37,7 +36,6 @@ const CampaignPlanView = ({
   const [campaign] = useCampaign()
   const data = useCampaignPlanData(initialUser)
   const { campaignId, strategy, media } = data
-  const [heroDownloading, setHeroDownloading] = useState(false)
 
   // Per-resource lifecycle events fire exactly once per campaign visit. The
   // hooks poll on an interval, so an effect that runs on every status change
@@ -98,24 +96,6 @@ const CampaignPlanView = ({
     trackEvent(planEvents.PlanDownloaded, { campaignId, source })
   }
 
-  const handleHeroDownload = async () => {
-    if (heroDownloading || !data.planReady) return
-    handleDownload('download-button')
-    setHeroDownloading(true)
-    try {
-      // Defer the @react-pdf/renderer chain — only loaded on an actual
-      // download, keeping it out of the page bundle for everyone else.
-      const { downloadCampaignPlanPdf } =
-        await import('app/onboarding/success/pdf/downloadCampaignPlanPdf')
-      await downloadCampaignPlanPdf(data.plan, {
-        liveUrl:
-          typeof window !== 'undefined' ? window.location.href : undefined,
-      })
-    } finally {
-      setHeroDownloading(false)
-    }
-  }
-
   const handleShared = (method: 'copy' | 'email') => {
     trackEvent(planEvents.PlanShared, { campaignId, method })
   }
@@ -124,12 +104,10 @@ const CampaignPlanView = ({
     router.push('/home')
   }
 
-  // The hero shows the primary and general dates separately. Use the *general*
-  // date for "Election Day" (not data.plan.electionDate, which is stage-anchored
-  // to relevantElectionDate and would be the primary during the primary phase).
+  // The race card's "Election Day" is the *general* date (not
+  // data.plan.electionDate, which is stage-anchored to relevantElectionDate and
+  // would be the primary during the primary phase).
   const metrics = campaign?.raceTargetMetrics
-  const primaryDateIso =
-    metrics?.primaryElectionDate ?? campaign?.details?.primaryElectionDate
   // Only true general-election sources (never relevantElectionDate, which is the
   // primary during the primary phase). If none exist, show no date rather than a
   // stage-anchored one mislabeled "Election Day".
@@ -144,24 +122,17 @@ const CampaignPlanView = ({
   const formatElectionDate = (iso: string): string =>
     dateUsHelper(iso.slice(0, 10).replace(/-/g, '/'))
 
-  // Campaign tracker on top, then the plan below it (the plan's own hero +
-  // bottom download are hidden — the tracker hero owns them).
+  // What the plan is built from on top, then the tracker, then the plan below
+  // it (the plan's own hero and bottom bar are hidden).
   return (
     <>
       <div className="mx-auto w-full max-w-3xl px-4 pt-8">
-        <CampaignTrackerHero
-          candidateName={data.plan.candidateName}
+        <CampaignPlanOverviewCards
           race={data.plan.race}
-          district={campaign?.details?.district ?? ''}
-          primaryDate={primaryDateIso ? formatElectionDate(primaryDateIso) : ''}
           electionDate={
             generalDateIso ? formatElectionDate(generalDateIso) : ''
           }
-          onDownload={handleHeroDownload}
-          downloading={heroDownloading}
-          canDownload={data.planReady}
         />
-        <CampaignPlanStoryCard />
         <CampaignStrategySection />
       </div>
       <PlanView

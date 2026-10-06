@@ -19,8 +19,8 @@ vi.mock('app/onboarding/success/pdf/downloadCampaignPlanPdf', () => ({
 vi.mock('./campaignStrategy/CampaignStrategySection', () => ({
   default: () => <div data-testid="tracker-section" />,
 }))
-vi.mock('./CampaignTrackerHero', () => ({
-  default: () => <div data-testid="tracker-hero" />,
+vi.mock('./CampaignPlanOverviewCards', () => ({
+  default: () => <div data-testid="overview-cards" />,
 }))
 vi.mock('app/onboarding/success/components/PlanView', () => ({
   default: ({
@@ -58,9 +58,9 @@ describe('CampaignPlanView', () => {
     mockData.mockReturnValue(planData())
   })
 
-  it('renders the tracker with the plan below it, hero + bottom bar hidden', () => {
+  it('renders the overview cards and tracker with the plan below, hero + bottom bar hidden', () => {
     render(<CampaignPlanView initialUser={null} />)
-    expect(screen.getByTestId('tracker-hero')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-cards')).toBeInTheDocument()
     expect(screen.getByTestId('tracker-section')).toBeInTheDocument()
     const planView = screen.getByTestId('plan-view')
     expect(planView).toHaveAttribute('data-show-hero', 'false')
