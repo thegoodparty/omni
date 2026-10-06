@@ -613,6 +613,69 @@ def _framing_leak(text: str, strict: bool):
     return _CONSTITUENT_TERM_RE.search(text) if strict else None
 
 
+_READY_STATUSES = frozenset({"briefing_ready", "agenda_provided_by_user"})
+_REFUSED_AVAILABILITY = frozenset({"partial", "not_published", "inferred_from_prior"})
+# Audit phrases only. Coarse on purpose: this check observes, it never gates.
+# Each appeared in the decision trail of a briefing the 2026-09-30 review found
+# misleading.
+_UNAVAILABLE_AGENDA_PHRASES = (
+    "not yet published",
+    "prior packet",
+    "prior_packet",
+    "packet_access_partial",
+    "no_agenda_yet",
+)
+
+
+def check_agenda_availability_consistency(artifact: dict, findings: list[Finding]) -> None:
+    """A ready briefing must say it used an available agenda.
+
+    Mirrors the gp-api publication gate: ready or user-provided status with an
+    availability value that says the agenda was unavailable is an error. A
+    missing value is a warning for now and becomes an error in the dated
+    follow-up, once every live run records the field.
+    """
+    status = artifact.get("briefing_status")
+    if status not in _READY_STATUSES:
+        return
+    availability = (artifact.get("run_metadata") or {}).get("agenda_availability")
+    if availability is None:
+        findings.append(Finding(
+            "agenda_availability.missing",
+            "warning",
+            f"briefing_status='{status}' but run_metadata.agenda_availability is not set. "
+            "Fill it on every run; gp-api publishes such artifacts for now and will refuse them "
+            "once the field is present on every live run.",
+        ))
+    elif availability in _REFUSED_AVAILABILITY:
+        findings.append(Finding(
+            "agenda_availability.ready_without_agenda",
+            "error",
+            f"briefing_status='{status}' but run_metadata.agenda_availability='{availability}'. "
+            "A briefing built without this meeting's agenda cannot be ready; set briefing_status "
+            "to 'awaiting_agenda' so the slot stays open.",
+        ))
+
+
+def check_run_decisions_admit_unavailable_agenda(artifact: dict, findings: list[Finding]) -> None:
+    """Audit check, warning only: a ready artifact whose decision trail says the agenda was unavailable."""
+    status = artifact.get("briefing_status")
+    if status not in _READY_STATUSES:
+        return
+    decisions = (artifact.get("run_metadata") or {}).get("run_decisions") or []
+    for d in decisions:
+        text = f"{d.get('decision') or ''} {d.get('reason') or ''}".lower()
+        hit = next((p for p in _UNAVAILABLE_AGENDA_PHRASES if p in text), None)
+        if hit:
+            findings.append(Finding(
+                "run_decisions.admits_unavailable_agenda",
+                "warning",
+                f"briefing_status='{status}' but a decision-trail entry says '{hit}' "
+                f"(decision='{d.get('decision')}'). Check agenda_availability and briefing_status.",
+            ))
+            return
+
+
 def check_no_data_internals_in_candidate_text(artifact: dict, findings: list[Finding]) -> None:
     """Candidate-facing text must never expose data-source internals, nor the
     instruction's own "posture override" directive. Unambiguous internals (hs_*,
@@ -702,5 +765,7 @@ CHECKS = [
     check_run_decisions_meaningful,
     check_awaiting_agenda_discovery_depth,
     check_discovered_agenda_location,
+    check_agenda_availability_consistency,
+    check_run_decisions_admit_unavailable_agenda,
     check_no_data_internals_in_candidate_text,
 ]

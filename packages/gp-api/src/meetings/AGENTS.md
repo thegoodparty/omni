@@ -73,7 +73,7 @@ The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `Elected
 
 `upsertBriefingRow` is selective about which `briefing_status` values it persists:
 
-- `briefing_ready`, `agenda_provided_by_user` → write the row.
+- `briefing_ready`, `agenda_provided_by_user` → write the row, unless the artifact's `run_metadata.agenda_availability` says the agenda was unavailable (`partial`, `not_published`, `inferred_from_prior`). That refusal logs the reason, fires Agenda Not Created with it, and skips the row so the slot stays open. An artifact without the field publishes with a warning log. Dashboard cards and item links sync only when a row was written.
 - Any other "placeholder" value (`awaiting_agenda`, `no_meeting_found`) → log, fire the `Briefing Assistant - Agenda Not Created` Segment event (with `daysUntilMeeting` to the target meeting date), and skip so the next cron retries.
 - `error` → log and skip.
 

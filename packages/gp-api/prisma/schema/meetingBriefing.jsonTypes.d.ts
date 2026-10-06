@@ -16,6 +16,15 @@ declare global {
       meeting_timezone?: string
       meeting_name?: string
       location?: string
+      run_metadata?: {
+        agenda_availability?:
+          | 'full_packet'
+          | 'html_agenda'
+          | 'partial'
+          | 'not_published'
+          | 'inferred_from_prior'
+        [key: string]: Prisma.JsonValue | undefined
+      }
       [key: string]: Prisma.JsonValue | undefined
     }
   }
