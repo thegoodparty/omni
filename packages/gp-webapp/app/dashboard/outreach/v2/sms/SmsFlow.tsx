@@ -95,6 +95,7 @@ import {
 import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
+import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
 import {
   composeScript,
   composeServeScript,
@@ -1790,9 +1791,14 @@ export const SmsFlow = ({
       {phoneListBuildId && !phoneList && (
         // Keyed on the buildId so a retry (a fresh buildId) remounts this
         // rather than resuming a poll loop that already ran out its
-        // setTimeout chain after the previous build's terminal state. No
-        // `limit`: the poll is driven entirely by the terminal states below,
-        // not a hard try ceiling.
+        // setTimeout chain after the previous build's terminal state.
+        // `limit`: gp-api's status route maps every non-2xx -- including a
+        // permanent 404 for a build row that is genuinely gone -- to "keep
+        // polling" (see getP2pPhoneListBuildStatus), so this loop is the only
+        // thing standing between a stuck/missing build and a silent,
+        // permanent spinner. PHONE_LIST_BUILD_POLL_LIMIT is sized generously
+        // (minutes, not the expected build duration) so it never cuts off a
+        // legitimately long async build.
         <LongPoll<PhoneListBuildStatusResult>
           key={phoneListBuildId}
           pollingMethod={async () =>
@@ -1823,6 +1829,11 @@ export const SmsFlow = ({
               setStopPolling(true)
             }
             // 'building': keep polling, nothing changes yet.
+          }}
+          limit={PHONE_LIST_BUILD_POLL_LIMIT}
+          onLimitReached={() => {
+            setPhoneListBuildFailed(true)
+            setStopPolling(true)
           }}
           stopPolling={stopPolling}
         />

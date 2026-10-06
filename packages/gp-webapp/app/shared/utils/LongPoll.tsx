@@ -7,6 +7,11 @@ interface LongPollProps<T = void> {
   pollingDelay?: number
   onSuccess?: (result: T | void) => void
   onError?: (error: unknown) => void
+  // Called once, instead of `onError`, if `limit` is hit without `stopPolling`
+  // ever being set — a poll loop that never reached a terminal state within
+  // its bound (distinct from a transient per-attempt failure, which callers
+  // read through `onSuccess`/`onError` themselves and keep polling past).
+  onLimitReached?: () => void
   limit?: number
   stopPolling?: boolean
 }
@@ -16,6 +21,7 @@ export const LongPoll = <T = void,>({
   pollingDelay = 1000,
   onSuccess = noop,
   onError = noop,
+  onLimitReached = noop,
   limit = 0,
   stopPolling = false,
 }: LongPollProps<T>): null => {
@@ -26,6 +32,7 @@ export const LongPoll = <T = void,>({
   const pollingMethodRef = useRef(pollingMethod)
   const onSuccessRef = useRef(onSuccess)
   const onErrorRef = useRef(onError)
+  const onLimitReachedRef = useRef(onLimitReached)
 
   useEffect(() => {
     stopPollingRef.current = stopPolling
@@ -33,7 +40,15 @@ export const LongPoll = <T = void,>({
     pollingMethodRef.current = pollingMethod
     onSuccessRef.current = onSuccess
     onErrorRef.current = onError
-  }, [stopPolling, pollingDelay, pollingMethod, onSuccess, onError])
+    onLimitReachedRef.current = onLimitReached
+  }, [
+    stopPolling,
+    pollingDelay,
+    pollingMethod,
+    onSuccess,
+    onError,
+    onLimitReached,
+  ])
 
   useEffect(() => {
     if (stopPolling || (limit && countRef.current >= limit)) {
@@ -68,8 +83,11 @@ export const LongPoll = <T = void,>({
 
       countRef.current += 1
 
-      if (!stopPollingRef.current && (!limit || countRef.current < limit)) {
+      const limitReached = Boolean(limit) && countRef.current >= limit
+      if (!stopPollingRef.current && !limitReached) {
         timeoutIdRef.current = setTimeout(poll, pollingDelayRef.current)
+      } else if (limitReached && !stopPollingRef.current) {
+        onLimitReachedRef.current()
       }
     }
 
