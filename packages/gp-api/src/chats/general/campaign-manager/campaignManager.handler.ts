@@ -1,11 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
 import {
-  differenceInCalendarDays,
-  differenceInCalendarWeeks,
-  isValid,
-  parseISO,
-} from 'date-fns'
-import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
@@ -150,21 +144,6 @@ const EMPTY_STORY_STATE: StoryState = {
   missing: ['why', 'background', 'positions'],
 }
 
-// details is a raw JSON blob with no schema at this call site, so a
-// human-patched or differently-formatted date parses to an Invalid Date and the
-// difference comes back NaN. NaN is not null, so it would slip past every
-// null-guard downstream and land in the system prompt as "NaN days from today".
-// Return null for anything unparseable and let the prompt say it does not know.
-const calendarDaysUntil = (iso: string): number | null => {
-  const parsed = parseISO(iso)
-  return isValid(parsed) ? differenceInCalendarDays(parsed, new Date()) : null
-}
-
-const calendarWeeksUntil = (iso: string): number | null => {
-  const parsed = parseISO(iso)
-  return isValid(parsed) ? differenceInCalendarWeeks(parsed, new Date()) : null
-}
-
 // Native web search only exists when the Anthropic key is configured. Read in
 // one place so the prompt's guidance and the tool registration can never
 // disagree about whether the manager can search.
@@ -178,11 +157,13 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   district: null,
   officeLevel: null,
   location: null,
-  weeksToElection: null,
+  electionDate: null,
+  primaryElectionDate: null,
+  primaryResult: null,
+  didWin: null,
   ballotStatus: null,
   filingPeriodStart: null,
   filingPeriodEnd: null,
-  daysToFilingDeadline: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
@@ -303,7 +284,6 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         ])
       : [null, null]
     const details = campaign.details
-    const electionDate = details.electionDate ?? details.primaryElectionDate
     const location =
       [details.city, details.state].filter(Boolean).join(', ') || null
     const ballotStatus = parseBallotStatus(campaign.ballotStatus)
@@ -348,13 +328,16 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       officeLevel: details.ballotLevel ?? null,
       location,
       state: details.state ?? null,
-      weeksToElection: electionDate ? calendarWeeksUntil(electionDate) : null,
+      // The record as stored. The prompt builder parses and counts from these
+      // against the candidate's local day, so an unparseable value reads as no
+      // date there rather than becoming NaN here.
+      electionDate: details.electionDate ?? null,
+      primaryElectionDate: details.primaryElectionDate ?? null,
+      primaryResult: campaign.primaryResult ?? null,
+      didWin: campaign.didWin ?? null,
       ballotStatus,
       filingPeriodStart: details.filingPeriodsStart ?? null,
       filingPeriodEnd: details.filingPeriodsEnd ?? null,
-      daysToFilingDeadline: details.filingPeriodsEnd
-        ? calendarDaysUntil(details.filingPeriodsEnd)
-        : null,
       topTasks: selectTopDynamicTasks(tasks).map((t) => ({
         title: t.title,
         date: t.date,
