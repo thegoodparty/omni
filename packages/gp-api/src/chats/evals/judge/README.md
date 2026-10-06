@@ -55,8 +55,9 @@ judge sweep, x1.5 and rounded up: about $9 for `chief_of_staff`, and $3 to $12
 for a measured background agent at the default 3 cases. An agent never
 measured is priced at a worst case and marked "(unmeasured)": $0.52 a chat
 turn ($37.50 for 8 cases at 3 attempts), $8 a background run ($48 at 3 cases).
-Each agent is priced at the higher of the PR's and the base ref's tables, so a
-PR cannot lower its own estimate. The numbers and their evidence are in
+Each agent is priced at the highest of the PR's, the base ref's and the default
+branch's tables, so a PR cannot lower its own estimate, and a chat agent pays
+for both arms' case lists. The numbers and their evidence are in
 `planCost.ts`; add an agent's measured cost there after its first live sweep
 (the report's `- cost:` line).
 

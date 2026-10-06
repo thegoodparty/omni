@@ -1,13 +1,14 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   formatPlan,
-  loadBasePricing,
+  loadReference,
   parseAgentSelector,
   parseArgs,
   pricingConfig,
+  referenceTurns,
   run,
   selectAgents,
 } from './cli'
@@ -142,10 +143,10 @@ describe('formatPlan', () => {
 
 describe('parseArgs', () => {
   it('defaults to auto with no flag', () => {
-    expect(parseArgs([])).toMatchObject({
+    expect(parseArgs([])).toEqual({
       agents: { kind: 'auto' },
       dryRun: false,
-      basePlanCost: undefined,
+      references: [],
     })
   })
 
@@ -154,12 +155,6 @@ describe('parseArgs', () => {
       agents: { kind: 'all' },
       dryRun: true,
     })
-  })
-
-  it("reads the base ref's file paths", () => {
-    expect(
-      parseArgs(['--base-plan-cost=/a/p.ts', '--base-config=/b/c.ts']),
-    ).toMatchObject({ basePlanCost: '/a/p.ts', baseConfig: '/b/c.ts' })
   })
 })
 
@@ -200,8 +195,8 @@ describe('run', () => {
   })
 })
 
-describe('base pricing', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'judge-base-'))
+describe('reference pricing', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'judge-ref-'))
   const file = (name: string, text: string): string => {
     const at = path.join(dir, name)
     writeFileSync(at, text)
@@ -213,22 +208,41 @@ describe('base pricing', () => {
     cases: 'race_opponent_summary.json',
     status: 'wired',
   }
+  const chat: AgentEntry = {
+    agentId: 'chief_of_staff',
+    shape: 'chat',
+    cases: 'chief_of_staff.json',
+    status: 'wired',
+  }
+  const high = file(
+    'high.ts',
+    'export const estimateAgent = () => ' +
+      "({ cents: 99900, basis: 'measured', why: 'ref' })\n",
+  )
+  const config = file('config.ts', '  attemptsPerCase: 5,\n')
+  const cases = path.join(dir, 'cases')
+  mkdirSync(cases)
+  writeFileSync(
+    path.join(cases, 'chief_of_staff.json'),
+    JSON.stringify({ cases: [{ turns: ['a', 'b'] }, { question: 'c' }] }),
+  )
 
-  // A base whose table prices higher than this branch's wins the row.
-  it("loads the base ref's estimateAgent and its chat attempts", async () => {
-    const base = await loadBasePricing(
-      file(
-        'high.ts',
-        'export const estimateAgent = () => ' +
-          "({ cents: 99900, basis: 'measured', why: 'base' })\n",
-      ),
-      file('config.ts', '  attemptsPerCase: 5,\n'),
-    )
-    expect(base.chatAttempts).toBe(5)
+  it('reads every --reference', () => {
+    expect(
+      parseArgs(['--reference=a,b,c', '--reference=d,e,f']).references,
+    ).toEqual(['a,b,c', 'd,e,f'])
+  })
+
+  // A ref whose table prices higher than this branch's wins the row.
+  it("loads a ref's estimateAgent, chat attempts and list", async () => {
+    const ref = await loadReference(`${high},${config},${cases}`)
+    expect(ref.chatAttempts).toBe(5)
+    expect(ref.chatTurns(chat)).toBe(3)
+    expect(ref.chatTurns(agent)).toBeUndefined()
     const plan = run(
-      ['--agents=race_opponent_summary', '--dry-run', '--base-plan-cost=x'],
+      ['--agents=race_opponent_summary', '--dry-run', '--reference=x'],
       [agent],
-      base,
+      [ref],
     ).plan
     expect(plan).toContain('cents: 99900 (measured)')
   })
@@ -238,19 +252,55 @@ describe('base pricing', () => {
     ['a missing file', () => path.join(dir, 'missing.ts')],
     ['a GitHub error body', () => file('404.ts', '{"message": "Not Found"}')],
   ])('leaves the estimate unset for %s', async (_name, at) => {
-    expect((await loadBasePricing(at(), undefined)).estimate).toBeUndefined()
+    expect(
+      (await loadReference(`${at()},${config},${cases}`)).estimate,
+    ).toBeUndefined()
+  })
+
+  it.each([
+    ['an empty config', () => file('empty-config.ts', '')],
+    ['a missing config', () => path.join(dir, 'nope.ts')],
+  ])('leaves the attempts unset for %s', async (_name, at) => {
+    expect(
+      (await loadReference(`${high},${at()},${cases}`)).chatAttempts,
+    ).toBeUndefined()
+  })
+
+  it('reads nothing from a malformed spec', async () => {
+    expect((await loadReference('only-one-part')).estimate).toBeUndefined()
+  })
+
+  // The base arm's longer list is priced, not twice this branch's:
+  // (16 + 8) x 3 x $0.123 = $8.86, x1.5 = $13.28, up to $13.50.
+  it("prices chat over a ref's longer list", () => {
+    const plan = run(
+      ['--agents=chief_of_staff', '--dry-run', '--reference=x'],
+      [chat],
+      [{ estimate: undefined, chatAttempts: 3, chatTurns: () => 16 }],
+    ).plan
+    expect(plan).toContain('(16 base + 8 candidate turns)')
+  })
+
+  it('takes the longest list across refs', () => {
+    const turns = referenceTurns([
+      { estimate: undefined, chatAttempts: 3, chatTurns: () => 4 },
+      { estimate: undefined, chatAttempts: 3, chatTurns: () => 9 },
+      { estimate: undefined, chatAttempts: 3, chatTurns: () => undefined },
+    ])
+    expect(turns(chat)).toBe(9)
+    expect(referenceTurns([])(chat)).toBeUndefined()
   })
 
   // Asked to compare and handed nothing: the worst case, not this branch's.
-  it('prices at the worst case when asked for a base it was not given', () => {
+  it('prices at the worst case when asked for a ref it was not given', () => {
     const plan = run(
-      ['--agents=race_opponent_summary', '--dry-run', '--base-plan-cost=x'],
+      ['--agents=race_opponent_summary', '--dry-run', '--reference=x'],
       [agent],
     ).plan
     expect(plan).toContain('cents: 4800 (base-unread)')
   })
 
-  it('prices from this branch alone when not asked for a base', () => {
+  it('prices from this branch alone when not asked for a ref', () => {
     const plan = run(
       ['--agents=race_opponent_summary', '--dry-run'],
       [agent],
@@ -258,12 +308,12 @@ describe('base pricing', () => {
     expect(plan).toContain('cents: 600 (measured)')
   })
 
-  it('prices chat at the larger of the two arms attempts', () => {
-    expect(pricingConfig(5).attemptsPerCase).toBe(5)
-    expect(pricingConfig(1).attemptsPerCase).toBe(
+  it('prices chat at the largest attempts of every arm', () => {
+    expect(pricingConfig([5, 2]).attemptsPerCase).toBe(5)
+    expect(pricingConfig([1]).attemptsPerCase).toBe(
       DEFAULT_JUDGE_CONFIG.attemptsPerCase,
     )
-    expect(pricingConfig(undefined).attemptsPerCase).toBe(
+    expect(pricingConfig([undefined]).attemptsPerCase).toBe(
       DEFAULT_JUDGE_CONFIG.attemptsPerCase,
     )
   })

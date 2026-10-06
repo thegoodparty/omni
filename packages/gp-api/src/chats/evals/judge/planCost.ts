@@ -145,7 +145,7 @@ export const CostBasisSchema = z.enum([
   'no-case-list',
   'unreadable',
   // The base ref's prices could not be computed, so this agent is priced as
-  // though nothing were measured. See priceAgainstBase.
+  // though nothing were measured. See priceAgainstReferences.
   'base-unread',
 ])
 export type CostBasis = z.infer<typeof CostBasisSchema>
@@ -167,6 +167,10 @@ const plural = (count: number, one: string): string =>
 export interface EstimateSources {
   countCases: (agent: AgentEntry) => number
   countTurns: (agent: AgentEntry) => number
+  // The turns the BASE arm walks for a chat agent, from the base ref's own
+  // list. Undefined when there is none, and this branch's count stands for
+  // it, as armBudget.ts plans.
+  baseTurns: (agent: AgentEntry) => number | undefined
   background: CostTable
   chat: CostTable
 }
@@ -174,14 +178,16 @@ export interface EstimateSources {
 export const DEFAULT_SOURCES: EstimateSources = {
   countCases: (agent) => loadCaseList(agent).cases.length,
   countTurns: (agent) => chatTurnsIn(loadCaseList(agent)),
+  baseTurns: () => undefined,
   background: MEASURED_BACKGROUND_RUN_COST,
   chat: MEASURED_CHAT_TURN_COST,
 }
 
-// THE FIRST TWO PARAMETERS ARE A CONTRACT WITH THE WORKFLOW. The estimate
-// step loads the BASE ref's copy of this file and calls its estimateAgent
-// with (agent, config) only, so a PR cannot lower its own price by editing
-// the tables here. Anything after `config` must keep a default.
+// THE PARAMETERS ARE A CONTRACT WITH THE WORKFLOW. The estimate step loads
+// the base ref's and the default branch's copies of this file and calls
+// their estimateAgent with (agent, config, sources), so a PR cannot lower its
+// own price by editing the tables here. Keep the defaults, and read only the
+// `sources` keys a copy knows.
 export const estimateAgent = (
   agent: AgentEntry,
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
@@ -210,11 +216,14 @@ export const estimateAgent = (
       why: 'its case list cannot be read, so nothing is run',
     }
   }
+  // EACH ARM WALKS ITS OWN LIST, so a branch that trims a list still pays
+  // for the base arm's longer one.
   if (agent.shape === 'chat') {
+    const onBase = from.baseTurns(agent) ?? listed
     const attempts = config.attemptsPerCase
     const one = from.chat[agent.agentId]
     const perTurn = one === undefined ? UNMEASURED_CHAT_TURN_USD : larger(one)
-    const cents = withMargin(ARMS * listed * attempts * perTurn)
+    const cents = withMargin((onBase + listed) * attempts * perTurn)
     const source =
       one === undefined
         ? 'unmeasured, so priced at the costliest chat turn on record'
@@ -223,7 +232,7 @@ export const estimateAgent = (
       cents,
       basis: one === undefined ? 'unmeasured' : 'measured',
       why:
-        `~${dollars(cents)} = ${ARMS} arms x ${plural(listed, 'turn')} x ` +
+        `~${dollars(cents)} = (${onBase} base + ${listed} candidate turns) x ` +
         `${plural(attempts, 'attempt')} x $${perTurn.toFixed(4)} a turn, ` +
         `x${MEASURED_MARGIN} and rounded up (${source})`,
     }
@@ -250,54 +259,77 @@ export const estimateAgent = (
 export type EstimateFn = (
   agent: AgentEntry,
   config: JudgeConfig,
+  sources: Partial<EstimateSources>,
 ) => AgentEstimate
 
-// THE HIGHER OF THIS BRANCH'S PRICE AND THE BASE REF'S, per agent, both
+// One ref this branch is priced against: the PR's base ref, and the
+// repository's default branch, so a PR opened against a branch that carries
+// a cheap table is still priced at the default branch's. Undefined where it
+// could not be read.
+export interface Reference {
+  estimate: EstimateFn | undefined
+  chatAttempts: number | undefined
+}
+
+// THE HIGHEST OF THIS BRANCH'S PRICE AND EVERY REFERENCE'S, per agent, all
 // computed over this branch's case lists and config — what the arms will
 // actually walk. A PR that edits the tables above can raise its own estimate
 // and never lower it.
 //
-// FAILS CLOSED. With no base pricing to compare against (the base ref
-// predates this file, or its copy will not load or throws), the agent is
-// priced as though nothing were measured: the worst case, labelled so. The
-// candidate's own figure alone would be the self-serving number this exists
-// to stop.
+// FAILS CLOSED. When any reference's prices cannot be computed (its copy is
+// missing, will not load or throws), or a chat agent's attempts cannot be
+// read from a reference's config, the agent is priced as though nothing were
+// measured: the worst case, labelled so. The candidate's own figure alone
+// would be the self-serving number this exists to stop.
 //
 // What it does not stop is a PR that edits this function or the CLI. The
 // number is a warning on the PR, and that change is in the diff under review.
-export const priceAgainstBase = (
-  base: EstimateFn | undefined,
+export const priceAgainstReferences = (
+  references: readonly Reference[],
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+  sources: Partial<EstimateSources> = {},
   candidate: EstimateFn = estimateAgent,
 ): ((agent: AgentEntry) => AgentEstimate) => {
   return (agent) => {
-    const ours = candidate(agent, config)
-    let theirs: AgentEstimate | undefined
-    try {
-      theirs =
-        base === undefined
-          ? undefined
-          : AgentEstimateSchema.parse(base(agent, config))
-    } catch {
-      theirs = undefined
-    }
-    if (theirs === undefined) {
-      if (ours.cents === 0) return ours
-      const worst = estimateAgent(agent, config, { background: {}, chat: {} })
-      return {
-        ...worst,
-        basis: 'base-unread',
-        why:
-          `${worst.why}; the base ref's prices could not be computed, so ` +
-          'nothing measured is trusted',
+    const ours = candidate(agent, config, sources)
+    if (ours.cents === 0) return ours
+    let best = ours
+    let unread = false
+    for (const reference of references) {
+      let theirs: AgentEstimate | undefined
+      try {
+        theirs =
+          reference.estimate === undefined ||
+          (agent.shape === 'chat' && reference.chatAttempts === undefined)
+            ? undefined
+            : AgentEstimateSchema.parse(
+                reference.estimate(agent, config, sources),
+              )
+      } catch {
+        theirs = undefined
+      }
+      if (theirs === undefined) unread = true
+      else if (theirs.cents > best.cents) {
+        best = {
+          ...theirs,
+          why: `${theirs.why}; a reference ref's price, above this branch's ${dollars(ours.cents)}`,
+        }
       }
     }
-    return theirs.cents > ours.cents
-      ? {
-          ...theirs,
-          why: `${theirs.why}; the base ref's price, above this branch's ${dollars(ours.cents)}`,
-        }
-      : ours
+    if (!unread) return best
+    const worst = estimateAgent(agent, config, {
+      ...sources,
+      background: {},
+      chat: {},
+    })
+    if (best.cents > worst.cents) return best
+    return {
+      ...worst,
+      basis: 'base-unread',
+      why:
+        `${worst.why}; a reference ref's prices could not be computed, so ` +
+        'nothing measured is trusted',
+    }
   }
 }
 

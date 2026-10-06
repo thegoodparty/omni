@@ -1,13 +1,15 @@
 import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { z } from 'zod'
 import { AGENTS, coverage, type AgentEntry } from './agents'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import {
   baseChatAttemptsIn,
   estimateAgent,
-  priceAgainstBase,
+  priceAgainstReferences,
   type AgentEstimate,
   type EstimateFn,
+  type Reference,
 } from './planCost'
 
 // The sweep's entry point, skeleton only. Everything here is a pure
@@ -125,11 +127,11 @@ export const formatPlan = (
 export interface CliArgs {
   agents: AgentSelector
   dryRun: boolean
-  // The base ref's planCost.ts, placed beside this one so its imports resolve
-  // here, and its config.ts. Given by the workflow; a local run prices from
-  // this branch alone.
-  basePlanCost?: string
-  baseConfig?: string
+  // `--reference=<planCost.ts>,<config.ts>,<cases dir>`, once per ref the
+  // price is checked against: the PR's base ref and the default branch. The
+  // planCost.ts sits beside this one so its imports resolve here. Given by
+  // the workflow; a local run prices from this branch alone.
+  references: string[]
 }
 
 export const parseArgs = (argv: string[]): CliArgs => {
@@ -138,55 +140,90 @@ export const parseArgs = (argv: string[]): CliArgs => {
   return {
     agents: parseAgentSelector(flag('agents') ?? 'auto'),
     dryRun: argv.includes('--dry-run'),
-    basePlanCost: flag('base-plan-cost'),
-    baseConfig: flag('base-config'),
+    references: argv
+      .filter((a) => a.startsWith('--reference='))
+      .map((a) => a.slice('--reference='.length)),
   }
 }
 
-export interface BasePricing {
-  estimate: EstimateFn | undefined
-  chatAttempts: number | undefined
+export interface LoadedReference extends Reference {
+  // The turns this ref's list for a chat agent drives, or undefined when it
+  // has none or it cannot be read.
+  chatTurns: (agent: AgentEntry) => number | undefined
 }
 
-const BaseModuleSchema = z.object({
+const UNREAD: LoadedReference = {
+  estimate: undefined,
+  chatAttempts: undefined,
+  chatTurns: () => undefined,
+}
+
+const ReferenceModuleSchema = z.object({
   estimateAgent: z.custom<EstimateFn>((value) => typeof value === 'function'),
 })
 
-// Anything that goes wrong here leaves that half undefined, and pricing then
-// fails closed: see priceAgainstBase.
-export const loadBasePricing = async (
-  planCostPath: string | undefined,
-  configPath: string | undefined,
-): Promise<BasePricing> => {
+// Read raw, the way armBudget.ts reads a base list: only the field that
+// counts turns, so an older but valid list is not refused for its shape.
+const TurnsOnlySchema = z.object({
+  cases: z.array(z.object({ turns: z.array(z.string()).optional() })),
+})
+
+// Anything that goes wrong here leaves that part undefined. A price file or
+// config that will not read fails closed (see priceAgainstReferences); a
+// case list that will not read counts as this branch's, as armBudget.ts
+// plans it, because a chat agent new on this branch has none on the ref.
+export const loadReference = async (spec: string): Promise<LoadedReference> => {
+  const [planCostPath, configPath, casesDir] = spec.split(',')
+  if (!planCostPath || !configPath || !casesDir) return UNREAD
   let estimate: EstimateFn | undefined
   try {
-    estimate =
-      planCostPath === undefined
-        ? undefined
-        : BaseModuleSchema.parse(await import(planCostPath)).estimateAgent
+    estimate = ReferenceModuleSchema.parse(
+      await import(planCostPath),
+    ).estimateAgent
   } catch {
     estimate = undefined
   }
   let chatAttempts: number | undefined
   try {
-    chatAttempts =
-      configPath === undefined
-        ? undefined
-        : baseChatAttemptsIn(readFileSync(configPath, 'utf8'))
+    chatAttempts = baseChatAttemptsIn(readFileSync(configPath, 'utf8'))
   } catch {
     chatAttempts = undefined
   }
-  return { estimate, chatAttempts }
+  const chatTurns = (agent: AgentEntry): number | undefined => {
+    try {
+      return TurnsOnlySchema.parse(
+        JSON.parse(
+          readFileSync(path.join(casesDir, agent.cases ?? ''), 'utf8'),
+        ),
+      ).cases.reduce((sum, one) => sum + (one.turns?.length ?? 1), 0)
+    } catch {
+      return undefined
+    }
+  }
+  return { estimate, chatAttempts, chatTurns }
 }
 
-// Each arm walks its own attempts, so chat is priced at the larger.
+// Each arm walks its own attempts, so chat is priced at the largest.
 export const pricingConfig = (
-  chatAttempts: number | undefined,
+  chatAttempts: readonly (number | undefined)[],
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
 ): JudgeConfig => ({
   ...config,
-  attemptsPerCase: Math.max(config.attemptsPerCase, chatAttempts ?? 0),
+  attemptsPerCase: Math.max(
+    config.attemptsPerCase,
+    ...chatAttempts.map((one) => one ?? 0),
+  ),
 })
+
+// The longest list any ref's base arm could walk.
+export const referenceTurns =
+  (references: readonly LoadedReference[]) =>
+  (agent: AgentEntry): number | undefined => {
+    const found = references
+      .map((one) => one.chatTurns(agent))
+      .filter((turns): turns is number => turns !== undefined)
+    return found.length === 0 ? undefined : Math.max(...found)
+  }
 
 export interface CliResult {
   plan: string
@@ -218,20 +255,20 @@ export const SWEEP_IS_NOT_ONE_COMMAND =
 export const run = (
   argv: string[],
   agents: readonly AgentEntry[] = AGENTS,
-  base?: BasePricing,
+  loaded?: readonly LoadedReference[],
 ): CliResult => {
   const args = parseArgs(argv)
   const selection = selectAgents(args.agents, agents)
   if (!args.dryRun) {
     throw new Error(SWEEP_IS_NOT_ONE_COMMAND)
   }
-  const config = pricingConfig(base?.chatAttempts)
-  // Asked to compare against a base and handed none is the same as a base
-  // that would not load: priced at the worst case.
-  const estimate =
-    args.basePlanCost === undefined && base === undefined
-      ? (agent: AgentEntry) => estimateAgent(agent, config)
-      : priceAgainstBase(base?.estimate, config)
+  // A reference asked for and not handed over is one that would not load.
+  const references =
+    loaded ?? args.references.map((): LoadedReference => UNREAD)
+  const config = pricingConfig(references.map((one) => one.chatAttempts))
+  const estimate = priceAgainstReferences(references, config, {
+    baseTurns: referenceTurns(references),
+  })
   return {
     plan: formatPlan(selection, agents, estimate),
     exitCode: selection.unknown.length > 0 ? 1 : 0,
@@ -248,14 +285,9 @@ export const run = (
 // is CommonJS, so import.meta is not available.
 if (require.main === module) {
   const argv = process.argv.slice(2)
-  const args = parseArgs(argv)
-  void loadBasePricing(args.basePlanCost, args.baseConfig)
-    .then((base) => {
-      const result = run(
-        argv,
-        AGENTS,
-        args.basePlanCost === undefined ? undefined : base,
-      )
+  void Promise.all(parseArgs(argv).references.map(loadReference))
+    .then((references) => {
+      const result = run(argv, AGENTS, references)
       console.log(result.plan)
       process.exitCode = result.exitCode
     })

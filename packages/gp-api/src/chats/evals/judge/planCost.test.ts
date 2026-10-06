@@ -9,7 +9,7 @@ import {
   estimateAgent,
   MEASURED_BACKGROUND_RUN_COST,
   MEASURED_CHAT_TURN_COST,
-  priceAgainstBase,
+  priceAgainstReferences,
   UNMEASURED_BACKGROUND_RUN_CENTS,
   type EstimateFn,
 } from './planCost'
@@ -192,6 +192,44 @@ describe('estimateAgent for a chat agent', () => {
     })
   })
 
+  it('pins chief_of_staff at its measured $0.123 a turn', () => {
+    expect(MEASURED_CHAT_TURN_COST.chief_of_staff).toEqual({
+      runUrl: 'https://github.com/thegoodparty/omni/actions/runs/36999748321',
+      date: '2026-10-02',
+      baseUsd: 0.1221,
+      candidateUsd: 0.123,
+      pairs: 24,
+    })
+    expect(estimateAgent(chat('chief_of_staff')).why).toContain(
+      '$0.1230 a turn',
+    )
+  })
+
+  // A BRANCH THAT TRIMS A LIST still pays for the base arm's longer one:
+  // (8 base + 2 candidate) x 3 x $0.123 = $3.69, x1.5 = $5.54, up to $6.
+  it("prices the base arm's turns from the base list", () => {
+    const trimmed = estimateAgent(
+      chat('chief_of_staff'),
+      DEFAULT_JUDGE_CONFIG,
+      {
+        countTurns: () => 2,
+        baseTurns: () => 8,
+      },
+    )
+    expect(trimmed.cents).toBe(600)
+    expect(trimmed.why).toContain('(8 base + 2 candidate turns)')
+  })
+
+  // (2 + 2) x 3 x $0.123 = $1.48, x1.5 = $2.21, up to $2.50.
+  it("counts the candidate's turns for a base with no list", () => {
+    expect(
+      estimateAgent(chat('chief_of_staff'), DEFAULT_JUDGE_CONFIG, {
+        countTurns: () => 2,
+        baseTurns: () => undefined,
+      }).cents,
+    ).toBe(250)
+  })
+
   it('counts turns, not cases', () => {
     expect(
       estimateAgent(chat('chief_of_staff'), DEFAULT_JUDGE_CONFIG, turns(16))
@@ -215,51 +253,118 @@ describe('estimateAgent for a chat agent', () => {
   })
 })
 
-describe('priceAgainstBase', () => {
+describe('priceAgainstReferences', () => {
   const agent = background('race_opponent_summary')
   const config = withBudget({ maxCases: 3, attemptsPerCase: 1 })
-  // THE PR LOWERS ITS OWN PRICE: its table says a run costs a cent.
-  const lowered: EstimateFn = (one, cfg) =>
-    estimateAgent(one, cfg, {
-      background: {
-        race_opponent_summary: {
-          runUrl: 'https://github.com/thegoodparty/omni/actions/runs/1',
-          date: '2026-10-06',
-          baseUsd: 0.01,
-          candidateUsd: 0.01,
-          pairs: 3,
+  const tableAt =
+    (usd: number): EstimateFn =>
+    (one, cfg, sources) =>
+      estimateAgent(one, cfg, {
+        ...sources,
+        background: {
+          race_opponent_summary: {
+            runUrl: 'https://github.com/thegoodparty/omni/actions/runs/1',
+            date: '2026-10-06',
+            baseUsd: usd,
+            candidateUsd: usd,
+            pairs: 3,
+          },
         },
-      },
-    })
+      })
+  // THE PR LOWERS ITS OWN PRICE: its table says a run costs a cent.
+  const lowered = tableAt(0.01)
+  const ref = (estimate: EstimateFn | undefined, chatAttempts = 3) => ({
+    estimate,
+    chatAttempts,
+  })
 
   it('keeps the base price when the branch lowers its own', () => {
-    expect(lowered(agent, config).cents).toBe(300)
-    const priced = priceAgainstBase(estimateAgent, config, lowered)(agent)
+    expect(lowered(agent, config, {}).cents).toBe(300)
+    const priced = priceAgainstReferences(
+      [ref(estimateAgent)],
+      config,
+      {},
+      lowered,
+    )(agent)
     expect(priced.cents).toBe(600)
-    expect(priced.why).toContain("the base ref's price")
+    expect(priced.why).toContain("a reference ref's price")
+  })
+
+  // THE PR OPENS AGAINST A BRANCH THAT CARRIES A CHEAP TABLE: the default
+  // branch's price still stands.
+  it("keeps the default branch's price over a cheap base", () => {
+    const priced = priceAgainstReferences(
+      [ref(lowered), ref(tableAt(3))],
+      config,
+      {},
+      lowered,
+    )(agent)
+    // $3 x1.5 = $4.50 a run, x 2 arms x 3 cases.
+    expect(priced.cents).toBe(2700)
   })
 
   it('keeps the branch price when it is the higher', () => {
-    expect(priceAgainstBase(lowered, config)(agent).cents).toBe(600)
+    expect(priceAgainstReferences([ref(lowered)], config)(agent).cents).toBe(
+      600,
+    )
+  })
+
+  it('prices from this branch alone with no references', () => {
+    expect(priceAgainstReferences([], config, {}, lowered)(agent).cents).toBe(
+      300,
+    )
   })
 
   it.each([
-    ['there is no base pricing', undefined],
+    ['there is no reference pricing', undefined],
     [
-      'the base pricing throws',
+      'the reference pricing throws',
       (() => {
         throw new Error('no such export')
       }) as EstimateFn,
     ],
     [
-      'the base pricing returns nonsense',
+      'the reference pricing returns nonsense',
       (() => ({ cents: -1, basis: 'measured', why: '' })) as EstimateFn,
     ],
-  ])('prices at the worst case when %s', (_name, base) => {
-    expect(priceAgainstBase(base, config)(agent)).toMatchObject({
-      cents: 4800,
-      basis: 'base-unread',
-    })
+  ])('prices at the worst case when %s', (_name, estimate) => {
+    expect(
+      priceAgainstReferences(
+        [ref(estimateAgent), ref(estimate)],
+        config,
+      )(agent),
+    ).toMatchObject({ cents: 4800, basis: 'base-unread' })
+  })
+
+  // Failing closed never lowers a price another ref already put higher.
+  it('keeps a higher ref price over the worst case', () => {
+    expect(
+      priceAgainstReferences([ref(tableAt(20)), ref(undefined)], config)(agent)
+        .cents,
+    ).toBe(18000)
+  })
+
+  // FAILS CLOSED ON THE CONFIG TOO: without a ref's attempts, the chat price
+  // could be the candidate's alone.
+  it("prices chat at the worst case when a ref's attempts cannot be read", () => {
+    const chat: AgentEntry = {
+      agentId: 'chief_of_staff',
+      shape: 'chat',
+      cases: 'chief_of_staff.json',
+      status: 'pending',
+    }
+    expect(
+      priceAgainstReferences(
+        [{ estimate: estimateAgent, chatAttempts: undefined }],
+        DEFAULT_JUDGE_CONFIG,
+      )(chat),
+    ).toMatchObject({ cents: 3750, basis: 'base-unread' })
+    expect(
+      priceAgainstReferences(
+        [{ estimate: estimateAgent, chatAttempts: undefined }],
+        config,
+      )(agent).cents,
+    ).toBe(600)
   })
 })
 

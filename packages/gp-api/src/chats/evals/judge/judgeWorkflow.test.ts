@@ -1372,7 +1372,12 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
   // Run, not read, with the WHOLE run block and a fake `npx` standing in for
   // the CLI, so no slice boundary decides what is tested. The step is
   // `set -u`, so a variable read before it is set fails here too.
-  const runEstimate = (plan: string, agents: string, ghAnswers = true) => {
+  const runEstimate = (
+    plan: string,
+    agents: string,
+    ghAnswers = true,
+    defaultRef = 'trunk',
+  ) => {
     // Real, because the step builds the base copy's path from `$PWD`.
     const dir = realpathSync(
       mkdtempSync(path.join(tmpdir(), 'judge-estimate-')),
@@ -1425,7 +1430,8 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
           SWEEP_CAPABLE: 'true',
           REQUESTED_BY: 'octocat',
           CANDIDATE_SHA: 'a'.repeat(40),
-          BASE_REF: 'main',
+          BASE_REF: 'feature-x',
+          DEFAULT_REF: defaultRef,
           PR_NUMBER: '1',
           RUN_URL: 'https://github.com/thegoodparty/omni/actions/runs/1',
         },
@@ -1483,29 +1489,60 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
 
   // A PR prices its own sweep, so the base ref's prices are fetched and
   // handed to the CLI, which takes the higher of the two.
-  it("hands the CLI the base ref's planCost.ts and config.ts", () => {
+  // A PR prices its own sweep, so the base ref's AND the default branch's
+  // price files, configs and case lists are fetched and handed to the CLI,
+  // which takes the highest. The base ref is not the default branch here, so
+  // each ref is seen to be fetched by name.
+  it('hands the CLI the base ref and the default branch', () => {
     const result = runEstimate(
       'Universal Judge — plan (1 agents)\n\n' +
-        '  self_research  [background]  cents: 4800 (unmeasured)  cases: self_research.json\n',
-      'self_research',
+        '  chief_of_staff  [chat]  cents: 900 (measured)  cases: chief_of_staff.json\n',
+      'chief_of_staff',
     )
     expect(result.status).toBe(0)
-    const base = path.join(result.dir, 'judge/planCost.base.ts')
-    const config = path.join(result.dir, 'config.base.ts')
-    expect(result.ghArgs).toContain(
-      'repos/thegoodparty/omni/contents/packages/gp-api/judge/planCost.ts?ref=main',
-    )
-    expect(result.ghArgs).toContain(
-      'repos/thegoodparty/omni/contents/packages/gp-api/judge/config.ts?ref=main',
-    )
-    expect(readFileSync(base, 'utf8')).toContain('planCost.ts?ref=main')
-    expect(readFileSync(config, 'utf8')).toContain('config.ts?ref=main')
-    expect(result.npxArgs).toContain(`--base-plan-cost=${base}`)
-    expect(result.npxArgs).toContain(`--base-config=${config}`)
+    const contents = 'repos/thegoodparty/omni/contents/packages/gp-api/judge'
+    for (const [name, ref] of [
+      ['base', 'feature-x'],
+      ['default', 'trunk'],
+    ]) {
+      const cost = path.join(result.dir, `judge/planCost.${name}.ts`)
+      const dir = path.join(result.dir, `ref-${name}`)
+      for (const file of [
+        'planCost.ts',
+        'config.ts',
+        'cases/chief_of_staff.json',
+      ]) {
+        expect(result.ghArgs).toContain(`${contents}/${file}?ref=${ref}`)
+      }
+      expect(readFileSync(cost, 'utf8')).toContain(`planCost.ts?ref=${ref}`)
+      expect(
+        readFileSync(path.join(dir, 'cases/chief_of_staff.json'), 'utf8'),
+      ).toContain(`chief_of_staff.json?ref=${ref}`)
+      expect(result.npxArgs).toContain(
+        `--reference=${cost},${dir}/config.ts,${dir}/cases`,
+      )
+    }
   })
 
-  // The CLI then fails closed on the empty files: see priceAgainstBase.
-  it('still prices when the base files cannot be fetched, leaving them empty', () => {
+  // Nothing is fetched for a default branch that is not a plain name, and the
+  // CLI then fails closed on its empty files.
+  it('fetches nothing for a default branch that is not a branch name', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  self_research  [background]  cents: 4800 (base-unread)  cases: self_research.json\n',
+      'self_research',
+      true,
+      '--upload-pack=x',
+    )
+    expect(result.status).toBe(0)
+    expect(result.ghArgs).not.toContain('upload-pack')
+    expect(
+      readFileSync(path.join(result.dir, 'judge/planCost.default.ts'), 'utf8'),
+    ).toBe('')
+  })
+
+  // The CLI then fails closed on the empty files: see priceAgainstReferences.
+  it('still prices when the ref files cannot be fetched, leaving them empty', () => {
     const result = runEstimate(
       'Universal Judge — plan (1 agents)\n\n' +
         '  self_research  [background]  cents: 4800 (base-unread)  cases: self_research.json\n',
@@ -1513,9 +1550,14 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       false,
     )
     expect(result.status).toBe(0)
-    expect(
-      readFileSync(path.join(result.dir, 'judge/planCost.base.ts'), 'utf8'),
-    ).toBe('')
+    for (const name of ['base', 'default']) {
+      expect(
+        readFileSync(
+          path.join(result.dir, `judge/planCost.${name}.ts`),
+          'utf8',
+        ),
+      ).toBe('')
+    }
     expect(result.comment).toMatch(
       /^\| self_research \| .* \| ~48\.00 \(base price unread, worst case\) \|$/m,
     )
