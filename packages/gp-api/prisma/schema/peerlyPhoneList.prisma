@@ -1,3 +1,11 @@
+enum PhoneListBuildStatus {
+  queued
+  building
+  processing
+  ready
+  failed
+}
+
 model PeerlyPhoneList {
   id                          String                     @id @default(uuid(7))
   createdAt                   DateTime                   @default(now()) @map("created_at")
@@ -7,12 +15,17 @@ model PeerlyPhoneList {
   campaignId                  Int                        @map("campaign_id")
   // The Peerly upload token returned by /phonelists on create — the only
   // handle available until the status endpoint resolves a numeric list id.
-  token                       String                     @unique
+  // Nullable because the build is moving off the request into a background
+  // job: a row can exist in `queued`/`building` before a token is ever
+  // obtained.
+  token                       String?                    @unique @map("token")
   // Stamped by the status endpoint the first time Peerly reports the list
   // ready (task 03 looks this row up by peerlyListId, which equals
   // Outreach.phoneListId).
   peerlyListId                Int?                       @unique @map("peerly_list_id")
   voterFileFilterId           Int?                       @map("voter_file_filter_id")
+  buildStatus                 PhoneListBuildStatus       @default(queued) @map("build_status")
+  buildError                  String?                    @map("build_error")
   // Count of org-opted-out contacts screened out of this build's filter
   // resolution (ENG-10800). Zero also covers "the scrub was skipped" (over
   // the people-api id-filter cap) — the send proceeds unscrubbed either way,
