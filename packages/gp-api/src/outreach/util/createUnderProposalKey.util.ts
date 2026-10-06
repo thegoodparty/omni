@@ -8,10 +8,14 @@ import {
 
 // A text holds its card's key from its unpaid draft on, so these read as the
 // proposal not sent yet. Win's build-mode `draft` has not been paid for
-// either.
+// either, and a text that was canceled, failed or denied never went out, so
+// the card has to read unsent and let them start it again.
 export const UNSENT_PROPOSAL_STATUSES: OutreachStatus[] = [
   OutreachStatus.pending_payment,
   OutreachStatus.draft,
+  OutreachStatus.canceled,
+  OutreachStatus.failed,
+  OutreachStatus.denied,
 ]
 
 /**

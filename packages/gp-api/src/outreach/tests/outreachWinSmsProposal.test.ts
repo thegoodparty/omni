@@ -173,6 +173,23 @@ describe('a Win text carrying a proposal key', () => {
     expect((await probe()).status).toBe(HttpStatus.NOT_FOUND)
   })
 
+  it('lets a text that never went out be started again from the card', async () => {
+    await submitDraft({ proposalKey: PROPOSAL_KEY })
+    await service.prisma.outreach.update({
+      where: { proposalKey: PROPOSAL_KEY },
+      data: { status: OutreachStatus.canceled },
+    })
+
+    expect((await probe()).status).toBe(HttpStatus.NOT_FOUND)
+
+    const again = await submitDraft({ proposalKey: PROPOSAL_KEY })
+    expect(again.status).toBe(HttpStatus.CREATED)
+    const holder = await service.prisma.outreach.findUniqueOrThrow({
+      where: { proposalKey: PROPOSAL_KEY },
+    })
+    expect(holder.id).toBe((again.data as { id: number }).id)
+  })
+
   it("refuses a key another organization's outreach holds", async () => {
     const otherSlug = `eo-proposal-other-${Date.now()}`
     await service.prisma.organization.create({
