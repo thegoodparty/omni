@@ -11,9 +11,10 @@ import { useReportDictationActive } from './useReportDictationActive'
 
 interface StoryIntakeCardProps {
   question: string
-  // 'step' (default) is onboarding's: the question leads the step, over a
-  // boxed field. 'section' sits under a page title (Your story): a smaller
-  // question, a rule under the heading, and the field as the card's own body.
+  // 'step' (default) is onboarding's: the question leads the step. 'section'
+  // sits under a page title (Your story): a smaller question with a rule
+  // under the heading. Either way the field is built like the outreach
+  // compose cards: seamless in the card, over the shared action footer.
   variant?: 'step' | 'section'
   // Optional sub-line under the question. The dashboard page passes it (there is
   // no page-level per-question heading there); onboarding leaves it off since
@@ -59,11 +60,11 @@ export default function StoryIntakeCard({
   const isSection = variant === 'section'
 
   return (
-    <Card className="flex flex-col gap-4 p-6">
+    <Card className="flex flex-col gap-3 p-4">
       <div
         className={cn(
           'flex flex-col gap-1',
-          isSection && '-mx-6 border-b border-border px-6 pb-4',
+          isSection && '-mx-4 border-b border-border px-4 pb-3',
         )}
       >
         <h2
@@ -79,26 +80,13 @@ export default function StoryIntakeCard({
         )}
       </div>
 
-      <div className="relative">
-        <Textarea
-          variant={isSection ? 'seamless' : 'default'}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={examplePlaceholder}
-          className={cn(
-            'min-h-40 resize-none placeholder:italic placeholder:text-muted-foreground',
-            isSection ? 'pb-7' : 'pb-9',
-          )}
-        />
-        <span
-          className={cn(
-            'pointer-events-none absolute text-sm text-muted-foreground',
-            isSection ? 'bottom-0 right-0' : 'bottom-2 right-3',
-          )}
-        >
-          {value.length} chars
-        </span>
-      </div>
+      <Textarea
+        variant="seamless"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={examplePlaceholder}
+        className="min-h-[140px] resize-none placeholder:italic placeholder:text-muted-foreground"
+      />
 
       <StoryFieldBar
         rewrite={rewrite}

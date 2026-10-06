@@ -56,7 +56,7 @@ export default function StoryIssueRow({
   useReportDictationActive(dictation.active, onDictationActiveChange)
 
   return (
-    <Card className="flex flex-col gap-4 p-6">
+    <Card className="flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-lg font-semibold text-foreground">
           Priority {index + 1}
