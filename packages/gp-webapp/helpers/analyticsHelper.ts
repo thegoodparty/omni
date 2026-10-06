@@ -839,6 +839,17 @@ export const EVENTS = {
     MemoRecorded: 'Issue Capture - Memo Recorded',
     MemoConfirmed: 'Issue Capture - Memo Confirmed',
     MemoSkipped: 'Issue Capture - Memo Skipped',
+    // The report's own three. Counts only, never a memo's words or a tag's
+    // name: what a person said is not an analytics payload.
+    ReportViewed: 'Issue Capture - Report Viewed',
+    SynthesisRequested: 'Issue Capture - Synthesis Requested',
+    TagAccepted: 'Issue Capture - Tag Accepted',
+    TagDismissed: 'Issue Capture - Tag Dismissed',
+    // The offline path: a memo recorded with no signal, the moment it
+    // reaches the server, and its confirmation later from "Notes to review".
+    MemoQueuedOffline: 'Issue Capture - Memo Queued Offline',
+    MemoUploaded: 'Issue Capture - Memo Uploaded',
+    PendingMemoConfirmed: 'Issue Capture - Pending Memo Confirmed',
   },
 } as const
 

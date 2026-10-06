@@ -1,12 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { installIndexedDbShim } from 'helpers/test-utils/indexedDbShim'
+import {
+  enqueue,
+  listQueue,
+  removeFromQueue,
+} from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
-import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { PhoneBankingInteraction } from '@goodparty_org/contracts'
-import PhoneBankingOutcomeForm from './PhoneBankingOutcomeForm'
+import PhoneBankingOutcomeForm, {
+  type CallDraft,
+} from './PhoneBankingOutcomeForm'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -14,23 +22,29 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
-vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
-  useServeIssueCaptureFlag: vi.fn(),
+// Passed through, and watched: with the flag off a save must not touch the
+// phone's queue at all.
+vi.mock(
+  'app/dashboard/shared/dictation/offlineMemoQueue',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('app/dashboard/shared/dictation/offlineMemoQueue')
+      >()
+    return {
+      ...actual,
+      enqueue: vi.fn(actual.enqueue),
+      removeFromQueue: vi.fn(actual.removeFromQueue),
+    }
+  },
+)
+
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
 }))
 
-vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
-  useWinIssueCaptureFlag: vi.fn(),
-}))
-
-const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: serve,
-  })
-  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: win,
-  })
+const setFlag = (enabled: boolean) => {
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({ ready: true, enabled })
 }
 
 const mocks = vi.hoisted(() => ({
@@ -123,7 +137,7 @@ let captureBodies: {
 beforeEach(() => {
   testQueryClient.clear()
   vi.mocked(trackEvent).mockClear()
-  setFlags({ serve: true, win: false })
+  setFlag(true)
   mocks.input.current = null
   captureBodies = []
 
@@ -140,9 +154,15 @@ beforeEach(() => {
         personId: 'person-1',
         extractionStatus: 'extracted',
         extraction: {
-          issueLabel: 'Compost collection',
-          stance: 'mixed',
-          desiredOutcome: 'Weekly pickup instead of fortnightly',
+          issues: [
+            {
+              id: 'issue-compost-collection',
+              position: 0,
+              issueLabel: 'Compost collection',
+              stance: 'mixed',
+              desiredOutcome: 'Weekly pickup instead of fortnightly',
+            },
+          ],
         },
       },
     }
@@ -155,22 +175,29 @@ beforeEach(() => {
       occurredAt: new Date('2026-09-26T00:00:00.000Z'),
       channel: 'phone_bank',
       transcript: MEMO,
-      issueLabel: 'Compost collection',
-      stance: 'mixed',
-      desiredOutcome: 'Weekly pickup instead of fortnightly',
+      issues: [
+        {
+          id: 'issue-compost-collection',
+          position: 0,
+          issueLabel: 'Compost collection',
+          stance: 'mixed',
+          desiredOutcome: 'Weekly pickup instead of fortnightly',
+        },
+      ],
       extractionStatus: 'extracted',
       confirmedAt: new Date('2026-09-26T00:00:01.000Z'),
       outreachId: 7,
       actorName: 'Kamal Al Sawafi',
+      tags: [],
     },
   })
 })
 
 describe('PhoneBankingOutcomeForm issue capture', () => {
-  // Unlike the door, where the walk is HELD until the triple is answered, the
+  // Unlike the door, where the walk is HELD until the issues are answered, the
   // caller is released the moment the call is logged — they pick their own
   // next entry, so there is nothing to hold.
-  it('logs the call first, then offers the triple over the top', async () => {
+  it('logs the call first, then offers the issues over the top', async () => {
     const { onSaved } = renderForm()
     callAndSave()
 
@@ -246,7 +273,12 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.IssueCapture.MemoConfirmed,
-        { channel: 'phoneBanking', corrected: true, product: 'serve' },
+        {
+          channel: 'phoneBanking',
+          corrected: true,
+          issueCount: 1,
+          product: 'serve',
+        },
       ),
     )
   })
@@ -260,7 +292,12 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.IssueCapture.MemoConfirmed,
-        { channel: 'phoneBanking', corrected: false, product: 'serve' },
+        {
+          channel: 'phoneBanking',
+          corrected: false,
+          issueCount: 1,
+          product: 'serve',
+        },
       ),
     )
   })
@@ -321,9 +358,15 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
           personId: 'person-1',
           extractionStatus: 'extracted',
           extraction: {
-            issueLabel: 'Compost collection',
-            stance: 'mixed',
-            desiredOutcome: 'Weekly pickup instead of fortnightly',
+            issues: [
+              {
+                id: 'issue-compost-collection',
+                position: 0,
+                issueLabel: 'Compost collection',
+                stance: 'mixed',
+                desiredOutcome: 'Weekly pickup instead of fortnightly',
+              },
+            ],
           },
         },
       }
@@ -434,8 +477,8 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     expect(captureBodies[0]?.transcript).toBe(MEMO)
   })
 
-  it('asks for no memo when the Serve flag is off', async () => {
-    setFlags({ serve: false, win: true })
+  it('asks for no memo when the flag is off', async () => {
+    setFlag(false)
     const { onSaved } = renderForm()
 
     expect(screen.queryByText('What did they say?')).toBeNull()
@@ -445,19 +488,12 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     expect(captureBodies).toHaveLength(0)
   })
 
-  // The caller speaks after the call, about it. The other person is never
-  // recorded, and the field says so where the mic is.
-  it('tells the caller to speak for themselves', () => {
+  it('never says voter on the confirm card', async () => {
     renderForm()
-    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
-    fireEvent.click(screen.getByRole('radio', { name: 'Engaged' }))
-    fireEvent.click(screen.getByRole('radio', { name: 'Yes' }))
+    callAndSave()
 
-    expect(
-      screen.getByText(
-        "Say what they told you. Don't record the other person.",
-      ),
-    ).toBeVisible()
+    await screen.findByText('Is this right?')
+    expect(document.body.textContent ?? '').not.toMatch(/voter/i)
   })
 
   it('reports the memo as a Serve one', async () => {
@@ -475,7 +511,7 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
 })
 
 // A candidate's call list, where the memo is what a voter told the caller.
-// Same form, gated on Win's own flag.
+// Same form, same flag.
 describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
   // Support, then turnout: the will-vote row only opens once support is in,
   // so its "Yes" is the second one on screen.
@@ -497,10 +533,10 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
   }
 
   beforeEach(() => {
-    setFlags({ serve: false, win: true })
+    setFlag(true)
   })
 
-  it('captures and confirms on win-issue-capture alone', async () => {
+  it('captures and confirms on a Win call', async () => {
     const { onSaved } = renderForm({ isServe: false })
     winCallAndSave()
 
@@ -513,13 +549,18 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.IssueCapture.MemoConfirmed,
-        { channel: 'phoneBanking', corrected: false, product: 'win' },
+        {
+          channel: 'phoneBanking',
+          corrected: false,
+          issueCount: 1,
+          product: 'win',
+        },
       ),
     )
   })
 
-  it('asks for no memo when only the Serve flag is on', () => {
-    setFlags({ serve: true, win: false })
+  it('asks for no memo on a Win call when the flag is off', () => {
+    setFlag(false)
     renderForm({ isServe: false })
     answerWinQuestions()
 
@@ -535,11 +576,6 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
     expect(screen.getByText('Their note')).toBeVisible()
     expect(screen.queryByText('What did they say?')).toBeNull()
     expect(screen.getByPlaceholderText('What did they tell you?')).toBeVisible()
-    expect(
-      screen.getByText(
-        "Say what they told you. Don't record the other person.",
-      ),
-    ).toBeVisible()
     expect(document.body.textContent ?? '').not.toMatch(/constituent/i)
   })
 
@@ -553,5 +589,181 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
       channel: 'phoneBanking',
       product: 'win',
     })
+  })
+})
+
+// No signal: the call and its memo wait on the phone, call first, and the
+// caller is told so in place of a confirm card.
+describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
+  let online = false
+
+  beforeEach(() => {
+    installIndexedDbShim()
+    online = false
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      get: () => online,
+    })
+  })
+
+  afterEach(() => {
+    online = true
+  })
+
+  it('holds the call and the memo on the phone and says so', async () => {
+    const calls = vi.fn()
+    api.mock('POST /v1/phone-banking/lists/:id/calls', () => {
+      calls()
+      return {
+        status: 200,
+        data: { entryId: ENTRY_ID, results: [], envelopeCompleted: false },
+      }
+    })
+    const { onSaved } = renderForm()
+    callAndSave()
+
+    expect(
+      await screen.findByText(
+        'Saved on your device. It will be sent when you have signal.',
+      ),
+    ).toBeVisible()
+    expect(calls).not.toHaveBeenCalled()
+    expect(captureBodies).toEqual([])
+    // The list moves on now, with what the server will record.
+    expect(onSaved).toHaveBeenCalledWith([
+      {
+        personId: 'person-1',
+        interaction: {
+          outcome: 'answered',
+          supportAnswer: null,
+          willVote: null,
+          followUp: 'yes',
+          occurredAt: expect.any(Date),
+        },
+      },
+    ])
+    expect(screen.queryByText('Is this right?')).toBeNull()
+
+    const queued = await listQueue()
+    const call = queued.find((entry) => entry.kind === 'call')
+    const memo = queued.find((entry) => entry.kind === 'memo')
+    expect(call?.id).toBe(`call:${ENTRY_ID}:person-1`)
+    expect(call?.payload).toEqual({
+      listId: 9,
+      request: {
+        entryId: ENTRY_ID,
+        outcome: 'answered',
+        personId: 'person-1',
+        followUp: 'yes',
+      },
+    })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.PhoneBanking.CallLogged,
+      expect.objectContaining({ answerStatus: 'answered' }),
+    )
+    expect(memo?.id).toBe(`memo:${ENTRY_ID}:person-1`)
+    expect(memo?.payload).toEqual({
+      reference: {
+        channel: 'phone_bank',
+        entryId: ENTRY_ID,
+        personId: 'person-1',
+        clientKey: expect.any(String),
+      },
+      text: { transcript: MEMO, captureMethod: 'dictation' },
+      analytics: { channel: 'phoneBanking', product: 'serve' },
+    })
+  })
+
+  it('drops the answers of a call held after the caller switched away', async () => {
+    const store = new Map<string, CallDraft>()
+    const drafts: UnsavedDrafts<CallDraft> = {
+      get: (key) => store.get(key),
+      set: (key, draft) => {
+        store.set(key, draft)
+      },
+      clear: (key) => {
+        store.delete(key)
+      },
+    }
+    const onSaved = vi.fn()
+    const form = (interaction: PhoneBankingInteraction | null) => (
+      <PhoneBankingOutcomeForm
+        listId={9}
+        entryId={ENTRY_ID}
+        entrySeq={1}
+        personId="person-1"
+        interaction={interaction}
+        householdHasOthersUnlogged={false}
+        isServe
+        onSaved={onSaved}
+        drafts={drafts}
+      />
+    )
+    const view = render(form(null))
+    callAndSave()
+    view.unmount()
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+
+    render(form(LOGGED))
+
+    expect(screen.queryByText('Did they answer?')).toBeNull()
+    expect(store.has(`${ENTRY_ID}:person-1`)).toBe(false)
+  })
+})
+
+describe('PhoneBankingOutcomeForm drafts', () => {
+  // A switch away in the same tick as Cancel unmounts before the ref that
+  // tracks unsaved answers has caught up, so Cancel has to clear it itself.
+  it('keeps nothing for a call cancelled as the caller switches away', () => {
+    const store = new Map<string, CallDraft>()
+    const drafts: UnsavedDrafts<CallDraft> = {
+      get: (key) => store.get(key),
+      set: (key, draft) => {
+        store.set(key, draft)
+      },
+      clear: (key) => {
+        store.delete(key)
+      },
+    }
+    const view = render(
+      <PhoneBankingOutcomeForm
+        listId={9}
+        entryId={ENTRY_ID}
+        entrySeq={1}
+        personId="person-1"
+        interaction={null}
+        householdHasOthersUnlogged={false}
+        isServe
+        onSaved={vi.fn()}
+        drafts={drafts}
+      />,
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Engaged' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Yes' }))
+    dictate(MEMO)
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      view.unmount()
+    })
+
+    expect(store.has(`${ENTRY_ID}:person-1`)).toBe(false)
+  })
+})
+
+describe('PhoneBankingOutcomeForm with capture off', () => {
+  // The form is exactly what it was: an online save does not wait on the
+  // phone's storage.
+  it('leaves the queue alone on an online save', async () => {
+    setFlag(false)
+    vi.mocked(enqueue).mockClear()
+    vi.mocked(removeFromQueue).mockClear()
+    const { onSaved } = renderForm()
+    callAndSave(false)
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(removeFromQueue).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
   })
 })
