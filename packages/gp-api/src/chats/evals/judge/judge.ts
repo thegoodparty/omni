@@ -254,6 +254,29 @@ const buildSystemPrompt = (shape: string): string =>
     SHAPE_BLOCKS[shape] ?? '',
   ].join('\n')
 
+// The config's dimensions, then the case's own. One list, because the prompt,
+// the output schema and the combiner all have to name the same keys.
+export const dimensionsFor = (
+  payload: JudgePayload,
+  config: JudgeConfig,
+): string[] => [
+  ...config.dimensions,
+  ...(payload.caseDimensions ?? []).map((d) => d.name),
+]
+
+// Empty for a case with no dimensions of its own, so its prompt is the same
+// bytes it was before the field existed and the rubric version still names it.
+const caseDimensionLines = (payload: JudgePayload): string[] => {
+  const own = payload.caseDimensions ?? []
+  if (own.length === 0) return []
+  return [
+    'This case was written to test something specific. Judge each of these',
+    'dimensions by its question, against the shared input, and not by',
+    'which artifact reads better:',
+    ...own.map((d) => `- ${d.name}: ${d.question}`),
+  ]
+}
+
 const buildUserPrompt = (
   payload: JudgePayload,
   dimensions: readonly string[],
@@ -281,6 +304,7 @@ const buildUserPrompt = (
     'careful reviewer would notice), clear (the user would notice and it',
     'would change their trust or their workload), strong (one run fails at',
     'something the other handles).',
+    ...caseDimensionLines(payload),
     '</rubric>',
     '',
     '<flags>',
@@ -304,7 +328,10 @@ export const buildMessages = (
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
 ): LlmMessage[] => [
   { role: 'system', content: buildSystemPrompt(payload.agentShape) },
-  { role: 'user', content: buildUserPrompt(payload, config.dimensions) },
+  {
+    role: 'user',
+    content: buildUserPrompt(payload, dimensionsFor(payload, config)),
+  },
 ]
 
 // Deterministic on purpose: the subsample is described as fixed, so the same
@@ -474,7 +501,7 @@ const runSeat = async (
   try {
     const { object } = await llm.jsonCompletion({
       messages: buildMessages(payload, config),
-      schema: caseVerdictSchemaFor(config.dimensions),
+      schema: caseVerdictSchemaFor(dimensionsFor(payload, config)),
       models: [model],
       temperature: config.panel.temperature,
       retries: SEAT_RETRIES,
@@ -505,7 +532,8 @@ const runSeat = async (
     }
     throw new Error(
       `seat ${model} returned no verdict matching the rubric, which ` +
-        `requires one per dimension: ${config.dimensions.join(', ')}`,
+        'requires one per dimension: ' +
+        dimensionsFor(payload, config).join(', '),
     )
   }
 }
@@ -557,7 +585,7 @@ export const judgeCase = async (
     kind: 'graded',
     key: planned.key,
     slotMap: planned.slotMap,
-    dimensions: combine(seats, config.dimensions),
+    dimensions: combine(seats, dimensionsFor(planned.payload, config)),
     seats,
     seatFailures,
     // Left slot-keyed on purpose. A flag says "X did this", and X is a

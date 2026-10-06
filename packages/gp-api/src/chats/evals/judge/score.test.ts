@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import {
+  BACKGROUND_PAIR,
   BACKGROUND_TOOL_ERROR_PAIR,
   BLOCKED_PAIR,
   CHAT_PAIR,
@@ -16,8 +17,10 @@ import {
   type SlotVerdict,
 } from './judge'
 import {
+  blindCase,
   normalizeAgent,
   SLOTS,
+  type NormalizedCase,
   type NormalizedAgent,
   type SlotMap,
 } from './normalize'
@@ -1393,5 +1396,84 @@ describe('tool error causes', () => {
     )
     expect(agent.excluded.map((e) => e.reason)).toEqual(['identicalConfig'])
     expect(scoreGraded(agent).exclusions.toolErrorCauses).toEqual([])
+  })
+})
+
+// A probe's own question is evidence about that probe. Folded into the
+// agent-level numbers, one case's answer would move every one of them.
+describe('a case dimension', () => {
+  const sparse = { name: 'sparse_handling', question: 'Is the gap named?' }
+  const pairFor = (
+    caseId: string,
+    caseDimensions?: NormalizedCase['payload']['caseDimensions'],
+  ): NormalizedCase => {
+    const blinded = blindCase(BACKGROUND_PAIR[0], BACKGROUND_PAIR[1], () => 0)
+    return {
+      ...blinded,
+      caseId,
+      payload: {
+        ...blinded.payload,
+        caseId,
+        ...(caseDimensions !== undefined && { caseDimensions }),
+      },
+    }
+  }
+  const asked: NormalizedAgent = {
+    ...emptyAgent(),
+    shape: 'background',
+    judgeable: [pairFor('probe', [sparse]), pairFor('plain')],
+  }
+  // The candidate wins the probe's question and loses everything else.
+  const probeJudgment = (): GradedJudgment => {
+    const j = judgment({
+      caseId: 'probe',
+      slotMap: X_IS_CANDIDATE,
+      verdict: 'Y',
+    })
+    return {
+      ...j,
+      dimensions: {
+        ...j.dimensions,
+        sparse_handling: {
+          verdict: 'X',
+          magnitude: 'strong',
+          seatsAgreed: true,
+          directionConflict: false,
+        },
+      },
+    }
+  }
+  const judgments = [
+    probeJudgment(),
+    judgment({ caseId: 'plain', slotMap: X_IS_CANDIDATE, verdict: 'Y' }),
+  ]
+
+  it('is scored over the cases that ask it, and only those', () => {
+    const result = score(judgments, noFloor(), asked)
+    expect(result.caseDimensions).toEqual([
+      expect.objectContaining({
+        name: 'sparse_handling',
+        caseIds: ['probe'],
+        score: expect.objectContaining({ cases: 1, wins: 1, losses: 0 }),
+      }),
+    ])
+  })
+
+  it('never reaches the agent-level dimensions, overall or regressions', () => {
+    const result = score(judgments, noFloor(), asked)
+    expect(Object.keys(result.dimensions)).toEqual([
+      ...DEFAULT_JUDGE_CONFIG.dimensions,
+    ])
+    expect(result.overall.wins).toBe(0)
+    expect(result.overall.losses).toBe(2)
+    expect(result.regressions).not.toContain('sparse_handling')
+  })
+
+  it('is absent when no case asked one', () => {
+    const result = score(judgments, noFloor(), {
+      ...asked,
+      judgeable: [pairFor('probe'), pairFor('plain')],
+    })
+    expect(result.caseDimensions).toBeUndefined()
   })
 })

@@ -1361,3 +1361,46 @@ describe('a base arm that never answered', () => {
     expect(report).not.toContain('unverified')
   })
 })
+
+// A case dimension is usually asked by one or two probes, so its row has to
+// say which ones and must not print an interval resampled from one number.
+describe('the case dimension rows', () => {
+  const withCaseDimension = async (cases: number): Promise<AgentScore> => {
+    const score = await pipeline(sweepRecords(3))
+    return {
+      ...score,
+      caseDimensions: [
+        {
+          name: 'sparse_handling',
+          caseIds: ['probe_sparse'],
+          score: { ...score.overall, cases },
+        },
+      ],
+    }
+  }
+
+  it('names the cases that asked it, below the defaults', async () => {
+    const report = renderReport({ agents: [await withCaseDimension(1)] })
+    const table = report.indexOf('| case dimension |')
+    expect(table).toBeGreaterThan(report.indexOf('| user_utility |'))
+    expect(report).toMatch(/\| sparse_handling \| .* \| probe_sparse \|/)
+  })
+
+  it('prints no interval below the case floor', async () => {
+    const report = renderReport({ agents: [await withCaseDimension(1)] })
+    const row = report.split('\n').find((l) => l.startsWith('| sparse_'))
+    expect(row).toContain('too few cases for an interval (1 of 20)')
+    expect(row).not.toMatch(/\[-?\d\.\d\d, -?\d\.\d\d\]/)
+  })
+
+  it('prints the interval once there are enough', async () => {
+    const report = renderReport({ agents: [await withCaseDimension(20)] })
+    const row = report.split('\n').find((l) => l.startsWith('| sparse_'))
+    expect(row).toMatch(/\[-?\d\.\d\d, -?\d\.\d\d\]/)
+  })
+
+  it('adds nothing for an agent whose cases asked none', async () => {
+    const report = renderReport({ agents: [await pipeline(sweepRecords(3))] })
+    expect(report).not.toContain('case dimension')
+  })
+})

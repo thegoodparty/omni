@@ -833,3 +833,83 @@ describe('a truncated response is not called a rubric failure', () => {
     }
   })
 })
+
+// A probe asks about a relationship between the artifact and the input it
+// mutated, which the three default dimensions do not. The case's own question
+// has to reach the prompt, be required by the schema the seat is held to, and
+// come back combined — or the judge is asked it in prose and answers nothing.
+describe('a case with dimensions of its own', () => {
+  const sparse = {
+    name: 'sparse_input_handling',
+    question: 'Does the run say which opponents had too little to summarize?',
+  }
+  const withSparse = (): NormalizedCase => {
+    const normalized = blindCase(
+      BACKGROUND_PAIR[0],
+      BACKGROUND_PAIR[1],
+      X_IS_BASE,
+    )
+    return {
+      ...normalized,
+      payload: { ...normalized.payload, caseDimensions: [sparse] },
+    }
+  }
+  const sparseReply = (verdict: string): JsonValue =>
+    reply({
+      dimensions: {
+        task_success: dim('tie', null),
+        instruction_adherence: dim('tie', null),
+        user_utility: dim('X'),
+        sparse_input_handling: dim(verdict),
+      },
+    })
+
+  it('puts the question in the rubric and the name in the list', async () => {
+    const { llm, calls } = fake([sparseReply('Y')])
+    await judgeCase(llm, plan(withSparse()), DEFAULT_JUDGE_CONFIG)
+    const prompt = calls[0]?.messages[1]?.content
+    expect(prompt).toContain(
+      'dimensions: task_success, instruction_adherence, user_utility, ' +
+        'sparse_input_handling.',
+    )
+    expect(prompt).toContain(`- sparse_input_handling: ${sparse.question}`)
+  })
+
+  it('holds the seat to answering it', async () => {
+    const { llm, calls } = fake([sparseReply('Y')])
+    await judgeCase(llm, plan(withSparse()), DEFAULT_JUDGE_CONFIG)
+    expect(calls[0]?.schemaAccepts(reply())).toBe(false)
+    expect(calls[0]?.schemaAccepts(sparseReply('Y'))).toBe(true)
+  })
+
+  it('combines it beside the defaults', async () => {
+    const { llm } = fake([sparseReply('Y')])
+    const judgment = graded(
+      await judgeCase(llm, plan(withSparse()), DEFAULT_JUDGE_CONFIG),
+    )
+    expect(judgment.dimensions.sparse_input_handling?.verdict).toBe('Y')
+    expect(judgment.dimensions.user_utility?.verdict).toBe('X')
+  })
+
+  it('survives the order swap', () => {
+    const swapped = planJudgments([withSparse()], {
+      ...DEFAULT_JUDGE_CONFIG,
+      orderSwap: { enabled: true, fraction: 1 },
+    }).find((p) => p.key.order === 'swapped')
+    expect(swapped?.payload.caseDimensions).toEqual([sparse])
+  })
+
+  it('leaves a case without them asking exactly what it asked before', async () => {
+    const { llm, calls } = fake([reply()])
+    await judgeCase(
+      llm,
+      plan(blindCase(BACKGROUND_PAIR[0], BACKGROUND_PAIR[1], X_IS_BASE)),
+      DEFAULT_JUDGE_CONFIG,
+    )
+    const prompt = calls[0]?.messages[1]?.content ?? ''
+    expect(prompt).toContain(
+      'dimensions: task_success, instruction_adherence, user_utility. Then',
+    )
+    expect(prompt).not.toContain('This case was written to test')
+  })
+})

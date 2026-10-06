@@ -166,6 +166,13 @@ export interface DegradedPanel {
   seats: readonly string[]
 }
 
+// One of a case's own dimensions, scored over only the cases that carry it.
+export interface CaseDimensionScore {
+  name: string
+  caseIds: readonly string[]
+  score: DimensionScore
+}
+
 export interface AgentScore {
   agentId: string
   shape: AgentShape
@@ -175,6 +182,10 @@ export interface AgentScore {
   labelNote: string
   overall: DimensionScore
   dimensions: Readonly<Record<string, DimensionScore>>
+  // Never folded into `dimensions`, `overall`, `regressions` or the label: a
+  // question one probe asks is not evidence about the agent at large, and
+  // averaging it in would let one case move every agent-level number.
+  caseDimensions?: readonly CaseDimensionScore[]
   // Dimensions whose upper bound is below zero. Attached to every verdict
   // and never changes the label.
   regressions: readonly string[]
@@ -730,6 +741,29 @@ const degradedPanel = (
     : { judgments: affected, seats: [...seats].sort() }
 }
 
+// Off the payloads the judge was sent, so a row exists only for a question
+// the panel was actually asked, and its case list is the cases that asked it.
+const scoreCaseDimensions = (
+  normalized: NormalizedAgent,
+  judgments: readonly GradedJudgment[],
+  config: JudgeConfig,
+  seed: number,
+): CaseDimensionScore[] => {
+  const carriers = new Map<string, Set<string>>()
+  for (const c of normalized.judgeable) {
+    for (const d of c.payload.caseDimensions ?? []) {
+      carriers.set(d.name, (carriers.get(d.name) ?? new Set()).add(c.caseId))
+    }
+  }
+  return [...carriers]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, caseIds]) => ({
+      name,
+      caseIds: [...caseIds].sort(),
+      score: scoreDimension(judgments, name, config, seed).score,
+    }))
+}
+
 export interface ScoreInput {
   normalized: NormalizedAgent
   judgments: readonly Judgment[]
@@ -753,6 +787,12 @@ export const scoreAgent = (
     ).score
   }
   const overallResult = scoreDimension(gradedJudgments, OVERALL, config, seed)
+  const caseDimensions = scoreCaseDimensions(
+    normalized,
+    gradedJudgments,
+    config,
+    seed,
+  )
   const overall = overallResult.score
 
   const swappedPairs = overallResult.pairs.filter(
@@ -798,6 +838,7 @@ export const scoreAgent = (
     labelNote: labelled.note,
     overall,
     dimensions,
+    ...(caseDimensions.length > 0 && { caseDimensions }),
     regressions: Object.entries(dimensions)
       .filter(([, score]) => (score.interval?.upper ?? 0) < 0)
       .map(([name]) => name),

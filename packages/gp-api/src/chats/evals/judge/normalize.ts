@@ -1,4 +1,4 @@
-import { TranscriptInputSchema } from './cases'
+import { TranscriptInputSchema, type CaseDimension } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
   isComparable,
@@ -44,6 +44,10 @@ export interface JudgePayload {
   // Identical across arms by construction, so it is shown once.
   sharedInput: string
   runs: readonly [BlindedRun, BlindedRun]
+  // The case's own questions, beside the config's dimensions. Attached by the
+  // judging step from its case list, never read off a record, so both slots
+  // are asked the same ones. See CaseDimensionSchema.
+  caseDimensions?: readonly CaseDimension[]
 }
 
 export interface NormalizedCase {
