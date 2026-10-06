@@ -1401,35 +1401,40 @@ export class MeetingBriefingsService extends createPrismaBase(
       runMetadata,
       'packet_date_verification',
     )
+    // The slot the run was dispatched for. The artifact's meeting_date is
+    // supposed to echo it but has not always, and the agent writes both the
+    // stated date and meeting_date, so comparing those two would let a
+    // packet for another meeting through whenever it copied the packet's date.
+    const targetDate = targetDateFor(run, dateString)
     const statesAnotherMeeting =
       verification === 'mismatched' ||
       (statedDate !== null &&
         Math.abs(
           differenceInCalendarDays(
             parseIsoDateAsUTC(statedDate),
-            parseIsoDateAsUTC(dateString),
+            parseIsoDateAsUTC(targetDate),
           ),
         ) > PACKET_DATE_TOLERANCE_DAYS)
 
     if (briefingStatus === 'briefing_ready') {
       if (statesAnotherMeeting) {
         this.logger.warn(
-          { runId: run.runId, briefingStatus, statedDate, dateString },
+          {
+            runId: run.runId,
+            briefingStatus,
+            statedDate,
+            targetDate,
+            dateString,
+          },
           'meeting_briefing discovered agenda states another meeting date; publishing',
         )
       }
       return null
     }
 
-    // The upload row lives under the slot the official submitted into (the
-    // dispatch target), which the artifact's meeting_date is supposed to
-    // echo but has not always.
     const upload = await this.client.userAgendaUpload.findUnique({
       where: {
-        electedOfficeId_meetingDate: uploadRowKey(
-          electedOfficeId,
-          targetDateFor(run, dateString),
-        ),
+        electedOfficeId_meetingDate: uploadRowKey(electedOfficeId, targetDate),
       },
       select: { experimentRunId: true, sourceUrl: true, uploadKey: true },
     })
@@ -1441,7 +1446,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       return 'no_user_agenda_upload_for_run'
     }
     return statesAnotherMeeting
-      ? `packet_date_mismatch:${statedDate ?? 'unknown'}:${dateString}`
+      ? `packet_date_mismatch:${statedDate ?? 'unknown'}:${targetDate}`
       : null
   }
 

@@ -630,7 +630,12 @@ _UNAVAILABLE_AGENDA_PHRASES = (
 
 
 def _packet_states_another_meeting(artifact: dict, rm: dict) -> bool:
-    """Mirror of the gp-api date check: the agent flagged a mismatch, or the stated date is far off."""
+    """Mirror of the gp-api date check: the agent flagged a mismatch, or the stated date is far off.
+
+    gp-api compares against the slot the run was dispatched for; the artifact
+    does not carry that, so this compares against its meeting_date and can only
+    miss a packet whose date the agent also copied into meeting_date.
+    """
     if rm.get("packet_date_verification") == "mismatched":
         return True
     try:

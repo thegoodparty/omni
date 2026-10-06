@@ -2645,6 +2645,37 @@ describe('publication gate: ready briefings must show an available agenda', () =
       expect(row).not.toBeNull()
     })
 
+    it('refuses a packet for another meeting even when the artifact echoes the packet date', async () => {
+      // The official pasted into the June 8 slot. The packet is for May 25,
+      // and the agent copied that date into meeting_date and called it a
+      // match, so only the dispatch target can show the packet is wrong.
+      const { eo, briefingRun } = await setupRun({
+        ...userProvided({
+          packet_stated_meeting_date: '2026-05-25',
+          packet_date_verification: 'matched',
+        }),
+        meeting_date: '2026-05-25',
+      })
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(
+        await service.prisma.meetingBriefing.findFirst({
+          where: { electedOfficeId: eo.id },
+        }),
+      ).toBeNull()
+      const upload = await service.prisma.userAgendaUpload.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: eo.id,
+            meetingDate: new Date(MEETING_DATE),
+          },
+        },
+      })
+      expect(upload?.refusalReason).toBe(
+        `packet_date_mismatch:2026-05-25:${MEETING_DATE}`,
+      )
+    })
+
     it('writes the row when an upload row for this run exists', async () => {
       const { eo, briefingRun } = await setupRun(userProvided({}))
       await uploadRowFor(eo.id, briefingRun.runId)
