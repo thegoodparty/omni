@@ -1428,10 +1428,9 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     }
   }
 
-  it('does no pricing arithmetic of its own', () => {
+  it('keeps no background price of its own', () => {
     expect(script.split('\n')[0]).toBe('set -euo pipefail')
     expect(script).not.toMatch(/^\s*background_cents=/m)
-    expect(script).not.toMatch(/\bcents=[0-9]/)
   })
 
   // The plan is the real CLI's, so a format change on either side fails here.
@@ -1471,16 +1470,28 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     expect(result.refusal).toContain('could read only 1 of them')
   })
 
-  // A branch that has not picked up per-agent pricing prints unpriced rows.
-  it('refuses a plan from a CLI that predates per-agent pricing', () => {
+  // A branch whose CLI predates per-agent pricing prints unpriced rows, and
+  // is priced at the old flat worst case rather than refused.
+  it('prices a plan from an older CLI at the old worst case', () => {
     const result = runEstimate(
-      'Universal Judge — plan (1 agents)\n\n' +
-        '  self_research  [background]  cases: self_research.json\n',
-      'self_research',
+      'Universal Judge — plan (4 agents)\n\n' +
+        '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
+        '  ordinance_flow  [chat]  cases: ordinance_flow.json\n' +
+        '  self_research  [background]  cases: self_research.json\n' +
+        '  campaign_tracker_tasks  [background]  cases: NO CASE LIST YET\n',
+      'chief_of_staff,ordinance_flow,self_research,campaign_tracker_tasks',
     )
-    expect(result.status).not.toBe(0)
-    expect(result.outputs).not.toMatch(/^usd=/m)
-    expect(result.refusal).toContain('Rebase on main')
+    expect(result.status).toBe(0)
+    expect(result.outputs).toMatch(/^usd=90\.00$/m)
+    expect(result.outputs).toMatch(
+      /^sweep_agents=chief_of_staff,ordinance_flow,self_research$/m,
+    )
+    const label = '\\(old branch, worst case\\)'
+    const row = (id: string, price: string) =>
+      new RegExp(`^\\| ${id} \\| .* \\| ~${price} ${label} \\|$`, 'm')
+    expect(result.comment).toMatch(row('chief_of_staff', '7\\.00'))
+    expect(result.comment).toMatch(row('ordinance_flow', '35\\.00'))
+    expect(result.comment).toMatch(row('self_research', '48\\.00'))
   })
 })
 

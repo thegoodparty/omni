@@ -947,20 +947,20 @@ jobs:
           # CLI's own plan rows, each priced by the CLI (see planCost.ts).
           rows="$(sed -nE 's/^  ([a-z0-9_]+)  \[(chat|background)\]  cents: ([0-9]+) \(([a-z-]+)\)  cases: (.*)$/\1 \2 \3 \4 \5/p' \
             "$RUNNER_TEMP/plan.txt")"
+          # A branch whose CLI predates per-agent pricing prints its rows with
+          # no `cents:`. One CLI prints every row, so if none is priced the whole
+          # plan is that older format, and the loop prices it at the old flat
+          # worst case rather than leaving the branch unjudgeable.
+          if [ -z "$rows" ]; then
+            rows="$(sed -nE 's/^  ([a-z0-9_]+)  \[(chat|background)\]  cases: (.*)$/\1 \2 0 old-branch \3/p' \
+              "$RUNNER_TEMP/plan.txt")"
+          fi
 
           parsed=0
           if [ -n "$rows" ]; then
             # `tr` because BSD `wc` pads its count with spaces and the number
             # goes into an annotation a person reads.
             parsed="$(printf '%s\n' "$rows" | wc -l | tr -d '[:space:]')"
-          fi
-
-          # A branch older than per-agent pricing prints its rows with no
-          # `cents:`, so nothing here can price them. Named apart from the drift
-          # below because the fix is the requester's: rebase.
-          if [ "$parsed" -eq 0 ] && grep -qE '^  [a-z0-9_]+  \[(chat|background)\]  cases: ' "$RUNNER_TEMP/plan.txt"; then
-            echo "::error::this branch's judge CLI predates per-agent pricing, so its plan rows carry no price"
-            refuse "This branch's judge CLI is older than per-agent pricing, so its plan carries no price for this workflow to add up. Rebase on main and ask again."
           fi
 
           # ANSWERED ON THE THREAD, same reasoning as the header check above.
@@ -1000,6 +1000,16 @@ jobs:
                   continue
                   ;;
               esac
+              # The old flat worst case: 2 arms x 3 cases x $8 a run for a
+              # background agent, the design doc's $7 for a chat one, and $35
+              # for ordinance_flow.
+              if [ "$basis" = old-branch ]; then
+                case "$id:$shape" in
+                  ordinance_flow:*) cents=3500 ;;
+                  *:chat) cents=700 ;;
+                  *) cents=4800 ;;
+                esac
+              fi
               total=$((total + cents))
               keep "$id"
               # `$id` and `$shape` are held to a shape by the row regex's
@@ -1021,9 +1031,14 @@ jobs:
               else
                 cell="\`$safe_cases\`"
               fi
+              case "$basis" in
+                unmeasured) note=' (unmeasured)' ;;
+                old-branch) note=' (old branch, worst case)' ;;
+                *) note='' ;;
+              esac
               printf '| %s | %s | %s | ~%d.%02d%s |\n' \
                 "$id" "$shape" "$cell" "$((cents / 100))" "$((cents % 100))" \
-                "$([ "$basis" = unmeasured ] && echo ' (unmeasured)' || true)"
+                "$note"
             done <<<"$rows"
           } > "$RUNNER_TEMP/table.md"
 
