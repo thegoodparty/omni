@@ -108,6 +108,20 @@ describe('PriorityStatusRail', () => {
     expect(screen.getByText('1 of 7 done')).toBeInTheDocument()
   })
 
+  it('shows a settled gate step as Done when no check was needed', () => {
+    render(
+      <PriorityStatusRail
+        status={withStep('define', { state: 'settled' })}
+        nextAction={null}
+      />,
+    )
+    const row = screen.getByRole('button', {
+      name: new RegExp(PRIORITY_STEP_LABELS.define, 'i'),
+    })
+    expect(within(row).getByText('Done')).toBeInTheDocument()
+    expect(screen.getByText('1 of 7 done')).toBeInTheDocument()
+  })
+
   it('opens a step to show its summary and its caveat', async () => {
     const user = userEvent.setup()
     render(

@@ -5,7 +5,11 @@ import {
   type ChatAnchor,
   type CreateChatResponse,
 } from '@goodparty_org/contracts'
-import { ChatMessageRole } from '../../../../generated/prisma'
+import { ChatMessageRole, ChatScope } from '../../../../generated/prisma'
+import {
+  createBriefingChatResponseSchema,
+  type CreateBriefingChatResponse,
+} from '@/chats/briefing-chats/schemas/CreateBriefingChat.schema'
 import { LlmService } from '@/llm/services/llm.service'
 import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStream.service'
 import type { TestServiceContext } from '@/test-service'
@@ -37,18 +41,29 @@ import {
   buildTrace,
   configDigest,
   installLlmCapture,
+  installBriefingFixture,
   instrumentDatabricksProvider,
   parseStreamEvents,
   readTurnTokens,
   traceErrorText,
   type ChatTurnScript,
   type DeltaPin,
+  type InstalledBriefingFixture,
   type InstalledLlmCapture,
   type StreamEvent,
   type TurnCapture,
 } from './chatSeam'
 import { capToolErrorDetails, toolErrorDetail } from '../toolErrorDetails'
-import { assertAccountStateSupported, chatScopeFor } from './seedChatOrg'
+import {
+  assertAccountStateSupported,
+  chatScopeFor,
+  type BriefingChatTarget,
+} from './seedChatOrg'
+import {
+  JUDGE_BRIEFING_ARTIFACT,
+  JUDGE_BRIEFING_BUCKET,
+  JUDGE_BRIEFING_TODAY,
+} from './briefingFixture'
 import { assertTranscriptFits, seedPriorTranscript } from './seedTranscript'
 
 // One arm of one case for a chat agent: drive a real turn through the real
@@ -116,6 +131,9 @@ export interface ChatRunRequest {
   variant: { ref: string; commit: string; model: string }
   organizationSlug: string
   anchor?: ChatAnchor
+  // briefing_annotation only, and required there: the briefing route opens
+  // the conversation on a meeting and a place in its briefing, not on a scope.
+  briefing?: BriefingChatTarget
   // The canned model. Omitting it means the real, paid model answers, which
   // no track in this build does: that needs `realModel` and JUDGE_SPEND=1,
   // and omitting both throws rather than quietly dialling Anthropic.
@@ -141,9 +159,14 @@ const PINNABLE_TABLES: Partial<Record<string, string[]>> = {
   chief_of_staff: CONSTITUENT_TABLES.map((config) => config.table),
   priority_flow: CONSTITUENT_TABLES.map((config) => config.table),
   campaign_assistant: WIN_CONSTITUENT_TABLES.map((config) => config.table),
+  // The one table BriefingAnnotationHandler lets district_insights read. A
+  // literal because the handler keeps its allowlist private; if the two ever
+  // disagree, pinDeltaVersion finds no allowed table in the query and refuses
+  // it by name rather than running it unpinned.
+  briefing_annotation: ['serve_agent_voters'],
 }
 
-const pinnableTablesFor = (agentId: string): string[] => {
+export const pinnableTablesFor = (agentId: string): string[] => {
   const tables = PINNABLE_TABLES[agentId]
   if (!tables || tables.length === 0) {
     throw new Error(
@@ -351,6 +374,70 @@ const readAssistantText = async (
 export const reindexTrace = (steps: readonly TraceStep[]): TraceStep[] =>
   steps.map((step, index) => ({ ...step, index }))
 
+interface OpenedConversation {
+  conversationId: string
+  // Where each turn of this conversation is posted.
+  messagesPath: string
+}
+
+// THE CONVERSATION, OPENED THE WAY THE PRODUCT OPENS IT.
+//
+// Every registry scope is created through POST /v1/chats. A briefing chat is
+// not: the webapp creates it with POST /v1/briefing-chats, which writes the
+// conversation and its annotation in one transaction, and posts its turns to
+// /v1/briefing-chats/:annotationId/messages. The registry's create path
+// refuses briefing_annotation on purpose, because a conversation with no
+// annotation is one the briefing context cannot load. So this drives the
+// briefing routes — production code untouched, and the turn the judge
+// measures is the one users take, through the same handler the registry
+// holds.
+const openConversation = async (
+  ports: ChatRunnerPorts,
+  request: ChatRunRequest,
+  scope: ChatScope,
+  headers: { headers: Record<string, string> },
+): Promise<OpenedConversation> => {
+  if (scope === ChatScope.briefing_annotation) {
+    const target = request.briefing
+    if (target === undefined) {
+      throw new Error(
+        'briefing_annotation is opened on a briefing, and the request names ' +
+          "none; pass the seeded org's `briefing`",
+      )
+    }
+    const created = await ports.service.client.post<CreateBriefingChatResponse>(
+      '/v1/briefing-chats',
+      { meetingDate: target.meetingDate, anchor: target.anchor },
+      headers,
+    )
+    if (created.status !== HTTP_CREATED) {
+      throw new Error(`POST /v1/briefing-chats returned ${created.status}`)
+    }
+    const { annotationId, conversationId } =
+      createBriefingChatResponseSchema.parse(created.data)
+    return {
+      conversationId,
+      messagesPath: `/v1/briefing-chats/${annotationId}/messages`,
+    }
+  }
+
+  const created = await ports.service.client.post<CreateChatResponse>(
+    '/v1/chats',
+    { scope, ...(request.anchor && { anchor: request.anchor }) },
+    headers,
+  )
+  if (created.status !== HTTP_CREATED) {
+    throw new Error(
+      `POST /v1/chats returned ${created.status} for scope "${scope}"`,
+    )
+  }
+  const { conversationId } = CreateChatResponseSchema.parse(created.data)
+  return {
+    conversationId,
+    messagesPath: `/v1/chats/${conversationId}/messages?scope=${scope}`,
+  }
+}
+
 // EVERY USER TURN OF THE CASE, POSTED TO ONE CONVERSATION.
 //
 // Turn 2 sees turn 1 because the ROUTE persisted it, not because anything
@@ -369,17 +456,12 @@ const driveCase = async (
     headers: { 'X-Organization-Slug': request.organizationSlug },
   }
 
-  const created = await ports.service.client.post<CreateChatResponse>(
-    '/v1/chats',
-    { scope, ...(request.anchor && { anchor: request.anchor }) },
+  const { conversationId, messagesPath } = await openConversation(
+    ports,
+    request,
+    scope,
     headers,
   )
-  if (created.status !== HTTP_CREATED) {
-    throw new Error(
-      `POST /v1/chats returned ${created.status} for scope "${scope}"`,
-    )
-  }
-  const { conversationId } = CreateChatResponseSchema.parse(created.data)
 
   // Before the first turn, so the agent's first reply is already a
   // mid-conversation one. No route writes an assistant message, so this
@@ -408,12 +490,14 @@ const driveCase = async (
     // user-turn dedup, which a run that opens its own conversation cannot
     // need.
     const streamed = await ports.service.client.post<string>(
-      `/v1/chats/${conversationId}/messages?scope=${scope}`,
+      messagesPath,
       { content },
       headers,
     )
     if (streamed.status !== HTTP_OK) {
-      throw new Error(`POST /v1/chats/:id/messages returned ${streamed.status}`)
+      throw new Error(
+        `POST ${messagesPath.split('?')[0]} returned ${streamed.status}`,
+      )
     }
 
     const events = parseStreamEvents(String(streamed.data))
@@ -623,6 +707,18 @@ export const assertSeededAccountState = async (
     }
   }
 
+  if (state.briefingHighlight !== undefined) {
+    const highlighted =
+      request.briefing !== undefined &&
+      request.briefing.anchor.jsonPath !== null
+    if (highlighted !== state.briefingHighlight) {
+      wrong.push(
+        `briefingHighlight is ${state.briefingHighlight} but the briefing ` +
+          `chat opens on ${highlighted ? 'a highlight' : 'the whole briefing'}`,
+      )
+    }
+  }
+
   if (wrong.length > 0) {
     throw new CaseListError(
       `${request.agentId}/${request.case.caseId} declares an account state ` +
@@ -756,6 +852,25 @@ export const runChatCase = async (
     databricks.restore()
     throw err
   }
+  // A third patch, for the briefing scope alone, and unwound the same way:
+  // it serves the seeded briefing's artifact and pins the `today` the
+  // briefing prompt renders, so both arms read the same briefing on the same
+  // day. See installBriefingFixture.
+  let briefing: InstalledBriefingFixture | undefined
+  try {
+    briefing =
+      chatScopeFor(request.agentId) === ChatScope.briefing_annotation
+        ? installBriefingFixture({
+            bucket: JUDGE_BRIEFING_BUCKET,
+            artifactContent: JUDGE_BRIEFING_ARTIFACT,
+            today: JUDGE_BRIEFING_TODAY,
+          })
+        : undefined
+  } catch (err) {
+    llm.restore()
+    databricks.restore()
+    throw err
+  }
 
   const startedAt = new Date()
   let outcome: CaseOutcome
@@ -785,6 +900,7 @@ export const runChatCase = async (
     driveError = traceErrorText(err)
     trace = infraTrace(driveError)
   } finally {
+    briefing?.restore()
     llm.restore()
     databricks.restore()
   }

@@ -21,7 +21,7 @@ import {
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
-import { isBefore } from 'date-fns'
+import { isBefore, parseISO } from 'date-fns'
 import {
   checkSmsStandards,
   type SmsOutreachResults,
@@ -175,9 +175,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   ) {
     const peerlyIdentityId = await this.requirePeerlyIdentityId(campaign)
 
+    // The name carries the candidate's calendar day (the payload's offset-
+    // annotated datetime starts with it). Formatting the instant would use
+    // the server's UTC and name the next day for an evening US send — the
+    // Peerly job title read 10/06 for an Oct 5 7 PM Pacific text.
     const name = `${campaign.slug}${
       createOutreachDto.date
-        ? ` - ${formatDate(createOutreachDto.date, DateFormats.usIsoSlashes)}`
+        ? ` - ${formatDate(
+            parseISO(createOutreachDto.date.slice(0, 10)),
+            DateFormats.usIsoSlashes,
+          )}`
         : ''
     }`
 

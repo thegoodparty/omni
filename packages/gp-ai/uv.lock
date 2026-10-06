@@ -1284,11 +1284,6 @@ dev = [
 ]
 
 [package.dev-dependencies]
-campaign-plan-lambda = [
-    { name = "braintrust" },
-    { name = "google-genai" },
-    { name = "python-dotenv" },
-]
 dev = [
     { name = "braintrust", extra = ["cli"] },
     { name = "jsonschema" },
@@ -1348,11 +1343,6 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-campaign-plan-lambda = [
-    { name = "braintrust", specifier = ">=0.12.1" },
-    { name = "google-genai", specifier = ">=1.56.0" },
-    { name = "python-dotenv", specifier = ">=1.1.1" },
-]
 dev = [
     { name = "braintrust", extras = ["cli"], specifier = ">=0.12.1" },
     { name = "jsonschema", specifier = ">=4.20.0" },

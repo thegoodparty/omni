@@ -11,6 +11,7 @@ import {
   ResolveConversationResult,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   OrdinanceFlowContext,
@@ -139,6 +140,7 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      state: resolved.state,
       officeLevel: resolved.level,
     }
   }
@@ -148,6 +150,12 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       ctx,
       toolNames: Object.keys(this.assembleTools(ctx)),
     })
+  }
+
+  // Statute citations and legal readings get the same deterministic
+  // disclaimer backstop as the other general assistants.
+  finalizeAssistantText(text: string): string | null {
+    return professionalAdviceDisclaimer(text)
   }
 
   buildTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {

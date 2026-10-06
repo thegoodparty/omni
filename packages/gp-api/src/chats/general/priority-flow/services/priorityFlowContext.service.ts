@@ -22,6 +22,8 @@ export interface PriorityFlowContext {
   officeTitle: string | null
   officialFirstName: string | null
   jurisdiction: string | null
+  // Two-letter state from the resolved district, for the date line's zone.
+  state?: string | null
   title: string
   description: string
   source: PrioritySource

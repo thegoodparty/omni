@@ -172,6 +172,14 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     placeholder: 'your-anthropic-key',
   },
 
+  // ballotReady.service throws at import when unset, so the placeholder is
+  // what boots a laptop, and onboarding's office step then 401s on it.
+  BALLOT_READY_KEY: {
+    tier: 'degradable',
+    feature: 'office-search',
+    placeholder: 'key',
+  },
+
   L2_DATA_KEY: { tier: 'degradable', feature: 'voter-file-l2' },
 
   // Secrets Manager id of the curated local-dev bundle POST /v1/dev-env/
@@ -265,7 +273,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   LLAMA_AI_ASSISTANT: { tier: 'optional' },
   BRAINTRUST_API_KEY: { tier: 'optional' },
 
-  BALLOT_READY_KEY: { tier: 'optional' },
   GEOAPIFY_API_KEY: { tier: 'optional' },
   BRAVE_API_KEY: { tier: 'optional' },
   SEGMENT_WRITE_KEY: { tier: 'optional' },
@@ -281,10 +288,8 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   ENABLE_DOMAIN_PURCHASE: { tier: 'optional', default: 'false' },
 
-  CAMPAIGN_PLAN_INPUT_QUEUE_URL: { tier: 'optional' },
   CAMPAIGN_PLAN_RESULTS_BUCKET: { tier: 'optional' },
   CAMPAIGN_PLAN_SHARES_BUCKET: { tier: 'optional' },
-  CAMPAIGN_PLAN_LOCAL_URL: { tier: 'optional' },
 
   AGENT_DISPATCH_QUEUE_NAME: { tier: 'optional' },
   AGENT_RUN_INPUTS_BUCKET: { tier: 'optional' },

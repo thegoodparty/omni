@@ -300,7 +300,7 @@ export class GeneralChatsService {
         return
       }
 
-      if (conversation.title === null) {
+      if (handler.setsTitle !== false && conversation.title === null) {
         await self.store.setTitleIfUnset(
           args.conversationId,
           toTitle(args.userMessage),
@@ -317,7 +317,7 @@ export class GeneralChatsService {
         tools,
         userMessage: args.userMessage,
         models: handler.models,
-        traceName: `${handler.scope}-chat-stream`,
+        traceName: handler.traceName ?? `${handler.scope}-chat-stream`,
         scope: handler.scope,
         ...(handler.maxSteps && { maxSteps: handler.maxSteps }),
         ...(args.signal && { signal: args.signal }),

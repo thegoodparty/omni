@@ -568,6 +568,91 @@ describe('PriorityWorkspace', () => {
     expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
   })
 
+  it('names the card it is writing once text is already on screen', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'The county runs this. ' },
+          { type: 'tool_input_start', toolName: 'present_outside_contact' },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(await screen.findByText(/The county runs this/)).toBeInTheDocument()
+    expect(
+      await screen.findByText('Looking up who to contact...'),
+    ).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('names the question it is preparing once text is on screen', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'Two ways to read this. ' },
+          { type: 'tool_input_start', toolName: 'ask_clarify_question' },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(await screen.findByText(/Two ways to read this/)).toBeInTheDocument()
+    expect(
+      await screen.findByText('Preparing your question...'),
+    ).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('keeps showing work between tool calls once text is on screen', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'Pulling the renters on those blocks. ' },
+          { type: 'tool_call', toolName: 'count_contacts', args: {} },
+          { type: 'tool_result', toolName: 'count_contacts', result: {} },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/Pulling the renters on those blocks/),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('Thinking...')).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('drops the shimmer once the turn has finished streaming', async () => {
+    mocks.streamMessage.mockImplementation(
+      streamOf([
+        { type: 'text', delta: 'Here is where this stands. ' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/Here is where this stands/),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByText('Thinking...')).not.toBeInTheDocument(),
+    )
+  })
+
   it('shows an ordinary tool as a quiet pill rather than a card', async () => {
     mocks.listMessages.mockResolvedValue([
       {

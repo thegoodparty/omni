@@ -6,13 +6,13 @@ description: Open a PR following GoodParty conventions and drive the delegate-re
 # Ship a PR and converge with delegate
 
 Three gates in one run: open the PR (Phase 1), drive `delegate-reviewer[bot]`
-to `Approved.` (Phase 2), and confirm every GitHub check on the PR is green
+to approval (Phase 2), and confirm every GitHub check on the PR is green
 (Phase 3). Fully autonomous — only stop to surface a pre-flight failure you must
 rule on, a finding you've verified is wrong or too high-blast-radius to auto-apply,
 or a check failure that is flaky/pre-existing/infra rather than caused by your
 diff.
 
-**A PR is only mergeable when, at the same HEAD SHA, delegate is `Approved.` AND
+**A PR is only mergeable when, at the same HEAD SHA, delegate has approved it AND
 every non-skipped GitHub check is green.** As of 2026-06-15 the gp-webapp
 Playwright **`E2E`** check is a **hard merge gate**, not advisory — but it's not
 the only one: any package touched by the diff can add its own required check (a
@@ -64,95 +64,52 @@ always resolves.
 
 ## Phase 2 — converge with delegate (autonomous to approval)
 
-Delegate is `delegate-reviewer[bot]`. It normally submits a GitHub **review**:
+Delegate is `delegate-reviewer[bot]`. It reviews one commit at a time:
 
-- `APPROVED` — body is `Approved.`
-- `COMMENTED` — body starts with `**N blocker(s).**` and asks you to reply
-  `delegate review` after fixing.
+- It reviews the **first push** on its own (opening a PR, or marking a draft
+  ready). Every later review happens only when someone comments
+  `delegate review`.
+- It reviews **each commit once**. `delegate review` on a commit that already
+  has a run, even a failed one, is refused with a PR comment. To get another
+  review, push a new commit.
+- While it reviews a commit it sets a `pr-reviewer` commit status of `pending`
+  on that commit, then a terminal status (`Approved`, `Commented: N finding(s)`,
+  or `Review failed`).
+- It posts a GitHub **review** pinned to that commit (`commit_id`). The body
+  opens with `**Recommendation: approve**` or `**Recommendation: comment**`.
+  In-diff findings are inline review comments; out-of-diff findings and still-open
+  findings from earlier rounds are listed in the body.
 
-Findings carry stable `<!-- delegate-finding-id: <uuid> -->` markers: in-diff
-findings are inline review comments, out-of-diff findings live in the review body.
-Re-reviews are prefixed `_X resolved since last review, Y new._`.
-
-**Fallback channel: delegate doesn't always land a review.** When delegate hits a
-GitHub API error posting inline comments, it falls back to posting its findings as
-a plain **issue comment** on the PR instead of a review. Recognize the fallback by
-the `<!-- delegate-reviewer-state -->` marker at the top of the comment body (a real
-review carries no such marker). The fallback comment has the same
-`**N blocker(s).**` / `Approved.` verdict line and the same `delegate-finding-id`
-markers, but every finding — in-diff or not — is inline in the comment body; there
-are no separate inline PR review comments to fetch. Triage is otherwise identical.
-This happened on PR #1609: `/pulls/1609/reviews` stayed empty for the review's
-entire lifetime because it never landed as a review at all — only as an issue
-comment — and a reviews-only poll would wait forever without ever seeing it.
+**Wait with `scripts/delegate-review-wait.sh`, never a hand-rolled poll.** It
+tracks one commit, waits for delegate's terminal status on it, and prints the
+verdict, the review body, and every inline finding. Exit codes: `0` approved,
+`1` findings, `2` review failed, `3` timed out, `4` the commit was superseded,
+`5` delegate refused because it already reviewed this commit.
+Run it in the background so you can keep working: Claude Code's
+`run_in_background`, or `bash_background` in pi.
 
 Loop:
 
-1. **Get delegate's verdict for the current HEAD, checking both channels.**
-   Delegate can land on the reviews endpoint or, on fallback, the issue comments
-   endpoint. Poll both every cycle and take whichever is newer and valid for HEAD.
-   **An empty or unchanged result from one endpoint is not evidence delegate hasn't
-   run — it may have used the other channel.** Never conclude "no review yet" from
-   one endpoint alone.
-
-   - **Reviews** (`gh api repos/thegoodparty/omni/pulls/<n>/reviews`): filter to
-     `user.login == "delegate-reviewer[bot]"`, take the latest by `submitted_at`.
-     Anchor on its `commit_id`: valid for HEAD iff `commit_id == HEAD SHA`.
-   - **Issue comments** (`gh api repos/thegoodparty/omni/issues/<n>/comments`):
-     filter to `user.login == "delegate-reviewer[bot]"` and a body starting with
-     `<!-- delegate-reviewer-state -->`, take the latest by `created_at`. An issue
-     comment carries **no `commit_id`**, so anchor by time instead: get the HEAD
-     commit's timestamp (`gh api repos/thegoodparty/omni/commits/<HEAD SHA> --jq
-.commit.committer.date` — verified equal to its push time via the PR
-     timeline) and treat the comment as valid for HEAD only if its `created_at` is
-     **after** that timestamp. A comment timestamped at or before HEAD's commit
-     time is stale — it answered an earlier push.
-
-   Worked example (verified against the live PR #1609 fallback comment):
-
-   ```bash
-   PR=1609
-   HEAD_SHA=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
-   HEAD_AT=$(gh api repos/thegoodparty/omni/commits/"$HEAD_SHA" --jq .commit.committer.date)
-
-   # channel 1: reviews
-   gh api repos/thegoodparty/omni/pulls/"$PR"/reviews \
-     --jq '[.[] | select(.user.login=="delegate-reviewer[bot]")] | sort_by(.submitted_at) | last'
-
-   # channel 2: issue-comment fallback, filtered to the marker and anchored past HEAD's commit time
-   gh api repos/thegoodparty/omni/issues/"$PR"/comments \
-     | jq --arg since "$HEAD_AT" \
-       '[.[] | select(.user.login=="delegate-reviewer[bot]"
-                      and (.body | startswith("<!-- delegate-reviewer-state -->"))
-                      and .created_at > $since)] | sort_by(.created_at) | last'
-   ```
-
-   (Note the second command pipes into plain `jq` for `--arg` — `gh api --jq`
-   doesn't accept extra jq flags.) Whichever channel returns the newer,
-   valid-for-HEAD result is delegate's verdict for this round.
-
-   - **A valid verdict exists at HEAD** (review `commit_id == HEAD`, or issue
-     comment `created_at` after HEAD's commit time) → use it; go to step 2. Do
-     **not** re-trigger (that wastes a capped round and corrupts delegate's
-     resolved-count).
-   - **Neither channel has a valid verdict yet** → get one: a just-opened PR
-     auto-reviews (just wait); if you just pushed fixes to an existing PR, post an
-     issue comment `delegate review` to trigger.
-   - **The wait is bounded, always.** Poll both endpoints every ~30–60s. Budget
-     **~10 min, hard stop** — fix the deadline before the first poll, not after you
-     notice you've been waiting a while. Silence from a polled endpoint is not
-     evidence a review isn't coming; it's only evidence you haven't seen one yet.
-     If neither channel has a valid verdict when the deadline passes, stop polling
-     and report — don't keep the loop running past its budget on the chance the
-     next check finds something.
+1. **Get delegate's verdict for HEAD.**
+   - **First push** (you just opened the PR or marked it ready):
+     `scripts/delegate-review-wait.sh <n>`. Do not comment `delegate review`;
+     the review is already coming.
+   - **Any later push** (you pushed fixes): `scripts/delegate-review-wait.sh <n>
+     --trigger`. It posts `delegate review` and only accepts a verdict that lands
+     after that comment, so an earlier verdict on the same commit can't fool it.
+   - Exit `2` (review failed): a delegate problem, not a finding. That commit
+     can't be reviewed again, so stop and report it with the review link.
+   - Exit `3` (timed out after 20 min): stop and report. Don't extend the wait.
+   - Exit `4` (superseded): HEAD moved while delegate reviewed. Re-run against
+     the new HEAD with `--trigger`.
+   - Exit `5` (refused): you triggered a commit delegate already reviewed. Push
+     your fixes first, then `--trigger`.
 
 2. **Verdict.**
-   - `APPROVED` (`Approved.`) → delegate gate passed. Go to **Phase 3** to confirm
+   - Exit `0` (approved) → delegate gate passed. Go to **Phase 3** to confirm
      the full check set before declaring done — do not exit yet.
-   - Otherwise parse the blockers, keyed by `delegate-finding-id`: for a review,
-     that's the review body plus inline comments (`gh api .../pulls/<n>/comments`);
-     for the issue-comment fallback, every finding is already inline in the one
-     comment body you fetched in step 1 — nothing separate to pull.
+   - Otherwise every finding is a blocker. The script output already has them
+     all: the review body, then one `### path:line` section per inline comment.
 
 3. **Triage each finding — comply by default, but verify first.** Read the cited
    code before acting. If the claim is real, apply the fix. **Escalate instead of
@@ -167,8 +124,7 @@ Loop:
    no AI footers). Before pushing, re-run pre-flight on the affected package(s) —
    never push failing lint/types/test. Commit and push (always push the fixes
    you've made, so agreed work isn't lost). Then decide by what's left:
-   - **Nothing escalated this round** → comment `delegate review` and loop back to
-     step 1.
+   - **Nothing escalated this round** → loop back to step 1 with `--trigger`.
    - **Anything escalated this round** → do _not_ re-trigger or loop. Stop and hand
      back the escalated findings (alongside the fixes you just pushed) for the
      user's call. Escalation always wins over looping.
@@ -202,7 +158,7 @@ re-triggers them. Anchor on HEAD, the same as delegate.
    that window, stop and report.
 
 3. **All resolved — read the verdict.**
-   - **Every required check green** → **done**. Combined with delegate `Approved.`
+   - **Every required check green** → **done**. Combined with delegate approval
      at this HEAD, report success and exit.
    - **One or more failing** → go to step 4, one at a time.
 
@@ -231,9 +187,8 @@ re-triggers them. Anchor on HEAD, the same as delegate.
 
 5. **Apply, then re-converge.** Make the verified-valid fixes (re-run pre-flight on
    affected packages first — never push failing lint/types/unit tests). Commit and
-   push. The push re-triggers delegate and the full check set for the new HEAD, so
-   loop back to **Phase 2 step 1** (comment `delegate review`) and re-confirm all
-   gates at the new HEAD. Done requires delegate approved and every check green on
+   push. The push re-runs the full check set but not delegate, so loop back to
+   **Phase 2 step 1** with `--trigger` and re-confirm all gates at the new HEAD. Done requires delegate approved and every check green on
    the _same_ commit.
 
 6. **Round cap.** Stop after **2 check-fix rounds** (total across all checks, not
@@ -242,20 +197,20 @@ re-triggers them. Anchor on HEAD, the same as delegate.
 
 ## Stop conditions (always report, never loop past these)
 
-- Delegate `Approved.` **and** every required GitHub check green at the same HEAD
+- Delegate approved **and** every required GitHub check green at the same HEAD
   → success.
 - 3 delegate rounds, or 2 check-fix rounds, reached → summary handback.
-- ~10 min poll with no valid verdict on either channel, or ~45 min with checks
-  still unresolved → timeout handback.
+- `delegate-review-wait.sh` timed out (exit `3`), or ~45 min with checks still
+  unresolved → timeout handback.
 - A pre-flight failure (any phase), an escalated finding, or a check failure that
   is flaky/pre-existing/infra → wait for the user.
 
 ## Notes
 
-- **An empty poll result is not evidence that nothing happened.** This applies
-  beyond delegate's two channels: a polled endpoint returning nothing means "not
-  seen yet," never "not coming" — don't let a quiet poll justify waiting past a
-  budget, and don't let it justify concluding a step is done early either.
+- **An empty poll result is not evidence that nothing happened.** A polled
+  endpoint returning nothing means "not seen yet," never "not coming" — don't let
+  a quiet poll justify waiting past a budget, and don't let it justify concluding
+  a step is done early either.
 - All findings escalated to the user need: the file/line, delegate's claim, and
   _your_ verified take (agree / disagree, with evidence). For an escalated
   **check failure**: the check name, the failing spec/job name(s), the

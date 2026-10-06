@@ -862,6 +862,10 @@ export const RobocallFlow = ({
   const handleScriptChange = (next: string) => {
     setScript(next)
     setOwnWords(true)
+    // An edit wins over a reply still in flight, which would otherwise land
+    // on top of it. Dropping the call also clears a failed one's error.
+    draftRequestRef.current += 1
+    if (draftMutation.isPending || draftMutation.isError) draftMutation.reset()
   }
 
   const hasBuilderSelection = hasAnyVoterFileSelection(

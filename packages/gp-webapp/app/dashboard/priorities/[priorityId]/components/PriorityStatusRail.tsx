@@ -117,9 +117,10 @@ const checkLineState = (check: PriorityStepCheck): PriorityCheckState => {
   return check.state
 }
 
-// A gate is not done until its check has actually gone out with people, come
-// back, or been turned down. Until then the conclusion is the official's own,
-// so the rail keeps it in progress, whatever the agent recorded.
+// A gate with a check offered is not done until it has gone out with people,
+// come back, or been turned down. Until then the conclusion is the official's
+// own, so the rail keeps it in progress, whatever the agent recorded. A gate
+// that never needed a check is done when it settles.
 const SENT_OR_DECIDED: readonly PriorityCheckState[] = [
   'out',
   'confirmed',
@@ -134,7 +135,8 @@ const shownState = (
   if (step.state !== 'settled') return step.state
   if (openListenBefore(steps, step.id) !== undefined) return 'active'
   return PRIORITY_GATE_STEPS.includes(step.id) &&
-    !(step.check && SENT_OR_DECIDED.includes(step.check.state))
+    step.check !== undefined &&
+    !SENT_OR_DECIDED.includes(step.check.state)
     ? 'active'
     : step.state
 }

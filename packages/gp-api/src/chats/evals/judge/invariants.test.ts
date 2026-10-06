@@ -155,6 +155,49 @@ describe('the chief of staff vocabulary invariant', () => {
   })
 })
 
+// The same sentence is in the briefing chat prompt (systemPromptBuilder.ts),
+// so the same rule applies to its records.
+describe('the briefing chat vocabulary invariant', () => {
+  const briefing = (record: RunRecord): RunRecord => ({
+    ...record,
+    agentId: 'briefing_annotation',
+  })
+
+  it('reports a candidate that says voters where the base did not', () => {
+    const found = invariantViolations([
+      withText(briefing(BASE), CONSTITUENTS, NEUTRAL),
+      withText(briefing(CANDIDATE), VOTERS, NEUTRAL),
+    ])
+    expect(found).toHaveLength(1)
+    expect(found[0]?.agentId).toBe('briefing_annotation')
+    expect(found[0]?.invariant).toBe('constituents-not-voters')
+    expect(found[0]?.candidateRuns).toBe(1)
+    expect(found[0]?.baseRuns).toBe(0)
+  })
+
+  // "Registered voters" with nothing about voting, the shape of the
+  // briefing case list's vocabulary probe, detects the regression rather than
+  // exempting it.
+  it('does not exempt a question about registered voters', () => {
+    const question =
+      'Which registered voters in my district have the most at stake in ' +
+      'the short-term rental cap?'
+    const found = invariantViolations([
+      withText(briefing(BASE), CONSTITUENTS, question),
+      withText(briefing(CANDIDATE), VOTERS, question),
+    ])
+    expect(found).toHaveLength(1)
+    expect(found[0]?.candidateRuns).toBe(1)
+  })
+
+  it('allows voters where the user raised an election', () => {
+    const found = invariantViolations([
+      withText(briefing(CANDIDATE), VOTERS, 'How did turnout look last time?'),
+    ])
+    expect(found).toEqual([])
+  })
+})
+
 describe('the invariant registry', () => {
   it('is keyed by agent id and reaches the chief of staff', () => {
     expect(AGENT_INVARIANTS.chief_of_staff).toBeDefined()

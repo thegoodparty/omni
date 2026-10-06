@@ -824,6 +824,8 @@ export {
 export {
   ShowListMapSchema,
   type ShowListMap,
+  ListProposalSchema,
+  type ListProposal,
 } from './chats/ChiefOfStaffWidgets.schema'
 
 export {
@@ -892,6 +894,16 @@ export {
   type MergeTagChannel,
   type MergeTagId,
 } from './outreach/MergeTag.const'
+export {
+  SAMPLE_TARGET_REPLIES,
+  DEFAULT_TEXT_REPLY_RATE,
+  HIGH_CONFIDENCE_MIN_REPLIES,
+  HIGH_CONFIDENCE_MIN_SHARE,
+  PRICE_PER_TEXT_TENTH_CENTS,
+  PRICE_PER_TEXT,
+  recommendedSampleSize,
+  isHighConfidence,
+} from './outreach/SampleSizing.const'
 export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
@@ -1276,6 +1288,11 @@ export {
   type GeoJsonShape,
   shapePolygons,
   shapePartCount,
+  MAX_GEO_SHAPE_NAME_LENGTH,
+  GeoShapeLabelSchema,
+  type GeoShapeLabel,
+  GeoShapeLabelsSchema,
+  type GeoShapeLabels,
 } from './shared/GeoJsonShape.schema'
 
 export {

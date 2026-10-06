@@ -110,16 +110,26 @@ export const toolFailureDelayMs = (failure: ToolFailure): number =>
 //                   what `get_ballot_requirements` registers on.
 //   ordinanceStep   each ordinance step past clarify carries its own
 //                   `present_*` tools and nothing else does.
+//   briefingHighlight
+//                   the one state here that registers no tool: it opens the
+//                   briefing chat on a highlighted passage instead of the
+//                   whole briefing, which is the other thing the briefing
+//                   prompt renders differently. Like ordinanceStep it picks
+//                   what the conversation is anchored on, and like it the
+//                   runner reads the anchor back.
 //
 // Absent means "whatever the seeder seeds by default", which is every one of
 // these present. Only an explicit `false` takes something away, so a case
-// list that names none of them seeds exactly what it seeded before.
+// list that names none of them seeds exactly what it seeded before. The
+// exception is briefingHighlight, whose default is the whole briefing: a
+// highlight is something a user picks, not something an account has.
 export const ChatAccountStateSchema = z
   .object({
     pro: z.boolean().optional(),
     district: z.boolean().optional(),
     campaignDetails: z.boolean().optional(),
     ordinanceStep: OrdinanceFlowStepSchema.optional(),
+    briefingHighlight: z.boolean().optional(),
   })
   .strict()
   .refine((state) => Object.keys(state).length > 0, {

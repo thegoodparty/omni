@@ -52,7 +52,8 @@ export interface ConstituentDataScope {
   // denies these at the warehouse.
   forbiddenColumns: Set<string>
   // Server-bound district predicate. Built from
-  // DistrictResolverService.resolveByUserId — NEVER from agent input.
+  // DistrictResolverService.resolveByOrgSlug on the conversation's own org —
+  // NEVER from agent input, and never from the user's first office.
   mandatoryFilters: MandatoryFilter[]
   minCellSize?: number
   // Whether partisan columns (party registration, partisanship/ideology

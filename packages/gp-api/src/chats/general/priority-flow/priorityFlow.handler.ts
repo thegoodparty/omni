@@ -26,6 +26,7 @@ import {
   ResolveConversationResult,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import {
   buildConstituentDataScope,
   ConstituentTableConfig,
@@ -54,6 +55,7 @@ import {
   proposalResult,
 } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import {
   PriorityFlowContext,
@@ -192,6 +194,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      state: resolved.state,
       districtFilters: this.districtResolver
         ? this.districtResolver.toMandatoryFilters(resolved)
         : null,
@@ -205,6 +208,12 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       ctx,
       toolNames: Object.keys(this.assembleTools(ctx)),
     })
+  }
+
+  // Legal readings (a statute cited, liability characterized) get the same
+  // deterministic disclaimer backstop Chief of Staff uses.
+  finalizeAssistantText(text: string): string | null {
+    return professionalAdviceDisclaimer(text)
   }
 
   buildTools(ctx: PriorityFlowContext): Record<string, LlmTool> {
@@ -272,6 +281,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       },
       present_outside_contact: buildPresentOutsideContactTool(),
       present_past_outreach: buildPresentPastOutreachTool(),
+      size_outreach_sample: buildSizeOutreachSampleTool(),
       read_past_outreach: buildReadPastOutreachTool({
         outreach: this.outreach,
         priorityId: ctx.priorityId,

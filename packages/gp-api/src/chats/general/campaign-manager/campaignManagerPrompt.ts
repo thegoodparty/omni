@@ -6,6 +6,7 @@ import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strate
 import { buildProductKnowledgeBlocks } from '../product-knowledge/productKnowledgePrompt'
 import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 import type { BallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
+import { todayLine } from '../services/todayLine'
 
 export type { BallotStatus }
 
@@ -27,6 +28,8 @@ export interface CampaignManagerContext {
   // field onboarding actually writes. details.level is never populated.
   officeLevel: string | null
   location: string | null
+  // Two-letter state from the campaign record, for the date line's zone.
+  state?: string | null
   weeksToElection: number | null
   // What the candidate answered in onboarding's "Are you already on the
   // ballot?" step. Null when they never answered (pre-dates the step, or came
@@ -110,7 +113,10 @@ Never sign it as a city, a council, or a campaign instead of the person, and \
 never write a placeholder such as [Your Name] or [Office]. If you do not know \
 their name or office, ask before you draft.
 - When advice rests on an assumption instead of something the candidate said \
-or a tool returned, say plainly which part is the assumption.`
+or a tool returned, say plainly which part is the assumption.
+- Before recommending a potentially harmful action, if a missing fact could \
+materially change the recommendation, obtain that fact before recommending \
+the action while still providing steps that are sound either way.`
 
 const raceContext = (ctx: CampaignManagerContext): string => {
   const lines: string[] = []
@@ -555,6 +561,7 @@ export const buildCampaignManagerSystemPrompt = (
 ): string =>
   [
     ROLE,
+    todayLine(ctx.state),
     raceContext(ctx),
     ballotStatusBlock(ctx),
     storyBlock(ctx),

@@ -68,9 +68,9 @@ export const AgentEntrySchema = z
   })
 export type AgentEntry = z.infer<typeof AgentEntrySchema>
 
-// The four chat scopes registered in CHAT_SCOPE_HANDLERS today, plus the one
-// that is not. Ids match ChatScope in the Prisma schema, so the runner can
-// resolve a handler straight from the registry with no mapping table.
+// The five chat scopes registered in CHAT_SCOPE_HANDLERS. Ids match ChatScope
+// in the Prisma schema, so the runner can resolve a handler straight from the
+// registry with no mapping table.
 const CHAT_AGENT_IDS = [
   'chief_of_staff',
   'campaign_assistant',
@@ -87,27 +87,20 @@ type ChatAgentId = (typeof CHAT_AGENT_IDS)[number]
 // so a typo there compiles — what catches a registry entry pointing at a file
 // nobody wrote is the directory check in chatCaseLists.test.ts.
 //
-// briefing_annotation is absent on purpose. It is blocked, not unwritten, so
-// a case list would be inputs for a runner that cannot drive it.
-//
-// All four are placeholder lists — see the `note` in each file. That does
+// All five are placeholder lists — see the `note` in each file. That does
 // not stop an agent being wired; the coverage line counts it separately.
 const CHAT_CASE_LISTS: Partial<Record<ChatAgentId, string>> = {
   chief_of_staff: 'chief_of_staff.json',
   campaign_assistant: 'campaign_assistant.json',
   ordinance_flow: 'ordinance_flow.json',
   priority_flow: 'priority_flow.json',
+  briefing_annotation: 'briefing_annotation.json',
 }
 
 // Keyed by the id union too, so dropping a scope from CHAT_AGENT_IDS without
-// dropping its reason is a typecheck failure.
-const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {
-  briefing_annotation:
-    'No ChatScopeHandler yet. Briefing chat still assembles its own ' +
-    'prompt and tools, so the chat runner cannot drive it through the ' +
-    'registry. Unblocked by the briefing-chats migration, which is a ' +
-    'follow-on rather than a prerequisite.',
-}
+// dropping its reason is a typecheck failure. Empty today: every chat scope
+// can be driven.
+const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {}
 
 const CHAT_AGENTS: AgentEntry[] = CHAT_AGENT_IDS.map((agentId) => {
   const blockedReason = CHAT_BLOCKED_REASONS[agentId]
@@ -159,9 +152,8 @@ type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
 // per sweep. A registry entry is the same either way on purpose: the
 // difference belongs to the case list and the sweep, not to the denominator.
 //
-// compliance_setup is absent on purpose, the same way briefing_annotation is
-// above: it is blocked, so a case list would be inputs for a sweep that must
-// not run.
+// compliance_setup is absent on purpose: it is blocked, so a case list would
+// be inputs for a sweep that must not run.
 //
 // All but race_opponent_summary are placeholder lists — see the `note` in
 // each file. As above, the coverage line counts a wired one separately.
@@ -238,6 +230,10 @@ const WIRED_BY: Partial<Record<string, WiredBy>> = {
   opposition_research: {
     runUrl: 'https://github.com/thegoodparty/omni/actions/runs/37161231631',
     date: '2026-10-03',
+  },
+  race_opponent_summary: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/37355882821',
+    date: '2026-10-05',
   },
 } satisfies Partial<Record<ChatAgentId | BackgroundAgentId, WiredBy>>
 
