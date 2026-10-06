@@ -25,8 +25,9 @@ const MATERIALIZABLE_OUTREACH_TYPES = new Set<OutreachType>([
 // Resolve the segment a page at a time so a large filter never loads whole
 // into memory. Every recipient must get a ContactInteraction<channel> row —
 // opt-out scrubbing, suppression, history, and response write-back all key
-// off it — so pagination always runs to exhaustion; there is no cap on the
-// total materialized in one launch.
+// off it — so pagination always runs to exhaustion by default (see
+// `maxRecipients` on the private pagers below; production never overrides
+// it, so there is no cap on the total materialized in one launch today).
 const SEGMENT_PAGE_SIZE = 1000
 
 @Injectable()
@@ -129,10 +130,18 @@ export class OutreachMaterializationService {
   // Returns the number of rows materialized, or null if the phone list has
   // no capture row — or a capture row with zero recipients — so the caller
   // falls back to the filter instead of silently materializing nothing.
+  // `maxRecipients` is a safety-valve hook, not a production behavior: it
+  // defaults to unlimited so pagination always runs to exhaustion today.
+  // Nothing calls this with an override yet (a real ceiling is future work
+  // for the S5 cap lift) — it exists so that work, if it lands, reuses this
+  // exact stop condition instead of a new one, and so a regression that
+  // reintroduces a silent finite default here can be caught by lowering it
+  // in a quick manual check rather than needing a 100k-row test fixture.
   private async materializeFromCapture(
     campaign: Campaign,
     outreach: Outreach,
     occurredAt: Date,
+    maxRecipients: number = Number.POSITIVE_INFINITY,
   ): Promise<number | null> {
     const phoneList = await this.peerlyPhoneListCapture.findFirst({
       where: {
@@ -147,7 +156,7 @@ export class OutreachMaterializationService {
 
     let skip = 0
     let materialized = 0
-    while (true) {
+    while (materialized < maxRecipients) {
       // Fetch one row past the page size so a full page can tell an exact
       // page-size-multiple list boundary (no more rows) apart from a real
       // next page — findRecipientsPage carries no total-count metadata.
@@ -160,7 +169,9 @@ export class OutreachMaterializationService {
       const hasNextPage = page.length > SEGMENT_PAGE_SIZE
       const recipients = hasNextPage ? page.slice(0, SEGMENT_PAGE_SIZE) : page
 
-      const batch = recipients.map((recipient) => ({
+      const remaining = maxRecipients - materialized
+      const truncatedThisPage = recipients.length > remaining
+      const batch = recipients.slice(0, remaining).map((recipient) => ({
         organizationSlug: campaign.organizationSlug,
         personId: recipient.personId,
         outreachId: outreach.id,
@@ -171,16 +182,33 @@ export class OutreachMaterializationService {
       materialized += batch.length
       skip += recipients.length
 
-      if (!hasNextPage) break
+      const hasMore = truncatedThisPage || hasNextPage
+      if (!hasMore) break
+      if (materialized >= maxRecipients) {
+        this.logger.warn(
+          {
+            outreachId: outreach.id,
+            phoneListId: outreach.phoneListId,
+            materialized,
+          },
+          'Outreach materialization hit the per-launch cap reading ' +
+            'captured recipients; remaining recipients were not ' +
+            'materialized',
+        )
+        break
+      }
     }
 
     return materialized === 0 ? null : materialized
   }
 
+  // See the `maxRecipients` note on materializeFromCapture above — same
+  // safety-valve hook, same unlimited default, same reasoning.
   private async materializeFromFilter(
     campaign: Campaign,
     outreach: Outreach,
     occurredAt: Date,
+    maxRecipients: number = Number.POSITIVE_INFINITY,
   ): Promise<void> {
     const organization = await this.organizations.findFirst({
       where: { slug: campaign.organizationSlug },
@@ -225,7 +253,7 @@ export class OutreachMaterializationService {
 
     let page = 1
     let materialized = 0
-    while (true) {
+    while (materialized < maxRecipients) {
       const { people, pagination } = robocallFilter
         ? await this.contacts.findContactsForFilter(
             robocallFilter,
@@ -238,7 +266,9 @@ export class OutreachMaterializationService {
           )
       if (people.length === 0) break
 
-      const batch = people.map((person) => ({
+      const remaining = maxRecipients - materialized
+      const truncatedThisPage = people.length > remaining
+      const batch = people.slice(0, remaining).map((person) => ({
         organizationSlug: campaign.organizationSlug,
         personId: person.id,
         outreachId: outreach.id,
@@ -248,7 +278,21 @@ export class OutreachMaterializationService {
       await this.writeBatch(outreach.outreachType, batch)
       materialized += batch.length
 
-      if (!pagination.hasNextPage) break
+      const hasMore = truncatedThisPage || pagination.hasNextPage
+      if (!hasMore) break
+      if (materialized >= maxRecipients) {
+        this.logger.warn(
+          {
+            outreachId: outreach.id,
+            filterId: outreach.voterFileFilterId,
+            materialized,
+            totalResults: pagination.totalResults,
+          },
+          'Outreach materialization hit the per-launch cap; remaining ' +
+            'people in the resolved filter were not materialized',
+        )
+        break
+      }
       page += 1
     }
 

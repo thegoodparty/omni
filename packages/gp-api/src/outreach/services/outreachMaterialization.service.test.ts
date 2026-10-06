@@ -307,14 +307,18 @@ describe('OutreachMaterializationService', () => {
     expect(findContacts.mock.calls[1]?.[0]).toMatchObject({ page: 2 })
   })
 
-  it('materializes every recipient with no per-launch cap, even past the former 100k ceiling', async () => {
+  it('materializes every recipient with no per-launch cap', async () => {
     const { campaign, outreach } = await seedOutreach({ slug: 'mat-no-cap' })
-    // One more than the former MAX_MATERIALIZED_VOTERS cap (100_000) — the
-    // old code stopped exactly there, warned, and silently dropped the
-    // rest. Pages are generated on the fly (no 100k-row fixture); only the
-    // resulting ContactInteractionText writes hit the real database.
-    const totalRecipients = 100_050
-    const pageSize = 1000
+    // Spans three mocked pages, so the loop must run past the first page —
+    // and past the point a finite cap would stop it — to get everyone.
+    // materializeFromFilter's `maxRecipients` safety-valve defaults to
+    // Number.POSITIVE_INFINITY and nothing overrides it here, so this
+    // exercises the exact unlimited production path without a 100k-row
+    // fixture (a regression that reintroduces a silent finite default is
+    // caught by temporarily lowering that default below `totalRecipients`
+    // and confirming this same test then fails).
+    const totalRecipients = 5
+    const pageSize = 2
     vi.spyOn(contacts, 'findContacts').mockImplementation(async (params) => {
       const page = params.page ?? 1
       const start = (page - 1) * pageSize
@@ -346,7 +350,7 @@ describe('OutreachMaterializationService', () => {
     } finally {
       warnSpy.mockRestore()
     }
-  }, 30_000)
+  })
 
   it('propagates a people-api failure to the caller (best-effort lives in OutreachService)', async () => {
     const { campaign, outreach } = await seedOutreach({ slug: 'mat-fail' })
