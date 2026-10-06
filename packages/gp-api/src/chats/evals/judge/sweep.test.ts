@@ -1120,7 +1120,12 @@ describe('per-case rulings', () => {
     }
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const result = await run(failing, quoting)
+    // The class only: a write error's message can carry a path or a body,
+    // and this lands in the public run log.
+    const logged = error.mock.calls.flat().map(String).join('\n')
     error.mockRestore()
+    expect(logged).toContain('rulings for chief_of_staff were not stored')
+    expect(logged).not.toContain('denied')
     expect(result.exitCode).toBe(0)
     expect(result.report.agents).toHaveLength(1)
     expect(result.markdown).toContain(

@@ -68,7 +68,12 @@ export type FlagType = z.infer<typeof FlagTypeSchema>
 
 const FlagSchema = z.object({
   run: z.enum(['X', 'Y']),
-  type: FlagTypeSchema,
+  // Caught rather than refused. Anthropic's tool mode does not hold a model to
+  // an enum, and one off-list type failing the parse would throw away the
+  // seat's whole verdict over a label. The model is still shown the list (the
+  // JSON Schema keeps the enum), and the invented name is replaced here, so it
+  // reaches neither the stored ruling nor the report.
+  type: FlagTypeSchema.catch('other_severe'),
   loc: z.string().optional(),
   quote: z.string().optional(),
   explanation: z.string(),
@@ -196,6 +201,9 @@ export interface GradedJudgment {
 export interface UngradedJudgment {
   kind: 'ungraded'
   key: JudgmentKey
+  // Carried so a stored ruling for a failed judgment still says which arm
+  // was X. Optional because a judgment built elsewhere may not know it.
+  slotMap?: SlotMap
   reason: string
 }
 
@@ -533,6 +541,7 @@ export const judgeCase = async (
     return {
       kind: 'ungraded',
       key: planned.key,
+      slotMap: planned.slotMap,
       // Scrubbed HERE rather than at the report, so every future reader of a
       // Judgment.reason gets it. These messages come off a path that makes
       // real model calls, and the reason reaches a PR comment and the job
