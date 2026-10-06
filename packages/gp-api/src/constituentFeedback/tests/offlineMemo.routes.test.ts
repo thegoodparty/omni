@@ -420,6 +420,46 @@ describe('offline memo capture', () => {
       ])
     })
 
+    // The failure twin: the cron read the row, the confirm landed while it
+    // polled, then the job failed. The confirmed memo is not sent back to
+    // "Notes to review" as failed.
+    it('leaves a memo confirmed mid-job as it was when the job fails', async () => {
+      const { res } = await recordOffline()
+      const id = res.data.id as string
+      const poll = vi
+        .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
+        .mockImplementation(async () => {
+          const confirmed = await service.client.patch(
+            `/v1/constituent-feedback/${id}/confirm`,
+            {
+              issues: [
+                {
+                  issueLabel: 'Compost pickup',
+                  stance: 'supports',
+                  desiredOutcome: 'Collect it weekly',
+                },
+              ],
+            },
+            ownerHeaders(slug),
+          )
+          expect(confirmed.status).toBe(200)
+          return { status: 'failed', reason: 'unsupported media' }
+        })
+      onTestFinished(() => poll.mockRestore())
+
+      await service.app.get(PendingTranscriptionService).pass(FIRST_SLOT)
+
+      expect(poll).toHaveBeenCalledOnce()
+      const saved = await row(id)
+      expect(saved.confirmedAt).not.toBeNull()
+      expect(saved.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.pending,
+      )
+      expect(saved.issues).toEqual([
+        expect.objectContaining({ issueLabel: 'Compost pickup' }),
+      ])
+    })
+
     it('stops polling a memo once it is confirmed', async () => {
       await confirmMidJob()
       const poll = vi.spyOn(

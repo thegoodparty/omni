@@ -500,25 +500,34 @@ export class ConstituentFeedbackService extends createPrismaBase(
     })
   }
 
-  // The recording survives, so the review list offers to try again.
+  // The recording survives, so the review list offers to try again. A memo
+  // confirmed while its job ran stays as its confirmer left it.
   async failTranscription(input: {
     id: string
     jobName: string | null
     reason: string
   }): Promise<void> {
-    this.logger.warn(
-      { id: input.id, jobName: input.jobName, reason: input.reason },
-      'Memo transcription failed',
-    )
-    await this.model.updateMany({
+    const { count } = await this.model.updateMany({
       where: {
         id: input.id,
         transcriptionJobName: input.jobName,
         transcript: null,
         extractionStatus: ConstituentFeedbackExtractionStatus.pending,
+        confirmedAt: null,
       },
       data: { extractionStatus: ConstituentFeedbackExtractionStatus.failed },
     })
+    if (count === 0) {
+      this.logger.info(
+        { id: input.id, jobName: input.jobName, reason: input.reason },
+        'Memo changed while its transcription ran; left as it is',
+      )
+      return
+    }
+    this.logger.warn(
+      { id: input.id, jobName: input.jobName, reason: input.reason },
+      'Memo transcription failed',
+    )
   }
 
   // An effort's unconfirmed memos, newest first: the "Notes to review" list.
