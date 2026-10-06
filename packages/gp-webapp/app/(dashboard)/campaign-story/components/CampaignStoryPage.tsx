@@ -1,16 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
 import { useRouter } from 'next/navigation'
-import {
-  Button,
-  Card,
-  CheckIcon,
-  ChevronLeftIcon,
-  IconButton,
-} from '@styleguide'
+import { Card, ChevronLeftIcon, IconButton } from '@styleguide'
+import AlertDialog from '@shared/utils/AlertDialog'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -37,9 +32,8 @@ const CARD_DESCRIPTION =
 // The "Your story" page: a full page of its own, with no sidebar, opened from
 // the Game Plan's story card. Reuses the onboarding story cards
 // (StoryIntakeCard for why/background, StoryIssuesCard for the policy
-// priorities). Unlike onboarding, it's a single editable page: one Save in the
-// header commits every field at once, and a "Start over" clears them (Save
-// still being the only thing that persists).
+// priorities). Unlike onboarding, it's a single editable page that saves as
+// the candidate goes: each field saves itself a moment after they stop typing.
 const CampaignStoryPage = (): React.JSX.Element => (
   <main className="min-h-screen bg-sidebar">
     <StoryEditor />
@@ -47,14 +41,18 @@ const CampaignStoryPage = (): React.JSX.Element => (
 )
 
 // Back returns to wherever the candidate came from (usually the Game Plan),
-// and to the Game Plan when the page was opened directly.
+// and to the Game Plan when the page was opened directly. It saves whatever
+// is still waiting first, so leaving mid-sentence keeps the sentence.
 const StoryHeader = ({
-  action,
+  status,
+  beforeLeave,
 }: {
-  action?: React.ReactNode
+  status?: string | null
+  beforeLeave?: () => Promise<void>
 }): React.JSX.Element => {
   const router = useRouter()
-  const goBack = (): void => {
+  const goBack = async (): Promise<void> => {
+    await beforeLeave?.()
     if (window.history.length > 1) router.back()
     else router.push('/campaign-plan')
   }
@@ -66,12 +64,18 @@ const StoryHeader = ({
         size="small"
         className="-ml-2 size-10"
         aria-label="Back"
-        onClick={goBack}
+        onClick={() => void goBack()}
       >
         <ChevronLeftIcon className="size-5" aria-hidden />
       </IconButton>
       <h1 className="text-2xl font-semibold text-foreground">Your story</h1>
-      {action && <div className="ml-auto">{action}</div>}
+      <p
+        className="ml-auto text-sm text-muted-foreground"
+        role="status"
+        aria-live="polite"
+      >
+        {status}
+      </p>
     </header>
   )
 }
@@ -139,6 +143,35 @@ interface StoryEditorFormProps {
   initialBio: string
   initialBackground: string
   initialIssues: WebsiteIssue[]
+}
+
+const AUTOSAVE_DELAY_MS = 1000
+
+// Saves one field a moment after its value stops changing. A save that fails
+// is not retried until the value changes again, so a dropped connection
+// doesn't loop on an error. `save` is read at fire time, so it always writes
+// the latest value.
+const useAutosave = <T,>(
+  value: T,
+  isDirty: boolean,
+  isSaving: boolean,
+  save: () => Promise<boolean>,
+): { failed: boolean } => {
+  const saveRef = useRef(save)
+  saveRef.current = save
+  const [failedValue, setFailedValue] = useState<string | null>(null)
+  const key = JSON.stringify(value)
+  const failed = isDirty && failedValue === key
+
+  useEffect(() => {
+    if (!isDirty || isSaving || failedValue === key) return
+    const timer = setTimeout(() => {
+      void saveRef.current().then((ok) => setFailedValue(ok ? null : key))
+    }, AUTOSAVE_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [key, isDirty, isSaving, failedValue])
+
+  return { failed }
 }
 
 // Exported for testing — the save wiring (per-field dirty/save, error snackbar,
@@ -214,20 +247,51 @@ export function StoryEditorForm({
     return ok
   }
 
+  const whyAutosave = useAutosave(why, why !== savedWhy, savingWhy, saveWhy)
+  const backgroundAutosave = useAutosave(
+    background,
+    background !== savedBackground,
+    savingBackground,
+    saveBackground,
+  )
+  const issuesAutosave = useAutosave(
+    issues,
+    issuesDirty,
+    savingIssues,
+    saveIssues,
+  )
+
   const anySaving = savingWhy || savingBackground || savingIssues
   const anyDirty =
     why !== savedWhy || background !== savedBackground || issuesDirty
+  const anyFailed =
+    whyAutosave.failed || backgroundAutosave.failed || issuesAutosave.failed
+  // Becomes true after the first save lands, so a page opened and left alone
+  // never claims to have saved anything.
+  const [hasSaved, setHasSaved] = useState(false)
+  const wasBusy = useRef(false)
+  useEffect(() => {
+    const busy = anySaving || anyDirty
+    if (wasBusy.current && !busy) setHasSaved(true)
+    wasBusy.current = busy
+  }, [anySaving, anyDirty])
+  const status = anyFailed
+    ? 'Not saved'
+    : anySaving || anyDirty
+      ? 'Saving…'
+      : hasSaved
+        ? 'Saved'
+        : null
   // Drives the "Start over" affordance: only offered once the candidate has
   // entered something to clear.
   const anyContent =
     why.trim().length > 0 || background.trim().length > 0 || issues.length > 0
 
-  // The header Save commits every dirty field in one click. Each save* is a
-  // no-op when its field is unchanged, so this only writes what actually moved.
-  // Stop on the first failure so a failed field doesn't leave a partial save
-  // (the still-dirty fields stay dirty for the user to retry).
+  // Writes everything still waiting on its autosave, for when the candidate
+  // leaves. Each save* is a no-op when its field is unchanged. Stop on the
+  // first failure so a failed field doesn't leave a partial save.
   const saveAll = async (): Promise<void> => {
-    if (anySaving || !anyDirty) return
+    if (!anyDirty) return
     if (!(await saveWhy())) return
     if (!(await saveBackground())) return
     await saveIssues()
@@ -239,9 +303,10 @@ export function StoryEditorForm({
   // rows unmount on their own.)
   const [resetKey, setResetKey] = useState(0)
 
-  // Clears the fields in memory only; nothing is deleted until the candidate
-  // Saves (the empty state), matching the explicit-save model.
+  // Autosave persists the cleared fields, so clearing asks first.
+  const [confirmingStartOver, setConfirmingStartOver] = useState(false)
   const startOver = (): void => {
+    setConfirmingStartOver(false)
     setWhy('')
     setBackground('')
     setIssues([])
@@ -250,20 +315,7 @@ export function StoryEditorForm({
 
   return (
     <>
-      <StoryHeader
-        action={
-          <Button
-            size="small"
-            icon={<CheckIcon />}
-            loading={anySaving}
-            loadingText="Saving…"
-            disabled={!anyDirty || anySaving}
-            onClick={() => void saveAll()}
-          >
-            Save
-          </Button>
-        }
-      />
+      <StoryHeader status={status} beforeLeave={saveAll} />
 
       <StoryBody>
         <p className="text-base text-muted-foreground">
@@ -310,7 +362,7 @@ export function StoryEditorForm({
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={startOver}
+              onClick={() => setConfirmingStartOver(true)}
               className="rounded-full px-4 py-2 text-base font-medium text-link transition-colors hover:bg-link/10"
             >
               Start over
@@ -318,6 +370,16 @@ export function StoryEditorForm({
           </div>
         )}
       </StoryBody>
+
+      <AlertDialog
+        open={confirmingStartOver}
+        title="Start over?"
+        description="This clears your why, your background, and your issues."
+        cancelLabel="Keep my story"
+        proceedLabel="Start over"
+        handleClose={() => setConfirmingStartOver(false)}
+        handleProceed={startOver}
+      />
     </>
   )
 }

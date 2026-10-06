@@ -60,87 +60,45 @@ const backgroundField = (): HTMLTextAreaElement =>
   screen.getByPlaceholderText<HTMLTextAreaElement>(
     /graduated from Lincoln High/i,
   )
-const enabledSaveButtons = (): HTMLElement[] =>
-  screen
-    .getAllByRole('button', { name: /^save$/i })
-    .filter((b) => !(b as HTMLButtonElement).disabled)
+const status = (): HTMLElement => screen.getByRole('status')
+// Autosave waits a second after typing stops, so give it room.
+const AUTOSAVE_WAIT = { timeout: 3000 }
 
-describe('StoryEditorForm (the "Your Story" dashboard editor)', () => {
-  it('keeps the single header Save disabled until a field changes', async () => {
-    const user = userEvent.setup()
-    renderForm()
+const startOver = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(screen.getByRole('button', { name: /^start over$/i }))
+  // It asks first, since autosave makes clearing stick.
+  await user.click(
+    await screen.findByRole('button', { name: /^start over$/i, hidden: false }),
+  )
+}
 
-    expect(enabledSaveButtons()).toHaveLength(0)
-
-    await user.type(whyField(), 'Because of the schools')
-
-    // One page-level Save (in the header) unlocks once anything is dirty.
-    expect(enabledSaveButtons()).toHaveLength(1)
-  })
-
-  it('persists the why on Save, invalidates the website cache, and re-disables when clean', async () => {
+describe('StoryEditorForm (the "Your story" editor)', () => {
+  it('has no Save button: the why saves itself after a pause', async () => {
     const user = userEvent.setup()
     const { invalidateSpy } = renderForm()
 
-    await user.type(whyField(), 'Because of the schools')
-    await user.click(enabledSaveButtons()[0]!)
+    expect(
+      screen.queryByRole('button', { name: /^save$/i }),
+    ).not.toBeInTheDocument()
 
-    await waitFor(() =>
-      expect(mockSaveAboutFields).toHaveBeenCalledWith({
-        bio: 'Because of the schools',
-      }),
+    await user.type(whyField(), 'Because of the schools')
+    expect(status()).toHaveTextContent('Saving…')
+
+    await waitFor(
+      () =>
+        expect(mockSaveAboutFields).toHaveBeenCalledWith({
+          bio: 'Because of the schools',
+        }),
+      AUTOSAVE_WAIT,
     )
+    expect(mockSaveAboutFields).toHaveBeenCalledTimes(1)
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: USER_WEBSITE_QUERY_KEY,
     })
-    // Nothing dirty after a successful save → Save disables again.
-    await waitFor(() => expect(enabledSaveButtons()).toHaveLength(0))
+    await waitFor(() => expect(status()).toHaveTextContent('Saved'))
   })
 
-  it('one Save commits every dirty field at once', async () => {
-    const user = userEvent.setup()
-    let putBody: { background?: string } | null = null
-    api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
-      putBody = body as { background?: string }
-      return { status: 200, data: { background: 'saved' } }
-    })
-    renderForm()
-
-    await user.type(whyField(), 'My why')
-    await user.type(backgroundField(), 'My background')
-    await user.click(enabledSaveButtons()[0]!)
-
-    await waitFor(() =>
-      expect(mockSaveAboutFields).toHaveBeenCalledWith({ bio: 'My why' }),
-    )
-    await waitFor(() =>
-      expect(putBody).toEqual({ background: 'My background' }),
-    )
-  })
-
-  it('stops at the first failed field instead of writing the rest (no partial save)', async () => {
-    const user = userEvent.setup()
-    // The why save fails; background is also dirty.
-    mockSaveAboutFields.mockResolvedValue(false)
-    let putBody: { background?: string } | null = null
-    api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
-      putBody = body as { background?: string }
-      return { status: 200, data: { background: 'saved' } }
-    })
-    renderForm()
-
-    await user.type(whyField(), 'My why')
-    await user.type(backgroundField(), 'My background')
-    await user.click(enabledSaveButtons()[0]!)
-
-    await waitFor(() => expect(mockErrorSnackbar).toHaveBeenCalled())
-    // why failed → saveAll short-circuits, so background is never written.
-    expect(putBody).toBeNull()
-    // Nothing committed → Save stays enabled for a full retry.
-    expect(enabledSaveButtons()).toHaveLength(1)
-  })
-
-  it('persists the background via the story endpoint and invalidates the story cache', async () => {
+  it('saves the background through the story endpoint', async () => {
     const user = userEvent.setup()
     let putBody: { background?: string } | null = null
     api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
@@ -150,103 +108,17 @@ describe('StoryEditorForm (the "Your Story" dashboard editor)', () => {
     const { invalidateSpy } = renderForm()
 
     await user.type(backgroundField(), 'I grew up here')
-    await user.click(enabledSaveButtons()[0]!)
 
-    await waitFor(() =>
-      expect(putBody).toEqual({ background: 'I grew up here' }),
+    await waitFor(
+      () => expect(putBody).toEqual({ background: 'I grew up here' }),
+      AUTOSAVE_WAIT,
     )
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: CAMPAIGN_STORY_QUERY_KEY,
     })
   })
 
-  it('shows an error snackbar and leaves the field unsaved when the save fails', async () => {
-    const user = userEvent.setup()
-    mockSaveAboutFields.mockResolvedValue(false)
-    renderForm()
-
-    await user.type(whyField(), 'Because of the schools')
-    await user.click(enabledSaveButtons()[0]!)
-
-    await waitFor(() => expect(mockErrorSnackbar).toHaveBeenCalled())
-    // Save failed → still dirty, so the Save stays enabled.
-    expect(enabledSaveButtons()).toHaveLength(1)
-  })
-
-  it('"Start over" clears the fields in memory without persisting (Save stays dirty)', async () => {
-    const user = userEvent.setup()
-    renderForm({
-      initialBio: '<p>My why</p>',
-      initialBackground: 'My background',
-      initialIssues: [{ title: 'Roads', description: 'Fix them' }],
-    })
-
-    await user.click(screen.getByRole('button', { name: /start over/i }))
-
-    await waitFor(() => expect(whyField().value).toBe(''))
-    expect(backgroundField().value).toBe('')
-    // Not persisted yet — Save is dirty and ready to commit the empty story.
-    expect(mockSaveAboutFields).not.toHaveBeenCalled()
-    expect(enabledSaveButtons()).toHaveLength(1)
-  })
-
-  it('"Start over" clears a card\'s pending Undo (remounts the cards)', async () => {
-    const user = userEvent.setup()
-    api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
-      status: 200,
-      data: { rewrite: 'An AI-sharpened why.' },
-    }))
-    renderForm({ initialBio: 'my saved why' })
-
-    // Improve the why → an Undo appears.
-    await user.click(
-      screen.getAllByRole('button', { name: /Improve with AI/ })[0]!,
-    )
-    await screen.findByRole('button', { name: /Undo/ })
-
-    await user.click(screen.getByRole('button', { name: /start over/i }))
-
-    // The remounted card starts fresh: no lingering Undo to restore the old text.
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('button', { name: /Undo/ }),
-      ).not.toBeInTheDocument(),
-    )
-    expect(whyField().value).toBe('')
-  })
-
-  it('Improve marks the why dirty (not auto-saved) and Undo restores it clean', async () => {
-    const user = userEvent.setup()
-    api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
-      status: 200,
-      data: { rewrite: 'An AI-sharpened why.' },
-    }))
-    // Seed the why as already-saved so "clean" is observable before + after.
-    renderForm({ initialBio: 'my saved why' })
-
-    const field = whyField()
-    expect(field.value).toBe('my saved why')
-    expect(enabledSaveButtons()).toHaveLength(0)
-
-    // Improve rewrites in place; on the dashboard it's an edit like any other —
-    // the field goes dirty and Save unlocks (it must NOT auto-save, or clear the
-    // dirty flag via setSavedWhy).
-    await user.click(
-      screen.getAllByRole('button', { name: /Improve with AI/ })[0]!,
-    )
-    await waitFor(() => expect(field.value).toBe('An AI-sharpened why.'))
-    expect(enabledSaveButtons()).toHaveLength(1)
-
-    // Undo restores the pre-improvement (saved) text → clean again.
-    await user.click(screen.getByRole('button', { name: /Undo/ }))
-    await waitFor(() => expect(field.value).toBe('my saved why'))
-    expect(enabledSaveButtons()).toHaveLength(0)
-
-    // Neither Improve nor Undo persists on their own — Save is the persist path.
-    expect(mockSaveAboutFields).not.toHaveBeenCalled()
-  })
-
-  it('saves edited policy issues via saveAboutFields', async () => {
+  it('saves edited policy issues', async () => {
     const user = userEvent.setup()
     const { invalidateSpy } = renderForm({
       initialIssues: [{ title: 'Roads', description: 'Fix them' }],
@@ -257,43 +129,90 @@ describe('StoryEditorForm (the "Your Story" dashboard editor)', () => {
     await user.clear(description)
     await user.type(description, 'Fix them now')
 
-    // The issue row is the only dirty field, so its Save is the enabled one.
-    await user.click(enabledSaveButtons()[0]!)
-
-    await waitFor(() =>
-      expect(mockSaveAboutFields).toHaveBeenCalledWith({
-        issues: [{ title: 'Roads', description: 'Fix them now' }],
-      }),
+    await waitFor(
+      () =>
+        expect(mockSaveAboutFields).toHaveBeenCalledWith({
+          issues: [{ title: 'Roads', description: 'Fix them now' }],
+        }),
+      AUTOSAVE_WAIT,
     )
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: USER_WEBSITE_QUERY_KEY,
     })
   })
 
-  it('hides "Start over" until something is entered, then clears the fields', async () => {
+  it('says when a save failed, and does not retry until the answer changes', async () => {
+    const user = userEvent.setup()
+    mockSaveAboutFields.mockResolvedValue(false)
+    renderForm()
+
+    await user.type(whyField(), 'Because of the schools')
+
+    await waitFor(
+      () => expect(status()).toHaveTextContent('Not saved'),
+      AUTOSAVE_WAIT,
+    )
+    expect(mockErrorSnackbar).toHaveBeenCalledTimes(1)
+    // A second autosave window passes with no retry.
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    expect(mockSaveAboutFields).toHaveBeenCalledTimes(1)
+
+    mockSaveAboutFields.mockResolvedValue(true)
+    await user.type(whyField(), '!')
+    await waitFor(
+      () =>
+        expect(mockSaveAboutFields).toHaveBeenLastCalledWith({
+          bio: 'Because of the schools!',
+        }),
+      AUTOSAVE_WAIT,
+    )
+  })
+
+  it('saves what is still waiting before going back', async () => {
     const user = userEvent.setup()
     renderForm()
 
-    // Empty story → no Start over.
+    await user.type(whyField(), 'Because of the schools')
+    // Straight to Back, before the autosave pause runs out.
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(mockSaveAboutFields).toHaveBeenCalledWith({
+      bio: 'Because of the schools',
+    })
+  })
+
+  it('hides "Start over" until something is entered', async () => {
+    const user = userEvent.setup()
+    renderForm()
+
     expect(
       screen.queryByRole('button', { name: /start over/i }),
     ).not.toBeInTheDocument()
-
     await user.type(whyField(), 'Because of the schools')
-    const startOver = await screen.findByRole('button', { name: /start over/i })
+    expect(
+      await screen.findByRole('button', { name: /start over/i }),
+    ).toBeInTheDocument()
+  })
 
-    await user.click(startOver)
+  it('"Start over" asks first, and keeping the story changes nothing', async () => {
+    const user = userEvent.setup()
+    renderForm({ initialBio: 'my saved why' })
 
-    // Fields are cleared in memory; nothing persisted (Save is the only writer).
-    await waitFor(() => expect(whyField().value).toBe(''))
+    await user.click(screen.getByRole('button', { name: /^start over$/i }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Keep my story' }),
+    )
+
+    expect(whyField().value).toBe('my saved why')
     expect(mockSaveAboutFields).not.toHaveBeenCalled()
   })
 
-  it('"Start over" clears seeded answers in memory without deleting them until Save', async () => {
+  it('"Start over" clears every answer and saves the empty story', async () => {
     const user = userEvent.setup()
-    api.mock('PUT /v1/campaigns/mine/story', {
-      status: 200,
-      data: { background: '' },
+    let putBody: { background?: string } | null = null
+    api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
+      putBody = body as { background?: string }
+      return { status: 200, data: { background: '' } }
     })
     renderForm({
       initialBio: 'my saved why',
@@ -301,20 +220,61 @@ describe('StoryEditorForm (the "Your Story" dashboard editor)', () => {
       initialIssues: [{ title: 'Roads', description: 'Fix them' }],
     })
 
-    await user.click(screen.getByRole('button', { name: /start over/i }))
+    await startOver(user)
 
     await waitFor(() => expect(whyField().value).toBe(''))
     expect(backgroundField().value).toBe('')
-    // No policy rows remain, and nothing was persisted yet.
     expect(
       screen.queryByPlaceholderText(/northside bus route/i),
     ).not.toBeInTheDocument()
-    expect(mockSaveAboutFields).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(mockSaveAboutFields).toHaveBeenCalledWith({ bio: '' })
+      expect(mockSaveAboutFields).toHaveBeenCalledWith({ issues: [] })
+      expect(putBody).toEqual({ background: '' })
+    }, AUTOSAVE_WAIT)
+  })
 
-    // Save now commits the cleared state.
-    await user.click(enabledSaveButtons()[0]!)
-    await waitFor(() =>
-      expect(mockSaveAboutFields).toHaveBeenCalledWith({ bio: '' }),
+  it('"Start over" clears a card\'s pending Undo (remounts the cards)', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+      status: 200,
+      data: { rewrite: 'An AI-sharpened why.' },
+    }))
+    renderForm({ initialBio: 'my saved why' })
+
+    await user.click(
+      screen.getAllByRole('button', { name: /Improve with AI/ })[0]!,
     )
+    await screen.findByRole('button', { name: /Undo/ })
+
+    await startOver(user)
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: /Undo/ }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(whyField().value).toBe('')
+  })
+
+  it('Undo after Improve puts the saved why back without saving', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+      status: 200,
+      data: { rewrite: 'An AI-sharpened why.' },
+    }))
+    renderForm({ initialBio: 'my saved why' })
+
+    const field = whyField()
+    await user.click(
+      screen.getAllByRole('button', { name: /Improve with AI/ })[0]!,
+    )
+    await waitFor(() => expect(field.value).toBe('An AI-sharpened why.'))
+    // Undone inside the pause, so the rewrite never reaches the server.
+    await user.click(screen.getByRole('button', { name: /Undo/ }))
+    await waitFor(() => expect(field.value).toBe('my saved why'))
+
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    expect(mockSaveAboutFields).not.toHaveBeenCalled()
   })
 })

@@ -144,8 +144,8 @@ const WIN_AREAS: ProductArea[] = [
     does: 'The three Campaign Story questions (why you are running, your background, your positions), which the campaign and outreach plan is generated from.',
     inside: [
       'Not in the left-hand menu: it opens from the Your story card at the top of the Game Plan, as a full page with a back arrow',
-      'One Save beside the Your story title commits every field at once; nothing saves until they press it',
-      'Start over at the bottom clears the fields on screen but deletes nothing until they Save',
+      'There is no Save button: each answer saves itself a moment after they stop typing, and the header says Saving, Saved, or Not saved',
+      'Start over at the bottom asks first, then clears all three answers, and that is saved too',
     ],
   },
   {

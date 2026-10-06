@@ -7,11 +7,14 @@ returns to wherever the candidate came from, or the Game Plan when opened
 directly. The page (`components/CampaignStoryPage.tsx`) renders the
 **onboarding** story cards (`app/onboarding/components/StoryIntakeCard` for
 why/background, `StoryIssuesCard` for the policy priorities). Unlike onboarding
-it's a single editable page: one **Save** beside the title commits every
-dirty field at once (`saveAll`), and a **Start over** at the bottom (shown once
-any field has content) clears the fields in memory — Save stays the only thing
-that persists, so Start over deletes nothing until the candidate Saves the empty
-state. The cards get no `save` prop here (their per-field Save bar is
+it's a single editable page that **autosaves**: each field saves itself a
+second after its value stops changing (`useAutosave`), and the header shows
+Saving… / Saved / Not saved. A failed save isn't retried until the value
+changes again, and Back writes anything still waiting before it leaves.
+**Start over** (shown once any field has content) asks first, because
+autosave then persists the cleared fields. An Improve with AI rewrite is an
+edit like any other, so it autosaves unless the candidate presses Undo within
+the pause. The cards get no `save` prop here (their per-field Save bar is
 onboarding-only).
 
 The `sections.ts` + `useCampaignStory*` modules are shared: `sections.ts` (which
@@ -74,7 +77,7 @@ already round-trips through `Website.content.about`.
 
 | File | Role |
 |------|------|
-| `components/CampaignStoryPage.tsx` | The "Your Story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies); one Save commits all dirty fields, a bottom Start over clears them. Its title comes from `DashboardLayout`'s shared `navHeader` (icon + tab name from `shared/navLabels.ts`), and `StoryEditorForm`'s Save portals into that bar via `DashboardNavHeaderAction` — the feature-local `StoryHeaderBar` band (gray `bg-base-muted`, `text-xl`, sticky) is gone |
+| `components/CampaignStoryPage.tsx` | The "Your story" page, full screen with no `DashboardLayout`: its own header (back chevron, title, save status), then the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies). Each field autosaves (`useAutosave`); a bottom Start over clears them after a confirm |
 | `components/useStoryRewrite.ts` | Shared "Improve with AI" logic (request, apply-in-place, undo, the 403 limit, analytics) — used by the onboarding cards (`StoryFieldBar`) |
 | `sections.ts` | Owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS` (the `background` prompt), read by the plan-tab `CampaignPlanGenerateGate` |
 
@@ -183,8 +186,8 @@ already round-trips through `Website.content.about`.
 
 - `app/onboarding/components/` owns the shared story cards (`StoryIntakeCard`,
   `StoryIssuesCard`, `StoryFieldBar`) used by both onboarding (deferred, one save
-  on leaving the story) and the `/campaign-story` page (single header
-  Save + Start over) — see `app/onboarding/CLAUDE.md`.
+  on leaving the story) and the `/campaign-story` page (autosave + Start
+  over) — see `app/onboarding/CLAUDE.md`.
 - `app/(dashboard)/shared/DashboardMenu.tsx` — always labels the plan tab
   "Game Plan". Your story has no menu entry; the Game Plan's overview cards
   (`campaign-plan/components/CampaignPlanOverviewCards.tsx`) link to it.

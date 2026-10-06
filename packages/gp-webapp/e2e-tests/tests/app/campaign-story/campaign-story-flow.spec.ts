@@ -151,11 +151,10 @@ test.describe('campaign story flow', () => {
     const whyAnswer = `I'm running because my community deserves better — ${Date.now()}`
     await whyField.fill(whyAnswer)
 
-    // The page-level Save sits in the header beside the title.
-    const saveButton = page.getByRole('button', { name: 'Save' })
-    await expect(saveButton).toBeEnabled()
-    await saveButton.click()
-    await expect(saveButton).toBeDisabled({ timeout: 15000 })
+    // No Save button: the answer saves itself once typing stops.
+    await expect(page.getByRole('status')).toHaveText('Saved', {
+      timeout: 15000,
+    })
 
     await page.reload()
 
