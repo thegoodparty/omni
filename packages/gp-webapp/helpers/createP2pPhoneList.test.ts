@@ -98,7 +98,7 @@ describe('getP2pPhoneListBuildStatus', () => {
     })
   })
 
-  it('reads an unexpected HTTP error as failed, not building', async () => {
+  it('reads a 4xx as still building, not failed (a just-created buildId may not have replicated yet)', async () => {
     mockClientFetch.mockResolvedValue({
       ok: false,
       status: 404,
@@ -107,7 +107,19 @@ describe('getP2pPhoneListBuildStatus', () => {
 
     const result = await getP2pPhoneListBuildStatus('build-1')
 
-    expect(result.buildStatus).toBe('failed')
+    expect(result).toEqual({ buildStatus: 'building' })
+  })
+
+  it('reads a 5xx as still building, not failed (a transient transport blip, not gp-api reporting a failure)', async () => {
+    mockClientFetch.mockResolvedValue({
+      ok: false,
+      status: 503,
+      data: { message: 'Service Unavailable' },
+    })
+
+    const result = await getP2pPhoneListBuildStatus('build-1')
+
+    expect(result).toEqual({ buildStatus: 'building' })
   })
 
   it('reads a thrown network error as still building, not failed', async () => {

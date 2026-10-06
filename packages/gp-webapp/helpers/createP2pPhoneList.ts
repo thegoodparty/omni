@@ -35,8 +35,8 @@ export interface PhoneListStatusResponse {
 
 // The build-status poll's result, collapsed to the three states a caller
 // cares about. `queued`/`building`/`processing` (gp-api's 202) and a
-// transient fetch failure both read as `building` here — there is nothing
-// terminal to show for either, and the poll is meant to keep going.
+// transient fetch/HTTP failure both read as `building` here — there is
+// nothing terminal to show for either, and the poll is meant to keep going.
 export type PhoneListBuildStatusResult =
   | { buildStatus: 'building' }
   | ({ buildStatus: 'ready' } & PhoneListStatusResponse)
@@ -103,11 +103,16 @@ export const getP2pPhoneListBuildStatus = async (
       return { buildStatus: 'building' }
     }
     if (!resp.ok) {
+      // A non-2xx here — a 5xx transport blip, or a 4xx (most plausibly a
+      // buildId the client just created that gp-api hasn't replicated to
+      // yet) — is not gp-api's authoritative failure signal; that's only
+      // the 200 `{ buildStatus: 'failed' }` body handled below. `clientFetch`
+      // never throws on an HTTP error (it resolves `{ ok: false }`), so
+      // without this a transient server 5xx would falsely and permanently
+      // end an otherwise-healthy build. Read any non-2xx the same as a
+      // thrown network error: keep polling.
       console.error('Error fetching phone list build status:', resp.statusText)
-      return {
-        buildStatus: 'failed',
-        buildError: 'Failed to check phone list build status.',
-      }
+      return { buildStatus: 'building' }
     }
     if ('buildStatus' in resp.data && resp.data.buildStatus === 'failed') {
       return { buildStatus: 'failed', buildError: resp.data.buildError }
