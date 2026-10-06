@@ -17,11 +17,13 @@ const ctx = (
   district: null,
   officeLevel: null,
   location: 'Springfield, IL',
-  weeksToElection: 7,
+  electionDate: '2026-11-03',
+  primaryElectionDate: null,
+  primaryResult: null,
+  didWin: null,
   ballotStatus: null,
   filingPeriodStart: null,
   filingPeriodEnd: null,
-  daysToFilingDeadline: null,
   topTasks: [
     {
       title: 'Knock 50 doors in Ward 3',
@@ -45,6 +47,10 @@ const ctx = (
   plan: null,
   ...over,
 })
+
+// Noon Central on the given day: the same calendar day in every US zone, so
+// the counts and the date line agree whatever the test machine's zone is.
+const at = (day: string): Date => new Date(`${day}T17:00:00.000Z`)
 
 describe('buildCampaignManagerSystemPrompt', () => {
   it('frames the agent as a campaign manager', () => {
@@ -87,11 +93,152 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).not.toContain('does not have Pro')
   })
 
-  it('injects the office, location, and weeks-to-election when present', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
+  it('injects the office, location, and the election date with its count', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ state: 'IL', now: at('2026-09-15') }),
+    )
     expect(prompt).toContain('City Council')
     expect(prompt).toContain('Springfield, IL')
-    expect(prompt).toContain('7')
+    expect(prompt).toContain(
+      'Election date on record: Tuesday, November 3, 2026 (in 49 days)',
+    )
+    expect(prompt).toContain('Weeks to election: 7')
+    expect(prompt).toContain('Primary date on record: none')
+    expect(prompt).toContain('Filing period on record: none')
+    expect(prompt).toContain(
+      'The dates on record are a snapshot taken when the candidate set up the race.',
+    )
+    expect(prompt).not.toContain('refreshed monthly')
+  })
+
+  describe('race dates on record', () => {
+    it('renders both dates with counts when the record holds a primary too', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'IL',
+          now: at('2026-10-02'),
+          electionDate: '2027-04-06',
+          primaryElectionDate: '2027-02-23',
+        }),
+      )
+      expect(prompt).toContain(
+        'Election date on record: Tuesday, April 6, 2027 (in 186 days)',
+      )
+      expect(prompt).toContain('Weeks to election: 26')
+      expect(prompt).toContain(
+        'Primary date on record: Tuesday, February 23, 2027 (in 144 days)',
+      )
+    })
+
+    it('counts a past election in days ago and drops the weeks line', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ state: 'FL', now: at('2026-11-10') }),
+      )
+      expect(prompt).toContain(
+        'Election date on record: Tuesday, November 3, 2026 (7 days ago)',
+      )
+      expect(prompt).not.toContain('Weeks to election')
+    })
+
+    it('labels a primary-only record as a primary, with no weeks line', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'KY',
+          now: at('2026-04-09'),
+          electionDate: null,
+          primaryElectionDate: '2026-05-19',
+        }),
+      )
+      expect(prompt).toContain('Election date on record: none')
+      expect(prompt).toContain(
+        'Primary date on record: Tuesday, May 19, 2026 (in 40 days)',
+      )
+      expect(prompt).not.toContain('Weeks to election')
+    })
+
+    it('says the record has no dates when it has none', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ electionDate: null, primaryElectionDate: null }),
+      )
+      expect(prompt).toContain('Election date on record: none')
+      expect(prompt).toContain('Primary date on record: none')
+      expect(prompt).toContain('Filing period on record: none')
+      expect(prompt).not.toContain('NaN')
+    })
+
+    it('reads a malformed stored date as none, never as NaN', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          electionDate: '2025-Q1',
+          primaryElectionDate: '',
+          filingPeriodEnd: 'not a date',
+        }),
+      )
+      expect(prompt).toContain('Election date on record: none')
+      expect(prompt).toContain('Primary date on record: none')
+      expect(prompt).toContain('Filing period on record: none')
+      expect(prompt).not.toContain('NaN')
+      expect(prompt).not.toContain('Invalid Date')
+    })
+
+    it('renders the primary result and the did-win flag only when set', () => {
+      const none = buildCampaignManagerSystemPrompt(ctx())
+      expect(none).not.toContain('Primary result on record')
+      expect(none).not.toContain('Result on record')
+      const lost = buildCampaignManagerSystemPrompt(
+        ctx({ primaryElectionDate: '2026-05-19', primaryResult: 'lost' }),
+      )
+      expect(lost).toContain('Primary result on record: lost')
+      const won = buildCampaignManagerSystemPrompt(ctx({ didWin: true }))
+      expect(won).toContain('Result on record: won')
+      const lostRace = buildCampaignManagerSystemPrompt(ctx({ didWin: false }))
+      expect(lostRace).toContain('Result on record: lost')
+    })
+
+    it('shows the filing window for a candidate already on the ballot', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'CA',
+          now: at('2026-10-02'),
+          ballotStatus: 'on-ballot',
+          filingPeriodStart: '2026-07-13',
+          filingPeriodEnd: '2026-08-07',
+        }),
+      )
+      expect(prompt).toContain(
+        'Filing period on record: opened Monday, July 13, 2026 (81 days ago), ' +
+          'closed Friday, August 7, 2026 (56 days ago)',
+      )
+      // The playbook stays reserved for candidates who have not filed.
+      expect(prompt).not.toContain('Getting on the ballot is the single most')
+    })
+
+    it('renders a half-known filing window and the day itself', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'IL',
+          now: at('2026-11-16'),
+          filingPeriodStart: '2026-11-16',
+          filingPeriodEnd: null,
+        }),
+      )
+      expect(prompt).toContain(
+        'Filing period on record: opens Monday, November 16, 2026 (today)',
+      )
+    })
+
+    it("takes the day from the campaign's zone, not the server's", () => {
+      // 11:30pm on the 2nd in Chicago is already the 3rd in UTC.
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ state: 'IL', now: new Date('2026-10-03T04:30:00.000Z') }),
+      )
+      expect(prompt).toContain(
+        'Today is Friday, October 2, 2026 (Central Time).',
+      )
+      expect(prompt).toContain(
+        'Election date on record: Tuesday, November 3, 2026 (in 32 days)',
+      )
+    })
   })
 
   it('lists the top tasks by title', () => {
@@ -377,25 +524,35 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('states the filing period close as the deadline, with days remaining', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
+        state: 'IL',
+        now: at('2026-08-19'),
         ballotStatus: 'qualified-not-filed',
         filingPeriodStart: '2026-09-01',
         filingPeriodEnd: '2026-09-15',
-        daysToFilingDeadline: 27,
       }),
     )
-    expect(prompt).toContain('Filing opens 2026-09-01')
-    expect(prompt).toContain('filing deadline for this race is 2026-09-15')
+    expect(prompt).toContain(
+      'Filing opens Tuesday, September 1, 2026 (in 13 days).',
+    )
+    expect(prompt).toContain(
+      'filing deadline for this race is Tuesday, September 15, 2026',
+    )
     expect(prompt).toContain('27 days from today')
     expect(prompt).toContain('best source available')
+    expect(prompt).toContain(
+      'snapshot taken when the candidate set up the race',
+    )
     expect(prompt).toContain('confirm it with the filing office')
+    expect(prompt).not.toContain('refreshed monthly')
   })
 
   it('singularizes the day count on the last day', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
+        state: 'IL',
+        now: at('2026-09-14'),
         ballotStatus: 'qualified-not-filed',
         filingPeriodEnd: '2026-09-15',
-        daysToFilingDeadline: 1,
       }),
     )
     expect(prompt).toContain('1 day from today')
@@ -404,9 +561,10 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('flags a passed deadline as ambiguous rather than as time remaining', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
+        state: 'IL',
+        now: at('2026-02-24'),
         ballotStatus: 'qualified-not-filed',
         filingPeriodEnd: '2026-01-15',
-        daysToFilingDeadline: -40,
       }),
     )
     expect(prompt).toContain('has already passed')
@@ -415,25 +573,41 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).not.toContain('days from today')
   })
 
-  // The server clock runs ahead of every US timezone for part of each day, so 0
-  // and -1 can both still be the deadline day where the candidate is. Telling
-  // someone they missed a deadline that is actually today is the worst error
-  // here, so the boundary reads as urgent-today, never as passed.
-  it.each([0, -1])(
-    'treats a day count of %i as due today, not as passed',
-    (daysToFilingDeadline) => {
+  // The count is taken from the candidate's own calendar day, so the deadline
+  // day reads as due today right up to local midnight, and the day after it
+  // reads as passed. Telling someone they missed a deadline that is actually
+  // today is the worst error here.
+  it('treats the deadline day as due today, not as passed', () => {
+    for (const now of [
+      at('2026-09-15'),
+      new Date('2026-09-16T04:30:00.000Z'),
+    ]) {
       const prompt = buildCampaignManagerSystemPrompt(
         ctx({
+          state: 'IL',
+          now,
           ballotStatus: 'qualified-not-filed',
           filingPeriodEnd: '2026-09-15',
-          daysToFilingDeadline,
         }),
       )
       expect(prompt).toContain('that is TODAY')
       expect(prompt).not.toContain('has already passed')
       expect(prompt).not.toContain('0 days from today')
-    },
-  )
+    }
+  })
+
+  it('treats the day after the deadline as passed', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        state: 'IL',
+        now: at('2026-09-16'),
+        ballotStatus: 'qualified-not-filed',
+        filingPeriodEnd: '2026-09-15',
+      }),
+    )
+    expect(prompt).toContain('has already passed')
+    expect(prompt).not.toContain('that is TODAY')
+  })
 
   it('says the deadline is unknown when the race has no filing period', () => {
     const prompt = buildCampaignManagerSystemPrompt(
@@ -619,7 +793,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
       ctx({
         officeName: null,
         location: null,
-        weeksToElection: null,
+        electionDate: null,
         topTasks: [],
       }),
     )

@@ -1,4 +1,4 @@
-import { format } from 'date-fns'
+import { differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
 import { SOCIAL_PURPOSE_VALUES } from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
@@ -6,7 +6,7 @@ import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strate
 import { buildProductKnowledgeBlocks } from '../product-knowledge/productKnowledgePrompt'
 import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 import type { BallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
-import { todayLine } from '../services/todayLine'
+import { localDay, todayLine } from '../services/todayLine'
 
 export type { BallotStatus }
 
@@ -28,9 +28,21 @@ export interface CampaignManagerContext {
   // field onboarding actually writes. details.level is never populated.
   officeLevel: string | null
   location: string | null
-  // Two-letter state from the campaign record, for the date line's zone.
+  // Two-letter state from the campaign record, for the date line's zone and
+  // for the local day every count below is taken from.
   state?: string | null
-  weeksToElection: number | null
+  // The instant the prompt is built at. Defaults to the clock; tests, evals
+  // and replays pin it so every rendered count is fixed.
+  now?: Date
+  // The race dates as the campaign record stores them: yyyy-MM-dd strings
+  // written once when the candidate set up the race and never refreshed. Null
+  // when unknown. The builder parses and counts from these, so a malformed
+  // value reads as no date rather than as NaN.
+  electionDate: string | null
+  primaryElectionDate: string | null
+  // From the campaign row, where someone has recorded how a contest went.
+  primaryResult: string | null
+  didWin: boolean | null
   // What the candidate answered in onboarding's "Are you already on the
   // ballot?" step. Null when they never answered (pre-dates the step, or came
   // in another way), which is not the same as "not on the ballot".
@@ -40,10 +52,6 @@ export interface CampaignManagerContext {
   // as persisted; null when unknown.
   filingPeriodStart: string | null
   filingPeriodEnd: string | null
-  // Calendar days from today to filingPeriodEnd, precomputed because the model
-  // has no clock and otherwise cannot say how much time is left. Negative once
-  // the deadline is behind us. Null when there is no filing period on record.
-  daysToFilingDeadline: number | null
   topTasks: { title: string; date: Date }[]
   // Server-bound district filters for the constituent-data tool (null when the
   // campaign's district can't be resolved). constituentToolEnabled folds this
@@ -118,6 +126,88 @@ or a tool returned, say plainly which part is the assumption.
 materially change the recommendation, obtain that fact before recommending \
 the action while still providing steps that are sound either way.`
 
+const LONG_DATE = 'EEEE, MMMM d, yyyy'
+
+// A stored date is a yyyy-MM-dd string written once at onboarding, and the
+// manual path can leave anything in the field. Anything unparseable reads as
+// no date at all, never as NaN in the prompt.
+const parseDay = (iso: string | null | undefined): Date | null => {
+  if (!iso) return null
+  const parsed = parseISO(iso)
+  return isValid(parsed) ? parsed : null
+}
+
+// The candidate's own calendar day, so a late evening in Chicago is not
+// counted as tomorrow by a UTC server. Parsed back to a local midnight so the
+// calendar-day differences below line up with the stored dates.
+const todayFor = (ctx: CampaignManagerContext): Date =>
+  parseISO(localDay(ctx.state, ctx.now))
+
+// "in 29 days", "today", "187 days ago": the signed count in words, so the
+// assistant copies a count instead of computing one.
+const countWords = (days: number): string => {
+  if (days === 0) return 'today'
+  const n = Math.abs(days)
+  const unit = n === 1 ? 'day' : 'days'
+  return days > 0 ? `in ${n} ${unit}` : `${n} ${unit} ago`
+}
+
+const dateWithCount = (date: Date, today: Date): string =>
+  `${format(date, LONG_DATE)} (${countWords(differenceInCalendarDays(date, today))})`
+
+const filingPeriodWords = (
+  ctx: CampaignManagerContext,
+  today: Date,
+): string => {
+  const start = parseDay(ctx.filingPeriodStart)
+  const end = parseDay(ctx.filingPeriodEnd)
+  if (!start && !end) return 'none'
+  const parts: string[] = []
+  if (start) {
+    const past = differenceInCalendarDays(start, today) < 0
+    parts.push(`${past ? 'opened' : 'opens'} ${dateWithCount(start, today)}`)
+  }
+  if (end) {
+    const past = differenceInCalendarDays(end, today) < 0
+    parts.push(`${past ? 'closed' : 'closes'} ${dateWithCount(end, today)}`)
+  }
+  return parts.join(', ')
+}
+
+// The race dates as stored, each written out with its signed count from the
+// candidate's day, and "none" where the record is empty, so a missing date is
+// a fact the assistant can act on rather than a line that never appeared. The
+// labels say what each date is; the record does not say which one decides the
+// race, and the prompt does not guess.
+const raceDateLines = (ctx: CampaignManagerContext): string[] => {
+  const today = todayFor(ctx)
+  const election = parseDay(ctx.electionDate)
+  const primary = parseDay(ctx.primaryElectionDate)
+  const lines = [
+    `Election date on record: ${election ? dateWithCount(election, today) : 'none'}`,
+  ]
+  if (election) {
+    const days = differenceInCalendarDays(election, today)
+    // Whole weeks, and only while the date is ahead: once it has passed, the
+    // "days ago" on the line above says it better than a negative week count.
+    if (days >= 0) lines.push(`Weeks to election: ${Math.floor(days / 7)}`)
+  }
+  lines.push(
+    `Primary date on record: ${primary ? dateWithCount(primary, today) : 'none'}`,
+  )
+  if (ctx.primaryResult) {
+    lines.push(`Primary result on record: ${ctx.primaryResult}`)
+  }
+  if (ctx.didWin !== null && ctx.didWin !== undefined) {
+    lines.push(`Result on record: ${ctx.didWin ? 'won' : 'lost'}`)
+  }
+  lines.push(`Filing period on record: ${filingPeriodWords(ctx, today)}`)
+  lines.push(
+    'The dates on record are a snapshot taken when the candidate set up the race.',
+  )
+  return lines
+}
+
 const raceContext = (ctx: CampaignManagerContext): string => {
   const lines: string[] = []
   if (ctx.candidateFirstName) lines.push(`Candidate: ${ctx.candidateFirstName}`)
@@ -125,12 +215,14 @@ const raceContext = (ctx: CampaignManagerContext): string => {
   if (ctx.district) lines.push(`District: ${ctx.district}`)
   if (ctx.officeLevel) lines.push(`Office level: ${ctx.officeLevel}`)
   if (ctx.location) lines.push(`Location: ${ctx.location}`)
-  if (ctx.weeksToElection !== null) {
-    lines.push(`Weeks to election: ${ctx.weeksToElection}`)
+  const dates = raceDateLines(ctx)
+  if (lines.length === 0) {
+    return (
+      'The candidate has not finished their plan yet, so race details are ' +
+      `sparse. What the record holds:\n${dates.join('\n')}`
+    )
   }
-  return lines.length > 0
-    ? `The candidate's race:\n${lines.join('\n')}`
-    : 'The candidate has not finished their plan yet, so race details are sparse.'
+  return `The candidate's race:\n${[...lines, ...dates].join('\n')}`
 }
 
 const tasksBlock = (ctx: CampaignManagerContext): string =>
@@ -202,32 +294,29 @@ const STILL_DECIDING_GUIDANCE =
   'filing when they are ready rather than pushing them toward it, and make ' +
   'clear which deadline they would need to beat if they do decide to run.'
 
-// The filing deadline IS the close of the race's filing period, and the record
-// comes from BallotReady on a monthly refresh. That makes it the best source we
-// have and the answer to lead with, but it can be up to a month stale and BR's
-// coverage of very small local races is thinner, so the manager states it as
-// the deadline and still sends the candidate to confirm it before acting. Days
-// remaining is precomputed (the model has no clock) and goes negative once the
-// date is behind us, which is the dangerous case: a past date may mean they
-// missed it, or may just be last cycle's record that has not refreshed.
+// The filing deadline IS the close of the race's filing period, as BallotReady
+// recorded it when the candidate set up the race. That makes it the best
+// source we have and the answer to lead with, but it is a snapshot that is
+// never refreshed and BR's coverage of very small local races is thinner, so
+// the manager states it as the deadline and still sends the candidate to
+// confirm it before acting. The count is taken from the candidate's own
+// calendar day, and a date behind that day is the dangerous case: a past date
+// may mean they missed it, or may just be last cycle's record.
 const filingWindowLine = (ctx: CampaignManagerContext): string => {
-  if (!ctx.filingPeriodEnd) {
+  const end = parseDay(ctx.filingPeriodEnd)
+  if (!end) {
     return (
       'The race record has no filing period, so you do not know this ' +
       "candidate's filing deadline. Say so plainly, never guess a date, and " +
       'tell them to get it from the filing office.'
     )
   }
-  const days = ctx.daysToFilingDeadline
-  // The record carries a date with no timezone and the count is computed from
-  // the server's clock, which runs ahead of every US timezone for part of each
-  // day. So a count of 0 or -1 could still be the deadline day where the
-  // candidate is standing, and claiming they missed a deadline that is actually
-  // today is the worst error this can make. Treat that boundary as urgent-today
-  // rather than passed, and only assert passed once it is unambiguous.
-  if (days !== null && days <= -2) {
+  const today = todayFor(ctx)
+  const days = differenceInCalendarDays(end, today)
+  const deadline = format(end, LONG_DATE)
+  if (days < 0) {
     return (
-      `The filing deadline on record is ${ctx.filingPeriodEnd}, ` +
+      `The filing deadline on record is ${deadline}, ` +
       'which has already passed. Do not treat it as upcoming and do not tell ' +
       'them how much time they have. Two things could be true: they missed ' +
       'the deadline for this cycle, or the record is stale and has not ' +
@@ -237,27 +326,27 @@ const filingWindowLine = (ctx: CampaignManagerContext): string => {
       'in the plan.'
     )
   }
-  const opens = ctx.filingPeriodStart
-    ? `Filing opens ${ctx.filingPeriodStart}. `
+  const start = parseDay(ctx.filingPeriodStart)
+  const opens = start
+    ? `Filing ${differenceInCalendarDays(start, today) < 0 ? 'opened' : 'opens'} ` +
+      `${dateWithCount(start, today)}. `
     : ''
   const remaining =
-    days === null
-      ? ''
-      : days <= 0
-        ? ' By our count that is TODAY, or close enough that it cannot be ' +
-          'told apart from today: treat it as due now, say it is down to the ' +
-          'wire, and make calling the filing office this minute the only ' +
-          'thing you ask of them.'
-        : ` That is ${days} day${days === 1 ? '' : 's'} from today, so lead ` +
-          'with how much time that leaves them.'
+    days === 0
+      ? ' By our count that is TODAY: treat it as due now, say it is down to ' +
+        'the wire, and make calling the filing office this minute the only ' +
+        'thing you ask of them.'
+      : ` That is ${days} day${days === 1 ? '' : 's'} from today, so lead ` +
+        'with how much time that leaves them.'
   return (
-    `${opens}The filing deadline for this race is ${ctx.filingPeriodEnd}.` +
+    `${opens}The filing deadline for this race is ${deadline}.` +
     `${remaining} This is the close of the race's filing period from ` +
     'BallotReady, which is the best source available, so treat it as the ' +
-    'deadline and do not go hunting for a different date. It is refreshed ' +
-    'monthly and can be thinner on very small local races, so tell them to ' +
-    'confirm it with the filing office before they rely on it, and say that ' +
-    'is a confirmation rather than a reason to doubt the date.'
+    'deadline and do not go hunting for a different date. It is a snapshot ' +
+    'taken when the candidate set up the race and can be thinner on very ' +
+    'small local races, so tell them to confirm it with the filing office ' +
+    'before they rely on it, and say that is a confirmation rather than a ' +
+    'reason to doubt the date.'
   )
 }
 
@@ -561,7 +650,7 @@ export const buildCampaignManagerSystemPrompt = (
 ): string =>
   [
     ROLE,
-    todayLine(ctx.state),
+    todayLine(ctx.state, ctx.now),
     raceContext(ctx),
     ballotStatusBlock(ctx),
     storyBlock(ctx),

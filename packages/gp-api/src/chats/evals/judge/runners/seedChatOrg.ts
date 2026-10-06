@@ -211,8 +211,8 @@ export const JUDGE_POSITION: PositionWithOptionalDistrict = {
 // Only the keys campaignManager.handler.ts really reads off this column.
 // `raceId` is the one get_ballot_requirements registers on; the office, state,
 // city, level and district are what the prompt renders; the two election dates
-// and two filing dates are what weeksToElection and daysToFilingDeadline are
-// computed from.
+// and two filing dates are what the race block's dates and counts are
+// rendered from.
 //
 // FIXED DATES, not dates relative to now: both arms of a comparison must
 // render the same system prompt when the branch changed nothing the agent can

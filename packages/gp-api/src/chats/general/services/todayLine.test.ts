@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { todayLine } from './todayLine'
+import { localDay, todayLine } from './todayLine'
 
 const NOON_UTC = new Date('2026-10-05T12:00:00.000Z')
 
@@ -32,5 +32,18 @@ describe('todayLine', () => {
         /^Today is \w+, \w+ \d{1,2}, \d{4} \(\w+ Time\)\.$/,
       )
     }
+  })
+})
+
+describe('localDay', () => {
+  it('gives the day in the state zone, not the server day', () => {
+    // 03:30 UTC on the 6th is still the evening of the 5th across the US.
+    const late = new Date('2026-10-06T03:30:00.000Z')
+    expect(localDay('IL', late)).toBe('2026-10-05')
+    expect(localDay('CA', late)).toBe('2026-10-05')
+    expect(localDay(null, late)).toBe('2026-10-05')
+    expect(localDay('IL', new Date('2026-10-06T12:00:00.000Z'))).toBe(
+      '2026-10-06',
+    )
   })
 })
