@@ -6,7 +6,12 @@ import type { IdenticalConfigNotice } from './normalize'
 import type { Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { PRICING_VERSION } from './pricing'
-import type { AgentScore, DimensionScore, ToolErrorCause } from './score'
+import type {
+  AgentScore,
+  ControlReading,
+  DimensionScore,
+  ToolErrorCause,
+} from './score'
 import type { CiContext, RunRecord } from './record'
 
 // The PR comment.
@@ -182,6 +187,55 @@ const flagLine = (score: AgentScore): string | null => {
   return `Flags (cases affected): ${[...counts.entries()]
     .map(([key, count]) => `${count} on ${key}`)
     .join(', ')}.`
+}
+
+const CONTROL_OUTCOMES: Readonly<Record<ControlReading['outcome'], string>> = {
+  candidate: 'preferred the candidate',
+  base: 'preferred the base',
+  tie: 'called it a tie',
+  cannot_determine: 'could not tell',
+  ungraded: 'returned no verdict',
+  not_judged: 'never saw the pair',
+}
+
+// Its own block, after the verdict and outside every number in it. A control
+// is the zero reading: on an input built to show no difference, how often and
+// how strongly the judge calls one anyway. Read every other line against it.
+const SCORED_ANYWAY: Readonly<
+  Record<NonNullable<AgentScore['controlsScoredAnyway']>['why'], string>
+> = {
+  baseDisagrees:
+    'marked scored: false on this branch but not on the base ref, so ' +
+    'scored as ordinary cases',
+  baseUnread:
+    "marked scored: false, but the base ref's case list could not be read, " +
+    'so scored as ordinary cases',
+}
+
+const controlLines = (score: AgentScore): string[] => {
+  const anyway =
+    score.controlsScoredAnyway === undefined
+      ? []
+      : [
+          `${score.controlsScoredAnyway.caseIds.join(', ')}: ` +
+            `${SCORED_ANYWAY[score.controlsScoredAnyway.why]}.`,
+          '',
+        ]
+  if (score.controls.length === 0) return anyway
+  const called = score.controls.filter(
+    (c) => c.outcome === 'candidate' || c.outcome === 'base',
+  ).length
+  return [
+    ...anyway,
+    `Controls (not scored): the judge called a difference on ${called} ` +
+      `of ${score.controls.length} control pair(s).`,
+    ...score.controls.map(
+      (c) =>
+        `- ${c.caseId} attempt ${c.attempt}: ${CONTROL_OUTCOMES[c.outcome]}` +
+        (c.magnitude === null ? '' : ` (${c.magnitude})`),
+    ),
+    '',
+  ]
 }
 
 const changeLine = (ci: CiContext | null): string =>
@@ -366,6 +420,7 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
     lines.push('')
   }
 
+  lines.push(...controlLines(score))
   lines.push(...evidenceLines(score))
   lines.push('')
   lines.push(exclusionLine(score))

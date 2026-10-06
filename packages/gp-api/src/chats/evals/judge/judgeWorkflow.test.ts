@@ -435,6 +435,20 @@ describe('judge.yml auto-selects every chat agent', () => {
   })
 })
 
+// Without it the judging step cannot read the base ref's controls, and every
+// case the branch marks `scored: false` is scored — safe, and silently not
+// what the bench author asked for.
+describe('judge.yml hands the judging step the base worktree', () => {
+  it('passes the base worktree as JUDGE_BASE_DIR', () => {
+    const judging = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
+      (step) => step.name === 'Judge both arms',
+    )
+    expect(judging?.body).toMatch(
+      /^\s+JUDGE_BASE_DIR: \$\{\{ steps\.base\.outputs\.dir \}\}$/m,
+    )
+  })
+})
+
 // THE HOSTNAME THE REPOSITORY VARIABLE HOLDS IS NOT THE ONE gp-api WANTS.
 // `vars.DATABRICKS_HOST` is `https://dbc-....cloud.databricks.com`, the form
 // the Python side reads; `resolveDatabricksConnection` wants a bare hostname

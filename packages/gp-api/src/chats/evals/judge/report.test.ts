@@ -509,6 +509,7 @@ describe('provenance', () => {
         liveWebCases: 0,
       },
       ci: null,
+      controls: [],
     }
     const report = renderReport({ agents: [score] })
     expect(report).toContain('cannot be traced back to a pull request')

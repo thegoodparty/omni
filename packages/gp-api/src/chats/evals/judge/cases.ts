@@ -393,24 +393,78 @@ export const CaseDimensionSchema = z
   .strict()
 export type CaseDimension = z.infer<typeof CaseDimensionSchema>
 
-export const BackgroundCaseSchema = z.object({
-  caseId: CaseIdSchema,
-  // The parameters fixture the experiment is dispatched with. Opaque here for
-  // the same reason a record's input is opaque: only the runner knows what an
-  // experiment's params mean.
-  params: z.record(z.string(), JsonValueSchema),
-  dimensions: z
-    .array(CaseDimensionSchema)
-    .min(1)
-    .max(MAX_CASE_DIMENSIONS)
-    .refine(
-      (dimensions) =>
-        new Set(dimensions.map((d) => d.name)).size === dimensions.length,
-      { message: 'a case names each of its dimensions once' },
-    )
-    .optional(),
-})
+// Long enough for a mutation excerpt and the axis it tests, short enough that
+// it cannot become a second input competing with the params for the judge's
+// attention.
+export const MAX_CONDITION_CHARS = 2_000
+
+export const BackgroundCaseSchema = z
+  .object({
+    caseId: CaseIdSchema,
+    // The parameters fixture the experiment is dispatched with. Opaque here
+    // for the same reason a record's input is opaque: only the runner knows
+    // what an experiment's params mean.
+    params: z.record(z.string(), JsonValueSchema),
+    // What this case planted in or took out of `params`, for the JUDGE. A
+    // probe tests a relationship between the artifact and the input, and a
+    // judge not told what was planted has to find it unaided inside tens of
+    // thousands of characters of source text — or grade polish instead.
+    //
+    // NEVER DISPATCHED. The runner sends `params` and nothing else, so the
+    // agent cannot read the answer key. The judging step reads this off the
+    // case list in its own checkout and adds it to the shared input after
+    // blinding, which is what makes it identical across arms: it is never
+    // part of either arm's record, so a base ref that predates the field
+    // cannot strip it from one side and turn every pair into a mismatch.
+    condition: z.string().trim().min(1).max(MAX_CONDITION_CHARS).optional(),
+    // `false` keeps the pair out of every aggregate. It still runs and is
+    // still judged, and the report states that judgment on its own line: a
+    // control's job is to be the zero reading, and averaged into the verdict
+    // it is just one more case.
+    scored: z.boolean().optional(),
+    // Judge-only questions for this one case; see `CaseDimensionSchema`.
+    dimensions: z
+      .array(CaseDimensionSchema)
+      .min(1)
+      .max(MAX_CASE_DIMENSIONS)
+      .refine(
+        (dimensions) =>
+          new Set(dimensions.map((d) => d.name)).size === dimensions.length,
+        { message: 'a case names each of its dimensions once' },
+      )
+      .optional(),
+  })
+  // Strict for the reason `ChatCaseSchema` is: a misspelled `scored` would
+  // otherwise be stripped and the control silently scored, and a misspelled
+  // `condition` would send the judge in blind on the one case that needed it.
+  .strict()
 export type BackgroundCase = z.infer<typeof BackgroundCaseSchema>
+
+// What the judging step needs from a case list beyond the records, keyed by
+// caseId. Chat cases carry neither field, so a chat list yields an empty map.
+export interface CaseJudging {
+  condition?: string
+  scored: boolean
+}
+
+export const caseJudgingOf = (list: CaseList): Map<string, CaseJudging> =>
+  new Map(
+    list.cases.flatMap((one) =>
+      'params' in one
+        ? [
+            [
+              one.caseId,
+              {
+                ...(one.condition !== undefined && {
+                  condition: one.condition,
+                }),
+                scored: one.scored ?? true,
+              },
+            ],
+          ]
+        : [],
+    ),
+  )
 
 export type JudgeCase = ChatCase | BackgroundCase
 

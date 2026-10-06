@@ -1,4 +1,8 @@
-import { TranscriptInputSchema, type CaseDimension } from './cases'
+import {
+  TranscriptInputSchema,
+  type CaseDimension,
+  type CaseJudging,
+} from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
   isComparable,
@@ -629,3 +633,30 @@ export const normalizeAgent = (
         : null,
   }
 }
+
+// A background case's authored condition, added to the shared input AFTER
+// blinding. Not through `renderPayload`, because the condition is not in
+// either record: it comes from the judging checkout's case list, so it is one
+// string by construction and there is no second copy for `blindCase` to
+// compare. Not scrubbed either, for the same reason — scrubbing strips what
+// one arm's record could reveal, and nothing here came from a record.
+//
+// Spelled the way a chat case's directives are, so the judge reads one
+// convention for "this is what the case put the agent under".
+export const withConditions = (
+  normalized: NormalizedAgent,
+  judging: ReadonlyMap<string, CaseJudging>,
+): NormalizedAgent => ({
+  ...normalized,
+  judgeable: normalized.judgeable.map((one) => {
+    const condition = judging.get(one.caseId)?.condition
+    if (condition === undefined) return one
+    return {
+      ...one,
+      payload: {
+        ...one.payload,
+        sharedInput: `${one.payload.sharedInput}\n\nCondition: ${condition}`,
+      },
+    }
+  }),
+})

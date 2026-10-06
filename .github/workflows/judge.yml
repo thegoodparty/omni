@@ -1990,6 +1990,11 @@ jobs:
           # Who asked for these agents, and THE STEP THAT ACTS ON IT: the arms
           # only parse it. See the base arm above.
           JUDGE_SELECTION: ${{ needs.plan.outputs.selection }}
+          # A case is held out as a control only when the base ref's list
+          # holds it out too, so a branch cannot exempt the probe it
+          # regresses. Empty when the worktree was never made, which scores
+          # every case.
+          JUDGE_BASE_DIR: ${{ steps.base.outputs.dir }}
           # THIS STEP SPENDS TOO — one panel call per judgeable pair, per
           # seat — so it needs the switch the arms needed. Omitting it here
           # does not make the sweep free: both captures have already been
