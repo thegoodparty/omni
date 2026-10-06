@@ -1491,3 +1491,101 @@ describe('judgeSweep applies each case list condition and control', () => {
     expect(result.report.agents[0]?.controlsScoredAnyway).toBeUndefined()
   })
 })
+
+describe('what a sweep actually spent', () => {
+  // 1,000 input at $3/M plus 100 output at $15/M: $0.0045 a call.
+  const priced: JsonJudgeModel = {
+    jsonCompletion: async ({ schema }) => ({
+      object: schema.parse(verdict('X')),
+      tokens: 1_100,
+      inputTokens: 1_000,
+      outputTokens: 100,
+      model: 'claude-sonnet-4-6',
+    }),
+  }
+
+  it('totals every arm run and every panel call', async () => {
+    const result = await run(await seeded(cases(3)), priced)
+    const cost = result.report.actualCost
+    // Each fixture run stored $0.097.
+    expect(cost?.base).toEqual({
+      usd: 0.097 * 3,
+      runs: 3,
+      unmeasured: { noCostRecorded: 0, unpricedModel: 0 },
+    })
+    expect(cost?.candidate.usd).toBeCloseTo(0.097 * 3, 6)
+    expect(cost?.judge.calls).toBeGreaterThan(0)
+    expect(cost?.judge.usd).toBeCloseTo(0.0045 * (cost?.judge.calls ?? 0), 6)
+    expect(cost?.agents).toEqual([
+      {
+        agentId: 'chief_of_staff',
+        base: cost?.base,
+        candidate: cost?.candidate,
+        judge: cost?.judge,
+      },
+    ])
+    expect(result.markdown).toMatch(
+      /^## Universal Judge\n\n\*\*Actual cost: \$/,
+    )
+    expect(result.markdown).toContain('- spent on this agent: $')
+  })
+
+  // Excluded from the verdict, still on the bill.
+  it('counts a pair the judge excluded', async () => {
+    const broken = pair('broken').map((record) =>
+      record.arm === 'base'
+        ? { ...record, status: 'infraError' as const, output: null }
+        : record,
+    )
+    const records = [...cases(3), ...broken]
+    const result = await run(await seeded(records), priced)
+    expect(result.report.actualCost?.base.runs).toBe(4)
+  })
+
+  // A failed panel call reports no usage, so the total cannot be exact.
+  it('reads "at least" when a panel call threw', async () => {
+    let calls = 0
+    const flaky: JsonJudgeModel = {
+      jsonCompletion: async (options) => {
+        calls += 1
+        if (calls === 1) throw new Error('rate limited')
+        return priced.jsonCompletion(options)
+      },
+    }
+    const result = await run(await seeded(cases(3)), flaky)
+    expect(result.report.actualCost?.judge.failedCalls).toBe(1)
+    expect(result.markdown).toMatch(
+      /^## Universal Judge\n\n\*\*Actual cost: at least \$/,
+    )
+    expect(result.markdown).toContain('1 judge call(s) failed')
+  })
+
+  // The arm totals count every record, so a record for an agent outside the
+  // selection has to show up somewhere the per-agent lines do not.
+  it('puts records outside the selection on their own row', async () => {
+    const stray = pair('stray').map((record) => ({
+      ...record,
+      agentId: 'priority_flow',
+      runId: `${record.runId}:stray`,
+    }))
+    const result = await run(await seeded([...cases(3), ...stray]), priced)
+    const cost = result.report.actualCost
+    expect(cost?.base.runs).toBe(4)
+    expect(cost?.agents.map((a) => a.base.runs)).toEqual([3])
+    expect(cost?.unselected?.base.runs).toBe(1)
+    expect(cost?.unselected?.candidate.runs).toBe(1)
+  })
+
+  it('is absent from a sweep that could not spend', async () => {
+    const store = await seeded(cases(3), [
+      manifest('base', { spent: false }),
+      manifest('candidate', { spent: false }),
+    ])
+    const result = await judgeSweep(
+      { store, llm: priced, registry: REGISTRY },
+      { ...env, spends: false },
+    )
+    expect(result.report.actualCost).toBeUndefined()
+    expect(result.markdown).not.toContain('Actual cost')
+  })
+})

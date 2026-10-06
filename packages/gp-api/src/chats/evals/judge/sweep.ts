@@ -7,6 +7,16 @@ import { PinoLogger } from 'nestjs-pino'
 import { LlmService } from '@/llm/services/llm.service'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import { overrideEnvForEvals } from '../envOverride'
+import {
+  armSpend,
+  formatTotal,
+  judgeSpendBetween,
+  meterJudge,
+  NO_JUDGE_SPEND,
+  parseEstimateUsd,
+  type AgentSpend,
+  type JudgeSpend,
+} from './actualCost'
 import { AGENTS, type AgentEntry } from './agents'
 import { armGap, windowOf } from './armGap'
 import { createRng } from './bootstrap'
@@ -95,6 +105,8 @@ export interface JudgingDeps {
   // The caseIds the BASE ref's list marks `scored: false`, or null when that
   // list cannot be read. Injected for the same reason.
   baseControls?: (agent: AgentEntry) => ReadonlySet<string> | null
+  // The plan job's estimate, printed beside what was actually spent.
+  estimateUsd?: string
 }
 
 // Only a background list carries either field, so a chat agent costs no read.
@@ -322,6 +334,9 @@ export const judgeSweep = async (
     ...(await deps.store.listRecords(env.sweepId, 'candidate')),
   ]
 
+  const meter = meterJudge(deps.llm)
+  const judgeByAgent = new Map<string, JudgeSpend>()
+
   const scores: AgentScore[] = []
   const refusals: Refusal[] = []
   const placeholderCases: string[] = []
@@ -443,7 +458,13 @@ export const judgeSweep = async (
         identicalOutputsReported.push(agentId)
       }
 
-      const judgments = await judgeAll(deps.llm, normalized.judgeable, config)
+      const before = meter.snapshot()
+      let judgments
+      try {
+        judgments = await judgeAll(meter.llm, normalized.judgeable, config)
+      } finally {
+        judgeByAgent.set(agentId, judgeSpendBetween(before, meter.snapshot()))
+      }
       scores.push({
         ...scoreAgent({ normalized, judgments, unscoredCaseIds }, config),
         ...(controls.scoredAnyway !== undefined && {
@@ -478,8 +499,44 @@ export const judgeSweep = async (
   // rule is a fact about the branch whether or not it was judgeable.
   const broken = invariantViolations(records)
 
+  const agentSpend: AgentSpend[] = env.agentIds.map((agentId) => {
+    const forAgent = records.filter((r) => r.agentId === agentId)
+    return {
+      agentId,
+      base: armSpend(forAgent, 'base'),
+      candidate: armSpend(forAgent, 'candidate'),
+      // Absent for an agent the judge refused before calling the panel.
+      judge: judgeByAgent.get(agentId) ?? NO_JUDGE_SPEND,
+    }
+  })
+
+  const unselectedRecords = records.filter(
+    (r) => !env.agentIds.includes(r.agentId),
+  )
+
   const report: SweepReport = {
     agents: scores,
+    // Only when the sweep could spend. A JUDGE_SPEND-off sweep dispatched
+    // nothing and called no model, and its records carry no cost, so a
+    // total here would print "at least $0.00" over runs that were never
+    // billed.
+    ...(env.spends && {
+      actualCost: {
+        base: armSpend(records, 'base'),
+        candidate: armSpend(records, 'candidate'),
+        judge: meter.snapshot(),
+        agents: agentSpend,
+        ...(unselectedRecords.length > 0 && {
+          unselected: {
+            base: armSpend(unselectedRecords, 'base'),
+            candidate: armSpend(unselectedRecords, 'candidate'),
+          },
+        }),
+        ...(deps.estimateUsd !== undefined && {
+          estimateUsd: deps.estimateUsd,
+        }),
+      },
+    }),
     ...(refusals.length > 0 && { refusals }),
     registry,
     armGap: armGap(
@@ -547,6 +604,23 @@ export const emitReport = (
   if (summary !== undefined && summary !== '') {
     appendFileSync(summary, `${markdown}\n`, 'utf8')
   }
+}
+
+// The total, as a step output, for the closing summary table that sits under
+// the report. That table already prints the estimate, and an estimate with
+// no actual beside it is the gap this exists to close.
+export const emitActualCost = (
+  report: SweepReport,
+  env: NodeJS.ProcessEnv = process.env,
+): void => {
+  const output = env.GITHUB_OUTPUT
+  if (report.actualCost === undefined) return
+  if (output === undefined || output === '') return
+  appendFileSync(
+    output,
+    `actual_usd=${formatTotal(report.actualCost)}\n`,
+    'utf8',
+  )
 }
 
 // Built only when `main` runs, never on import, because `overrideEnvForEvals`
@@ -664,12 +738,14 @@ export const main = async (): Promise<number> => {
       store: storeFromEnv(env),
       llm: env.spends ? anthropicJudge(config) : cannedJudge(config),
       config,
+      estimateUsd: parseEstimateUsd(process.env.JUDGE_ESTIMATE_USD),
     },
     env,
   )
   emitReport(
     env.spends ? result.markdown : `${CANNED_JUDGE_NOTE}\n\n${result.markdown}`,
   )
+  emitActualCost(result.report)
   return result.exitCode
 }
 

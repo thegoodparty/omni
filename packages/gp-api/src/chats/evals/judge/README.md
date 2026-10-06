@@ -59,7 +59,21 @@ Each agent is priced at the highest of the PR's, the base ref's and the default
 branch's tables, so a PR cannot lower its own estimate, and a chat agent pays
 for both arms' case lists. The numbers and their evidence are in
 `planCost.ts`; add an agent's measured cost there after its first live sweep
-(the report's `- cost:` line).
+(the per-run mean on the report's `- cost difference per run pair:` line).
+
+**What a sweep actually spent** is the first thing in its report: the total,
+split into each arm's agent runs and the judge panel, beside the estimate.
+Every record counts, including pairs excluded for an error and agents the
+judge refused, because those runs were billed too. A run that recorded no
+cost (a background run cancelled at its own timeout) or a panel call that
+failed makes the total a lower bound, and the report says "at least" and why
+rather than printing a low number as if it were measured. The reasons are a
+fixed set: no cost recorded (a background run cancelled at its own timeout),
+a model `pricing.ts` has no rates for, or a failed panel call. The closing summary
+table prints the same total beside the estimate. One undercount nothing can
+see: a model call retried inside `LlmService` or a chat turn's provider call
+reports only the attempt that succeeded, so the report always carries a line
+saying the figure can run slightly low.
 
 **A second request on the same PR cancels the first**, from a comment or from
 Actions. That includes a plan-only `/judge`: posting one while a live sweep is

@@ -1,3 +1,9 @@
+import {
+  actualCostLines,
+  formatTotal,
+  type ActualCost,
+  type AgentSpend,
+} from './actualCost'
 import { AGENTS, coverage, type AgentEntry } from './agents'
 import { formatGap, type ArmGap } from './armGap'
 import type { IdenticalOutputs } from './identicalOutputs'
@@ -47,6 +53,9 @@ export interface SweepReport {
   // One entry per agent. Never a blended number: a Chief of Staff score
   // averaged against a briefing score would have no referent.
   agents: readonly AgentScore[]
+  // What the sweep spent. Absent on a sweep that could not spend, and on a
+  // report rendered straight from fixture records.
+  actualCost?: ActualCost
   // Comparisons the judge declined to make at all, such as two arms that
   // hashed to the same config.
   refusals?: readonly Refusal[]
@@ -249,12 +258,25 @@ const changeLine = (ci: CiContext | null): string =>
       ` — [workflow run ${ci.workflowRunId}](${ci.workflowRunUrl})` +
       (ci.workflowRunAttempt > 1 ? ` (attempt ${ci.workflowRunAttempt})` : '')
 
-const evidenceLines = (score: AgentScore): string[] => {
+// The agent's bill, as opposed to the per-pair difference below it. A
+// reader who sees "+0.0002 USD" alone cannot tell whether the agent cost a
+// cent or forty dollars.
+const spentLine = (spend: AgentSpend): string =>
+  `- spent on this agent: ${formatTotal(spend)} (agent runs ` +
+  `$${(spend.base.usd + spend.candidate.usd).toFixed(2)}, judge ` +
+  `$${spend.judge.usd.toFixed(2)})`
+
+const evidenceLines = (
+  score: AgentScore,
+  spend: AgentSpend | undefined,
+): string[] => {
   const { evidence } = score
+  const spent = spend === undefined ? [] : [spentLine(spend)]
   if (evidence.pairs === 0) {
     return [
       'Measured: nothing to measure \u2014 no pair had a result on ' +
         'both arms.',
+      ...spent,
     ]
   }
   const cost = evidence.costUsd
@@ -263,10 +285,12 @@ const evidenceLines = (score: AgentScore): string[] => {
       `(re-derived at pricing ${PRICING_VERSION}, not read from the ` +
       'records stored dollars):',
     '',
+    ...spent,
     cost === null
-      ? `- cost: not derivable — ${evidence.unpriceableReason}`
-      : `- cost: ${signed(cost.delta, 4)} USD per run pair ` +
-        `(base ${cost.base.toFixed(4)}, candidate ` +
+      ? `- cost difference per run pair: not derivable — ` +
+        `${evidence.unpriceableReason}`
+      : `- cost difference per run pair: ${signed(cost.delta, 4)} USD ` +
+        `(mean per run: base ${cost.base.toFixed(4)}, candidate ` +
         `${cost.candidate.toFixed(4)})`,
     `- latency: ${signed(evidence.latencyMs.delta, 0)} ms per run pair`,
     `- tool errors: ${signed(evidence.toolErrors.delta, 2)} per run pair`,
@@ -362,7 +386,11 @@ const toolErrorCauseLines = (score: AgentScore): string[] => {
   return [...excluded, '', 'Tool errors (scored, not excluded):', ...scored]
 }
 
-const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
+const agentSection = (
+  score: AgentScore,
+  config: JudgeConfig,
+  spend: AgentSpend | undefined,
+): string[] => {
   const lines: string[] = []
   lines.push(`### ${score.agentId} — ${score.label}`)
   lines.push('')
@@ -421,7 +449,7 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
   }
 
   lines.push(...controlLines(score))
-  lines.push(...evidenceLines(score))
+  lines.push(...evidenceLines(score, spend))
   lines.push('')
   lines.push(exclusionLine(score))
   lines.push(...toolErrorCauseLines(score))
@@ -776,12 +804,25 @@ export const renderReport = (
 ): string => {
   const lines: string[] = ['## Universal Judge', '']
 
+  // FIRST, above every verdict. The estimate was on the PR before the sweep
+  // started; this is where a reader looks for whether it held.
+  if (report.actualCost !== undefined) {
+    lines.push(...actualCostLines(report.actualCost))
+    lines.push('')
+  }
+
   if (report.agents.length === 0) {
     lines.push('No agent produced a verdict in this sweep.')
     lines.push('')
   }
   for (const score of report.agents) {
-    lines.push(...agentSection(score, config))
+    lines.push(
+      ...agentSection(
+        score,
+        config,
+        report.actualCost?.agents.find((a) => a.agentId === score.agentId),
+      ),
+    )
     lines.push('')
   }
 
