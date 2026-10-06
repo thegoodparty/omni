@@ -6,7 +6,6 @@ import { format, parseISO } from 'date-fns'
 import {
   Button,
   Card,
-  ChevronDownIcon,
   CircleCheckIcon,
   cn,
   Dialog,
@@ -370,7 +369,6 @@ export default function NextThingCard({
                   disabled={busy}
                 >
                   Skip
-                  <ChevronDownIcon className="size-4" aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
