@@ -23,7 +23,10 @@ import {
   outreachEventProps,
   type OutreachTrackerOrigin,
 } from 'app/(dashboard)/outreach/util/outreachAnalytics'
-import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
+import {
+  CampaignStrategyPhaseKeySchema,
+  type TrackerTaskSkipReason,
+} from '@goodparty_org/contracts'
 
 // The task list on the Game Plan page: the persisted
 // campaign-tracker rows (campaign_tracker_tasks) rendered as a four-phase,
@@ -131,6 +134,17 @@ const CampaignStrategySection = (): React.JSX.Element => {
   const onBallot = campaign?.ballotStatus === 'on-ballot'
   const skipTask = useSkipTrackerTask()
   const onUndoSkip = (id: string) => skipTask.mutate({ id, reason: null })
+  // Later or Not for me from a row's "…" menu, the same choices Home's card
+  // offers for the next thing.
+  const onSkip = (id: string, reason: TrackerTaskSkipReason) => {
+    const task = tasks.find((t) => t.id === id)
+    trackEvent(EVENTS.Dashboard.CampaignPlan.TaskSkipped, {
+      trackerTaskId: id,
+      reason,
+      ...(task?.phase ? { phase: task.phase } : {}),
+    })
+    skipTask.mutate({ id, reason })
+  }
 
   const metrics = campaign?.raceTargetMetrics
   const electionDateIso =
@@ -246,6 +260,7 @@ const CampaignStrategySection = (): React.JSX.Element => {
                 key={phase.key}
                 phase={phase}
                 onToggleComplete={onToggleComplete}
+                onSkip={onSkip}
                 onUndoSkip={onUndoSkip}
                 onStartOutreach={openOutreachFlow}
               />

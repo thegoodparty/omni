@@ -2,12 +2,21 @@
 
 import { format } from 'date-fns'
 import {
+  TRACKER_TASK_SNOOZE_DAYS,
+  type TrackerTaskSkipReason,
+} from '@goodparty_org/contracts'
+import {
   Badge,
   Button,
   CalendarDaysIcon,
   CalendarIcon,
-  CheckIcon,
   ClipboardListIcon,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  IconButton,
+  MoreHorizontalIcon,
   ExternalLinkIcon,
   LockIcon,
   MailIcon,
@@ -25,8 +34,9 @@ import type {
 
 interface CampaignStrategyTaskRowProps {
   task: CampaignStrategyTask
-  index: number
   onToggleComplete?: (id: string, completed: boolean) => void
+  // Sets a task aside for a few days ('later') or for good ('notForMe').
+  onSkip?: (id: string, reason: TrackerTaskSkipReason) => void
   // Brings back a task the candidate said is not for them.
   onUndoSkip?: (id: string) => void
   // In-place launcher for text/robocall tasks (legacy-task behavior): opens
@@ -60,17 +70,93 @@ const CHANNEL_ICONS: Record<
 export const formatTaskDate = (date: string | null): string | null =>
   date ? format(new Date(date.slice(0, 10).replace(/-/g, '/')), 'MMM d') : null
 
-// One task row: status marker, date chip, type icon, title, optional Pro
-// badge, description, parameter, prerequisite hint, link.
+// One task row: date chip, type icon, title, optional Pro badge, description,
+// parameter, prerequisite hint, link, and a "…" menu with what can be done to
+// it (the same choices as Home's card).
 const isComposeChannel = (
   channel: TaskChannel,
 ): channel is 'text' | 'robocall' =>
   channel === 'text' || channel === 'robocall'
 
+const SKIP_CHOICES: {
+  reason: TrackerTaskSkipReason
+  label: string
+  caption: string
+}[] = [
+  {
+    reason: 'later',
+    label: 'Later',
+    caption: `Show it again in ${TRACKER_TASK_SNOOZE_DAYS} days`,
+  },
+  {
+    reason: 'notForMe',
+    label: 'Not for me',
+    caption: "Don't suggest it again",
+  },
+]
+
+const TaskActionsMenu = ({
+  task,
+  setAside,
+  onToggleComplete,
+  onSkip,
+}: {
+  task: CampaignStrategyTask
+  setAside: boolean
+  onToggleComplete?: (id: string, completed: boolean) => void
+  onSkip?: (id: string, reason: TrackerTaskSkipReason) => void
+}): React.JSX.Element => (
+  <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <IconButton
+        type="button"
+        variant="ghost"
+        size="small"
+        className="-mr-2 -mt-1 shrink-0 text-muted-foreground"
+        aria-label={`Options for ${task.title}`}
+      >
+        <MoreHorizontalIcon className="size-5" aria-hidden />
+      </IconButton>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end">
+      {task.completed ? (
+        onToggleComplete && (
+          <DropdownMenuItem onSelect={() => onToggleComplete(task.id, false)}>
+            Mark not done
+          </DropdownMenuItem>
+        )
+      ) : (
+        <>
+          {onToggleComplete && (
+            <DropdownMenuItem onSelect={() => onToggleComplete(task.id, true)}>
+              Mark done
+            </DropdownMenuItem>
+          )}
+          {onSkip &&
+            SKIP_CHOICES.filter(
+              (choice) => !(setAside && choice.reason === 'notForMe'),
+            ).map((choice) => (
+              <DropdownMenuItem
+                key={choice.reason}
+                onSelect={() => onSkip(task.id, choice.reason)}
+                className="flex flex-col items-start gap-0"
+              >
+                <span>{choice.label}</span>
+                <span className="text-xs text-muted-foreground">
+                  {choice.caption}
+                </span>
+              </DropdownMenuItem>
+            ))}
+        </>
+      )}
+    </DropdownMenuContent>
+  </DropdownMenu>
+)
+
 const CampaignStrategyTaskRow = ({
   task,
-  index,
   onToggleComplete,
+  onSkip,
   onUndoSkip,
   onStartOutreach,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
@@ -91,47 +177,8 @@ const CampaignStrategyTaskRow = ({
   const Icon = CHANNEL_ICONS[task.channel]
   const composeChannel = isComposeChannel(task.channel) ? task.channel : null
 
-  const markerClassName = cn(
-    'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums',
-    task.completed
-      ? 'bg-success text-white'
-      : 'bg-grayscale-200 text-muted-foreground',
-  )
-  const markerContent = task.completed ? (
-    <CheckIcon className="size-4" />
-  ) : (
-    String(index).padStart(2, '0')
-  )
-
   return (
-    <li className="border-border flex gap-4 border-t px-6 py-4 first:border-t-0">
-      {onToggleComplete ? (
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => onToggleComplete(task.id, !task.completed)}
-          aria-pressed={task.completed}
-          aria-label={
-            task.completed ? 'Mark task incomplete' : 'Mark task complete'
-          }
-          className={cn(markerClassName, 'group p-0 hover:opacity-80')}
-        >
-          {task.completed ? (
-            <CheckIcon className="size-4" />
-          ) : (
-            // Show the number normally; swap to a check on hover so it reads as
-            // a "click to complete" affordance.
-            <>
-              <span className="group-hover:hidden">
-                {String(index).padStart(2, '0')}
-              </span>
-              <CheckIcon className="hidden size-4 group-hover:block" />
-            </>
-          )}
-        </Button>
-      ) : (
-        <span className={markerClassName}>{markerContent}</span>
-      )}
+    <li className="border-border flex gap-2 border-t px-6 py-4 first:border-t-0">
       <div className="flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           {formattedDate && (
@@ -213,6 +260,14 @@ const CampaignStrategyTaskRow = ({
           </Button>
         )}
       </div>
+      {(onToggleComplete || onSkip) && (
+        <TaskActionsMenu
+          task={task}
+          setAside={setAside}
+          onToggleComplete={onToggleComplete}
+          onSkip={onSkip}
+        />
+      )}
     </li>
   )
 }

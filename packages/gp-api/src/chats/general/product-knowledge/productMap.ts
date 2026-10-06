@@ -161,6 +161,7 @@ const WIN_AREAS: ProductArea[] = [
       'Three cards across the top, Your race, Your story and Your opponents, open the pages where each can be reviewed and changed: race details on Your race, the story on Your story, opponents on Your opponents (Know Your Opponent)',
       'Below them, a bar per phase (Pre-launch, Launch, Active campaign, Get out the vote) shows how far along they are, which phase they are in, and how many tasks are done',
       'The phase they are in opens to its tasks, and the task to do next is the same card as on Home, with its button, Mark done, the Skip menu and Chat about this',
+      'Every other task has a three-dot menu with Mark done (Mark not done once it is done), Later (it comes back in 3 days) and Not for me',
     ],
     gate: 'No gate. A candidate with no Campaign Story still gets a campaign and outreach plan, just a generic one, and completing the story regenerates it from their own answers.',
   },

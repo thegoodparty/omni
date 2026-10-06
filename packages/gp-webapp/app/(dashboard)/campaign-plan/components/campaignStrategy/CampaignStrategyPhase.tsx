@@ -13,6 +13,7 @@ import {
   InfoIcon,
   cn,
 } from '@styleguide'
+import type { TrackerTaskSkipReason } from '@goodparty_org/contracts'
 import type {
   CampaignStrategyPhase as CampaignStrategyPhaseModel,
   CampaignStrategyWeek,
@@ -23,6 +24,7 @@ import { phaseCounts } from './phaseProgress'
 interface CampaignStrategyPhaseProps {
   phase: CampaignStrategyPhaseModel
   onToggleComplete?: (id: string, completed: boolean) => void
+  onSkip?: (id: string, reason: TrackerTaskSkipReason) => void
   onUndoSkip?: (id: string) => void
   onStartOutreach?: (
     channel: 'text' | 'robocall',
@@ -47,11 +49,13 @@ const weekLabel = (start: string): string => {
 const WeekNavigator = ({
   weeks,
   onToggleComplete,
+  onSkip,
   onUndoSkip,
   onStartOutreach,
 }: {
   weeks: CampaignStrategyWeek[]
   onToggleComplete?: (id: string, completed: boolean) => void
+  onSkip?: (id: string, reason: TrackerTaskSkipReason) => void
   onUndoSkip?: (id: string) => void
   onStartOutreach?: (
     channel: 'text' | 'robocall',
@@ -114,12 +118,12 @@ const WeekNavigator = ({
       </div>
       {week.tasks.length > 0 ? (
         <ul className="border-border border-t">
-          {week.tasks.map((task, index) => (
+          {week.tasks.map((task) => (
             <CampaignStrategyTaskRow
               key={task.id}
               task={task}
-              index={index + 1}
               onToggleComplete={onToggleComplete}
+              onSkip={onSkip}
               onUndoSkip={onUndoSkip}
               onStartOutreach={onStartOutreach}
             />
@@ -179,6 +183,7 @@ const PhaseCount = ({
 const CampaignStrategyPhase = ({
   phase,
   onToggleComplete,
+  onSkip,
   onUndoSkip,
   onStartOutreach,
 }: CampaignStrategyPhaseProps): React.JSX.Element => (
@@ -213,6 +218,7 @@ const CampaignStrategyPhase = ({
         <WeekNavigator
           weeks={phase.weeks}
           onToggleComplete={onToggleComplete}
+          onSkip={onSkip}
           onUndoSkip={onUndoSkip}
           onStartOutreach={onStartOutreach}
         />
@@ -227,12 +233,12 @@ const CampaignStrategyPhase = ({
               </div>
             )}
             <ul className={cn(!group.label && 'border-border border-t')}>
-              {group.tasks.map((task, index) => (
+              {group.tasks.map((task) => (
                 <CampaignStrategyTaskRow
                   key={task.id}
                   task={task}
-                  index={index + 1}
                   onToggleComplete={onToggleComplete}
+                  onSkip={onSkip}
                   onUndoSkip={onUndoSkip}
                   onStartOutreach={onStartOutreach}
                 />

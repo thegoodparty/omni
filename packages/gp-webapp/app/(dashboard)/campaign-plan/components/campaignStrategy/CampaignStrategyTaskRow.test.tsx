@@ -47,7 +47,6 @@ describe('start outreach CTA', () => {
       <ul>
         <CampaignStrategyTaskRow
           task={task}
-          index={1}
           onStartOutreach={onStartOutreach}
         />
       </ul>,
@@ -68,7 +67,6 @@ describe('start outreach CTA', () => {
       <ul>
         <CampaignStrategyTaskRow
           task={{ ...task, completed: true }}
-          index={1}
           onStartOutreach={vi.fn()}
         />
       </ul>,
@@ -83,7 +81,6 @@ describe('start outreach CTA', () => {
       <ul>
         <CampaignStrategyTaskRow
           task={{ ...task, channel: 'doorKnocking' }}
-          index={1}
           onStartOutreach={vi.fn()}
         />
       </ul>,
@@ -117,11 +114,7 @@ describe('a task set aside as not for me', () => {
     const onUndoSkip = vi.fn()
     render(
       <ul>
-        <CampaignStrategyTaskRow
-          task={task}
-          index={1}
-          onUndoSkip={onUndoSkip}
-        />
+        <CampaignStrategyTaskRow task={task} onUndoSkip={onUndoSkip} />
       </ul>,
     )
     expect(screen.getByText('Not for me')).toBeInTheDocument()
@@ -134,7 +127,6 @@ describe('a task set aside as not for me', () => {
       <ul>
         <CampaignStrategyTaskRow
           task={{ ...task, skipReason: 'later' }}
-          index={1}
           onUndoSkip={vi.fn()}
         />
       </ul>,

@@ -9,6 +9,7 @@ import CampaignStrategySection from './CampaignStrategySection'
 
 const mockTasks = vi.fn<() => TrackerTasksResult>()
 const mockToggle = vi.fn()
+const mockSkip = vi.fn()
 // Keep the real isVoterContactFlowType; stub only the data + mutation hooks.
 vi.mock('./useTrackerTasks', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./useTrackerTasks')>()),
@@ -17,7 +18,7 @@ vi.mock('./useTrackerTasks', async (importOriginal) => ({
     mutate: mockToggle,
     isPending: false,
   }),
-  useSkipTrackerTask: () => ({ mutate: vi.fn(), isPending: false }),
+  useSkipTrackerTask: () => ({ mutate: mockSkip, isPending: false }),
 }))
 // Home's card stands in for the next task's row; it has its own tests.
 vi.mock('app/(dashboard)/home/NextThingCard', () => ({
@@ -78,6 +79,16 @@ const lead = task({
   date: '2099-01-05T00:00:00.000Z',
 })
 
+// Each row's "…" menu holds what can be done to it.
+const choose = async (
+  user: ReturnType<typeof userEvent.setup>,
+  title: string,
+  item: string | RegExp,
+) => {
+  await user.click(screen.getByRole('button', { name: `Options for ${title}` }))
+  await user.click(await screen.findByRole('menuitem', { name: item }))
+}
+
 const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
   tasks,
   isPending: false,
@@ -87,6 +98,7 @@ const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
 
 beforeEach(() => {
   mockToggle.mockClear()
+  mockSkip.mockClear()
   mockTrackEvent.mockClear()
 })
 
@@ -101,7 +113,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
 
-    await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
+    await choose(user, 'Greet voters', 'Mark done')
     expect(mockToggle).not.toHaveBeenCalled()
     expect(screen.getByText('count-modal:events')).toBeInTheDocument()
 
@@ -131,7 +143,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
 
-    await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
+    await choose(user, 'Knock doors', 'Mark done')
     // Still pending the count, so nothing is reported yet — the candidate can
     // still cancel out of the modal.
     expect(
@@ -181,9 +193,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
 
-    await user.click(
-      screen.getByRole('button', { name: 'Mark task incomplete' }),
-    )
+    await choose(user, 'Knock doors', 'Mark not done')
     expect(mockToggle).toHaveBeenCalledWith({ id: 't3', completed: false })
     expect(
       mockTrackEvent.mock.calls.filter(
@@ -203,9 +213,29 @@ describe('CampaignStrategySection — completing tasks', () => {
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
 
-    await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
+    await choose(user, 'Get Meta verified', 'Mark done')
     expect(mockToggle).toHaveBeenCalledWith({ id: 't2', completed: true })
     expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
+  })
+})
+
+describe('CampaignStrategySection — setting a task aside', () => {
+  it.each([
+    [/^Later/, 'later'],
+    [/^Not for me/, 'notForMe'],
+  ])('sets a task aside from its menu with %s', async (item, reason) => {
+    mockTasks.mockReturnValue(
+      settled([lead, task({ id: 't1', title: 'Knock doors' })]),
+    )
+    const user = userEvent.setup()
+    render(<CampaignStrategySection />)
+
+    await choose(user, 'Knock doors', item)
+    expect(mockSkip).toHaveBeenCalledWith({ id: 't1', reason })
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskSkipped,
+      { trackerTaskId: 't1', reason, phase: 'launch' },
+    )
   })
 })
 
