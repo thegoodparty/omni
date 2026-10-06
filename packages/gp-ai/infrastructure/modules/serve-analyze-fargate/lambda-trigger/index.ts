@@ -104,8 +104,8 @@ async function processPipeline(
 
   const environmentOverrides = [
     { Name: 'CAMPAIGN_NAME', Value: campaign },
-    // Only when the body carries them, so a poll's task gets exactly the
-    // overrides it always had and the pipeline defaults whatever is absent.
+    // Only when set, so a poll's task gets exactly the overrides it always
+    // had and the pipeline defaults whatever is absent.
     ...(request.sourceType
       ? [{ Name: 'SOURCE_TYPE', Value: request.sourceType }]
       : []),

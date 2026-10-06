@@ -143,18 +143,18 @@ seeds accepted tags from its `CampaignPosition`s first.
   There is no read-then-insert check, on purpose.
 - **Two engines, one ingest.** `FEEDBACK_SYNTHESIS_ENGINE=mock|pipeline`
   (unset is `pipeline`) picks the engine at boot; any other value, or a
-  `FEEDBACK_SYNTHESIS_MOCK_GROUPING` other than `llm|canned`, fails boot.
-  The pipeline engine writes `feedback-input/{runId}.csv` to
+  `FEEDBACK_SYNTHESIS_MOCK_GROUPING` other than `llm|canned`, fails boot. The
+  pipeline engine writes `feedback-input/{runId}.csv` to
   `SERVE_ANALYSIS_BUCKET_NAME` and that is the whole hand-off: the bucket's
-  notification on `feedback-input/` starts the run (not `input/`, which
-  starts a poll run), with the filename as the run id. gp-api holds no key
-  or hostname for the pipeline. The pipeline answers later with
+  notification on `feedback-input/` starts the run (not `input/`, which starts
+  a poll run), with the filename as the run id. gp-api holds no key or
+  hostname for the pipeline. The pipeline answers later with
   `feedbackSynthesisComplete` on the shared queue; S3 can notify twice, and
-  the ingest ignores a completion for a run no longer `running`. The mock waits five
-  seconds and builds the same event in-process, with one LLM call or, under
-  `FEEDBACK_SYNTHESIS_MOCK_GROUPING=canned`, three fixed themes and no call.
-  Both end in `FeedbackSynthesisIngestService.handle`, so a laptop run
-  exercises the real write path. `.env.test` pins mock and canned.
+  the ingest ignores a completion for a run no longer `running`. The mock
+  waits five seconds and builds the same event in-process, with one LLM call
+  or, under `FEEDBACK_SYNTHESIS_MOCK_GROUPING=canned`, three fixed themes and
+  no call. Both end in `FeedbackSynthesisIngestService.handle`, so a laptop
+  run exercises the real write path. `.env.test` pins mock and canned.
 - **An engine that cannot hand off fails the run itself**, freeing the
   `activeKey`. A run whose event never arrives is failed (`error: timeout`)
   after 30 minutes by the stale-run sweep, every ten minutes under
