@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import {
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
   DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
   DoorKnockingTalkingPointsPurposeSchema,
@@ -82,13 +84,42 @@ export type DoorKnockingTalkingPointsDraftRequest = z.infer<
   typeof DoorKnockingTalkingPointsDraftRequestSchema
 >
 
-// Serve's counterpart — identical but for the purpose vocabulary.
+// Serve's counterpart — the purpose vocabulary, plus the one field Win has
+// no purpose for.
+//
+// `communityInputQuestion` is what the effort is trying to learn. It is sent
+// rather than read server-side because the turf does not exist yet at draft
+// time — the campaign is created at the end of the flow. Optional, so every
+// other purpose's request is byte-identical to before, and absent from the
+// Win schema entirely since `community_input` is a Serve purpose.
 export const ServeDoorKnockingTalkingPointsDraftRequestSchema = z
   .object({
     purpose: ServeDoorKnockingTalkingPointsPurposeSchema,
     ...draftRequestShape,
+    communityInputQuestion: z
+      .string()
+      .trim()
+      .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
+      .transform((v) => (v.length === 0 ? undefined : v))
+      .optional(),
   })
   .refine(exclusive, bothDraftsRefinement)
+  // One-way: the question belongs to the purpose that asks one, so it is
+  // refused on any other rather than accepted and folded into that purpose's
+  // ask — which is what it did, turning an explain-a-decision card into a
+  // compost-pilot one. Not required in the other direction: the card can be
+  // drafted or improved before a question exists, and the CREATE schema is
+  // where the question is actually mandatory.
+  .refine(
+    (v) =>
+      v.communityInputQuestion === undefined ||
+      v.purpose === COMMUNITY_INPUT_PURPOSE,
+    {
+      message:
+        'communityInputQuestion is only valid with the community_input purpose',
+      path: ['communityInputQuestion'],
+    },
+  )
 
 export type ServeDoorKnockingTalkingPointsDraftRequest = z.infer<
   typeof ServeDoorKnockingTalkingPointsDraftRequestSchema

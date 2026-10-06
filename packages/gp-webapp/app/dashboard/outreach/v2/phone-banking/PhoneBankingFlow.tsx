@@ -17,6 +17,7 @@ import {
   type ServePhoneBankingPurpose,
   type ServePhoneBankingScriptDraftRequest,
   type SocialTone,
+  COMMUNITY_INPUT_PURPOSE,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -74,21 +75,37 @@ import {
 import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
+import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
 
-type StepId = 'purpose' | 'details' | 'who' | 'script' | 'sheets' | 'download'
-const STEP_ORDER: StepId[] = ['purpose', 'who', 'script', 'sheets', 'download']
-const EVENT_STEP_ORDER: StepId[] = [
-  'purpose',
-  'details',
-  'who',
-  'script',
-  'sheets',
-  'download',
-]
+type StepId =
+  | 'purpose'
+  | 'details'
+  | 'question'
+  | 'who'
+  | 'script'
+  | 'sheets'
+  | 'download'
+
+// Two purposes each insert one step after `purpose`, and no purpose inserts
+// both — so the order is DERIVED rather than one constant per shape. That is
+// also what keeps the progress bar honest: a hardcoded length would draw five
+// segments for a six-step flow.
+//
+// The question step is NOT gated on `serve-issue-capture`. The create
+// contract requires a question whenever the purpose is community_input, so a
+// flow that skipped this step would 400 on save with nothing on screen
+// explaining why.
+const stepOrderFor = (purpose: PhoneBankingFlowPurpose | null): StepId[] =>
+  isEventInvite(purpose)
+    ? ['purpose', 'details', 'who', 'script', 'sheets', 'download']
+    : purpose === COMMUNITY_INPUT_PURPOSE
+      ? ['purpose', 'question', 'who', 'script', 'sheets', 'download']
+      : ['purpose', 'who', 'script', 'sheets', 'download']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
   details: EVENT_DETAILS_TITLE,
+  question: 'What do you want to learn?',
   who: 'Who do you want to reach?',
   script: 'Write your call script',
   sheets: 'How many call sheets would you like me to create?',
@@ -180,6 +197,10 @@ interface PhoneBankingFlowCreateInput extends ProposalLink {
   sheetCount: number
   purpose: PhoneBankingFlowPurpose
   voterFileFilterId: number
+  // Serve's community_input only, where the contract requires it. Always
+  // undefined on the Win surface, whose purpose vocabulary has no such
+  // member, so its endpoint never sees the field.
+  communityInputQuestion?: string
 }
 
 // A caller-supplied surface parametrizes purpose cards, the name-suggestion
@@ -339,6 +360,10 @@ export const PhoneBankingFlow = ({
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
+  // What this effort is asking, collected on the step that follows a
+  // community_input purpose. Required there by contract, so the step's
+  // Continue stays disabled until it is filled in.
+  const [question, setQuestion] = useState('')
   const eventDetails = useEventDetails({
     enabled: open && isEventInvite(purpose),
     isServe: surface.isServe,
@@ -418,6 +443,9 @@ export const PhoneBankingFlow = ({
         sheetCount,
         purpose: purpose as PhoneBankingFlowPurpose,
         voterFileFilterId,
+        ...(purpose === COMMUNITY_INPUT_PURPOSE
+          ? { communityInputQuestion: question.trim() }
+          : {}),
         ...proposalLink,
       })
     },
@@ -595,7 +623,7 @@ export const PhoneBankingFlow = ({
     setSheetCount(count)
   }
 
-  const stepOrder = isEventInvite(purpose) ? EVENT_STEP_ORDER : STEP_ORDER
+  const stepOrder = stepOrderFor(purpose)
   const stepIndex = stepOrder.indexOf(stepId)
 
   const audienceLabel = audience.selectedList?.name ?? ''
@@ -624,6 +652,11 @@ export const PhoneBankingFlow = ({
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
     const trimmedInstructions = instructionsOverride.trim()
+    // Read here and passed as a variable, the way `instructions` is: the
+    // question is what a community-input effort exists to ask, so the script
+    // has to close on it rather than on a generic issue question.
+    const askedQuestion =
+      nextPurpose === COMMUNITY_INPUT_PURPOSE ? question.trim() : ''
     const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draftMutate(
       {
@@ -635,6 +668,9 @@ export const PhoneBankingFlow = ({
         ...(trimmedInstructions === ''
           ? {}
           : { instructions: trimmedInstructions }),
+        ...(askedQuestion === ''
+          ? {}
+          : { communityInputQuestion: askedQuestion }),
       },
       {
         onSuccess: (generated) => {
@@ -660,9 +696,22 @@ export const PhoneBankingFlow = ({
     setScript('')
     setScriptManuallyEdited(false)
     setInstructions('')
+    // Same staleness as the four above, and the one with teeth: the question
+    // step's Continue only guards emptiness, so a question typed for an
+    // earlier community-input pick would sail through as this effort's.
+    setQuestion('')
     draftedEventRef.current = null
+    // Two purposes are not fully specified by this pick, and both defer the
+    // draft to the step that completes them: an event invite has no date or
+    // place yet, and a community-input effort has not been asked what it is
+    // asking. A script drafted here would be written before the one thing it
+    // has to carry. Every other purpose is complete, so it drafts now.
     if (isEventInvite(selected)) {
       setStepId('details')
+      return
+    }
+    if (selected === COMMUNITY_INPUT_PURPOSE) {
+      setStepId('question')
       return
     }
     setStepId('who')
@@ -844,44 +893,62 @@ export const PhoneBankingFlow = ({
             onClose()
           },
         }
-      : stepId === 'who'
-        ? audienceCta
-        : stepId === 'script'
-          ? {
-              label: 'Continue',
-              onClick: () => setStepId('sheets'),
-              disabled:
-                script.trim().length === 0 ||
-                draftMutation.isPending ||
-                name.trim().length === 0,
-            }
-          : stepId === 'sheets'
+      : stepId === 'question'
+        ? {
+            label: 'Continue',
+            onClick: () => {
+              setStepId('who')
+              // The draft deferred at the purpose pick, now that there is a
+              // question to write it from. Never over an edited script: a
+              // walkback to change the question must not throw away wording
+              // the official has already made theirs — Regenerate is how they
+              // ask for a rewrite.
+              if (!scriptManuallyEdited) {
+                requestDraft(purpose, tone, undefined, undefined, instructions)
+              }
+            },
+            // Required by contract, so a blank question would 400 on save
+            // several steps later with nothing on screen explaining why.
+            disabled: question.trim().length === 0,
+          }
+        : stepId === 'who'
+          ? audienceCta
+          : stepId === 'script'
             ? {
                 label: 'Continue',
-                onClick: () => {
-                  // Nothing is written until the candidate can have the list:
-                  // a gated Continue shows the ready screen as a preview, and
-                  // the gate opens from there (design: the download step's
-                  // download and Continue both open it).
-                  if (gate.requirement !== null) {
-                    setStepId('download')
-                    return
-                  }
-                  createMutation.mutate()
-                },
-                disabled: createMutation.isPending,
-                loading: createMutation.isPending,
+                onClick: () => setStepId('sheets'),
+                disabled:
+                  script.trim().length === 0 ||
+                  draftMutation.isPending ||
+                  name.trim().length === 0,
               }
-            : stepId === 'download'
+            : stepId === 'sheets'
               ? {
                   label: 'Continue',
                   onClick: () => {
-                    setGateOrigin('create')
-                    setGateCta('Continue')
-                    setGateOpen(true)
+                    // Nothing is written until the candidate can have the list:
+                    // a gated Continue shows the ready screen as a preview, and
+                    // the gate opens from there (design: the download step's
+                    // download and Continue both open it).
+                    if (gate.requirement !== null) {
+                      setStepId('download')
+                      return
+                    }
+                    createMutation.mutate()
                   },
+                  disabled: createMutation.isPending,
+                  loading: createMutation.isPending,
                 }
-              : null
+              : stepId === 'download'
+                ? {
+                    label: 'Continue',
+                    onClick: () => {
+                      setGateOrigin('create')
+                      setGateCta('Continue')
+                      setGateOpen(true)
+                    },
+                  }
+                : null
 
   const cta: FlowShellCta | null =
     stepId === 'details' && !gateOpen && !saved
@@ -976,6 +1043,18 @@ export const PhoneBankingFlow = ({
           destination="call script"
           prefillNote={eventDetails.prefillNote}
         />
+      ) : stepId === 'question' ? (
+        <div className="space-y-6">
+          <Intro
+            channel="phoneBanking"
+            title={STEP_TITLES.question}
+            body="We will read this back to you with what people said."
+          />
+          <CommunityInputQuestionStep
+            question={question}
+            onChange={setQuestion}
+          />
+        </div>
       ) : stepId === 'who' ? (
         <>
           <OutreachAudienceStep

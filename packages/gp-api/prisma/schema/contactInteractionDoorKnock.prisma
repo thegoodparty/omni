@@ -61,6 +61,10 @@ model ContactInteractionDoorKnock {
   actorUserId      Int?             @map("actor_user_id")
   actor            User?            @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
+  // The canvasser's spoken summary of this conversation, when they recorded
+  // one. At most one per knock — a re-record corrects in place.
+  constituentFeedback ConstituentFeedback?
+
   @@unique([organizationSlug, sourceId])
   @@index([organizationSlug, personId, occurredAt])
   @@index([organizationSlug, actorUserId])

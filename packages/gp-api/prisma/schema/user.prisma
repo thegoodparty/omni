@@ -48,6 +48,7 @@ model User {
   organizationMemberships     OrganizationMembership[]
   invitedMemberships          OrganizationMembership[]         @relation("OrganizationMembershipInvitedBy")
   doorKnockInteractions       ContactInteractionDoorKnock[]
+  constituentFeedback         ConstituentFeedback[]
   outreachAssignments         OutreachAssignment[]
   assignedOutreachAssignments OutreachAssignment[]             @relation("OutreachAssignmentAssignedBy")
 

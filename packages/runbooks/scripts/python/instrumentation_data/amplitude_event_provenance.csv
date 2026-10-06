@@ -107,6 +107,26 @@ Constituent Data - List Boundary Saved,constituent_data_list_boundary_saved,8058
 Constituent Data - List Created,constituent_data_list_created,a0eb41932492f5c96a88f169f5552cfe1591ed17,https://github.com/thegoodparty/omni/pull/852,2026-07-17,tomer@goodparty.org,,,,,2026-07-17,1,,,,2026-07-20T11:56:25
 Constituent Data - List Exported,constituent_data_list_exported,a0eb41932492f5c96a88f169f5552cfe1591ed17,https://github.com/thegoodparty/omni/pull/852,2026-07-17,tomer@goodparty.org,,,,,2026-07-17,2,,,,2026-07-20T11:56:25
 Constituent Data - Note Added,constituent_data_note_added,54343bfe5bc2c22bd5db8f7faaa98208d7c8017f,,2026-07-16,tomer@goodparty.org,,,,,2026-07-16,1,,,,2026-07-20T11:56:25
+Constituent Feedback - Issue Captured,constituent_feedback_issue_captured,,https://github.com/thegoodparty/omni/pull/2145,2026-10-02,,,,,,2026-10-02,,,,,2026-10-02T14:31:58
+Constituent Feedback - Issue Confirmed,constituent_feedback_issue_confirmed,,https://github.com/thegoodparty/omni/pull/2145,2026-10-02,,,,,,2026-10-02,,,,,2026-10-02T14:32:27
+Constituent Feedback - Issue Skipped,constituent_feedback_issue_skipped,,https://github.com/thegoodparty/omni/pull/2145,2026-10-02,,,,,,2026-10-02,,,,,2026-10-02T14:32:41
+Constituent Outreach - Campaign Completed,constituent_outreach_campaign_completed,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Campaign Created,constituent_outreach_campaign_created,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking Do Not Knock Cleared,constituent_outreach_door_knocking_do_not_knock_cleared,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking Door Logged,constituent_outreach_door_knocking_door_logged,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking List Created,constituent_outreach_door_knocking_list_created,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking List Deleted,constituent_outreach_door_knocking_list_deleted,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking List Edited,constituent_outreach_door_knocking_list_edited,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking Not A Voter Reason Cleared,constituent_outreach_door_knocking_not_a_voter_reason_cleared,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking Not A Voter Reason Set,constituent_outreach_door_knocking_not_a_voter_reason_set,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking Route Build Failed,constituent_outreach_door_knocking_route_build_failed,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking Session Abandoned,constituent_outreach_door_knocking_session_abandoned,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking Session Completed,constituent_outreach_door_knocking_session_completed,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Door Knocking Session Started,constituent_outreach_door_knocking_session_started,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Phone Banking Call List Created,constituent_outreach_phone_banking_call_list_created,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Phone Banking Call Logged,constituent_outreach_phone_banking_call_logged,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Phone Banking Call Sheet Downloaded,constituent_outreach_phone_banking_call_sheet_downloaded,,,,,,,,,,,,,,2026-09-28T11:07:52
+Constituent Outreach - Phone Banking Contact Viewed,constituent_outreach_phone_banking_contact_viewed,,,,,,,,,,,,,,2026-09-28T11:07:52
 Contacts - Assistant Chat Opened,contacts_assistant_chat_opened,07933cd077828e68440067f9dadf5dd5c668390d,https://github.com/thegoodparty/omni/pull/959,2026-07-22,tomer@goodparty.org,,,,,2026-07-22,2,,,,2026-07-27T12:04:25
 Contacts - Assistant Message Sent,contacts_assistant_message_sent,07933cd077828e68440067f9dadf5dd5c668390d,https://github.com/thegoodparty/omni/pull/959,2026-07-22,tomer@goodparty.org,,,,,2026-07-22,1,,,,2026-07-27T12:04:25
 Contacts - Column Edited,contacts_column_edited,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/gp-webapp/pull/958,2025-09-14,tomer@goodparty.org,58821b65733bc3b6da57c261c7602ee7e8f1c6e5,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,,,2026-07-13T21:45:27

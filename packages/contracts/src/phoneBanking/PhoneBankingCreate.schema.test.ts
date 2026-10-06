@@ -65,11 +65,41 @@ describe('ServePhoneBankingCreateSchema', () => {
   it.each(SERVE_PHONE_BANKING_PURPOSE_VALUES)(
     'accepts the serve purpose slug %s',
     (purpose) => {
-      expect(() =>
-        ServePhoneBankingCreateSchema.parse({ ...serveBase, purpose }),
-      ).not.toThrow()
+      // community_input is the one purpose that asks a question rather than
+      // delivering a message, so it is the one that has to carry what the
+      // question is.
+      const request =
+        purpose === 'community_input'
+          ? {
+              ...serveBase,
+              purpose,
+              communityInputQuestion: 'Would you take part in a compost pilot?',
+            }
+          : { ...serveBase, purpose }
+      expect(() => ServePhoneBankingCreateSchema.parse(request)).not.toThrow()
     },
   )
+
+  it('refuses community_input with no question to ask', () => {
+    expect(() =>
+      ServePhoneBankingCreateSchema.parse({
+        ...serveBase,
+        purpose: 'community_input',
+      }),
+    ).toThrow()
+  })
+
+  // A question recorded against a purpose that never asks one would still be
+  // handed to the extraction running at every call.
+  it('refuses a question on a purpose that does not ask one', () => {
+    expect(() =>
+      ServePhoneBankingCreateSchema.parse({
+        ...serveBase,
+        purpose: 'introduce_myself',
+        communityInputQuestion: 'Would you take part in a compost pilot?',
+      }),
+    ).toThrow()
+  })
 
   it.each(['persuade_voters', 'early_voting', 'election_day_turnout'])(
     'rejects the Win-only purpose slug %s',
