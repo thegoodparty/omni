@@ -392,12 +392,16 @@ describe('the ordinance step the seeder anchors on', () => {
 // here, exactly as the runner uses it. The artifact is the fixture the seam
 // serves for the seeded bucket, because no test process can reach S3.
 describe('the tools a seeded briefing registers', () => {
-  const seedAndOpenBriefing = async (caseId: string) => {
+  const seedAndOpenBriefing = async (
+    caseId: string,
+    options: SeedChatOrgOptions = {},
+  ) => {
     const seeded = await seedChatOrg(
       service.prisma,
       service.user.id,
       'briefing_annotation',
       caseId,
+      options,
     )
     if (seeded.briefing === undefined) {
       throw new Error('the briefing seed returned no briefing to open')
@@ -458,18 +462,20 @@ describe('the tools a seeded briefing registers', () => {
     ])
   })
 
-  // The district pair is resolved BY USER on this scope, and only a
-  // credentialed deployment has the warehouse provider, so both deployment
-  // halves are supplied here the way the Serve scopes above supply them.
-  it('registers district_insights under a credentialed deployment', async () => {
-    const { conversationId } = await seedAndOpenBriefing('br-district')
+  // The district pair is resolved from the briefing's own organization, the
+  // one this case seeded, and only a credentialed deployment has the
+  // warehouse provider, so both deployment halves are supplied here the way
+  // the Serve scopes above supply them.
+  const briefingToolsUnderCredentials = async (
+    conversationId: string,
+  ): Promise<string[]> => {
     const handler = service.app.get(BriefingAnnotationHandler)
     const prior = Reflect.get(handler, 'databricks')
     Object.assign(handler, {
       databricks: new InMemoryDatabricksProvider(new Map()),
     })
     try {
-      const tools = await withJudgePosition(() =>
+      return await withJudgePosition(() =>
         withFixture(async () =>
           Object.keys(
             handler.buildTools(
@@ -478,12 +484,29 @@ describe('the tools a seeded briefing registers', () => {
           ),
         ),
       )
-      expect(tools).toEqual(
-        expect.arrayContaining(['district_insights', 'list_district_topics']),
-      )
     } finally {
       Object.assign(handler, { databricks: prior })
     }
+  }
+
+  it('registers district_insights under a credentialed deployment', async () => {
+    const { conversationId } = await seedAndOpenBriefing('br-district')
+    expect(await briefingToolsUnderCredentials(conversationId)).toEqual(
+      expect.arrayContaining(['district_insights', 'list_district_topics']),
+    )
+  })
+
+  // THE CASE'S OWN district state reaches the chat. Seeded after a case that
+  // HAS a district, so a resolver that read any office but this case's would
+  // find a position and register the pair anyway.
+  it("honours this case's district: false, not an earlier case's", async () => {
+    await seedAndOpenBriefing('br-with-district')
+    const { conversationId } = await seedAndOpenBriefing('br-no-district', {
+      district: false,
+    })
+    const tools = await briefingToolsUnderCredentials(conversationId)
+    expect(tools).not.toContain('district_insights')
+    expect(tools).not.toContain('list_district_topics')
   })
 
   // The route finds a briefing by (meeting date, caller's office) and

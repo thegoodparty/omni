@@ -141,23 +141,25 @@ describe('seedOptionsFor', () => {
     ).toThrow(/chief_of_staff cannot express the account state briefingHigh/)
   })
 
-  // Briefing chat resolves its district by USER, through whichever of the
-  // judge user's offices comes first, and an arm seeds an office per case —
-  // so a district state on this case's org is not the one the agent reads.
-  it('refuses the district state on briefing chat', () => {
-    expect(() =>
-      seedOptionsFor('briefing_annotation', { district: false }),
-    ).toThrow(/briefing_annotation cannot express the account state district/)
+  // Briefing chat resolves its district from the briefing's own org, which
+  // is the org this case seeded, so the state reaches the seed.
+  it('maps the district state on briefing chat', () => {
+    expect(
+      seedOptionsFor('briefing_annotation', {
+        district: false,
+        briefingHighlight: true,
+      }),
+    ).toEqual({ district: false, briefingHighlight: true })
   })
 
-  // Every other scope seeds an organization, and positionId is a column on
-  // it.
+  // Every scope seeds an organization, and positionId is a column on it.
   it('allows the district state on every scope', () => {
     for (const agentId of [
       'chief_of_staff',
       'campaign_assistant',
       'ordinance_flow',
       'priority_flow',
+      'briefing_annotation',
     ]) {
       expect(() =>
         assertAccountStateSupported(agentId, { district: false }),

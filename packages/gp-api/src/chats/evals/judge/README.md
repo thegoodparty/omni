@@ -257,9 +257,10 @@ Every case in an arm seeds its own office for the one judge user, but the
 briefing route finds a briefing by meeting date and the caller's office, which
 assumes one office per user. So the briefing seed deletes the earlier cases'
 judge briefings on the fixture date first; otherwise a later case would be
-routed onto an earlier briefing and continue its conversation. For the same
-reason briefing chat cannot express `accountState.district`: it resolves the
-district by user, not by this case's organization.
+routed onto an earlier briefing and continue its conversation. The district,
+by contrast, is resolved from the briefing's own organization, which is the
+one this case seeded, so `accountState.district` works on briefing chat the
+way it does on the other Serve scopes.
 
 `query_constituent_data` and `describe_constituent_data` stay unregistered on
 every run this harness makes, but **that is now a deployment gap rather than a

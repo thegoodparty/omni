@@ -96,16 +96,11 @@ export interface SeedChatOrgOptions {
 // row for cannot be seeded, and seeding nothing while recording the directive
 // would put a condition on the record that the agent was never under.
 //
-// `district` is on every scope but one: they seed an organization, and
-// `positionId` is a column on it. The other states need a campaign row or an
+// `district` is on every scope: all five seed an organization, and
+// `positionId` is a column on it. Each scope resolves its district from its
+// own organization — briefing chat from the briefing's office's org, which is
+// the one this case seeded. The other states need a campaign row or an
 // anchor, which only one scope each has.
-//
-// briefing_annotation cannot express `district`, although it seeds the same
-// column. Its district is resolved by USER (DistrictResolverService
-// .resolveByUserId takes the user's first elected office), and every case of
-// an arm seeds its own office for the one judge user — so the office the
-// resolver reads is not the one this case seeded, and a `district: false`
-// would be recorded while some other case's position answered.
 //
 // Partial, and a missing entry means "expresses nothing", which refuses every
 // state. `chatScopeFor` has already narrowed the caller to the scopes the
@@ -119,7 +114,7 @@ const STATES_BY_SCOPE: Partial<
   [ChatScope.ordinance_flow]: ['district', 'ordinanceStep'],
   [ChatScope.priority_flow]: ['district'],
   [ChatScope.chief_of_staff]: ['district'],
-  [ChatScope.briefing_annotation]: ['briefingHighlight'],
+  [ChatScope.briefing_annotation]: ['district', 'briefingHighlight'],
 }
 
 // REFUSES RATHER THAN PROCEEDING, and before anything is seeded — which is
