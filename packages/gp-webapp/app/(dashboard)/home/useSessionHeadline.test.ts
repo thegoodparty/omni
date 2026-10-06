@@ -2,41 +2,64 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { HOME_HEADLINES } from './nextThingCopy'
 
+const mockAuth = vi.hoisted(() => ({
+  value: { isLoaded: true, sessionId: 'sess_1' as string | null },
+}))
+vi.mock('@clerk/nextjs', () => ({ useAuth: () => mockAuth.value }))
+
 // The pick is cached per page load, so each test loads the module fresh.
 const load = async () =>
   (await import('./useSessionHeadline')).useSessionHeadline
 
+const stored = (): { sessionId: string; headline: string } =>
+  JSON.parse(window.localStorage.getItem('home-headline') ?? 'null')
+
 describe('useSessionHeadline', () => {
   beforeEach(() => {
     vi.resetModules()
-    window.sessionStorage.clear()
+    vi.restoreAllMocks()
+    window.localStorage.clear()
+    mockAuth.value = { isLoaded: true, sessionId: 'sess_1' }
   })
 
-  it('picks a line from the set and keeps it for the session', async () => {
+  it('picks a line for the login session and keeps it', async () => {
     const useSessionHeadline = await load()
     const { result } = renderHook(() => useSessionHeadline())
 
     expect(HOME_HEADLINES).toContain(result.current)
-    expect(window.sessionStorage.getItem('home-headline')).toBe(result.current)
+    expect(stored()).toEqual({ sessionId: 'sess_1', headline: result.current })
   })
 
-  it('reuses the line already picked this session', async () => {
-    window.sessionStorage.setItem('home-headline', 'Earn every vote')
+  it('keeps the same line for the same login, across page loads', async () => {
+    window.localStorage.setItem(
+      'home-headline',
+      JSON.stringify({ sessionId: 'sess_1', headline: 'Earn every vote' }),
+    )
     const useSessionHeadline = await load()
     const { result } = renderHook(() => useSessionHeadline())
 
     expect(result.current).toBe('Earn every vote')
   })
 
-  it('ignores a stored line that is no longer in the set', async () => {
-    window.sessionStorage.setItem(
+  it('picks a new line, never the last one, after signing in again', async () => {
+    window.localStorage.setItem(
       'home-headline',
-      "Let's get you on the ballot",
+      JSON.stringify({ sessionId: 'sess_old', headline: HOME_HEADLINES[0] }),
     )
     vi.spyOn(Math, 'random').mockReturnValue(0)
     const useSessionHeadline = await load()
     const { result } = renderHook(() => useSessionHeadline())
 
-    expect(result.current).toBe(HOME_HEADLINES[0])
+    expect(result.current).toBe(HOME_HEADLINES[1])
+    expect(stored().sessionId).toBe('sess_1')
+  })
+
+  it('waits for the login to load before picking', async () => {
+    mockAuth.value = { isLoaded: false, sessionId: null }
+    const useSessionHeadline = await load()
+    const { result } = renderHook(() => useSessionHeadline())
+
+    expect(result.current).toBeNull()
+    expect(window.localStorage.getItem('home-headline')).toBeNull()
   })
 })
