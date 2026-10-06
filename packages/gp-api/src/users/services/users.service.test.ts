@@ -293,6 +293,35 @@ describe('UsersService', () => {
       })
       expect(persisted?.email).toBe('fresh.signup@example.com')
     })
+
+    it('capitalizes an all-lowercase name in the row and the CRM form', async () => {
+      const crm = service.app.get(CrmUsersService)
+      const submitCrmForm = vi
+        .spyOn(crm, 'submitCrmForm')
+        .mockResolvedValue(undefined)
+      vi.spyOn(crm, 'trackUserUpdate').mockResolvedValue(undefined)
+
+      const user = await usersService.createUser({
+        email: 'lowercase.signup@example.com',
+        firstName: 'stewart',
+        lastName: 'eastman',
+      })
+
+      expect(user).toMatchObject({
+        firstName: 'Stewart',
+        lastName: 'Eastman',
+        name: 'Stewart Eastman',
+      })
+      expect(submitCrmForm).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.arrayContaining([
+          { name: 'firstName', value: 'Stewart', objectTypeId: '0-1' },
+          { name: 'lastName', value: 'Eastman', objectTypeId: '0-1' },
+        ]),
+        expect.anything(),
+        expect.anything(),
+      )
+    })
   })
 
   describe('listUsers', () => {
@@ -1398,6 +1427,21 @@ describe('UsersService', () => {
 
       expect(ingest).toHaveBeenCalledWith(user?.id, 'https://img.clerk.com/abc')
       expect(user?.avatar).toBe('https://assets.test/uploads/9/avatar.png')
+    })
+
+    it('capitalizes an all-lowercase provider name on a new row', async () => {
+      const user = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_lowercase_name',
+        email: 'lowercase-name@goodparty.org',
+        firstName: 'stewart',
+        lastName: 'McDonald',
+      })
+
+      expect(user).toMatchObject({
+        firstName: 'Stewart',
+        lastName: 'McDonald',
+        name: 'Stewart McDonald',
+      })
     })
 
     it('creates the user without an avatar when ingestion fails', async () => {

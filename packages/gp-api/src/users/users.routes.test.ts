@@ -30,6 +30,24 @@ describe('GET /v1/users/me', () => {
   })
 })
 
+describe('PUT /v1/users/me', () => {
+  it('capitalizes an all-lowercase name and keeps mixed case as typed', async () => {
+    const res = await service.client.put('/v1/users/me', {
+      firstName: 'stewart',
+      lastName: 'de La Cruz',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted).toMatchObject({
+      firstName: 'Stewart',
+      lastName: 'de La Cruz',
+    })
+  })
+})
+
 describe('POST /v1/users/me/crm-registration', () => {
   const REGISTER_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 
