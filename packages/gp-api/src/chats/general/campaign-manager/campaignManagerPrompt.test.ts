@@ -239,6 +239,61 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(withWrites).toContain('abbreviating it does not make it belong')
   })
 
+  it('offers a random sample only where it can save one as a list', () => {
+    const readOnly = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        isPro: true,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+    expect(readOnly).not.toContain('SAMPLING RULES')
+    expect(readOnly).not.toContain('size_outreach_sample')
+
+    const notPro = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+        isPro: false,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+    expect(notPro).not.toContain('SAMPLING RULES')
+
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+        isPro: true,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+    expect(prompt).toContain('SAMPLING RULES')
+    expect(prompt).toContain('size a random sample with size_outreach_sample')
+    expect(prompt).toContain('When the text asks voters something')
+    expect(prompt).toContain(
+      'Texting all 58,520 is about $2,048. 2,767 picked at random is ' +
+        'about $97 and should bring back about 83 replies.',
+    )
+    expect(prompt).toContain(
+      "I'd text 2,767 of the 58,520, picked at random. About 83 replies " +
+        'is enough to tell how voters feel about it.',
+    )
+    expect(prompt).toContain('never work out a sample or a cost yourself')
+    expect(prompt).toContain('with sample.size set to the sampleSize')
+    expect(prompt).toContain(
+      '[Start the text in Voter Outreach](/dashboard/outreach?compose=text' +
+        '&listId=ID&source=campaign_manager)',
+    )
+    const block = prompt
+      .slice(prompt.indexOf('SAMPLING RULES'))
+      .split('\n\n')[0]
+    // There is no proposal card on this surface yet, and it is Win copy.
+    expect(block).not.toContain('On the card')
+    expect(block).not.toContain('constituent')
+    expect(block).not.toContain('official')
+  })
+
   it('runs the Campaign Story intake, one question at a time, when incomplete', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({

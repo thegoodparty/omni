@@ -11,22 +11,29 @@ export const EXAMPLE_SAMPLE = recommendedSampleSize({
   audience: EXAMPLE_AUDIENCE,
 })
 
-// How every assistant that proposes outreach sizes a random sample. The
+// How every assistant that recommends outreach sizes a random sample. The
 // numbers come from size_outreach_sample, never from the model, so these
-// lines only say when to call it and how to put its answer on the card.
+// lines only say when to call it and, where there is one, how to put its
+// answer on the proposal card.
 export const buildSampleSizingRules = (args: {
   has: (name: string) => boolean
   /** Who works a phone bank or walks doors: "the official", "the candidate". */
   sender: string
   /** What about 83 replies is enough to tell, finishing the example line. */
   replyGoal: string
+  /** Whether the assistant presents outreach as a proposal card. */
+  card: boolean
 }): string[] => [
-  `- Size a text sample with size_outreach_sample, which sizes it the way polls do, for about ${SAMPLE_TARGET_REPLIES} replies. Pass the audience count. Use its numbers as given; never work out a sample or a cost yourself. If it returns an error, say why in one line and do not present.`,
+  `- Size a text sample with size_outreach_sample, which sizes it the way polls do, for about ${SAMPLE_TARGET_REPLIES} replies. Pass the audience count. Use its numbers as given; never work out a sample or a cost yourself. If it returns an error, say why in one line and do not ${args.card ? 'present' : 'recommend a send'}.`,
   args.has('read_past_outreach')
-    ? `- Pass this office's own reply rate when it has one: call read_past_outreach and take replyRate from its past texts that went to a few hundred people or more. Otherwise leave it out, and ${pct(DEFAULT_TEXT_REPLY_RATE)} is assumed.`
+    ? `- Pass their own reply rate when there is one: call read_past_outreach and take replyRate from past texts that went to a few hundred people or more. Otherwise leave it out, and ${pct(DEFAULT_TEXT_REPLY_RATE)} is assumed.`
     : `- Leave replyRate out, and ${pct(DEFAULT_TEXT_REPLY_RATE)} is assumed.`,
-  '- Never sample more people than the audience holds. When wholeAudience comes back true, send to all of it, leave sampleSize out, and say so.',
+  `- Never sample more people than the audience holds. When wholeAudience comes back true, send to all of it${args.card ? ', leave sampleSize out,' : ''} and say so.`,
   `- A phone bank is sized by the calls ${args.sender} or their volunteers can realistically make, not by a reply rate. Use judgment from what you know of them, and say what you chose and why. Door knocking the same way, by the doors they can walk. A social post has no audience to sample.`,
-  '- On the card, count stays the whole audience. For a text to a sample, set sampleSize, targetResponses and assumedReplyRate to the sampleSize, targetReplies and replyRate that size_outreach_sample returned. For a text to everyone, leave all three out. For a phone bank or door knocking, set sampleSize to what you chose.',
+  ...(args.card
+    ? [
+        '- On the card, count stays the whole audience. For a text to a sample, set sampleSize, targetResponses and assumedReplyRate to the sampleSize, targetReplies and replyRate that size_outreach_sample returned. For a text to everyone, leave all three out. For a phone bank or door knocking, set sampleSize to what you chose.',
+      ]
+    : []),
   `- Explain the number once, in one line, in your message: "I'd text ${people(EXAMPLE_SAMPLE)} of the ${people(EXAMPLE_AUDIENCE)}, picked at random. About ${SAMPLE_TARGET_REPLIES} replies is enough to tell ${args.replyGoal}." Never call it statistically proven or representative. It is directional, because the 3 in 100 who reply choose themselves.`,
 ]
