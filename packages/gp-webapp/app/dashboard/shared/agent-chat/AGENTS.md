@@ -213,11 +213,13 @@ there is the agent's to say, once, in its message; no card repeats it.
   (`outreachDetailHref`), and the button opens Win's `SmsFlow` (its default
   surface, the campaign's texting registration as `tcrCompliance`) rather
   than the Serve one, with no `serve-sms-outreach` flag. Before it opens,
-  the provider runs the SMS tile's gate (`ChannelTileGrid`): behind
-  `outreach-pro-gating-v2` the flow gates itself; otherwise a free campaign
-  goes to `/dashboard/pro-upgrade` and a Pro one passes only with an
-  approved registration (`useTextOutreachGate`'s compliance modal). The
-  button waits until the campaign and registration have loaded. The card's
+  the provider runs the text gate: a free campaign (the Campaign Manager
+  shows it the card too) gets the Pro pitch (`ProPitchDialog`, source
+  `campaign_manager`, channel `sms`) in place of the flow, and a Pro one
+  passes only with an approved registration (`useTextOutreachGate`'s
+  compliance modal). Outreach Pro gating is fully rolled out, so the card
+  does not read the `outreach-pro-gating-v2` flag. The button waits until
+  the campaign and registration have loaded. The card's
   `proposalKey` rides Win's `POST /v1/outreach` create, and
   `GET /v1/outreach/by-proposal-key/:proposalKey` resolves it once paid.
   The key rides a fresh draft only, never a resume: a draft built in build

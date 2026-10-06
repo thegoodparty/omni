@@ -36,9 +36,21 @@ vi.mock('@shared/experiments/serveSmsFlag', () => ({
   useServeSmsFlag: () => ({ ready: true, enabled: false }),
 }))
 
-const gating = vi.hoisted(() => ({ ready: true, enabled: false }))
-vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
-  useOutreachProGatingV2Flag: () => gating,
+vi.mock('app/dashboard/shared/membership/ProPitchDialog', () => ({
+  ProPitchDialog: ({
+    open,
+    source,
+    channel,
+  }: {
+    open: boolean
+    source: string
+    channel: string
+  }) =>
+    open ? (
+      <div data-testid="pro-pitch">
+        {source}:{channel}
+      </div>
+    ) : null,
 }))
 
 const campaign = vi.hoisted(() => ({ current: { id: 9, isPro: false } }))
@@ -118,17 +130,19 @@ const openCard = async () => {
 describe('a Campaign Manager text card', () => {
   beforeEach(() => {
     smsFlow.props = null
-    gating.enabled = false
     campaign.current = { id: 9, isPro: false }
     tcr.current = null
     vi.mocked(trackEvent).mockClear()
     vi.mocked(router.push!).mockClear()
   })
 
-  it('sends a free campaign to the Pro upgrade instead of the flow', async () => {
+  it('takes a free campaign straight to the Pro pitch instead of the flow', async () => {
     await openCard()
 
-    expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(await screen.findByTestId('pro-pitch')).toHaveTextContent(
+      'campaign_manager:sms',
+    )
+    expect(router.push).not.toHaveBeenCalled()
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.LockedItemClicked,
       { type: 'text' },
@@ -210,14 +224,5 @@ describe('a Campaign Manager text card', () => {
     await act(() => failed())
 
     await waitFor(() => expect(screen.queryByTestId('sms-flow')).toBeNull())
-  })
-
-  it('leaves the gate to the flow behind outreach-pro-gating-v2', async () => {
-    gating.enabled = true
-
-    await openCard()
-
-    expect(await screen.findByTestId('sms-flow')).toBeInTheDocument()
-    expect(router.push).not.toHaveBeenCalled()
   })
 })

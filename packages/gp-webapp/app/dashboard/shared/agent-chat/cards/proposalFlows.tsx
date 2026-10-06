@@ -19,7 +19,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
+import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
@@ -104,11 +104,13 @@ const linkOf = ({ proposal, priorityId }: Opened): ProposalLink => ({
  * it opens; otherwise a free campaign goes to the Pro upgrade and a Pro one
  * passes only once its texting registration is approved.
  */
+// Outreach Pro gating is fully rolled out, so a free campaign's card goes
+// straight to the Pro pitch rather than into a flow it cannot finish. A Pro
+// campaign then meets the same verification gate the Voter Outreach tile
+// runs before the flow opens.
 const useWinTextGate = (enabled: boolean) => {
-  const router = useRouter()
   const [campaign] = useCampaign()
-  const { ready: flagReady, enabled: gatedFlows } =
-    useOutreachProGatingV2Flag(false)
+  const [pitchOpen, setPitchOpen] = useState(false)
   const { data, isPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
@@ -122,26 +124,33 @@ const useWinTextGate = (enabled: boolean) => {
   const isPro = Boolean(campaign?.isPro)
 
   const run = (): boolean => {
-    if (gatedFlows) return true
     if (!isPro) {
       trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, {
         type: OUTREACH_TYPES.text,
       })
-      router.push('/dashboard/pro-upgrade')
+      setPitchOpen(true)
       return false
     }
     return runTextGate()
   }
 
   return {
-    ready:
-      enabled &&
-      flagReady &&
-      Boolean(campaign) &&
-      (gatedFlows || !isPro || !isPending),
+    ready: enabled && Boolean(campaign) && (!isPro || !isPending),
     run,
     tcrCompliance,
-    modals: enabled ? gateModals : null,
+    modals: enabled ? (
+      <>
+        {gateModals}
+        {campaign && (
+          <ProPitchDialog
+            open={pitchOpen}
+            onOpenChange={setPitchOpen}
+            source="campaign_manager"
+            channel="sms"
+          />
+        )}
+      </>
+    ) : null,
   }
 }
 
