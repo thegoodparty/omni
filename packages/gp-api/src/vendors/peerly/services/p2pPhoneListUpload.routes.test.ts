@@ -210,7 +210,8 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     )
 
     expect(result.status).toBe(201)
-    expect(result.data).toEqual({ token: 'peerly-upload-token' })
+    expect(result.data).toMatchObject({ token: 'peerly-upload-token' })
+    expect(typeof result.data.buildId).toBe('string')
 
     // The activity condition genuinely reached the people-db query — only
     // the non-responder's id, intersected with hasCellPhone, is requested.
@@ -233,15 +234,19 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     ])
 
     // Capture rows match the CSV exactly: one PeerlyPhoneList row keyed by
-    // the upload token, one recipient row for the one CSV line.
+    // the upload token (and by buildId — the row recordUpload UPDATED, not
+    // a second one), one recipient row for the one CSV line.
     const capturedList = await service.prisma.peerlyPhoneList.findUnique({
       where: { token: 'peerly-upload-token' },
     })
     expect(capturedList).toMatchObject({
+      id: result.data.buildId,
       organizationSlug: WIN_SLUG,
       campaignId: campaign.id,
       peerlyListId: null,
+      buildStatus: 'processing',
     })
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(1)
     const recipients = await service.prisma.peerlyPhoneListRecipient.findMany({
       where: { peerlyPhoneListId: capturedList?.id },
     })
@@ -253,7 +258,7 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     ])
   })
 
-  it('leaves no capture rows when the Peerly upload fails', async () => {
+  it('marks the build row failed (not a capture row left in queued/building) when the Peerly upload fails', async () => {
     const campaign = await seedWinCampaign()
     stubPeopleApi([personPayload()])
     vi.spyOn(
@@ -268,7 +273,18 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     )
 
     expect(result.status).toBeGreaterThanOrEqual(400)
-    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(1)
+    const build = await service.prisma.peerlyPhoneList.findFirst({
+      where: { campaignId: campaign.id },
+    })
+    expect(build).toMatchObject({
+      buildStatus: 'failed',
+      token: null,
+      // The same sanitized message the HTTP response carries — never the
+      // raw vendor/internal error text ("Peerly API ERROR"), which this
+      // endpoint has never put in a client-facing response.
+      buildError: 'Failed to upload phone list to Peerly platform',
+    })
     expect(await service.prisma.peerlyPhoneListRecipient.count()).toBe(0)
     // Sanity: the campaign row itself is unaffected by the failed upload.
     expect(
@@ -277,7 +293,7 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
   })
 
   it('still blocks a non-pro Win campaign (access check inherited from the contacts pipeline)', async () => {
-    await seedWinCampaign(false)
+    const campaign = await seedWinCampaign(false)
     const post = stubPeopleApi([personPayload()])
     stubPeerlyUpload()
 
@@ -289,7 +305,14 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
 
     expect(result.status).toBeGreaterThanOrEqual(400)
     expect(post).not.toHaveBeenCalled()
-    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
+    // The Pro check throws from inside the build (ContactsService, via
+    // resolveFilterAudience) — the row created on accept is marked failed
+    // rather than left queued, same as any other build failure.
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(1)
+    const build = await service.prisma.peerlyPhoneList.findFirst({
+      where: { campaignId: campaign.id },
+    })
+    expect(build).toMatchObject({ buildStatus: 'failed', token: null })
   })
 
   it('resolves a voterFileFilterId through the saved segment criteria', async () => {
@@ -346,7 +369,13 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
 
     expect(result.status).toBe(400)
     expect(upload).not.toHaveBeenCalled()
-    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
+    // The row created on accept is marked failed (empty audience is one of
+    // the build-failure paths), not left behind at queued.
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(1)
+    expect(await service.prisma.peerlyPhoneList.findFirst()).toMatchObject({
+      buildStatus: 'failed',
+      token: null,
+    })
   })
 
   it('rejects a voterFileFilterId owned by another organization', async () => {
@@ -561,10 +590,15 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
 
     // No contacts survive the scrub, so the build 400s rather than uploading
     // an empty list — and it does so via the 'empty' short-circuit, never by
-    // querying people-db with an illegal zero-length `in`.
+    // querying people-db with an illegal zero-length `in`. The row created
+    // on accept is marked failed rather than left behind queued.
     expect(result.status).toBe(400)
     expect(post).not.toHaveBeenCalled()
-    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(1)
+    expect(await service.prisma.peerlyPhoneList.findFirst()).toMatchObject({
+      buildStatus: 'failed',
+      token: null,
+    })
   })
 
   it('does not exclude an opt-out recorded in a different organization', async () => {
@@ -948,9 +982,14 @@ describe('POST /v1/p2p/phone-list (INC-101 resolution deadline)', () => {
     // Two pages, not 82: the official is told in about 4.5s.
     expect(findPeople).toHaveBeenCalledTimes(2)
     // The harm this closes. Nothing reached Peerly, so there is no list the
-    // official was never handed a token for, and no capture row for one.
+    // official was never handed a token for — the row created on accept is
+    // marked failed instead of acquiring a token.
     expect(upload).not.toHaveBeenCalled()
-    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(1)
+    expect(await service.prisma.peerlyPhoneList.findFirst()).toMatchObject({
+      buildStatus: 'failed',
+      token: null,
+    })
   })
 })
 
@@ -1007,5 +1046,168 @@ describe('GET /v1/p2p/phone-list/:token/status (ENG-10728 peerlyListId stamping)
     })
     expect(afterSecondPoll?.peerlyListId).toBe(555)
     expect(afterSecondPoll?.createdAt).toEqual(afterFirstPoll?.createdAt)
+  })
+})
+
+describe('POST /v1/p2p/phone-list (build-status row lifecycle)', () => {
+  beforeEach(() => {
+    stubDistrict()
+  })
+
+  it('creates the row queued, then recordUpload advances THE SAME row to processing — never a second row', async () => {
+    await seedWinCampaign()
+    stubPeopleApi([personPayload()])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Build status lifecycle' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    const { buildId } = result.data as { buildId: string }
+    expect(typeof buildId).toBe('string')
+
+    const row = await service.prisma.peerlyPhoneList.findUnique({
+      where: { id: buildId },
+    })
+    expect(row).toMatchObject({
+      token: 'peerly-upload-token',
+      buildStatus: 'processing',
+    })
+    // One row total — recordUpload UPDATED the pre-created row rather than
+    // inserting a second one.
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(1)
+  })
+})
+
+describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status route)', () => {
+  it('returns 202 for a queued build with no token yet', async () => {
+    const campaign = await seedWinCampaign()
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: { organizationSlug: WIN_SLUG, campaignId: campaign.id },
+    })
+
+    const result = await service.client.get(
+      `/v1/p2p/phone-list/build/${build.id}/status`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(202)
+  })
+
+  it('returns 200 ready with phoneListId/leadsLoaded and stamps peerlyListId once reachable through the stored token', async () => {
+    const campaign = await seedWinCampaign()
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        campaignId: campaign.id,
+        token: 'build-status-token',
+        buildStatus: 'processing',
+        excludedOptedOutCount: 3,
+        excludedDuplicatePhoneCount: 2,
+      },
+    })
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    ).mockResolvedValue({
+      Data: { list_state: 'ACTIVE', list_id: 777 },
+    } as never)
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'getPhoneListDetails',
+    ).mockResolvedValue({ leads_loaded: 42 } as never)
+
+    const result = await service.client.get(
+      `/v1/p2p/phone-list/build/${build.id}/status`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({
+      phoneListId: 777,
+      leadsLoaded: 42,
+      excludedOptedOutCount: 3,
+      excludedDuplicatePhoneCount: 2,
+    })
+
+    const stamped = await service.prisma.peerlyPhoneList.findUnique({
+      where: { id: build.id },
+    })
+    expect(stamped).toMatchObject({ peerlyListId: 777, buildStatus: 'ready' })
+  })
+
+  it('returns 200 failed with the stored buildError, without calling Peerly', async () => {
+    const campaign = await seedWinCampaign()
+    const checkStatus = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    )
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        campaignId: campaign.id,
+        buildStatus: 'failed',
+        buildError: 'No contacts matched the filter',
+      },
+    })
+
+    const result = await service.client.get(
+      `/v1/p2p/phone-list/build/${build.id}/status`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({
+      buildStatus: 'failed',
+      buildError: 'No contacts matched the filter',
+    })
+    expect(checkStatus).not.toHaveBeenCalled()
+  })
+
+  it('404s a build the campaign does not own', async () => {
+    await seedWinCampaign()
+    await service.prisma.organization.create({
+      data: { slug: 'other-org-build-status', ownerId: service.user.id },
+    })
+    const otherCampaign = await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'other-org-build-status-campaign',
+        organizationSlug: 'other-org-build-status',
+      },
+    })
+    const foreignBuild = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: 'other-org-build-status',
+        campaignId: otherCampaign.id,
+      },
+    })
+
+    const result = await service.client.get(
+      `/v1/p2p/phone-list/build/${foreignBuild.id}/status`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(404)
+  })
+
+  it('still 404s the old token route for the same row at its pre-token (queued) state, unaffected by the new route', async () => {
+    const campaign = await seedWinCampaign()
+    await service.prisma.peerlyPhoneList.create({
+      data: { organizationSlug: WIN_SLUG, campaignId: campaign.id },
+    })
+
+    // No token yet, so the token route (keyed on token, not id) can't find it
+    // — this is the exact gap the new buildId route exists to close, and
+    // confirms the old route's own lookup is untouched by this slice.
+    const result = await service.client.get(
+      '/v1/p2p/phone-list/no-such-token/status',
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(404)
   })
 })

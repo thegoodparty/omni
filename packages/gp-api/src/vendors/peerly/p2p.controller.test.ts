@@ -329,19 +329,23 @@ describe('P2pController', () => {
   })
 
   describe('uploadPhoneList', () => {
-    it('returns token on successful upload', async () => {
+    it('returns both token and buildId on successful upload', async () => {
       vi.mocked(
         mockP2pPhoneListUploadService.uploadPhoneList,
       ).mockResolvedValue({
         token: 'upload-token-123',
         listName: 'My List',
+        buildId: 'build-row-1',
       })
 
       const result = await controller.uploadPhoneList(mockCampaign, {
         name: 'My List',
       })
 
-      expect(result).toEqual({ token: 'upload-token-123' })
+      expect(result).toEqual({
+        token: 'upload-token-123',
+        buildId: 'build-row-1',
+      })
     })
 
     it('throws BadGatewayException when upload fails', async () => {
@@ -372,6 +376,143 @@ describe('P2pController', () => {
       await expect(
         controller.uploadPhoneList(mockCampaign, { name: 'My List' }),
       ).rejects.toBe(structured)
+    })
+  })
+
+  describe('checkPhoneListBuildStatus', () => {
+    it('returns 202 when the build has no token yet (queued/building)', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue({
+        id: 'build-1',
+        buildStatus: 'queued',
+        buildError: null,
+        token: null,
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      })
+
+      const result = await controller.checkPhoneListBuildStatus(
+        mockCampaign,
+        'build-1',
+        mockRes,
+      )
+
+      expect(mockRes.status).toHaveBeenCalledWith(202)
+      expect(result).toEqual({
+        message: 'Phone list build is still in progress. Please try again.',
+      })
+      expect(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('returns 202 when a token exists but Peerly has not resolved the list yet', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue({
+        id: 'build-1',
+        buildStatus: 'processing',
+        buildError: null,
+        token: 'peerly-token',
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValue({
+        Data: { list_state: PhoneListState.PROCESSING },
+      })
+
+      const result = await controller.checkPhoneListBuildStatus(
+        mockCampaign,
+        'build-1',
+        mockRes,
+      )
+
+      expect(mockRes.status).toHaveBeenCalledWith(202)
+      expect(result).toEqual({
+        message:
+          'Phone list is still processing. Please try again in a few moments.',
+      })
+    })
+
+    it('returns 200 ready with phoneListId/leadsLoaded and stamps peerlyListId', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue({
+        id: 'build-1',
+        buildStatus: 'processing',
+        buildError: null,
+        token: 'peerly-token',
+        excludedOptedOutCount: 12,
+        excludedDuplicatePhoneCount: 7,
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValue({
+        Data: { list_state: PhoneListState.ACTIVE, list_id: 123 },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockResolvedValue({ leads_loaded: 500 })
+
+      const result = await controller.checkPhoneListBuildStatus(
+        mockCampaign,
+        'build-1',
+        mockRes,
+      )
+
+      expect(result).toEqual({
+        phoneListId: 123,
+        leadsLoaded: 500,
+        excludedOptedOutCount: 12,
+        excludedDuplicatePhoneCount: 7,
+      })
+      expect(mockRes.status).not.toHaveBeenCalled()
+      expect(mockPeerlyPhoneListCapture.stampPeerlyListId).toHaveBeenCalledWith(
+        'peerly-token',
+        123,
+      )
+    })
+
+    it('returns 200 failed with the stored buildError, without calling Peerly', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue({
+        id: 'build-1',
+        buildStatus: 'failed',
+        buildError: 'No contacts matched the filter',
+        token: null,
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      })
+
+      const result = await controller.checkPhoneListBuildStatus(
+        mockCampaign,
+        'build-1',
+        mockRes,
+      )
+
+      expect(result).toEqual({
+        buildStatus: 'failed',
+        buildError: 'No contacts matched the filter',
+      })
+      expect(mockRes.status).not.toHaveBeenCalled()
+      expect(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('404s a build the campaign does not own, before touching Peerly', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue(null)
+
+      await expect(
+        controller.checkPhoneListBuildStatus(
+          mockCampaign,
+          'foreign-build',
+          mockRes,
+        ),
+      ).rejects.toThrow(NotFoundException)
+
+      expect(mockPeerlyPhoneListCapture.findFirst).toHaveBeenCalledWith({
+        where: { id: 'foreign-build', campaignId: mockCampaign.id },
+      })
+      expect(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).not.toHaveBeenCalled()
     })
   })
 })
