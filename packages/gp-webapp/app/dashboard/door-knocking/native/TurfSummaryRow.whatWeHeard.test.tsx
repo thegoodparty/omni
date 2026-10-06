@@ -7,8 +7,7 @@ import type {
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
-import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { TurfSummaryRow } from './TurfSummaryRow'
 
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
@@ -17,12 +16,8 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'campaign-1' }),
 }))
 
-vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
-  useServeIssueCaptureFlag: vi.fn(),
-}))
-
-vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
-  useWinIssueCaptureFlag: vi.fn(),
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
 }))
 
 const OUTREACH_ID = 30
@@ -67,15 +62,8 @@ const mockReport = (data: FeedbackReportResponse) =>
     },
   )
 
-const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: serve,
-  })
-  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: win,
-  })
+const setFlag = (enabled: boolean) => {
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({ ready: true, enabled })
 }
 
 const renderRow = (isServe = false) =>
@@ -93,7 +81,7 @@ beforeEach(() => {
     status: 200,
     data: { members: [], pendingInvites: [] },
   })
-  setFlags({ serve: false, win: true })
+  setFlag(true)
 })
 
 describe('TurfSummaryRow: what we heard', () => {
@@ -110,8 +98,8 @@ describe('TurfSummaryRow: what we heard', () => {
     expect(reportReads).toEqual([String(OUTREACH_ID)])
   })
 
-  it('reads each product’s own flag', async () => {
-    setFlags({ serve: true, win: false })
+  it('links a Serve turf too', async () => {
+    setFlag(true)
     mockReport(REPORT)
     renderRow(true)
 
@@ -120,8 +108,8 @@ describe('TurfSummaryRow: what we heard', () => {
     ).toBeInTheDocument()
   })
 
-  it('shows nothing, and asks for nothing, when the product has no capture', async () => {
-    setFlags({ serve: true, win: false })
+  it('shows nothing, and asks for nothing, when the flag is off', async () => {
+    setFlag(false)
     mockReport(REPORT)
     renderRow(false)
 

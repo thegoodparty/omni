@@ -36,8 +36,15 @@ const memo = (
   occurredAt: new Date('2026-09-25T18:00:00.000Z'),
   channel: 'door_knock',
   transcript: 'She wants the storm drains on Elm cleared before winter.',
-  stance: 'supports',
-  desiredOutcome: 'Clear the drains',
+  issues: [
+    {
+      id: 'issue-storm-drains',
+      position: 0,
+      issueLabel: 'Storm drains',
+      stance: 'supports',
+      desiredOutcome: 'Clear the drains',
+    },
+  ],
   actorName: 'Kamal Al Sawafi',
   confirmedAt: new Date('2026-09-25T18:01:00.000Z'),
   ...fields,
@@ -63,8 +70,15 @@ const MEMOS = [
     id: 'memo-2',
     personId: 'person-2',
     transcript: 'He thinks the new bike lanes slow down deliveries.',
-    stance: 'opposes',
-    desiredOutcome: null,
+    issues: [
+      {
+        id: 'issue-delivery-delays',
+        position: 0,
+        issueLabel: 'Delivery delays',
+        stance: 'opposes',
+        desiredOutcome: null,
+      },
+    ],
     actorName: null,
     confirmedAt: null,
   }),
@@ -224,6 +238,29 @@ describe('WhatWeHeardPage', () => {
         '84 people answered. 61 left a note. 61 confirmed.',
       ),
     ).toBeInTheDocument()
+  })
+
+  it('links back to the outreach hub with this effort open', async () => {
+    mockReport(report())
+    renderPage()
+
+    const back = await screen.findByRole('link', {
+      name: 'Back to Voter Outreach',
+    })
+    expect(back).toHaveAttribute(
+      'href',
+      `/dashboard/outreach?outreachId=${OUTREACH_ID}`,
+    )
+  })
+
+  it('links a Serve official back to Constituent Outreach', async () => {
+    mockReport(report())
+    renderPage(true)
+
+    const back = await screen.findByRole('link', {
+      name: 'Back to Constituent Outreach',
+    })
+    expect(back).toHaveAttribute('href', '/dashboard/constituent-outreach')
   })
 
   it('names the page when the effort asked no question', async () => {

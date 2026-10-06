@@ -68,7 +68,7 @@ import {
   ListPendingFeedbackQuerySchema,
   type ListPendingFeedbackQuery,
 } from './schemas/listPendingFeedback.schema'
-import { issueCaptureFlagFor } from './util/issueCaptureFlag.util'
+import { ISSUE_CAPTURE_FLAG } from './util/issueCaptureFlag.util'
 
 // Every route is gated, unlike the Serve SMS controller which gates only its
 // writes. There is no inert read here: the reads ARE the feature, and a
@@ -77,7 +77,6 @@ import { issueCaptureFlagFor } from './util/issueCaptureFlag.util'
 //
 // This gates ROLLOUT, not authorization. @UseOrganization() and its role
 // guard are the real access check and stay that way whatever the flag says.
-// Each product rolls out on its own key (issueCaptureFlagFor).
 
 // The two writes carry @AllowVolunteer(), the posture of the knock and call
 // routes they follow: the person who had the conversation is who records and
@@ -113,7 +112,7 @@ export class ConstituentFeedbackController {
     @Body(new ZodValidationPipe(RecordConstituentFeedbackSchema))
     body: RecordConstituentFeedback,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return this.feedback.capture({
       organizationSlug: organization.slug,
@@ -134,7 +133,7 @@ export class ConstituentFeedbackController {
     @Body(new ZodValidationPipe(AudioUploadUrlRequestSchema))
     body: AudioUploadUrlRequest,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return this.feedback.audioUploadUrl({
       organizationSlug: organization.slug,
@@ -159,11 +158,10 @@ export class ConstituentFeedbackController {
   )
   async mockAudioUpload(
     @ReqUser() user: User,
-    @ReqOrganization() organization: Organization,
     @Param('clientKey', ParseUUIDPipe) _clientKey: string,
     @ReqFile() file?: FileUpload,
   ): Promise<void> {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     this.feedback.acceptMockUpload()
     if (!file) throw new BadRequestException('No recording found')
@@ -180,7 +178,7 @@ export class ConstituentFeedbackController {
     @Query(new ZodValidationPipe(ListPendingFeedbackQuerySchema))
     query: ListPendingFeedbackQuery,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return {
       feedback: await this.feedback.listPending({
@@ -202,7 +200,7 @@ export class ConstituentFeedbackController {
     @ReqOrganizationRole() role: OrganizationRole,
     @Param('id') id: string,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return this.feedback.retry({
       organizationSlug: organization.slug,
@@ -223,7 +221,7 @@ export class ConstituentFeedbackController {
     @Body(new ZodValidationPipe(ConfirmConstituentFeedbackSchema))
     body: ConfirmConstituentFeedback,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return this.feedback.confirm({
       organizationSlug: organization.slug,
@@ -242,7 +240,7 @@ export class ConstituentFeedbackController {
     @Query(new ZodValidationPipe(ListConstituentFeedbackQuerySchema))
     query: ListConstituentFeedbackQuery,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return {
       feedback: await this.feedback.listForPerson({
@@ -259,7 +257,7 @@ export class ConstituentFeedbackController {
     @ReqOrganization() organization: Organization,
     @Param('outreachId', ParseIntPipe) outreachId: number,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return this.reports.effortReport({
       organizationSlug: organization.slug,
@@ -274,7 +272,7 @@ export class ConstituentFeedbackController {
     @ReqOrganization() organization: Organization,
     @Param('outreachId', ParseIntPipe) outreachId: number,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return this.synthesis.requestRun({
       organizationSlug: organization.slug,
@@ -291,7 +289,7 @@ export class ConstituentFeedbackController {
     @ReqOrganization() organization: Organization,
     @Param('id') id: string,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return this.reports.themeDetail({
       organizationSlug: organization.slug,
@@ -307,7 +305,7 @@ export class ConstituentFeedbackController {
     @Query(new ZodValidationPipe(ListIssueTagsQuerySchema))
     query: ListIssueTagsQuery,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return {
       tags: await this.tags.listForOrg({
@@ -325,7 +323,7 @@ export class ConstituentFeedbackController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(UpdateIssueTagSchema)) body: UpdateIssueTag,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return this.tags.update({
       organizationSlug: organization.slug,
@@ -343,7 +341,7 @@ export class ConstituentFeedbackController {
     @Body(new ZodValidationPipe(SeedFeedbackRequestSchema))
     body: SeedFeedbackRequest,
   ) {
-    await this.assertFeatureEnabled(user, organization)
+    await this.assertFeatureEnabled(user)
 
     return this.seeds.seed({
       organizationSlug: organization.slug,
@@ -354,13 +352,10 @@ export class ConstituentFeedbackController {
 
   // 404 rather than 403 when the flag is off: a surface the user has not been
   // rolled out to should not advertise that it exists.
-  private async assertFeatureEnabled(
-    user: User,
-    organization: Organization,
-  ): Promise<void> {
+  private async assertFeatureEnabled(user: User): Promise<void> {
     const enabled = await this.features.isFeatureEnabled({
       user,
-      feature: issueCaptureFlagFor(organization.slug),
+      feature: ISSUE_CAPTURE_FLAG,
     })
     if (!enabled) throw new NotFoundException()
   }

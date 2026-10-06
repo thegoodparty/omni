@@ -180,35 +180,90 @@ describe('AudioUploadUrlRequestSchema', () => {
 })
 
 describe('ConfirmConstituentFeedbackSchema', () => {
-  // A confirmation states all three fields, including the ones deliberately
-  // left empty — that is what distinguishes "the canvasser says there was no
-  // stance" from "nobody has looked at this yet".
-  it('accepts a triple with fields left null on purpose', () => {
+  // A confirmation states every field of every issue, including the ones
+  // deliberately left empty — that is what distinguishes "the canvasser says
+  // there was no stance" from "nobody has looked at this yet".
+  it('accepts issues with fields left null on purpose', () => {
     const confirmed = {
-      issueLabel: 'Flock cameras',
-      stance: 'opposes' as const,
-      desiredOutcome: null,
+      issues: [
+        {
+          issueLabel: 'Flock cameras',
+          stance: 'opposes' as const,
+          desiredOutcome: null,
+          fromIssueId: '0192f1c4-0000-7000-8000-000000000001',
+        },
+        {
+          issueLabel: 'Street flooding',
+          stance: null,
+          desiredOutcome: 'Clear the storm drain',
+        },
+      ],
     }
     expect(ConfirmConstituentFeedbackSchema.parse(confirmed)).toEqual(confirmed)
+  })
+
+  // The list replaces the memo's issues, so an empty one is how a canvasser
+  // says the conversation named none.
+  it('accepts an empty list', () => {
+    expect(ConfirmConstituentFeedbackSchema.parse({ issues: [] })).toEqual({
+      issues: [],
+    })
+  })
+
+  it('refuses more than five issues', () => {
+    const issue = {
+      issueLabel: 'Flock cameras',
+      stance: 'opposes',
+      desiredOutcome: null,
+    }
+    expect(
+      ConfirmConstituentFeedbackSchema.safeParse({
+        issues: Array.from({ length: 6 }, () => issue),
+      }).success,
+    ).toBe(false)
+  })
+
+  // An issue is the thing they talked about; one with no name is not one.
+  it('refuses an issue with no label', () => {
+    expect(
+      ConfirmConstituentFeedbackSchema.safeParse({
+        issues: [{ issueLabel: '  ', stance: 'opposes', desiredOutcome: null }],
+      }).success,
+    ).toBe(false)
   })
 
   it('refuses a stance outside the Serve vocabulary', () => {
     expect(
       ConfirmConstituentFeedbackSchema.safeParse({
-        issueLabel: 'Flock cameras',
-        stance: 'supporter',
-        desiredOutcome: null,
+        issues: [
+          {
+            issueLabel: 'Flock cameras',
+            stance: 'supporter',
+            desiredOutcome: null,
+          },
+        ],
       }).success,
     ).toBe(false)
   })
 
-  it('refuses unknown fields so a stale client cannot half-write a triple', () => {
+  it('refuses unknown fields so a stale client cannot half-write an issue', () => {
+    expect(
+      ConfirmConstituentFeedbackSchema.safeParse({
+        issues: [
+          {
+            issueLabel: 'Flock cameras',
+            stance: 'opposes',
+            desiredOutcome: null,
+            reason: 'privacy',
+          },
+        ],
+      }).success,
+    ).toBe(false)
     expect(
       ConfirmConstituentFeedbackSchema.safeParse({
         issueLabel: 'Flock cameras',
         stance: 'opposes',
         desiredOutcome: null,
-        reason: 'privacy',
       }).success,
     ).toBe(false)
   })

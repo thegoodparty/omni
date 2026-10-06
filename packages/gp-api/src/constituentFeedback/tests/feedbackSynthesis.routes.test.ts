@@ -268,6 +268,51 @@ describe('feedback synthesis routes', () => {
     ).toBe(6)
   })
 
+  it('runs a Win org’s door-knock memos through to its report and themes', async () => {
+    const win = await createWinOrg(service)
+    const winEffort = await seedTurfEffort(service, win.slug, {
+      question: 'What should the city fix first?',
+      people: 5,
+    })
+    for (const target of winEffort.targets) {
+      await seedKnockMemo(service, {
+        slug: win.slug,
+        outreachId: winEffort.outreachId,
+        personId: target.personId,
+      })
+    }
+
+    const res = await synthesize(winEffort.outreachId, win.slug)
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.engine).toBe('mock')
+    await flushEngine()
+
+    const read = await report(winEffort.outreachId, win.slug)
+    expect(read.status).toBe(HttpStatus.OK)
+    expect(read.data.run).toMatchObject({
+      id: res.data.id,
+      status: 'completed',
+    })
+    expect(read.data.denominators.confirmed).toBe(5)
+    expect(read.data.themes.length).toBeGreaterThan(0)
+    expect(
+      read.data.themes.reduce(
+        (n: number, t: { conversationCount: number }) =>
+          n + t.conversationCount,
+        0,
+      ),
+    ).toBe(5)
+
+    const detail = await service.client.get(
+      `/v1/constituent-feedback/themes/${read.data.themes[0].id}`,
+      ownerHeaders(win.slug),
+    )
+    expect(detail.status).toBe(HttpStatus.OK)
+    expect(detail.data.members.length).toBe(
+      read.data.themes[0].conversationCount,
+    )
+  })
+
   // Completion is server truth, so the ingest reports it, with counts and
   // ids only: nothing anyone said rides along.
   it('reports a completed run to analytics without what anyone said', async () => {
@@ -323,9 +368,13 @@ describe('feedback synthesis routes', () => {
       'extract',
     ).mockResolvedValue({
       extraction: {
-        issueLabel: 'Street flooding',
-        stance: 'opposes',
-        desiredOutcome: null,
+        issues: [
+          {
+            issueLabel: 'Street flooding',
+            stance: 'opposes',
+            desiredOutcome: null,
+          },
+        ],
         confidence: 0.9,
       },
       model: 'claude-test',
@@ -763,8 +812,15 @@ describe('feedback synthesis routes', () => {
           occurredAt: expect.any(String),
           channel: 'door_knock',
           transcript: newer.memo.transcript,
-          stance: null,
-          desiredOutcome: null,
+          issues: [
+            {
+              id: expect.any(String),
+              position: 0,
+              issueLabel: 'Street flooding',
+              stance: null,
+              desiredOutcome: null,
+            },
+          ],
           actorName: 'Johnny Goodparty',
           confirmedAt: null,
         },
@@ -774,8 +830,15 @@ describe('feedback synthesis routes', () => {
           occurredAt: expect.any(String),
           channel: 'door_knock',
           transcript: older.memo.transcript,
-          stance: 'opposes',
-          desiredOutcome: 'Clear the drain',
+          issues: [
+            {
+              id: expect.any(String),
+              position: 0,
+              issueLabel: 'Street flooding',
+              stance: 'opposes',
+              desiredOutcome: 'Clear the drain',
+            },
+          ],
           actorName: 'Johnny Goodparty',
           confirmedAt: expect.any(String),
         },
@@ -965,6 +1028,88 @@ describe('feedback synthesis routes', () => {
         }),
       )
       expect(runId).toBe(res.data.run.id)
+    })
+
+    // Membership is per conversation, but a stance belongs to an issue. Until
+    // membership is per issue, the split counts every issue each member
+    // raised, so a conversation that raised two issues contributes two and
+    // the split can sum past conversationCount.
+    it('counts every issue each member memo raised', async () => {
+      const { opposes, supports, mixed } = ConstituentFeedbackStance
+      const issue = (
+        issueLabel: string,
+        stance: ConstituentFeedbackStance,
+        desiredOutcome: string | null = null,
+      ) => ({ issueLabel, stance, desiredOutcome })
+      const shapes = [
+        [
+          issue('Street flooding', opposes, 'Clear the drain'),
+          issue('Property taxes', supports, 'A freeze for seniors'),
+        ],
+        [issue('  street   FLOODING ', opposes), issue('Parks', supports)],
+        [issue('Street flooding', supports)],
+        [issue('Potholes', mixed, 'Fill the potholes')],
+        [issue('Street flooding', opposes)],
+      ]
+      const memos: Array<Awaited<ReturnType<typeof seedKnockMemo>>> = []
+      for (const [i, issues] of shapes.entries()) {
+        memos.push(
+          await seedKnockMemo(service, {
+            slug,
+            outreachId: effort.outreachId,
+            personId: effort.targets[i]!.personId,
+            issues,
+          }),
+        )
+      }
+      const runId = await completeRun([
+        { theme: 'Drainage', memberIds: memos.map((m) => m.memo.id) },
+      ])
+
+      const res = await report()
+
+      expect(res.data.themes[0]).toEqual(
+        expect.objectContaining({
+          conversationCount: 5,
+          stanceCounts: { supports: 3, opposes: 3, mixed: 1, unclear: 0 },
+          desiredOutcomes: [
+            'Clear the drain',
+            'A freeze for seniors',
+            'Fill the potholes',
+          ],
+        }),
+      )
+      const detail = await service.client.get(
+        `/v1/constituent-feedback/themes/${res.data.themes[0].id}`,
+        ownerHeaders(slug),
+      )
+      expect(detail.data.stanceCounts).toEqual({
+        supports: 3,
+        opposes: 3,
+        mixed: 1,
+        unclear: 0,
+      })
+      // The member still lists every issue it raised.
+      const twoIssues = detail.data.members.find(
+        (member: { feedbackId: string }) =>
+          member.feedbackId === memos[0]!.memo.id,
+      )
+      expect(
+        twoIssues.issues.map((i: { issueLabel: string }) => i.issueLabel),
+      ).toEqual(['Street flooding', 'Property taxes'])
+
+      // The tag plays no part in the count.
+      await service.prisma.feedbackTheme.updateMany({
+        where: { runId },
+        data: { tagId: null },
+      })
+      const untagged = await report()
+      expect(untagged.data.themes[0].stanceCounts).toEqual({
+        supports: 3,
+        opposes: 3,
+        mixed: 1,
+        unclear: 0,
+      })
     })
 
     it('404s a theme from another org', async () => {
@@ -1287,12 +1432,10 @@ describe('feedback synthesis routes', () => {
 
     // The routes are gated per request; the trigger has no request, so it
     // asks the flag itself. Turning the product off stops automatic runs.
-    it('starts nothing when the org’s flag is off', async () => {
+    it('starts nothing when the issue-capture flag is off', async () => {
       const flags = vi
         .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-        .mockImplementation(
-          async ({ feature }) => feature !== 'serve-issue-capture',
-        )
+        .mockImplementation(async ({ feature }) => feature !== 'issue-capture')
       onTestFinished(() => flags.mockRestore())
       await seedConfirmed(effort.targets.slice(0, 5))
 
@@ -1306,7 +1449,7 @@ describe('feedback synthesis routes', () => {
       const asked = async () =>
         flags.mock.calls.some(
           ([params]) =>
-            params.feature === 'serve-issue-capture' &&
+            params.feature === 'issue-capture' &&
             params.user === service.user.id,
         )
       for (let i = 0; i < 50 && !(await asked()); i++) {

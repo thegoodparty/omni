@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
-  type ConstituentFeedbackTriple,
+  type ConfirmedConstituentFeedbackIssue,
   type PendingFeedback,
   type PendingFeedbackReference,
 } from '@goodparty_org/contracts'
@@ -61,10 +61,10 @@ const PendingMemo = ({
     ])
 
   const confirm = useMutation({
-    mutationFn: (triple: ConstituentFeedbackTriple) =>
+    mutationFn: (issues: ConfirmedConstituentFeedbackIssue[]) =>
       clientRequest('PATCH /v1/constituent-feedback/:id/confirm', {
         id: memo.id,
-        ...triple,
+        issues,
       }),
     onSuccess: () => {
       trackEvent(EVENTS.IssueCapture.PendingMemoConfirmed, {
@@ -125,14 +125,10 @@ const PendingMemo = ({
     return (
       <div className="flex flex-col gap-3">
         <IssueCaptureConfirmCard
-          proposed={{
-            issueLabel: memo.issueLabel,
-            stance: memo.stance,
-            desiredOutcome: memo.desiredOutcome,
-          }}
+          proposed={{ issues: memo.issues }}
           saving={confirm.isPending}
           isServe={isServe}
-          onConfirm={(triple) => confirm.mutate(triple)}
+          onConfirm={(issues) => confirm.mutate(issues)}
           confirmLabel={copy.confirmFor(name)}
         />
         {confirm.isError && (
@@ -285,7 +281,9 @@ const PendingMemoList = ({
               className="flex flex-col gap-2 rounded-lg border border-border p-4"
             >
               <p className="text-xs font-medium text-muted-foreground">
-                {copy.summaryBy(memo.actorName)}
+                {memo.extractionStatus === 'extracted'
+                  ? copy.summaryBy(memo.actorName)
+                  : copy.recordedBy(memo.actorName)}
               </p>
               {memo.transcript !== null && (
                 <p className="text-sm italic text-foreground">

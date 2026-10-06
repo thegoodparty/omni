@@ -11,9 +11,10 @@ import {
   removeFromQueue,
 } from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
-import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
-import RecordKnockForm from './RecordKnockForm'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { reportQueryKey } from 'app/dashboard/issue-capture/[outreachId]/queries'
+import RecordKnockForm, { type KnockDraft } from './RecordKnockForm'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -22,25 +23,12 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
-// Both products' flags, mocked separately: which one a door reads is the
-// product's answer, and a test that turned on "the" flag could not tell.
-vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
-  useServeIssueCaptureFlag: vi.fn(),
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
 }))
 
-vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
-  useWinIssueCaptureFlag: vi.fn(),
-}))
-
-const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: serve,
-  })
-  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: win,
-  })
+const setFlag = (enabled: boolean) => {
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({ ready: true, enabled })
 }
 
 const mocks = vi.hoisted(() => ({
@@ -114,6 +102,14 @@ const target: RoutePayloadTarget = {
 
 const MEMO = 'Bob is against the Flock cameras, wants the data deleted.'
 
+const FLOCK = {
+  id: 'issue-flock-cameras',
+  position: 0,
+  issueLabel: 'Flock cameras',
+  stance: 'opposes' as const,
+  desiredOutcome: 'Remove them and delete the data',
+}
+
 const dictate = (text: string) => act(() => mocks.input.current?.onChange(text))
 
 const question = (label: string) =>
@@ -136,6 +132,36 @@ const renderForm = (onRecorded = vi.fn(), serveMode = true) => {
   return onRecorded
 }
 
+// The walk's store, as a plain map the test can read after an unmount.
+const draftStore = () => {
+  const store = new Map<string, KnockDraft>()
+  const drafts: UnsavedDrafts<KnockDraft> = {
+    get: (key) => store.get(key),
+    set: (key, draft) => {
+      store.set(key, draft)
+    },
+    clear: (key) => {
+      store.delete(key)
+    },
+  }
+  return { store, drafts }
+}
+
+const formWithDrafts = (
+  drafts: UnsavedDrafts<KnockDraft>,
+  onRecorded = vi.fn(),
+) => (
+  <DoorKnockingSurfaceProvider value={true}>
+    <RecordKnockForm
+      target={target}
+      turfId={1}
+      clientKey="6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90"
+      onRecorded={onRecorded}
+      drafts={drafts}
+    />
+  </DoorKnockingSurfaceProvider>
+)
+
 // A Serve door with a conversation and a dictated memo, saved.
 const walkAndSave = async () => {
   answer('Did they answer?', 'Answered')
@@ -148,7 +174,7 @@ const walkAndSave = async () => {
 beforeEach(() => {
   testQueryClient.clear()
   vi.mocked(trackEvent).mockClear()
-  setFlags({ serve: true, win: false })
+  setFlag(true)
   mocks.input.current = null
   api.mock('POST /v1/door-knocking/interactions', {
     status: 200,
@@ -160,11 +186,7 @@ beforeEach(() => {
       id: 'feedback-1',
       personId: 'person-1',
       extractionStatus: 'extracted',
-      extraction: {
-        issueLabel: 'Flock cameras',
-        stance: 'opposes',
-        desiredOutcome: 'Remove them and delete the data',
-      },
+      extraction: { issues: [FLOCK] },
     },
   })
   api.mock('PATCH /v1/constituent-feedback/:id/confirm', {
@@ -175,9 +197,7 @@ beforeEach(() => {
       occurredAt: new Date('2026-09-25T00:00:00.000Z'),
       channel: 'door_knock',
       transcript: MEMO,
-      issueLabel: 'Flock cameras',
-      stance: 'opposes',
-      desiredOutcome: 'Remove them and delete the data',
+      issues: [FLOCK],
       extractionStatus: 'extracted',
       confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
       outreachId: 7,
@@ -188,14 +208,14 @@ beforeEach(() => {
 })
 
 describe('RecordKnockForm issue capture', () => {
-  it('offers the extracted triple for confirmation instead of advancing', async () => {
+  it('offers the extracted issue for confirmation instead of advancing', async () => {
     const onRecorded = renderForm()
     await walkAndSave()
 
     expect(await screen.findByText('Is this right?')).toBeVisible()
     expect(screen.getByDisplayValue('Flock cameras')).toBeVisible()
     expect(screen.getByRole('radio', { name: 'Against it' })).toBeChecked()
-    // The walk is held at this door until the triple is answered.
+    // The walk is held at this door until the issues are answered.
     expect(onRecorded).not.toHaveBeenCalled()
   })
 
@@ -208,6 +228,60 @@ describe('RecordKnockForm issue capture', () => {
     await waitFor(() =>
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
+  })
+
+  // The turf's "What we heard" counts are read once and kept for minutes, so
+  // the knock, its note and its confirm each have to say they moved.
+  it('re-reads the report when the knock saves and again when it is confirmed', async () => {
+    const key = reportQueryKey(7)
+    testQueryClient.setQueryData(key, { denominators: {} })
+    const isInvalidated = () =>
+      testQueryClient.getQueryState(key)?.isInvalidated
+
+    const onRecorded = renderForm()
+    await walkAndSave()
+    await screen.findByRole('button', { name: 'Looks right' })
+    expect(isInvalidated()).toBe(true)
+
+    testQueryClient.setQueryData(key, { denominators: {} })
+    expect(isInvalidated()).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Looks right' }))
+
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    expect(isInvalidated()).toBe(true)
+  })
+
+  // The knock behind a confirm card is saved, so leaving the card for a
+  // housemate keeps nothing, and coming back offers a fresh door.
+  it('never restores a confirm card or the answers behind it', async () => {
+    const { store, drafts } = draftStore()
+    const view = render(formWithDrafts(drafts))
+    await walkAndSave()
+    await screen.findByText('Is this right?')
+
+    view.unmount()
+    expect(store.has('21')).toBe(false)
+
+    render(formWithDrafts(drafts))
+    expect(screen.queryByText('Is this right?')).toBeNull()
+    expect(
+      question('Did they answer?').getByRole('radio', { name: 'Answered' }),
+    ).toHaveAttribute('data-state', 'off')
+  })
+
+  // A transcript can arrive after Save. It is not a new, unsaved answer.
+  it('keeps nothing for a saved door when dictation lands late', async () => {
+    const { store, drafts } = draftStore()
+    const onRecorded = vi.fn()
+    const view = render(formWithDrafts(drafts, onRecorded))
+    answer('Did they answer?', 'Not home')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+
+    dictate('and a sentence the socket was still sending')
+    view.unmount()
+
+    expect(store.has('21')).toBe(false)
   })
 
   it('advances on skip, leaving the memo unconfirmed', async () => {
@@ -255,9 +329,120 @@ describe('RecordKnockForm issue capture', () => {
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.IssueCapture.MemoConfirmed,
-        { channel: 'doorKnocking', corrected: true, product: 'serve' },
+        {
+          channel: 'doorKnocking',
+          corrected: true,
+          issueCount: 1,
+          product: 'serve',
+        },
       ),
     )
+  })
+
+  // A canvass run only to gather issues often hears two or three in one
+  // conversation, and the canvasser answers for each: keeping, correcting
+  // or removing it.
+  it('offers each issue the note named and confirms the ones kept', async () => {
+    api.mock('POST /v1/constituent-feedback', {
+      status: 200,
+      data: {
+        id: 'feedback-1',
+        personId: 'person-1',
+        extractionStatus: 'extracted',
+        extraction: {
+          issues: [
+            FLOCK,
+            {
+              id: 'issue-street-flooding',
+              position: 1,
+              issueLabel: 'Street flooding',
+              stance: 'supports',
+              desiredOutcome: 'Clear the storm drain',
+            },
+          ],
+        },
+      },
+    })
+    let confirmed: unknown = null
+    api.mock('PATCH /v1/constituent-feedback/:id/confirm', ({ body }) => {
+      confirmed = body
+      return {
+        status: 200,
+        data: {
+          id: 'feedback-1',
+          personId: 'person-1',
+          occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+          channel: 'door_knock',
+          transcript: MEMO,
+          issues: [],
+          extractionStatus: 'extracted',
+          confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+          outreachId: 7,
+          actorName: null,
+          tags: [],
+        },
+      }
+    })
+    renderForm()
+    await walkAndSave()
+
+    expect(await screen.findByDisplayValue('Flock cameras')).toBeVisible()
+    expect(screen.getByDisplayValue('Street flooding')).toBeVisible()
+    expect(screen.getByDisplayValue('Clear the storm drain')).toBeVisible()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove Flock cameras' }),
+    )
+    expect(screen.queryByDisplayValue('Flock cameras')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Looks right' }))
+
+    await waitFor(() =>
+      expect(confirmed).toEqual({
+        issues: [
+          {
+            issueLabel: 'Street flooding',
+            stance: 'supports',
+            desiredOutcome: 'Clear the storm drain',
+            fromIssueId: 'issue-street-flooding',
+          },
+        ],
+      }),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoConfirmed, {
+      channel: 'doorKnocking',
+      corrected: true,
+      issueCount: 1,
+      product: 'serve',
+    })
+  })
+
+  // A note that named no issue has nothing to fill in, and confirming it
+  // says so.
+  it('confirms a note that named no issue', async () => {
+    api.mock('POST /v1/constituent-feedback', {
+      status: 200,
+      data: {
+        id: 'feedback-1',
+        personId: 'person-1',
+        extractionStatus: 'extracted',
+        extraction: { issues: [] },
+      },
+    })
+    let confirmed: unknown = null
+    api.mock('PATCH /v1/constituent-feedback/:id/confirm', ({ body }) => {
+      confirmed = body
+      return { status: 500, data: { message: 'boom' } }
+    })
+    renderForm()
+    await walkAndSave()
+
+    expect(
+      await screen.findByText('No issue came up in this note.'),
+    ).toBeVisible()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Looks right' }))
+
+    await waitFor(() => expect(confirmed).toEqual({ issues: [] }))
   })
 
   // The note field is deliberately offered on every branch, including a
@@ -328,8 +513,8 @@ describe('RecordKnockForm issue capture', () => {
     expect(screen.queryByPlaceholderText(/issues and positions/i)).toBeNull()
   })
 
-  it('does not capture when the Serve flag is off', async () => {
-    setFlags({ serve: false, win: true })
+  it('does not capture when the flag is off', async () => {
+    setFlag(false)
     const onRecorded = renderForm()
     await walkAndSave()
 
@@ -337,21 +522,6 @@ describe('RecordKnockForm issue capture', () => {
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
     expect(screen.queryByText('Is this right?')).toBeNull()
-  })
-
-  // The canvasser speaks after the conversation, about it. The other person
-  // is never recorded, and the field says so where the mic is.
-  it('tells the canvasser to speak for themselves', () => {
-    renderForm()
-    answer('Did they answer?', 'Answered')
-    answer('Did they engage?', 'Engaged')
-    answer('Do they need follow-up?', 'Yes')
-
-    expect(
-      screen.getByText(
-        "Say what they told you. Don't record the other person.",
-      ),
-    ).toBeVisible()
   })
 
   it('reports the memo as a Serve one', async () => {
@@ -369,10 +539,10 @@ describe('RecordKnockForm issue capture', () => {
 })
 
 // A candidate's door, where the memo is what a voter told the canvasser. Same
-// form, same sequencing, gated on Win's own flag.
+// form, same sequencing, same flag.
 // A dead zone: the knock and its memo wait on the phone, knock first, and
-// the walk moves on as it would online. Nobody can confirm a triple that
-// has not been extracted yet, so there is no card to hold the door for.
+// the walk moves on as it would online. Nobody can confirm issues that
+// have not been extracted yet, so there is no card to hold the door for.
 describe('RecordKnockForm issue capture with no signal', () => {
   let online = false
 
@@ -406,7 +576,7 @@ describe('RecordKnockForm issue capture with no signal', () => {
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
     expect(mocks.successSnackbar).toHaveBeenCalledWith(
-      'Saved on your phone. It will be sent when you have signal.',
+      'Saved on your device. It will be sent when you have signal.',
     )
     expect(knocks).not.toHaveBeenCalled()
     expect(screen.queryByText('Is this right?')).toBeNull()
@@ -505,9 +675,35 @@ describe('RecordKnockForm offline edges', () => {
     online = true
   })
 
+  // Held on the device is saved: the answers that were restored into the
+  // form go with the hold.
+  it('drops the answers it restored once the door is held', async () => {
+    const { store, drafts } = draftStore()
+    store.set('21', {
+      outcome: 'not_home',
+      note: 'Dog in the yard',
+      spoken: false,
+    })
+    const onRecorded = vi.fn()
+    const view = render(formWithDrafts(drafts, onRecorded))
+    expect(
+      question('Did they answer?').getByRole('radio', { name: 'Not home' }),
+    ).toHaveAttribute('data-state', 'on')
+
+    online = false
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    view.unmount()
+
+    expect(await listQueue()).toEqual([
+      expect.objectContaining({ kind: 'knock' }),
+    ])
+    expect(store.has('21')).toBe(false)
+  })
+
   // The flag is the rollback lever: with it off, nothing is held.
   it('holds nothing with capture off, even offline', async () => {
-    setFlags({ serve: false, win: false })
+    setFlag(false)
     online = false
     const knocks = vi.fn()
     api.mock('POST /v1/door-knocking/interactions', () => {
@@ -527,7 +723,7 @@ describe('RecordKnockForm offline edges', () => {
   // With the flag off the form is exactly what it was: an online save
   // walks on without waiting on the phone's storage.
   it('leaves the queue alone on an online save with capture off', async () => {
-    setFlags({ serve: false, win: false })
+    setFlag(false)
     vi.mocked(enqueue).mockClear()
     vi.mocked(removeFromQueue).mockClear()
     const onRecorded = renderForm()
@@ -614,13 +810,34 @@ describe('RecordKnockForm offline edges', () => {
       await screen.findByRole('button', { name: 'Stop dictation' }),
     )
     expect(
-      await screen.findByText('Note recorded on your phone.'),
+      await screen.findByText('Note recorded on your device.'),
     ).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(onRecorded).toHaveBeenCalled())
     const memo = (await listQueue()).find((entry) => entry.kind === 'memo')
     expect(memo?.kind === 'memo' && memo.blob).toBeInstanceOf(Blob)
+  })
+
+  it('says the note is being sent when a recording follows a saved knock', async () => {
+    online = false
+    const onRecorded = renderForm()
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Engaged')
+    answer('Do they need follow-up?', 'Yes')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate note' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Stop dictation' }),
+    )
+    await screen.findByText('Note recorded on your device.')
+    online = true
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    expect(mocks.successSnackbar).toHaveBeenCalledWith(
+      'Note saved on your device. Sending it now.',
+    )
   })
 
   // A door that did not engage has no conversation to capture, so the mic
@@ -634,7 +851,7 @@ describe('RecordKnockForm offline edges', () => {
 
     // The live dictation it wraps, which fails the ordinary way offline.
     expect(mocks.start).toHaveBeenCalled()
-    expect(screen.queryByText('Note recorded on your phone.')).toBeNull()
+    expect(screen.queryByText('Note recorded on your device.')).toBeNull()
   })
 })
 
@@ -649,14 +866,14 @@ describe('RecordKnockForm issue capture on a Win door', () => {
   }
 
   beforeEach(() => {
-    setFlags({ serve: false, win: true })
+    setFlag(true)
     api.mock('POST /v1/door-knocking/interactions', {
       status: 200,
       data: { personId: 'person-1', knockStatus: 'supporter' },
     })
   })
 
-  it('captures and confirms on win-issue-capture alone', async () => {
+  it('captures and confirms on a Win door', async () => {
     const onRecorded = renderForm(vi.fn(), false)
     walkWinAndSave()
 
@@ -671,12 +888,13 @@ describe('RecordKnockForm issue capture on a Win door', () => {
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoConfirmed, {
       channel: 'doorKnocking',
       corrected: false,
+      issueCount: 1,
       product: 'win',
     })
   })
 
-  it('does not capture when only the Serve flag is on', async () => {
-    setFlags({ serve: true, win: false })
+  it('does not capture on a Win door when the flag is off', async () => {
+    setFlag(false)
     const onRecorded = renderForm(vi.fn(), false)
     walkWinAndSave()
 
@@ -694,11 +912,6 @@ describe('RecordKnockForm issue capture on a Win door', () => {
     answer('Will they vote this election?', 'Yes')
 
     expect(screen.getByPlaceholderText('What did they tell you?')).toBeVisible()
-    expect(
-      screen.getByText(
-        "Say what they told you. Don't record the other person.",
-      ),
-    ).toBeVisible()
     expect(document.body.textContent ?? '').not.toMatch(/constituent/i)
   })
 

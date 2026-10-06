@@ -10,8 +10,10 @@ import {
   CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_MAX_ISSUES,
   CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
   ConfirmConstituentFeedback,
+  ConstituentFeedbackIssue,
   ConstituentFeedbackRecord,
   PendingFeedback,
   PendingFeedbackReference,
@@ -46,30 +48,29 @@ import {
 // looking at a capture failure for a memo that is safely on disk. Truncating
 // keeps the record; the untruncated text stays in `proposed*` and in the
 // transcript, so nothing the model said is actually lost.
-const clamp = (value: string | null, max: number): string | null =>
-  value === null || value.length <= max ? value : value.slice(0, max)
+const clamp = (value: string, max: number): string => value.slice(0, max)
 
 type ExtractionFields = {
   extractionStatus: ConstituentFeedbackExtractionStatus
-  issueLabel: string | null
-  stance: ConstituentFeedbackStance | null
-  desiredOutcome: string | null
   extractionConfidence: number | null
   extractionModel: string | null
+}
+
+type IssueRow = {
+  position: number
+  issueLabel: string
+  stance: ConstituentFeedbackStance | null
+  desiredOutcome: string | null
   proposedIssueLabel: string | null
   proposedStance: string | null
   proposedDesiredOutcome: string | null
 }
 
+type Extracted = { extraction: RawExtraction; model: string } | null
+
 const EMPTY_EXTRACTION = {
-  issueLabel: null,
-  stance: null,
-  desiredOutcome: null,
   extractionConfidence: null,
   extractionModel: null,
-  proposedIssueLabel: null,
-  proposedStance: null,
-  proposedDesiredOutcome: null,
 } as const satisfies Omit<ExtractionFields, 'extractionStatus'>
 
 type CaptureTarget = {
@@ -91,9 +92,68 @@ const STANCE_BY_VALUE: Record<string, ConstituentFeedbackStance | undefined> =
 const toStance = (raw: string | null): ConstituentFeedbackStance | null =>
   raw === null ? null : (STANCE_BY_VALUE[raw] ?? null)
 
+// Until someone confirms them, the confirmed columns hold the model's
+// answer as the surface can show it, and `proposed*` what it actually said.
+// The model is asked for at most five named issues and bound to neither: a
+// blank label is nothing anyone could confirm, and the ones past five are
+// dropped rather than failing the whole extraction.
+const proposedIssues = (extracted: Extracted): IssueRow[] =>
+  extracted === null
+    ? []
+    : extracted.extraction.issues
+        .filter((issue) => issue.issueLabel.trim() !== '')
+        .slice(0, CONSTITUENT_FEEDBACK_MAX_ISSUES)
+        .map((issue, position) => ({
+          position,
+          issueLabel: clamp(
+            issue.issueLabel,
+            CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+          ),
+          stance: toStance(issue.stance),
+          desiredOutcome:
+            issue.desiredOutcome === null
+              ? null
+              : clamp(
+                  issue.desiredOutcome,
+                  CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
+                ),
+          proposedIssueLabel: issue.issueLabel,
+          proposedStance: issue.stance,
+          proposedDesiredOutcome: issue.desiredOutcome,
+        }))
+
+const ISSUE_SELECT = {
+  orderBy: { position: Prisma.SortOrder.asc },
+  select: {
+    id: true,
+    position: true,
+    issueLabel: true,
+    stance: true,
+    desiredOutcome: true,
+  },
+} as const satisfies Prisma.ConstituentFeedbackIssueFindManyArgs
+
+// Two statements rather than one nested write, so the delete is certain to
+// land before the insert, which would otherwise collide on
+// (feedbackId, position).
+const replaceIssues = async (
+  tx: Prisma.TransactionClient,
+  feedbackId: string,
+  issues: IssueRow[],
+): Promise<ConstituentFeedbackIssue[]> => {
+  await tx.constituentFeedbackIssue.deleteMany({ where: { feedbackId } })
+  if (issues.length === 0) return []
+  const created = await tx.constituentFeedbackIssue.createManyAndReturn({
+    data: issues.map((issue) => ({ ...issue, feedbackId })),
+    select: ISSUE_SELECT.select,
+  })
+  return created.sort((a, b) => a.position - b.position)
+}
+
 // What a person's record reads with each memo. Accepted tags only: a
 // proposal is a suggestion nobody has agreed to yet.
 const RECORD_INCLUDE = {
+  issues: ISSUE_SELECT,
   actor: { select: { firstName: true, lastName: true } },
   tags: {
     where: { tag: { status: IssueTagStatus.accepted } },
@@ -215,56 +275,60 @@ export class ConstituentFeedbackService extends createPrismaBase(
       userId: input.actorUserId,
     })
 
-    const row = await this.model.upsert({
-      where: await this.upsertKey(input.organizationSlug, target, input.body),
-      create: {
-        organizationSlug: input.organizationSlug,
-        clientKey: input.body.clientKey,
-        personId: target.personId,
-        occurredAt: new Date(),
-        actorUserId: input.actorUserId,
-        channel: input.body.channel,
-        captureMethod: input.body.captureMethod,
-        transcript,
-        effortQuestion: target.effortQuestion,
-        outreachId: target.outreachId,
-        doorKnockInteractionId: target.doorKnockInteractionId,
-        phoneBankingInteractionId: target.phoneBankingInteractionId,
-        ...this.extractionFields(extracted),
-      },
-      // A re-record REPLACES the triple with a fresh model proposal, so any
-      // confirmation the old one earned is void. Leaving `confirmedAt` set
-      // would hand reporting a model guess wearing a human's signature, which
-      // is the one thing the column exists to prevent.
-      update: {
-        transcript,
-        captureMethod: input.body.captureMethod,
-        // A live re-record replaces an offline one outright.
-        audioKey: null,
-        transcriptionJobName: null,
-        // Re-read, not left at the first recording's value: the effort's
-        // question can be edited between the two, and `extract()` above always
-        // runs against the current one. Keeping the old copy here would leave
-        // the row claiming a prompt the extraction never saw.
-        effortQuestion: target.effortQuestion,
-        outreachId: target.outreachId,
-        confirmedAt: null,
-        ...this.extractionFields(extracted),
-      },
+    const where = await this.upsertKey(
+      input.organizationSlug,
+      target,
+      input.body,
+    )
+    const { row, issues } = await this.client.$transaction(async (tx) => {
+      const saved = await tx.constituentFeedback.upsert({
+        where,
+        create: {
+          organizationSlug: input.organizationSlug,
+          clientKey: input.body.clientKey,
+          personId: target.personId,
+          occurredAt: new Date(),
+          actorUserId: input.actorUserId,
+          channel: input.body.channel,
+          captureMethod: input.body.captureMethod,
+          transcript,
+          effortQuestion: target.effortQuestion,
+          outreachId: target.outreachId,
+          doorKnockInteractionId: target.doorKnockInteractionId,
+          phoneBankingInteractionId: target.phoneBankingInteractionId,
+          ...this.extractionFields(extracted),
+        },
+        // A re-record REPLACES the issues with a fresh model proposal, so any
+        // confirmation the old ones earned is void. Leaving `confirmedAt` set
+        // would hand reporting a model guess wearing a human's signature,
+        // which is the one thing the column exists to prevent.
+        update: {
+          transcript,
+          captureMethod: input.body.captureMethod,
+          // A live re-record replaces an offline one outright.
+          audioKey: null,
+          transcriptionJobName: null,
+          // Re-read, not left at the first recording's value: the effort's
+          // question can be edited between the two, and `extract()` above
+          // always runs against the current one. Keeping the old copy here
+          // would leave the row claiming a prompt the extraction never saw.
+          effortQuestion: target.effortQuestion,
+          outreachId: target.outreachId,
+          confirmedAt: null,
+          ...this.extractionFields(extracted),
+        },
+      })
+      return {
+        row: saved,
+        issues: await replaceIssues(tx, saved.id, proposedIssues(extracted)),
+      }
     })
 
     return {
       id: row.id,
       personId: row.personId,
       extractionStatus: row.extractionStatus,
-      extraction:
-        extracted === null
-          ? null
-          : {
-              issueLabel: row.issueLabel,
-              stance: row.stance,
-              desiredOutcome: row.desiredOutcome,
-            },
+      extraction: extracted === null ? null : { issues },
     }
   }
 
@@ -272,7 +336,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
   // the audio at `audioKey`, so there are no words yet: the row is saved
   // pending, a Transcribe job starts, and the pending-transcription cron
   // writes the transcript and runs extraction when the job finishes. Nobody
-  // is at the door any more, so the triple waits in the "Notes to review"
+  // is at the door any more, so the issues wait in the "Notes to review"
   // list instead of a confirm card.
   private async captureRecording(input: {
     organizationSlug: string
@@ -300,21 +364,31 @@ export class ConstituentFeedbackService extends createPrismaBase(
       extractionStatus: ConstituentFeedbackExtractionStatus.pending,
     }
 
-    const row = await this.model.upsert({
-      where: await this.upsertKey(input.organizationSlug, target, input.body),
-      create: {
-        organizationSlug: input.organizationSlug,
-        clientKey: input.body.clientKey,
-        personId: target.personId,
-        occurredAt: new Date(),
-        actorUserId: input.actorUserId,
-        channel: input.body.channel,
-        doorKnockInteractionId: target.doorKnockInteractionId,
-        phoneBankingInteractionId: target.phoneBankingInteractionId,
-        ...pending,
-      },
-      // Same rule as a live re-record: whatever was confirmed before is void.
-      update: pending,
+    const where = await this.upsertKey(
+      input.organizationSlug,
+      target,
+      input.body,
+    )
+    const row = await this.client.$transaction(async (tx) => {
+      const saved = await tx.constituentFeedback.upsert({
+        where,
+        create: {
+          organizationSlug: input.organizationSlug,
+          clientKey: input.body.clientKey,
+          personId: target.personId,
+          occurredAt: new Date(),
+          actorUserId: input.actorUserId,
+          channel: input.body.channel,
+          doorKnockInteractionId: target.doorKnockInteractionId,
+          phoneBankingInteractionId: target.phoneBankingInteractionId,
+          ...pending,
+        },
+        // Same rule as a live re-record: whatever was confirmed before is
+        // void, and so are the issues it was confirmed with.
+        update: pending,
+      })
+      await replaceIssues(tx, saved.id, [])
+      return saved
     })
 
     await this.startTranscription(row.id, input.audioKey)
@@ -376,7 +450,8 @@ export class ConstituentFeedbackService extends createPrismaBase(
 
   // The job's words, then extraction exactly as a live capture runs it. The
   // job name scopes both writes, so a memo re-recorded or retried while this
-  // one ran is left to its own job. `confirmedAt` stays null: the person
+  // one ran is left to its own job, and a memo confirmed while it ran keeps
+  // the issues its confirmer gave. `confirmedAt` stays null: the person
   // who was there confirms it from the review list.
   async completeTranscription(input: {
     id: string
@@ -387,6 +462,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
       id: input.id,
       transcriptionJobName: input.jobName,
       transcript: null,
+      confirmedAt: null,
     }
     const transcript = clamp(
       input.transcript.trim(),
@@ -401,16 +477,26 @@ export class ConstituentFeedbackService extends createPrismaBase(
       where,
       select: { effortQuestion: true, actorUserId: true },
     })
-    if (row === null) return
+    if (row === null) {
+      this.logger.info(
+        { id: input.id, jobName: input.jobName },
+        'Memo changed while its transcription ran; left as it is',
+      )
+      return
+    }
 
     const extracted = await this.extraction.extract({
       transcript,
       effortQuestion: row.effortQuestion,
       userId: row.actorUserId,
     })
-    await this.model.updateMany({
-      where,
-      data: { transcript, ...this.extractionFields(extracted) },
+    await this.client.$transaction(async (tx) => {
+      const { count } = await tx.constituentFeedback.updateMany({
+        where,
+        data: { transcript, ...this.extractionFields(extracted) },
+      })
+      if (count === 0) return
+      await replaceIssues(tx, input.id, proposedIssues(extracted))
     })
   }
 
@@ -552,7 +638,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
 
   // The review list's "Try again", which is also the recovery for a memo
   // whose transcription or extraction failed online. A recording with no
-  // words yet is transcribed again; words with no triple are extracted
+  // words yet is transcribed again; words with no issues are extracted
   // again. A volunteer retries only their own memo, on an effort they are
   // still assigned to.
   async retry(input: {
@@ -596,9 +682,16 @@ export class ConstituentFeedbackService extends createPrismaBase(
         effortQuestion: row.effortQuestion,
         userId: input.actorUserId,
       })
-      await this.model.update({
-        where: { id: input.id },
-        data: this.extractionFields(extracted),
+      // Scoped to unconfirmed: the canvasser can confirm from the review
+      // list while the model is still answering, and a proposal must never
+      // replace what they confirmed.
+      await this.client.$transaction(async (tx) => {
+        const { count } = await tx.constituentFeedback.updateMany({
+          where: { id: input.id, confirmedAt: null },
+          data: this.extractionFields(extracted),
+        })
+        if (count === 0) return
+        await replaceIssues(tx, input.id, proposedIssues(extracted))
       })
     } else if (row.audioKey !== null) {
       await this.model.update({
@@ -621,9 +714,13 @@ export class ConstituentFeedbackService extends createPrismaBase(
     )
   }
 
-  // The confirmed triple replaces whatever the model proposed. `confirmedAt`
-  // is what later reporting reads to tell a first-hand answer apart from an
-  // unreviewed guess, so it is only ever set here.
+  // The confirmed issues replace whatever the model proposed, in the order
+  // sent: one left out is removed, and an empty list confirms a memo that
+  // named none. An issue sent with `fromIssueId` keeps that row, so the
+  // model's proposal stays beside the answer and a repeated confirm lands on
+  // the same rows. `confirmedAt` is what later reporting reads to tell a
+  // first-hand answer apart from an unreviewed guess, so it is only ever set
+  // here.
   async confirm(input: {
     organizationSlug: string
     id: string
@@ -651,15 +748,59 @@ export class ConstituentFeedbackService extends createPrismaBase(
       existing.channel,
     )
 
-    const row = await this.model.update({
-      where: { id: input.id },
-      data: {
-        issueLabel: input.body.issueLabel,
-        stance: input.body.stance,
-        desiredOutcome: input.body.desiredOutcome,
-        confirmedAt: new Date(),
-      },
-      include: RECORD_INCLUDE,
+    const row = await this.client.$transaction(async (tx) => {
+      const held = await tx.constituentFeedbackIssue.findMany({
+        where: { feedbackId: input.id },
+        select: { id: true },
+      })
+      const heldIds = new Set(held.map((issue) => issue.id))
+      const kept = input.body.issues.flatMap((issue) =>
+        issue.fromIssueId === undefined ? [] : [issue.fromIssueId],
+      )
+      if (
+        new Set(kept).size !== kept.length ||
+        kept.some((id) => !heldIds.has(id))
+      ) {
+        throw new UnprocessableEntityException(
+          'Each fromIssueId must name one of this memo’s issues, once',
+        )
+      }
+
+      await tx.constituentFeedbackIssue.deleteMany({
+        where: { feedbackId: input.id, id: { notIn: kept } },
+      })
+      // Parked below zero first: positions are unique per memo, and moving a
+      // kept issue straight to its new place can land on another one's.
+      for (const [i, id] of kept.entries()) {
+        await tx.constituentFeedbackIssue.update({
+          where: { id },
+          data: { position: -1 - i },
+        })
+      }
+      for (const [position, issue] of input.body.issues.entries()) {
+        const answer = {
+          position,
+          issueLabel: issue.issueLabel,
+          stance: issue.stance,
+          desiredOutcome: issue.desiredOutcome,
+        }
+        if (issue.fromIssueId === undefined) {
+          await tx.constituentFeedbackIssue.create({
+            data: { ...answer, feedbackId: input.id },
+          })
+        } else {
+          await tx.constituentFeedbackIssue.update({
+            where: { id: issue.fromIssueId },
+            data: answer,
+          })
+        }
+      }
+
+      return tx.constituentFeedback.update({
+        where: { id: input.id },
+        data: { confirmedAt: new Date() },
+        include: RECORD_INCLUDE,
+      })
     })
 
     return this.toRecord(row)
@@ -704,9 +845,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     )
   }
 
-  private extractionFields(
-    extracted: { extraction: RawExtraction; model: string } | null,
-  ): ExtractionFields {
+  private extractionFields(extracted: Extracted): ExtractionFields {
     return extracted === null
       ? {
           extractionStatus: ConstituentFeedbackExtractionStatus.failed,
@@ -714,20 +853,8 @@ export class ConstituentFeedbackService extends createPrismaBase(
         }
       : {
           extractionStatus: ConstituentFeedbackExtractionStatus.extracted,
-          issueLabel: clamp(
-            extracted.extraction.issueLabel,
-            CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
-          ),
-          stance: toStance(extracted.extraction.stance),
-          desiredOutcome: clamp(
-            extracted.extraction.desiredOutcome,
-            CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
-          ),
           extractionConfidence: extracted.extraction.confidence,
           extractionModel: extracted.model,
-          proposedIssueLabel: extracted.extraction.issueLabel,
-          proposedStance: extracted.extraction.stance,
-          proposedDesiredOutcome: extracted.extraction.desiredOutcome,
         }
   }
 
@@ -737,9 +864,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     occurredAt: Date
     channel: ConstituentFeedbackChannel
     transcript: string | null
-    issueLabel: string | null
-    stance: ConstituentFeedbackStance | null
-    desiredOutcome: string | null
+    issues: ConstituentFeedbackIssue[]
     extractionStatus: ConstituentFeedbackExtractionStatus
     confirmedAt: Date | null
     outreachId: number | null
@@ -756,9 +881,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
       occurredAt: row.occurredAt,
       channel: row.channel,
       transcript: row.transcript,
-      issueLabel: row.issueLabel,
-      stance: row.stance,
-      desiredOutcome: row.desiredOutcome,
+      issues: row.issues,
       extractionStatus: row.extractionStatus,
       confirmedAt: row.confirmedAt,
       outreachId: row.outreachId,

@@ -39,16 +39,16 @@ beforeEach(() => {
 })
 
 describe('issueCaptureAccess', () => {
-  it('lets a campaign org in on the Win flag and speaks Win', async () => {
-    mocks.getFlagVariants.mockResolvedValue({ 'win-issue-capture': on })
+  it('lets a campaign org in on the flag and speaks Win', async () => {
+    mocks.getFlagVariants.mockResolvedValue({ 'issue-capture': on })
 
     await expect(issueCaptureAccess()).resolves.toEqual({ isServe: false })
     expect(mocks.candidateAccess).toHaveBeenCalled()
   })
 
-  it('lets an elected office in on the Serve flag and speaks Serve', async () => {
+  it('lets an elected office in on the flag and speaks Serve', async () => {
     mocks.slug.current = 'eo-springfield-council'
-    mocks.getFlagVariants.mockResolvedValue({ 'serve-issue-capture': on })
+    mocks.getFlagVariants.mockResolvedValue({ 'issue-capture': on })
 
     await expect(issueCaptureAccess()).resolves.toEqual({ isServe: true })
   })
@@ -59,11 +59,9 @@ describe('issueCaptureAccess', () => {
     await expect(issueCaptureAccess()).rejects.toThrow('redirect:/dashboard')
   })
 
-  // Each product rolls out on its own key, so the other product's flag
-  // being on lets nobody in.
-  it('reads only the org’s own product’s flag', async () => {
+  it('sends an elected office to the dashboard with the flag off', async () => {
     mocks.slug.current = 'eo-springfield-council'
-    mocks.getFlagVariants.mockResolvedValue({ 'win-issue-capture': on })
+    mocks.getFlagVariants.mockResolvedValue({ 'some-other-flag': on })
 
     await expect(issueCaptureAccess()).rejects.toThrow('redirect:/dashboard')
   })
@@ -79,7 +77,7 @@ describe('issueCaptureAccess', () => {
 // gate, and a flag-off visit goes back to where it came from.
 describe('issueCaptureFlagGate', () => {
   it('checks the flag without the candidate gate', async () => {
-    mocks.getFlagVariants.mockResolvedValue({ 'win-issue-capture': on })
+    mocks.getFlagVariants.mockResolvedValue({ 'issue-capture': on })
 
     await expect(
       issueCaptureFlagGate('/volunteer/door-knocking/7'),
