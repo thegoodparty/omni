@@ -42,6 +42,14 @@ const NAMED = AGENTS.flatMap((a) =>
   a.cases === null ? [] : [{ agentId: a.agentId, cases: a.cases }],
 )
 
+// EVERY LIST IS NAMED FOR ITS AGENT. The estimate fetches a ref's list as
+// `cases/<agentId>.json` and armBudget.ts reads the base worktree's under this
+// branch's registry filename, so a renamed file would price, and plan, the
+// base arm against the wrong list.
+it.each(NAMED)('$agentId names its list after itself', ({ agentId, cases }) => {
+  expect(cases).toBe(`${agentId}.json`)
+})
+
 describe('the authored chat case lists', () => {
   it('the registry points all four at their own file', () => {
     expect(AUTHORED.map((id) => findAgent(id)?.cases)).toEqual(

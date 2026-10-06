@@ -5,6 +5,7 @@ import { AGENTS, type AgentEntry } from './agents'
 import { loadBackgroundCases, loadCaseList, type CaseList } from './cases'
 import { selectAgents } from './cli'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
+import { BASE_CHAT_ATTEMPTS, baseChatAttemptsIn } from './planCost'
 import { agentConfigFor } from './runners/agentConfig'
 import {
   ARM_BUDGET_MS,
@@ -189,6 +190,10 @@ const warnLine = (line: string): void => {
 // How many turns a chat agent's list drives per attempt on the base ref.
 // Undefined when there is none, and the candidate's count stands.
 //
+// Read under THIS branch's registry filename, which is only the base arm's
+// file because every list is named `<agentId>.json`; chatCaseLists.test.ts
+// pins that, and planCost's estimate relies on it too.
+//
 // A list that is there but will not parse here is warned about rather than
 // refused: the base arm reads it with its own parser, which may accept it
 // and walk every case, so the candidate's count can then be low.
@@ -231,20 +236,18 @@ export const candidateChatTurns = (
 ): number => chatTurnsIn(load(agent))
 
 // The base arm's chat attempts per case, which it reads from ITS config.ts.
-// The top-level key is the only one at two spaces of indent; background's
-// sits inside its own object. Undefined when it cannot be found, and the
-// candidate's then stands.
-export const BASE_CHAT_ATTEMPTS = /^ {2}attemptsPerCase: (\d+),(?:\s*\/\/.*)?$/m
+// Undefined when it cannot be found, and the candidate's then stands. The
+// pattern lives in planCost.ts, which prices the same max.
+export { BASE_CHAT_ATTEMPTS }
 
 export const baseChatAttempts = (baseDir: string): number | undefined => {
   try {
-    const found = BASE_CHAT_ATTEMPTS.exec(
+    return baseChatAttemptsIn(
       readFileSync(
         join(baseDir, 'packages/gp-api/src/chats/evals/judge/config.ts'),
         'utf8',
       ),
-    )?.[1]
-    return found === undefined ? undefined : Number(found)
+    )
   } catch {
     return undefined
   }

@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
@@ -13,7 +14,8 @@ import { describe, expect, it } from 'vitest'
 import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
 import { budgetOutputLines } from './armBudget'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
-import { DEFAULT_JUDGE_CONFIG } from './config'
+import { formatPlan, selectAgents } from './cli'
+import { estimateAgent } from './planCost'
 import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { ARM_AWS_ENV } from './awsCredentials'
@@ -390,7 +392,7 @@ describe('judge.yml tells every judge process who asked', () => {
   })
 
   // The price and the guard state belong in the same comment: a reader
-  // approving ~$632 of sweep should be able to see whether two arms that hash
+  // approving ~$644 of sweep should be able to see whether two arms that hash
   // alike will be judged or refused.
   it('says in the plan comment which mode the request is in', () => {
     const estimate = steps.find(
@@ -1354,98 +1356,308 @@ describe('judge.yml links the commits, the base and the case lists', () => {
   })
 })
 
-// THE BACKGROUND PRICE IS A FUNCTION OF THE BACKGROUND BUDGET. It was a bare
-// $13 that outlived the budget it priced, so it is recomputed here from
-// config.background: a change to the budget that does not reach the workflow
-// fails this rather than quietly mispricing every plan comment.
-describe('judge.yml prices a background agent from config.background', () => {
+// THE WORKFLOW ADDS UP, AND THE CLI PRICES. Every per-agent number comes from
+// planCost.ts through the plan rows, so a budget, a measurement or a case
+// list that moves a price moves it here without a workflow edit. What the
+// workflow still owns is refusing when it cannot read a price from every row.
+describe('judge.yml sums the prices the CLI puts on the plan', () => {
   const estimate = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
     (step) => step.name === 'Estimate the cost and case count',
   )
   const script = runBlockOf(estimate?.body ?? '')
 
-  // Rounded up from the worst measured mean, meeting_briefing's ~$7.74.
-  const RUN_CENTS = 800
-  // The base-arm cache is not read by the sweep yet, so both arms run.
-  const ARMS = 2
-  // A chat agent other than ordinance_flow, from the design doc.
-  const CHAT_CENTS = 700
+  const dollars = (cents: number) =>
+    `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
 
-  it('matches arms x cases x attempts x the per-run cost', () => {
-    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
-    expect(maxCases).toBeDefined()
-    const assigned = [...script.matchAll(/^background_cents=(\d+)$/gm)]
-    expect(assigned).toHaveLength(1)
-    expect(Number(assigned[0]?.[1])).toBe(
-      ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS,
+  // Run, not read, with the WHOLE run block and a fake `npx` standing in for
+  // the CLI, so no slice boundary decides what is tested. The step is
+  // `set -u`, so a variable read before it is set fails here too.
+  const runEstimate = (
+    plan: string,
+    agents: string,
+    gh: 'ok' | '404' | '403' | 'error' = 'ok',
+    defaultRef = 'trunk',
+    // The CLI's first, unpriced run exits 1, and its second exits this.
+    cliFails?: number,
+  ) => {
+    // Real, because the step builds the base copy's path from `$PWD`.
+    const dir = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'judge-estimate-')),
+    )
+    // The base copy is written beside the candidate's CLI, so the CLI path
+    // has to be inside the scratch directory.
+    const cli = path.join(dir, 'judge/cli.ts')
+    execFileSync('mkdir', [path.dirname(cli)])
+    const bin = path.join(dir, 'bin')
+    execFileSync('mkdir', [bin])
+    writeFileSync(path.join(dir, 'plan.fixture'), plan)
+    writeFileSync(
+      path.join(bin, 'npx'),
+      `#!/bin/bash\necho "$*" >> "${path.join(dir, 'npx.args')}"\n` +
+        (cliFails === undefined
+          ? ''
+          : `[[ "$*" == *--reference* ]] || exit 1\n`) +
+        `cat "${path.join(dir, 'plan.fixture')}"\n` +
+        (cliFails === undefined ? '' : `exit ${cliFails}\n`),
+    )
+    // Stands in for the base ref's files; a GitHub API that does not answer
+    // must not fail the step.
+    writeFileSync(
+      path.join(bin, 'gh'),
+      `#!/bin/bash\necho "$*" >> "${path.join(dir, 'gh.args')}"\n` +
+        {
+          ok: `echo "// $*"\n`,
+          '404': 'echo "gh: Not Found (HTTP 404)" >&2; exit 1\n',
+          '403': 'echo "gh: Forbidden (HTTP 403)" >&2; exit 1\n',
+          error: 'echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1\n',
+        }[gh],
+    )
+    chmodSync(path.join(bin, 'npx'), 0o755)
+    chmodSync(path.join(bin, 'gh'), 0o755)
+    const output = path.join(dir, 'output')
+    writeFileSync(output, '')
+    writeFileSync(path.join(dir, 'summary'), '')
+    let status = 0
+    try {
+      execFileSync('bash', ['--noprofile', '--norc', '-c', script], {
+        // The step's working directory is the workspace, and CLI is relative
+        // to it.
+        cwd: dir,
+        encoding: 'utf8',
+        stdio: 'pipe',
+        env: {
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          RUNNER_TEMP: dir,
+          GITHUB_OUTPUT: output,
+          GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),
+          GITHUB_SERVER_URL: 'https://github.com',
+          GITHUB_REPOSITORY: 'thegoodparty/omni',
+          WORKSPACE: 'packages/gp-api',
+          CLI: path.relative(dir, cli),
+          AGENTS: agents,
+          REQUESTED: agents,
+          SELECTION: EXPLICIT_SELECTION,
+          LIVE: 'false',
+          SWEEP_CAPABLE: 'true',
+          REQUESTED_BY: 'octocat',
+          CANDIDATE_SHA: 'a'.repeat(40),
+          BASE_REF: 'feature-x',
+          DEFAULT_REF: defaultRef,
+          PR_NUMBER: '1',
+          RUN_URL: 'https://github.com/thegoodparty/omni/actions/runs/1',
+        },
+      })
+    } catch (err) {
+      status = (err as { status?: number }).status ?? -1
+    }
+    const read = (file: string) => {
+      try {
+        return readFileSync(path.join(dir, file), 'utf8')
+      } catch {
+        return ''
+      }
+    }
+    return {
+      status,
+      dir,
+      npxArgs: read('npx.args'),
+      ghArgs: read('gh.args'),
+      outputs: readFileSync(output, 'utf8'),
+      comment: read('plan-comment.md'),
+      refusal: read('estimate-refusal-comment.md'),
+    }
+  }
+
+  it('keeps no background price of its own', () => {
+    expect(script.split('\n')[0]).toBe('set -euo pipefail')
+    expect(script).not.toMatch(/^\s*background_cents=/m)
+  })
+
+  // The plan is the real CLI's, so a format change on either side fails here.
+  it('sums the real plan for a chat, a measured and an unmeasured agent', () => {
+    const ids = ['chief_of_staff', 'race_opponent_summary', 'self_research']
+    const selection = selectAgents({ kind: 'list', ids })
+    const plan = formatPlan(selection)
+    const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
+    expect(cents).toEqual([900, 600, 4800])
+
+    const result = runEstimate(plan, ids.join(','))
+    expect(result.status).toBe(0)
+    expect(result.outputs).toMatch(/^usd=63\.00$/m)
+    expect(result.outputs).toMatch(
+      /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
+    )
+    const row = (id: string, shape: string, price: string) =>
+      new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
+    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(900)))
+    expect(result.comment).toMatch(
+      row('race_opponent_summary', 'background', dollars(600)),
+    )
+    expect(result.comment).toMatch(
+      row('self_research', 'background', `${dollars(4800)} \\(unmeasured\\)`),
     )
   })
 
-  // Run, not read: the step is `set -u`, so a constant that is right but
-  // assigned after the loop that reads it matches every text check above and
-  // kills the step on the first background row. The WHOLE run block, with a
-  // fake `npx` standing in for the CLI, so no slice boundary decides what is
-  // tested.
-  it('prices a chat and a background row, run through bash', () => {
-    expect(script.split('\n')[0]).toBe('set -euo pipefail')
-    const dir = mkdtempSync(path.join(tmpdir(), 'judge-estimate-'))
-    const bin = path.join(dir, 'bin')
-    execFileSync('mkdir', [bin])
-    writeFileSync(
-      path.join(dir, 'plan.fixture'),
-      'Universal Judge — plan (2 agents)\n\n' +
-        '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
-        '  self_research  [background]  cases: self_research.json\n',
+  // A PR prices its own sweep, so the base ref's prices are fetched and
+  // handed to the CLI, which takes the higher of the two.
+  // A PR prices its own sweep, so the base ref's AND the default branch's
+  // price files, configs and case lists are fetched and handed to the CLI,
+  // which takes the highest. The base ref is not the default branch here, so
+  // each ref is seen to be fetched by name.
+  it('hands the CLI the base ref and the default branch', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 900 (measured)  cases: chief_of_staff.json\n',
+      'chief_of_staff',
     )
-    writeFileSync(
-      path.join(bin, 'npx'),
-      `#!/bin/bash\ncat "${path.join(dir, 'plan.fixture')}"\n`,
-    )
-    chmodSync(path.join(bin, 'npx'), 0o755)
-    const output = path.join(dir, 'output')
-    const summary = path.join(dir, 'summary')
-    writeFileSync(output, '')
-    writeFileSync(summary, '')
-    execFileSync('bash', ['--noprofile', '--norc', '-c', script], {
-      encoding: 'utf8',
-      env: {
-        PATH: `${bin}:${process.env.PATH ?? ''}`,
-        RUNNER_TEMP: dir,
-        GITHUB_OUTPUT: output,
-        GITHUB_STEP_SUMMARY: summary,
-        GITHUB_SERVER_URL: 'https://github.com',
-        GITHUB_REPOSITORY: 'thegoodparty/omni',
-        WORKSPACE: 'packages/gp-api',
-        CLI: 'src/chats/evals/judge/cli.ts',
-        AGENTS: 'chief_of_staff,self_research',
-        REQUESTED: 'chief_of_staff,self_research',
-        SELECTION: EXPLICIT_SELECTION,
-        LIVE: 'false',
-        SWEEP_CAPABLE: 'true',
-        REQUESTED_BY: 'octocat',
-        CANDIDATE_SHA: 'a'.repeat(40),
-        BASE_REF: 'main',
-        PR_NUMBER: '1',
-        RUN_URL: 'https://github.com/thegoodparty/omni/actions/runs/1',
-      },
-    })
-    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
-    const background = ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS
-    const dollars = (cents: number) =>
-      `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
-    const outputs = readFileSync(output, 'utf8')
-    expect(outputs).toMatch(
-      new RegExp(`^usd=${dollars(CHAT_CENTS + background)}$`, 'm'),
-    )
-    expect(outputs).toMatch(/^sweep_agents=chief_of_staff,self_research$/m)
-    const comment = readFileSync(path.join(dir, 'plan-comment.md'), 'utf8')
-    const row = (id: string, shape: string, cents: number) =>
-      new RegExp(
-        `^\\| ${id} \\| ${shape} \\| .* \\| ~${dollars(cents)} \\|$`,
-        'm',
+    expect(result.status).toBe(0)
+    const contents = 'repos/thegoodparty/omni/contents/packages/gp-api/judge'
+    for (const [name, ref] of [
+      ['base', 'feature-x'],
+      ['default', 'trunk'],
+    ]) {
+      const cost = path.join(result.dir, `judge/planCost.${name}.ts`)
+      const dir = path.join(result.dir, `ref-${name}`)
+      for (const file of [
+        'planCost.ts',
+        'config.ts',
+        'cases/chief_of_staff.json',
+      ]) {
+        expect(result.ghArgs).toContain(`${contents}/${file}?ref=${ref}`)
+      }
+      expect(readFileSync(cost, 'utf8')).toContain(`planCost.ts?ref=${ref}`)
+      expect(
+        readFileSync(path.join(dir, 'cases/chief_of_staff.json'), 'utf8'),
+      ).toContain(`chief_of_staff.json?ref=${ref}`)
+      expect(result.npxArgs).toContain(
+        `--reference=${cost},${dir}/config.ts,${dir}/cases`,
       )
-    expect(comment).toMatch(row('chief_of_staff', 'chat', CHAT_CENTS))
-    expect(comment).toMatch(row('self_research', 'background', background))
+    }
+  })
+
+  // Nothing is fetched for a default branch that is not a plain name, and the
+  // CLI then fails closed on its empty files.
+  it('fetches nothing for a default branch that is not a branch name', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  self_research  [background]  cents: 4800 (base-unread)  cases: self_research.json\n',
+      'self_research',
+      'ok',
+      '--upload-pack=x',
+    )
+    expect(result.status).toBe(0)
+    expect(result.ghArgs).not.toContain('upload-pack')
+    expect(
+      readFileSync(path.join(result.dir, 'judge/planCost.default.ts'), 'utf8'),
+    ).toBe('fetch failed\n')
+  })
+
+  // A 404 is a file the ref does not have, and is left empty: the CLI reads
+  // an empty list as none. Anything else is left as a line that is not a
+  // file, which the CLI reads as unreadable and prices at the worst case.
+  it.each([
+    ['404', ''],
+    // Not just any 4xx: a 403 or a rate limit is not a file that is absent.
+    ['403', 'fetch failed\n'],
+    ['error', 'fetch failed\n'],
+  ] as const)('leaves what a %s fetch says for the CLI', (gh, written) => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 3750 (base-unread)  cases: chief_of_staff.json\n',
+      'chief_of_staff',
+      gh,
+    )
+    expect(result.status).toBe(0)
+    for (const name of ['base', 'default']) {
+      for (const file of [
+        `judge/planCost.${name}.ts`,
+        `ref-${name}/config.ts`,
+        `ref-${name}/cases/chief_of_staff.json`,
+      ]) {
+        expect(readFileSync(path.join(result.dir, file), 'utf8')).toBe(written)
+      }
+    }
+  })
+
+  // The first, unpriced run is only for the ids. When it fails, the step goes
+  // on to the real run, which answers on the thread.
+  it('reaches the priced run when the unpriced one fails', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 900 (measured)  cases: chief_of_staff.json\n\n' +
+        '  unknown agent ids: typo\n',
+      'chief_of_staff,typo',
+      'ok',
+      'trunk',
+      1,
+    )
+    expect(result.status).not.toBe(0)
+    expect(result.npxArgs.split('\n').filter(Boolean)).toHaveLength(2)
+    expect(result.npxArgs).toContain('--reference=')
+    expect(result.refusal).toContain('would not accept this request')
+  })
+
+  // `all` is the selector, not an id: the lists fetched are the chat agents
+  // the CLI plans.
+  it('fetches every planned chat list for `all`, from both refs', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (2 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 900 (measured)  cases: chief_of_staff.json\n' +
+        '  self_research  [background]  cents: 4800 (unmeasured)  cases: self_research.json\n',
+      'all',
+    )
+    expect(result.status).toBe(0)
+    const contents = 'repos/thegoodparty/omni/contents/packages/gp-api/judge'
+    for (const ref of ['feature-x', 'trunk']) {
+      expect(result.ghArgs).toContain(
+        `${contents}/cases/chief_of_staff.json?ref=${ref}`,
+      )
+    }
+    expect(result.ghArgs).not.toContain('cases/all.json')
+    expect(result.ghArgs).not.toContain('cases/self_research.json')
+  })
+
+  it('refuses when it can read fewer priced rows than the CLI planned', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (2 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 700 (design-doc)  cases: chief_of_staff.json\n' +
+        '  self_research  [background]  cents: lots (unmeasured)  cases: self_research.json\n',
+      'chief_of_staff,self_research',
+    )
+    expect(result.status).not.toBe(0)
+    expect(result.outputs).not.toMatch(/^usd=/m)
+    expect(result.refusal).toContain('could read only 1 of them')
+  })
+
+  // A branch whose CLI predates per-agent pricing prints unpriced rows, and
+  // is priced at the worst case rather than refused — never below what this
+  // branch's planCost.ts charges an unmeasured agent.
+  it('prices a plan from an older CLI at the worst case', () => {
+    const worst = (id: string) => {
+      const agent = selectAgents({ kind: 'list', ids: [id] }).selected[0]
+      return agent === undefined ? -1 : estimateAgent(agent).cents
+    }
+    expect(worst('ordinance_flow')).toBe(3750)
+    expect(worst('self_research')).toBe(4800)
+    const result = runEstimate(
+      'Universal Judge — plan (4 agents)\n\n' +
+        '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
+        '  ordinance_flow  [chat]  cases: ordinance_flow.json\n' +
+        '  self_research  [background]  cases: self_research.json\n' +
+        '  campaign_tracker_tasks  [background]  cases: NO CASE LIST YET\n',
+      'chief_of_staff,ordinance_flow,self_research,campaign_tracker_tasks',
+    )
+    expect(result.status).toBe(0)
+    expect(result.outputs).toMatch(/^usd=123\.00$/m)
+    expect(result.outputs).toMatch(
+      /^sweep_agents=chief_of_staff,ordinance_flow,self_research$/m,
+    )
+    const label = '\\(old branch, worst case\\)'
+    const row = (id: string, price: string) =>
+      new RegExp(`^\\| ${id} \\| .* \\| ~${price} ${label} \\|$`, 'm')
+    expect(result.comment).toMatch(row('chief_of_staff', '37\\.50'))
+    expect(result.comment).toMatch(row('ordinance_flow', '37\\.50'))
+    expect(result.comment).toMatch(row('self_research', '48\\.00'))
   })
 })
 

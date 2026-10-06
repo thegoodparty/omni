@@ -1,4 +1,18 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { z } from 'zod'
 import { AGENTS, coverage, type AgentEntry } from './agents'
+import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
+import { ARM_BUDGET_MS, chatTurnMsFor } from './runners/backgroundDispatch'
+import {
+  baseChatAttemptsIn,
+  DEFAULT_SOURCES,
+  estimateAgent,
+  priceAgainstReferences,
+  type AgentEstimate,
+  type EstimateFn,
+  type Reference,
+} from './planCost'
 
 // The sweep's entry point, skeleton only. Everything here is a pure
 // function over the registry so the trigger track can test selection without
@@ -67,9 +81,14 @@ export const selectAgents = (
 // coverage line always describes the same set the selection came from. The
 // default made it right by coincidence in production and wrong anywhere else,
 // including in its own test.
+//
+// A row carries its price as `cents: <n> (<basis>)` ahead of the case list,
+// which stays last because the workflow reads it as the rest of the line. The
+// workflow sums those cents and refuses when it cannot read one from every row.
 export const formatPlan = (
   selection: Selection,
   agents: readonly AgentEntry[] = AGENTS,
+  estimate: (agent: AgentEntry) => AgentEstimate = estimateAgent,
 ): string => {
   const { wired, placeholder, judgeable, blocked } = coverage(agents)
   const lines: string[] = []
@@ -78,7 +97,11 @@ export const formatPlan = (
   lines.push('')
   for (const agent of selection.selected) {
     const cases = agent.cases ?? 'NO CASE LIST YET'
-    lines.push(`  ${agent.agentId}  [${agent.shape}]  cases: ${cases}`)
+    const { cents, basis, why } = estimate(agent)
+    lines.push(
+      `  ${agent.agentId}  [${agent.shape}]  cents: ${cents} (${basis})  cases: ${cases}`,
+    )
+    lines.push(`      ${why}`)
   }
   if (selection.blocked.length > 0) {
     lines.push('')
@@ -106,15 +129,142 @@ export const formatPlan = (
 export interface CliArgs {
   agents: AgentSelector
   dryRun: boolean
+  // `--reference=<planCost.ts>,<config.ts>,<cases dir>`, once per ref the
+  // price is checked against: the PR's base ref and the default branch. The
+  // planCost.ts sits beside this one so its imports resolve here. Given by
+  // the workflow; a local run prices from this branch alone.
+  references: string[]
 }
 
 export const parseArgs = (argv: string[]): CliArgs => {
-  const agentsFlag = argv.find((a) => a.startsWith('--agents='))
+  const flag = (name: string): string | undefined =>
+    argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3)
   return {
-    agents: parseAgentSelector(agentsFlag?.split('=')[1] ?? 'auto'),
+    agents: parseAgentSelector(flag('agents') ?? 'auto'),
     dryRun: argv.includes('--dry-run'),
+    references: argv
+      .filter((a) => a.startsWith('--reference='))
+      .map((a) => a.slice('--reference='.length)),
   }
 }
+
+// What a ref's list for a chat agent drives: its turns, `absent` when the ref
+// has no such list (an empty file: the workflow writes one on a 404), or
+// `unread` when it was not fetched or cannot be read, which fails closed.
+export type RefTurns = number | 'absent' | 'unread'
+
+export interface LoadedReference extends Reference {
+  chatTurns: (agent: AgentEntry) => RefTurns
+}
+
+export const UNREAD: LoadedReference = {
+  estimate: undefined,
+  chatAttempts: undefined,
+  chatTurns: () => 'unread',
+}
+
+const ReferenceModuleSchema = z.object({
+  estimateAgent: z.custom<EstimateFn>((value) => typeof value === 'function'),
+})
+
+// Read raw, the way armBudget.ts reads a base list: only the field that
+// counts turns, so an older but valid list is not refused for its shape.
+const TurnsOnlySchema = z.object({
+  cases: z.array(z.object({ turns: z.array(z.string()).optional() })),
+})
+
+// Anything that goes wrong here leaves that part unread, and the price fails
+// closed (see priceAgainstReferences). The one exception is a case list the
+// ref does not have, which counts as this branch's, as armBudget.ts plans
+// it, because a chat agent new on this branch has none there.
+//
+// The list is read at `<agentId>.json`, the name the workflow fetched it
+// under, not at this branch's registry filename: a PR that pointed an agent
+// at a new, shorter file would otherwise read as having none on the ref.
+// chatCaseLists.test.ts pins every registry filename to that name, which
+// also holds armBudget.ts's baseChatTurns, reading the base worktree under
+// this branch's filename, to the right file.
+export const loadReference = async (spec: string): Promise<LoadedReference> => {
+  const [planCostPath, configPath, casesDir] = spec.split(',')
+  if (!planCostPath || !configPath || !casesDir) return UNREAD
+  let estimate: EstimateFn | undefined
+  try {
+    estimate = ReferenceModuleSchema.parse(
+      await import(planCostPath),
+    ).estimateAgent
+  } catch {
+    estimate = undefined
+  }
+  let chatAttempts: number | undefined
+  try {
+    chatAttempts = baseChatAttemptsIn(readFileSync(configPath, 'utf8'))
+  } catch {
+    chatAttempts = undefined
+  }
+  const chatTurns = (agent: AgentEntry): RefTurns => {
+    // A file the workflow never wrote was never fetched, so nothing is
+    // known about it.
+    let text: string
+    try {
+      text = readFileSync(path.join(casesDir, `${agent.agentId}.json`), 'utf8')
+    } catch {
+      return 'unread'
+    }
+    if (text === '') return 'absent'
+    try {
+      return TurnsOnlySchema.parse(JSON.parse(text)).cases.reduce(
+        (sum, one) => sum + (one.turns?.length ?? 1),
+        0,
+      )
+    } catch {
+      return 'unread'
+    }
+  }
+  return { estimate, chatAttempts, chatTurns }
+}
+
+// Each arm walks its own attempts, so chat is priced at the largest.
+export const pricingConfig = (
+  chatAttempts: readonly (number | undefined)[],
+  config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+): JudgeConfig => ({
+  ...config,
+  attemptsPerCase: Math.max(
+    config.attemptsPerCase,
+    ...chatAttempts.map((one) => one ?? 0),
+  ),
+})
+
+// The most turns a chat agent's list may drive per attempt and still be
+// walked: the ceiling refuseChat enforces, ARM_BUDGET_MS at the agent's
+// planned seconds a turn. A longer list is refused, not run.
+export const admittedTurns = (agent: AgentEntry, attempts: number): number =>
+  Math.floor(ARM_BUDGET_MS / (chatTurnMsFor(agent.agentId) * attempts))
+
+// The longest list any ref's base arm could walk. When this branch's
+// registry names a file other than `<agentId>.json`, the ref's list was read
+// under the other name, so this branch's count is a floor for it too.
+//
+// A ref whose list could not be read could hold any list the arm admits, so
+// the base side is priced at that ceiling rather than at this branch's count:
+// a trimmed list and a failed fetch would otherwise price at the trim.
+export const referenceTurns =
+  (
+    references: readonly LoadedReference[],
+    candidateTurns: (agent: AgentEntry) => number = DEFAULT_SOURCES.countTurns,
+    attempts: number = DEFAULT_JUDGE_CONFIG.attemptsPerCase,
+  ) =>
+  (agent: AgentEntry): number | undefined => {
+    const read = references.map((one) => one.chatTurns(agent))
+    if (read.includes('unread')) return admittedTurns(agent, attempts)
+    const found = read.filter(
+      (turns): turns is number => typeof turns === 'number',
+    )
+    if (agent.cases !== `${agent.agentId}.json`) {
+      found.push(candidateTurns(agent))
+    }
+    return found.length === 0 ? undefined : Math.max(...found)
+  }
 
 export interface CliResult {
   plan: string
@@ -146,14 +296,26 @@ export const SWEEP_IS_NOT_ONE_COMMAND =
 export const run = (
   argv: string[],
   agents: readonly AgentEntry[] = AGENTS,
+  loaded?: readonly LoadedReference[],
 ): CliResult => {
   const args = parseArgs(argv)
   const selection = selectAgents(args.agents, agents)
   if (!args.dryRun) {
     throw new Error(SWEEP_IS_NOT_ONE_COMMAND)
   }
+  // A reference asked for and not handed over is one that would not load.
+  const references =
+    loaded ?? args.references.map((): LoadedReference => UNREAD)
+  const config = pricingConfig(references.map((one) => one.chatAttempts))
+  const estimate = priceAgainstReferences(references, config, {
+    baseTurns: referenceTurns(
+      references,
+      DEFAULT_SOURCES.countTurns,
+      config.attemptsPerCase,
+    ),
+  })
   return {
-    plan: formatPlan(selection, agents),
+    plan: formatPlan(selection, agents, estimate),
     exitCode: selection.unknown.length > 0 ? 1 : 0,
   }
 }
@@ -167,12 +329,15 @@ export const run = (
 // `require.main === module` is the house pattern here (see scripts/), and gp-api
 // is CommonJS, so import.meta is not available.
 if (require.main === module) {
-  try {
-    const result = run(process.argv.slice(2))
-    console.log(result.plan)
-    process.exitCode = result.exitCode
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err))
-    process.exitCode = 1
-  }
+  const argv = process.argv.slice(2)
+  void Promise.all(parseArgs(argv).references.map(loadReference))
+    .then((references) => {
+      const result = run(argv, AGENTS, references)
+      console.log(result.plan)
+      process.exitCode = result.exitCode
+    })
+    .catch((err: Error) => {
+      console.error(err.message)
+      process.exitCode = 1
+    })
 }
