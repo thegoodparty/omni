@@ -1,9 +1,4 @@
-import {
-  differenceInCalendarMonths,
-  isAfter,
-  parseISO,
-  startOfDay,
-} from 'date-fns'
+import { differenceInCalendarMonths, isAfter, parseISO } from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
@@ -17,7 +12,7 @@ import {
   type PriorityStepContrast,
 } from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
-import { todayLine } from '../../services/todayLine'
+import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
 import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
 import {
@@ -399,10 +394,11 @@ const calendarDay = (date: Date): Date => parseISO(isoDay(date))
 // differenceInCalendarMonths ignores day-of-month, so a date that has already
 // passed within the current month still differences to 0 and would read as
 // "~0 month(s) since sworn in" for someone not yet sworn in.
-const termLengthLine = (swornInDate: Date | null): string => {
+// `today` is the office's own calendar day (localDay), the same day the
+// today line names, so a UTC server cannot count the evening as tomorrow.
+const termLengthLine = (swornInDate: Date | null, today: Date): string => {
   if (!swornInDate) return `Time in office: ${UNKNOWN}`
   const sworn = calendarDay(swornInDate)
-  const today = startOfDay(new Date())
   if (isAfter(sworn, today)) return `Time in office: ${UNKNOWN}`
   const months = differenceInCalendarMonths(today, sworn)
   return `Time in office: ~${months} month(s) since sworn in`
@@ -411,12 +407,15 @@ const termLengthLine = (swornInDate: Date | null): string => {
 const lastElectedLine = (electedDate: Date | null): string =>
   `Last elected: ${electedDate ? isoDay(electedDate) : UNKNOWN}`
 
-const currentTermLine = (start: Date | null, end: Date | null): string => {
+const currentTermLine = (
+  start: Date | null,
+  end: Date | null,
+  today: Date,
+): string => {
   if (!start && !end) return `Current term: ${UNKNOWN}`
   const range = `${start ? isoDay(start) : UNKNOWN} to ${end ? isoDay(end) : UNKNOWN}`
   if (!end) return `Current term: ${range}`
   const endDay = calendarDay(end)
-  const today = startOfDay(new Date())
   // Terms are half-open [start, end): termEndDate is the exclusive boundary at
   // which the successor takes over, so the seat is no longer held ON the end
   // date itself. Matches deriveIsActive / isHeldOffice, which gate what the
@@ -440,9 +439,13 @@ const officeContextBlock = (ctx: ChiefOfStaffContext): string =>
     `Office: ${optional(ctx.officeTitle)}`,
     `City/District: ${optional(ctx.jurisdiction)}`,
     `Party: ${optional(ctx.party)}`,
-    termLengthLine(ctx.swornInDate),
+    termLengthLine(ctx.swornInDate, parseISO(localDay(ctx.state))),
     lastElectedLine(ctx.electedDate),
-    currentTermLine(ctx.termStartDate, ctx.termEndDate),
+    currentTermLine(
+      ctx.termStartDate,
+      ctx.termEndDate,
+      parseISO(localDay(ctx.state)),
+    ),
     '</office_context>',
   ].join('\n')
 

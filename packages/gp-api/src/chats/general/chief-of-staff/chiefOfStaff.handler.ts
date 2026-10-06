@@ -75,6 +75,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
   readonly scope = ChatScope.chief_of_staff
   readonly isSensitive = true
   readonly models = [...CHIEF_OF_STAFF_MODELS]
+  // The default 5 steps ran out mid-outreach: describe, count, size, then
+  // save or present is already four tool calls before any retry or search,
+  // and a turn that runs out of steps ends without presenting anything.
+  readonly maxSteps = 15
 
   constructor(
     private readonly contextService: ChiefOfStaffContextService,

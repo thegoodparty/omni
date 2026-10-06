@@ -108,6 +108,10 @@ export const CrmContactsPage = () => {
     <ContactProModalProvider value={setShowProModal}>
       <ChannelPickerProvider>
         <DashboardLayout
+          // The contacts assistant below is this page's chat entry and opens
+          // the same Campaign Manager on Win, so the layout's dock would stack
+          // a second bar on top of it.
+          hideChatDock={!voterDataUnavailable}
           // The header title is mode copy, so it rides the same
           // isWinContextReady gate as the rest of the page (ENG-10448).
           navHeader={

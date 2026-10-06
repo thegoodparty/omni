@@ -116,9 +116,6 @@ export function CampaignManagerChatProvider({
   // already personalized, so the "Personalize your campaign" starter chip is
   // dropped from the chat.
   const { isComplete: storyComplete } = useCampaignStoryComplete(true)
-  // Off for campaign_assistant today; the footer paperclip appears the moment
-  // the hook enables attachments for this scope.
-
   // Fetched at mount so a general open can resume the latest conversation
   // synchronously. The chat body invalidates this key when a conversation is
   // created, so [0] (the list is updatedAt-desc) tracks the one the candidate

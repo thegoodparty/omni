@@ -184,9 +184,9 @@ interface Props {
    */
   showMessageActions?: boolean
   /**
-   * The chat scope used to gate attachment support. Defaults to
-   * 'chief_of_staff' so existing CoS callers need no change; Campaign Manager
-   * passes 'campaign_assistant' to correctly suppress the paperclip.
+   * Which assistant this body talks to. Defaults to 'chief_of_staff' so
+   * existing CoS callers need no change; Campaign Manager passes
+   * 'campaign_assistant'.
    */
   scope?: ChatScope
 }
@@ -203,7 +203,11 @@ export type ChatSuggestion = {
   kickoff?: string
 }
 
-const INTRO_SEEN_KEY = 'cos-intro-streamed'
+// Per scope, so seeing one assistant's intro never suppresses the other's.
+// Chief of Staff keeps its original key so officials who already saw it are
+// not shown it again.
+const introSeenKey = (scope: ChatScope): string =>
+  scope === 'chief_of_staff' ? 'cos-intro-streamed' : `${scope}-intro-streamed`
 
 // Stable default so callers that omit the prop keep the same array identity
 // across renders (no needless re-run of the load effect).
@@ -570,7 +574,7 @@ function ChiefOfStaffChatThread({
         })
         .catch((err) => {
           reportErrorToSentry(err, {
-            surface: 'chief-of-staff-chat',
+            surface: analyticsLabel,
             phase: 'attachment-poll',
           })
         })
@@ -579,7 +583,7 @@ function ChiefOfStaffChatThread({
       cancelled = true
       clearInterval(id)
     }
-  }, [attachmentsEnabled, conversationId, hasPending])
+  }, [attachmentsEnabled, conversationId, hasPending, analyticsLabel])
 
   const handleRemoveAttachment = useCallback(
     async (id: string): Promise<void> => {
@@ -591,13 +595,13 @@ function ChiefOfStaffChatThread({
           await deleteChatAttachment(conversationId, id)
         } catch (err) {
           reportErrorToSentry(err, {
-            surface: 'chief-of-staff-chat',
+            surface: analyticsLabel,
             phase: 'attachment-delete',
           })
         }
       }
     },
-    [conversationId],
+    [conversationId, analyticsLabel],
   )
 
   // Contents whose persisted USER turn is hidden from the transcript: the
@@ -636,7 +640,7 @@ function ChiefOfStaffChatThread({
     if (!isOpener) {
       let seen = false
       try {
-        seen = window.localStorage.getItem(INTRO_SEEN_KEY) === '1'
+        seen = window.localStorage.getItem(introSeenKey(scope)) === '1'
       } catch {
         seen = false
       }
@@ -647,7 +651,7 @@ function ChiefOfStaffChatThread({
     const id = setInterval(() => {
       if (!isOpener) {
         try {
-          window.localStorage.setItem(INTRO_SEEN_KEY, '1')
+          window.localStorage.setItem(introSeenKey(scope), '1')
         } catch {
           // private mode / storage disabled — still stream this session
         }
@@ -659,7 +663,7 @@ function ChiefOfStaffChatThread({
       })
     }, 28)
     return () => clearInterval(id)
-  }, [opener, isFirstChat, introTotal])
+  }, [opener, isFirstChat, introTotal, scope])
 
   const introParts = useMemo(() => {
     let remaining = introProgress
@@ -737,7 +741,7 @@ function ChiefOfStaffChatThread({
       }
     } catch (err) {
       reportErrorToSentry(err, {
-        surface: 'chief-of-staff-chat',
+        surface: analyticsLabel,
         phase: 'init',
         conversationIdOverride,
       })
@@ -776,7 +780,7 @@ function ChiefOfStaffChatThread({
       return id
     } catch (err) {
       reportErrorToSentry(err, {
-        surface: 'chief-of-staff-chat',
+        surface: analyticsLabel,
         phase: 'init',
       })
       return null
@@ -784,7 +788,14 @@ function ChiefOfStaffChatThread({
       creatingRef.current = false
       setLoading(false)
     }
-  }, [conversationId, chatApi, onConversationCreated, queryClient, historyKey])
+  }, [
+    conversationId,
+    chatApi,
+    onConversationCreated,
+    queryClient,
+    historyKey,
+    analyticsLabel,
+  ])
 
   const handleAttachFile = useCallback(
     async (file: File): Promise<void> => {
@@ -820,7 +831,7 @@ function ChiefOfStaffChatThread({
         })
       } catch (err) {
         reportErrorToSentry(err, {
-          surface: 'chief-of-staff-chat',
+          surface: analyticsLabel,
           phase: 'attachment-upload',
         })
         setAttachments((prev) =>
@@ -832,7 +843,13 @@ function ChiefOfStaffChatThread({
         )
       }
     },
-    [conversationId, ensureConversationId, maybeShowUploadGuard, scope],
+    [
+      conversationId,
+      ensureConversationId,
+      maybeShowUploadGuard,
+      scope,
+      analyticsLabel,
+    ],
   )
 
   const handleAttachLink = useCallback(
@@ -896,7 +913,7 @@ function ChiefOfStaffChatThread({
         }
       } catch (err) {
         reportErrorToSentry(err, {
-          surface: 'chief-of-staff-chat',
+          surface: analyticsLabel,
           phase: 'attachment-link',
         })
         setAttachments((prev) =>
@@ -917,7 +934,13 @@ function ChiefOfStaffChatThread({
         })
       }
     },
-    [conversationId, ensureConversationId, maybeShowUploadGuard, scope],
+    [
+      conversationId,
+      ensureConversationId,
+      maybeShowUploadGuard,
+      scope,
+      analyticsLabel,
+    ],
   )
 
   // Drag-and-drop anywhere on the chat surface attaches the dropped files
