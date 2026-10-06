@@ -4,11 +4,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import {
-  drawnRings,
-  ringsToGeoJsonShape,
-  type PolygonRing,
-} from 'app/dashboard/shared/ringGeometry'
+import { shapesToSave, type ListShape } from 'app/dashboard/shared/listShapes'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import { boundarySaveErrorMessage } from '../shared/boundarySaveError'
 import { listPeopleQueryKey } from './useListPeople'
@@ -45,20 +41,21 @@ export const useSaveListBoundary = (
   const orgSlug = useOrganization()?.slug
 
   return useMutation({
-    mutationFn: (rings: PolygonRing[]) =>
+    mutationFn: (shapes: ListShape[]) =>
       clientRequest('PUT /v1/voters/voter-file/filter/:id', {
         id: String(listId),
-        geoPoly: ringsToGeoJsonShape(rings),
+        ...shapesToSave(shapes),
       }).then((res) => res.data),
-    onSuccess: async (_data, rings) => {
-      const drawn = drawnRings(rings)
-      const cleared = drawn.length === 0
+    onSuccess: async (_data, shapes) => {
+      const { geoPolyLabels } = shapesToSave(shapes)
+      const shapeCount = geoPolyLabels?.length ?? 0
+      const cleared = shapeCount === 0
       trackEvent(EVENTS.ConstituentData.ListBoundarySaved, {
         listId,
         cleared,
         // How many parts the saved boundary has, so "do holders actually
         // draw more than one" is answerable without reading geometry back.
-        shapeCount: drawn.length,
+        shapeCount,
         surface,
       })
       successSnackbar('List updated')

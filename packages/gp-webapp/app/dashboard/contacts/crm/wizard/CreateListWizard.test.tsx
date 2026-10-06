@@ -105,13 +105,15 @@ const skipBoundaryStep = async (
   await user.click(await screen.findByRole('button', { name: 'Continue' }))
 }
 
-// The shape is cut full-screen: the step itself carries a read-only preview
-// and a CTA into the overlay, and the ring only reaches the wizard on Save.
+// The shapes are cut full-screen: the step itself carries a card into the
+// overlay, and a shape only reaches the wizard on Save.
 const drawBoundary = async (
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> => {
   await user.click(
-    await screen.findByRole('button', { name: /draw an area|edit area/i }),
+    await screen.findByRole('button', {
+      name: /draw shapes|draw another shape/i,
+    }),
   )
   for (const label of ['place point 1', 'place point 2', 'place point 3']) {
     await user.click(await screen.findByRole('button', { name: label }))
@@ -366,6 +368,7 @@ describe('CreateListWizard — step navigation', () => {
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await user.click(await screen.findByRole('button', { name: 'Draw shapes' }))
 
     const map = await screen.findByTestId('contact-map-stub')
     expect(map).toHaveAttribute('data-people', '2')
@@ -422,10 +425,7 @@ describe('CreateListWizard — step navigation', () => {
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await drawBoundary(user)
-    expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-other-rings',
-      JSON.stringify([BOUNDARY_TAPS]),
-    )
+    expect(screen.getByText('Shape 1')).toBeInTheDocument()
 
     const continueButton = await screen.findByRole('button', {
       name: 'Continue',
@@ -439,10 +439,10 @@ describe('CreateListWizard — step navigation', () => {
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-other-rings',
-      JSON.stringify([BOUNDARY_TAPS]),
-    )
+    expect(screen.getByText('Shape 1')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Draw another shape' }),
+    ).toBeInTheDocument()
   })
 
   it('advances to the activity step 2 and disables the step-2 CTA until every row has a channel', async () => {
@@ -1140,7 +1140,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     expect(sentBody).not.toHaveProperty('geoPoly')
   })
 
-  it('sends the drawn boundary as a closed geoPoly on create', async () => {
+  it('sends the drawn boundary as a closed geoPoly, with its names, on create', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
     let sentBody: Record<string, unknown> | null = null
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
@@ -1172,6 +1172,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
         type: 'Polygon',
         coordinates: [[...BOUNDARY_TAPS, BOUNDARY_TAPS[0]]],
       },
+      geoPolyLabels: [{ name: 'Shape 1', color: '#2563eb' }],
     })
   })
 

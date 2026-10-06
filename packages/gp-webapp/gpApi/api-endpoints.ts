@@ -12,6 +12,7 @@ import type {
   DoorKnockingTurf,
   GeoJsonPolygon,
   GeoJsonShape,
+  GeoShapeLabels,
   ServeDoorKnockingTalkingPointsPurpose,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
@@ -1341,13 +1342,15 @@ export type APIEndpoints = {
 
   // `geoPoly` narrows the saved list by a drawn boundary. Null clears one; on
   // the PUT, omitting it keeps whatever the row already holds, like every
-  // other key of this partial update.
+  // other key of this partial update. `geoPolyLabels` names and colours each
+  // part, aligned by index, and is only read beside `geoPoly`.
   'POST /v1/voters/voter-file/filter': {
     Request: {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
       geoPoly?: GeoJsonShape | null
+      geoPolyLabels?: GeoShapeLabels | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1357,7 +1360,14 @@ export type APIEndpoints = {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
       geoPoly?: GeoJsonShape | null
+      geoPolyLabels?: GeoShapeLabels | null
     } & Record<string, unknown>
+    Response: SegmentResponse
+  }
+  // The list a chat card created, by the key the card derives. 404 means
+  // the card has not been pressed yet.
+  'GET /v1/voters/voter-file/filter/by-proposal-key/:proposalKey': {
+    Request: { proposalKey: string }
     Response: SegmentResponse
   }
   'GET /v1/voters/voter-file/filters': {
