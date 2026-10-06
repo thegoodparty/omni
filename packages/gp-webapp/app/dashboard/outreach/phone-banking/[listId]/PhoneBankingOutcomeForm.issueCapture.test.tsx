@@ -11,7 +11,10 @@ import {
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { PhoneBankingInteraction } from '@goodparty_org/contracts'
-import PhoneBankingOutcomeForm from './PhoneBankingOutcomeForm'
+import PhoneBankingOutcomeForm, {
+  type CallDraft,
+} from './PhoneBankingOutcomeForm'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -661,6 +664,42 @@ describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
       text: { transcript: MEMO, captureMethod: 'dictation' },
       analytics: { channel: 'phoneBanking', product: 'serve' },
     })
+  })
+
+  it('drops the answers of a call held after the caller switched away', async () => {
+    const store = new Map<string, CallDraft>()
+    const drafts: UnsavedDrafts<CallDraft> = {
+      get: (key) => store.get(key),
+      set: (key, draft) => {
+        store.set(key, draft)
+      },
+      clear: (key) => {
+        store.delete(key)
+      },
+    }
+    const onSaved = vi.fn()
+    const form = (interaction: PhoneBankingInteraction | null) => (
+      <PhoneBankingOutcomeForm
+        listId={9}
+        entryId={ENTRY_ID}
+        entrySeq={1}
+        personId="person-1"
+        interaction={interaction}
+        householdHasOthersUnlogged={false}
+        isServe
+        onSaved={onSaved}
+        drafts={drafts}
+      />
+    )
+    const view = render(form(null))
+    callAndSave()
+    view.unmount()
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+
+    render(form(LOGGED))
+
+    expect(screen.queryByText('Did they answer?')).toBeNull()
+    expect(store.has(`${ENTRY_ID}:person-1`)).toBe(false)
   })
 })
 

@@ -675,7 +675,6 @@ describe('RecordKnockForm offline edges', () => {
     online = true
   })
 
-  // The flag is the rollback lever: with it off, nothing is held.
   // Held on the device is saved: the answers that were restored into the
   // form go with the hold.
   it('drops the answers it restored once the door is held', async () => {
@@ -691,13 +690,18 @@ describe('RecordKnockForm offline edges', () => {
       question('Did they answer?').getByRole('radio', { name: 'Not home' }),
     ).toHaveAttribute('data-state', 'on')
 
+    online = false
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(onRecorded).toHaveBeenCalled())
     view.unmount()
 
+    expect(await listQueue()).toEqual([
+      expect.objectContaining({ kind: 'knock' }),
+    ])
     expect(store.has('21')).toBe(false)
   })
 
+  // The flag is the rollback lever: with it off, nothing is held.
   it('holds nothing with capture off, even offline', async () => {
     setFlag(false)
     online = false
