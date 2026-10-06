@@ -450,7 +450,8 @@ export class ConstituentFeedbackService extends createPrismaBase(
 
   // The job's words, then extraction exactly as a live capture runs it. The
   // job name scopes both writes, so a memo re-recorded or retried while this
-  // one ran is left to its own job. `confirmedAt` stays null: the person
+  // one ran is left to its own job, and a memo confirmed while it ran keeps
+  // the issues its confirmer gave. `confirmedAt` stays null: the person
   // who was there confirms it from the review list.
   async completeTranscription(input: {
     id: string
@@ -461,6 +462,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
       id: input.id,
       transcriptionJobName: input.jobName,
       transcript: null,
+      confirmedAt: null,
     }
     const transcript = clamp(
       input.transcript.trim(),
@@ -475,7 +477,13 @@ export class ConstituentFeedbackService extends createPrismaBase(
       where,
       select: { effortQuestion: true, actorUserId: true },
     })
-    if (row === null) return
+    if (row === null) {
+      this.logger.info(
+        { id: input.id, jobName: input.jobName },
+        'Memo changed while its transcription ran; left as it is',
+      )
+      return
+    }
 
     const extracted = await this.extraction.extract({
       transcript,

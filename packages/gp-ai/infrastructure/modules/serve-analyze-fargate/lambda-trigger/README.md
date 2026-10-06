@@ -12,7 +12,7 @@ An ALB request's JSON body needs `csvS3Path`. Three optional fields name the sou
 | `sourceId`   | `SOURCE_ID`     | empty                          |
 | `topN`       | `PUBLISH_TOP_N` | `sqs_events.publish_top_n` (3) |
 
-gp-api sends all three for issue-capture memos. S3 uploads never carry them, so poll runs get the same overrides as before. See `serve/v1_pipeline/README.md`, "Feedback source".
+A CSV under `feedback-input/` gets the issue-capture defaults when `sourceType` is absent, whether S3 or an ALB request started it: `constituent_feedback`, the filename as `sourceId`, and `topN` 10. Anything else gets no overrides, so poll runs are unchanged. See `serve/v1_pipeline/README.md`, "Feedback source".
 
 ## Build Process
 

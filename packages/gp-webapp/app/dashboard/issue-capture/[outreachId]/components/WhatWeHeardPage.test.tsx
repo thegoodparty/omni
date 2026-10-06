@@ -240,6 +240,29 @@ describe('WhatWeHeardPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('links back to the outreach hub with this effort open', async () => {
+    mockReport(report())
+    renderPage()
+
+    const back = await screen.findByRole('link', {
+      name: 'Back to Voter Outreach',
+    })
+    expect(back).toHaveAttribute(
+      'href',
+      `/dashboard/outreach?outreachId=${OUTREACH_ID}`,
+    )
+  })
+
+  it('links a Serve official back to Constituent Outreach', async () => {
+    mockReport(report())
+    renderPage(true)
+
+    const back = await screen.findByRole('link', {
+      name: 'Back to Constituent Outreach',
+    })
+    expect(back).toHaveAttribute('href', '/dashboard/constituent-outreach')
+  })
+
   it('names the page when the effort asked no question', async () => {
     mockReport(report({ question: null }))
     renderPage()

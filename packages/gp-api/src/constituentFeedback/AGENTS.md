@@ -221,14 +221,14 @@ effort's memos, confirmed and pending, newest first, capped at
 themes to show, under the floor and while a run is in flight.
 
 A theme's `conversationCount` is distinct confirmed member memos, but
-`stanceCounts` and `desiredOutcomes` are the stances from the issues that
-matched the theme. Membership is per memo, so a member that raised one issue
-counts it whatever its label; one that raised several counts only the issues
-whose `normalizeTagName` label equals the theme's tag's `normalizedName`,
-since its other issues belong to other themes. A theme with no tag counts
-single-issue members only. So the four counts can sum below
-`conversationCount`. An issue with no stance counts as unclear; a memo that
-named no issue adds no stance. `channel` is
+`stanceCounts` and `desiredOutcomes` are stances from every issue raised in
+the conversations in this theme; a conversation that raised two issues
+contributes two, so counts can exceed `conversationCount`. That is the interim
+rule: membership is per memo, and matching an issue to its theme by label
+missed nearly every multi-issue memo. Per-issue membership through the
+pipeline is the follow-up that lets the split count only this theme's issues.
+An issue with no stance counts as unclear; a memo that named no issue adds no
+stance. `channel` is
 the effort's own (a turf's envelope is `door_knock`, a list's `phone_bank`,
 memo or no memo), and `floor` is `MIN_CONFIRMED_FOR_SYNTHESIS`, sent so the
 page's "Themes appear after N" line cannot drift from the 422. The constant
@@ -281,7 +281,8 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    for the cron.
 3. `PendingTranscriptionService` (`feedbackPendingTranscription`, every
    minute, `CronLockService` minute slot) reads rows that are pending, have
-   an `audioKey` and no transcript, oldest touch first, 25 a pass. It reads
+   an `audioKey` and no transcript, and are not confirmed, oldest touch
+   first, 25 a pass. It reads
    before it claims, so an idle minute writes no `cron_run` row. Per row:
    start the job if there is none, else poll it. On text it writes the
    transcript and runs extraction exactly as a live capture does
@@ -290,7 +291,8 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    hour is applied after the poll, so a job that finished while the cron
    was not running is read rather than failed. Every
    write is scoped by the job name, so a memo re-recorded or retried
-   meanwhile is left to its own job. No deploy allowlist: it calls
+   meanwhile is left to its own job, and to `confirmedAt` null, so one
+   confirmed meanwhile keeps the issues its confirmer gave. No deploy allowlist: it calls
    Transcribe only for memos recorded on its own database.
 4. `GET pending` is the "Notes to review" list. Each item is the record
    plus its `clientKey` and a `reference` (the knock's `knockClientKey` and
@@ -459,10 +461,11 @@ see the confirm card without them.
 
 Flags: with a real `AMPLITUDE_PROJECT_API_KEY`, gp-api asks Amplitude for
 `issue-capture`, and a flag Amplitude does not define reads off, so every
-route 404s. The `.env.example` placeholder (`some_key`) reads every gp-api
-flag as on. The webapp gets its flags from gp-api, so with the placeholder
-they are all off except what the `e2e-flag-overrides` cookie sets
-(gp-webapp `app/shared/experiments/flagOverrides.ts`). The seed route and
+route 404s. With the `.env.example` placeholder (`some_key`), gp-api's
+per-route flag guard reads every flag as on, but its variants endpoint
+returns no variants, so the webapp sees every flag off and needs the
+`e2e-flag-overrides` cookie (gp-webapp
+`app/shared/experiments/flagOverrides.ts`) to show the feature. The seed route and
 the mock sink also need `OTEL_SERVICE_ENVIRONMENT` unset or a dev-only value
 (see The seed route).
 

@@ -58,6 +58,22 @@ function extractCampaignFromS3Path(s3Path: string): string {
   return filename.replace(/\.csv$/i, '')
 }
 
+// A CSV under feedback-input/ is an issue-capture run, whether S3 announced
+// it or someone re-ran it by hand, so it gets the feedback source unless the
+// request named one.
+function withFeedbackDefaults(request: PipelineRequest): PipelineRequest {
+  const objectKey = request.csvS3Path.replace(/^s3:\/\/[^\/]+\//, '')
+  if (request.sourceType || !objectKey.startsWith(FEEDBACK_INPUT_PREFIX)) {
+    return request
+  }
+  return {
+    ...request,
+    sourceType: FEEDBACK_SOURCE_TYPE,
+    sourceId: request.sourceId || extractCampaignFromS3Path(objectKey),
+    topN: request.topN || FEEDBACK_TOP_N,
+  }
+}
+
 function isS3Event(event: any): event is S3Event {
   return event.Records && Array.isArray(event.Records) && event.Records[0]?.s3
 }
@@ -193,14 +209,9 @@ export const handler = async (
         }
       }
 
-      request = {
+      request = withFeedbackDefaults({
         csvS3Path: `s3://${bucketName}/${objectKey}`,
-      }
-      if (objectKey.startsWith(FEEDBACK_INPUT_PREFIX)) {
-        request.sourceType = FEEDBACK_SOURCE_TYPE
-        request.sourceId = extractCampaignFromS3Path(objectKey)
-        request.topN = FEEDBACK_TOP_N
-      }
+      })
       triggerSource = 'S3Upload'
 
       console.log(`S3 trigger: ${request.csvS3Path}`)
@@ -214,6 +225,7 @@ export const handler = async (
           body: JSON.stringify({ error: 'csvS3Path is required' }),
         }
       }
+      request = withFeedbackDefaults(request)
       triggerSource = 'ALB'
     } else {
       console.error('Unknown event type:', JSON.stringify(event))

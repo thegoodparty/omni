@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { PendingFeedback } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { REPORT_POLL_INTERVAL_MS, reportQueryKey } from '../../queries'
 import PendingMemoList from './PendingMemoList'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -73,6 +74,10 @@ beforeEach(() => {
   vi.mocked(trackEvent).mockClear()
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('PendingMemoList', () => {
   it('shows each note to review with its card under what was said', async () => {
     mockPending([
@@ -117,6 +122,79 @@ describe('PendingMemoList', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Still transcribing')
     expect(screen.queryByText('Is this right?')).toBeNull()
     expect(screen.queryByRole('button', { name: /^Try again/ })).toBeNull()
+  })
+
+  it('flips a note from still transcribing to ready to review in place', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    api.mockOrdered('GET /v1/constituent-feedback/pending', [
+      { status: 200, data: { feedback: [STILL_TRANSCRIBING] } },
+      {
+        status: 200,
+        data: {
+          feedback: [
+            row({ id: STILL_TRANSCRIBING.id, transcript: 'Fix the drains.' }),
+          ],
+        },
+      },
+    ])
+    renderList()
+
+    await screen.findAllByText('Still transcribing')
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('Still transcribing')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REPORT_POLL_INTERVAL_MS)
+    })
+
+    await waitFor(() => expect(status).toHaveTextContent('Ready to review'))
+    expect(status).toBeInTheDocument()
+    expect(screen.getByText('Is this right?')).toBeVisible()
+  })
+
+  it('takes a confirmed note off the list and re-reads the report', async () => {
+    api.mockOrdered('GET /v1/constituent-feedback/pending', [
+      { status: 200, data: { feedback: [row()] } },
+      { status: 200, data: { feedback: [] } },
+    ])
+    api.mock('PATCH /v1/constituent-feedback/:id/confirm', {
+      status: 200,
+      data: row({ confirmedAt: new Date() }),
+    })
+    testQueryClient.setQueryData(reportQueryKey(OUTREACH_ID), {
+      denominators: {},
+    })
+    renderList()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Looks right/ }))
+
+    expect(
+      await screen.findByText('Nothing to review. New notes show up here.'),
+    ).toBeVisible()
+    expect(
+      screen.queryByText(
+        'She wants the storm drains on Elm cleared before winter.',
+      ),
+    ).toBeNull()
+    expect(
+      testQueryClient.getQueryState(reportQueryKey(OUTREACH_ID))?.isInvalidated,
+    ).toBe(true)
+  })
+
+  it('heads a note still transcribing as recorded, not summarized', async () => {
+    mockPending([STILL_TRANSCRIBING])
+    renderList()
+
+    expect(await screen.findByText('Recorded by Kamal Al Sawafi')).toBeVisible()
+    expect(screen.queryByText(/Summary by/)).toBeNull()
+  })
+
+  it('heads a failed note as recorded, not summarized', async () => {
+    mockPending([NOT_HEARD])
+    renderList()
+
+    expect(await screen.findByText('Recorded by Kamal Al Sawafi')).toBeVisible()
+    expect(screen.queryByText(/Summary by/)).toBeNull()
   })
 
   it('confirms a note with the fields as they stand', async () => {
