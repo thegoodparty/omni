@@ -1,5 +1,3 @@
-'use client'
-
 import { cn } from '@styleguide'
 import type { CampaignStrategyPhase } from './campaignStrategy.types'
 import { phaseCounts, phaseHasNext } from './phaseProgress'
