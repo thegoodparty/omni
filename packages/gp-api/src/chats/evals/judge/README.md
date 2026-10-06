@@ -195,15 +195,16 @@ the agent, not that the agent is good, so they stay visible in the number
 rather than counted the same as a real bench. The parenthetical is left out
 when P is 0. The `--dry-run` plan prints the same counts.
 
-## Case lists: nineteen of twenty agents, and all but one are placeholders
+## Case lists: every judgeable agent, and all but one are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
-in `agents.ts` and validated by `cases.ts`. Adding the twenty-first agent is a
+in `agents.ts` and validated by `cases.ts`. Adding the twenty-second agent is a
 file here plus a registry line, and no code.
 
-Nineteen of the twenty judgeable agents have one. All four chat scopes that
-have a `ChatScopeHandler` — `chief_of_staff`, `campaign_assistant`,
-`ordinance_flow`, `priority_flow` — and fifteen background experiments. Nine
+All twenty judgeable agents have one. All five chat scopes that have a
+`ChatScopeHandler` — `chief_of_staff`, `campaign_assistant`,
+`ordinance_flow`, `priority_flow`, `briefing_annotation` — and fifteen
+background experiments. Nine
 of those take plain data: `district_issue_pulse`, `district_issue_snapshot`,
 `meeting_briefing`, `meeting_schedule`, `opponent_research`,
 `race_opponent_actions`, `race_opponent_collection`, `race_opponent_summary`,
@@ -213,12 +214,11 @@ organization, and carry placeholders for it instead:
 `opportunities_and_challenges`, `opposition_research`, `top_community_issues`,
 `trending_issues` — see the next section.
 
-One entry is left: `compliance_setup` carries `cases: null`, which is the gap
-staying visible rather than being rounded off. It is a pending decision about
-what its inputs should be, not an unwritten file. `briefing_annotation` is not
-that gap: the runner can drive it (it opens a briefing chat through
-`POST /v1/briefing-chats`, below), and it stays `blocked` only until its case
-list lands, which keeps it out of the denominator until then.
+One entry is left: `compliance_setup` carries `cases: null` and is
+`blocked`, out of the denominator on purpose — it is the one experiment that
+bypasses permission prompts, so a judge arm of it would make real writes
+against a real organization. A case list for it would be inputs for a sweep
+that must not run.
 
 **All but one are `placeholder: true`.** The exception is
 `race_opponent_summary.json`, a real bench of nine cases. Each other background list is
@@ -291,7 +291,7 @@ of these lists resolves CAN'T SAY however the judge voted — the floor was set
 from measured agent non-determinism (three identical Chief of Staff turns gave
 6, 4 and 2 tool steps) and eight runs measure that rather than the branch.
 Eight is one clean baseline plus seven single-axis variations, which is what
-one change can author honestly across nineteen agents. **Whether to grow every
+one change can author honestly across twenty agents. **Whether to grow every
 list to 20 or to lower the floor is still open.** Do not read the shortfall as
 a decision either way.
 
@@ -340,8 +340,8 @@ and L2 voter file column names are real.
 
 `ChatCaseSchema` grew four optional fields so a case list can express the
 formats a bench is actually written in. **Every one of them is optional and a
-list that uses none behaves exactly as before** — the nineteen lists in
-`cases/` needed no editing for any of this.
+list that uses none behaves exactly as before** — the lists in `cases/`
+needed no editing for any of this.
 
 | Field             | What it does                                                       |
 | ----------------- | ------------------------------------------------------------------ |

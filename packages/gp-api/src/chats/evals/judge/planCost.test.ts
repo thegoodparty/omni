@@ -407,9 +407,9 @@ it('prices an agent with no case list at nothing', () => {
 // THE NUMBER ON AN ACCIDENTAL `all`. Pinned, so a change to the table, the
 // margin, the budget or a case list that moves it is a visible diff here and
 // in the comments that quote it (judge.yml, judge-comment.yml, README).
-it('prices `all` at $643.50', () => {
+it('prices `all` at $681.00', () => {
   const total = selectAgents({ kind: 'all' })
     .selected.map((agent) => estimateAgent(agent).cents)
     .reduce((sum, cents) => sum + cents, 0)
-  expect(total).toBe(64_350)
+  expect(total).toBe(68_100)
 })
