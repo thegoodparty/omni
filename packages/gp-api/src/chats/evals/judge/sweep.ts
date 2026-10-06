@@ -22,7 +22,12 @@ import {
   identicalOutputs,
   type IdenticalOutputs,
 } from './identicalOutputs'
-import { judgeAll, RUBRIC_VERSION, type CaseVerdict } from './judge'
+import {
+  CaseDimensionCollisionError,
+  judgeAll,
+  RUBRIC_VERSION,
+  type CaseVerdict,
+} from './judge'
 import {
   IdenticalConfigError,
   MismatchedInputError,
@@ -334,7 +339,8 @@ export const judgeSweep = async (
       if (
         !(err instanceof IdenticalConfigError) &&
         !(err instanceof MismatchedInputError) &&
-        !(err instanceof CaseListError)
+        !(err instanceof CaseListError) &&
+        !(err instanceof CaseDimensionCollisionError)
       ) {
         throw err
       }

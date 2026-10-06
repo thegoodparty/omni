@@ -6,6 +6,7 @@ import type { LlmMessage } from '../../../llm/types/llmMessages.types'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
 import {
+  CaseDimensionCollisionError,
   CaseVerdictSchema,
   caseVerdictSchemaFor,
   FLAG_TYPES,
@@ -897,6 +898,23 @@ describe('a case with dimensions of its own', () => {
       orderSwap: { enabled: true, fraction: 1 },
     }).find((p) => p.key.order === 'swapped')
     expect(swapped?.payload.caseDimensions).toEqual([sparse])
+  })
+
+  // The case list only knows the default config. A config judging on other
+  // names has to refuse a case that reuses one, before any seat is paid.
+  it('refuses a name the active config already judges on', async () => {
+    const { llm, calls } = fake([sparseReply('Y')])
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      dimensions: [...DEFAULT_JUDGE_CONFIG.dimensions, sparse.name],
+    }
+    await expect(judgeCase(llm, plan(withSparse()), config)).rejects.toThrow(
+      CaseDimensionCollisionError,
+    )
+    await expect(judgeCase(llm, plan(withSparse()), config)).rejects.toThrow(
+      /meeting_briefing\/brief-2025-11-04 asks sparse_input_handling/,
+    )
+    expect(calls).toHaveLength(0)
   })
 
   it('leaves a case without them asking exactly what it asked before', async () => {

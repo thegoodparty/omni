@@ -1222,6 +1222,28 @@ describe('judgeSweep asks a case its own dimensions', () => {
     ])
   })
 
+  it('refuses the agent by name when a case reuses a config dimension', async () => {
+    const result = await judgeSweep(
+      {
+        store: await seeded(records, manifests),
+        llm: neverCalled,
+        registry: [MEETING],
+        loadCases: () => list,
+        config: {
+          ...DEFAULT_JUDGE_CONFIG,
+          dimensions: [...DEFAULT_JUDGE_CONFIG.dimensions, sparse.name],
+        },
+      },
+      backgroundEnv,
+    )
+    expect(result.report.refusals).toEqual([
+      {
+        agentId: 'meeting_briefing',
+        reason: expect.stringMatching(/probe asks sparse_handling/),
+      },
+    ])
+  })
+
   it('refuses the agent by name when its case list cannot be read', async () => {
     const result = await judge(neverCalled, () => {
       throw new CaseListError('meeting_briefing.json: not valid JSON')
