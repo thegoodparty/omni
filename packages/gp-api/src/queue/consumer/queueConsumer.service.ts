@@ -64,6 +64,7 @@ import {
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
+  P2pPhoneListBuildMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -90,6 +91,7 @@ import { OrgDistrict } from '@/organizations/organizations.types'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachService } from '@/outreach/services/outreach.service'
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
+import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 
 import type { AgentExperimentResultData } from '../queue.types'
 
@@ -182,6 +184,7 @@ export class QueueConsumerService {
     private readonly chatAttachments: ChatAttachmentsService,
     private readonly outreachService: OutreachService,
     private readonly outreachTextDelivery: OutreachTextDeliveryService,
+    private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -510,6 +513,16 @@ export class QueueConsumerService {
         // than ack-dropping it the way a poison ordinance step is dropped.
         const { data } = OutreachTextSendEventSchema.parse(queueMessage)
         return await this.handleOutreachTextSend(data)
+      }
+      case QueueType.P2P_PHONE_LIST_BUILD: {
+        this.logger.info('received p2pPhoneListBuild message')
+        // A malformed payload is our own producer's bug (the message only
+        // ever carries a buildId) — let it throw and age to the DLQ rather
+        // than ack-dropping it.
+        const { buildId } = P2pPhoneListBuildMessageSchema.parse(
+          queueMessage.data,
+        )
+        return await this.p2pPhoneListUpload.handleQueuedBuild(buildId)
       }
 
       default:

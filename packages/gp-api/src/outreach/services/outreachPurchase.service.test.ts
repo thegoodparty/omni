@@ -57,6 +57,7 @@ const baseMetadata: OutreachPurchaseMetadata = {
 const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   id: 'list-1',
   createdAt: new Date('2026-01-01'),
+  updatedAt: new Date('2026-01-01'),
   organizationSlug: 'org-1',
   campaignId: 1,
   token: 'token-abc',
@@ -64,6 +65,9 @@ const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   voterFileFilterId: null,
   buildStatus: 'ready',
   buildError: null,
+  requestSnapshot: null,
+  lastSeenLeadsLoaded: null,
+  buildAttempts: 0,
   excludedOptedOutCount: 0,
   excludedDuplicatePhoneCount: 0,
 }
