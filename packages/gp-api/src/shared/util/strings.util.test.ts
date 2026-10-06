@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   getUrlHostname,
+  normalizePersonName,
   phoneDigitsKey,
   urlHasCredentials,
 } from './strings.util'
@@ -87,5 +88,32 @@ describe('phoneDigitsKey', () => {
     ['2303555010199', 'too long'],
   ])('returns null for %s (%s) instead of throwing', (input) => {
     expect(phoneDigitsKey(input)).toBeNull()
+  })
+})
+
+describe('normalizePersonName', () => {
+  it('capitalizes an all-lowercase name', () => {
+    expect(normalizePersonName('stewart')).toBe('Stewart')
+  })
+
+  it('capitalizes each word across spaces, hyphens and apostrophes', () => {
+    expect(normalizePersonName("mary-jane o'brien")).toBe("Mary-Jane O'Brien")
+  })
+
+  it('capitalizes accented lowercase letters', () => {
+    expect(normalizePersonName('élodie')).toBe('Élodie')
+  })
+
+  it('leaves mixed-case spellings as typed', () => {
+    expect(normalizePersonName('McDonald')).toBe('McDonald')
+    expect(normalizePersonName('de La Cruz')).toBe('de La Cruz')
+  })
+
+  it('leaves all-caps input as typed', () => {
+    expect(normalizePersonName('JR')).toBe('JR')
+  })
+
+  it('returns an empty string unchanged', () => {
+    expect(normalizePersonName('')).toBe('')
   })
 })
