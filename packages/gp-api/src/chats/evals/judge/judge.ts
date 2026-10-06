@@ -216,7 +216,7 @@ export type Judgment = GradedJudgment | UngradedJudgment
 // https://goodparty.clickup.com/90132012119/docs/2ky4jq2q-154253/2ky4jq2q-139173
 // ---------------------------------------------------------------------------
 
-export const RUBRIC_VERSION = 'uj-rubric-0.3'
+export const RUBRIC_VERSION = 'uj-rubric-0.4'
 
 const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
   chat: [
