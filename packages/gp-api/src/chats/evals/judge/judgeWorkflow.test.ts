@@ -13,7 +13,8 @@ import { describe, expect, it } from 'vitest'
 import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
 import { budgetOutputLines } from './armBudget'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
-import { DEFAULT_JUDGE_CONFIG } from './config'
+import { formatPlan, selectAgents } from './cli'
+import { estimateAgent } from './planCost'
 import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { ARM_AWS_ENV } from './awsCredentials'
@@ -390,7 +391,7 @@ describe('judge.yml tells every judge process who asked', () => {
   })
 
   // The price and the guard state belong in the same comment: a reader
-  // approving ~$632 of sweep should be able to see whether two arms that hash
+  // approving ~$578 of sweep should be able to see whether two arms that hash
   // alike will be judged or refused.
   it('says in the plan comment which mode the request is in', () => {
     const estimate = steps.find(
@@ -1354,98 +1355,132 @@ describe('judge.yml links the commits, the base and the case lists', () => {
   })
 })
 
-// THE BACKGROUND PRICE IS A FUNCTION OF THE BACKGROUND BUDGET. It was a bare
-// $13 that outlived the budget it priced, so it is recomputed here from
-// config.background: a change to the budget that does not reach the workflow
-// fails this rather than quietly mispricing every plan comment.
-describe('judge.yml prices a background agent from config.background', () => {
+// THE WORKFLOW ADDS UP, AND THE CLI PRICES. Every per-agent number comes from
+// planCost.ts through the plan rows, so a budget, a measurement or a case
+// list that moves a price moves it here without a workflow edit. What the
+// workflow still owns is refusing when it cannot read a price from every row.
+describe('judge.yml sums the prices the CLI puts on the plan', () => {
   const estimate = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
     (step) => step.name === 'Estimate the cost and case count',
   )
   const script = runBlockOf(estimate?.body ?? '')
 
-  // Rounded up from the worst measured mean, meeting_briefing's ~$7.74.
-  const RUN_CENTS = 800
-  // The base-arm cache is not read by the sweep yet, so both arms run.
-  const ARMS = 2
-  // A chat agent other than ordinance_flow, from the design doc.
-  const CHAT_CENTS = 700
+  const dollars = (cents: number) =>
+    `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
 
-  it('matches arms x cases x attempts x the per-run cost', () => {
-    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
-    expect(maxCases).toBeDefined()
-    const assigned = [...script.matchAll(/^background_cents=(\d+)$/gm)]
-    expect(assigned).toHaveLength(1)
-    expect(Number(assigned[0]?.[1])).toBe(
-      ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS,
-    )
-  })
-
-  // Run, not read: the step is `set -u`, so a constant that is right but
-  // assigned after the loop that reads it matches every text check above and
-  // kills the step on the first background row. The WHOLE run block, with a
-  // fake `npx` standing in for the CLI, so no slice boundary decides what is
-  // tested.
-  it('prices a chat and a background row, run through bash', () => {
-    expect(script.split('\n')[0]).toBe('set -euo pipefail')
+  // Run, not read, with the WHOLE run block and a fake `npx` standing in for
+  // the CLI, so no slice boundary decides what is tested. The step is
+  // `set -u`, so a variable read before it is set fails here too.
+  const runEstimate = (plan: string, agents: string) => {
     const dir = mkdtempSync(path.join(tmpdir(), 'judge-estimate-'))
     const bin = path.join(dir, 'bin')
     execFileSync('mkdir', [bin])
-    writeFileSync(
-      path.join(dir, 'plan.fixture'),
-      'Universal Judge — plan (2 agents)\n\n' +
-        '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
-        '  self_research  [background]  cases: self_research.json\n',
-    )
+    writeFileSync(path.join(dir, 'plan.fixture'), plan)
     writeFileSync(
       path.join(bin, 'npx'),
       `#!/bin/bash\ncat "${path.join(dir, 'plan.fixture')}"\n`,
     )
     chmodSync(path.join(bin, 'npx'), 0o755)
     const output = path.join(dir, 'output')
-    const summary = path.join(dir, 'summary')
     writeFileSync(output, '')
-    writeFileSync(summary, '')
-    execFileSync('bash', ['--noprofile', '--norc', '-c', script], {
-      encoding: 'utf8',
-      env: {
-        PATH: `${bin}:${process.env.PATH ?? ''}`,
-        RUNNER_TEMP: dir,
-        GITHUB_OUTPUT: output,
-        GITHUB_STEP_SUMMARY: summary,
-        GITHUB_SERVER_URL: 'https://github.com',
-        GITHUB_REPOSITORY: 'thegoodparty/omni',
-        WORKSPACE: 'packages/gp-api',
-        CLI: 'src/chats/evals/judge/cli.ts',
-        AGENTS: 'chief_of_staff,self_research',
-        REQUESTED: 'chief_of_staff,self_research',
-        SELECTION: EXPLICIT_SELECTION,
-        LIVE: 'false',
-        SWEEP_CAPABLE: 'true',
-        REQUESTED_BY: 'octocat',
-        CANDIDATE_SHA: 'a'.repeat(40),
-        BASE_REF: 'main',
-        PR_NUMBER: '1',
-        RUN_URL: 'https://github.com/thegoodparty/omni/actions/runs/1',
-      },
-    })
-    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
-    const background = ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS
-    const dollars = (cents: number) =>
-      `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
-    const outputs = readFileSync(output, 'utf8')
-    expect(outputs).toMatch(
-      new RegExp(`^usd=${dollars(CHAT_CENTS + background)}$`, 'm'),
+    writeFileSync(path.join(dir, 'summary'), '')
+    let status = 0
+    try {
+      execFileSync('bash', ['--noprofile', '--norc', '-c', script], {
+        encoding: 'utf8',
+        stdio: 'pipe',
+        env: {
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          RUNNER_TEMP: dir,
+          GITHUB_OUTPUT: output,
+          GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),
+          GITHUB_SERVER_URL: 'https://github.com',
+          GITHUB_REPOSITORY: 'thegoodparty/omni',
+          WORKSPACE: 'packages/gp-api',
+          CLI: 'src/chats/evals/judge/cli.ts',
+          AGENTS: agents,
+          REQUESTED: agents,
+          SELECTION: EXPLICIT_SELECTION,
+          LIVE: 'false',
+          SWEEP_CAPABLE: 'true',
+          REQUESTED_BY: 'octocat',
+          CANDIDATE_SHA: 'a'.repeat(40),
+          BASE_REF: 'main',
+          PR_NUMBER: '1',
+          RUN_URL: 'https://github.com/thegoodparty/omni/actions/runs/1',
+        },
+      })
+    } catch (err) {
+      status = (err as { status?: number }).status ?? -1
+    }
+    const read = (file: string) => {
+      try {
+        return readFileSync(path.join(dir, file), 'utf8')
+      } catch {
+        return ''
+      }
+    }
+    return {
+      status,
+      outputs: readFileSync(output, 'utf8'),
+      comment: read('plan-comment.md'),
+      refusal: read('estimate-refusal-comment.md'),
+    }
+  }
+
+  it('does no pricing arithmetic of its own', () => {
+    expect(script.split('\n')[0]).toBe('set -euo pipefail')
+    expect(script).not.toMatch(/^\s*background_cents=/m)
+    expect(script).not.toMatch(/\bcents=[0-9]/)
+  })
+
+  // The plan is the real CLI's, so a format change on either side fails here.
+  it('sums the real plan for a chat, a measured and an unmeasured agent', () => {
+    const ids = ['chief_of_staff', 'race_opponent_summary', 'self_research']
+    const selection = selectAgents({ kind: 'list', ids })
+    const plan = formatPlan(selection)
+    const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
+    expect(cents).toEqual([700, 600, 4800])
+
+    const result = runEstimate(plan, ids.join(','))
+    expect(result.status).toBe(0)
+    expect(result.outputs).toMatch(/^usd=61\.00$/m)
+    expect(result.outputs).toMatch(
+      /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
     )
-    expect(outputs).toMatch(/^sweep_agents=chief_of_staff,self_research$/m)
-    const comment = readFileSync(path.join(dir, 'plan-comment.md'), 'utf8')
-    const row = (id: string, shape: string, cents: number) =>
-      new RegExp(
-        `^\\| ${id} \\| ${shape} \\| .* \\| ~${dollars(cents)} \\|$`,
-        'm',
-      )
-    expect(comment).toMatch(row('chief_of_staff', 'chat', CHAT_CENTS))
-    expect(comment).toMatch(row('self_research', 'background', background))
+    const row = (id: string, shape: string, price: string) =>
+      new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
+    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(700)))
+    expect(result.comment).toMatch(
+      row('race_opponent_summary', 'background', dollars(600)),
+    )
+    expect(result.comment).toMatch(
+      row('self_research', 'background', `${dollars(4800)} \\(unmeasured\\)`),
+    )
+  })
+
+  it('refuses when it can read fewer priced rows than the CLI planned', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (2 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 700 (design-doc)  cases: chief_of_staff.json\n' +
+        '  self_research  [background]  cents: lots (unmeasured)  cases: self_research.json\n',
+      'chief_of_staff,self_research',
+    )
+    expect(result.status).not.toBe(0)
+    expect(result.outputs).not.toMatch(/^usd=/m)
+    expect(result.refusal).toContain('could read only 1 of them')
+  })
+
+  // A branch that has not picked up per-agent pricing prints unpriced rows.
+  it('refuses a plan from a CLI that predates per-agent pricing', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  self_research  [background]  cases: self_research.json\n',
+      'self_research',
+    )
+    expect(result.status).not.toBe(0)
+    expect(result.outputs).not.toMatch(/^usd=/m)
+    expect(result.refusal).toContain('Rebase on main')
   })
 })
 

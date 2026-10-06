@@ -1,4 +1,5 @@
 import { AGENTS, coverage, type AgentEntry } from './agents'
+import { estimateAgent, type AgentEstimate } from './planCost'
 
 // The sweep's entry point, skeleton only. Everything here is a pure
 // function over the registry so the trigger track can test selection without
@@ -67,9 +68,14 @@ export const selectAgents = (
 // coverage line always describes the same set the selection came from. The
 // default made it right by coincidence in production and wrong anywhere else,
 // including in its own test.
+//
+// A row carries its price as `cents: <n> (<basis>)` ahead of the case list,
+// which stays last because the workflow reads it as the rest of the line. The
+// workflow sums those cents and refuses when it cannot read one from every row.
 export const formatPlan = (
   selection: Selection,
   agents: readonly AgentEntry[] = AGENTS,
+  estimate: (agent: AgentEntry) => AgentEstimate = estimateAgent,
 ): string => {
   const { wired, placeholder, judgeable, blocked } = coverage(agents)
   const lines: string[] = []
@@ -78,7 +84,11 @@ export const formatPlan = (
   lines.push('')
   for (const agent of selection.selected) {
     const cases = agent.cases ?? 'NO CASE LIST YET'
-    lines.push(`  ${agent.agentId}  [${agent.shape}]  cases: ${cases}`)
+    const { cents, basis, why } = estimate(agent)
+    lines.push(
+      `  ${agent.agentId}  [${agent.shape}]  cents: ${cents} (${basis})  cases: ${cases}`,
+    )
+    lines.push(`      ${why}`)
   }
   if (selection.blocked.length > 0) {
     lines.push('')

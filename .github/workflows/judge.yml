@@ -497,7 +497,7 @@ jobs:
                 # directory name reaches `--agents=` unchanged. Both are valid
                 # snake_case, so the allowlist below passes them through: a
                 # directory named `all` turns this one-agent request into the
-                # 16-agent ~$632 sweep that every other guard in this file
+                # ~$578 sweep of every agent that every other guard in this file
                 # exists to prevent, and one named `auto` makes the CLI throw.
                 # Rejected here rather than filtered out, because silently
                 # judging nothing would hide a directory nobody can ever judge.
@@ -694,8 +694,8 @@ jobs:
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
       #
-      # An accidental `all` is the failure this exists for. It is roughly $632
-      # against roughly $7 for the normal one-agent case, and the difference
+      # An accidental `all` is the failure this exists for. It is roughly $578
+      # against single dollars for the normal one-agent case, and the difference
       # between those two is one word in a PR comment. So the number goes in
       # front of a person, in the job summary and on the PR, and the live sweep
       # is a separate job downstream of this one — the ordering is structural
@@ -707,14 +707,12 @@ jobs:
       # visibility guarantee, deliberately, and not an approval gate; the PR
       # says what it would take to make it one.
       #
-      # The chat figures are the design doc's measured sweep costs, not a
-      # model of them: ~$7 for a chat agent, ~5x that for ordinance_flow (whose
-      # per-step cost is five times every other chat agent). The background
-      # figure is derived below from config.background and pinned to it by a
-      # test, because the budget it prices moved after the design doc did.
-      # Per-agent case lists come from the CLI's own plan, which is reproduced
-      # verbatim below the table, so the two facts a reader needs are never
-      # assembled by this YAML.
+      # Every price is the CLI's, printed on its plan row and only summed here:
+      # src/chats/evals/judge/planCost.ts prices a background agent from its
+      # measured judge cost, its real case count and config.background, and
+      # a chat agent from the design doc. Per-agent case lists come from the
+      # same plan, which is reproduced verbatim below the table, so the facts
+      # a reader needs are never assembled by this YAML.
       - name: Estimate the cost and case count
         id: estimate
         if: >-
@@ -945,8 +943,9 @@ jobs:
             exit 0
           fi
 
-          # `  <agentId>  [<shape>]  cases: <value>` — the CLI's own plan rows.
-          rows="$(sed -nE 's/^  ([a-z0-9_]+)  \[(chat|background)\]  cases: (.*)$/\1 \2 \3/p' \
+          # `  <agentId>  [<shape>]  cents: <n> (<basis>)  cases: <value>` — the
+          # CLI's own plan rows, each priced by the CLI (see planCost.ts).
+          rows="$(sed -nE 's/^  ([a-z0-9_]+)  \[(chat|background)\]  cents: ([0-9]+) \(([a-z-]+)\)  cases: (.*)$/\1 \2 \3 \4 \5/p' \
             "$RUNNER_TEMP/plan.txt")"
 
           parsed=0
@@ -956,6 +955,14 @@ jobs:
             parsed="$(printf '%s\n' "$rows" | wc -l | tr -d '[:space:]')"
           fi
 
+          # A branch older than per-agent pricing prints its rows with no
+          # `cents:`, so nothing here can price them. Named apart from the drift
+          # below because the fix is the requester's: rebase.
+          if [ "$parsed" -eq 0 ] && grep -qE '^  [a-z0-9_]+  \[(chat|background)\]  cases: ' "$RUNNER_TEMP/plan.txt"; then
+            echo "::error::this branch's judge CLI predates per-agent pricing, so its plan rows carry no price"
+            refuse "This branch's judge CLI is older than per-agent pricing, so its plan carries no price for this workflow to add up. Rebase on main and ask again."
+          fi
+
           # ANSWERED ON THE THREAD, same reasoning as the header check above.
           # `$planned` and `$parsed` are digits out of the two counts, so they
           # are safe to name.
@@ -963,23 +970,6 @@ jobs:
             echo "::error::the CLI planned $planned agents and this step could read only $parsed of them out of its output. The pricing regex and the plan format have drifted apart. Fix that rather than trusting a total assembled from part of the plan."
             refuse "The judge CLI planned $planned agents and this workflow could read only $parsed of them out of the plan, so the pricing regex and the plan format have drifted apart. Under-reporting a bill is worse than refusing to report one, so it stops here rather than pricing part of a sweep. That is a fault in the judge, not in this PR."
           fi
-
-          # 2 arms x 3 cases x 1 attempt x $8 a run = $48, from
-          # DEFAULT_JUDGE_CONFIG.background (maxCases 3, attemptsPerCase 1).
-          # Both arms, because the sweep does not read the base-arm cache yet.
-          #
-          # $8 IS DELIBERATELY HIGH. This number exists to make a sweep visible
-          # before it spends, so it rounds up the worst measured mean per run
-          # rather than averaging: meeting_briefing's ~$7.74, invoice-confirmed
-          # (.claude/skills/analyze-cap-agent-costs/profiles/meeting_briefing.md).
-          # The other measurements sit under it: $2.45 to $5.27 for the
-          # community-issues pair (profiles/community_issues.md). Judging is a
-          # few cents on one seat and is not added.
-          #
-          # Set before the loop that reads it, under `set -u`.
-          # judgeWorkflow.test.ts recomputes it from the config and runs the
-          # loop, so a budget change that does not reach here fails there.
-          background_cents=4800
 
           total=0
           sweep_agents=""
@@ -995,7 +985,7 @@ jobs:
           {
             echo '| agent | shape | case list | estimated USD |'
             echo '| --- | --- | --- | --- |'
-            while read -r id shape cases; do
+            while read -r id shape cents basis cases; do
               # `NO CASE LIST YET` is what the CLI prints for a registry entry
               # whose `cases` is null — which today is every entry. Such a row
               # is deliberately NOT priced and NOT swept: an agent with no case
@@ -1009,10 +999,6 @@ jobs:
                   printf '| %s | %s | none yet | not priced |\n' "$id" "$shape"
                   continue
                   ;;
-              esac
-              case "$id" in
-                ordinance_flow) cents=3500 ;;  # ~5x per step, per the design doc
-                *) [ "$shape" = "chat" ] && cents=700 || cents=$background_cents ;;
               esac
               total=$((total + cents))
               keep "$id"
@@ -1035,8 +1021,9 @@ jobs:
               else
                 cell="\`$safe_cases\`"
               fi
-              printf '| %s | %s | %s | ~%d.%02d |\n' \
-                "$id" "$shape" "$cell" "$((cents / 100))" "$((cents % 100))"
+              printf '| %s | %s | %s | ~%d.%02d%s |\n' \
+                "$id" "$shape" "$cell" "$((cents / 100))" "$((cents % 100))" \
+                "$([ "$basis" = unmeasured ] && echo ' (unmeasured)' || true)"
             done <<<"$rows"
           } > "$RUNNER_TEMP/table.md"
 
