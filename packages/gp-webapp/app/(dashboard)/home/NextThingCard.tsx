@@ -166,9 +166,9 @@ const NextThingSection = ({
       <div className="flex flex-col items-center gap-3 pb-6 pt-2 text-center lg:pb-10 lg:pt-6">
         {(countdown || !ready) && (
           <Badge
-            variant="outline"
+            variant="soft"
             className={cn(
-              'bg-card font-normal text-muted-foreground',
+              'font-normal text-muted-foreground',
               !ready && 'invisible',
             )}
           >
