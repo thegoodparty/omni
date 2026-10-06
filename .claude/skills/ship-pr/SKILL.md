@@ -64,9 +64,11 @@ always resolves.
 
 ## Phase 2 — converge with delegate (autonomous to approval)
 
-Delegate is `delegate-reviewer[bot]`. Every push to a non-draft PR gets exactly
-one review run for that commit; the review is pinned to the commit it read, and
-the `pr-reviewer` status check on that commit is required for merge.
+Delegate is `delegate-reviewer[bot]`. A PR is reviewed on its own when it is
+opened or marked ready. Every later push is reviewed only when you comment
+`delegate review`, and each commit is reviewed at most once. The review is pinned
+to the commit it read, and the `pr-reviewer` status check on that commit is
+required for merge.
 
 - `APPROVED` — body starts with `**Recommendation: approve**`. Approve means
   zero findings.
@@ -76,12 +78,13 @@ the `pr-reviewer` status check on that commit is required for merge.
   Findings still open from the previous run are listed under "N prior
   finding(s) still open" with links, not reposted.
 - `Review failed: <reason>` with an `error` status — the reviewer broke, not
-  your code. Push a new commit (an empty one is fine) to get a fresh run.
+  your code. Push a new commit (an empty one is fine) and comment
+  `delegate review`.
 
-**Never comment `delegate review` after a push.** The push already triggered the
-run. A commit is reviewed once; a `delegate review` on a commit that already has
-a run gets a one-line reply and no review. The comment exists for one case: a
-commit with no run at all after ~5 minutes (a dropped webhook).
+**Comment `delegate review` exactly once per commit you want reviewed.** The
+first reviewable state of the PR reviews itself; do not comment on a just-opened
+PR. After you push fixes, comment once. A second comment on the same commit gets
+a one-line reply and no review, so there is nothing to gain from repeating it.
 
 **Resolving threads does nothing.** Delegate ignores thread state. A finding
 stays open until a run no longer finds it in the code; if a human resolves a
@@ -104,9 +107,11 @@ Loop:
 
    - **A review with `commit_id == HEAD`** → that is the verdict; go to step 2.
    - **Status `pending`** → the run is in progress. Wait.
-   - **Status `error`** → the run failed. Push a new commit; do not comment.
-   - **No status and no review after ~5 minutes** → comment `delegate review`
-     once, then keep polling.
+   - **Status `error`** → the run failed. Push a new commit, then comment
+     `delegate review`.
+   - **No status at all** → nobody has asked for this commit. If this is the
+     PR's first commit, the open event triggers it; wait up to ~5 minutes before
+     commenting. Otherwise comment `delegate review` once, then poll.
    - **The wait is bounded, always.** Poll every ~30–60s. Budget **~10 min, hard
      stop** — fix the deadline before the first poll. If there is no verdict when
      the deadline passes, stop polling and report.
@@ -132,8 +137,8 @@ Loop:
    no AI footers). Before pushing, re-run pre-flight on the affected package(s) —
    never push failing lint/types/test. Commit and push (always push the fixes
    you've made, so agreed work isn't lost). Then decide by what's left:
-   - **Nothing escalated this round** → the push already triggered the next run;
-     loop back to step 1 and wait for it. Do not comment `delegate review`.
+   - **Nothing escalated this round** → comment `delegate review` once for the
+     new HEAD and loop back to step 1.
    - **Anything escalated this round** → do _not_ re-trigger or loop. Stop and hand
      back the escalated findings (alongside the fixes you just pushed) for the
      user's call. Escalation always wins over looping.
@@ -196,8 +201,9 @@ re-triggers them. Anchor on HEAD, the same as delegate.
 
 5. **Apply, then re-converge.** Make the verified-valid fixes (re-run pre-flight on
    affected packages first — never push failing lint/types/unit tests). Commit and
-   push. The push re-triggers delegate and the full check set for the new HEAD, so
-   loop back to **Phase 2 step 1** and re-confirm all gates at the new HEAD. Done requires delegate approved and every check green on
+   push. The push re-runs the check set for the new HEAD; comment
+   `delegate review` once so delegate runs too, then loop back to **Phase 2 step
+   1** and re-confirm all gates at the new HEAD. Done requires delegate approved and every check green on
    the _same_ commit.
 
 6. **Round cap.** Stop after **2 check-fix rounds** (total across all checks, not
