@@ -833,7 +833,7 @@ jobs:
 
           # "Nothing here is judgeable" is a SKIP, not a failure, and it is a
           # different thing from "the CLI's output made no sense", which is
-          # further down and does fail. `/judge briefing_annotation` is the live
+          # further down and does fail. `/judge compliance_setup` is the live
           # example of the first: it is a real agent, the request is fine, the
           # CLI exits 0 — and it is the one registry entry marked blocked, so
           # the plan lists nothing. Failing that red would put an X on a PR
@@ -848,7 +848,7 @@ jobs:
             # AND IT SAYS SO ON THE PR. This path ends the step with `exit 0`
             # before the plan comment below is written, so it is the only place
             # that can answer for it — and without this the one request that
-            # really does land here, `/judge briefing_annotation`, was answered
+            # really does land here, `/judge compliance_setup`, was answered
             # with a job summary and total silence on the thread where it was
             # typed. Same marker as the plan comment, so a PR judged twice
             # carries one current comment whichever path each run took.
