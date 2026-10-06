@@ -1760,3 +1760,44 @@ describe('the arms reach AWS on the role, not on the stub', () => {
     expect(readme).toMatch(new RegExp(`^\\| .*\`${name}\``, 'm'))
   })
 })
+
+// GITHUB'S 21,000-CHARACTER EXPRESSION LIMIT. A `run:` script that contains
+// `${{` anywhere, even inside a shell comment, is evaluated as one expression,
+// and past 21,000 characters the whole workflow fails to parse: every
+// /judge request is then refused with "Exceeded max expression length". A
+// prose mention of `${{ runner.temp }}` in a comment did exactly that to the
+// estimate step once it grew past the limit.
+describe('judge workflows stay under the expression length limit', () => {
+  const LIMIT = 21_000
+  const files = ['judge.yml', 'judge-comment.yml', 'judge-request.yml'].map(
+    (name) => path.resolve(path.dirname(WORKFLOW), name),
+  )
+
+  it.each(files)(
+    '%s has no run script over the limit with ${{ in it',
+    (file) => {
+      const lines = readFileSync(file, 'utf8').split('\n')
+      const offenders: string[] = []
+      lines.forEach((line, index) => {
+        const match = /^(\s*)run: \|\s*$/.exec(line)
+        if (match === null) return
+        const indent = (match[1] ?? '').length
+        const body: string[] = [line]
+        for (let next = index + 1; next < lines.length; next += 1) {
+          const text = lines[next] ?? ''
+          if (
+            text.trim() !== '' &&
+            text.length - text.trimStart().length <= indent
+          )
+            break
+          body.push(text)
+        }
+        const script = body.join('\n')
+        if (script.includes('${{') && script.length >= LIMIT) {
+          offenders.push(`line ${index + 1}: ${script.length} chars`)
+        }
+      })
+      expect(offenders).toEqual([])
+    },
+  )
+})
