@@ -21,7 +21,7 @@ export default function HomeGreeting(): React.JSX.Element {
   // Until the client fills them in, a blank headline and an invisible badge
   // hold the height.
   return (
-    <div className="flex flex-col items-center gap-3 pb-6 pt-2 text-center lg:pb-10 lg:pt-6">
+    <div className="flex flex-col items-center gap-3 pb-2 pt-2 text-center lg:pb-4 lg:pt-6">
       {(countdown || !ready) && (
         <Badge
           variant="outline"
