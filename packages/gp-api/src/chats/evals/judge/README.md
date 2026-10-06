@@ -152,6 +152,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `pricing.ts`                                           | Versioned token rates. Re-derive cost from here; never compare stored dollars. |
 | `runners/chat.ts`                                      | Drives one real chat case — one turn or several — and emits one record.        |
 | `runners/seedTranscript.ts`                            | Writes a prior transcript through the store path the live turn reads.          |
+| `runners/briefingFixture.ts`                           | The briefing a briefing chat case is asked about, and its pinned `today`.      |
 | `cases.ts`                                             | Loads and validates one agent's case list.                                     |
 | `cases/*.json`                                         | The case lists themselves. One per agent — see below.                          |
 | `caseParams.ts`                                        | The placeholder vocabulary, its substitution, and the pre-dispatch guard.      |
@@ -228,8 +229,33 @@ thin an answer — it takes a tool off the model's list. `runners/seedChatOrg.ts
 creates one organization per case, with `positionId` set, plus per scope: a
 Pro campaign carrying `details` and a `raceId` (`campaign_assistant`), an
 ordinance and an `OrdinanceCodeRecord` placing the agent in Judge City WA
-(`ordinance_flow`), a priority (`priority_flow`), or an elected office alone
-(`chief_of_staff`). It still seeds no contacts, briefings or community issues.
+(`ordinance_flow`), a priority (`priority_flow`), a meeting briefing and one
+note on it (`briefing_annotation`), or an elected office alone
+(`chief_of_staff`). It still seeds no contacts or community issues.
+
+**A seeded briefing needs two inputs the database cannot hold.**
+`installBriefingFixture` in `runners/chatSeam.ts` supplies both for the
+seeded bucket only, refusing outside a test process:
+
+- **The artifact.** Production reads it from S3 by the bucket and key on the
+  `MeetingBriefing` row. The seam serves `runners/briefingFixture.ts` instead:
+  the Hendersonville meeting the briefing prompt evals use, as the
+  `BriefingSchema` JSON the pipeline writes, so `get_artifacts` and highlights
+  work the way they do in production.
+- **Today.** The prompt says `Today is <date in the meeting's timezone>`, so
+  two arms captured either side of midnight there would read two different
+  prompts for one branch. The seam pins it to a fixed day, five days before
+  the meeting. It is in the system prompt, so the config digest covers it like
+  everything else the agent reads.
+
+Every case in an arm seeds its own office for the one judge user, but the
+briefing route finds a briefing by meeting date and the caller's office, which
+assumes one office per user. So the briefing seed deletes the earlier cases'
+judge briefings on the fixture date first; otherwise a later case would be
+routed onto an earlier briefing and continue its conversation. The district,
+by contrast, is resolved from the briefing's own organization, which is the
+one this case seeded, so `accountState.district` works on briefing chat the
+way it does on the other Serve scopes.
 
 `query_constituent_data` and `describe_constituent_data` stay unregistered on
 every run this harness makes, but **that is now a deployment gap rather than a
@@ -440,7 +466,10 @@ whole CRM and voter-file family on `ctx.isPro !== false`), `district`
 (`organization.positionId`, the half of the district gate that lives in our own
 database), `campaignDetails` (the blob carrying `raceId`, which
 `get_ballot_requirements` registers on) and `ordinanceStep` (each step past
-clarify carries its own `present_*` tools). `.strict()` keeps it closed: an
+clarify carries its own `present_*` tools). `briefingHighlight` is the one
+that gates no tool: like `ordinanceStep` it picks what the conversation is
+anchored on, here a highlighted passage instead of the whole briefing, which
+the briefing prompt renders differently. `.strict()` keeps it closed: an
 open bag of column overrides would let a case list seed a state no deployment
 can produce, and the verdict would be about an agent we do not ship.
 
