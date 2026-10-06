@@ -24,6 +24,7 @@ import type { UseDictationAppendResult } from './useDictationAppend'
 import type { DictationStatus } from './useDictation'
 import { enqueue, listQueue, type QueueEntry } from './offlineMemoQueue'
 import { useOfflineMemo, useOfflineQueueDrain } from './useOfflineMemo'
+import { reportQueryKey } from 'app/dashboard/issue-capture/[outreachId]/queries'
 
 vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 
@@ -383,6 +384,37 @@ describe('useOfflineQueueDrain', () => {
     renderHook(() => useOfflineQueueDrain({ onSent }))
 
     await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1))
+  })
+
+  // "What we heard" reads its counts once, so a knock that arrives from the
+  // queue has to say so as plainly as one saved online.
+  it('re-reads every effort’s report once something was sent', async () => {
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 200,
+      data: { personId: 'person-1', knockStatus: 'not_home' },
+    })
+    await enqueue([
+      {
+        id: 'knock:21',
+        kind: 'knock',
+        organizationSlug: 'campaign-1',
+        payload: {
+          stopTargetId: 21,
+          clientKey: KNOCK_KEY,
+          outcome: 'not_home',
+        },
+        createdAt: Date.now(),
+      },
+    ])
+    testQueryClient.setQueryData(reportQueryKey(7), { denominators: {} })
+    const onSent = vi.fn()
+
+    renderHook(() => useOfflineQueueDrain({ onSent }))
+
+    await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1))
+    expect(
+      testQueryClient.getQueryState(reportQueryKey(7))?.isInvalidated,
+    ).toBe(true)
   })
 })
 

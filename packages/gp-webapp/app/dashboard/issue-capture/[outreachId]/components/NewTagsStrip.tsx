@@ -12,11 +12,18 @@ import { PROPOSED_TAGS_QUERY_KEY, proposedTagsQueryOptions } from '../queries'
 // on people's records, dismissing retires it. The tag list is the owner's
 // and the manager's, so anyone the API refuses sees no strip at all rather
 // than an error about something they were never meant to curate.
-const NewTagsStrip = ({ isServe }: { isServe: boolean }) => {
+const NewTagsStrip = ({
+  isServe,
+  themeTagIds,
+}: {
+  isServe: boolean
+  themeTagIds: string[]
+}) => {
   const copy = whatWeHeardCopy(isServe)
   const headingId = useId()
   const queryClient = useQueryClient()
-  const { data: tags } = useQuery(proposedTagsQueryOptions)
+  const { data: proposed } = useQuery(proposedTagsQueryOptions)
+  const tags = proposed?.filter((tag) => themeTagIds.includes(tag.id))
 
   const update = useMutation({
     mutationFn: ({ id, body }: { id: string; body: UpdateIssueTag }) =>
@@ -28,6 +35,10 @@ const NewTagsStrip = ({ isServe }: { isServe: boolean }) => {
       if (body.action === 'accept') {
         trackEvent(EVENTS.IssueCapture.TagAccepted, {
           source: 'report',
+          product: outreachProduct(isServe),
+        })
+      } else if (body.action === 'retire') {
+        trackEvent(EVENTS.IssueCapture.TagDismissed, {
           product: outreachProduct(isServe),
         })
       }

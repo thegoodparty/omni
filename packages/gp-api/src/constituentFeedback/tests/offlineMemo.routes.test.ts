@@ -20,6 +20,7 @@ import { useTestService } from '@/test-service'
 import { SEED_MEMOS } from '../services/feedbackSeedMemos'
 import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
 import { PendingTranscriptionService } from '../services/pendingTranscription.service'
+import { ConstituentFeedbackService } from '../services/constituentFeedback.service'
 import {
   call,
   createWinOrg,
@@ -90,9 +91,13 @@ describe('offline memo capture', () => {
       .spyOn(service.app.get(LlmService), 'jsonCompletion')
       .mockResolvedValue({
         object: {
-          issueLabel: 'Street flooding',
-          stance: 'opposes',
-          desiredOutcome: 'Clear the storm drain',
+          issues: [
+            {
+              issueLabel: 'Street flooding',
+              stance: 'opposes',
+              desiredOutcome: 'Clear the storm drain',
+            },
+          ],
           confidence: 0.9,
         },
         tokens: 1,
@@ -142,7 +147,10 @@ describe('offline memo capture', () => {
   }
 
   const row = (id: string) =>
-    service.prisma.constituentFeedback.findUniqueOrThrow({ where: { id } })
+    service.prisma.constituentFeedback.findUniqueOrThrow({
+      where: { id },
+      include: { issues: true },
+    })
 
   describe('POST audio-upload-url', () => {
     it('hands out a key under the org and a URL to put the audio at', async () => {
@@ -193,12 +201,10 @@ describe('offline memo capture', () => {
       expect((await postToSink()).status).toBe(404)
     })
 
-    it('404s when the product flag is off', async () => {
+    it('404s when the issue-capture flag is off', async () => {
       const flags = vi
         .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-        .mockImplementation(
-          async ({ feature }) => feature === 'serve-issue-capture',
-        )
+        .mockImplementation(async ({ feature }) => feature !== 'issue-capture')
       onTestFinished(() => flags.mockRestore())
 
       const res = await uploadUrl(randomUUID())
@@ -298,9 +304,14 @@ describe('offline memo capture', () => {
       expect(saved.extractionStatus).toBe(
         ConstituentFeedbackExtractionStatus.extracted,
       )
-      expect(saved.proposedIssueLabel).toBe('Street flooding')
-      expect(saved.issueLabel).toBe('Street flooding')
-      expect(saved.stance).toBe('opposes')
+      expect(saved.issues).toEqual([
+        expect.objectContaining({
+          position: 0,
+          issueLabel: 'Street flooding',
+          stance: 'opposes',
+          proposedIssueLabel: 'Street flooding',
+        }),
+      ])
       expect(saved.effortQuestion).toBe('What should the town fix first?')
       // Extracted is not confirmed: only the review list sets this.
       expect(saved.confirmedAt).toBeNull()
@@ -361,6 +372,65 @@ describe('offline memo capture', () => {
       expect(saved.extractionStatus).toBe(
         ConstituentFeedbackExtractionStatus.extracted,
       )
+    })
+
+    // Confirmed from "Notes to review" while its job ran: the person who was
+    // there has spoken, and a late model guess must not replace their word.
+    // The cron read the row before the confirm landed, so its completion
+    // still arrives.
+    const confirmMidJob = async () => {
+      const { res } = await recordOffline()
+      const confirmed = await service.client.patch(
+        `/v1/constituent-feedback/${res.data.id}/confirm`,
+        {
+          issues: [
+            {
+              issueLabel: 'Compost pickup',
+              stance: 'supports',
+              desiredOutcome: 'Collect it weekly',
+            },
+          ],
+        },
+        ownerHeaders(slug),
+      )
+      expect(confirmed.status).toBe(200)
+      return res.data.id as string
+    }
+
+    it('leaves a memo confirmed mid-job as it was confirmed', async () => {
+      const id = await confirmMidJob()
+      const { transcriptionJobName } = await row(id)
+
+      await service.app.get(ConstituentFeedbackService).completeTranscription({
+        id,
+        jobName: transcriptionJobName!,
+        transcript: 'She wants the storm drain cleared.',
+      })
+
+      const saved = await row(id)
+      expect(saved.confirmedAt).not.toBeNull()
+      expect(saved.issues).toEqual([
+        expect.objectContaining({
+          position: 0,
+          issueLabel: 'Compost pickup',
+          stance: 'supports',
+          desiredOutcome: 'Collect it weekly',
+          proposedIssueLabel: null,
+        }),
+      ])
+    })
+
+    it('stops polling a memo once it is confirmed', async () => {
+      await confirmMidJob()
+      const poll = vi.spyOn(
+        service.app.get(TranscribeFileService),
+        'fetchResult',
+      )
+      onTestFinished(() => poll.mockRestore())
+
+      await service.app.get(PendingTranscriptionService).pass(FIRST_SLOT)
+
+      expect(poll).not.toHaveBeenCalled()
     })
 
     it('starts a job for a memo whose first start failed', async () => {
@@ -457,9 +527,15 @@ describe('offline memo capture', () => {
       expect(typed.status).toBe(201)
       expect(typed.data.id).toBe(recorded.data.id)
       expect(typed.data.extraction).toEqual({
-        issueLabel: 'Street flooding',
-        stance: 'opposes',
-        desiredOutcome: 'Clear the storm drain',
+        issues: [
+          {
+            id: expect.any(String),
+            position: 0,
+            issueLabel: 'Street flooding',
+            stance: 'opposes',
+            desiredOutcome: 'Clear the storm drain',
+          },
+        ],
       })
       const saved = await row(recorded.data.id)
       expect(saved.transcript).toBe(
@@ -519,8 +595,7 @@ describe('offline memo capture', () => {
         where: { id: memo.id },
         data: {
           extractionStatus: ConstituentFeedbackExtractionStatus.failed,
-          issueLabel: null,
-          stance: null,
+          issues: { deleteMany: {} },
         },
       })
 
@@ -532,7 +607,15 @@ describe('offline memo capture', () => {
 
       expect(res.status).toBe(201)
       expect(res.data.extractionStatus).toBe('extracted')
-      expect(res.data.issueLabel).toBe('Street flooding')
+      expect(res.data.issues).toEqual([
+        {
+          id: expect.any(String),
+          position: 0,
+          issueLabel: 'Street flooding',
+          stance: 'opposes',
+          desiredOutcome: 'Clear the storm drain',
+        },
+      ])
       expect(res.data.confirmedAt).toBeNull()
     })
 

@@ -40,6 +40,7 @@ Complete AWS infrastructure for running the V1 Pipeline on Fargate with scale-to
 
 ### 1. S3 Bucket (`aws_s3_bucket.pipeline_data`)
 - **input/**: Campaign CSV files (30-day lifecycle)
+- **feedback-input/**: gp-api's issue-capture memo CSVs, one per synthesis run
 - **output/**: Generated results (archived to Glacier after 7 days)
 
 ### 2. ECS Fargate Task (`aws_ecs_task_definition.pipeline`)

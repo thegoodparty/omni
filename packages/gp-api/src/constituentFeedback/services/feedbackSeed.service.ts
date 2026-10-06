@@ -201,14 +201,19 @@ const memoRow = (
     clientKey: randomUUID(),
     transcript: memo.transcript,
     captureMethod: ConstituentFeedbackCaptureMethod.typed,
-    issueLabel: memo.issueLabel,
-    stance: memo.stance,
-    desiredOutcome: memo.desiredOutcome,
+    issues: {
+      createMany: {
+        data: memo.issues.map((issue, position) => ({
+          position,
+          ...issue,
+          proposedIssueLabel: issue.issueLabel,
+          proposedStance: issue.stance,
+          proposedDesiredOutcome: issue.desiredOutcome,
+        })),
+      },
+    },
     extractionStatus: ConstituentFeedbackExtractionStatus.extracted,
     extractionModel: SEED_MODEL,
-    proposedIssueLabel: memo.issueLabel,
-    proposedStance: memo.stance,
-    proposedDesiredOutcome: memo.desiredOutcome,
     effortQuestion,
   }
 }
