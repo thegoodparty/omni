@@ -155,6 +155,12 @@ const countWords = (days: number): string => {
 const dateWithCount = (date: Date, today: Date): string =>
   `${format(date, LONG_DATE)} (${countWords(differenceInCalendarDays(date, today))})`
 
+// "Filing opens Monday, November 16, 2026 (in 42 days)", or "opened" once
+// the day is behind the candidate.
+const openingWords = (start: Date, today: Date): string =>
+  `Filing ${differenceInCalendarDays(start, today) < 0 ? 'opened' : 'opens'} ` +
+  dateWithCount(start, today)
+
 const filingPeriodWords = (
   ctx: CampaignManagerContext,
   today: Date,
@@ -303,15 +309,22 @@ const STILL_DECIDING_GUIDANCE =
 // calendar day, and a date behind that day is the dangerous case: a past date
 // may mean they missed it, or may just be last cycle's record.
 const filingWindowLine = (ctx: CampaignManagerContext): string => {
+  const today = todayFor(ctx)
+  const start = parseDay(ctx.filingPeriodStart)
   const end = parseDay(ctx.filingPeriodEnd)
   if (!end) {
-    return (
-      'The race record has no filing period, so you do not know this ' +
-      "candidate's filing deadline. Say so plainly, never guess a date, and " +
-      'tell them to get it from the filing office.'
-    )
+    // The race block above already shows whatever half of the window the
+    // record holds, so this has to agree with it: an opening date without a
+    // close is a known start and an unknown deadline, not "no filing period".
+    return start
+      ? `${openingWords(start, today)}, but the record has no end date, so ` +
+          "you do not know this candidate's filing deadline. Say so plainly, " +
+          'never guess a deadline, and tell them to get it from the filing ' +
+          'office.'
+      : 'The race record has no filing period, so you do not know this ' +
+          "candidate's filing deadline. Say so plainly, never guess a date, " +
+          'and tell them to get it from the filing office.'
   }
-  const today = todayFor(ctx)
   const days = differenceInCalendarDays(end, today)
   const deadline = format(end, LONG_DATE)
   if (days < 0) {
@@ -326,11 +339,7 @@ const filingWindowLine = (ctx: CampaignManagerContext): string => {
       'in the plan.'
     )
   }
-  const start = parseDay(ctx.filingPeriodStart)
-  const opens = start
-    ? `Filing ${differenceInCalendarDays(start, today) < 0 ? 'opened' : 'opens'} ` +
-      `${dateWithCount(start, today)}. `
-    : ''
+  const opens = start ? `${openingWords(start, today)}. ` : ''
   const remaining =
     days === 0
       ? ' By our count that is TODAY: treat it as due now, say it is down to ' +

@@ -609,6 +609,27 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).not.toContain('that is TODAY')
   })
 
+  it('names the opening date and the missing deadline when only the start is on record', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        state: 'IL',
+        now: at('2026-10-05'),
+        ballotStatus: 'qualified-not-filed',
+        filingPeriodStart: '2026-11-16',
+        filingPeriodEnd: null,
+      }),
+    )
+    // The race block and the guidance must agree about what the record holds.
+    expect(prompt).toContain(
+      'Filing period on record: opens Monday, November 16, 2026 (in 42 days)',
+    )
+    expect(prompt).toContain(
+      'Filing opens Monday, November 16, 2026 (in 42 days), but the record has no end date',
+    )
+    expect(prompt).toContain('never guess a deadline')
+    expect(prompt).not.toContain('no filing period')
+  })
+
   it('says the deadline is unknown when the race has no filing period', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({ ballotStatus: 'qualified-not-filed', filingPeriodEnd: null }),
