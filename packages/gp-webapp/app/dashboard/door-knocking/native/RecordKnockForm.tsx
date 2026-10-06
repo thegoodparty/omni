@@ -231,15 +231,15 @@ export default function RecordKnockForm({
   // canvassers actually do or something we imagined they would.
   const [spoken, setSpoken] = useState(stashed?.spoken ?? false)
   // What the form holds unsaved, read on unmount. `saved` is set by a save
-  // that landed and unset by the next answer, so a door left after its knock
-  // saved stashes nothing.
+  // that landed and stays set until Cancel, so a door left after its knock
+  // saved stashes nothing, even when a transcript lands after Save.
   const unsavedRef = useRef<{ saved: boolean; draft: KnockDraft | null }>({
     saved: false,
     draft: null,
   })
   useEffect(() => {
     unsavedRef.current = {
-      saved: false,
+      saved: unsavedRef.current.saved,
       draft:
         outcome !== undefined || note !== ''
           ? {
@@ -544,6 +544,7 @@ export default function RecordKnockForm({
     record.reset()
     setHoldFailed(false)
     offline.discard()
+    unsavedRef.current = { saved: false, draft: null }
     drafts?.clear(draftKey)
   }
 

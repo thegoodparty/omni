@@ -13,7 +13,8 @@ import {
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { reportQueryKey } from 'app/dashboard/issue-capture/[outreachId]/queries'
-import RecordKnockForm from './RecordKnockForm'
+import RecordKnockForm, { type KnockDraft } from './RecordKnockForm'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -131,6 +132,36 @@ const renderForm = (onRecorded = vi.fn(), serveMode = true) => {
   return onRecorded
 }
 
+// The walk's store, as a plain map the test can read after an unmount.
+const draftStore = () => {
+  const store = new Map<string, KnockDraft>()
+  const drafts: UnsavedDrafts<KnockDraft> = {
+    get: (key) => store.get(key),
+    set: (key, draft) => {
+      store.set(key, draft)
+    },
+    clear: (key) => {
+      store.delete(key)
+    },
+  }
+  return { store, drafts }
+}
+
+const formWithDrafts = (
+  drafts: UnsavedDrafts<KnockDraft>,
+  onRecorded = vi.fn(),
+) => (
+  <DoorKnockingSurfaceProvider value={true}>
+    <RecordKnockForm
+      target={target}
+      turfId={1}
+      clientKey="6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90"
+      onRecorded={onRecorded}
+      drafts={drafts}
+    />
+  </DoorKnockingSurfaceProvider>
+)
+
 // A Serve door with a conversation and a dictated memo, saved.
 const walkAndSave = async () => {
   answer('Did they answer?', 'Answered')
@@ -218,6 +249,39 @@ describe('RecordKnockForm issue capture', () => {
 
     await waitFor(() => expect(onRecorded).toHaveBeenCalled())
     expect(isInvalidated()).toBe(true)
+  })
+
+  // The knock behind a confirm card is saved, so leaving the card for a
+  // housemate keeps nothing, and coming back offers a fresh door.
+  it('never restores a confirm card or the answers behind it', async () => {
+    const { store, drafts } = draftStore()
+    const view = render(formWithDrafts(drafts))
+    await walkAndSave()
+    await screen.findByText('Is this right?')
+
+    view.unmount()
+    expect(store.has('21')).toBe(false)
+
+    render(formWithDrafts(drafts))
+    expect(screen.queryByText('Is this right?')).toBeNull()
+    expect(
+      question('Did they answer?').getByRole('radio', { name: 'Answered' }),
+    ).toHaveAttribute('data-state', 'off')
+  })
+
+  // A transcript can arrive after Save. It is not a new, unsaved answer.
+  it('keeps nothing for a saved door when dictation lands late', async () => {
+    const { store, drafts } = draftStore()
+    const onRecorded = vi.fn()
+    const view = render(formWithDrafts(drafts, onRecorded))
+    answer('Did they answer?', 'Not home')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+
+    dictate('and a sentence the socket was still sending')
+    view.unmount()
+
+    expect(store.has('21')).toBe(false)
   })
 
   it('advances on skip, leaving the memo unconfirmed', async () => {
@@ -612,6 +676,28 @@ describe('RecordKnockForm offline edges', () => {
   })
 
   // The flag is the rollback lever: with it off, nothing is held.
+  // Held on the device is saved: the answers that were restored into the
+  // form go with the hold.
+  it('drops the answers it restored once the door is held', async () => {
+    const { store, drafts } = draftStore()
+    store.set('21', {
+      outcome: 'not_home',
+      note: 'Dog in the yard',
+      spoken: false,
+    })
+    const onRecorded = vi.fn()
+    const view = render(formWithDrafts(drafts, onRecorded))
+    expect(
+      question('Did they answer?').getByRole('radio', { name: 'Not home' }),
+    ).toHaveAttribute('data-state', 'on')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    view.unmount()
+
+    expect(store.has('21')).toBe(false)
+  })
+
   it('holds nothing with capture off, even offline', async () => {
     setFlag(false)
     online = false
