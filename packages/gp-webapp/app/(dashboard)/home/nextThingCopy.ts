@@ -8,8 +8,8 @@ import type { Campaign } from 'helpers/types'
 
 // The headline is general on purpose, so it reads right above any task, and in
 // GoodParty's own voice: independent, people first, ready to work. Home shows
-// one per login session (useSessionHeadline): a candidate opens Home often,
-// and a line that changes each visit gets noticed, then tuned out.
+// a new one on every visit (useHomeHeadline), never the last one shown: these
+// are rallying lines, and most candidates open Home once or twice a day.
 export const HOME_HEADLINES = [
   'Get into office',
   'Run your way',

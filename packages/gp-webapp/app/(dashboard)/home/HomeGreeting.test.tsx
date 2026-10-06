@@ -10,8 +10,8 @@ const mockCampaign = vi.hoisted(() => ({
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [mockCampaign.value],
 }))
-vi.mock('./useSessionHeadline', () => ({
-  useSessionHeadline: () => 'Earn every vote',
+vi.mock('./useHomeHeadline', () => ({
+  useHomeHeadline: () => 'Earn every vote',
 }))
 
 describe('HomeGreeting', () => {

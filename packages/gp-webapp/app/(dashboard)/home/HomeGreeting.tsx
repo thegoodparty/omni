@@ -3,7 +3,7 @@
 import { Badge, cn } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { countdownFor } from './nextThingCopy'
-import { useSessionHeadline } from './useSessionHeadline'
+import { useHomeHeadline } from './useHomeHeadline'
 
 /**
  * Home's greeting: the session's headline, set in the marketing site's display
@@ -11,7 +11,7 @@ import { useSessionHeadline } from './useSessionHeadline'
  * election. It names the next-thing card's landmark (#next-thing-heading).
  */
 export default function HomeGreeting(): React.JSX.Element {
-  const headline = useSessionHeadline()
+  const headline = useHomeHeadline()
   const [campaign] = useCampaign()
   const ready = headline !== null
   // Today is the browser's, so the countdown waits for the client like the
