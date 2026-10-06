@@ -782,6 +782,29 @@ describe('door-knocking routes', () => {
       expect(logged.status).toBe(201)
       expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(1)
     })
+
+    it('refuses a knock on a turf with no outreach envelope', async () => {
+      const { turf, routeId } = await routedTurf()
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          where: { stop: { turf: { route: { id: routeId } } } },
+        })
+      await service.prisma.outreach.delete({
+        where: { id: (await envelopeFor(turf.id)).id },
+      })
+
+      const logged = await service.client.post(
+        '/v1/door-knocking/interactions',
+        {
+          stopTargetId: target.id,
+          clientKey: 'cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa',
+          outcome: 'answered',
+        },
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+      expect(logged.status).toBe(404)
+      expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(0)
+    })
   })
 
   // Creating a list IS the purchase. One request, one transaction: turf,
