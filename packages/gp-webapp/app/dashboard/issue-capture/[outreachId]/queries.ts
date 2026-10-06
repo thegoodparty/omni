@@ -5,8 +5,12 @@ import { clientRequest } from 'gpApi/typed-request'
 // without asking for the whole report more than a few dozen times a run.
 export const REPORT_POLL_INTERVAL_MS = 5_000
 
+// Every effort's report, for a capture form that cannot say which effort its
+// knock or call belongs to.
+export const REPORT_QUERY_KEY_PREFIX = ['issue-capture', 'report'] as const
+
 export const reportQueryKey = (outreachId: number) =>
-  ['issue-capture', 'report', outreachId] as const
+  [...REPORT_QUERY_KEY_PREFIX, outreachId] as const
 
 // Polls only while the latest run is in flight, and stops by itself the
 // first time the report says it is not.

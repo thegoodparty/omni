@@ -11,7 +11,10 @@ import {
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { PhoneBankingInteraction } from '@goodparty_org/contracts'
-import PhoneBankingOutcomeForm from './PhoneBankingOutcomeForm'
+import PhoneBankingOutcomeForm, {
+  type CallDraft,
+} from './PhoneBankingOutcomeForm'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -485,6 +488,14 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     expect(captureBodies).toHaveLength(0)
   })
 
+  it('never says voter on the confirm card', async () => {
+    renderForm()
+    callAndSave()
+
+    await screen.findByText('Is this right?')
+    expect(document.body.textContent ?? '').not.toMatch(/voter/i)
+  })
+
   it('reports the memo as a Serve one', async () => {
     renderForm()
     callAndSave()
@@ -613,7 +624,7 @@ describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
 
     expect(
       await screen.findByText(
-        'Saved on your phone. It will be sent when you have signal.',
+        'Saved on your device. It will be sent when you have signal.',
       ),
     ).toBeVisible()
     expect(calls).not.toHaveBeenCalled()
@@ -661,6 +672,83 @@ describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
       text: { transcript: MEMO, captureMethod: 'dictation' },
       analytics: { channel: 'phoneBanking', product: 'serve' },
     })
+  })
+
+  it('drops the answers of a call held after the caller switched away', async () => {
+    const store = new Map<string, CallDraft>()
+    const drafts: UnsavedDrafts<CallDraft> = {
+      get: (key) => store.get(key),
+      set: (key, draft) => {
+        store.set(key, draft)
+      },
+      clear: (key) => {
+        store.delete(key)
+      },
+    }
+    const onSaved = vi.fn()
+    const form = (interaction: PhoneBankingInteraction | null) => (
+      <PhoneBankingOutcomeForm
+        listId={9}
+        entryId={ENTRY_ID}
+        entrySeq={1}
+        personId="person-1"
+        interaction={interaction}
+        householdHasOthersUnlogged={false}
+        isServe
+        onSaved={onSaved}
+        drafts={drafts}
+      />
+    )
+    const view = render(form(null))
+    callAndSave()
+    view.unmount()
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+
+    render(form(LOGGED))
+
+    expect(screen.queryByText('Did they answer?')).toBeNull()
+    expect(store.has(`${ENTRY_ID}:person-1`)).toBe(false)
+  })
+})
+
+describe('PhoneBankingOutcomeForm drafts', () => {
+  // A switch away in the same tick as Cancel unmounts before the ref that
+  // tracks unsaved answers has caught up, so Cancel has to clear it itself.
+  it('keeps nothing for a call cancelled as the caller switches away', () => {
+    const store = new Map<string, CallDraft>()
+    const drafts: UnsavedDrafts<CallDraft> = {
+      get: (key) => store.get(key),
+      set: (key, draft) => {
+        store.set(key, draft)
+      },
+      clear: (key) => {
+        store.delete(key)
+      },
+    }
+    const view = render(
+      <PhoneBankingOutcomeForm
+        listId={9}
+        entryId={ENTRY_ID}
+        entrySeq={1}
+        personId="person-1"
+        interaction={null}
+        householdHasOthersUnlogged={false}
+        isServe
+        onSaved={vi.fn()}
+        drafts={drafts}
+      />,
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Engaged' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Yes' }))
+    dictate(MEMO)
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      view.unmount()
+    })
+
+    expect(store.has(`${ENTRY_ID}:person-1`)).toBe(false)
   })
 })
 

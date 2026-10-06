@@ -52,6 +52,8 @@ import { outreachDetailQueryPrefix } from '../../v2/useOutreachDetail'
 import { parsePositiveListId } from '../../util/parsePositiveListId.util'
 import { WhatWeHeardLink } from 'app/dashboard/issue-capture/WhatWeHeardLink'
 import PhoneBankingEntryPanel from './PhoneBankingEntryPanel'
+import type { CallDraft } from './PhoneBankingOutcomeForm'
+import { useUnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import {
   NOT_CALLED_LABEL,
   OUTCOME_DOT_CLASS,
@@ -105,6 +107,10 @@ export default function PhoneBankingCallerPage({
         queryKey: phoneBankingListQueryKey(listId),
       }),
   })
+
+  // Answers a call's form was given and not saved, kept for this session so
+  // switching to a housemate, another entry or closing the panel keeps them.
+  const callDrafts = useUnsavedDrafts<CallDraft>()
 
   const [expandedEntryIds, setExpandedEntryIds] = useState<Set<number>>(
     new Set(),
@@ -713,6 +719,7 @@ export default function PhoneBankingCallerPage({
             if (!open) setActiveSelection(null)
           }}
           isServe={isServe}
+          callDrafts={callDrafts}
           onSaved={(results) => {
             // Whether THIS call is the one that finished the list. Read inside
             // the updater rather than off the render's `list`, because the
