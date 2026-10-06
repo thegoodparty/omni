@@ -59,6 +59,7 @@ describe('P2pController', () => {
   let mockPeerlyPhoneListCapture: {
     stampPeerlyListId: ReturnType<typeof vi.fn>
     findFirst: ReturnType<typeof vi.fn>
+    isLeadsLoadedStable: ReturnType<typeof vi.fn>
   }
   let mockRes: FastifyReply
 
@@ -77,6 +78,11 @@ describe('P2pController', () => {
         excludedOptedOutCount: 0,
         excludedDuplicatePhoneCount: 0,
       }),
+      // Defaulted true (stable/fully-loaded) so every pre-existing test below
+      // reaches the same `ready` behavior it asserted before this guard
+      // existed; the guard's own behavior is covered by the integration
+      // tests against the real service in p2pPhoneListUpload.routes.test.ts.
+      isLeadsLoadedStable: vi.fn().mockResolvedValue(true),
     }
     mockRes = createMockReply()
     controller = new P2pController(
@@ -245,6 +251,79 @@ describe('P2pController', () => {
         'test-token',
         123,
       )
+    })
+
+    it('returns 202 (still loading) when leads_loaded has not stabilized, without stamping', async () => {
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValue({
+        Data: { list_state: PhoneListState.ACTIVE, list_id: 123 },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockResolvedValue({ leads_loaded: 500, leads_supplied: 10_000 })
+      vi.mocked(
+        mockPeerlyPhoneListCapture.isLeadsLoadedStable,
+      ).mockResolvedValue(false)
+
+      const result = await controller.checkPhoneListStatus(
+        mockCampaign,
+        'test-token',
+        mockRes,
+      )
+
+      expect(mockRes.status).toHaveBeenCalledWith(202)
+      expect(result).toEqual({
+        message:
+          'Phone list is still loading leads. Please try again in a few moments.',
+      })
+      expect(
+        mockPeerlyPhoneListCapture.isLeadsLoadedStable,
+      ).toHaveBeenCalledWith({
+        buildId: 1,
+        leadsLoaded: 500,
+        leadsSupplied: 10_000,
+      })
+      expect(
+        mockPeerlyPhoneListCapture.stampPeerlyListId,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('a repeat poll on an already-ready row skips the stability gate entirely', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue({
+        id: 1,
+        peerlyListId: 123,
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValue({
+        Data: { list_state: PhoneListState.ACTIVE, list_id: 123 },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockResolvedValue({ leads_loaded: 300, leads_supplied: 10_000 })
+
+      const result = await controller.checkPhoneListStatus(
+        mockCampaign,
+        'test-token',
+        mockRes,
+      )
+
+      // leads_loaded (300) never equals leads_supplied (10,000) here — if the
+      // gate ran, this would be a 202. It must not run once the row is
+      // already stamped ready.
+      expect(
+        mockPeerlyPhoneListCapture.isLeadsLoadedStable,
+      ).not.toHaveBeenCalled()
+      expect(mockRes.status).not.toHaveBeenCalled()
+      expect(result).toEqual({
+        phoneListId: 123,
+        leadsLoaded: 300,
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      })
     })
 
     it('still returns the ready status when the stamp write fails', async () => {
