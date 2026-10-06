@@ -352,22 +352,24 @@ describe('OutreachMaterializationService', () => {
     // and confirming this same test then fails).
     const totalRecipients = 5
     const pageSize = 2
-    vi.spyOn(contacts, 'findContacts').mockImplementation(async (params) => {
-      const page = params.page ?? 1
-      const start = (page - 1) * pageSize
-      const ids = Array.from(
-        { length: Math.min(pageSize, Math.max(totalRecipients - start, 0)) },
-        (_, i) => `pid-${start + i}`,
-      )
-      return peoplePage(ids, {
-        totalResults: totalRecipients,
-        pageSize,
-        totalPages: Math.ceil(totalRecipients / pageSize),
-        currentPage: page,
-        hasNextPage: start + ids.length < totalRecipients,
-        hasPreviousPage: page > 1,
+    const findContacts = vi
+      .spyOn(contacts, 'findContacts')
+      .mockImplementation(async (params) => {
+        const page = params.page ?? 1
+        const start = (page - 1) * pageSize
+        const ids = Array.from(
+          { length: Math.min(pageSize, Math.max(totalRecipients - start, 0)) },
+          (_, i) => `pid-${start + i}`,
+        )
+        return peoplePage(ids, {
+          totalResults: totalRecipients,
+          pageSize,
+          totalPages: Math.ceil(totalRecipients / pageSize),
+          currentPage: page,
+          hasNextPage: start + ids.length < totalRecipients,
+          hasPreviousPage: page > 1,
+        })
       })
-    })
     const warnSpy = vi
       .spyOn(PinoLogger.prototype, 'warn')
       .mockImplementation(() => undefined)
@@ -380,6 +382,14 @@ describe('OutreachMaterializationService', () => {
       })
       expect(count).toBe(totalRecipients)
       expect(warnSpy).not.toHaveBeenCalled()
+      // Proves the pager actually ran to exhaustion rather than stopping
+      // early: a cap that short-circuits the loop before the last page
+      // would still leave 5 rows below a 100k-row default, so the count
+      // alone can't catch it. Fetching all 3 pages is what a finite cap
+      // would truncate.
+      expect(findContacts).toHaveBeenCalledTimes(
+        Math.ceil(totalRecipients / pageSize),
+      )
     } finally {
       warnSpy.mockRestore()
     }
