@@ -67,14 +67,6 @@ const NOTE_PLACEHOLDER = {
   },
 }
 
-// The memo is the canvasser's own voice, after the conversation. The other
-// person is never recorded, which keeps call-recording and two-party-consent
-// law out of the feature, and the field says so where the mic is.
-const MEMO_CONSENT_LINE = {
-  win: "Say what they told you. Don't record the other person.",
-  serve: "Say what they told you. Don't record the other person.",
-}
-
 // The canvas's own `pill` helper in `renderPanel`: 34px tall, 12px of side
 // padding, 14px at weight 500, fully round, `tertiary-dark` on
 // `tertiary-foreground` when it is the chosen answer and a plain border when it
@@ -658,11 +650,6 @@ export default function RecordKnockForm({
               disabled={record.isPending}
             />
           </div>
-          {capturesIssues && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {MEMO_CONSENT_LINE[product]}
-            </p>
-          )}
           {offline.audio !== null && (
             <p className="mt-2 text-xs text-muted-foreground">
               {OFFLINE_MEMO_COPY.recorded}

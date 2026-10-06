@@ -70,14 +70,6 @@ const MEMO_PLACEHOLDER = {
     "Say it out loud, we'll clean it up",
 }
 
-// The memo is the caller's own voice, after the call. The other person is
-// never recorded, which keeps call-recording and two-party-consent law out of
-// the feature, and the field says so where the mic is.
-const MEMO_CONSENT_LINE = {
-  win: "Say what they told you. Don't record the other person.",
-  serve: "Say what they told you. Don't record the other person.",
-}
-
 // Everything `onSuccess` needs, frozen when Save is pressed. react-query
 // refreshes a mutation's callbacks on every render, so `onSuccess` runs
 // against the LATEST render's closure rather than the one that fired it — and
@@ -685,9 +677,6 @@ export default function PhoneBankingOutcomeForm({
               disabled={saveMutation.isPending}
             />
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {MEMO_CONSENT_LINE[product]}
-          </p>
           {offline.audio !== null && (
             <p className="mt-2 text-xs text-muted-foreground">
               {OFFLINE_MEMO_COPY.recorded}

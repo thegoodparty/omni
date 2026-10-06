@@ -438,21 +438,6 @@ describe('RecordKnockForm issue capture', () => {
     expect(screen.queryByText('Is this right?')).toBeNull()
   })
 
-  // The canvasser speaks after the conversation, about it. The other person
-  // is never recorded, and the field says so where the mic is.
-  it('tells the canvasser to speak for themselves', () => {
-    renderForm()
-    answer('Did they answer?', 'Answered')
-    answer('Did they engage?', 'Engaged')
-    answer('Do they need follow-up?', 'Yes')
-
-    expect(
-      screen.getByText(
-        "Say what they told you. Don't record the other person.",
-      ),
-    ).toBeVisible()
-  })
-
   it('reports the memo as a Serve one', async () => {
     renderForm()
     await walkAndSave()
@@ -794,11 +779,6 @@ describe('RecordKnockForm issue capture on a Win door', () => {
     answer('Will they vote this election?', 'Yes')
 
     expect(screen.getByPlaceholderText('What did they tell you?')).toBeVisible()
-    expect(
-      screen.getByText(
-        "Say what they told you. Don't record the other person.",
-      ),
-    ).toBeVisible()
     expect(document.body.textContent ?? '').not.toMatch(/constituent/i)
   })
 

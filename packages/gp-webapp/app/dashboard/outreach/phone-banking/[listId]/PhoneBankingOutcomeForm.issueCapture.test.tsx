@@ -485,21 +485,6 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     expect(captureBodies).toHaveLength(0)
   })
 
-  // The caller speaks after the call, about it. The other person is never
-  // recorded, and the field says so where the mic is.
-  it('tells the caller to speak for themselves', () => {
-    renderForm()
-    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
-    fireEvent.click(screen.getByRole('radio', { name: 'Engaged' }))
-    fireEvent.click(screen.getByRole('radio', { name: 'Yes' }))
-
-    expect(
-      screen.getByText(
-        "Say what they told you. Don't record the other person.",
-      ),
-    ).toBeVisible()
-  })
-
   it('reports the memo as a Serve one', async () => {
     renderForm()
     callAndSave()
@@ -580,11 +565,6 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
     expect(screen.getByText('Their note')).toBeVisible()
     expect(screen.queryByText('What did they say?')).toBeNull()
     expect(screen.getByPlaceholderText('What did they tell you?')).toBeVisible()
-    expect(
-      screen.getByText(
-        "Say what they told you. Don't record the other person.",
-      ),
-    ).toBeVisible()
     expect(document.body.textContent ?? '').not.toMatch(/constituent/i)
   })
 
