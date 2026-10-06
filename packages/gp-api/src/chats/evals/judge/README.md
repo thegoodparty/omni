@@ -208,10 +208,9 @@ organization, and carry placeholders for it instead:
 One entry is left: `compliance_setup` carries `cases: null`, which is the gap
 staying visible rather than being rounded off. It is a pending decision about
 what its inputs should be, not an unwritten file. `briefing_annotation` is not
-that gap: it is `blocked` (its handler is registered, but the runner cannot
-create a briefing conversation through `POST /v1/chats`), and is out of the
-denominator on purpose, so inputs for it would be inputs for a runner that
-cannot drive it.
+that gap: the runner can drive it (it opens a briefing chat through
+`POST /v1/briefing-chats`, below), and it stays `blocked` only until its case
+list lands, which keeps it out of the denominator until then.
 
 **All but one are `placeholder: true`.** The exception is
 `race_opponent_summary.json`, a real bench of nine cases. Each other background list is
