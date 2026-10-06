@@ -1,13 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import {
-  BookOpenIcon,
-  Card,
-  ChevronRightIcon,
-  FlagIcon,
-  LandmarkIcon,
-} from '@styleguide'
+import { Card, ChevronRightIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useCampaignStoryComplete } from 'app/(dashboard)/campaign-story/useCampaignStoryComplete'
 
@@ -22,13 +16,11 @@ interface CampaignPlanOverviewCardsProps {
 const OverviewLink = ({
   card,
   href,
-  icon,
   title,
   summary,
 }: {
   card: OverviewCard
   href: string
-  icon: React.ReactNode
   title: string
   summary: string
 }): React.JSX.Element => (
@@ -40,14 +32,15 @@ const OverviewLink = ({
     }
   >
     <Card className="h-full gap-2 rounded-2xl border border-grayscale-300 p-4 transition-colors group-hover:border-primary">
-      <div className="flex items-center justify-between text-muted-foreground">
-        {icon}
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-base font-semibold text-card-foreground">
+          {title}
+        </h2>
         <ChevronRightIcon
-          className="size-4 transition-transform group-hover:translate-x-0.5"
+          className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
           aria-hidden
         />
       </div>
-      <h2 className="text-base font-semibold text-card-foreground">{title}</h2>
       <p className="line-clamp-2 text-sm text-muted-foreground">{summary}</p>
     </Card>
   </Link>
@@ -84,21 +77,18 @@ export default function CampaignPlanOverviewCards({
       <OverviewLink
         card="race"
         href="/profile"
-        icon={<LandmarkIcon className="size-5" aria-hidden />}
         title="Your race"
         summary={raceSummary}
       />
       <OverviewLink
         card="story"
         href="/campaign-story"
-        icon={<BookOpenIcon className="size-5" aria-hidden />}
         title="Your story"
         summary={storySummary}
       />
       <OverviewLink
         card="opponents"
         href="/race-opponent"
-        icon={<FlagIcon className="size-5" aria-hidden />}
         title="Your opponents"
         summary="Who you’re running against, and where you stand apart"
       />
