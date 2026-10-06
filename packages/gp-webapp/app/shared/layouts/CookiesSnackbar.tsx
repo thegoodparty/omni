@@ -23,7 +23,9 @@ const CookiesSnackbar = (): React.JSX.Element | null => {
     setShowBanner(false)
   }
   return (
-    <div className="fixed bottom-4 flex justify-center w-full pointer-events-none">
+    // z-40: above the campaign manager's fixed chat bar (z-30), below dialogs
+    // and drawers (z-50) so it never covers a modal.
+    <div className="fixed bottom-4 z-40 flex justify-center w-full pointer-events-none">
       <div
         className="bg-tertiary-light text-tertiary-dark p-4 flex max-w-[440px] mx-8 rounded-lg pointer-events-auto"
         data-testid="cookie-snackbar"

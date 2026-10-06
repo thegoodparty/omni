@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
+  cn,
   FilterPill,
   FilterPillGroup,
   Select,
@@ -20,8 +21,8 @@ interface PlanSectionNavProps {
   sections: PlanSectionRef[]
   onStuckChange?: (stuck: boolean) => void
   stuckClassName?: string
-  // 'pills' lays the sections out as filter pills, for a host that shows the
-  // plan inside a card where a sticky dropdown has nowhere to stick.
+  // 'pills' lays the sections out as one horizontally scrolling row of filter
+  // pills that pins to the top of the screen and follows the reading position.
   variant?: 'select' | 'pills'
 }
 
@@ -44,6 +45,7 @@ const PlanSectionNav = ({
   const [activeId, setActiveId] = useState<string>(sections[0]?.id ?? '')
   const [isStuck, setIsStuck] = useState(false)
   const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const pillScrollerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const el = wrapperRef.current
@@ -106,6 +108,21 @@ const PlanSectionNav = ({
     return () => observer.disconnect()
   }, [sections])
 
+  // Keep the active pill in view as the page scrolls. The row is moved by
+  // hand, not with scrollIntoView, which would also scroll the page.
+  useEffect(() => {
+    if (variant !== 'pills') return
+    const scroller = pillScrollerRef.current
+    const pill = scroller?.querySelector<HTMLElement>(
+      `[data-value="${CSS.escape(activeId)}"]`,
+    )
+    if (!scroller || !pill) return
+    scroller.scrollTo({
+      left: pill.offsetLeft - (scroller.clientWidth - pill.offsetWidth) / 2,
+      behavior: 'smooth',
+    })
+  }, [activeId, variant])
+
   const handleChange = (value: string) => {
     setActiveId(value)
     const el = document.getElementById(value)
@@ -116,21 +133,41 @@ const PlanSectionNav = ({
 
   if (variant === 'pills') {
     return (
-      <FilterPillGroup
-        value={activeId}
-        onValueChange={(value) => {
-          // Radix single-toggle emits '' on re-pressing the active pill; jump
-          // back to that section rather than clearing the selection.
-          handleChange(value || activeId)
-        }}
-        aria-label="Jump to a section"
+      <div
+        ref={wrapperRef}
+        className={cn(
+          'sticky top-0 z-20 -mx-6 py-3',
+          isStuck && 'border-b border-border bg-background shadow-sm',
+        )}
       >
-        {sections.map((s) => (
-          <FilterPill key={s.id} value={s.id}>
-            {s.label}
-          </FilterPill>
-        ))}
-      </FilterPillGroup>
+        {/* Same hidden-scrollbar row as the styleguide Tabs list. */}
+        <div
+          ref={pillScrollerRef}
+          className="relative overflow-x-auto px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <FilterPillGroup
+            value={activeId}
+            onValueChange={(value) => {
+              // Radix single-toggle emits '' on re-pressing the active pill;
+              // jump back to that section rather than clearing the selection.
+              handleChange(value || activeId)
+            }}
+            aria-label="Jump to a section"
+            className="w-max flex-nowrap"
+          >
+            {sections.map((s) => (
+              <FilterPill
+                key={s.id}
+                value={s.id}
+                // FilterPill has no size prop; this is its compact form.
+                className="shrink-0 px-2.5 py-1 text-xs"
+              >
+                {s.label}
+              </FilterPill>
+            ))}
+          </FilterPillGroup>
+        </div>
+      </div>
     )
   }
 

@@ -1,10 +1,10 @@
 'use client'
 
 import DashboardLayout from '../shared/DashboardLayout'
-import { NAV_LABELS } from '../shared/navLabels'
 import CampaignManagerHome from '../campaign-manager/CampaignManagerHome'
 import { WebsiteSunsetModalController } from '../shared/WebsiteSunsetModalController'
 import type { TcrCompliance } from 'helpers/types'
+import { NAV_LABELS } from '../shared/navLabels'
 
 interface DashboardContentProps {
   pathname: string

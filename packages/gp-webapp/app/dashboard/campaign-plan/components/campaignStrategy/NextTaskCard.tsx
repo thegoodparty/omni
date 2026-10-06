@@ -11,11 +11,6 @@ import {
 import {
   AlertDialog,
   CheckIcon,
-  ChevronDownIcon,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  IconButton,
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
@@ -193,37 +188,6 @@ const subscribeSkipped = (listener: () => void): (() => void) => {
 
 const NO_SKIPS: string[] = []
 
-// Whether the plan's next-step section is folded. A per-viewer convenience,
-// so it lives in the browser and survives a reload.
-const COLLAPSED_KEY = 'next-task-collapsed'
-const collapseListeners = new Set<() => void>()
-let collapsedMemory = false
-
-const readCollapsed = (): boolean => {
-  try {
-    return window.localStorage.getItem(COLLAPSED_KEY) === '1'
-  } catch {
-    return collapsedMemory
-  }
-}
-
-const writeCollapsed = (value: boolean): void => {
-  collapsedMemory = value
-  try {
-    window.localStorage.setItem(COLLAPSED_KEY, value ? '1' : '0')
-  } catch {
-    // Storage disabled: collapsedMemory holds it for this page load.
-  }
-  collapseListeners.forEach((listener) => listener())
-}
-
-const subscribeCollapsed = (listener: () => void): (() => void) => {
-  collapseListeners.add(listener)
-  return () => {
-    collapseListeners.delete(listener)
-  }
-}
-
 // The front of the candidate's task stack as a card, shared by the Campaign
 // Plan and the Campaign Manager. Reads the same tracker-tasks query the plan's
 // rail uses, so a task completed on either surface leaves both.
@@ -234,7 +198,8 @@ const NextTaskCard = ({
   tone = 'default',
   className,
 }: {
-  heading: string
+  // Omitted when the host frames the card with its own heading.
+  heading?: string
   subheading?: string
   // Both surfaces hold the same stack (the next task, then this week's top
   // priorities) and the same skips, so they always show the same front card.
@@ -242,7 +207,7 @@ const NextTaskCard = ({
   // below.
   surface: 'plan' | 'manager'
   // 'inverse' for a host that sets the section on a dark band: the heading
-  // and the collapse toggle switch to light text; the card stays white.
+  // switches to light text; the card stays white.
   tone?: 'default' | 'inverse'
   className?: string
 }): React.JSX.Element | null => {
@@ -252,15 +217,6 @@ const NextTaskCard = ({
   const story = useCampaignStoryComplete(true)
   const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks)
   const [confirmTaskId, setConfirmTaskId] = useState<string | null>(null)
-  // The plan's next step leads the page but can be folded away. The manager's
-  // card is the page itself, so it always stays open.
-  const collapsible = surface === 'plan'
-  const collapsed = useSyncExternalStore(
-    subscribeCollapsed,
-    readCollapsed,
-    () => false,
-  )
-  const open = !collapsible || !collapsed
   const skippedIds = useSyncExternalStore(
     subscribeSkipped,
     readSkipped,
@@ -354,6 +310,10 @@ const NextTaskCard = ({
   deck.sort((a, b) => skipRank(a.id) - skipRank(b.id))
   const frontTask = deck[0]
   const layersBehind = surface === 'manager' ? Math.min(deck.length - 1, 2) : 0
+  // The plan pins this card above the tracker, so there it is a compact strip:
+  // one-line meta, a clamped description, small buttons in one row.
+  const compact = surface === 'plan'
+  const buttonSize = compact ? 'small' : 'medium'
 
   if (!frontTask) return countModal
 
@@ -398,23 +358,21 @@ const NextTaskCard = ({
   ]
 
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={(next) => writeCollapsed(!next)}
-      asChild
+    <section
+      className={cn(
+        'flex w-full flex-col',
+        compact ? 'gap-3' : surface === 'manager' ? 'gap-8' : 'gap-4',
+        className,
+      )}
     >
-      <section className={cn('flex w-full flex-col gap-4', className)}>
-        {/* The whole heading row toggles the section, a bigger target than
-            the chevron. The chevron stays the real (keyboard-reachable)
-            trigger; it stops its click here so one press toggles once. */}
-        <div
-          className={cn(
-            'flex items-start justify-between gap-4',
-            collapsible && 'cursor-pointer',
-          )}
-          onClick={collapsible ? () => writeCollapsed(open) : undefined}
-        >
-          <div className="flex flex-col gap-1">
+      {heading && (
+        <div className="flex items-start justify-between gap-4">
+          <div
+            className={cn(
+              'flex flex-col gap-1',
+              surface === 'manager' && 'w-full items-center text-center',
+            )}
+          >
             <h2
               className={cn(
                 surface === 'manager'
@@ -440,175 +398,172 @@ const NextTaskCard = ({
               </p>
             )}
           </div>
-          {collapsible && (
-            <CollapsibleTrigger asChild>
-              <IconButton
-                type="button"
-                variant="ghost"
-                size="small"
-                onClick={(event) => event.stopPropagation()}
-                aria-label={
-                  open ? 'Hide your next step' : 'Show your next step'
-                }
-                className={cn(
-                  'shrink-0',
-                  tone === 'inverse' &&
-                    'text-primary-foreground hover:bg-primary-foreground/10',
-                )}
-              >
-                <ChevronDownIcon
-                  className={cn(
-                    'size-4 transition-transform',
-                    open && 'rotate-180',
-                  )}
-                  aria-hidden
-                />
-              </IconButton>
-            </CollapsibleTrigger>
-          )}
         </div>
-        <CollapsibleContent>
+      )}
+      <div
+        className={cn(
+          'relative w-full',
+          layersBehind === 2 && 'pb-4',
+          layersBehind === 1 && 'pb-2',
+        )}
+      >
+        {layersBehind === 2 && (
+          <Card
+            aria-hidden
+            className="absolute inset-x-6 top-4 bottom-0 rounded-2xl border-components-input-border py-0"
+          />
+        )}
+        {layersBehind >= 1 && (
+          <Card
+            aria-hidden
+            className={cn(
+              'absolute inset-x-3 top-2 rounded-2xl border-components-input-border py-0',
+              layersBehind === 2 ? 'bottom-2' : 'bottom-0',
+            )}
+          />
+        )}
+        <Card className="relative min-h-20 gap-0 overflow-hidden rounded-2xl border-components-input-border py-0">
           <div
             className={cn(
-              'relative w-full',
-              layersBehind === 2 && 'pb-4',
-              layersBehind === 1 && 'pb-2',
+              'flex flex-col gap-1',
+              compact ? 'px-4 py-3' : 'px-6 py-5',
             )}
           >
-            {layersBehind === 2 && (
-              <Card
-                aria-hidden
-                className="absolute inset-x-6 top-4 bottom-0 rounded-2xl border-components-input-border py-0"
-              />
-            )}
-            {layersBehind >= 1 && (
-              <Card
-                aria-hidden
-                className={cn(
-                  'absolute inset-x-3 top-2 rounded-2xl border-components-input-border py-0',
-                  layersBehind === 2 ? 'bottom-2' : 'bottom-0',
+            <div className="flex min-h-6 items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {frontTask.prompt ? (
+                  <Overline>Campaign Manager</Overline>
+                ) : (
+                  <Overline>{phaseTitle}</Overline>
                 )}
-              />
-            )}
-            <Card className="relative min-h-20 gap-0 overflow-hidden rounded-2xl border-components-input-border py-0">
-              <div className="flex flex-col gap-1 px-6 py-5">
-                <div className="flex min-h-6 items-start justify-between gap-2">
-                  {frontTask.prompt ? (
-                    <Overline>Campaign Manager</Overline>
-                  ) : (
-                    <Overline>{phaseTitle}</Overline>
-                  )}
-                  {/* Skip is a quiet escape hatch, so it sits behind the menu
+                {compact && dueDate && (
+                  <span className="text-xs text-muted-foreground">
+                    Due {dueDate}
+                  </span>
+                )}
+              </div>
+              {/* Skip is a quiet escape hatch, so it sits behind the menu
                       rather than beside the actions. */}
-                  {menuItems.length > 0 && <MoreMenu menuItems={menuItems} />}
-                </div>
-                <h3 className="font-opensans text-lg font-medium text-card-foreground">
-                  {frontTask.title}
-                </h3>
-                {dueDate && (
-                  <p className="text-muted-foreground text-sm">Due {dueDate}</p>
-                )}
-                <p className="text-muted-foreground text-sm">
-                  {frontTask.description}
-                </p>
-                <div className="flex flex-col gap-2 pt-3 sm:flex-row sm:flex-wrap">
-                  {frontTask.prompt ? (
+              {menuItems.length > 0 && <MoreMenu menuItems={menuItems} />}
+            </div>
+            <h3
+              className={cn(
+                'font-opensans font-medium text-card-foreground',
+                compact ? 'text-base' : 'text-lg',
+              )}
+            >
+              {frontTask.title}
+            </h3>
+            {!compact && dueDate && (
+              <p className="text-muted-foreground text-sm">Due {dueDate}</p>
+            )}
+            <p
+              className={cn(
+                'text-muted-foreground text-sm',
+                compact && 'line-clamp-2',
+              )}
+            >
+              {frontTask.description}
+            </p>
+            <div
+              className={cn(
+                'flex gap-2',
+                compact
+                  ? 'flex-col pt-2 sm:flex-row sm:flex-wrap'
+                  : 'flex-col pt-3 sm:flex-row sm:flex-wrap',
+              )}
+            >
+              {frontTask.prompt ? (
+                <Button
+                  type="button"
+                  size={buttonSize}
+                  className="w-full sm:w-auto"
+                  onClick={frontTask.prompt.onCta}
+                >
+                  {frontTask.prompt.ctaLabel}
+                </Button>
+              ) : (
+                <>
+                  {action && (
+                    <Button
+                      asChild
+                      size={buttonSize}
+                      className="w-full sm:w-auto"
+                    >
+                      {action.external ? (
+                        <a href={action.href} target="_blank" rel="noreferrer">
+                          {action.label}
+                          <ExternalLinkIcon className="size-4" aria-hidden />
+                        </a>
+                      ) : (
+                        <Link href={action.href}>{action.label}</Link>
+                      )}
+                    </Button>
+                  )}
+                  {!completesItself && (
                     <Button
                       type="button"
-                      size="medium"
+                      variant={action ? 'outline' : 'default'}
+                      size={buttonSize}
                       className="w-full sm:w-auto"
-                      onClick={frontTask.prompt.onCta}
+                      onClick={markDone}
                     >
-                      {frontTask.prompt.ctaLabel}
+                      <CheckIcon className="size-4" aria-hidden />
+                      Mark as done
                     </Button>
-                  ) : (
-                    <>
-                      {action && (
-                        <Button
-                          asChild
-                          size="medium"
-                          className="w-full sm:w-auto"
-                        >
-                          {action.external ? (
-                            <a
-                              href={action.href}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {action.label}
-                              <ExternalLinkIcon
-                                className="size-4"
-                                aria-hidden
-                              />
-                            </a>
-                          ) : (
-                            <Link href={action.href}>{action.label}</Link>
-                          )}
-                        </Button>
-                      )}
-                      {!completesItself && (
-                        <Button
-                          type="button"
-                          variant={action ? 'outline' : 'default'}
-                          size="medium"
-                          className="w-full sm:w-auto"
-                          onClick={markDone}
-                        >
-                          <CheckIcon className="size-4" aria-hidden />
-                          Mark as done
-                        </Button>
-                      )}
-                      {chat && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="medium"
-                          className="w-full text-primary hover:bg-primary/5 sm:w-auto"
-                          onClick={() =>
-                            chat.discussTask(discussTaskMessage(frontTask))
-                          }
-                        >
-                          <MessageSquareIcon className="size-4" aria-hidden />
-                          Discuss in chat
-                        </Button>
-                      )}
-                    </>
                   )}
-                </div>
-              </div>
-            </Card>
+                  {chat && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size={buttonSize}
+                      className={cn(
+                        'text-primary hover:bg-primary/5',
+                        'w-full sm:w-auto',
+                      )}
+                      onClick={() =>
+                        chat.discussTask(discussTaskMessage(frontTask))
+                      }
+                    >
+                      <MessageSquareIcon className="size-4" aria-hidden />
+                      Discuss in chat
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </CollapsibleContent>
-        {/* Completing pulls the card away and brings the next one forward, so a
+        </Card>
+      </div>
+      {/* Completing pulls the card away and brings the next one forward, so a
           stray press would lose the task from view. Brand-default action, not
           destructive: the task can be reopened from the plan. */}
-        <AlertDialog
-          open={confirmTaskId !== null}
-          onOpenChange={(open) => {
-            if (!open) setConfirmTaskId(null)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Mark this task done?</AlertDialogTitle>
-              <AlertDialogDescription>{frontTask.title}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Not yet</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  if (confirmTaskId) onToggleComplete(confirmTaskId, true)
-                  setConfirmTaskId(null)
-                }}
-              >
-                Mark done
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-        {countModal}
-      </section>
-    </Collapsible>
+      <AlertDialog
+        open={confirmTaskId !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmTaskId(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark this task done?</AlertDialogTitle>
+            <AlertDialogDescription>{frontTask.title}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not yet</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmTaskId) onToggleComplete(confirmTaskId, true)
+                setConfirmTaskId(null)
+              }}
+            >
+              Mark done
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {countModal}
+    </section>
   )
 }
 

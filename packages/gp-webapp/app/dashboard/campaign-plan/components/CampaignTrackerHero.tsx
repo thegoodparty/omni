@@ -69,7 +69,7 @@ const CampaignTrackerHero = ({
       {metaLine && (
         <p className="text-muted-foreground mt-1 text-base">{metaLine}</p>
       )}
-      <p className="text-foreground mt-4 max-w-2xl">
+      <p className="text-muted-foreground mt-4 text-sm">
         Running for office is hard, especially the first time. This plan tells
         you what to do, when to do it, and how to reach the voters who decide
         your race. It is built from public voter records and past elections in
