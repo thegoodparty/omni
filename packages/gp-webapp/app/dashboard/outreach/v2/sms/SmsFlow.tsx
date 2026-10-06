@@ -1550,6 +1550,19 @@ export const SmsFlow = ({
       isDraftCreatingRef.current = false
       setDraftOutreachId(null)
       setDraftCreateError(false)
+      // A build the poll resolved to `failed` is dead state, not a snapshot
+      // worth keeping — left alone, re-entering review would show the exact
+      // same failure card from before the edit instead of giving the edited
+      // campaign its own shot. Re-request it the same way the review step's
+      // own retry does, rather than only clearing the flags: nothing else
+      // triggers a build between compose and review, so clearing without
+      // rebuilding would strand review on a permanent "preparing" spinner. A
+      // build still in flight or one that already succeeded is untouched —
+      // the audience didn't change, so a completed phoneList survives
+      // Back/forward without a needless rebuild.
+      if (phoneListBuildFailed) {
+        void handleRetryPhoneListBuild()
+      }
     }
     const previous = stepOrder[stepIndex - 1]
     if (previous) setStepId(previous)

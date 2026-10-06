@@ -2127,6 +2127,71 @@ describe('SmsFlow', () => {
       expect(await screen.findByText('1,200')).toBeInTheDocument()
       expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(2)
     })
+
+    it('rebuilds automatically on Back from a failed build, so re-entering review is not stuck on the stale failure', async () => {
+      vi.mocked(createP2pPhoneList)
+        .mockReset()
+        .mockResolvedValueOnce({ ok: true, token: 'tok-1', buildId: 'build-1' })
+        .mockResolvedValueOnce({ ok: true, token: 'tok-2', buildId: 'build-2' })
+      vi.mocked(getP2pPhoneListBuildStatus).mockImplementation(
+        async (buildId) =>
+          buildId === 'build-1'
+            ? {
+                buildStatus: 'failed',
+                buildError: 'No contacts matched the filter.',
+              }
+            : {
+                buildStatus: 'ready',
+                phoneListId: 77,
+                leadsLoaded: 1200,
+                excludedOptedOutCount: 3,
+                excludedDuplicatePhoneCount: 1,
+              },
+      )
+      openFlow()
+      await runToReview()
+
+      expect(
+        await screen.findByText(
+          "We couldn't prepare this audience. Try again.",
+        ),
+      ).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+      await screen.findByRole('textbox', { name: 'Message body' })
+
+      // Back already re-requested a fresh build in the background -- the
+      // candidate doesn't have to notice the stale failure and press retry
+      // themselves before continuing.
+      await waitFor(() =>
+        expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(2),
+      )
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        screen.queryByText("We couldn't prepare this audience. Try again."),
+      ).not.toBeInTheDocument()
+      expect(await screen.findByText('1,200')).toBeInTheDocument()
+    })
+
+    it('keeps a successful build across Back/forward without rebuilding it', async () => {
+      openFlow()
+      await runToReview()
+
+      expect(await screen.findByText('1,200')).toBeInTheDocument()
+      expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
+
+      await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(await screen.findByText('1,200')).toBeInTheDocument()
+      expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
+    })
   })
 })
 
