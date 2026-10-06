@@ -613,7 +613,7 @@ describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
 
     expect(
       await screen.findByText(
-        'Saved on your phone. It will be sent when you have signal.',
+        'Saved on your device. It will be sent when you have signal.',
       ),
     ).toBeVisible()
     expect(calls).not.toHaveBeenCalled()

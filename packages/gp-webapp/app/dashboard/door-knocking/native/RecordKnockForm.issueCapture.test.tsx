@@ -512,7 +512,7 @@ describe('RecordKnockForm issue capture with no signal', () => {
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
     expect(mocks.successSnackbar).toHaveBeenCalledWith(
-      'Saved on your phone. It will be sent when you have signal.',
+      'Saved on your device. It will be sent when you have signal.',
     )
     expect(knocks).not.toHaveBeenCalled()
     expect(screen.queryByText('Is this right?')).toBeNull()
@@ -720,7 +720,7 @@ describe('RecordKnockForm offline edges', () => {
       await screen.findByRole('button', { name: 'Stop dictation' }),
     )
     expect(
-      await screen.findByText('Note recorded on your phone.'),
+      await screen.findByText('Note recorded on your device.'),
     ).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -740,7 +740,7 @@ describe('RecordKnockForm offline edges', () => {
 
     // The live dictation it wraps, which fails the ordinary way offline.
     expect(mocks.start).toHaveBeenCalled()
-    expect(screen.queryByText('Note recorded on your phone.')).toBeNull()
+    expect(screen.queryByText('Note recorded on your device.')).toBeNull()
   })
 })
 

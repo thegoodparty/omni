@@ -29,10 +29,10 @@ import {
 // side.
 export const OFFLINE_MEMO_COPY = {
   // Nothing reached the server: the knock or call and its memo wait.
-  saved: 'Saved on your phone. It will be sent when you have signal.',
+  saved: 'Saved on your device. It will be sent when you have signal.',
   // The knock or call saved; only the recording waits, and it goes now.
-  sending: 'Note saved on your phone. Sending it now.',
-  recorded: 'Note recorded on your phone.',
+  sending: 'Note saved on your device. Sending it now.',
+  recorded: 'Note recorded on your device.',
 }
 
 // A socket that has not opened in this long will not carry a memo either,
