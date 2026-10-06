@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
+import { AGENTS } from './agents'
 import { budgetOutputLines } from './armBudget'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
 import { formatPlan, selectAgents } from './cli'
@@ -404,6 +405,33 @@ describe('judge.yml tells every judge process who asked', () => {
     )
     expect(estimate?.body).toMatch(/\| selection \| named in the request/)
     expect(estimate?.body).toMatch(/\| selection \| \\`auto\\`, from the diff/)
+  })
+})
+
+// `auto` picks chat agents off the directories a PR touches, through a table
+// in the select step. A chat agent missing from it is never judged unless
+// someone names it, which is a gap nobody sees. Derived from the registry, so
+// a new chat scope without a row fails here by name.
+describe('judge.yml auto-selects every chat agent', () => {
+  const select = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
+    (step) => step.name === 'Resolve the agent selection',
+  )
+
+  it.each(AGENTS.filter((a) => a.shape === 'chat').map((a) => a.agentId))(
+    'maps a source directory to %s',
+    (agentId) => {
+      expect(select?.body).toMatch(
+        new RegExp(
+          `packages/gp-api/src/chats/\\S+/\\*\\)\\s+add ${agentId} ;;`,
+        ),
+      )
+    },
+  )
+
+  it('maps the briefing chat module to briefing_annotation', () => {
+    expect(select?.body).toMatch(
+      /packages\/gp-api\/src\/chats\/briefing-chats\/\*\)\s+add briefing_annotation ;;/,
+    )
   })
 })
 
