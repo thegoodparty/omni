@@ -415,7 +415,8 @@ def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[
     out = []
     for event, metrics in sorted(event_legs.items()):
         before, after = base.files_for(event), head.files_for(event)
-        fix = intent_fix(event, metrics, head.count(event), _gained_files(before, after, renames))
+        fix = intent_fix(event, metrics, head.count(event))
+        lost_fix = intent_fix(event, metrics, head.count(event), _gained_files(before, after, renames))
         for path, n in sorted(before.items()):
             new = renames.get(path, path)
             now = after.get(new, 0)
@@ -423,7 +424,7 @@ def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[
                 out.append(Finding(
                     "okr_call_site_lost", "block", event,
                     f"{path} had {n} call site(s) of this OKR event and now has {now}.",
-                    fix, metrics))
+                    lost_fix, metrics))
             elif not _is_route_file(path) and new in head.files \
                     and base.importers(path) and not head.importers(new):
                 moved = f" (renamed from {path})" if new != path else ""

@@ -802,9 +802,18 @@ def test_a_moved_row_does_not_clear_a_removed_page():
 
 
 def test_copying_the_suggested_moved_row_with_its_placeholders_does_not_clear_it():
-    base, head0, [f] = _hook_refactor()
+    base, _, [f] = _hook_refactor()
     row = next(line for line in f.fix.splitlines() if "intent: moved" in line)
     head = gg.build_snapshot(tree({SECTION: "import { useCompleteTask } from './useCompleteTask'", HOOK: CC},
                                   watchlist=_wl(row + "\n")))
     remaining, cleared = gg.apply_intents([f], base, head)
     assert cleared == [] and "invalid_intent" in {x.rule for x in remaining}
+
+
+def test_an_unimported_call_site_file_is_not_offered_moved():
+    base = gg.build_snapshot(tree({SECTION: CC, "packages/gp-webapp/app/dashboard/plan/page.tsx":
+                                   "import S from './Section'"}))
+    head = gg.build_snapshot(tree({SECTION: CC, HOOK: CC}))
+    events, paths = gg.watched_legs(LEGS)
+    [f] = gg.okr_findings(base, head, events, paths, renames={})
+    assert f.rule == "okr_file_unused" and "intent: moved" not in f.fix
