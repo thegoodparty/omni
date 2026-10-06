@@ -803,8 +803,12 @@ function ChiefOfStaffChatThread({
       ])
       try {
         const result = await uploadChatAttachment(cid, file)
+        // The status poll can land between finalize and this line and already
+        // hold the server row, so mapping the temp onto it would show it twice.
         setAttachments((prev) =>
-          prev.map((a) => (a.id === tempId ? result : a)),
+          prev.some((a) => a.id === result.id)
+            ? prev.filter((a) => a.id !== tempId)
+            : prev.map((a) => (a.id === tempId ? result : a)),
         )
         maybeShowUploadGuard()
         void trackEvent(EVENTS.ChiefOfStaff.DocumentAttached, {
