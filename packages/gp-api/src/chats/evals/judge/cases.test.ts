@@ -485,6 +485,13 @@ describe('a chat case with an account-state directive', () => {
     )
   })
 
+  it('accepts the briefing highlight, and only as a boolean', () => {
+    expect(parse({ briefingHighlight: true }).accountState).toEqual({
+      briefingHighlight: true,
+    })
+    expect(() => parse({ briefingHighlight: 'yes' })).toThrow(CaseListError)
+  })
+
   it('refuses an ordinance step that is not one of the flow steps', () => {
     expect(() => parse({ ordinanceStep: 'drafting' })).toThrow(CaseListError)
   })

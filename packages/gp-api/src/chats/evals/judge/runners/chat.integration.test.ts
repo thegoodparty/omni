@@ -442,7 +442,9 @@ describe('runChatCase', () => {
         runChatCase(
           { service },
           request({
-            agentId: 'briefing_annotation',
+            // A real registry agent, but a background one: no scope handler
+            // answers for it.
+            agentId: 'meeting_briefing',
             organizationSlug: 'judge-unused',
           }),
         ),
