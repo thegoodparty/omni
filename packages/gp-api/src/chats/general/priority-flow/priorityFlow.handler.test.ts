@@ -238,6 +238,9 @@ describe('PriorityFlowHandler', () => {
     const names = Object.keys(build().buildTools(baseCtx())).sort()
     expect(names).toEqual([
       'ask_clarify_question',
+      'present_authority_finding',
+      'present_comparables',
+      'present_current_law_summary',
       'present_outreach_proposal',
       'present_outside_contact',
       'present_past_outreach',
@@ -438,6 +441,41 @@ describe('PriorityFlowHandler', () => {
     expect(build().finalizeAssistantText('Potholes cluster downtown.')).toBe(
       null,
     )
+  })
+
+  it('puts research and people on cards rather than in prose', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('Research goes on the cards made for it')
+    expect(prompt).toContain('write no lead-in of your own above it')
+    expect(prompt).toContain('in date when the page was published')
+    expect(prompt).toContain('present_comparables')
+    expect(prompt).toContain('present_current_law_summary')
+    expect(prompt).toContain('present_authority_finding')
+    expect(prompt).toContain(
+      'Never put a phone number, email or address in your message',
+    )
+    expect(prompt).toContain('their card is the last thing in the turn')
+    expect(prompt).toContain('Never recap what the cards say')
+    expect(prompt).toContain('Never narrate the research itself')
+    expect(prompt).toContain('A figure in your message carries its source')
+    expect(prompt).toContain('HOW A RESEARCH TURN ENDS')
+    expect(prompt).toContain('Nothing comes after a contact card')
+    expect(prompt).toContain('Never use a pronoun for someone you found')
+  })
+
+  it('offers the finding cards as display-only tools', async () => {
+    const tools = build().buildTools(baseCtx())
+    for (const name of [
+      'present_comparables',
+      'present_current_law_summary',
+      'present_authority_finding',
+    ]) {
+      expect(tools[name]).toBeDefined()
+    }
+    const authority = tools.present_authority_finding as {
+      execute: (input: unknown) => unknown
+    }
+    expect(await authority.execute({})).toEqual({ presented: true })
   })
 
   it('lets the outreach cards be the choice, never asked about or rebuilt', () => {

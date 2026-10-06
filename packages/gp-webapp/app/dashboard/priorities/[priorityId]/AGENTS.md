@@ -39,7 +39,9 @@ back whenever the agent is working with nothing moving on screen: between tool
 calls, and while any widget's arguments stream in (`tool_input_start`, the same
 signal the ordinance chat uses). It is named for the widget being written
 ("Looking up who to contact...", "Preparing your question...") or falls back to
-the tool's pill label, and stays off while a pill is shimmering. Contact,
+the tool's pill label. It stays off while a pill is shimmering, once a
+question card is up, and right after a finding card lands until the next tool
+starts, since either can end the turn. Contact,
 outreach and list work can take a long while, and without it the chat looked
 stalled with text already on screen.
 
@@ -241,12 +243,24 @@ deciding for them.
 Programs, grants, organizations, contacts, laws and figures the agent finds
 outside the conversation are things the official may repeat in public, so the
 prompt (`SOURCES_BLOCK` in `priorityFlow.prompt.ts`) asks for the publisher,
-the link and how current it is. On a clarify option that goes in the existing
-`ChatSource` (`source`), with the page's date in `excerpt`; anywhere else it is
-one clause in the message. The prompt carries today's date so the agent can
-call a source stale. This is guidance, not a gate, and it uses the shared
-source shape as it is, without extending it. Numbers in prose come from a tool
+the link and how current it is. On a card or a clarify option that goes in
+`ChatSource`, whose optional `date` the shared `SourceLine` shows beside the
+chip; anywhere else it is one clause in the message. The prompt carries
+today's date so the agent can call a source stale. This is guidance, not a
+gate. Numbers in prose come from a tool
 call or a named source, and a text sample's size from `size_outreach_sample`.
+
+## Research goes on the ordinance finding cards
+
+Peer cities, the current code or program, and whether the office can act are
+not written up in prose. They go on the ordinance chat's own cards
+(`findingWidgetTools` in `ordinances/components/stepWidgets.tsx`, registered
+here unchanged): `present_comparables`, `present_current_law_summary` and
+`present_authority_finding`, each with its source line. The priority handler
+offers them display-only, with the ordinance schemas, because a priority has
+no ordinance to save them to. People to contact go on outside contact cards,
+never as a phone number in prose. The model otherwise wrote a long unsourced
+"here's the picture" and ended on a phone number.
 
 ## How sure it sounds is shared with ordinances
 

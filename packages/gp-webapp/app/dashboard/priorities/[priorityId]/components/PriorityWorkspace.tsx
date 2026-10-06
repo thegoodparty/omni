@@ -70,6 +70,12 @@ import {
   type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
+import {
+  AUTHORITY_TOOL,
+  COMPARABLES_TOOL,
+  CURRENT_LAW_TOOL,
+  findingWidgetTools,
+} from '../../../ordinances/components/stepWidgets'
 import { PriorityStatusRail } from './PriorityStatusRail'
 import { StatusChangeMarker } from './StatusChangeMarker'
 
@@ -93,7 +99,12 @@ const GENERATING_LABELS: Record<string, string> = {
   present_past_outreach: "Checking what you've sent...",
   [STATUS_TOOL]: 'Updating where this stands...',
   web_search: 'Searching the web...',
+  [COMPARABLES_TOOL]: 'Looking at what other places did...',
+  [CURRENT_LAW_TOOL]: 'Reading the current code...',
+  [AUTHORITY_TOOL]: 'Checking what you can do here...',
 }
+
+const FINDING_TOOLS = [COMPARABLES_TOOL, CURRENT_LAW_TOOL, AUTHORITY_TOOL]
 
 type Phase = 'loading' | 'ready' | 'error'
 
@@ -101,6 +112,7 @@ type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
 
 const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
   ...cardWidgetTools,
+  ...findingWidgetTools,
   clarifyWidgetTool,
 ])
 
@@ -157,6 +169,9 @@ const PriorityWorkspaceBody = ({
   const [streamError, setStreamError] = useState<string | null>(null)
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [streamDone, setStreamDone] = useState(false)
+  // A finding card can be the last thing in a turn, so the shimmer stays off
+  // right after one lands and comes back with the agent's next tool.
+  const [afterFinding, setAfterFinding] = useState(false)
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
@@ -187,20 +202,26 @@ const PriorityWorkspaceBody = ({
       setLiveWidgets([])
       setGeneratingTool(null)
       setStreamDone(false)
+      setAfterFinding(false)
     },
     onTurnSettle: () => {
       setLiveWidgets([])
       setGeneratingTool(null)
       setStreamDone(false)
+      setAfterFinding(false)
       void reconcile()
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength, conversationId: turnConversationId }) => {
       if (event.type === 'tool_input_start') {
         setGeneratingTool(event.toolName)
+        setAfterFinding(false)
         return true
       }
-      if (event.type === 'tool_call') setGeneratingTool(null)
+      if (event.type === 'tool_call') {
+        setGeneratingTool(null)
+        setAfterFinding(FINDING_TOOLS.includes(event.toolName))
+      }
       if (event.type === 'done') setStreamDone(true)
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
         const update = parseStatusUpdate(event.args)
@@ -417,8 +438,14 @@ const PriorityWorkspaceBody = ({
   const pillRunning = liveSegments.some(
     (segment) => segment.kind === 'tool' && segment.running,
   )
+  // A question card ends the turn, so nothing more is coming once it is up.
+  const clarifyLive = liveWidgets.some(
+    (widget) => widget.instance.toolName === CLARIFY_TOOL,
+  )
   const working =
     sending &&
+    !clarifyLive &&
+    !afterFinding &&
     (blocks.length === 0 || (revealDone && !pillRunning && !streamDone))
   const pillLabel = generatingTool ? priorityToolLabel(generatingTool) : null
   const workingLabel =

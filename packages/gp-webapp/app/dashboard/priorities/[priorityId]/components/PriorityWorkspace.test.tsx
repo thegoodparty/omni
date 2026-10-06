@@ -635,6 +635,81 @@ describe('PriorityWorkspace', () => {
     gate.resolve()
   })
 
+  it('holds the shimmer off after a finding card until the next tool starts', async () => {
+    const gate = deferred()
+    const next = deferred()
+    mocks.streamMessage.mockImplementation(async function* () {
+      yield { type: 'text', delta: 'Here is what other cities did. ' }
+      yield {
+        type: 'tool_call',
+        toolName: 'present_comparables',
+        toolCallId: 'tc-c',
+        args: {
+          comparables: [
+            {
+              city: 'Boulder',
+              state: 'CO',
+              quote: 'Containers are required.',
+              status: 'passed',
+              source: { id: 's1', title: 'Waste Regulations' },
+            },
+          ],
+        },
+      }
+      await next.promise
+      yield { type: 'tool_input_start', toolName: 'present_outside_contact' }
+      await gate.promise
+      yield { type: 'done', assistantMessageId: 'a1' }
+    })
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/Containers are required/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    next.resolve()
+    expect(
+      await screen.findByText('Looking up who to contact...'),
+    ).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('drops the shimmer as soon as a question card is up', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'One thing to settle first. ' },
+          { type: 'tool_input_start', toolName: 'ask_clarify_question' },
+          {
+            type: 'tool_call',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-q',
+            args: {
+              questionId: 'q1',
+              question: 'Is the problem trash or garages?',
+              options: [{ label: 'Trash' }, { label: 'Garages' }],
+            },
+          },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Is the problem trash or garages?'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Preparing your question...'),
+    ).not.toBeInTheDocument()
+    gate.resolve()
+  })
+
   it('drops the shimmer once the turn has finished streaming', async () => {
     mocks.streamMessage.mockImplementation(
       streamOf([
@@ -651,6 +726,48 @@ describe('PriorityWorkspace', () => {
     await waitFor(() =>
       expect(screen.queryByText('Thinking...')).not.toBeInTheDocument(),
     )
+  })
+
+  it('shows how other places handled it on the ordinance comparables card', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          { kind: 'text', text: 'Here is what other cities did.' },
+          {
+            kind: 'tool',
+            toolName: 'present_comparables',
+            payload: {
+              comparables: [
+                {
+                  city: 'Boulder',
+                  state: 'CO',
+                  quote: 'Bear-resistant containers are required citywide.',
+                  status: 'passed',
+                  source: {
+                    id: 's1',
+                    title: 'Bear Protection Ordinance',
+                    url: 'https://bouldercolorado.gov/bears',
+                    publisher: 'City of Boulder',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    expect(await screen.findByText(/Boulder/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Bear-resistant containers are required citywide/),
+    ).toBeInTheDocument()
   })
 
   it('shows an ordinary tool as a quiet pill rather than a card', async () => {

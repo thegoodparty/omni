@@ -7,10 +7,13 @@ import {
 import { formatISO } from 'date-fns'
 import {
   checkSmsStandards,
+  OrdinanceAuthorityFindingSchema,
+  OrdinanceCurrentLawSummarySchema,
+  OrdinancePresentComparablesSchema,
   type ProposalChannel,
 } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
-import type { LlmTool } from '@/llm/services/llm.service'
+import type { LlmStreamTool, LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   buildDescribeConstituentDataTool,
@@ -280,6 +283,34 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         },
       },
       present_outside_contact: buildPresentOutsideContactTool(),
+      // The ordinance chat's finding cards, display-only here: a priority has
+      // no ordinance to save them to, so they render from their args alone.
+      present_comparables: {
+        description:
+          'Show how other places handled this, as cards: each with city, ' +
+          'state, status (passed/repealed/unknown), a quote, and a source ' +
+          'you actually found. Put the framing intro and the takeaway in ' +
+          'this payload, not as separate chat text.',
+        inputSchema: OrdinancePresentComparablesSchema,
+        execute: () => ({ presented: true }),
+      } satisfies LlmStreamTool<typeof OrdinancePresentComparablesSchema>,
+      present_current_law_summary: {
+        description:
+          "Show what the city's current code or program does today " +
+          '(`does`) and where it falls short on this priority (`gaps`), with ' +
+          'the chapter or program name and a source you actually read.',
+        inputSchema: OrdinanceCurrentLawSummarySchema,
+        execute: () => ({ presented: true }),
+      } satisfies LlmStreamTool<typeof OrdinanceCurrentLawSummarySchema>,
+      present_authority_finding: {
+        description:
+          'Show whether this office can act on it as a card: a headline, ' +
+          'the status (pass/flag/attention), an explanation that cites the ' +
+          'statute or charter provision, and its source. A likely reading, ' +
+          'never settled law.',
+        inputSchema: OrdinanceAuthorityFindingSchema,
+        execute: () => ({ presented: true }),
+      } satisfies LlmStreamTool<typeof OrdinanceAuthorityFindingSchema>,
       present_past_outreach: buildPresentPastOutreachTool(),
       size_outreach_sample: buildSizeOutreachSampleTool(),
       read_past_outreach: buildReadPastOutreachTool({

@@ -172,8 +172,11 @@ const ROUTE_BLOCK = `PREVIEW THE PATH BEFORE THE WORK
 
 const SOURCES_BLOCK = `SAYING WHERE IT CAME FROM
 - Anything you bring in from outside this conversation, like a program, a grant, an organization, a person to call, a law or ordinance, or a figure, is something the official may repeat in public. So they need to be able to check it: who published it, the link, and how current it is.
-- On an ask_clarify_question option, put it in that option's source: title, url, publisher, kind external, and in excerpt the date the page was published or last updated, if it shows one ("Updated March 2026.").
-- Anywhere else, name it in your message in one short clause with the link: "the county's 2025 transit plan, updated in May (link)". For an organization you present with present_outside_contact, say in your message where you found it.
+- Research goes on the cards made for it, not into a write-up. How other places handled it goes on present_comparables. What the city's code or program does today, and where it falls short, goes on present_current_law_summary. Whether this office can act on it goes on present_authority_finding, as a likely reading. Each card's source gets title, url, publisher, kind external, and in date when the page was published or last updated, if it shows one ("March 2026"). A card carries its own intro and takeaway where it has them, so write no lead-in of your own above it: at most one short line before the cards, and after them two sentences at most on what it means for the official. Never recap what the cards say: no "what's confirmed" or "what's still a gap" lists, no figures the cards already carry. A gap no card covers gets one line.
+- Someone they should talk to goes on present_outside_contact, one card each, with every route you actually found. Never put a phone number, email or address in your message. When what you found ends on "talk to them", their card is the last thing in the turn: present it after everything else and write nothing after it.
+- On an ask_clarify_question option, put it in that option's source the same way: title, url, publisher, kind external, and date.
+- Never narrate the research itself: no "let me search", no "I didn't find it through" a site. Say what you found and what is still missing.
+- A figure in your message carries its source, every time, even when a card has it too; otherwise leave the figure to the card. Anything else you found, like a count or a report, name in your message in one short clause with the link: "the county's 2025 transit plan, updated in May (link)". For an organization you present with present_outside_contact, say in your message where you found it.
 - Only a link you actually found. Never build or guess a URL. If you cannot say where something came from, say it is unverified and where they could confirm it.
 - If a source is more than about two years old, or older than a change it would miss, say so in the same clause.
 - Our own data needs no link, just what it is: their contact records, past outreach, or community issues.`
@@ -273,6 +276,12 @@ const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
       : []),
     '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',
   ].join('\n')
+
+const RESEARCH_TURN_BLOCK = `HOW A RESEARCH TURN ENDS (check before you finish)
+- The order is fixed: one short line, the cards, at most two sentences on what it means for them, then the contact card if someone is the next step. Nothing comes after a contact card. If what is still missing needs saying, say it in those two sentences, before the card.
+- Every figure or quote in your message has its source and link in the same sentence. If you cannot link it, leave it out.
+- Refer to a person by name or role. Never use a pronoun for someone you found, because a name does not tell you their pronouns.
+- No narration of your own work: not "let me pull this up", not "now, on to the next part". Just the findings.`
 
 const GUARDRAILS_BLOCK = `GUARDRAILS (apply before answering)
 - You only help with this priority and the work around it.
@@ -406,6 +415,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
       ? [buildSamplingBlock(has)]
       : []),
     buildReadingRepliesBlock(has),
+    RESEARCH_TURN_BLOCK,
     GUARDRAILS_BLOCK,
     `TOOLS AVAILABLE TO YOU\n${args.toolNames.map((n) => `- ${n}`).join('\n')}`,
     todayLine(args.ctx.state),
