@@ -32,6 +32,12 @@ vi.mock('app/dashboard/outreach/v2/gate/useOutreachGate', () => ({
   }),
 }))
 
+// The question-asking card is offered only where issue capture is on; these
+// cases pick it, so the flag is on here.
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: () => ({ ready: true, enabled: true }),
+}))
+
 const useCampaignMock = vi.fn()
 const useUserMock = vi.fn()
 
