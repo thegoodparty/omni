@@ -221,14 +221,14 @@ effort's memos, confirmed and pending, newest first, capped at
 themes to show, under the floor and while a run is in flight.
 
 A theme's `conversationCount` is distinct confirmed member memos, but
-`stanceCounts` and `desiredOutcomes` are the stances from the issues that
-matched the theme. Membership is per memo, so a member that raised one issue
-counts it whatever its label; one that raised several counts only the issues
-whose `normalizeTagName` label equals the theme's tag's `normalizedName`,
-since its other issues belong to other themes. A theme with no tag counts
-single-issue members only. So the four counts can sum below
-`conversationCount`. An issue with no stance counts as unclear; a memo that
-named no issue adds no stance. `channel` is
+`stanceCounts` and `desiredOutcomes` are stances from every issue raised in
+the conversations in this theme; a conversation that raised two issues
+contributes two, so counts can exceed `conversationCount`. That is the interim
+rule: membership is per memo, and matching an issue to its theme by label
+missed nearly every multi-issue memo. Per-issue membership through the
+pipeline is the follow-up that lets the split count only this theme's issues.
+An issue with no stance counts as unclear; a memo that named no issue adds no
+stance. `channel` is
 the effort's own (a turf's envelope is `door_knock`, a list's `phone_bank`,
 memo or no memo), and `floor` is `MIN_CONFIRMED_FOR_SYNTHESIS`, sent so the
 page's "Themes appear after N" line cannot drift from the 422. The constant

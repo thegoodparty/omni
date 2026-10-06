@@ -985,11 +985,11 @@ describe('feedback synthesis routes', () => {
       expect(runId).toBe(res.data.run.id)
     })
 
-    // Membership is per conversation, but a stance belongs to an issue. A
-    // conversation that raised only this theme's issue counts whatever it
-    // was labelled; one that raised several counts only the issue matching
-    // the theme's tag, so its other issues cannot leak into this split.
-    it('counts a several-issue memo only by the issue matching the theme', async () => {
+    // Membership is per conversation, but a stance belongs to an issue. Until
+    // membership is per issue, the split counts every issue each member
+    // raised, so a conversation that raised two issues contributes two and
+    // the split can sum past conversationCount.
+    it('counts every issue each member memo raised', async () => {
       const { opposes, supports, mixed } = ConstituentFeedbackStance
       const issue = (
         issueLabel: string,
@@ -1026,8 +1026,12 @@ describe('feedback synthesis routes', () => {
       expect(res.data.themes[0]).toEqual(
         expect.objectContaining({
           conversationCount: 5,
-          stanceCounts: { supports: 1, opposes: 3, mixed: 1, unclear: 0 },
-          desiredOutcomes: ['Clear the drain', 'Fill the potholes'],
+          stanceCounts: { supports: 3, opposes: 3, mixed: 1, unclear: 0 },
+          desiredOutcomes: [
+            'Clear the drain',
+            'A freeze for seniors',
+            'Fill the potholes',
+          ],
         }),
       )
       const detail = await service.client.get(
@@ -1035,7 +1039,7 @@ describe('feedback synthesis routes', () => {
         ownerHeaders(slug),
       )
       expect(detail.data.stanceCounts).toEqual({
-        supports: 1,
+        supports: 3,
         opposes: 3,
         mixed: 1,
         unclear: 0,
@@ -1049,16 +1053,15 @@ describe('feedback synthesis routes', () => {
         twoIssues.issues.map((i: { issueLabel: string }) => i.issueLabel),
       ).toEqual(['Street flooding', 'Property taxes'])
 
-      // With no tag there is nothing to match, so only the memos that
-      // raised one issue count.
+      // The tag plays no part in the count.
       await service.prisma.feedbackTheme.updateMany({
         where: { runId },
         data: { tagId: null },
       })
       const untagged = await report()
       expect(untagged.data.themes[0].stanceCounts).toEqual({
-        supports: 1,
-        opposes: 1,
+        supports: 3,
+        opposes: 3,
         mixed: 1,
         unclear: 0,
       })
