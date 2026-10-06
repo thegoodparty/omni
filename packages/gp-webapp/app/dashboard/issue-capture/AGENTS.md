@@ -107,7 +107,8 @@ fires on the press, refused or not.
 their own). Each is the canvasser's summary with, under it:
 
 - **Still transcribing** (`extractionStatus: pending`): the line and nothing
-  else. The query polls every 5 seconds while one is in this state.
+  else, headed "Recorded by ..." rather than "Summary by ...": typed notes
+  skip transcription, so this row is always a recording with no summary yet. The query polls every 5 seconds while one is in this state.
 - **Extracted**: `IssueCaptureConfirmCard` with the proposed issues, and no
   Skip: leaving the page leaves the note unconfirmed. See
   `door-knocking/AGENTS.md` for how the card edits and removes issues.

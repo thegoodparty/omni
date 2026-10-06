@@ -60,6 +60,10 @@ export const WHAT_WE_HEARD_COPY = {
     // the other person's words, and it says so.
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
+    // A note still transcribing is always a recording (typed notes skip
+    // transcription), and there is no summary yet to credit anyone with.
+    recordedBy: (actorName: string | null): string =>
+      `Recorded by ${actorName ?? 'your team'}`,
     wants: 'Wants',
     issues: 'Issues',
     newTags: 'New tags to review',
@@ -145,6 +149,8 @@ export const WHAT_WE_HEARD_COPY = {
     notYetReviewed: 'Not yet reviewed',
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
+    recordedBy: (actorName: string | null): string =>
+      `Recorded by ${actorName ?? 'your team'}`,
     wants: 'Wants',
     issues: 'Issues',
     newTags: 'New tags to review',
