@@ -724,9 +724,10 @@ count per saved list is the per-row N+1 that 504'd the lists index in prod.
 `create` also takes `sample: { size }` (the size `size_outreach_sample`
 returned), drawn through `ContactsService.drawListSample` exactly as the
 voter-file filter route draws one, so the assistant can save a random sample
-of an audience and the returned `count` is the sample's size. It is how the
-Campaign Manager hands a candidate a sampled list to text, since Win has no
-proposal card yet.
+of an audience and the returned `count` is the sample's size. Neither
+assistant uses it to hand over a text: both present a proposal card with the
+unsaved filter and the sample size, and the text flow saves the list when
+the user starts it.
 Every list reference it returns also carries `hasBoundary` — whether a shape
 is on the list, never where it is. A holder can draw one from the Chief of
 Staff transcript's own map card, so a list's size can change between turns

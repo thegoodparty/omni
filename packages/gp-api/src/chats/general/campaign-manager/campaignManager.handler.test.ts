@@ -646,12 +646,14 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     ).buildTools(ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }))
     expect(Object.keys(withWrites)).toContain('crud_saved_filters')
     expect(Object.keys(withWrites)).toContain('size_outreach_sample')
+    expect(Object.keys(withWrites)).toContain('present_outreach_proposal')
 
     const noService = buildCrmHandler(buildContacts()).buildTools(
       ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }),
     )
     expect(Object.keys(noService)).not.toContain('crud_saved_filters')
     expect(Object.keys(noService)).not.toContain('size_outreach_sample')
+    expect(Object.keys(noService)).not.toContain('present_outreach_proposal')
 
     const flagOff = buildCrmHandler(
       buildContacts(),
@@ -659,6 +661,47 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     ).buildTools(ctxWith(CRM_ON))
     expect(Object.keys(flagOff)).not.toContain('crud_saved_filters')
     expect(Object.keys(flagOff)).not.toContain('size_outreach_sample')
+    expect(Object.keys(flagOff)).not.toContain('present_outreach_proposal')
+  })
+
+  it('presents a text as a card and refuses any other channel', async () => {
+    const tools = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }))
+    const tool = tools.present_outreach_proposal
+    if (!tool || 'kind' in tool) throw new Error('not registered')
+    const proposal = {
+      audience: 'Renters on the east side',
+      count: 1200,
+      listName: 'East side renters',
+      message: 'this is Renee, candidate for City Council. What matters?',
+    }
+
+    expect(await tool.execute({ ...proposal, channel: 'text' })).toEqual({
+      presented: true,
+      deepLinkOnly: true,
+    })
+    for (const channel of ['phoneBanking', 'doorKnocking', 'social']) {
+      expect(await tool.execute({ ...proposal, channel })).toEqual({
+        error: expect.stringContaining('Only a text can be presented here'),
+      })
+    }
+    expect(descriptionOf(tool)).not.toContain('official')
+    expect(descriptionOf(tool)).not.toContain('constituent')
+  })
+
+  it('names the registered card tools in the prompt it builds', () => {
+    const handler = buildCrmHandler(buildContacts(), buildVoterFileFilters())
+    const withCard = handler.buildSystemPrompt(
+      ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }),
+    )
+    expect(withCard).toContain('SAMPLING RULES')
+    expect(withCard).toContain('present_outreach_proposal')
+
+    const withoutCard = handler.buildSystemPrompt(ctxWith(CRM_ON))
+    expect(withoutCard).not.toContain('SAMPLING RULES')
+    expect(withoutCard).not.toContain('present_outreach_proposal')
   })
 
   const buildBallotHandler = (

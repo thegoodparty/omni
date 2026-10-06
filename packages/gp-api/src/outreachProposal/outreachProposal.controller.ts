@@ -35,12 +35,12 @@ import { OutreachProposalService } from './services/outreachProposal.service'
 // keeps the CAS failure Slack that wraps every OutreachController route off
 // a probe whose empty answer is normal.
 //
-// @UseElectedOffice is the server-side mirror of the webapp's serveAccess():
-// the client's chosen surface is never trusted, so ownership comes from the
-// org's own ElectedOffice row, exactly as POST /v1/phone-banking/serve/lists
-// derives it.
+// The read is org-scoped so a Win campaign's card resolves too. The send is
+// Serve phone banking, so @UseElectedOffice on it is the server-side mirror
+// of the webapp's serveAccess(): the client's chosen surface is never
+// trusted, so ownership comes from the org's own ElectedOffice row, exactly
+// as POST /v1/phone-banking/serve/lists derives it.
 @Controller('outreach/by-proposal-key')
-@UseElectedOffice()
 @UseOrganization()
 @UsePipes(ZodValidationPipe)
 @UseInterceptors(ZodResponseInterceptor)
@@ -57,13 +57,13 @@ export class OutreachProposalController {
   @Get(':proposalKey')
   @ResponseSchema(OutreachDetailSchema.nullable())
   async find(
-    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqOrganization() organization: Organization,
     @Param('proposalKey', ParseUUIDPipe) proposalKey: string,
     @Res({ passthrough: true }) res: FastifyReply,
   ) {
     const outreach = await this.outreach.findByProposalKey(
       proposalKey,
-      electedOffice.organizationSlug,
+      organization.slug,
     )
     if (!outreach) {
       res.status(HttpStatus.NOT_FOUND)
@@ -77,6 +77,7 @@ export class OutreachProposalController {
   // click, a reload and a retry all land here with the same one and must all
   // resolve to the same outreach.
   @Put(':proposalKey')
+  @UseElectedOffice()
   @ResponseSchema(OutreachDetailSchema)
   async send(
     @ReqElectedOffice() electedOffice: ElectedOffice,
