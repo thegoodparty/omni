@@ -819,8 +819,6 @@ describe('RecordKnockForm offline edges', () => {
     expect(memo?.kind === 'memo' && memo.blob).toBeInstanceOf(Blob)
   })
 
-  // Signal came back before Save: the knock goes now, and the recording
-  // follows it through the queue.
   it('says the note is being sent when a recording follows a saved knock', async () => {
     online = false
     const onRecorded = renderForm()

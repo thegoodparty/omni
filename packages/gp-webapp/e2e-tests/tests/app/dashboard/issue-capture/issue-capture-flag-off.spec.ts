@@ -108,7 +108,6 @@ test.describe('issue capture with its flag off', () => {
     await setFlagOverrides(page, { 'issue-capture': 'off' })
     await setupProCampaignUser(page)
 
-    // A fresh org has no lists, so the create flow opens on its own.
     await gotoDoorKnocking(page)
     await expect(
       createFlowStepHeading(page, 'What do you want to do?'),

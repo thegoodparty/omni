@@ -181,8 +181,6 @@ describe('PendingMemoList', () => {
     ).toBe(true)
   })
 
-  // Typed notes skip transcription, so a row still transcribing is always a
-  // recording, and there is no summary yet to credit anyone with.
   it('heads a note still transcribing as recorded, not summarized', async () => {
     mockPending([STILL_TRANSCRIBING])
     renderList()
