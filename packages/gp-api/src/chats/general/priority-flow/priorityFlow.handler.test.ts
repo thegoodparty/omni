@@ -446,6 +446,8 @@ describe('PriorityFlowHandler', () => {
   it('puts research and people on cards rather than in prose', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('Research goes on the cards made for it')
+    expect(prompt).toContain('write no lead-in of your own above it')
+    expect(prompt).toContain('in date when the page was published')
     expect(prompt).toContain('present_comparables')
     expect(prompt).toContain('present_current_law_summary')
     expect(prompt).toContain('present_authority_finding')

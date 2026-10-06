@@ -241,11 +241,11 @@ deciding for them.
 Programs, grants, organizations, contacts, laws and figures the agent finds
 outside the conversation are things the official may repeat in public, so the
 prompt (`SOURCES_BLOCK` in `priorityFlow.prompt.ts`) asks for the publisher,
-the link and how current it is. On a clarify option that goes in the existing
-`ChatSource` (`source`), with the page's date in `excerpt`; anywhere else it is
-one clause in the message. The prompt carries today's date so the agent can
-call a source stale. This is guidance, not a gate, and it uses the shared
-source shape as it is, without extending it. Numbers in prose come from a tool
+the link and how current it is. On a card or a clarify option that goes in
+`ChatSource`, whose optional `date` the shared `SourceLine` shows beside the
+chip; anywhere else it is one clause in the message. The prompt carries
+today's date so the agent can call a source stale. This is guidance, not a
+gate. Numbers in prose come from a tool
 call or a named source, and a text sample's size from `size_outreach_sample`.
 
 ## Research goes on the ordinance finding cards
