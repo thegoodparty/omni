@@ -22,8 +22,11 @@ import {
   JUDGE_BRIEFING_ARTIFACT,
   JUDGE_BRIEFING_BUCKET,
   JUDGE_BRIEFING_TODAY,
+  JUDGE_MEETING_DATE,
   JUDGE_NOTE,
 } from './briefingFixture'
+import { ExperimentRunStatus } from '../../../../generated/prisma'
+import { parseIsoDateAsUTC } from '@/shared/util/date.util'
 import {
   chatScopeFor,
   JUDGE_POSITION,
@@ -507,6 +510,68 @@ describe('the tools a seeded briefing registers', () => {
     const tools = await briefingToolsUnderCredentials(conversationId)
     expect(tools).not.toContain('district_insights')
     expect(tools).not.toContain('list_district_topics')
+  })
+
+  // THE RETIREMENT IS NARROW, and every filter on it is load-bearing. It
+  // deletes only this user's judge-seeded briefings on the fixture date; a
+  // filter dropped would delete, respectively, a real briefing of the same
+  // user, another user's judge briefing, or a judge briefing on another day.
+  it('retires nothing but its own judge briefings on the fixture date', async () => {
+    const briefingFor = async (
+      userId: number,
+      organizationSlug: string,
+      meetingDate: string,
+    ): Promise<string> => {
+      await service.prisma.organization.create({
+        data: { slug: organizationSlug, ownerId: userId },
+      })
+      const office = await service.prisma.electedOffice.create({
+        data: { organizationSlug, userId },
+      })
+      const run = await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug,
+          experimentType: 'meeting_briefing',
+          status: ExperimentRunStatus.COMPLETED,
+        },
+      })
+      const briefing = await service.prisma.meetingBriefing.create({
+        data: {
+          electedOfficeId: office.id,
+          meetingDate: parseIsoDateAsUTC(meetingDate),
+          meetingTime: '6:30 PM',
+          meetingTimezone: 'America/New_York',
+          experimentRunId: run.runId,
+          artifactBucket: 'briefing-artifacts',
+          artifactKey: `${organizationSlug}/briefing.json`,
+        },
+      })
+      return briefing.id
+    }
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'judge-bystander@goodparty.org' },
+    })
+    const bystanders = [
+      // A real office of the same user, on the fixture date.
+      await briefingFor(service.user.id, 'real-office', JUDGE_MEETING_DATE),
+      // Another user's judge briefing on the fixture date.
+      await briefingFor(otherUser.id, 'judge-other-user', JUDGE_MEETING_DATE),
+      // This user's judge briefing on another day.
+      await briefingFor(service.user.id, 'judge-other-day', '2026-05-20'),
+    ]
+
+    await seedChatOrg(
+      service.prisma,
+      service.user.id,
+      'briefing_annotation',
+      'a',
+    )
+
+    const left = await service.prisma.meetingBriefing.findMany({
+      where: { id: { in: bystanders } },
+      select: { id: true },
+    })
+    expect(left.map((b) => b.id).sort()).toEqual([...bystanders].sort())
   })
 
   // The route finds a briefing by (meeting date, caller's office) and

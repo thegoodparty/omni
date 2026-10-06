@@ -166,7 +166,7 @@ const PINNABLE_TABLES: Partial<Record<string, string[]>> = {
   briefing_annotation: ['serve_agent_voters'],
 }
 
-const pinnableTablesFor = (agentId: string): string[] => {
+export const pinnableTablesFor = (agentId: string): string[] => {
   const tables = PINNABLE_TABLES[agentId]
   if (!tables || tables.length === 0) {
     throw new Error(

@@ -23,6 +23,10 @@ import {
   ChatStreamService,
   type StreamArgs,
 } from '@/chats/services/chatStream.service'
+import { ElectionsService } from '@/elections/services/elections.service'
+import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import { BriefingAnnotationHandler } from '@/chats/briefing-chats/briefingAnnotation.handler'
+import { JUDGE_POSITION } from './seedChatOrg'
 import {
   JUDGE_BRIEFING_TODAY,
   JUDGE_HIGHLIGHT_ANCHOR,
@@ -1128,6 +1132,9 @@ describe('runChatCase on briefing chat', () => {
       expect(prompt).toContain('Amendment to Short-Term Rental Ordinance')
       expect(prompt).toContain('Acceptance of FY2024 Annual Audit')
       expect(prompt).toContain('Meeting time: 6:30 PM')
+      // The seeded meeting's own timezone, which is also the one the real
+      // `today` would be computed in.
+      expect(prompt).toContain('Timezone: America/New_York')
       expect(prompt).toContain('there is no specific selection')
       // The seeded note is what advertises get_my_notes.
       expect(prompt).toContain('YOUR NOTES (1 on this briefing)')
@@ -1229,6 +1236,81 @@ describe('runChatCase on briefing chat', () => {
       expect(record.telemetry.toolCalls).toBe(2)
       expect(record.telemetry.toolErrors).toBe(0)
       expect(isComparable(record)).toBe(true)
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // THE PIN, applied. A credentialed deployment registers district_insights,
+  // so both halves it needs are supplied: the position election-api would
+  // return, and a real DatabricksSqlProvider — the class the pin is installed
+  // on — whose client records what would have been sent to the warehouse.
+  it(
+    "pins serve_agent_voters to the run's data version",
+    async () => {
+      const sent: string[] = []
+      const provider = new DatabricksSqlProvider({
+        hostname: 'host.cloud.databricks.com',
+        httpPath: '/sql/1.0/warehouses/abc',
+        accessToken: 'unused-in-this-test',
+        logger: { warn: () => undefined },
+        clientFactory: () => ({
+          connect: async () => ({
+            openSession: async () => ({
+              executeStatement: async (statement: string) => {
+                sent.push(statement)
+                return {
+                  fetchAll: async () => [{ n: 1 }],
+                  close: async () => undefined,
+                }
+              },
+              close: async () => undefined,
+            }),
+            close: async () => undefined,
+          }),
+        }),
+      })
+      const handler = service.app.get(BriefingAnnotationHandler)
+      const prior = Reflect.get(handler, 'databricks')
+      Object.assign(handler, { databricks: provider })
+      const position = vi
+        .spyOn(service.app.get(ElectionsService), 'getPositionById')
+        .mockResolvedValue(JUDGE_POSITION)
+      const sql =
+        'SELECT COUNT(*) AS n FROM serve_agent_voters ' +
+        "WHERE state_postal_code = 'WA' " +
+        "AND `City Council` = 'Judge City Council District 1'"
+      let record: RunRecord
+      try {
+        record = await runFor('briefing_annotation', {
+          dataVersion: '3237',
+          script: {
+            steps: [
+              {
+                kind: 'tool',
+                tool: 'district_insights',
+                input: { sql, rationale: 'renters in the district' },
+              },
+              { kind: 'text', text: ANSWER },
+            ],
+            usage: TOKENS,
+          },
+        })
+      } finally {
+        position.mockResolvedValue(null)
+        Object.assign(handler, { databricks: prior })
+      }
+
+      expect(record.trace).toEqual(
+        expect.not.arrayContaining([
+          expect.objectContaining({ error: expect.any(String) }),
+        ]),
+      )
+      expect(record.telemetry.toolErrors).toBe(0)
+      expect(record.toolQueries).toHaveLength(1)
+      expect(sent).toEqual([
+        expect.stringMatching(/FROM serve_agent_voters VERSION AS OF 3237\b/),
+      ])
+      expect(record.dataVersion).toBe('3237')
     },
     TURN_TIMEOUT_MS,
   )

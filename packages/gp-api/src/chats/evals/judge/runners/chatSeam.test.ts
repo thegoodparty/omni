@@ -1161,6 +1161,19 @@ describe('installBriefingFixture', () => {
     expect(await cache.get(JUDGE_BUCKET, 'k')).toBe('s3 body')
     expect(s3Reads).toEqual([`${JUDGE_BUCKET}/k`])
     expect((await handler.loadContext('conv', 42)).today).toBe(realToday)
+    expect((await handler.loadContextForAnnotation('ann', 42)).today).toBe(
+      realToday,
+    )
+  })
+
+  // Restore releases the claim, so the next case of the sweep can install.
+  it('can be installed again once restored', () => {
+    installBriefingFixture(FIXTURE).restore()
+    let again: ReturnType<typeof installBriefingFixture> | undefined
+    expect(() => {
+      again = installBriefingFixture(FIXTURE)
+    }).not.toThrow()
+    again?.restore()
   })
 
   // Two overlapping installs would restore out of order and leave a patch on

@@ -20,12 +20,14 @@ import {
   directiveFailureText,
   everyTurnPriced,
   joinTurnReplies,
+  pinnableTablesFor,
   priceRun,
   reindexTrace,
   tracesUnpriceable,
   turnTokens,
   unpriceableStep,
 } from './chat'
+import { UnpinnableSqlError, pinDeltaVersion } from './chatSeam'
 
 const env = (vars: Record<string, string>): NodeJS.ProcessEnv => vars
 
@@ -651,5 +653,33 @@ describe('chatToolErrorDetails', () => {
       ['crud_priorities'],
     )
     expect(details.map((d) => d.tool)).toEqual(['crud_priorities', 'unknown'])
+  })
+})
+
+// Briefing chat's pin is the one table its handler lets district_insights
+// read. A query naming any other table is refused by name at the seam rather
+// than sent unpinned. The handler's validator stops such a query first, so the
+// seam is asserted directly with the tables the runner resolves.
+describe('the briefing chat pin', () => {
+  const tables = pinnableTablesFor('briefing_annotation')
+
+  it('pins serve_agent_voters', () => {
+    expect(tables).toEqual(['serve_agent_voters'])
+    expect(
+      pinDeltaVersion(
+        'SELECT COUNT(*) AS n FROM serve_agent_voters',
+        '3237',
+        tables,
+      ),
+    ).toBe('SELECT COUNT(*) AS n FROM serve_agent_voters VERSION AS OF 3237')
+  })
+
+  it('refuses a query on a table it cannot pin, naming the one it can', () => {
+    expect(() =>
+      pinDeltaVersion('SELECT COUNT(*) AS n FROM other_voters', '3237', tables),
+    ).toThrow(UnpinnableSqlError)
+    expect(() =>
+      pinDeltaVersion('SELECT COUNT(*) AS n FROM other_voters', '3237', tables),
+    ).toThrow(/no reference to an allowed table \(serve_agent_voters\)/)
   })
 })
