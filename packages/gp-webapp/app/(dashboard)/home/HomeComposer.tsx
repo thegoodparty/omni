@@ -1,7 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { IconButton, Textarea } from '@styleguide'
+import {
+  IconButton,
+  Textarea,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@styleguide'
 import { PlusIcon, SendIcon } from '@styleguide/components/ui/icons'
 import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
 import {
@@ -23,6 +29,8 @@ import { morphComposerOutOfPill } from '../shared/chatMorph'
  * the chat drawer with the message as the candidate's first turn.
  */
 const PLACEHOLDER = 'How can I help you today?'
+const MIC_IDLE_LABEL = 'Dictate a message'
+const MIC_RECORDING_LABEL = 'Stop dictation'
 
 export default function HomeComposer(): React.JSX.Element | null {
   const chat = useCampaignManagerChat()
@@ -86,37 +94,63 @@ export default function HomeComposer(): React.JSX.Element | null {
           }}
         />
         <div className="flex items-center gap-1">
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="small"
-            className="size-10"
-            aria-label="Attach a file"
-            onClick={chat.openManager}
-          >
-            <PlusIcon className="size-5" aria-hidden />
-          </IconButton>
+          {/* Each tool names itself on hover, like the history clock beside it. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="small"
+                className="size-10"
+                aria-label="Attach a file"
+                onClick={chat.openManager}
+              >
+                <PlusIcon className="size-5" aria-hidden />
+              </IconButton>
+            </TooltipTrigger>
+            <TooltipContent side="top">Attach a file</TooltipContent>
+          </Tooltip>
           <ChatHistoryPopover
             onSelect={chat.openConversation}
             chatApi={campaignManagerChatApi}
             historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
           />
           <div className="ml-auto flex items-center gap-1">
-            <DictationMicButton
-              dictation={dictation}
-              idleLabel="Dictate a message"
-              recordingLabel="Stop dictation"
-              size="medium"
-              className="static size-10"
-            />
-            <IconButton
-              type="submit"
-              aria-label="Send"
-              disabled={!message.trim()}
-              className="size-10 rounded-full bg-primary text-primary-foreground"
-            >
-              <SendIcon className="size-4" aria-hidden />
-            </IconButton>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <DictationMicButton
+                    dictation={dictation}
+                    idleLabel={MIC_IDLE_LABEL}
+                    recordingLabel={MIC_RECORDING_LABEL}
+                    size="medium"
+                    className="static size-10"
+                  />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {dictation.status === 'recording'
+                  ? MIC_RECORDING_LABEL
+                  : MIC_IDLE_LABEL}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              {/* A disabled button gets no pointer events, so the tooltip
+                  hangs off a wrapper that does. */}
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <IconButton
+                    type="submit"
+                    aria-label="Send"
+                    disabled={!message.trim()}
+                    className="size-10 rounded-full bg-primary text-primary-foreground"
+                  >
+                    <SendIcon className="size-4" aria-hidden />
+                  </IconButton>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">Send</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </form>

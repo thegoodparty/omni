@@ -59,4 +59,14 @@ describe('HomeComposer', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Attach a file' }))
     expect(mockOpenManager).toHaveBeenCalled()
   })
+
+  it.each([
+    ['Attach a file', 'Attach a file'],
+    ['Dictate a message', 'Dictate a message'],
+  ])('names the %s tool on hover', async (button, tip) => {
+    render(<HomeComposer />)
+
+    await userEvent.hover(screen.getByRole('button', { name: button }))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(tip)
+  })
 })
