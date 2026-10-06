@@ -408,14 +408,6 @@ describe('judge.yml tells every judge process who asked', () => {
   })
 })
 
-// THE HOSTNAME THE REPOSITORY VARIABLE HOLDS IS NOT THE ONE gp-api WANTS.
-// `vars.DATABRICKS_HOST` is `https://dbc-....cloud.databricks.com`, the form
-// the Python side reads; `resolveDatabricksConnection` wants a bare hostname
-// and @databricks/sql prefixes the scheme itself. Passing it straight through
-// produced `https://https//dbc-...` and `getaddrinfo EAI_AGAIN https`, and
-// the first live sweep ran against an unpinned mart because of it. GitHub
-// expressions have no `replace`, so the strip is bash in one step — which
-// means the strip is code, and this is what tests it.
 // `auto` picks chat agents off the directories a PR touches, through a table
 // in the select step. A chat agent missing from it is never judged unless
 // someone names it, which is a gap nobody sees. Derived from the registry, so
@@ -443,6 +435,14 @@ describe('judge.yml auto-selects every chat agent', () => {
   })
 })
 
+// THE HOSTNAME THE REPOSITORY VARIABLE HOLDS IS NOT THE ONE gp-api WANTS.
+// `vars.DATABRICKS_HOST` is `https://dbc-....cloud.databricks.com`, the form
+// the Python side reads; `resolveDatabricksConnection` wants a bare hostname
+// and @databricks/sql prefixes the scheme itself. Passing it straight through
+// produced `https://https//dbc-...` and `getaddrinfo EAI_AGAIN https`, and
+// the first live sweep ran against an unpinned mart because of it. GitHub
+// expressions have no `replace`, so the strip is bash in one step — which
+// means the strip is code, and this is what tests it.
 describe('judge.yml normalizes the Databricks host', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const steps = stepsOf(yaml)
