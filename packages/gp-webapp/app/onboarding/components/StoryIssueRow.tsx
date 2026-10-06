@@ -79,7 +79,7 @@ export default function StoryIssueRow({
             onChange({ ...issue, title: event.target.value })
           }
           placeholder={TITLE_PLACEHOLDER}
-          className="placeholder:italic placeholder:text-muted-foreground"
+          className="placeholder:text-muted-foreground"
         />
       </div>
 
@@ -90,7 +90,7 @@ export default function StoryIssueRow({
             value={issue.description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder={DESCRIPTION_PLACEHOLDER}
-            className="min-h-28 resize-none pb-9 placeholder:italic placeholder:text-muted-foreground"
+            className="min-h-28 resize-none pb-9 placeholder:text-muted-foreground"
           />
           <span className="pointer-events-none absolute bottom-2 right-3 text-sm text-muted-foreground">
             {issue.description.length} chars

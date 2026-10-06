@@ -27,7 +27,7 @@ const Harness = ({
 }
 
 describe('StoryIssuesCard', () => {
-  it('adds an inline "Priority" row (title + description + record + Improve) instead of a modal', async () => {
+  it('adds an inline "Priority" row (title + description + record) instead of a modal', async () => {
     const user = userEvent.setup()
     render(<Harness />)
 
@@ -43,9 +43,10 @@ describe('StoryIssuesCard', () => {
     expect(
       screen.getByPlaceholderText(/northside bus route/i),
     ).toBeInTheDocument()
+    // Improve waits for a description to work on, as on the outreach cards.
     expect(
-      screen.getByRole('button', { name: /Improve with AI/ }),
-    ).toBeInTheDocument()
+      screen.queryByRole('button', { name: /Improve with AI/ }),
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /record voice/i }),
     ).toBeInTheDocument()

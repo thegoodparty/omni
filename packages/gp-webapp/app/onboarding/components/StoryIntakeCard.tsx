@@ -85,7 +85,7 @@ export default function StoryIntakeCard({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={examplePlaceholder}
-        className="min-h-[140px] resize-none placeholder:italic placeholder:text-muted-foreground"
+        className="min-h-[140px] resize-none placeholder:text-muted-foreground"
       />
 
       <StoryFieldBar

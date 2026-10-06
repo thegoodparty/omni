@@ -124,28 +124,33 @@ export default function StoryFieldBar({
             </Button>
           )}
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="small"
-            className="text-muted-foreground"
-            disabled={
-              rewrite.isRewriting || improveDisabled || rewrite.limitReached
-            }
-            onClick={() => void rewrite.requestRewrite()}
-          >
-            {rewrite.isRewriting ? (
-              <>
-                <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
-                Improving…
-              </>
-            ) : (
-              <>
-                <SparklesIcon className="size-4" aria-hidden />
-                Improve with AI
-              </>
-            )}
-          </Button>
+          {/* Offered once there is text to improve, as on the outreach
+              compose cards, rather than shown disabled. */}
+          {(rewrite.isRewriting || !improveDisabled) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="small"
+              className="text-muted-foreground"
+              disabled={rewrite.isRewriting || rewrite.limitReached}
+              onClick={() => void rewrite.requestRewrite()}
+            >
+              {rewrite.isRewriting ? (
+                <>
+                  <LoaderCircleIcon
+                    className="size-4 animate-spin"
+                    aria-hidden
+                  />
+                  Improving…
+                </>
+              ) : (
+                <>
+                  <SparklesIcon className="size-4" aria-hidden />
+                  Improve with AI
+                </>
+              )}
+            </Button>
+          )}
 
           <IconButton
             type="button"
