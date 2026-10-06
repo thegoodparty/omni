@@ -34,6 +34,15 @@ describe('AgendaStatusPill', () => {
     )
   })
 
+  it('stays generic when the run ended as a placeholder without a date to name', () => {
+    expect(labelForRejection('no_briefing:no_meeting_found')).toBe(
+      "Couldn't use that agenda",
+    )
+    expect(labelForRejection('no_briefing:awaiting_agenda')).toBe(
+      "Couldn't use that agenda",
+    )
+  })
+
   it('still renders the existing statuses', () => {
     render(<AgendaStatusPill status="processing" />)
     expect(screen.getByText('Processing your agenda…')).toBeInTheDocument()

@@ -2676,6 +2676,141 @@ describe('publication gate: ready briefings must show an available agenda', () =
       )
     })
 
+    it('tells the official why when a pasted packet for a past meeting ends as no_meeting_found', async () => {
+      const { eo, briefingRun } = await setupRun({
+        briefing_status: 'no_meeting_found',
+        run_metadata: {
+          agenda_packet_url: null,
+          discovered_agenda_location: null,
+          packet_stated_meeting_date: '2026-03-02',
+          packet_date_verification: 'mismatched',
+        },
+      })
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+      const upload = await service.prisma.userAgendaUpload.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: eo.id,
+            meetingDate: new Date(MEETING_DATE),
+          },
+        },
+      })
+      expect(upload?.refusalReason).toBe(
+        `packet_date_mismatch:2026-03-02:${MEETING_DATE}`,
+      )
+    })
+
+    it('records the placeholder status when a pasted packet ends awaiting_agenda with no date read', async () => {
+      const { eo, briefingRun } = await setupRun({
+        briefing_status: 'awaiting_agenda',
+        run_metadata: {
+          agenda_packet_url: null,
+          discovered_agenda_location: null,
+          packet_stated_meeting_date: null,
+          packet_date_verification: 'unavailable',
+        },
+      })
+      await uploadRowFor(eo.id, briefingRun.runId)
+      const trackSpy = vi
+        .spyOn(service.app.get(AnalyticsService), 'track')
+        .mockResolvedValue({ event: 'stub', userId: 'stub' })
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+      const upload = await service.prisma.userAgendaUpload.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: eo.id,
+            meetingDate: new Date(MEETING_DATE),
+          },
+        },
+      })
+      expect(upload?.refusalReason).toBe('no_briefing:awaiting_agenda')
+      expect(trackSpy).toHaveBeenCalledWith(
+        service.user.id,
+        'Briefing Assistant - Agenda Not Created',
+        expect.objectContaining({
+          briefingStatus: 'awaiting_agenda',
+          refusalReason: 'no_briefing:awaiting_agenda',
+        }),
+      )
+    })
+
+    it('carries only the status when a placeholder packet states a date that matches', async () => {
+      const { eo, briefingRun } = await setupRun({
+        briefing_status: 'no_meeting_found',
+        run_metadata: {
+          agenda_packet_url: null,
+          discovered_agenda_location: null,
+          packet_stated_meeting_date: '2026-06-09',
+          packet_date_verification: 'matched',
+        },
+      })
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+      const upload = await service.prisma.userAgendaUpload.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: eo.id,
+            meetingDate: new Date(MEETING_DATE),
+          },
+        },
+      })
+      expect(upload?.refusalReason).toBe('no_briefing:no_meeting_found')
+    })
+
+    it('names the mismatch without a date when the run flagged one but read none', async () => {
+      const { eo, briefingRun } = await setupRun({
+        briefing_status: 'awaiting_agenda',
+        run_metadata: {
+          agenda_packet_url: null,
+          discovered_agenda_location: null,
+          packet_stated_meeting_date: null,
+          packet_date_verification: 'mismatched',
+        },
+      })
+      await uploadRowFor(eo.id, briefingRun.runId)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+      const upload = await service.prisma.userAgendaUpload.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: eo.id,
+            meetingDate: new Date(MEETING_DATE),
+          },
+        },
+      })
+      expect(upload?.refusalReason).toBe(
+        `packet_date_mismatch:unknown:${MEETING_DATE}`,
+      )
+    })
+
+    it('leaves an upload row for another run untouched when a placeholder run completes', async () => {
+      const { eo, briefingRun } = await setupRun({
+        briefing_status: 'no_meeting_found',
+        run_metadata: {
+          agenda_packet_url: null,
+          discovered_agenda_location: null,
+          packet_stated_meeting_date: '2026-03-02',
+          packet_date_verification: 'mismatched',
+        },
+      })
+      await uploadRowFor(eo.id, null)
+      await complete(briefingRun)
+      expect(await rowFor(eo.id)).toBeNull()
+      const upload = await service.prisma.userAgendaUpload.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: eo.id,
+            meetingDate: new Date(MEETING_DATE),
+          },
+        },
+      })
+      expect(upload?.refusalReason).toBeNull()
+    })
+
     it('writes the row when an upload row for this run exists', async () => {
       const { eo, briefingRun } = await setupRun(userProvided({}))
       await uploadRowFor(eo.id, briefingRun.runId)

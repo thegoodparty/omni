@@ -150,6 +150,56 @@ const targetDateFor = (run: ExperimentRun, artifactDate: string): string => {
     : artifactDate
 }
 
+// The date the agenda document states, as the artifact recorded it, and
+// whether it points at a meeting other than the target: an agent-reported
+// mismatch, or a well-formed date more than the tolerance away. A malformed
+// date counts as unread, the same as null.
+const packetDateCheck = (
+  runMetadata: PrismaJson.MeetingBriefingArtifact['run_metadata'],
+  targetDate: string,
+): { statedDate: string | null; statesAnotherMeeting: boolean } => {
+  const statedDateRaw = readStringField(
+    runMetadata,
+    'packet_stated_meeting_date',
+  )
+  const statedDate =
+    statedDateRaw !== null && ISO_DATE_ONLY_RE.test(statedDateRaw)
+      ? statedDateRaw
+      : null
+  const statesAnotherMeeting =
+    readStringField(runMetadata, 'packet_date_verification') === 'mismatched' ||
+    (statedDate !== null &&
+      Math.abs(
+        differenceInCalendarDays(
+          parseIsoDateAsUTC(statedDate),
+          parseIsoDateAsUTC(targetDate),
+        ),
+      ) > PACKET_DATE_TOLERANCE_DAYS)
+  return { statedDate, statesAnotherMeeting }
+}
+
+// A user-provided run that ends as a placeholder has nothing to publish, but
+// the official still needs to know why. When the artifact's own packet date is
+// another meeting's, the reason names that date; anything else carries the
+// status.
+const placeholderRefusalReason = (
+  run: ExperimentRun,
+  briefingStatus: string,
+  artifact: PrismaJson.MeetingBriefingArtifact,
+): string => {
+  const targetDate = targetDateFor(run, artifact.meeting_date ?? '')
+  if (ISO_DATE_ONLY_RE.test(targetDate)) {
+    const { statedDate, statesAnotherMeeting } = packetDateCheck(
+      artifact.run_metadata,
+      targetDate,
+    )
+    if (statesAnotherMeeting) {
+      return `packet_date_mismatch:${statedDate ?? 'unknown'}:${targetDate}`
+    }
+  }
+  return `no_briefing:${briefingStatus}`
+}
+
 // Identifies the daily-briefing cron in the cron_run lease table.
 const DAILY_BRIEFINGS_CRON_JOB = 'dispatchDailyBriefings'
 
@@ -1231,11 +1281,18 @@ export class MeetingBriefingsService extends createPrismaBase(
         { runId: run.runId, briefingStatus },
         'meeting_briefing produced a placeholder; skipping row write so the next cron run retries',
       )
+      const reason = placeholderRefusalReason(run, briefingStatus, artifact)
+      const recorded = await this.recordUploadRefusal(
+        electedOffice.id,
+        run.runId,
+        reason,
+      )
       await this.trackAgendaNotCreated(
         run,
         electedOffice,
         briefingStatus,
         artifact,
+        recorded ? reason : undefined,
       )
       return false
     }
@@ -1266,12 +1323,7 @@ export class MeetingBriefingsService extends createPrismaBase(
         },
         'meeting_briefing refused as ready; slot stays open for a retry',
       )
-      await this.recordUploadRefusal(
-        electedOffice.id,
-        targetDateFor(run, dateString),
-        run.runId,
-        refusal,
-      )
+      await this.recordUploadRefusal(electedOffice.id, run.runId, refusal)
       await this.trackAgendaNotCreated(
         run,
         electedOffice,
@@ -1329,23 +1381,22 @@ export class MeetingBriefingsService extends createPrismaBase(
   }
 
   /**
-   * Leave the refusal reason on the user's upload row for this run, so the
-   * Briefings page can say why the pasted agenda did not become a briefing.
-   * Automatic runs have no upload row and this is a no-op for them.
+   * Leave the refusal reason on the upload row that dispatched this run, so
+   * the Briefings page can say why the pasted agenda did not become a
+   * briefing. Automatic runs have no upload row and this is a no-op for them.
    */
+  // Matched by run alone: a dispatched run belongs to one upload row, and a
+  // placeholder artifact may carry no usable date to key on.
   private async recordUploadRefusal(
     electedOfficeId: string,
-    dateString: string,
     runId: string,
     reason: string,
-  ): Promise<void> {
-    await this.client.userAgendaUpload.updateMany({
-      where: {
-        ...uploadRowKey(electedOfficeId, dateString),
-        experimentRunId: runId,
-      },
+  ): Promise<boolean> {
+    const { count } = await this.client.userAgendaUpload.updateMany({
+      where: { electedOfficeId, experimentRunId: runId },
       data: { refusalReason: reason.slice(0, REFUSAL_REASON_MAX) },
     })
+    return count > 0
   }
 
   /**
@@ -1387,34 +1438,15 @@ export class MeetingBriefingsService extends createPrismaBase(
       return `agenda_unavailable:${availability}`
     }
 
-    // Only a well-formed ISO date from the artifact is used or echoed back;
-    // anything else counts as "no date read", the same as null.
-    const statedDateRaw = readStringField(
-      runMetadata,
-      'packet_stated_meeting_date',
-    )
-    const statedDate =
-      statedDateRaw !== null && ISO_DATE_ONLY_RE.test(statedDateRaw)
-        ? statedDateRaw
-        : null
-    const verification = readStringField(
-      runMetadata,
-      'packet_date_verification',
-    )
     // The slot the run was dispatched for. The artifact's meeting_date is
     // supposed to echo it but has not always, and the agent writes both the
     // stated date and meeting_date, so comparing those two would let a
     // packet for another meeting through whenever it copied the packet's date.
     const targetDate = targetDateFor(run, dateString)
-    const statesAnotherMeeting =
-      verification === 'mismatched' ||
-      (statedDate !== null &&
-        Math.abs(
-          differenceInCalendarDays(
-            parseIsoDateAsUTC(statedDate),
-            parseIsoDateAsUTC(targetDate),
-          ),
-        ) > PACKET_DATE_TOLERANCE_DAYS)
+    const { statedDate, statesAnotherMeeting } = packetDateCheck(
+      runMetadata,
+      targetDate,
+    )
 
     if (briefingStatus === 'briefing_ready') {
       if (statesAnotherMeeting) {
@@ -1476,8 +1508,9 @@ export class MeetingBriefingsService extends createPrismaBase(
           electedOfficeId: electedOffice.id,
           experimentRunId: run.runId,
           briefingStatus,
-          // Set when gp-api refused a ready artifact, so dashboards can tell
-          // a refusal from an agent placeholder.
+          // Set when gp-api refused a ready artifact, or when a placeholder
+          // ended a user-provided run, so dashboards can tell those from an
+          // automatic run's placeholder.
           ...(refusalReason ? { refusalReason } : {}),
           ...(validDate
             ? {
