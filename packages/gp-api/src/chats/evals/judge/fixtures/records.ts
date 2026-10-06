@@ -256,6 +256,41 @@ export const TOOL_ERROR_PAIR: [RunRecord, RunRecord] = pair(
   }),
 )
 
+// A background run that hit a failing Bash snippet on both arms, fixed it and
+// carried on: both still published a valid artifact. This is the ordinary
+// shape of a live background sweep, and it is scored, not excluded — the
+// verdict is on the artifact. The base arm failed twice in two ways, the
+// candidate once, so the measured delta and the cause list both have
+// something to show.
+const bashFailure = (message: string) => ({
+  tool: 'Bash',
+  message,
+})
+export const BACKGROUND_TOOL_ERROR_PAIR: [RunRecord, RunRecord] = pair(
+  record('race-t1', 'base', {
+    agentId: 'race_opponent_summary',
+    shape: 'background',
+    toolCalls: 4,
+    toolErrors: 2,
+    toolErrorDetails: [
+      bashFailure('Traceback ...\nValueError: bad value'),
+      bashFailure('exit code 1'),
+    ],
+    output: { kind: 'artifact', value: { opponents: [{ name: 'A' }] } },
+  }),
+  record('race-t1', 'candidate', {
+    agentId: 'race_opponent_summary',
+    shape: 'background',
+    toolCalls: 4,
+    toolErrors: 1,
+    toolErrorDetails: [bashFailure('exit code 1')],
+    output: {
+      kind: 'artifact',
+      value: { opponents: [{ name: 'A' }, { name: 'B' }] },
+    },
+  }),
+)
+
 // The candidate declined. A refusal is an agent result, not a failure, so it
 // keeps an output and stays judgeable — whether declining was right is
 // exactly the kind of thing a verdict should capture.
@@ -304,6 +339,7 @@ export const ALL_PAIRS = {
   VOTER_QUERY_PAIR,
   BACKGROUND_PAIR,
   TOOL_ERROR_PAIR,
+  BACKGROUND_TOOL_ERROR_PAIR,
   BLOCKED_PAIR,
   INFRA_ERROR_PAIR,
   IDENTICAL_DIGEST_PAIR,

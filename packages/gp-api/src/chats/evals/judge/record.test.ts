@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { isComparable, RunRecordSchema } from './record'
 import {
   ALL_PAIRS,
+  BACKGROUND_TOOL_ERROR_PAIR,
   BLOCKED_PAIR,
   CHAT_PAIR,
   IDENTICAL_DIGEST_PAIR,
@@ -209,6 +210,19 @@ describe('isComparable', () => {
 
   it('rejects an infraError arm', () => {
     const [, candidate] = INFRA_ERROR_PAIR
+    expect(isComparable(candidate)).toBe(false)
+  })
+
+  // A background agent is judged on its artifact, and one that hit a failing
+  // Bash snippet and recovered still produced one.
+  it('keeps a background arm with tool errors comparable', () => {
+    expect(BACKGROUND_TOOL_ERROR_PAIR.every(isComparable)).toBe(true)
+  })
+
+  it('rejects a background infraError arm even with no tool error', () => {
+    const [, candidate] = INFRA_ERROR_PAIR
+    expect(candidate.agentShape).toBe('background')
+    expect(candidate.telemetry.toolErrors).toBe(0)
     expect(isComparable(candidate)).toBe(false)
   })
 

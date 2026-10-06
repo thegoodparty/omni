@@ -7,6 +7,7 @@ import type { AgentEntry } from './agents'
 import { createRng } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import {
+  BACKGROUND_TOOL_ERROR_PAIR,
   CHAT_PAIR,
   IDENTICAL_DIGEST_PAIR,
   TOOL_ERROR_PAIR,
@@ -151,6 +152,14 @@ const pipeline = async (
 }
 
 describe('the coverage line', () => {
+  // The real registry, pinned. race_opponent_summary was wired on Melecia's
+  // real bench, so it is the one wired agent outside the parenthetical.
+  it('reads 3 of 20 wired, 2 on placeholder inputs, for the registry', () => {
+    expect(coverageLines()[0]).toBe(
+      '**Coverage: 3 of 20 agents wired (2 on placeholder inputs).**',
+    )
+  })
+
   // Asserted as an exact string. A pattern like /\d+ of \d+/ would pass
   // whichever registry got counted, which is the kind of test that looks
   // like coverage and is not.
@@ -481,6 +490,7 @@ describe('provenance', () => {
         unpaired: 0,
         ungraded: 0,
       },
+      scoredToolErrorCauses: [],
       positionConsistency: null,
       swappedPairs: 0,
       orderUnstablePairs: [],
@@ -1071,6 +1081,61 @@ describe('tool-error exclusions say which tool and why', () => {
     expect(report).toContain('`tool4`')
     expect(report).not.toContain('`tool5`')
     expect(report).toContain('- and 2 more')
+  })
+
+  // A background pair with tool errors is scored, so its causes are not
+  // exclusions and must not read as ones: they get their own heading, after a
+  // blank line so Markdown does not fold it into the line above.
+  it('lists scored causes under their own heading', async () => {
+    const base = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...base,
+          scoredToolErrorCauses: [
+            {
+              tool: 'Bash',
+              errorClass: 'exit code 1',
+              pairs: 7,
+              arms: ['base', 'candidate'],
+            },
+          ],
+        },
+      ],
+    })
+    const lines = report.split('\n')
+    const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
+    expect(lines.slice(at + 1, at + 4)).toEqual([
+      '',
+      'Tool errors (scored, not excluded):',
+      '- chief_of_staff: `Bash` — exit code 1 (×7, base and candidate)',
+    ])
+  })
+
+  // End to end on the shape the decision is about: a background pair whose
+  // arms both hit a failing Bash snippet is judged, and the report still
+  // carries the measured delta and the causes.
+  it('reports a background tool-error pair as scored, with delta and causes', async () => {
+    const records = BACKGROUND_TOOL_ERROR_PAIR.map((record) => ({
+      ...record,
+      output: {
+        kind: 'text' as const,
+        value: record.arm === 'base' ? SHORT : LONG,
+      },
+    }))
+    const score = await pipeline(records)
+    const report = renderReport({ agents: [score] })
+
+    expect(score.overall.judgments).toBeGreaterThan(0)
+    expect(report).toContain('Excluded pairs: 0 tool error, 0 infra error')
+    expect(report).toContain('- tool errors: -1.00 per run pair')
+    expect(report).toContain('Tool errors (scored, not excluded):')
+    expect(report).toContain(
+      '- race_opponent_summary: `Bash` — exit code 1 (×1, base and candidate)',
+    )
+    expect(report).toContain(
+      '- race_opponent_summary: `Bash` — ValueError (×1, base)',
+    )
   })
 
   it('adds nothing when no pair was excluded for a tool error', async () => {

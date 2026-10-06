@@ -1283,9 +1283,10 @@ export const runBackgroundCase = async (
   // tool calls and zero tool errors, which makes isComparable() true, which
   // lets runBackgroundBaseArm cache a base arm whose every Databricks read may
   // have failed — a permanent baseline claiming zero tool errors, with the
-  // evidence in the trace that never arrived. That defeats the "a tool error
-  // is never a quality signal" protection for every later sweep of the digest,
-  // which is the exact outcome the notCached guard exists to prevent.
+  // evidence in the trace that never arrived. A background tool error no
+  // longer excludes a pair, but it is still measured and reported beside the
+  // verdict, and a cached baseline that silently claims zero would falsify
+  // that figure for every later sweep of the digest.
   //
   // Absence is not normal for a healthy run: the harness writes
   // conversation.jsonl unconditionally and uploads it on the timeout and kill
@@ -1466,7 +1467,13 @@ export type CacheRead =
 // into the judge prefix installs a schema-valid baseline that every later sweep
 // reuses, which either hides a regression or invents one.
 //
-// isComparable is re-checked here, not only on write: a hand-written entry
+// Stricter than isComparable on purpose: a base arm captured during a
+// credential or broker outage would otherwise stay the baseline until the
+// agent's config changes, and a re-capture of a clean run is the cheap side.
+export const isCacheableBase = (record: RunRecord): boolean =>
+  isComparable(record) && record.telemetry.toolErrors === 0
+
+// isCacheableBase is re-checked here, not only on write: a hand-written entry
 // would otherwise walk straight past the write-side guard.
 const cacheEntryMatches = (
   entry: CachedBaseArm,
@@ -1481,7 +1488,7 @@ const cacheEntryMatches = (
     record.agentId === agentId &&
     record.caseId === caseId &&
     record.variant.configDigest === configDigest &&
-    isComparable(record)
+    isCacheableBase(record)
   )
 }
 
@@ -1587,10 +1594,13 @@ export const runBackgroundBaseArm = async (
   }
 
   const record = await runBackgroundCase(deps, input)
-  // Never cache a run that cannot be compared. A cached timeout, or a cached
-  // run whose data read failed, would be reused by every later sweep — so a
-  // dead credential would become a permanent baseline rather than one bad run.
-  if (!isComparable(record)) {
+  // Never cache a run that cannot be compared, or one that hit a tool error.
+  // A cached timeout, or a cached run with no readable artifact or trace,
+  // would be reused by every later sweep, so one bad run would become a
+  // permanent baseline. A background run with tool errors IS comparable and
+  // is scored this sweep (see isComparable), but it is not cached: see
+  // isCacheableBase.
+  if (!isCacheableBase(record)) {
     return {
       record,
       cache: 'notCached',

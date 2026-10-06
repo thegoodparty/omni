@@ -895,6 +895,16 @@ export {
   type MergeTagId,
 } from './outreach/MergeTag.const'
 export {
+  SAMPLE_TARGET_REPLIES,
+  DEFAULT_TEXT_REPLY_RATE,
+  HIGH_CONFIDENCE_MIN_REPLIES,
+  HIGH_CONFIDENCE_MIN_SHARE,
+  PRICE_PER_TEXT_TENTH_CENTS,
+  PRICE_PER_TEXT,
+  recommendedSampleSize,
+  isHighConfidence,
+} from './outreach/SampleSizing.const'
+export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
   type OutreachPurpose,

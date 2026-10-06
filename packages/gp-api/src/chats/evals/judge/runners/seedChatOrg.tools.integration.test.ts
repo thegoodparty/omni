@@ -11,6 +11,22 @@ import { PriorityFlowHandler } from '@/chats/general/priority-flow/priorityFlow.
 import { CampaignManagerHandler } from '@/chats/general/campaign-manager/campaignManager.handler'
 import { OrdinanceFlowHandler } from '@/chats/general/ordinance-flow/ordinanceFlow.handler'
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import { BriefingAnnotationHandler } from '@/chats/briefing-chats/briefingAnnotation.handler'
+import { BriefingNotesService } from '@/chats/briefing-chats/services/briefingNotes.service'
+import {
+  createBriefingChatResponseSchema,
+  type CreateBriefingChatResponse,
+} from '@/chats/briefing-chats/schemas/CreateBriefingChat.schema'
+import { installBriefingFixture } from './chatSeam'
+import {
+  JUDGE_BRIEFING_ARTIFACT,
+  JUDGE_BRIEFING_BUCKET,
+  JUDGE_BRIEFING_TODAY,
+  JUDGE_MEETING_DATE,
+  JUDGE_NOTE,
+} from './briefingFixture'
+import { ExperimentRunStatus } from '../../../../generated/prisma'
+import { parseIsoDateAsUTC } from '@/shared/util/date.util'
 import {
   chatScopeFor,
   JUDGE_POSITION,
@@ -371,5 +387,215 @@ describe('the ordinance step the seeder anchors on', () => {
 
     const ctx = await handler.loadContext(conversationId, service.user.id)
     expect(ctx.jurisdiction).toBe('Judge City, WA')
+  })
+})
+
+// BRIEFING CHAT, which the registry cannot open: its conversation is created
+// with its annotation by POST /v1/briefing-chats, so that is the route used
+// here, exactly as the runner uses it. The artifact is the fixture the seam
+// serves for the seeded bucket, because no test process can reach S3.
+describe('the tools a seeded briefing registers', () => {
+  const seedAndOpenBriefing = async (
+    caseId: string,
+    options: SeedChatOrgOptions = {},
+  ) => {
+    const seeded = await seedChatOrg(
+      service.prisma,
+      service.user.id,
+      'briefing_annotation',
+      caseId,
+      options,
+    )
+    if (seeded.briefing === undefined) {
+      throw new Error('the briefing seed returned no briefing to open')
+    }
+    const created = await service.client.post<CreateBriefingChatResponse>(
+      '/v1/briefing-chats',
+      seeded.briefing,
+    )
+    expect(created.status).toBe(201)
+    return {
+      ...seeded,
+      ...createBriefingChatResponseSchema.parse(created.data),
+    }
+  }
+
+  const withFixture = async <T>(read: () => Promise<T>): Promise<T> => {
+    const seam = installBriefingFixture({
+      bucket: JUDGE_BRIEFING_BUCKET,
+      artifactContent: JUDGE_BRIEFING_ARTIFACT,
+      today: JUDGE_BRIEFING_TODAY,
+    })
+    try {
+      return await read()
+    } finally {
+      seam.restore()
+    }
+  }
+
+  it('registers get_artifacts and get_my_notes', async () => {
+    const { conversationId } = await seedAndOpenBriefing('br-tools')
+    const handler = service.app.get(BriefingAnnotationHandler)
+
+    const ctx = await withFixture(() =>
+      handler.loadContext(conversationId, service.user.id),
+    )
+    // Parsed, which is what get_artifacts reads and what the prompt's
+    // structured block is built from: a markdown artifact would leave it null.
+    expect(ctx.parsed?.meeting.cityName).toBe('Hendersonville')
+    expect(ctx.notesCount).toBe(1)
+    expect(Object.keys(handler.buildTools(ctx))).toEqual(
+      expect.arrayContaining(['get_artifacts', 'get_my_notes']),
+    )
+  })
+
+  // The note recall case reads this: the body, and the passage it was
+  // written against, resolved through the same JSON Pointer production uses.
+  it('seeds a note that resolves to its highlighted passage', async () => {
+    const { briefing } = await seedAndOpenBriefing('br-note')
+    expect(briefing).toBeDefined()
+    const row = await service.prisma.meetingBriefing.findFirstOrThrow()
+    const notes = await service.app.get(BriefingNotesService).loadNotesForChat({
+      userId: service.user.id,
+      briefingId: row.id,
+      artifactContent: JUDGE_BRIEFING_ARTIFACT,
+    })
+    expect(notes.map((n) => [n.body, n.highlightedText])).toEqual([
+      [JUDGE_NOTE.body, '$24M revenue bond rating review'],
+    ])
+  })
+
+  // The district pair is resolved from the briefing's own organization, the
+  // one this case seeded, and only a credentialed deployment has the
+  // warehouse provider, so both deployment halves are supplied here the way
+  // the Serve scopes above supply them.
+  const briefingToolsUnderCredentials = async (
+    conversationId: string,
+  ): Promise<string[]> => {
+    const handler = service.app.get(BriefingAnnotationHandler)
+    const prior = Reflect.get(handler, 'databricks')
+    Object.assign(handler, {
+      databricks: new InMemoryDatabricksProvider(new Map()),
+    })
+    try {
+      return await withJudgePosition(() =>
+        withFixture(async () =>
+          Object.keys(
+            handler.buildTools(
+              await handler.loadContext(conversationId, service.user.id),
+            ),
+          ),
+        ),
+      )
+    } finally {
+      Object.assign(handler, { databricks: prior })
+    }
+  }
+
+  it('registers district_insights under a credentialed deployment', async () => {
+    const { conversationId } = await seedAndOpenBriefing('br-district')
+    expect(await briefingToolsUnderCredentials(conversationId)).toEqual(
+      expect.arrayContaining(['district_insights', 'list_district_topics']),
+    )
+  })
+
+  // THE CASE'S OWN district state reaches the chat. Seeded after a case that
+  // HAS a district, so a resolver that read any office but this case's would
+  // find a position and register the pair anyway.
+  it("honours this case's district: false, not an earlier case's", async () => {
+    await seedAndOpenBriefing('br-with-district')
+    const { conversationId } = await seedAndOpenBriefing('br-no-district', {
+      district: false,
+    })
+    const tools = await briefingToolsUnderCredentials(conversationId)
+    expect(tools).not.toContain('district_insights')
+    expect(tools).not.toContain('list_district_topics')
+  })
+
+  // THE RETIREMENT IS NARROW, and every filter on it is load-bearing. It
+  // deletes only this user's judge-seeded briefings on the fixture date; a
+  // filter dropped would delete, respectively, a real briefing of the same
+  // user, another user's judge briefing, or a judge briefing on another day.
+  it('retires nothing but its own judge briefings on the fixture date', async () => {
+    const briefingFor = async (
+      userId: number,
+      organizationSlug: string,
+      meetingDate: string,
+    ): Promise<string> => {
+      await service.prisma.organization.create({
+        data: { slug: organizationSlug, ownerId: userId },
+      })
+      const office = await service.prisma.electedOffice.create({
+        data: { organizationSlug, userId },
+      })
+      const run = await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug,
+          experimentType: 'meeting_briefing',
+          status: ExperimentRunStatus.COMPLETED,
+        },
+      })
+      const briefing = await service.prisma.meetingBriefing.create({
+        data: {
+          electedOfficeId: office.id,
+          meetingDate: parseIsoDateAsUTC(meetingDate),
+          meetingTime: '6:30 PM',
+          meetingTimezone: 'America/New_York',
+          experimentRunId: run.runId,
+          artifactBucket: 'briefing-artifacts',
+          artifactKey: `${organizationSlug}/briefing.json`,
+        },
+      })
+      return briefing.id
+    }
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'judge-bystander@goodparty.org' },
+    })
+    const bystanders = [
+      // A real office of the same user, on the fixture date.
+      await briefingFor(service.user.id, 'real-office', JUDGE_MEETING_DATE),
+      // Another user's judge briefing on the fixture date.
+      await briefingFor(otherUser.id, 'judge-other-user', JUDGE_MEETING_DATE),
+      // This user's judge briefing on another day.
+      await briefingFor(service.user.id, 'judge-other-day', '2026-05-20'),
+    ]
+
+    await seedChatOrg(
+      service.prisma,
+      service.user.id,
+      'briefing_annotation',
+      'a',
+    )
+
+    const left = await service.prisma.meetingBriefing.findMany({
+      where: { id: { in: bystanders } },
+      select: { id: true },
+    })
+    expect(left.map((b) => b.id).sort()).toEqual([...bystanders].sort())
+  })
+
+  // The route finds a briefing by (meeting date, caller's office) and
+  // production has one office per user; an arm seeds one per case. Leaving
+  // the earlier briefing would route a later case onto it.
+  it("retires the previous case's briefing on the same date", async () => {
+    await seedChatOrg(
+      service.prisma,
+      service.user.id,
+      'briefing_annotation',
+      'a',
+    )
+    const second = await seedChatOrg(
+      service.prisma,
+      service.user.id,
+      'briefing_annotation',
+      'b',
+    )
+
+    const briefings = await service.prisma.meetingBriefing.findMany({
+      include: { electedOffice: true },
+    })
+    expect(briefings.map((b) => b.electedOffice.organizationSlug)).toEqual([
+      second.organizationSlug,
+    ])
   })
 })

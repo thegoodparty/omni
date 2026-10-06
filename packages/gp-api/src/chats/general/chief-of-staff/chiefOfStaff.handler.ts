@@ -49,6 +49,7 @@ import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideCont
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 
@@ -111,7 +112,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       userId,
       this.priorities,
     )
-    const resolved = await this.districtResolver?.resolveByUserId(userId)
+    // Resolve by the conversation's org slug, not the user: an official with
+    // offices in multiple orgs would otherwise get whichever ElectedOffice row
+    // came back first, scoping constituent data to another org's district.
+    // ctx.organizationSlug is never a guess: load() matches the office on the
+    // conversation's own slug and throws when a conversation has none.
+    const resolved = await this.districtResolver?.resolveByOrgSlug(
+      ctx.organizationSlug,
+    )
     if (!resolved) return ctx
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
@@ -121,6 +129,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      state: resolved.state,
       districtFilters,
       constituentToolEnabled,
     }
@@ -289,6 +298,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       // the list behind it can be built.
       if (this.voterFileFilters) {
         tools.present_outreach_proposal = buildPresentOutreachProposalTool()
+        tools.size_outreach_sample = buildSizeOutreachSampleTool()
       }
     }
 

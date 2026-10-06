@@ -91,25 +91,32 @@ message, so the card never has to.
 
 ## A step carries whether its people were asked
 
-`define`, `options`, `method` and `plan` always end with a check. The agent
-picks who by the affectedness method in the prompt (`AFFECTEDNESS_BLOCK` in
+`define`, `options`, `method` and `plan` can each carry a check, and none has
+to. Before offering one the agent names what the step is missing and matches
+it to a source: a fact gets looked up, how it runs comes from staff or groups,
+and only what people think, with nothing on hand showing it, earns a check.
+A step that settles without one is done; the model otherwise routed every gap
+into a texting campaign. When a check is warranted, the agent picks who by the affectedness method in the prompt (`AFFECTEDNESS_BLOCK` in
 `gp-api/.../priority-flow/priorityFlow.prompt.ts`, from Samuel's Serve lists
 runbook), counts the group without saving it, writes the one question, and offers it as
 work already done through `present_outreach_proposal` on whichever channel
-those people answer on, door knocking included. Every check has two sides,
+those people answer on, door knocking included. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
 inverted, same gates), each on its own card. The official can take both, one,
 or neither. The check is the ask for its stage. `listen_problem` and
 `listen_options` never ask again: they are where the answers to the `define`
-and `options` checks land.
+and `options` checks land, and with no check on their gate they close on what
+the official and the record already show (`isCheckAnswered` reads no check as
+nothing to wait on).
 
 A model left alone records the check and moves on without showing it, so the
-server holds the order. `update_priority_status` refuses to record `asked`
-until a card or a question has gone out in that turn (the priority-flow
-handler tells it, since tools are built per turn), refuses to open a step past
-a settled gate that has no check, and answers a gate settled without one with
-`checkDue`: offer it now, before any next-step work. So `asked` means shown,
-and the rail reads it as waiting on the official.
+server holds the order once a check exists, and never forces one.
+`update_priority_status` refuses to record `asked` until a card or a question
+has gone out in that turn (the priority-flow handler tells it, since tools are
+built per turn), and answers a gate settled without one with `checkDue`: say
+what is still missing, offer a check only for a gap in what people think, and
+otherwise move on. So `asked` means shown, and the rail reads it as waiting on
+the official.
 
 Three more holds, because the model also called the official's own agreement
 "constituents agreed":
@@ -117,14 +124,11 @@ Three more holds, because the model also called the official's own agreement
 - **Recording `asked` while something was offered stamps `offeredAt` on the
   server** (`mergeStepCheck`'s `offered` argument, which only the server
   passes). Reads heal earlier rows: `parsePriorityStatus` drops an `asked`
-  with no `offeredAt`, and any check on a step that is not a gate. The gate
-  then counts as bare and asks again.
+  with no `offeredAt`, and any check on a step that is not a gate.
 - **`confirmed` and `revised` need evidence.** The side has to have been `out`,
   or shown in an earlier turn (`offeredAt` before the handler's turn
   `startedAt`), and `heard` has to say what constituents said. A check patch
   on a step that is not a gate is refused, and the client merge ignores one.
-- **An unanswered `asked` lets one step open past its gate, and no further.**
-  After that, the agent has to ask again or record the answer.
 - **A real send puts a side out, not the agent.** A proposal names the check
   it puts out (`stepId`, `side`), and the create that sends it carries them.
   Once the send is real (the phone list built, the post saved, the text paid
@@ -167,13 +171,22 @@ separately.
 
 A check is a directional read, so the agent proposes a random sample of each
 side's audience rather than the whole of it. Texting 58,520 people, about
-$2,050, for a read that needs about 100 replies is what this exists to stop.
+$2,050, for a read that needs 83 replies is what this exists to stop.
 The rules live in the prompt (`buildSamplingBlock` and
-`buildReadingRepliesBlock` in `priorityFlow.prompt.ts`):
+`buildReadingRepliesBlock` in `priorityFlow.prompt.ts`). The sizing lines in
+them are `buildSampleSizingRules`
+(`gp-api/src/chats/general/chat-tools/outreachSampling.prompt.ts`), which the
+Chief of Staff shares, and every number is the polls methodology, read from
+`outreach/SampleSizing.const.ts` in contracts. Change a number there, never in
+a prompt.
 
-- **Text** is sized from `CHECK_TARGET_REPLIES` (100) over the office's own
-  reply rate (`replyRate` on `read_past_outreach` rows), or
-  `DEFAULT_TEXT_REPLY_RATE` (2.5%) without one. **Phone banking and door
+- **Text** is sized like a poll: `SAMPLE_TARGET_REPLIES` (83) over the
+  office's own reply rate (`replyRate` on `read_past_outreach` rows), or
+  `DEFAULT_TEXT_REPLY_RATE` (3%) without one. The agent never does this
+  arithmetic: it calls `size_outreach_sample`
+  (`gp-api/src/chats/general/chat-tools/sizeOutreachSample.tool.ts`), which
+  returns the sample, whether it is the whole audience, and what the sample
+  and the whole audience would cost. A widen passes `repliesAlready`. **Phone banking and door
   knocking** are sized by what the official can actually work, and the agent
   says what it chose. Each side gets its own sample.
 - **The proposal carries it** (`OutreachProposalSchema` in contracts):
@@ -182,22 +195,23 @@ The rules live in the prompt (`buildSamplingBlock` and
   cards persisted before them still parse. A `sampleSize` no smaller than
   `count` means the whole audience everywhere: the card, the tool result
   (`wholeAudience`), and the server's draw.
-- **The card says it**: `proposalSampleLine` reads "Text 4,000 of 58,520,
+- **The card says it**: `proposalSampleLine` reads "Text 2,767 of 58,520,
   picked at random" in place of the channel and count. The list saved from
   the proposal is drawn as `proposalListSample` (keyed on the proposal, so
   saving it twice draws the same people; see "Random samples" in
   `gp-api/src/peopleDb/AGENTS.md` and `VoterFileFilterSampleMember` in
   `gp-api/src/contacts/AGENTS.md`).
-- **A thin read is not an answer.** Under `CHECK_MIN_REPLIES` (75, the polls
-  high-confidence bar) the agent says the read is thin, does not record the
+- **A thin read is not an answer.** Short of the polls high-confidence bar
+  (`isHighConfidence`: more than 75 replies, or replies from 10% of that
+  side's audience) the agent says the read is thin, does not record the
   side confirmed or revised, and offers to widen: a new proposal to the same
   audience with `widensOutreachIds`, whose list leaves out whoever the
   earlier samples drew. A side already sent is otherwise never offered again
   (`checkProposalRefusal`); a widen gets through only when the server finds
   every named send put out that same side of this priority's check
   (`PriorityFlowOutreachService.allPutOutCheck`). A proposal whose audience
-  counted nobody is refused outright. Nothing calls a result statistically proven; the 2 or
-  3 in 100 who reply choose themselves.
+  counted nobody is refused outright. Nothing calls a result statistically
+  proven; the 3 in 100 who reply choose themselves.
 
 ## Cards are keyed, not trusted
 

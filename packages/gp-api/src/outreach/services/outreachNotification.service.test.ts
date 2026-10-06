@@ -69,6 +69,9 @@ const baseCampaign = {
   id: 1,
   slug: 'jane-doe',
   aiContent: {},
+  // Prisma defaults the JSON column to {}; a fixture without it has no state
+  // to resolve a send-window zone from.
+  details: {},
   data: { hubspotId: 'hub-1' },
 } as unknown as Campaign
 
@@ -169,6 +172,30 @@ describe('OutreachNotificationService', () => {
       expect(mockVoterFileFilterToAudience).not.toHaveBeenCalled()
       expect(mockSlackMessage).toHaveBeenCalledTimes(1)
       expect(mockCampaignsUpdate).toHaveBeenCalledTimes(1)
+    })
+
+    // Danielle Mead, 2026-10-05: an Oct 5 7 PM Pacific text is 02:00 UTC on
+    // the 6th, and the notice named the 6th.
+    it('renders the send as the candidate-local day and time, not the UTC day', async () => {
+      await service.notifySuccess({
+        user: mockUser,
+        campaign: {
+          ...baseCampaign,
+          details: { state: 'CA' },
+        } as unknown as Campaign,
+        outreach: {
+          ...baseOutreach,
+          date: new Date('2026-10-06T02:00:00Z'),
+          scheduledLocalDate: '2026-10-05',
+          scheduledLocalTime: '19:00',
+          didState: 'CA',
+        } as unknown as OutreachWithVoterFileFilter,
+      })
+
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
+      expect(findLabeledValue(message, 'Scheduled Date: ')).toBe(
+        'Mon, Oct 5, 2026, 7:00 PM PDT',
+      )
     })
 
     it('includes peerlyJobUrl when projectId is set', async () => {
@@ -516,6 +543,44 @@ describe('OutreachNotificationService', () => {
       expect(blob).not.toContain('a'.repeat(201))
     })
 
+    it('renders the failed send as the candidate-local day and time', async () => {
+      await service.notifyFailure({
+        user: mockUser,
+        campaign: {
+          ...baseCampaign,
+          details: { state: 'CA' },
+        } as unknown as Campaign,
+        createOutreachDto: {
+          outreachType: OutreachType.p2p,
+          date: '2026-10-05T19:00:00-07:00',
+          scheduledLocalTime: '19:00',
+        },
+        step: 'validation',
+        error: new Error('boom'),
+      })
+
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
+      const blob = JSON.stringify(blocks)
+      expect(blob).toContain('Mon, Oct 5, 2026, 7:00 PM PDT')
+      expect(blob).not.toContain('2026-10-05T19:00:00-07:00')
+    })
+
+    it('falls back to the raw string for an unparseable date', async () => {
+      await service.notifyFailure({
+        user: mockUser,
+        campaign: baseCampaign,
+        createOutreachDto: {
+          outreachType: OutreachType.p2p,
+          date: 'next tuesday',
+        },
+        step: 'validation',
+        error: new Error('boom'),
+      })
+
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
+      expect(JSON.stringify(blocks)).toContain('next tuesday')
+    })
+
     it('shows "Not provided" for missing date', async () => {
       await service.notifyFailure({
         user: mockUser,
@@ -565,6 +630,30 @@ describe('OutreachNotificationService', () => {
       expect([SlackChannel.botPolitics, SlackChannel.botDev]).toContain(channel)
       // Robocall is not a text campaign, so it must not bump textCampaignCount.
       expect(mockCampaignsUpdate).not.toHaveBeenCalled()
+    })
+
+    // Kassandra Shamsrouf, 2026-10-05: a Tue 6 PM Pacific robocall is 01:00
+    // UTC Wednesday, and the notice read "Wed Oct 07". A robocall stores no
+    // wall-clock time, so the instant is rendered in the campaign's zone.
+    it('names a robocall send by the candidate-local day, not the UTC day', async () => {
+      await service.notifyRobocallScheduled(
+        mockUser,
+        { ...baseCampaign, details: { state: 'CA' } } as unknown as Campaign,
+        {
+          ...robocallOutreach,
+          date: new Date('2026-10-07T01:00:00Z'),
+          scheduledLocalDate: '2026-10-06',
+          scheduledLocalTime: null,
+          didState: null,
+        } as unknown as OutreachWithVoterFileFilter,
+        960,
+      )
+
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
+      expect(findLabeledValue(message, 'Scheduled Date: ')).toBe(
+        'Tue, Oct 6, 2026, 6:00 PM PDT',
+      )
+      expect(JSON.stringify(message)).not.toContain('Oct 07')
     })
 
     it('notifyRobocallScheduled skips a non-robocall outreach', async () => {

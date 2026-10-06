@@ -111,7 +111,7 @@ describe('the agent registry', () => {
   })
 
   // Each one links the live sweep from main that judged its pairs.
-  it('marks the two agents a live sweep has judged', () => {
+  it('marks the three agents a live sweep has judged', () => {
     expect(
       AGENTS.filter((a) => a.status === 'wired').map((a) => [
         a.agentId,
@@ -134,6 +134,14 @@ describe('the agent registry', () => {
           date: '2026-10-03',
         },
       ],
+      [
+        'race_opponent_summary',
+        {
+          runUrl:
+            'https://github.com/thegoodparty/omni/actions/runs/37355882821',
+          date: '2026-10-05',
+        },
+      ],
     ])
   })
 
@@ -144,24 +152,36 @@ describe('the agent registry', () => {
   })
 })
 
+// The runner opens a briefing chat through POST /v1/briefing-chats and the
+// seed gives it a briefing to open on, so the scope is judgeable like any
+// other chat agent.
+describe('briefing_annotation', () => {
+  it('is a pending chat agent with its own case list', () => {
+    expect(findAgent('briefing_annotation')).toEqual({
+      agentId: 'briefing_annotation',
+      shape: 'chat',
+      cases: 'briefing_annotation.json',
+      status: 'pending',
+    })
+  })
+})
+
 describe('coverage', () => {
   it('excludes blocked agents from the denominator', () => {
     const { wired, judgeable, blocked } = coverage()
-    // Named rather than dropped, so each gap stays visible: briefing
-    // annotation has no handler yet, and compliance_setup must not be swept
-    // at all.
-    expect(blocked.map((a) => a.agentId).sort()).toEqual([
-      'briefing_annotation',
-      'compliance_setup',
-    ])
-    expect(judgeable).toBe(19)
-    expect(wired).toBe(2)
+    // Named rather than dropped, so the gap stays visible: compliance_setup
+    // must not be swept at all.
+    expect(blocked.map((a) => a.agentId).sort()).toEqual(['compliance_setup'])
+    expect(judgeable).toBe(20)
+    expect(wired).toBe(3)
   })
 
-  // Both wired agents were judged on placeholder case lists, so the line
-  // claims nothing about how they do on inputs written to test them.
+  // chief_of_staff and opposition_research were judged on placeholder case
+  // lists, so the line claims nothing about how they do on inputs written to
+  // test them. race_opponent_summary ran on Melecia's real bench, so it is the
+  // one wired agent the parenthetical does not count.
   it('counts the wired agents that ran on placeholder inputs', () => {
-    expect(coverage()).toMatchObject({ wired: 2, placeholder: 2 })
+    expect(coverage()).toMatchObject({ wired: 3, placeholder: 2 })
   })
 
   // THE ONE EXPERIMENT THAT BYPASSES PERMISSION PROMPTS, and the reason this

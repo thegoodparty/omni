@@ -21,10 +21,12 @@ const priorityProposalInput = OutreachProposalSchema.omit({
     'main for the most-affected group, contrast for the least-affected one.',
   ),
 })
-// Outside a priority there is no check for a send to put out.
+// Outside a priority there is no check for a send to put out, and so no
+// earlier sample of one to widen.
 const presentOutreachProposalInput = priorityProposalInput.omit({
   stepId: true,
   side: true,
+  widensOutreachIds: true,
 })
 
 // What each channel's own flow checks a message against before it will send,

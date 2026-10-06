@@ -47,10 +47,10 @@ There is a second consumer surface beside the sheet: the analytics-event explore
 
 A third surface sits beside those two, for the operator rather than the consumer: the
 event health console in `surfaces/governance-console/` (DATA-2546). It shows the catalog
-rollup, what changed since the previous run, and every open decision from all four
+rollup, what changed since the previous run, and every open decision from all five
 governance queues in one ranked list, with the flagged set grouped by cause rather than
 by event. `scripts/python/governance_console_snapshot.py` builds its one JSON from the
-health report, `instrumentation_gaps.json` and the explorer snapshot, which is why it
+health report, `instrumentation_gaps.json`, `surface_drift.json` and the explorer snapshot, which is why it
 has to run inside the governance job after the health step: the report is gitignored and
 exists only during a run. The page is where the reviewer looks at the evidence and picks
 a verb per row; it writes nothing itself, and leaves as a plain-text handoff pasted into
@@ -79,6 +79,12 @@ A fifth consumer of the same committed sem data is pre-merge, not scheduled:
 `scripts/python/governance_guard.py` (DATA-2432) reads `scripts/python/instrumentation_data/sem/`
 to block a PR that drops a call site of an OKR-watched event or leaves a dead `EVENTS` key, run
 by a local hook and the `Analytics guard` CI check on every PR. See `books/monitor-analytics-event-health.md`.
+
+`scripts/python/event_reach.py` (DATA-2531) maps where a webapp event can fire, shared by
+that guard (a `surface_moved` warning) and by the weekly `scripts/python/surface_drift.py`
+detector, which flags an event whose label no longer matches where the code reaches and
+writes `instrumentation_data/surface_drift.json` for the console's surface queue and the
+triage skill's Queue D. See `books/monitor-analytics-event-health.md`.
 
 ## Used by the delegate worker
 

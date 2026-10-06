@@ -22,6 +22,7 @@ import {
   checkSmsStandards,
   deriveSmsProtectedParts,
   mergeTagToken,
+  PRICE_PER_TEXT,
   SMS_COMPOSED_MAX_LENGTH,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
@@ -45,7 +46,6 @@ import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
-  OUTREACH_OPTIONS,
   OUTREACH_TYPES,
   FREE_TEXTS_OFFER,
 } from 'app/dashboard/outreach/constants'
@@ -151,8 +151,7 @@ const STEP_TITLES: Record<StepId, string> = {
   review: 'Review & pay',
 }
 
-const PRICE_PER_MESSAGE =
-  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
+const PRICE_PER_MESSAGE = PRICE_PER_TEXT
 
 // SMS texts cell phones, so both counts use the cell dimension:
 // reachability.sms for a saved list, and a { hasCellPhone: true } overlay on
@@ -1136,7 +1135,10 @@ export const SmsFlow = ({
     setMessage(value)
     setManuallyEdited(true)
     setOwnWords(true)
-    if (draftMutation.isError) resetDraftMutation()
+    // An edit wins over a reply still in flight, which would otherwise land
+    // on top of it. Dropping the call also clears a failed one's error.
+    draftRequestRef.current += 1
+    if (draftMutation.isPending || draftMutation.isError) resetDraftMutation()
   }
 
   const aiAction = ownWords ? 'improve' : 'regenerate'
@@ -1151,6 +1153,8 @@ export const SmsFlow = ({
 
   const handleUndo = () => {
     if (undoText === null) return
+    draftRequestRef.current += 1
+    resetDraftMutation()
     loadMessage(undoText)
     setUndoText(null)
     setManuallyEdited(true)

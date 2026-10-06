@@ -1,5 +1,6 @@
 import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
 import { Message } from '@aws-sdk/client-sqs'
+import { isHighConfidence } from '@goodparty_org/contracts'
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
   Poll,
@@ -841,13 +842,11 @@ export class QueueConsumerService {
 
     let highConfidence = false
     if (constituency.pagination.totalResults) {
-      // High confidence is EITHER:
-      //  - 75 total responses
-      //  - responses from >=10%
       // This was last decided here: https://goodparty.clickup.com/t/90132012119/ENG-4771
-      highConfidence =
-        totalResponses > 75 ||
-        totalResponses / constituency.pagination.totalResults >= 0.1
+      highConfidence = isHighConfidence({
+        replies: totalResponses,
+        population: constituency.pagination.totalResults,
+      })
     }
 
     await this.pollIssuesService.model.deleteMany({

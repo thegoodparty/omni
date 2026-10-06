@@ -4,7 +4,9 @@ import {
   ChatMessageSegmentKind,
   ChatScope,
   ElectedOffice,
+  OrganizationRole,
 } from '../../../generated/prisma'
+import jwt from 'jsonwebtoken'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ChatStreamChunk,
@@ -217,6 +219,65 @@ describe('GeneralChatsController (integration)', () => {
       )
       expect(afterDelete.status).toBe(HttpStatus.NOT_FOUND)
     })
+  })
+
+  // Org membership gets a caller past the guard; it must not reach another
+  // member's conversation in the same org.
+  it("404s another member of the same organization on the owner's conversation", async () => {
+    const created = await service.client.post(
+      '/v1/chats',
+      { scope: COS_SCOPE },
+      headers,
+    )
+    const conversationId = created.data.conversationId as string
+
+    const clerkId = `user_cos_member_${Math.random().toString(36).slice(2, 10)}`
+    const member = await service.prisma.user.create({
+      data: {
+        email: `${clerkId}@goodparty.org`,
+        clerkId,
+        firstName: 'Member',
+        lastName: 'Other',
+      },
+    })
+    await service.prisma.organizationMembership.create({
+      data: {
+        organizationSlug: fixtures.slug,
+        userId: member.id,
+        role: OrganizationRole.campaignAdmin,
+      },
+    })
+    const asMember = {
+      headers: {
+        'X-Organization-Slug': fixtures.slug,
+        Authorization: `Bearer ${jwt.sign(
+          { sub: clerkId },
+          process.env.AUTH_SECRET!,
+          { expiresIn: '1h' },
+        )}`,
+      },
+    }
+
+    const listed = await service.client.get(
+      `/v1/chats?scope=${COS_SCOPE}`,
+      asMember,
+    )
+    expect(listed.status).toBe(HttpStatus.OK)
+
+    const got = await service.client.get(
+      `/v1/chats/${conversationId}?scope=${COS_SCOPE}`,
+      asMember,
+    )
+    expect(got.status).toBe(HttpStatus.NOT_FOUND)
+    const deleted = await service.client.delete(
+      `/v1/chats/${conversationId}?scope=${COS_SCOPE}`,
+      asMember,
+    )
+    expect(deleted.status).toBe(HttpStatus.NOT_FOUND)
+    const row = await service.prisma.chatConversation.findUnique({
+      where: { id: conversationId },
+    })
+    expect(row?.deletedAt).toBeNull()
   })
 
   // A chat card derives its identity from the tool call id: the outreach card

@@ -274,6 +274,7 @@ const SERVE_AREAS: ProductArea[] = [
       'A list already used for outreach is locked, so its map offers no draw button',
       'The chat can leave cards in the conversation: a finished piece of outreach, past sends and how they did, and someone outside your records to call, with a script',
       'A phone banking outreach card is sent from its Send button without leaving the chat; a text or social one opens its outreach flow to finish there',
+      'A text outreach card can go to a random sample of its audience instead of everyone, sized the way polls are, and reads like "Text 2,767 of 58,520, picked at random". Asking for everyone instead gets a card for the whole audience',
       'When there is a choice to make, the chat asks it as a multiple-choice question, with room to write your own answer',
       'The paperclip in the message box attaches a PDF, Word document, image, or text file to the message; dragging a file onto the chat does the same',
       'Pasting a link attaches it as a source the assistant can read',

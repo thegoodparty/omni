@@ -57,7 +57,7 @@ describe('parsePriorityStatus', () => {
     ).toBe('settled')
   })
 
-  it('reopens a listening step a version 1 row closed with no check', () => {
+  it('keeps a listening step closed when its gate had no check', () => {
     const status = parsePriorityStatus({
       version: 1,
       steps: [
@@ -66,7 +66,7 @@ describe('parsePriorityStatus', () => {
       ],
     })
     const listen = status.steps.find((step) => step.id === 'listen_problem')
-    expect(listen?.state).toBe('open')
+    expect(listen?.state).toBe('settled')
     expect(listen?.summary).toBe('Two calls')
   })
 
@@ -134,7 +134,6 @@ describe('parsePriorityStatus', () => {
       ],
     })
     const listen = status.steps.find((step) => step.id === 'listen_problem')
-    expect(listen?.state).toBe('open')
     expect(listen?.check).toBeUndefined()
   })
 

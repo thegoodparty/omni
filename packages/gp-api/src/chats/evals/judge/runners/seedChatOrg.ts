@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
 import type { ChatAnchor, OrdinanceFlowStep } from '@goodparty_org/contracts'
 import {
+  AnnotationKind,
+  AnnotationResourceType,
   ChatScope,
+  ExperimentRunStatus,
   OrdinanceConfidence,
   OrdinanceDataQuality,
   OrdinanceHostType,
@@ -10,7 +13,19 @@ import {
   type PrismaClient,
 } from '../../../../generated/prisma'
 import type { PositionWithOptionalDistrict } from '@/elections/types/elections.types'
+import type { BriefingChatAnchor } from '@/chats/briefing-chats/services/briefingChatCreate.service'
+import { parseIsoDateAsUTC } from '@/shared/util/date.util'
 import { CaseListError, type ChatAccountState } from '../cases'
+import {
+  JUDGE_BRIEFING_BUCKET,
+  JUDGE_HIGHLIGHT_ANCHOR,
+  JUDGE_MEETING_DATE,
+  JUDGE_MEETING_TIME,
+  JUDGE_MEETING_TIMEZONE,
+  JUDGE_NOTE,
+  TOP_LEVEL_ANCHOR,
+  judgeBriefingKey,
+} from './briefingFixture'
 import { assertTestProcess } from './chatSeam'
 
 // The minimum state a chat scope needs before a real turn can be driven
@@ -38,6 +53,7 @@ import { assertTestProcess } from './chatSeam'
 //                              get_ballot_requirements.
 //   the anchor's ordinance     the five steps past clarify, each of which
 //   step                       carries its own present_* tools.
+//   a note on the briefing     get_my_notes, for briefing_annotation.
 
 export interface SeededChatOrg {
   organizationSlug: string
@@ -45,6 +61,16 @@ export interface SeededChatOrg {
   // Present for the two anchor-keyed scopes. POST /v1/chats rejects those
   // without it, so the runner passes whatever the seed produced.
   anchor?: ChatAnchor
+  // Present for briefing_annotation only: what the runner hands
+  // POST /v1/briefing-chats, the route that creates a briefing conversation
+  // together with its annotation.
+  briefing?: BriefingChatTarget
+}
+
+export interface BriefingChatTarget {
+  // yyyy-MM-dd, the form the briefing route takes.
+  meetingDate: string
+  anchor: BriefingChatAnchor
 }
 
 export interface SeedChatOrgOptions {
@@ -61,18 +87,24 @@ export interface SeedChatOrgOptions {
   pro?: boolean
   district?: boolean
   campaignDetails?: boolean
+  // Opens a briefing chat on a highlighted passage rather than the whole
+  // briefing. The one option whose default is absence: see cases.ts.
+  briefingHighlight?: boolean
 }
 
 // Which account states a scope can actually express. A state the scope has no
 // row for cannot be seeded, and seeding nothing while recording the directive
 // would put a condition on the record that the agent was never under.
 //
-// `district` is on every scope: all four seed an organization, and
-// `positionId` is a column on it. The other three need a campaign row or an
-// ordinance anchor, which only one scope each has.
+// `district` is on every scope: all five seed an organization, and
+// `positionId` is a column on it. Each scope resolves its district from its
+// own organization — briefing chat from the briefing's office's org, which is
+// the one this case seeded. The other states need a campaign row or an
+// anchor, which only one scope each has.
+//
 // Partial, and a missing entry means "expresses nothing", which refuses every
-// state. `chatScopeFor` has already narrowed the caller to the four scopes the
-// runner can drive, so the fallback is only reachable if a fifth scope is
+// state. `chatScopeFor` has already narrowed the caller to the scopes the
+// runner can drive, so the fallback is only reachable if another scope is
 // registered there without being described here — and refusing is the right
 // answer to that.
 const STATES_BY_SCOPE: Partial<
@@ -82,6 +114,7 @@ const STATES_BY_SCOPE: Partial<
   [ChatScope.ordinance_flow]: ['district', 'ordinanceStep'],
   [ChatScope.priority_flow]: ['district'],
   [ChatScope.chief_of_staff]: ['district'],
+  [ChatScope.briefing_annotation]: ['district', 'briefingHighlight'],
 }
 
 // REFUSES RATHER THAN PROCEEDING, and before anything is seeded — which is
@@ -122,6 +155,9 @@ export const seedOptionsFor = (
     ...(state.district !== undefined && { district: state.district }),
     ...(state.campaignDetails !== undefined && {
       campaignDetails: state.campaignDetails,
+    }),
+    ...(state.briefingHighlight !== undefined && {
+      briefingHighlight: state.briefingHighlight,
     }),
   }
 }
@@ -203,13 +239,14 @@ const CHAT_AGENT_SCOPES: Record<string, ChatScope> = {
   campaign_assistant: ChatScope.campaign_assistant,
   ordinance_flow: ChatScope.ordinance_flow,
   priority_flow: ChatScope.priority_flow,
+  briefing_annotation: ChatScope.briefing_annotation,
 }
 
 export const chatScopeFor = (agentId: string): ChatScope => {
   const scope = CHAT_AGENT_SCOPES[agentId]
   if (!scope) {
     throw new Error(
-      `"${agentId}" is not a chat scope the runner can drive; the four ` +
+      `"${agentId}" is not a chat scope the runner can drive; the ` +
         `registered scopes are ${Object.keys(CHAT_AGENT_SCOPES).join(', ')}`,
     )
   }
@@ -252,9 +289,9 @@ export const seedChatOrg = async (
   slugKey: string,
   options: SeedChatOrgOptions = {},
 ): Promise<SeededChatOrg> => {
-  // Inserts against whatever client it is handed. Nothing here deletes, but a
-  // judge-prefixed organization owned by a real user is still not something
-  // to create outside a throwaway database.
+  // Inserts against whatever client it is handed, and the briefing seed also
+  // deletes (see seedBriefing). A judge-prefixed organization owned by a real
+  // user is not something to create outside a throwaway database.
   assertTestProcess('seedChatOrg')
   const scope = chatScopeFor(agentId)
   const organizationSlug = chatOrgSlug(agentId, slugKey)
@@ -381,5 +418,87 @@ export const seedChatOrg = async (
     }
   }
 
+  if (scope === ChatScope.briefing_annotation) {
+    return {
+      organizationSlug,
+      electedOfficeId: electedOffice.id,
+      briefing: await seedBriefing(
+        prisma,
+        userId,
+        organizationSlug,
+        electedOffice.id,
+        options,
+      ),
+    }
+  }
+
   return { organizationSlug, electedOfficeId: electedOffice.id }
+}
+
+// THE MEETING BRIEFING A briefing chat is opened on, plus the one note that
+// registers get_my_notes. The artifact itself is not in this database: the
+// row names a bucket and key, and the artifact seam in chatSeam.ts answers
+// that bucket with the fixture, because production reads it from S3.
+//
+// THE ONE DELETE IN THIS FILE, and why it is needed. POST /v1/briefing-chats
+// finds the briefing by (meetingDate, the caller's elected office), and
+// production assumes one office per user — but an arm seeds an office per case
+// for one judge user, all on the same fixed meeting date. Left alone, the
+// route would resolve case two to case one's briefing, and since a top-level
+// chat is find-or-create per briefing, case two would CONTINUE case one's
+// conversation. So the previous cases' judge briefings on this date are
+// removed first. Chat cases walk one at a time (sweepArm.walkCases), every
+// earlier record is already written, and nothing reads those rows again.
+const seedBriefing = async (
+  prisma: PrismaClient,
+  userId: number,
+  organizationSlug: string,
+  electedOfficeId: string,
+  options: SeedChatOrgOptions,
+): Promise<BriefingChatTarget> => {
+  const meetingDate = parseIsoDateAsUTC(JUDGE_MEETING_DATE)
+  await prisma.meetingBriefing.deleteMany({
+    where: {
+      meetingDate,
+      electedOffice: { userId, organizationSlug: { startsWith: 'judge-' } },
+    },
+  })
+  // MeetingBriefing requires the run that produced it.
+  const run = await prisma.experimentRun.create({
+    data: {
+      organizationSlug,
+      experimentType: 'meeting_briefing',
+      status: ExperimentRunStatus.COMPLETED,
+    },
+  })
+  const briefing = await prisma.meetingBriefing.create({
+    data: {
+      electedOfficeId,
+      meetingDate,
+      meetingTime: JUDGE_MEETING_TIME,
+      meetingTimezone: JUDGE_MEETING_TIMEZONE,
+      experimentRunId: run.runId,
+      artifactBucket: JUDGE_BRIEFING_BUCKET,
+      artifactKey: judgeBriefingKey(organizationSlug),
+    },
+  })
+  const note = await prisma.annotationNote.create({
+    data: { body: JUDGE_NOTE.body },
+  })
+  await prisma.annotation.create({
+    data: {
+      authorUserId: userId,
+      kind: AnnotationKind.note,
+      resourceId: briefing.id,
+      resourceType: AnnotationResourceType.briefing,
+      ...JUDGE_NOTE.anchor,
+      noteId: note.id,
+    },
+  })
+  return {
+    meetingDate: JUDGE_MEETING_DATE,
+    anchor: options.briefingHighlight
+      ? JUDGE_HIGHLIGHT_ANCHOR
+      : TOP_LEVEL_ANCHOR,
+  }
 }
