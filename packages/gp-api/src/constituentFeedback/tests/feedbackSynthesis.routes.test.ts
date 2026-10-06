@@ -1018,7 +1018,7 @@ describe('feedback synthesis routes', () => {
         )
       }
       const runId = await completeRun([
-        { theme: 'Street flooding', memberIds: memos.map((m) => m.memo.id) },
+        { theme: 'Drainage', memberIds: memos.map((m) => m.memo.id) },
       ])
 
       const res = await report()
