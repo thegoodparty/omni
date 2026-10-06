@@ -5,7 +5,40 @@ import { PinoLogger } from 'nestjs-pino'
 import type { PeopleListResponse, Person } from '@goodparty_org/contracts'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { PeerlyPhoneListCaptureService } from '@/vendors/peerly/services/peerlyPhoneListCapture.service'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
+
+// materializeFromCapture is private; accessed the same way as other
+// private-method tests in this codebase (e.g. crmCampaigns.service.test.ts,
+// campaignTcrCompliance.service.test.ts) so the test can pass a small
+// `pageSize` override — calling through the public materializeOutreach
+// entry point has no way to reach it, since production never overrides the
+// real 1000-row SEGMENT_PAGE_SIZE.
+const materializeFromCapturePrivate = (
+  materialization: OutreachMaterializationService,
+  campaign: Campaign,
+  outreach: Outreach,
+  occurredAt: Date,
+  maxRecipients?: number,
+  pageSize?: number,
+): Promise<number | null> =>
+  (
+    materialization as unknown as {
+      materializeFromCapture: (
+        campaign: Campaign,
+        outreach: Outreach,
+        occurredAt: Date,
+        maxRecipients?: number,
+        pageSize?: number,
+      ) => Promise<number | null>
+    }
+  ).materializeFromCapture(
+    campaign,
+    outreach,
+    occurredAt,
+    maxRecipients,
+    pageSize,
+  )
 
 const service = useTestService()
 
@@ -551,6 +584,82 @@ describe('OutreachMaterializationService', () => {
         outreach.voterFileFilterId,
         campaign.organizationSlug,
       )
+    })
+
+    it('materializes every captured recipient across multiple findRecipientsPage calls, with no per-launch cap', async () => {
+      const { campaign, outreach } = await seedOutreach({
+        slug: 'mat-captured-batch',
+        outreachType: OutreachType.p2p,
+        phoneListId: 5151,
+      })
+      const phoneList = await seedCapturedPhoneList({
+        organizationSlug: campaign.organizationSlug,
+        campaignId: campaign.id,
+        peerlyListId: 5151,
+        voterFileFilterId: null,
+        // The real recipient rows aren't read in this test — findRecipientsPage
+        // is mocked below — but a phone list still needs at least one row to
+        // exist for the capture-vs-fallback contract to be exercised honestly.
+        personIds: ['unused'],
+      })
+      const allRecipients = ['cap-1', 'cap-2', 'cap-3', 'cap-4', 'cap-5'].map(
+        (personId) => ({ personId }),
+      )
+      const peerlyPhoneListCapture = service.app.get(
+        PeerlyPhoneListCaptureService,
+      )
+      // Mirrors findRecipientsPage's real skip/take contract (ordered,
+      // sliced) so the N+1 sentinel behaves exactly as it would against a
+      // real table — just with a pageSize of 2 instead of 1000, so 5
+      // recipients span three calls instead of needing 1000+ seeded rows.
+      const findRecipientsPage = vi
+        .spyOn(peerlyPhoneListCapture, 'findRecipientsPage')
+        .mockImplementation(async (_phoneListId, { skip, take }) =>
+          allRecipients.slice(skip, skip + take),
+        )
+      const warnSpy = vi
+        .spyOn(PinoLogger.prototype, 'warn')
+        .mockImplementation(() => undefined)
+
+      try {
+        const materialized = await materializeFromCapturePrivate(
+          materialization,
+          campaign,
+          outreach,
+          new Date(),
+          undefined,
+          2,
+        )
+
+        expect(materialized).toBe(5)
+        const rows = await textRowsFor(outreach.id)
+        expect(rows.map((r) => r.personId)).toEqual([
+          'cap-1',
+          'cap-2',
+          'cap-3',
+          'cap-4',
+          'cap-5',
+        ])
+        // Three pages of 2 for five recipients proves the skip/N+1
+        // stop-condition actually advanced across calls rather than
+        // returning everything in one shot.
+        expect(findRecipientsPage).toHaveBeenCalledTimes(3)
+        expect(findRecipientsPage).toHaveBeenNthCalledWith(1, phoneList.id, {
+          skip: 0,
+          take: 3,
+        })
+        expect(findRecipientsPage).toHaveBeenNthCalledWith(2, phoneList.id, {
+          skip: 2,
+          take: 3,
+        })
+        expect(findRecipientsPage).toHaveBeenNthCalledWith(3, phoneList.id, {
+          skip: 4,
+          take: 3,
+        })
+        expect(warnSpy).not.toHaveBeenCalled()
+      } finally {
+        warnSpy.mockRestore()
+      }
     })
   })
 })

@@ -137,11 +137,16 @@ export class OutreachMaterializationService {
   // exact stop condition instead of a new one, and so a regression that
   // reintroduces a silent finite default here can be caught by lowering it
   // in a quick manual check rather than needing a 100k-row test fixture.
+  // `pageSize` is the same kind of hook for the N+1 sentinel below: it
+  // defaults to the real SEGMENT_PAGE_SIZE, but the multi-page regression
+  // test overrides it so a handful of recipients can span multiple
+  // findRecipientsPage calls without seeding a 1000+ row fixture.
   private async materializeFromCapture(
     campaign: Campaign,
     outreach: Outreach,
     occurredAt: Date,
     maxRecipients: number = Number.POSITIVE_INFINITY,
+    pageSize: number = SEGMENT_PAGE_SIZE,
   ): Promise<number | null> {
     const phoneList = await this.peerlyPhoneListCapture.findFirst({
       where: {
@@ -162,12 +167,12 @@ export class OutreachMaterializationService {
       // next page — findRecipientsPage carries no total-count metadata.
       const page = await this.peerlyPhoneListCapture.findRecipientsPage(
         phoneList.id,
-        { skip, take: SEGMENT_PAGE_SIZE + 1 },
+        { skip, take: pageSize + 1 },
       )
       if (page.length === 0) break
 
-      const hasNextPage = page.length > SEGMENT_PAGE_SIZE
-      const recipients = hasNextPage ? page.slice(0, SEGMENT_PAGE_SIZE) : page
+      const hasNextPage = page.length > pageSize
+      const recipients = hasNextPage ? page.slice(0, pageSize) : page
 
       const remaining = maxRecipients - materialized
       const truncatedThisPage = recipients.length > remaining
