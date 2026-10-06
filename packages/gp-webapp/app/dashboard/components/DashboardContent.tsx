@@ -4,6 +4,7 @@ import DashboardLayout from '../shared/DashboardLayout'
 import CampaignManagerHome from '../campaign-manager/CampaignManagerHome'
 import { WebsiteSunsetModalController } from '../shared/WebsiteSunsetModalController'
 import type { TcrCompliance } from 'helpers/types'
+import { NAV_LABELS } from '../shared/navLabels'
 
 interface DashboardContentProps {
   pathname: string
@@ -21,6 +22,7 @@ export default function DashboardContent({
       pathname={pathname}
       showAlert={false}
       wrapperClassName="!p-0"
+      navHeader={{ icon: 'dashboard', label: NAV_LABELS.campaignManager }}
     >
       <WebsiteSunsetModalController eligible={sunsetEligible} />
       <CampaignManagerHome tcrCompliance={tcrCompliance} />

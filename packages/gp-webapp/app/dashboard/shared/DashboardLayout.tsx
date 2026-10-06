@@ -189,6 +189,7 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/constituent-outreach', NAV_LABELS.constituentOutreach],
   ['/dashboard/race-opponent', NAV_LABELS.knowYourOpponent],
   ['/dashboard/campaign-story', NAV_LABELS.campaignStory],
+  ['/dashboard/campaign-plan/tracker', 'Campaign Tracker'],
   ['/dashboard/outreach', NAV_LABELS.voterOutreach],
   ['/dashboard/campaign-verification', 'Campaign verification'],
   // /dashboard/contacts is intentionally absent: its title depends on Win vs

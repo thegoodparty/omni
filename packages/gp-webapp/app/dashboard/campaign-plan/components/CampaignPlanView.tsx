@@ -1,25 +1,18 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
 import type { User } from 'helpers/types'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-  Button,
-  DownloadIcon,
-} from '@styleguide'
+import { Button, Card, ChevronRightIcon } from '@styleguide'
 import PlanView, {
   type PlanDownloadSource,
 } from 'app/onboarding/success/components/PlanView'
 import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPlanData'
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
-import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
 import NextTaskCard from './campaignStrategy/NextTaskCard'
 import ProgressSection from '../../components/campaignManager/ProgressSection'
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
@@ -156,19 +149,11 @@ const CampaignPlanView = ({
   const formatElectionDate = (iso: string): string =>
     dateUsHelper(iso.slice(0, 10).replace(/-/g, '/'))
 
-  // Next step on top, then the headline and tracker, then the plan below it
-  // (the plan's own hero + bottom download are hidden — the tracker hero owns
-  // them).
+  // The headline and progress, then the tracker: the next step on top and every
+  // phase folded into one card under it, then the plan below (the plan's own
+  // hero + bottom download are hidden — the tracker hero owns them).
   return (
     <>
-      {/* The next step leads the page, ruled off across the full content
-          width from the candidate's headline and the tracker below it, and
-          stays pinned while the tracker scrolls under it. */}
-      <div className="sticky top-0 z-20 w-full border-b border-border bg-background">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-6 has-[[data-slot=collapsible][data-state=closed]]:pb-4">
-          <NextTaskCard surface="plan" heading="Here’s what to do next" />
-        </div>
-      </div>
       <div className="mx-auto w-full max-w-3xl px-4 pt-10">
         <CampaignTrackerHero
           candidateName={data.plan.candidateName}
@@ -182,13 +167,6 @@ const CampaignPlanView = ({
           downloading={heroDownloading}
           canDownload={data.planReady}
         />
-        <div className="mb-5">
-          <h2 className="text-xl font-semibold">Campaign Tracker</h2>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Everything you need to do, in order. We tell you what to do and
-            when, so you always know your next move.
-          </p>
-        </div>
         <div className="mb-6">
           <VoterContactsProvider>
             <CampaignUpdateHistoryProvider>
@@ -197,69 +175,63 @@ const CampaignPlanView = ({
           </VoterContactsProvider>
         </div>
         <CampaignPlanStoryCard />
-        <CampaignStrategySection />
-      </div>
-      {/* The full plan folds into one card in the phases' style: closed, it
-          names the plan and offers the PDF; open, its sections are pills. */}
-      <div className="mx-auto mt-4 w-full max-w-3xl px-4 pb-10">
-        <Accordion type="single" collapsible>
-          <AccordionItem
-            value="plan"
-            className="bg-card relative overflow-hidden rounded-xl border px-0 shadow-sm"
-          >
-            <AccordionTrigger className="py-5 pr-6 pl-6 hover:no-underline">
-              <span className="flex flex-1 flex-col gap-1 text-left">
-                <span className="text-base font-semibold">
-                  Executive Summary
-                </span>
-                <span className="text-muted-foreground text-sm font-normal">
-                  This is the whole plan in one view. If you read nothing else,
-                  read this.
-                </span>
-              </span>
-            </AccordionTrigger>
-            {/* A sibling of the trigger, not inside it: a button can't nest
-                in the trigger's own button. Sits just left of its chevron. */}
-            {/* Below the description, left-aligned with it: a sibling of
-                the trigger, since a button can't nest in its own button. */}
-            <div className="px-6 pb-5">
-              <Button
-                type="button"
-                variant="outline"
-                size="small"
-                onClick={handleHeroDownload}
-                loading={heroDownloading}
-                disabled={!data.planReady}
-                className="w-full sm:w-auto"
-              >
-                <DownloadIcon className="size-4" aria-hidden />
-                Download PDF
-              </Button>
+        {/* One card for the tracker: the next step on top, then the tracker's
+            name and a way into every phase. */}
+        <Card className="gap-5 rounded-xl p-6 shadow-sm">
+          {/* The next step leads the card. Its heading lives here, sized to
+              match the tracker's, rather than as the task card's own. */}
+          <div className="flex flex-col gap-2">
+            <h2 className="text-base font-semibold">Here’s what to do next</h2>
+            <NextTaskCard surface="plan" />
+          </div>
+          <div className="flex flex-col items-start gap-4">
+            <div className="flex flex-col gap-1">
+              <h3 className="text-base font-semibold">Campaign Tracker</h3>
+              <p className="text-muted-foreground text-sm">
+                Everything you need to do, in order. We tell you what to do and
+                when, so you always know your next move.
+              </p>
             </div>
-            <AccordionContent className="border-border border-t pt-6">
-              <PlanView
-                showHero={false}
-                showBottomDownload={false}
-                showBottomBar={false}
-                plan={data.plan}
-                planReady={data.planReady}
-                state={data.state}
-                strategyState={data.strategyState}
-                pressOutletsState={data.pressOutletsState}
-                voterInsightsContext={data.voterInsightsContext}
-                onDownload={handleDownload}
-                onShared={handleShared}
-                onContinue={handleContinue}
-                showConfetti={false}
-                rootClassName="bg-transparent"
-                contentClassName="px-6 !pt-0 !pb-6"
-                bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 lg:left-[var(--sidebar-width,16rem)]"
-                navVariant="pills"
-                scrollToTopOnMount={false}
-              />
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
+            <Button
+              asChild
+              variant="outline"
+              size="small"
+              className="w-full sm:w-auto"
+            >
+              <Link href="/dashboard/campaign-plan/tracker">
+                Show all phases
+                <ChevronRightIcon aria-hidden />
+              </Link>
+            </Button>
+          </div>
+        </Card>
+      </div>
+      {/* The full plan reads as page content under the tracker, held together
+          by an outline (no fill), its sections as pills; the PDF download is
+          in the title bar. */}
+      <div className="mx-auto mt-6 w-full max-w-3xl px-4 pb-10">
+        <div className="rounded-xl border border-border">
+          <PlanView
+            showHero={false}
+            showBottomDownload={false}
+            showBottomBar={false}
+            plan={data.plan}
+            planReady={data.planReady}
+            state={data.state}
+            strategyState={data.strategyState}
+            pressOutletsState={data.pressOutletsState}
+            voterInsightsContext={data.voterInsightsContext}
+            onDownload={handleDownload}
+            onShared={handleShared}
+            onContinue={handleContinue}
+            showConfetti={false}
+            rootClassName="bg-transparent"
+            contentClassName="px-6 !pt-6 !pb-6"
+            bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 lg:left-[var(--sidebar-width,16rem)]"
+            navVariant="pills"
+            scrollToTopOnMount={false}
+          />
+        </div>
       </div>
     </>
   )

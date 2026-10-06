@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { Accordion, Button, Card } from '@styleguide'
@@ -21,7 +22,15 @@ import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
 // has gone through campaign story, so this section is rendered only for the
 // story cohort (see CampaignPlanView) — there is no client-catalog fallback.
 // While the tracker is bootstrapping (no rows yet) it shows a setup state.
-const CampaignStrategySection = (): React.JSX.Element => {
+const CampaignStrategySection = ({
+  generateSlot,
+}: {
+  // Where the non-prod "Generate tasks" button renders, e.g. a page's
+  // sub-header. The section keeps the generation state either way, since
+  // its "generating" banner reads it. Omitted, the button sits above the
+  // phases.
+  generateSlot?: HTMLElement | null
+} = {}): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const { generate, isGenerating } = useGenerateTrackerTasks()
@@ -125,20 +134,34 @@ const CampaignStrategySection = (): React.JSX.Element => {
           generates via the weekly cron, but dev/qa have no cron, so this lets
           us dispatch a run on demand. gp-api 404s the route in prod as a
           backstop. */}
-      {!IS_PROD && (
-        <div className="mb-5 flex justify-start">
-          <Button
-            size="medium"
-            className="w-full sm:w-auto"
-            onClick={generate}
-            loading={isGenerating}
-            loadingText="Generating…"
-            disabled={isPending}
-          >
-            Generate tasks
-          </Button>
-        </div>
-      )}
+      {!IS_PROD &&
+        (generateSlot ? (
+          createPortal(
+            <Button
+              size="small"
+              onClick={generate}
+              loading={isGenerating}
+              loadingText="Generating…"
+              disabled={isPending}
+            >
+              Generate tasks
+            </Button>,
+            generateSlot,
+          )
+        ) : (
+          <div className="mb-5 flex justify-start">
+            <Button
+              size="medium"
+              className="w-full sm:w-auto"
+              onClick={generate}
+              loading={isGenerating}
+              loadingText="Generating…"
+              disabled={isPending}
+            >
+              Generate tasks
+            </Button>
+          </div>
+        ))}
       {isPending ? (
         <Card className="flex items-center gap-3 p-4">
           <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
