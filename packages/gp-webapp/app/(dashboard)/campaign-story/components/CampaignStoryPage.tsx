@@ -60,9 +60,9 @@ const StoryHeader = ({
     <header className="mx-auto flex w-full max-w-2xl items-center gap-2 px-4 pt-6 sm:px-8 sm:pt-10">
       <IconButton
         type="button"
-        variant="ghost"
+        variant="outline"
         size="small"
-        className="-ml-2 size-10"
+        className="mr-1 size-10"
         aria-label="Back"
         onClick={() => void goBack()}
       >
