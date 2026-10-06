@@ -6,10 +6,12 @@ import HomeComposer from './HomeComposer'
 
 const mockSend = vi.fn()
 const mockOpenManager = vi.fn()
+const mockStartNewChat = vi.fn()
 vi.mock('../campaign-manager/CampaignManagerChatProvider', () => ({
   useCampaignManagerChat: () => ({
     sendFromComposer: mockSend,
     openManager: mockOpenManager,
+    startNewChat: mockStartNewChat,
     openConversation: vi.fn(),
   }),
 }))
@@ -22,6 +24,7 @@ const box = () => screen.getByRole('textbox')
 beforeEach(() => {
   mockSend.mockClear()
   mockOpenManager.mockClear()
+  mockStartNewChat.mockClear()
 })
 
 describe('HomeComposer', () => {
@@ -46,7 +49,7 @@ describe('HomeComposer', () => {
     expect(mockSend).toHaveBeenCalledWith('Line one\nLine two')
   })
 
-  it('has a tool row: attach, past chats, voice and send', async () => {
+  it('has a tool row: new chat, past chats, attach, voice and send', async () => {
     render(<HomeComposer />)
 
     expect(
@@ -58,9 +61,24 @@ describe('HomeComposer', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: 'Attach a file' }))
     expect(mockOpenManager).toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'New chat' }))
+    expect(mockStartNewChat).toHaveBeenCalled()
+  })
+
+  it('keeps attach beside the mic, and new chat at the start', () => {
+    render(<HomeComposer />)
+
+    const names = screen
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'))
+    expect(names.indexOf('New chat')).toBe(0)
+    expect(names.indexOf('Attach a file') + 1).toBe(
+      names.indexOf('Record your voice'),
+    )
   })
 
   it.each([
+    ['New chat', 'New chat'],
     ['Attach a file', 'Attach a file'],
     ['Record your voice', 'Record your voice'],
   ])('names the %s tool on hover', async (button, tip) => {

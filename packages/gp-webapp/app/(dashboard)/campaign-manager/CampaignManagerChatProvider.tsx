@@ -55,6 +55,9 @@ interface CampaignManagerChatContextValue {
   // Open the manager in general mode (the sidebar's Chat pill, the mobile top
   // bar). Dismisses the first-run meet card.
   openManager: () => void
+  // Open the manager on a fresh conversation (Home's New chat), rather than
+  // resuming the latest one. Counts as meeting the manager.
+  startNewChat: () => void
   // Keep what the candidate typed in Home's chat box when they leave Home
   // without sending, so the next open starts with it in the chat's input.
   holdDraft: (text: string) => void
@@ -251,6 +254,11 @@ export function CampaignManagerChatProvider({
     setChatOpen(true)
   }, [])
 
+  const startNewChat = useCallback(() => {
+    dismissMeetCard()
+    openNewChat()
+  }, [dismissMeetCard, openNewChat])
+
   // Home's chat box collected the first message itself, so the drawer opens on
   // a new chat and sends it as the candidate's own (visible) turn. Counts as
   // meeting the manager, like the sidebar's Chat pill.
@@ -349,6 +357,7 @@ export function CampaignManagerChatProvider({
   const contextValue = useMemo(
     () => ({
       openManager,
+      startNewChat,
       holdDraft,
       openConversation,
       startStory,
@@ -360,6 +369,7 @@ export function CampaignManagerChatProvider({
     }),
     [
       openManager,
+      startNewChat,
       holdDraft,
       openConversation,
       startStory,

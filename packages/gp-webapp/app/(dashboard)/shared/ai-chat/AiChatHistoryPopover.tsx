@@ -58,7 +58,7 @@ export default function AiChatHistoryPopover({
           type="button"
           size="medium"
           variant="ghost"
-          aria-label="Previous conversations"
+          aria-label="Previous chats"
           className="shrink-0"
         >
           <ClockIcon className="size-5" aria-hidden />
@@ -66,7 +66,7 @@ export default function AiChatHistoryPopover({
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-72 p-2 z-[60]">
         <p className="px-2 py-1 text-xs font-medium text-muted-foreground">
-          Previous conversations
+          Previous chats
         </p>
         {hasConversations ? (
           <div className="flex max-h-72 flex-col overflow-y-auto">

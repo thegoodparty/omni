@@ -8,7 +8,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@styleguide'
-import { PlusIcon, SendIcon } from '@styleguide/components/ui/icons'
+import {
+  PaperclipIcon,
+  PlusIcon,
+  SendIcon,
+} from '@styleguide/components/ui/icons'
 import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
 import {
   CAMPAIGN_MANAGER_HISTORY_KEY,
@@ -25,7 +29,7 @@ import { morphComposerOutOfPill } from '../shared/chatMorph'
  * the sidebar's Chat pill (see shared/chatMorph). It is the open door for anything about the
  * campaign; questions about the next thing go through the card's "Chat about
  * this". Built like a place to work, not a search field: room for a few
- * lines, and a tool row with attach, past chats, voice and send. Sending opens
+ * lines, and a tool row with new chat, past chats, attach, voice and send. Sending opens
  * the chat drawer with the message as the candidate's first turn.
  */
 const PLACEHOLDER = 'How can I help you today?'
@@ -102,13 +106,13 @@ export default function HomeComposer(): React.JSX.Element | null {
                 variant="ghost"
                 size="small"
                 className="size-10"
-                aria-label="Attach a file"
-                onClick={chat.openManager}
+                aria-label="New chat"
+                onClick={chat.startNewChat}
               >
                 <PlusIcon className="size-5" aria-hidden />
               </IconButton>
             </TooltipTrigger>
-            <TooltipContent side="top">Attach a file</TooltipContent>
+            <TooltipContent side="top">New chat</TooltipContent>
           </Tooltip>
           <ChatHistoryPopover
             onSelect={chat.openConversation}
@@ -116,6 +120,23 @@ export default function HomeComposer(): React.JSX.Element | null {
             historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
           />
           <div className="ml-auto flex items-center gap-1">
+            {/* Attaching happens in the chat, which takes files and links;
+                this opens it there. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <IconButton
+                  type="button"
+                  variant="ghost"
+                  size="small"
+                  className="size-10"
+                  aria-label="Attach a file"
+                  onClick={chat.openManager}
+                >
+                  <PaperclipIcon className="size-5" aria-hidden />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent side="top">Attach a file</TooltipContent>
+            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="inline-flex">

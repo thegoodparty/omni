@@ -37,7 +37,7 @@ function label(title: string | null, createdAt: string): string {
 }
 
 /**
- * The clock control in the chat input pill. Opens a "Previous conversations"
+ * The clock control in the chat input pill. Opens a "Previous chats"
  * popover anchored above the pill (matching the prototype) rather than a
  * full-screen history view. Selecting a conversation opens it via `onSelect`.
  */
@@ -66,18 +66,18 @@ export default function ChatHistoryPopover({
               type="button"
               size="small"
               variant="ghost"
-              aria-label="Previous conversations"
+              aria-label="Previous chats"
               className="size-10 shrink-0"
             >
               <ClockIcon className="size-5" aria-hidden />
             </IconButton>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent side="top">Previous conversations</TooltipContent>
+        <TooltipContent side="top">Previous chats</TooltipContent>
       </Tooltip>
       <PopoverContent side="top" align="start" className="w-72 p-2">
         <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-          Previous conversations
+          Previous chats
         </p>
         {hasConversations ? (
           <div className="flex max-h-72 flex-col overflow-y-auto">
