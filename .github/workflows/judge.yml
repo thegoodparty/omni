@@ -1973,6 +1973,7 @@ jobs:
       # test: that PASSES, and without the manifest check this job would go
       # green having judged nothing.
       - name: Judge both arms
+        id: judging
         # RUNS EVEN WHEN AN ARM CAPTURE FAILED, because by the time it did the
         # money was already spent. One flaky turn in eighteen fails the
         # capture step, and under the default `success()` this step would be
@@ -1995,6 +1996,9 @@ jobs:
           # regresses. Empty when the worktree was never made, which scores
           # every case.
           JUDGE_BASE_DIR: ${{ steps.base.outputs.dir }}
+          # Printed beside what the sweep actually spent, at the top of the
+          # report. The step validates the shape before it prints it.
+          JUDGE_ESTIMATE_USD: ${{ needs.plan.outputs.estimate_usd }}
           # THIS STEP SPENDS TOO — one panel call per judgeable pair, per
           # seat — so it needs the switch the arms needed. Omitting it here
           # does not make the sweep free: both captures have already been
@@ -2071,6 +2075,9 @@ jobs:
         env:
           AGENTS: ${{ needs.plan.outputs.agents }}
           ESTIMATE_USD: ${{ needs.plan.outputs.estimate_usd }}
+          # Empty when the judging step never ran or the sweep could not
+          # spend, which this step prints as "not measured" below.
+          ACTUAL_USD: ${{ steps.judging.outputs.actual_usd }}
           CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
           BASE_REF: ${{ needs.plan.outputs.base_ref }}
           # Resolved by the worktree step. Guarded with `:-` below because this
@@ -2114,6 +2121,7 @@ jobs:
             echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) ($base_commit) |"
             echo "| sweep id | \`$SWEEP_ID\` |"
             echo "| estimated before the run | ~\$$ESTIMATE_USD |"
+            echo "| actually spent | ${ACTUAL_USD:-not measured} |"
             echo "| outcome | $JOB_STATUS |"
             echo ''
             echo "Output is in [the run log]($RUN_URL). The verdict itself is written"

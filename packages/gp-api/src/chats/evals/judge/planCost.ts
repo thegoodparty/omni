@@ -22,8 +22,8 @@ import { chatTurnsIn } from './runners/backgroundDispatch'
 // production's is about $7.74, and pricing every agent at production's worst
 // case put ~$48 on a sweep that cost ~$8.
 //
-// Each figure is the report's own `- cost:` line for that agent: the mean
-// cost of one run on each arm, re-derived from token counts at the pricing
+// Each figure is the mean per run on the report's `- cost difference per
+// run pair:` line for that agent: the mean cost of one run on each arm, re-derived from token counts at the pricing
 // version the report names. Read from the sweep job's log, not remembered.
 export interface MeasuredRunCost {
   runUrl: string
@@ -74,7 +74,7 @@ export const MEASURED_BACKGROUND_RUN_COST: Readonly<
   },
 }
 
-// WHAT ONE CHAT TURN COST IN A JUDGE SWEEP. The report's `- cost:` line is
+// WHAT ONE CHAT TURN COST IN A JUDGE SWEEP. The report's per-run mean is
 // per case attempt, and every chat case list today is one turn a case, so
 // that is a turn. chief_of_staff's three live sweeps measured $0.112 to
 // $0.124; the latest, the one that wired it, is the entry.

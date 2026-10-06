@@ -244,6 +244,31 @@ describe('judge.yml judges what the arms managed to capture', () => {
   })
 })
 
+// The estimate printed in three places and the bill in none. The judging
+// step prints the bill at the top of its report and hands the total to the
+// closing table, so the two sit side by side in both places.
+describe('judge.yml reports what the sweep actually spent', () => {
+  const steps = stepsOf(readFileSync(WORKFLOW, 'utf8'))
+  const judging = steps.find((step) => step.name === 'Judge both arms')
+  const summary = steps.find((step) => step.name === 'Summarise the sweep')
+
+  it('hands the judging step the estimate to print beside it', () => {
+    expect(judging?.body).toMatch(
+      /^ {10}JUDGE_ESTIMATE_USD: \$\{\{ needs\.plan\.outputs\.estimate_usd \}\}$/m,
+    )
+  })
+
+  it('prints the judging step total in the closing table', () => {
+    expect(judging?.body).toMatch(/^ {8}id: judging$/m)
+    expect(summary?.body).toMatch(
+      /^ {10}ACTUAL_USD: \$\{\{ steps\.judging\.outputs\.actual_usd \}\}$/m,
+    )
+    expect(summary?.body).toContain(
+      'echo "| actually spent | ${ACTUAL_USD:-not measured} |"',
+    )
+  })
+})
+
 // THE SAME CLASS OF GUARD AS THE SPEND SWITCH. Both arms are meant to read one
 // snapshot of the voter mart, which only holds if they read one value — and
 // two arms that each resolved "current" themselves would resolve it an hour

@@ -397,8 +397,8 @@ describe('the measured layer', () => {
     const score = await pipeline(sweepRecords(5))
     const report = renderReport({ agents: [score], registry: REGISTRY })
     // 31,213 input at $3/M plus 227 output at $15/M, on both arms.
-    expect(report).toContain('- cost: +0.0000 USD per run pair')
-    expect(report).toContain('(base 0.0970, candidate 0.0970)')
+    expect(report).toContain('- cost difference per run pair: +0.0000 USD')
+    expect(report).toContain('(mean per run: base 0.0970, candidate 0.0970)')
     expect(report).toContain('- latency: +0 ms per run pair')
     expect(report).toContain('- tool errors: +0.00 per run pair')
     expect(report).toContain('not read from the records stored dollars')
