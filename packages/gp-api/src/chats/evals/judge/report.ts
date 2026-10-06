@@ -885,11 +885,31 @@ export const renderReport = (
     lines.push('')
   }
 
+  // A refused agent's arms usually ran before the refusal, so it was billed
+  // like any other. Its spend goes under the refusal, and any agent with
+  // spend and no section at all gets a line of its own, so the per-agent
+  // lines and the unselected row add up to the total above.
+  const spendFor = (agentId: string): AgentSpend | undefined =>
+    report.actualCost?.agents.find((a) => a.agentId === agentId)
   for (const refusal of report.refusals ?? []) {
     lines.push(`### ${refusal.agentId} — refused`)
     lines.push('')
     lines.push(refusal.reason)
+    const spend = spendFor(refusal.agentId)
+    if (spend !== undefined) lines.push('', spentLine(spend))
     lines.push('')
+  }
+  const sectioned = new Set([
+    ...report.agents.map((a) => a.agentId),
+    ...(report.refusals ?? []).map((r) => r.agentId),
+  ])
+  const unsectioned = (report.actualCost?.agents ?? []).filter(
+    (a) =>
+      !sectioned.has(a.agentId) &&
+      a.base.runs + a.candidate.runs + a.judge.calls > 0,
+  )
+  for (const spend of unsectioned) {
+    lines.push(`### ${spend.agentId} — not judged`, '', spentLine(spend), '')
   }
 
   const identical = report.identicalOutputs ?? []
