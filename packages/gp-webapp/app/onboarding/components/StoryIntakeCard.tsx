@@ -11,10 +11,10 @@ import { useReportDictationActive } from './useReportDictationActive'
 
 interface StoryIntakeCardProps {
   question: string
-  // 'step' (default) is onboarding's: the question leads the step. 'section'
-  // sits under a page title (Your story): a smaller question with a rule
-  // under the heading. Either way the field is built like the outreach
-  // compose cards: seamless in the card, over the shared action footer.
+  // 'step' (default) is onboarding's: the question leads the card. 'section'
+  // (Your story) sets the question and description above the card, as the
+  // outreach compose steps do. Either way the field is built like the
+  // outreach compose cards: seamless in the card, over the action footer.
   variant?: 'step' | 'section'
   // Optional sub-line under the question. The dashboard page passes it (there is
   // no page-level per-question heading there); onboarding leaves it off since
@@ -59,27 +59,23 @@ export default function StoryIntakeCard({
   useReportDictationActive(dictation.active, onDictationActiveChange)
   const isSection = variant === 'section'
 
-  return (
-    <Card className="flex flex-col gap-3 p-4">
-      <div
+  const heading = (
+    <div className="flex flex-col gap-1">
+      <h2
         className={cn(
-          'flex flex-col gap-1',
-          isSection && '-mx-4 border-b border-border px-4 pb-3',
+          'text-foreground',
+          isSection ? 'text-xl font-semibold' : 'text-2xl font-bold',
         )}
       >
-        <h2
-          className={cn(
-            'text-foreground',
-            isSection ? 'text-lg font-semibold' : 'text-2xl font-bold',
-          )}
-        >
-          {question}
-        </h2>
-        {description && (
-          <p className="text-base text-muted-foreground">{description}</p>
-        )}
-      </div>
-
+        {question}
+      </h2>
+      {description && (
+        <p className="text-base text-muted-foreground">{description}</p>
+      )}
+    </div>
+  )
+  const field = (
+    <>
       <Textarea
         variant="seamless"
         value={value}
@@ -94,6 +90,25 @@ export default function StoryIntakeCard({
         improveDisabled={value.trim().length === 0}
         save={save}
       />
+    </>
+  )
+
+  // A section is laid out like an outreach compose step: the question and
+  // its description above, and a card that holds only the field and its
+  // footer. A step keeps the question in the card, under the step's own title.
+  if (isSection) {
+    return (
+      <section className="flex flex-col gap-3">
+        {heading}
+        <Card className="flex flex-col gap-3 p-4">{field}</Card>
+      </section>
+    )
+  }
+
+  return (
+    <Card className="flex flex-col gap-3 p-4">
+      {heading}
+      {field}
     </Card>
   )
 }

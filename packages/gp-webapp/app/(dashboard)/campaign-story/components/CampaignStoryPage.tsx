@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
 import { useRouter } from 'next/navigation'
-import { ArrowLeftIcon, Card, IconButton } from '@styleguide'
+import { ArrowLeftIcon, IconButton } from '@styleguide'
 import AlertDialog from '@shared/utils/AlertDialog'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -344,9 +344,11 @@ export function StoryEditorForm({
           analyticsLabel="dashboard_story_background"
         />
 
-        <Card className="flex flex-col gap-4 p-6">
-          <div className="-mx-6 flex flex-col gap-1 border-b border-border px-6 pb-4">
-            <h2 className="text-lg font-semibold text-foreground">
+        {/* Same shape as the why and background sections: the question
+            above, then the priorities (each its own card). */}
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-xl font-semibold text-foreground">
               What issues do you most want to solve if elected?
             </h2>
             <p className="text-base text-muted-foreground">
@@ -354,7 +356,7 @@ export function StoryEditorForm({
             </p>
           </div>
           <StoryIssuesCard issues={issues} onChange={setIssues} />
-        </Card>
+        </section>
 
         {anyContent && (
           <div className="flex justify-end">
