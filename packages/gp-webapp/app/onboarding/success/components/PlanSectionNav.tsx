@@ -159,8 +159,11 @@ const PlanSectionNav = ({
               <FilterPill
                 key={s.id}
                 value={s.id}
-                // FilterPill has no size prop; this is its compact form.
-                className="shrink-0 px-2.5 py-1 text-xs"
+                // FilterPill has no size or tone prop: a compact pill where the
+                // rest stay outlined in grey and only the active one stands up,
+                // white with a border and shadow, as in Toggle and Tabs. Weight
+                // stays put so the row doesn't shift as it scrolls.
+                className="shrink-0 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground data-[state=on]:border-components-input-border data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm data-[state=on]:hover:bg-background"
               >
                 {s.label}
               </FilterPill>
