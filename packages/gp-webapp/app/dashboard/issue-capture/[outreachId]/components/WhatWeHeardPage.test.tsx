@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type {
   FeedbackReportMemo,
   FeedbackReportResponse,
@@ -36,8 +36,15 @@ const memo = (
   occurredAt: new Date('2026-09-25T18:00:00.000Z'),
   channel: 'door_knock',
   transcript: 'She wants the storm drains on Elm cleared before winter.',
-  stance: 'supports',
-  desiredOutcome: 'Clear the drains',
+  issues: [
+    {
+      id: 'issue-storm-drains',
+      position: 0,
+      issueLabel: 'Storm drains',
+      stance: 'supports',
+      desiredOutcome: 'Clear the drains',
+    },
+  ],
   actorName: 'Kamal Al Sawafi',
   confirmedAt: new Date('2026-09-25T18:01:00.000Z'),
   ...fields,
@@ -63,8 +70,15 @@ const MEMOS = [
     id: 'memo-2',
     personId: 'person-2',
     transcript: 'He thinks the new bike lanes slow down deliveries.',
-    stance: 'opposes',
-    desiredOutcome: null,
+    issues: [
+      {
+        id: 'issue-delivery-delays',
+        position: 0,
+        issueLabel: 'Delivery delays',
+        stance: 'opposes',
+        desiredOutcome: null,
+      },
+    ],
     actorName: null,
     confirmedAt: null,
   }),
@@ -124,6 +138,36 @@ const mockReport = (data: FeedbackReportResponse) =>
     data,
   })
 
+const FLOODING_TAG = {
+  id: 'tag-1',
+  name: 'Street flooding',
+  status: 'proposed',
+} as const
+
+const proposal = (id: string, name: string, proposedByRunId: string) => ({
+  id,
+  name,
+  status: 'proposed' as const,
+  source: 'synthesis' as const,
+  declaredTopIssueId: null,
+  mergedIntoId: null,
+  proposedByRunId,
+  feedbackCount: 3,
+})
+
+// The org's proposals: the page's own completed run's flooding tag, and
+// one from an unrelated effort's run.
+const mockProposals = () =>
+  api.mock('GET /v1/constituent-feedback/tags', {
+    status: 200,
+    data: {
+      tags: [
+        proposal('tag-1', 'Street flooding', 'run-1'),
+        proposal('tag-2', 'Snow removal', 'run-other'),
+      ],
+    },
+  })
+
 const mockNoProposals = () =>
   api.mock('GET /v1/constituent-feedback/tags', {
     status: 200,
@@ -157,9 +201,23 @@ describe('WhatWeHeardPage', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        '84 people answered. 61 left a note. 54 confirmed, 7 waiting for review.',
+        (_content, element) =>
+          element?.tagName === 'P' &&
+          element.textContent ===
+            '84 people answered. 61 left a note. 54 confirmed, 7 waiting for review.',
       ),
     ).toBeInTheDocument()
+  })
+
+  // The waiting notes are confirmed from the review list, so the clause
+  // that counts them is the way there.
+  it('links the waiting notes to the review list', async () => {
+    mockReport(report())
+    renderPage()
+
+    expect(
+      await screen.findByRole('link', { name: '7 waiting for review' }),
+    ).toHaveAttribute('href', `/dashboard/issue-capture/${OUTREACH_ID}/review`)
   })
 
   it('drops the review clause when nothing is waiting', async () => {
@@ -180,6 +238,29 @@ describe('WhatWeHeardPage', () => {
         '84 people answered. 61 left a note. 61 confirmed.',
       ),
     ).toBeInTheDocument()
+  })
+
+  it('links back to the outreach hub with this effort open', async () => {
+    mockReport(report())
+    renderPage()
+
+    const back = await screen.findByRole('link', {
+      name: 'Back to Voter Outreach',
+    })
+    expect(back).toHaveAttribute(
+      'href',
+      `/dashboard/outreach?outreachId=${OUTREACH_ID}`,
+    )
+  })
+
+  it('links a Serve official back to Constituent Outreach', async () => {
+    mockReport(report())
+    renderPage(true)
+
+    const back = await screen.findByRole('link', {
+      name: 'Back to Constituent Outreach',
+    })
+    expect(back).toHaveAttribute('href', '/dashboard/constituent-outreach')
   })
 
   it('names the page when the effort asked no question', async () => {
@@ -355,6 +436,33 @@ describe('WhatWeHeardPage', () => {
       ).toBeInTheDocument()
     })
 
+    // The strip is the page's themes' own proposals, not every proposal in
+    // the org: another effort's never appear.
+    it('reviews the proposed tags of the themes on the page', async () => {
+      mockReport(
+        report({
+          run: run('completed'),
+          themes: [
+            theme({ tag: FLOODING_TAG }),
+            theme({
+              id: 'theme-b',
+              title: 'Bike lanes',
+              tag: { id: 'tag-4', name: 'Bike lanes', status: 'accepted' },
+            }),
+          ],
+        }),
+      )
+      mockProposals()
+      renderPage()
+
+      const strip = await screen.findByRole('region', {
+        name: 'New tags to review',
+      })
+      expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
+      expect(within(strip).queryByText('Snow removal')).toBeNull()
+      expect(within(strip).queryByText('Bike lanes')).toBeNull()
+    })
+
     it('splits each card by where people stand', async () => {
       mockReport(report({ run: run('completed'), themes: [theme()] }))
       renderPage()
@@ -391,6 +499,25 @@ describe('WhatWeHeardPage', () => {
         screen.getByRole('button', { name: 'Summarize what we heard' }),
       ).toBeEnabled()
       expect(screen.getByText('Street flooding')).toBeInTheDocument()
+    })
+
+    // The themes on the page are the last completed run's, while the
+    // report's run is the failed one, which proposed nothing.
+    it('still reviews the proposed tags of the themes it keeps up', async () => {
+      mockReport(
+        report({
+          run: { ...run('failed'), id: 'run-2' },
+          themes: [theme({ tag: FLOODING_TAG })],
+        }),
+      )
+      mockProposals()
+      renderPage()
+
+      const strip = await screen.findByRole('region', {
+        name: 'New tags to review',
+      })
+      expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
+      expect(within(strip).queryByText('Snow removal')).toBeNull()
     })
   })
 

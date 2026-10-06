@@ -33,6 +33,12 @@ vi.mock('./WalkView', () => ({
     liveLocation: LiveLocation
     onMoveToArchive?: () => void
     archivePending?: boolean
+    knockDrafts?: {
+      get: (key: string) => { note: string } | undefined
+      set: (key: string, draft: { note: string; spoken: boolean }) => void
+    }
+    clientKeys?: Map<number, string>
+    onClientKeysChange?: (next: Map<number, string>) => void
   }) => {
     walkViewProps.current = {
       turfId: props.turfId,
@@ -57,6 +63,21 @@ vi.mock('./WalkView', () => ({
             move to archive
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => {
+            props.knockDrafts?.set('21', {
+              note: 'Wants a crosswalk.',
+              spoken: false,
+            })
+            props.onClientKeysChange?.(new Map([[21, 'key-21']]))
+          }}
+        >
+          leave a door half answered
+        </button>
+        <output data-testid="kept">
+          {`${props.knockDrafts?.get('21')?.note ?? 'none'}|${props.clientKeys?.get(21) ?? 'none'}`}
+        </output>
       </div>
     )
   },
@@ -412,6 +433,24 @@ describe('WalkSurface seam', () => {
 
     expect(onExit).toHaveBeenCalledTimes(1)
     expect(sheet).toHaveAttribute('data-snap', 'half')
+  })
+
+  // `peek` unmounts the walk, so what a door's form left unsaved, and the
+  // replay key a failed knock has to retry under, live up here instead.
+  it('keeps unsaved answers and replay keys across a peek snap', () => {
+    render(surface())
+    fireEvent.click(
+      screen.getByRole('button', { name: 'leave a door half answered' }),
+    )
+    const grip = screen.getByRole('button', { name: /the route/ })
+    fireEvent.keyDown(grip, { key: 'Enter' })
+    fireEvent.keyDown(grip, { key: 'Enter' })
+    expect(screen.queryByTestId('walk-view')).toBeNull()
+    fireEvent.keyDown(grip, { key: 'Enter' })
+
+    expect(screen.getByTestId('kept')).toHaveTextContent(
+      'Wants a crosswalk.|key-21',
+    )
   })
 
   // Everything below the header comes down at `peek`, so a canvasser reading

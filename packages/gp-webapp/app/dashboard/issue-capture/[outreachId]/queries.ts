@@ -5,8 +5,12 @@ import { clientRequest } from 'gpApi/typed-request'
 // without asking for the whole report more than a few dozen times a run.
 export const REPORT_POLL_INTERVAL_MS = 5_000
 
+// Every effort's report, for a capture form that cannot say which effort its
+// knock or call belongs to.
+export const REPORT_QUERY_KEY_PREFIX = ['issue-capture', 'report'] as const
+
 export const reportQueryKey = (outreachId: number) =>
-  ['issue-capture', 'report', outreachId] as const
+  [...REPORT_QUERY_KEY_PREFIX, outreachId] as const
 
 // Polls only while the latest run is in flight, and stops by itself the
 // first time the report says it is not.
@@ -19,6 +23,28 @@ export const reportQueryOptions = (outreachId: number) =>
       }).then((res) => res.data),
     refetchInterval: (query) =>
       query.state.data?.run?.status === 'running'
+        ? REPORT_POLL_INTERVAL_MS
+        : false,
+  })
+
+// Every effort's review list, for a write that cannot say which effort it
+// touched.
+export const PENDING_QUERY_KEY_PREFIX = ['issue-capture', 'pending'] as const
+
+export const pendingQueryKey = (outreachId: number) =>
+  [...PENDING_QUERY_KEY_PREFIX, outreachId] as const
+
+// The review list. Polls while a memo is still transcribing, which a batch
+// job finishes in about a minute, and stops by itself once none is.
+export const pendingQueryOptions = (outreachId: number) =>
+  queryOptions({
+    queryKey: pendingQueryKey(outreachId),
+    queryFn: () =>
+      clientRequest('GET /v1/constituent-feedback/pending', {
+        outreachId,
+      }).then((res) => res.data.feedback),
+    refetchInterval: (query) =>
+      query.state.data?.some((memo) => memo.extractionStatus === 'pending')
         ? REPORT_POLL_INTERVAL_MS
         : false,
   })

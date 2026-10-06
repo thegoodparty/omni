@@ -18,7 +18,7 @@ export const WhatWeHeardAction = ({
 }) => {
   const copy = whatWeHeardCopy(isServe)
   // Not the treatment surface (the capture card is), so no exposure.
-  const { enabled } = useIssueCaptureFlag(isServe, false)
+  const { enabled } = useIssueCaptureFlag(false)
   if (!enabled) return null
 
   return (

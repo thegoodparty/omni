@@ -27,7 +27,7 @@ vi.mock('next/navigation', () => ({
   redirect: (url: string) => mocks.redirect(url),
 }))
 
-import { issueCaptureAccess } from './issueCaptureAccess'
+import { issueCaptureAccess, issueCaptureFlagGate } from './issueCaptureAccess'
 
 const on = { value: 'on' }
 
@@ -39,16 +39,16 @@ beforeEach(() => {
 })
 
 describe('issueCaptureAccess', () => {
-  it('lets a campaign org in on the Win flag and speaks Win', async () => {
-    mocks.getFlagVariants.mockResolvedValue({ 'win-issue-capture': on })
+  it('lets a campaign org in on the flag and speaks Win', async () => {
+    mocks.getFlagVariants.mockResolvedValue({ 'issue-capture': on })
 
     await expect(issueCaptureAccess()).resolves.toEqual({ isServe: false })
     expect(mocks.candidateAccess).toHaveBeenCalled()
   })
 
-  it('lets an elected office in on the Serve flag and speaks Serve', async () => {
+  it('lets an elected office in on the flag and speaks Serve', async () => {
     mocks.slug.current = 'eo-springfield-council'
-    mocks.getFlagVariants.mockResolvedValue({ 'serve-issue-capture': on })
+    mocks.getFlagVariants.mockResolvedValue({ 'issue-capture': on })
 
     await expect(issueCaptureAccess()).resolves.toEqual({ isServe: true })
   })
@@ -59,11 +59,9 @@ describe('issueCaptureAccess', () => {
     await expect(issueCaptureAccess()).rejects.toThrow('redirect:/dashboard')
   })
 
-  // Each product rolls out on its own key, so the other product's flag
-  // being on lets nobody in.
-  it('reads only the org’s own product’s flag', async () => {
+  it('sends an elected office to the dashboard with the flag off', async () => {
     mocks.slug.current = 'eo-springfield-council'
-    mocks.getFlagVariants.mockResolvedValue({ 'win-issue-capture': on })
+    mocks.getFlagVariants.mockResolvedValue({ 'some-other-flag': on })
 
     await expect(issueCaptureAccess()).rejects.toThrow('redirect:/dashboard')
   })
@@ -72,5 +70,26 @@ describe('issueCaptureAccess', () => {
     mocks.getFlagVariants.mockResolvedValue(null)
 
     await expect(issueCaptureAccess()).rejects.toThrow('redirect:/dashboard')
+  })
+})
+
+// The volunteer's review page: the flag alone, since its layout is the role
+// gate, and a flag-off visit goes back to where it came from.
+describe('issueCaptureFlagGate', () => {
+  it('checks the flag without the candidate gate', async () => {
+    mocks.getFlagVariants.mockResolvedValue({ 'issue-capture': on })
+
+    await expect(
+      issueCaptureFlagGate('/volunteer/door-knocking/7'),
+    ).resolves.toEqual({ isServe: false })
+    expect(mocks.candidateAccess).not.toHaveBeenCalled()
+  })
+
+  it('sends a flag-off visit to the path it is given', async () => {
+    mocks.getFlagVariants.mockResolvedValue({})
+
+    await expect(
+      issueCaptureFlagGate('/volunteer/door-knocking/7'),
+    ).rejects.toThrow('redirect:/volunteer/door-knocking/7')
   })
 })

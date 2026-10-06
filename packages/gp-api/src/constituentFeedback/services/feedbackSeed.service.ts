@@ -17,19 +17,8 @@ import {
   Prisma,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { isDevOnlyRouteEnabled } from '../util/devOnlyRoute.util'
 import { SEED_MEMOS, type SeedMemo } from './feedbackSeedMemos'
-
-// A write seam into customer-shaped data, so it must never be reachable on
-// prod. Same gate as the community issues seed: OTEL_SERVICE_ENVIRONMENT
-// names the deploy (NODE_ENV is 'production' in every image), an unknown
-// value fails closed, and unset means local or vitest. Read live so a test
-// can stub it.
-const SEED_ENABLED_ENVIRONMENTS = new Set(['local', 'test', 'preview', 'dev'])
-
-const isSeedEnabled = () => {
-  const env = process.env.OTEL_SERVICE_ENVIRONMENT
-  return env === undefined || SEED_ENABLED_ENVIRONMENTS.has(env)
-}
 
 // Hundreds of sequential inserts; the interactive default of 5s is too
 // tight on a busy laptop.
@@ -50,7 +39,7 @@ export class FeedbackSeedService extends createPrismaBase(
     body: SeedFeedbackRequest
   }): Promise<SeedFeedbackResponse> {
     // 404, not 403: on prod the route should not admit it exists.
-    if (!isSeedEnabled()) throw new NotFoundException()
+    if (!isDevOnlyRouteEnabled()) throw new NotFoundException()
 
     const { organizationSlug, body } = input
     const effort = await this.client.outreach.findFirst({
@@ -212,14 +201,19 @@ const memoRow = (
     clientKey: randomUUID(),
     transcript: memo.transcript,
     captureMethod: ConstituentFeedbackCaptureMethod.typed,
-    issueLabel: memo.issueLabel,
-    stance: memo.stance,
-    desiredOutcome: memo.desiredOutcome,
+    issues: {
+      createMany: {
+        data: memo.issues.map((issue, position) => ({
+          position,
+          ...issue,
+          proposedIssueLabel: issue.issueLabel,
+          proposedStance: issue.stance,
+          proposedDesiredOutcome: issue.desiredOutcome,
+        })),
+      },
+    },
     extractionStatus: ConstituentFeedbackExtractionStatus.extracted,
     extractionModel: SEED_MODEL,
-    proposedIssueLabel: memo.issueLabel,
-    proposedStance: memo.stance,
-    proposedDesiredOutcome: memo.desiredOutcome,
     effortQuestion,
   }
 }

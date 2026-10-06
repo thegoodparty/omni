@@ -166,6 +166,54 @@ All atomic messages with multi-cluster assignments (k=5 through k=50):
 - Shows cluster assignments across different k values
 - Includes original and atomic message variants
 
+## Feedback source
+
+The pipeline also groups issue-capture memos for gp-api. gp-api uploads `feedback-input/<runId>.csv`, and the bucket notification on that prefix starts the run: the trigger Lambda passes `SOURCE_TYPE` `constituent_feedback`, `SOURCE_ID` from the filename (gp-api's run id) and `PUBLISH_TOP_N` 10. A file under `input/` is always a poll run.
+
+To re-run one by hand, POST this body to `/serve/messages/process`:
+
+```json
+{
+  "sourceType": "constituent_feedback",
+  "sourceId": "<runId>",
+  "csvS3Path": "s3://<SERVE_ANALYSIS_BUCKET_NAME>/feedback-input/<runId>.csv",
+  "topN": 10
+}
+```
+
+The trigger Lambda hands these to the task as `SOURCE_TYPE`, `SOURCE_ID` and `PUBLISH_TOP_N`. When a POST body leaves one out, the pipeline uses `poll`, an empty id, and `sqs_events.publish_top_n` (3).
+
+The CSV has the columns `respondent_id,message_text,sent_at`, every field quoted. `respondent_id` is a memo id. It sits where a poll's phone number sits through consolidation, clustering and merging, read as text and never normalized.
+
+A published theme needs at least 2 distinct respondents. The run ends with one event on the same SQS queue, with `MessageGroupId` `feedback-<sourceId>`:
+
+```json
+{
+  "type": "feedbackSynthesisComplete",
+  "data": {
+    "sourceType": "constituent_feedback",
+    "sourceId": "<runId>",
+    "totalResponses": 12,
+    "responsesLocation": null,
+    "issues": [
+      {
+        "rank": 1,
+        "theme": "Roads & Street Maintenance",
+        "summary": "...",
+        "analysis": "...",
+        "responseCount": 4,
+        "quotes": [{ "quote": "...", "respondent_id": "<memoId>" }],
+        "memberIds": ["<memoId>", "..."]
+      }
+    ]
+  }
+}
+```
+
+`memberIds` lists every respondent in the theme, not only the quoted ones, so no response rows go to S3 and `responsesLocation` is `null`. gp-api validates the event with `FeedbackSynthesisCompleteEventSchema` in `packages/contracts/src/constituentFeedback/FeedbackSynthesis.schema.ts`; change both together.
+
+Polls are unchanged. With no `SOURCE_TYPE` the pipeline reads phone numbers, publishes `pollAnalysisComplete` and uploads its response rows exactly as before. `tests/test_feedback_source.py` replays a recorded poll run (`tests/fixtures/poll_golden.json`) that must stay byte-identical.
+
 ## Data Flow
 
 ```

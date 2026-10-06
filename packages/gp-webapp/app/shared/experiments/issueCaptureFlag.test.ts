@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { useFlagOn } from './FeatureFlagsProvider'
-import { useIssueCaptureFlag } from './issueCaptureFlag'
+import { ISSUE_CAPTURE_FLAG_KEY, useIssueCaptureFlag } from './issueCaptureFlag'
 
 vi.mock('./FeatureFlagsProvider', () => ({
   useFlagOn: vi.fn(),
@@ -9,50 +9,45 @@ vi.mock('./FeatureFlagsProvider', () => ({
 
 const mockUseFlagOn = vi.mocked(useFlagOn)
 
-// Only the Win flag is on, so the answer says which flag was read.
-const winOnly = (key: string) => ({
-  ready: true,
-  on: key === 'win-issue-capture',
-})
-
 describe('useIssueCaptureFlag', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockUseFlagOn.mockImplementation(winOnly)
   })
 
-  it('reads the Serve flag on Serve', () => {
-    const { result } = renderHook(() => useIssueCaptureFlag(true))
+  it('is enabled when the flag is on', () => {
+    mockUseFlagOn.mockReturnValue({ ready: true, on: true })
 
-    expect(result.current).toEqual({ ready: true, enabled: false })
-  })
-
-  it('reads the Win flag on Win', () => {
-    const { result } = renderHook(() => useIssueCaptureFlag(false))
+    const { result } = renderHook(() => useIssueCaptureFlag())
 
     expect(result.current).toEqual({ ready: true, enabled: true })
   })
 
-  // Exposure is what an experiment counts. A Serve official reading the form
-  // must not be counted as exposed to Win's rollout, or the other way round.
-  it('exposes the user to their own product’s flag only', () => {
-    renderHook(() => useIssueCaptureFlag(false))
+  it('is not enabled until the flag is ready', () => {
+    mockUseFlagOn.mockReturnValue({ ready: false, on: false })
 
-    expect(mockUseFlagOn).toHaveBeenCalledWith('win-issue-capture', {
+    const { result } = renderHook(() => useIssueCaptureFlag())
+
+    expect(result.current).toEqual({ ready: false, enabled: false })
+  })
+
+  it('reads the one issue-capture key and tracks exposure by default', () => {
+    mockUseFlagOn.mockReturnValue({ ready: true, on: false })
+
+    renderHook(() => useIssueCaptureFlag())
+
+    expect(ISSUE_CAPTURE_FLAG_KEY).toBe('issue-capture')
+    expect(mockUseFlagOn).toHaveBeenCalledTimes(1)
+    expect(mockUseFlagOn).toHaveBeenCalledWith('issue-capture', {
       trackExposure: true,
-    })
-    expect(mockUseFlagOn).toHaveBeenCalledWith('serve-issue-capture', {
-      trackExposure: false,
     })
   })
 
   it('exposes nobody when the caller is not the treatment surface', () => {
-    renderHook(() => useIssueCaptureFlag(true, false))
+    mockUseFlagOn.mockReturnValue({ ready: true, on: true })
 
-    expect(mockUseFlagOn).toHaveBeenCalledWith('serve-issue-capture', {
-      trackExposure: false,
-    })
-    expect(mockUseFlagOn).toHaveBeenCalledWith('win-issue-capture', {
+    renderHook(() => useIssueCaptureFlag(false))
+
+    expect(mockUseFlagOn).toHaveBeenCalledWith('issue-capture', {
       trackExposure: false,
     })
   })

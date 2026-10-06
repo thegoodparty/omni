@@ -351,3 +351,68 @@ describe('CronLockService.tryClaimTenMinuteRun', () => {
     ).toBe(true)
   })
 })
+
+describe('CronLockService.tryClaimMinuteRun', () => {
+  beforeEach(async () => {
+    await service.prisma.cronRun.deleteMany({})
+  })
+
+  it('grants the first caller and denies a second in the same minute', async () => {
+    const lock = service.app.get(CronLockService)
+
+    expect(
+      await lock.tryClaimMinuteRun(JOB, new Date('2026-05-29T07:21:00.100Z')),
+    ).toBe(true)
+    expect(
+      await lock.tryClaimMinuteRun(JOB, new Date('2026-05-29T07:21:01.400Z')),
+    ).toBe(false)
+  })
+
+  it('grants the claim again in the next minute', async () => {
+    const lock = service.app.get(CronLockService)
+
+    expect(
+      await lock.tryClaimMinuteRun(JOB, new Date('2026-05-29T07:21:00.000Z')),
+    ).toBe(true)
+    expect(
+      await lock.tryClaimMinuteRun(JOB, new Date('2026-05-29T07:22:00.000Z')),
+    ).toBe(true)
+  })
+
+  it('stores the claim at the exact start of the minute', async () => {
+    const lock = service.app.get(CronLockService)
+
+    expect(
+      await lock.tryClaimMinuteRun(JOB, new Date('2026-05-29T07:21:42.987Z')),
+    ).toBe(true)
+
+    const row = await service.prisma.cronRun.findFirstOrThrow({
+      where: { jobName: JOB },
+    })
+    expect(row.runDate.toISOString()).toBe('2026-05-29T07:21:00.000Z')
+  })
+
+  it('never takes over a completed claim, even when stale', async () => {
+    const lock = service.app.get(CronLockService)
+    const now = new Date('2026-05-29T07:21:00.000Z')
+
+    expect(await lock.tryClaimMinuteRun(JOB, now)).toBe(true)
+    await lock.markMinuteCompleted(JOB, now)
+
+    expect(
+      await lock.tryClaimMinuteRun(JOB, new Date('2026-05-29T07:21:50.000Z')),
+    ).toBe(false)
+  })
+
+  it('takes over a stale claim that never completed', async () => {
+    const lock = service.app.get(CronLockService)
+
+    expect(
+      await lock.tryClaimMinuteRun(JOB, new Date('2026-05-29T07:21:00.000Z')),
+    ).toBe(true)
+    // Forty seconds on, still the same minute, past the thirty-second window.
+    expect(
+      await lock.tryClaimMinuteRun(JOB, new Date('2026-05-29T07:21:40.000Z')),
+    ).toBe(true)
+  })
+})

@@ -3,6 +3,7 @@ import { CronModule } from '@/cron/cron.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { FeaturesModule } from '@/features/features.module'
 import { LlmModule } from '@/llm/llm.module'
+import { SpeechModule } from '@/speech/speech.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { ConstituentFeedbackController } from './constituentFeedback.controller'
 import { ConstituentFeedbackService } from './services/constituentFeedback.service'
@@ -14,6 +15,7 @@ import { FeedbackSynthesisIngestService } from './services/feedbackSynthesisInge
 import { IssueTagService } from './services/issueTag.service'
 import { IssueTagSeedService } from './services/issueTagSeed.service'
 import { MockSynthesisEngine } from './services/mockSynthesisEngine'
+import { PendingTranscriptionService } from './services/pendingTranscription.service'
 import { PipelineSynthesisEngine } from './services/pipelineSynthesisEngine'
 import {
   SYNTHESIS_ENGINE,
@@ -28,6 +30,7 @@ import { SynthesisStaleRunSweepService } from './services/synthesisStaleRunSweep
     forwardRef(() => ElectedOfficeModule),
     FeaturesModule,
     LlmModule,
+    SpeechModule,
   ],
   controllers: [ConstituentFeedbackController],
   providers: [
@@ -40,6 +43,7 @@ import { SynthesisStaleRunSweepService } from './services/synthesisStaleRunSweep
     IssueTagService,
     IssueTagSeedService,
     MockSynthesisEngine,
+    PendingTranscriptionService,
     PipelineSynthesisEngine,
     SynthesisStaleRunSweepService,
     {

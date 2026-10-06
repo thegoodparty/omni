@@ -1,10 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import {
-  FEEDBACK_SYNTHESIS_SOURCE_TYPE,
-  type FeedbackSynthesisRequest,
-} from '@goodparty_org/contracts'
 import { formatISO } from 'date-fns'
-import { Headers, Methods, MimeTypes } from 'http-constants-ts'
 import {
   type FeedbackSynthesisRun,
   SynthesisRunStatus,
@@ -12,12 +7,6 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import type { SynthesisEngine, SynthesisMemo } from './synthesisEngine'
-
-// Polls publish three groups. An effort's memos cover more ground, and the
-// report ranks whatever comes back.
-const PIPELINE_TOP_N = 10
-
-const PIPELINE_TIMEOUT_MS = 30_000
 
 // RFC 4180, every field quoted. Not csvEscape: that neutralizes spreadsheet
 // formulas by prefixing a quote, which would rewrite a memo that starts with
@@ -68,54 +57,29 @@ export class PipelineSynthesisEngine
     memos: SynthesisMemo[],
   ): Promise<string | null> {
     const bucket = process.env.SERVE_ANALYSIS_BUCKET_NAME
-    const baseUrl = process.env.AI_PIPELINE_BASE_URL
-    const apiKey = process.env.AI_PIPELINE_API_KEY
-    if (!bucket || !baseUrl || !apiKey) {
+    if (!bucket) {
       this.logger.error(
         { runId: run.id },
-        'Synthesis pipeline env is not configured',
+        'Synthesis pipeline bucket is not configured',
       )
       return 'not configured'
     }
 
-    // Not under `input/`: the bucket notifies the pipeline's trigger Lambda
-    // on every `input/*.csv` and treats it as a poll, so a key there would
-    // start each run twice, once as a poll. The POST below is the only
-    // trigger.
+    // Not under `input/`, which the trigger Lambda reads as a poll. Its
+    // notification on `feedback-input/` starts the run as a memo run, with
+    // the filename as the run id.
     const key = `feedback-input/${run.id}.csv`
-    const body: FeedbackSynthesisRequest = {
-      sourceType: FEEDBACK_SYNTHESIS_SOURCE_TYPE,
-      sourceId: run.id,
-      csvS3Path: `s3://${bucket}/${key}`,
-      topN: PIPELINE_TOP_N,
-    }
     try {
       await this.s3.uploadFile(bucket, toCsv(memos), key, {
         contentType: 'text/csv',
       })
-      const response = await fetch(`${baseUrl}/serve/messages/process`, {
-        method: Methods.POST,
-        headers: {
-          [Headers.CONTENT_TYPE]: MimeTypes.APPLICATION_JSON,
-          'x-api-key': apiKey,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(PIPELINE_TIMEOUT_MS),
-      })
-      if (!response.ok) {
-        this.logger.error(
-          { runId: run.id, status: response.status },
-          'Synthesis pipeline refused the run',
-        )
-        return `pipeline answered ${response.status}`
-      }
     } catch (err) {
       this.logger.error({ err, runId: run.id }, 'Synthesis hand-off failed')
       return 'hand-off failed'
     }
 
     this.logger.info(
-      { runId: run.id, inputCount: memos.length, csvS3Path: body.csvS3Path },
+      { runId: run.id, inputCount: memos.length, key },
       'Synthesis run handed to the pipeline',
     )
     return null

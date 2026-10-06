@@ -16,6 +16,9 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from serve.v1_pipeline.models.events import (
+    FeedbackIssueData,
+    FeedbackSynthesisCompleteData,
+    FeedbackSynthesisCompleteEvent,
     PollAnalysisCompleteData,
     PollAnalysisCompleteEvent,
     PollIssueAnalysisData,
@@ -150,6 +153,42 @@ class SQSEventPublisher:
 
         return {"polls_processed": len(poll_ids), "complete_events_sent": len(poll_ids)}
 
+    async def publish_feedback_completion(
+        self, source_type: str, source_id: str, unified_records: list[UnifiedCampaignRecord]
+    ) -> dict[str, Any]:
+        cluster_stats = self._aggregate_cluster_stats(unified_records)
+        issues = [
+            FeedbackIssueData(
+                rank=rank,
+                theme=c["theme"],
+                summary=c["summary"],
+                analysis=c["analysis"],
+                responseCount=c["responseCount"],
+                quotes=[{"quote": q["quote"], "respondent_id": q.get("phone_number", "")} for q in c["quotes"]],
+                memberIds=c["memberIds"],
+            )
+            for rank, c in enumerate(self._rank_clusters(cluster_stats), 1)
+        ]
+        unique_respondents = len({r.phone_number for r in unified_records if not r.is_opt_out})
+        logger.info(f"Source {source_type}/{source_id}: {unique_respondents} respondents, {len(issues)} issues")
+
+        event = FeedbackSynthesisCompleteEvent(
+            data=FeedbackSynthesisCompleteData(
+                sourceType=source_type,
+                sourceId=source_id,
+                totalResponses=unique_respondents,
+                responsesLocation=None,
+                issues=issues,
+            )
+        )
+        if self.publish_to_sqs:
+            self._send_to_sqs(event)
+            logger.info(f"  Sent completion event for {source_type}/{source_id} to SQS")
+
+        self._save_events_locally([event.to_json()])
+
+        return {"complete_events_sent": 1}
+
     def _aggregate_cluster_stats(self, records: list[UnifiedCampaignRecord]) -> dict[int, dict]:
         cluster_key = self._get_optimal_cluster_key(records)
         logger.debug(f"Using cluster configuration: {cluster_key}")
@@ -187,7 +226,11 @@ class SQSEventPublisher:
         # Add response counts
         result = {}
         for cluster_id, data in clusters.items():
-            result[cluster_id] = {**data, "responseCount": len(phone_counts[cluster_id])}
+            result[cluster_id] = {
+                **data,
+                "responseCount": len(phone_counts[cluster_id]),
+                "memberIds": sorted(phone_counts[cluster_id]),
+            }
 
         return result
 
@@ -236,19 +279,23 @@ class SQSEventPublisher:
             logger.error(f"Failed to save events locally: {e}", exc_info=True)
             raise
 
-    def _send_to_sqs(self, event: PollAnalysisCompleteEvent) -> None:
+    def _send_to_sqs(self, event: PollAnalysisCompleteEvent | FeedbackSynthesisCompleteEvent) -> None:
         """Send event to SQS FIFO queue with proper MessageGroupId"""
         if not self.publish_to_sqs or not self.sqs_client:
             logger.warning("SQS publishing disabled but _send_to_sqs called")
             return
 
         message_body = json.dumps(event.to_json())
+        if isinstance(event, FeedbackSynthesisCompleteEvent):
+            message_group_id = f"feedback-{event.data.sourceId}"
+        else:
+            message_group_id = f"gp-queue-polls-{event.data.pollId}"
 
         try:
             response = self.sqs_client.send_message(
                 QueueUrl=self.queue_url,
                 MessageBody=message_body,
-                MessageGroupId=f"gp-queue-polls-{event.data.pollId}",
+                MessageGroupId=message_group_id,
                 MessageDeduplicationId=str(uuid.uuid4()),  # Unique per message
             )
             logger.debug(f"Sent {event.type} to SQS: MessageId={response['MessageId']}")

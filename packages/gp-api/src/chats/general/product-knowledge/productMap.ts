@@ -184,7 +184,7 @@ const WIN_AREAS: ProductArea[] = [
       'Recommended voter lists sit above the saved lists: ready-made audiences (voters who have not heard from you, persuadable independent-leaning voters, your supporters to invite or turn out) with a Details view and a Send outreach button, no saving needed',
       'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',
       'Opening a list shows its filter summary and outreach history, never a table of individual voters',
-      'A voter’s record can carry What they told us: what they said at the door or on the phone, the issue, where they stand, what they want, and any accepted tags. It is being rolled out account by account',
+      'A voter’s record can carry What they told us: what they said at the door or on the phone, the issues they raised, where they stand on each and what they want, and any accepted tags. It is being rolled out account by account',
     ],
     gate: 'Filtering the voter file needs the Pro upgrade, and so does seeing which precincts it covers. Without Pro the page still shows district aggregates and a blurred preview.',
   },
@@ -410,7 +410,24 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
       'Summarize what we heard groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
       'Each theme opens to its details, where people stand, what they want, and the notes behind it',
-      'New tags to review: Accept puts a suggested tag on people’s records, Dismiss drops it',
+      'New tags to review lists the suggested tags of the themes shown: Accept puts one on people’s records, Dismiss drops it',
+    ],
+    gate: 'Being rolled out account by account, so not every account has it yet.',
+  },
+  {
+    // One area seen by two roles: the owner's page under the dashboard and a
+    // volunteer's own under their walk, with the same title, so one entry
+    // with the volunteer's way in rather than the same name twice.
+    navId: null,
+    name: 'Notes to review',
+    path: '/dashboard/issue-capture/[outreachId]/review',
+    modes: ['win', 'serve'],
+    does: 'Confirm what a conversation’s note says when nobody confirmed it at the door, including notes recorded with no signal.',
+    inside: [
+      'Reached from the waiting for review count under the title of What we heard, and from Notes to review on a door knocking turf’s details',
+      'A note recorded with no signal reads Still transcribing until it has been turned into text, usually within a couple of minutes',
+      'Looks right confirms a note. A note that could not be read offers Try again, or Type it instead to type what the person said',
+      'A volunteer has a Notes to review of their own, from the line at the top of the map while they walk a turf, listing only the notes they took',
     ],
     gate: 'Being rolled out account by account, so not every account has it yet.',
   },
