@@ -34,7 +34,10 @@ import {
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import PhoneBankingNotes from './PhoneBankingNotes'
-import PhoneBankingOutcomeForm from './PhoneBankingOutcomeForm'
+import PhoneBankingOutcomeForm, {
+  type CallDraft,
+} from './PhoneBankingOutcomeForm'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import {
   OUTCOME_DOT_CLASS,
   hasNoLiveEnrichment,
@@ -57,6 +60,7 @@ interface PhoneBankingEntryPanelProps {
   // engaged-call question on each surface.
   isServe: boolean
   onSaved: (results: PhoneBankingCallResult[]) => void
+  callDrafts?: UnsavedDrafts<CallDraft>
 }
 
 // Either surface's contact-name token: a Serve script says "[constituent
@@ -113,6 +117,7 @@ export default function PhoneBankingEntryPanel({
   onOpenChange,
   isServe,
   onSaved,
+  callDrafts,
 }: PhoneBankingEntryPanelProps): React.JSX.Element {
   const isMobile = useIsMobile()
   const person =
@@ -290,6 +295,7 @@ export default function PhoneBankingEntryPanel({
           householdHasOthersUnlogged={householdHasOthersUnlogged}
           isServe={isServe}
           onSaved={onSaved}
+          drafts={callDrafts}
         />
       </div>
     </div>

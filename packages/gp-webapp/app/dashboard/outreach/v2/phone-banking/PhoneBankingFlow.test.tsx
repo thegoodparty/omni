@@ -52,6 +52,12 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
   }),
 }))
 
+// The question-asking card is offered only where issue capture is on; these
+// cases pick it, so the flag is on here.
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: () => ({ ready: true, enabled: true }),
+}))
+
 // useListWizardCount (reached in the audience builder) reads the active org
 // slug — same precedent as RobocallFlow.test.tsx.
 vi.mock('@shared/organization-picker', () => ({

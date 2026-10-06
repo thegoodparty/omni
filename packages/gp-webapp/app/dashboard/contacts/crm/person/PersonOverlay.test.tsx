@@ -1093,10 +1093,10 @@ describe('<PersonOverlay>', () => {
       })
     })
 
-    it('shows the section when win-issue-capture is on', async () => {
+    it('shows the section when issue-capture is on', async () => {
       mockedUseFlagOn.mockImplementation((key) => ({
         ready: true,
-        on: key === 'win-issue-capture',
+        on: key === 'issue-capture',
       }))
 
       render(<PersonOverlay />)
@@ -1110,7 +1110,7 @@ describe('<PersonOverlay>', () => {
     it('lists each issue a conversation named', async () => {
       mockedUseFlagOn.mockImplementation((key) => ({
         ready: true,
-        on: key === 'win-issue-capture',
+        on: key === 'issue-capture',
       }))
       api.mock('GET /v1/constituent-feedback', {
         status: 200,
@@ -1161,7 +1161,7 @@ describe('<PersonOverlay>', () => {
     it('lists the tags a memo carries', async () => {
       mockedUseFlagOn.mockImplementation((key) => ({
         ready: true,
-        on: key === 'win-issue-capture',
+        on: key === 'issue-capture',
       }))
       api.mock('GET /v1/constituent-feedback', {
         status: 200,
@@ -1205,11 +1205,8 @@ describe('<PersonOverlay>', () => {
       ).toEqual(['Road repair', 'Taxes'])
     })
 
-    it('shows nothing when win-issue-capture is off', async () => {
-      mockedUseFlagOn.mockImplementation((key) => ({
-        ready: true,
-        on: key === 'serve-issue-capture',
-      }))
+    it('shows nothing when issue-capture is off', async () => {
+      mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
 
       render(<PersonOverlay />)
 

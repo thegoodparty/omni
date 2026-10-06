@@ -856,20 +856,18 @@ describe('constituent feedback routes', () => {
     expect(rows).toHaveLength(0)
   })
 
-  // Each product rolls out on its own flag. A Serve org is gated on
-  // serve-issue-capture alone, so turning Win's on cannot open it.
-  describe('the Serve rollout flag', () => {
-    it('admits a Serve org when serve-issue-capture is on', async () => {
-      const flags = onlyFlagOn('serve-issue-capture')
+  describe('the rollout flag', () => {
+    it('admits a Serve org when issue-capture is on', async () => {
+      const flags = onlyFlagOn('issue-capture')
 
       const res = await capture('Rosa wants weekly compost pickup.')
 
       expect(res.status).toBe(201)
-      expect(flagsAskedFor(flags)).toEqual(['serve-issue-capture'])
+      expect(flagsAskedFor(flags)).toEqual(['issue-capture'])
     })
 
-    it('404s a Serve org when only win-issue-capture is on', async () => {
-      onlyFlagOn('win-issue-capture')
+    it('404s a Serve org when issue-capture is off', async () => {
+      onlyFlagOn('some-other-flag')
 
       const res = await capture('Rosa wants weekly compost pickup.')
 
@@ -1313,8 +1311,8 @@ describe('constituent feedback routes', () => {
         expect(res.status).toBe(403)
       })
 
-      it('gates a Win org on win-issue-capture alone', async () => {
-        const flags = onlyFlagOn('win-issue-capture')
+      it('admits a Win org when issue-capture is on', async () => {
+        const flags = onlyFlagOn('issue-capture')
         const volunteer = await createVolunteer(winSlug)
         const seeded = await seedKnock(winSlug, null)
         await assign(winSlug, seeded.outreachId, volunteer.user.id)
@@ -1332,14 +1330,11 @@ describe('constituent feedback routes', () => {
         )
         expect(confirmed.status).toBe(200)
 
-        expect(flagsAskedFor(flags)).toEqual([
-          'win-issue-capture',
-          'win-issue-capture',
-        ])
+        expect(flagsAskedFor(flags)).toEqual(['issue-capture', 'issue-capture'])
       })
 
-      it('404s a Win org when only serve-issue-capture is on', async () => {
-        onlyFlagOn('serve-issue-capture')
+      it('404s a Win org when issue-capture is off', async () => {
+        onlyFlagOn('some-other-flag')
         const seeded = await seedKnock(winSlug, null)
 
         const res = await service.client.post(

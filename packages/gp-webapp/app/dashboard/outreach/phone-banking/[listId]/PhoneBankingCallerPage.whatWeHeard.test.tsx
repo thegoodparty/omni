@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type {
   FeedbackReportResponse,
   PhoneBankingList,
+  RecordPhoneBankingCallResponse,
 } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
-import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import PhoneBankingCallerPage from './PhoneBankingCallerPage'
 
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
@@ -21,12 +22,8 @@ vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   ),
 }))
 
-vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
-  useServeIssueCaptureFlag: vi.fn(),
-}))
-
-vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
-  useWinIssueCaptureFlag: vi.fn(),
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
 }))
 
 const LIST_ID = 42
@@ -75,15 +72,8 @@ const mockReport = () =>
     },
   )
 
-const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: serve,
-  })
-  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: win,
-  })
+const setFlag = (enabled: boolean) => {
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({ ready: true, enabled })
 }
 
 beforeEach(() => {
@@ -95,7 +85,7 @@ beforeEach(() => {
     errorSnackbar: vi.fn(),
     successSnackbar: vi.fn(),
   })
-  setFlags({ serve: false, win: true })
+  setFlag(true)
   mockList()
   mockReport()
 })
@@ -113,8 +103,7 @@ describe('PhoneBankingCallerPage: what we heard', () => {
     expect(link).toHaveTextContent('12 conversations · 8 notes')
   })
 
-  it('reads the Serve flag for a Serve list', async () => {
-    setFlags({ serve: true, win: false })
+  it('links a Serve list too', async () => {
     mockList({ ...LIST, isServe: true })
     mockSearchParams = new URLSearchParams({ outreachId: String(OUTREACH_ID) })
     render(<PhoneBankingCallerPage listId={LIST_ID} />)
@@ -159,5 +148,145 @@ describe('PhoneBankingCallerPage: what we heard', () => {
     await screen.findByRole('heading', { name: 'Listening calls' })
     await waitFor(() => expect(reportReads).toEqual([]))
     expect(screen.queryByRole('link', { name: /What we heard/ })).toBeNull()
+  })
+
+  // The link reads the report once and has no poll of its own, so the call
+  // that makes its first conversation has to tell it.
+  it('counts a call and its note the moment they are confirmed', async () => {
+    const user = userEvent.setup()
+    mockList({
+      ...LIST,
+      isServe: true,
+      entries: [
+        {
+          id: 1,
+          seq: 1,
+          sheetIndex: 1,
+          phone: '5551110001',
+          persons: [
+            {
+              personId: 'solo-1',
+              name: 'Alex Solo',
+              firstName: 'Alex',
+              age: 40,
+              party: 'D',
+              address: '1 Main St',
+              cellPhone: '5551110001',
+              landline: null,
+              interaction: null,
+            },
+          ],
+        },
+      ],
+    })
+    let answered = false
+    api.mock(
+      'GET /v1/constituent-feedback/efforts/:outreachId/report',
+      ({ params }) => {
+        reportReads.push(params.outreachId)
+        return {
+          status: 200,
+          data: {
+            ...REPORT,
+            denominators: answered
+              ? { conversations: 1, memos: 1, confirmed: 1, pending: 0 }
+              : { conversations: 0, memos: 0, confirmed: 0, pending: 0 },
+          },
+        }
+      },
+    )
+    api.mock('POST /v1/phone-banking/lists/:id/calls', () => {
+      answered = true
+      const response: RecordPhoneBankingCallResponse = {
+        entryId: 1,
+        results: [
+          {
+            personId: 'solo-1',
+            interaction: {
+              outcome: 'answered',
+              supportAnswer: null,
+              willVote: null,
+              followUp: 'yes',
+              occurredAt: new Date(),
+            },
+          },
+        ],
+        envelopeCompleted: false,
+      }
+      return { status: 200, data: response }
+    })
+    api.mock('POST /v1/constituent-feedback', {
+      status: 200,
+      data: {
+        id: 'feedback-1',
+        personId: 'solo-1',
+        extractionStatus: 'extracted',
+        extraction: {
+          issues: [
+            {
+              id: 'issue-crosswalk',
+              position: 0,
+              issueLabel: 'Crosswalk on Main',
+              stance: 'supports',
+              desiredOutcome: 'A signal at Main and 3rd',
+            },
+          ],
+        },
+      },
+    })
+    api.mock('PATCH /v1/constituent-feedback/:id/confirm', {
+      status: 200,
+      data: {
+        id: 'feedback-1',
+        personId: 'solo-1',
+        occurredAt: new Date(),
+        channel: 'phone_bank',
+        transcript: 'Wants a crosswalk on Main.',
+        issues: [
+          {
+            id: 'issue-crosswalk',
+            position: 0,
+            issueLabel: 'Crosswalk on Main',
+            stance: 'supports',
+            desiredOutcome: 'A signal at Main and 3rd',
+          },
+        ],
+        extractionStatus: 'extracted',
+        confirmedAt: new Date(),
+        outreachId: OUTREACH_ID,
+        actorName: 'Kamal Al Sawafi',
+        tags: [],
+      },
+    })
+    mockSearchParams = new URLSearchParams({ outreachId: String(OUTREACH_ID) })
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+
+    await screen.findByRole('heading', { name: 'Listening calls' })
+    await waitFor(() => expect(reportReads).toHaveLength(1))
+    expect(screen.queryByRole('link', { name: /What we heard/ })).toBeNull()
+
+    await user.click(screen.getByText('Alex Solo'))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
+    await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
+    await user.type(
+      within(dialog).getByRole('textbox'),
+      'Wants a crosswalk on Main.',
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await user.click(
+      await within(dialog).findByRole('button', { name: 'Looks right' }),
+    )
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByRole('button', { name: 'Looks right' }),
+      ).toBeNull(),
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+    expect(
+      await screen.findByRole('link', { name: /What we heard/ }),
+    ).toHaveTextContent('1 conversation · 1 note')
   })
 })

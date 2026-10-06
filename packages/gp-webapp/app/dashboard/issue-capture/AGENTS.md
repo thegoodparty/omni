@@ -2,8 +2,8 @@
 
 "What we heard": one effort's report. An effort is a door-knocking turf's or a
 phone list's `Outreach` envelope, and the report shows what people said on it,
-as ranked themes once there are enough confirmed notes. Both products, each on
-its own flag. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
+as ranked themes once there are enough confirmed notes. Both products, on one
+flag, `issue-capture`. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
 `@goodparty_org/contracts` `constituentFeedback/FeedbackSynthesis.schema.ts`.
 
 ## Files
@@ -30,11 +30,11 @@ its own flag. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
 ## Access
 
 `issueCaptureAccess()` runs `candidateAccess()` (signed in, in an org, not a
-volunteer: the gate the phone caller uses for both products), then reads the
-product's flag server-side with `getFlagVariants`. The flag is chosen by the
-`organization-slug` cookie's `eo-` prefix, the way gp-api's
-`issueCaptureFlagFor` chooses it, so the page and its routes roll out
-together. Flag off redirects to `/dashboard` before anything renders. No nav
+volunteer: the gate the phone caller uses for both products), then reads
+`issue-capture` server-side with `getFlagVariants`, the key gp-api gates the
+routes on, so the page and its routes roll out together. The
+`organization-slug` cookie's `eo-` prefix picks the product's words. Flag off
+redirects to `/dashboard` before anything renders. No nav
 entry: the page is reached from the effort.
 
 ## The four states
@@ -71,10 +71,10 @@ fires on the press, refused or not.
 - **Cards rank by `conversationCount`**, the run's `rank` breaking ties: the
   issue several people raised rises. A count is "conversations that touched
   this theme", never a share, since one note can sit in two themes. The stance
-  split is four counts, not a chart, for the same reason. It counts the
-  issues that matched the theme: all of a note that raised one, and of a
-  note that raised several only the one named like the theme's tag, so it
-  can sum below the conversation count.
+  split is four counts, not a chart, for the same reason. It counts every
+  issue raised in the theme's notes, so a note that raised two issues
+  contributes two and the split can sum past the conversation count (interim,
+  until membership is per issue; `packages/gp-api/src/constituentFeedback/AGENTS.md`).
 - **Every note is labeled as the canvasser's summary** ("Summary by ..."),
   never quoted as the other person's words, with its issues listed under it
   (`MemoList`). A pending note says "Not yet reviewed". A theme's members are
@@ -84,6 +84,7 @@ fires on the press, refused or not.
   representative or statistically significant.
   `WhatWeHeardPage.test.tsx` and `ThemeDetailPage.test.tsx` assert all three
   across every state.
+- **The report links back to the hub, not just the sidebar.** Polls' own back arrow is commented out, so the copy would have had none. Win's link carries `?outreachId=` so `/dashboard/outreach` reopens this effort's drawer; Serve's hub takes no such parameter and gets the plain path. The theme page links back to the report and the review page does the same.
 - **Copied from `polls/`, not imported.** The cards and the theme page are
   adapted from `polls/[id]/components/PollsIssue*` and
   `polls/[id]/issue/[issueIndex]/components/*`. Polls' providers are
@@ -106,7 +107,9 @@ fires on the press, refused or not.
 their own). Each is the canvasser's summary with, under it:
 
 - **Still transcribing** (`extractionStatus: pending`): the line and nothing
-  else. The query polls every 5 seconds while one is in this state.
+  else. Every row without an extraction, transcribing or failed, is headed
+  "Recorded by ..." rather than "Summary by ...", since there is no summary
+  to credit. The query polls every 5 seconds while one is in this state.
 - **Extracted**: `IssueCaptureConfirmCard` with the proposed issues, and no
   Skip: leaving the page leaves the note unconfirmed. See
   `door-knocking/AGENTS.md` for how the card edits and removes issues.
@@ -138,9 +141,14 @@ they recorded.
 ## Entry points
 
 `WhatWeHeardLink` reads `N conversations · M notes` from the report and links
-to it. It renders nothing while the product's flag is off (read without
+to it. It renders nothing while the flag is off (read without
 exposure: the capture card is the treatment), when there is no envelope, or
-until somebody has answered. It does not poll.
+until somebody has answered. It does not poll, so every write that moves its
+counts re-reads it: `RecordKnockForm` and `PhoneBankingOutcomeForm` invalidate
+`REPORT_QUERY_KEY_PREFIX` when a knock or call saves, when its memo lands and
+when the memo is confirmed, and a queue drain that sent anything does the same.
+A prefix rather than `reportQueryKey(outreachId)`, because neither form knows
+the effort it belongs to, the same reason the review list has one.
 
 - **Turf**: `TurfSummaryRow` fills `TurfSummaryCard`'s `heard` slot with it,
   keyed on `turf.outreachId`, and `TurfDetailsSheet` carries it under

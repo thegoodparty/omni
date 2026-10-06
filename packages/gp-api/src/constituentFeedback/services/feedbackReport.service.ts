@@ -17,7 +17,6 @@ import {
   SynthesisRunStatus,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { normalizeTagName } from '../util/issueTagName.util'
 
 // Provisional, until dev runs at 20, 40 and 80 memos show where grouping
 // stops splintering. Under it the report lists the memos instead of themes:
@@ -45,7 +44,7 @@ const ISSUE_SELECT = {
 } as const satisfies Prisma.ConstituentFeedbackIssueFindManyArgs
 
 const TAG_SELECT = {
-  select: { id: true, name: true, status: true, normalizedName: true },
+  select: { id: true, name: true, status: true },
 } as const satisfies Prisma.IssueTagDefaultArgs
 
 const THEME_INCLUDE = {
@@ -111,24 +110,17 @@ export type Denominators = FeedbackReportResponse['denominators']
 // counts fragments, not conversations, and a memo re-recorded after a run
 // loses its confirmation and must stop counting without a new run.
 //
-// Conversations are memos; stances and outcomes are the issues that matched
-// the theme. Membership is per memo, so a member that raised one issue
-// counts it whatever it was labelled, and one that raised several counts
-// only those named like the theme's tag; its other issues belong to other
-// themes. With no tag there is nothing to match them against.
+// Conversations are memos; stances and outcomes are every issue those memos
+// raised. Membership is per memo, so a member that raised two issues
+// contributes both, and the split can sum past conversationCount. Matching an
+// issue to its theme by label missed nearly every multi-issue memo, since the
+// pipeline names tags in its own words; per-issue membership is the fix.
 const summarize = (
   theme: ThemeRow,
   outcomeLimit: number,
 ): FeedbackThemeSummary => {
   const memos = theme.members.map((member) => member.feedback)
-  const tagName = theme.tag?.normalizedName
-  const issues = memos.flatMap((memo) =>
-    memo.issues.length === 1
-      ? memo.issues
-      : memo.issues.filter(
-          (issue) => normalizeTagName(issue.issueLabel) === tagName,
-        ),
-  )
+  const issues = memos.flatMap((memo) => memo.issues)
   const count = (stance: ConstituentFeedbackStance) =>
     issues.filter((issue) => issue.stance === stance).length
   const outcomes = issues
