@@ -210,8 +210,8 @@ interface PersonSheetProps {
   onSelectTarget: (targetId: number) => void
   statusFor: (target: RoutePayloadTarget) => DoorKnockStatus
   clientKeyFor: (targetId: number) => string
-  // The walk's unsaved answers, handed to the form so a switch to a housemate
-  // and back keeps them.
+  // Owned above this sheet, which closes between doors and goes with the
+  // walk list at `peek`, so neither can hold what a door left unsaved.
   knockDrafts?: UnsavedDrafts<KnockDraft>
   onRecorded: (
     targetId: number,

@@ -14,6 +14,8 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
 import WalkView, { stopNumeralColor } from './WalkView'
+import type { KnockDraft } from './RecordKnockForm'
+import { useUnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import { DEPARTURE_NOTE } from './talkingPointsCard'
 import type { LiveLocation } from './useLiveLocation'
 import {
@@ -65,6 +67,9 @@ const WalkHarness = ({
   | 'liveLocation'
   | 'onMoveToArchive'
   | 'archivePending'
+  | 'clientKeys'
+  | 'onClientKeysChange'
+  | 'knockDrafts'
 > & {
   onSelectStop?: (stopId: number) => void
   liveLocation?: LiveLocation
@@ -72,9 +77,16 @@ const WalkHarness = ({
   archivePending?: boolean
 }) => {
   const [selectedStopId, setSelectedStopId] = useState<number | null>(null)
+  const [clientKeys, setClientKeys] = useState<Map<number, string>>(
+    () => new Map(),
+  )
+  const knockDrafts = useUnsavedDrafts<KnockDraft>()
   return (
     <WalkView
       {...props}
+      clientKeys={clientKeys}
+      onClientKeysChange={setClientKeys}
+      knockDrafts={knockDrafts}
       selectedStopId={selectedStopId}
       onSelectStop={(stopId) => {
         setSelectedStopId(stopId)
@@ -491,6 +503,9 @@ describe('WalkView', () => {
         selectedStopId={null}
         onSelectStop={vi.fn()}
         liveLocation={{ status: 'off', fix: null, approximate: false }}
+        clientKeys={new Map()}
+        onClientKeysChange={vi.fn()}
+        knockDrafts={{ get: () => undefined, set: vi.fn(), clear: vi.fn() }}
       />,
     )
 
@@ -509,6 +524,9 @@ describe('WalkView', () => {
         selectedStopId={null}
         onSelectStop={vi.fn()}
         liveLocation={{ status: 'off', fix: null, approximate: false }}
+        clientKeys={new Map()}
+        onClientKeysChange={vi.fn()}
+        knockDrafts={{ get: () => undefined, set: vi.fn(), clear: vi.fn() }}
       />,
     )
 

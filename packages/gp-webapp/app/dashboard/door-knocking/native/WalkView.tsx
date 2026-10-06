@@ -1,6 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DoorKnockingRoutePayload,
@@ -30,7 +37,7 @@ import { formatDuration } from './formatDuration'
 import { estimateOutingSeconds } from './walkEstimate'
 import PersonSheet from './PersonSheet'
 import type { KnockDraft } from './RecordKnockForm'
-import { useUnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import { ExportWalkSheetButton } from './ExportWalkSheetButton'
 import {
   DoorNoteList,
@@ -167,6 +174,13 @@ interface WalkViewProps {
   // the gesture and never the deliberation in front of it.
   onMarkDone?: () => void
   markDonePending?: boolean
+  // One replay key per target, and the answers a door's form left unsaved.
+  // Held by `WalkSurface`, because the sheet's `peek` snap unmounts this view
+  // and a canvasser glancing at the map must not lose either: a lost key
+  // turns a dead-zone retry into a duplicate knock.
+  clientKeys: Map<number, string>
+  onClientKeysChange: Dispatch<SetStateAction<Map<number, string>>>
+  knockDrafts: UnsavedDrafts<KnockDraft>
 }
 
 export default function WalkView({
@@ -180,6 +194,9 @@ export default function WalkView({
   archivePending,
   onMarkDone,
   markDonePending,
+  clientKeys,
+  onClientKeysChange,
+  knockDrafts,
 }: WalkViewProps) {
   const [markDoneTarget, setMarkDoneTarget] = useState<MarkDoneTarget | null>(
     null,
@@ -319,15 +336,14 @@ export default function WalkView({
     if (target?.knockStatus !== 'not_a_voter' || target.notAVoterReason) return
     refreshFeedForPerson(target.personId)
   }
-  // One replay key per target, minted when its form first opens and kept
+  // A replay key is minted when its target's form first opens and kept
   // across close→reopen (a remounted form must retry with the SAME key or
   // the server-side upsert can't dedupe). Cleared on success so a later,
   // genuinely new knock gets a fresh key instead of overwriting history.
-  const [clientKeys, setClientKeys] = useState<Map<number, string>>(new Map())
   // Keys mint in the open handler (never during render — a discarded
   // concurrent render would mint throwaway UUIDs and break replay).
   const openSheet = (stopId: number, targetIds: number[], targetId: number) => {
-    setClientKeys((current) => {
+    onClientKeysChange((current) => {
       const missing = targetIds.filter((id) => !current.has(id))
       if (missing.length === 0) return current
       const next = new Map(current)
@@ -344,9 +360,6 @@ export default function WalkView({
   }
   const clientKeyFor = (targetId: number): string =>
     clientKeys.get(targetId) ?? ''
-  // Answers a door's form was given and not saved, kept for this walk so
-  // tapping a housemate and back, or closing the sheet, does not lose them.
-  const knockDrafts = useUnsavedDrafts<KnockDraft>()
 
   const stops = useMemo(
     () => (routeQuery.data?.stops ?? []).slice().sort((a, b) => a.seq - b.seq),
@@ -1034,7 +1047,7 @@ export default function WalkView({
             // history, so reopening them asks for a fresh one.
             setLoggedPersonIds((current) => new Set(current).add(personId))
             onKnockRecorded?.()
-            setClientKeys((current) => {
+            onClientKeysChange((current) => {
               const next = new Map(current)
               next.delete(targetId)
               return next
