@@ -84,6 +84,7 @@ fires on the press, refused or not.
   representative or statistically significant.
   `WhatWeHeardPage.test.tsx` and `ThemeDetailPage.test.tsx` assert all three
   across every state.
+- **The report links back to the hub, not just the sidebar.** Polls' own back arrow is commented out, so the copy would have had none. Win's link carries `?outreachId=` so `/dashboard/outreach` reopens this effort's drawer; Serve's hub takes no such parameter and gets the plain path. The theme page links back to the report and the review page does the same.
 - **Copied from `polls/`, not imported.** The cards and the theme page are
   adapted from `polls/[id]/components/PollsIssue*` and
   `polls/[id]/issue/[issueIndex]/components/*`. Polls' providers are
