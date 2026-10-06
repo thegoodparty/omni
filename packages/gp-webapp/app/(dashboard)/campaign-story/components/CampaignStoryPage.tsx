@@ -323,7 +323,7 @@ export function StoryEditorForm({
         <StoryIntakeCard
           key={`why-${resetKey}`}
           question={STORY_WHY_QUESTION}
-          questionLevel="section"
+          variant="section"
           description={CARD_DESCRIPTION}
           examplePlaceholder={WHY_EXAMPLE_PLACEHOLDER}
           value={why}
@@ -335,7 +335,7 @@ export function StoryEditorForm({
         <StoryIntakeCard
           key={`background-${resetKey}`}
           question={STORY_BACKGROUND_QUESTION}
-          questionLevel="section"
+          variant="section"
           description={CARD_DESCRIPTION}
           examplePlaceholder={BACKGROUND_EXAMPLE_PLACEHOLDER}
           value={background}
@@ -345,7 +345,7 @@ export function StoryEditorForm({
         />
 
         <Card className="flex flex-col gap-4 p-6">
-          <div className="flex flex-col gap-1">
+          <div className="-mx-6 flex flex-col gap-1 border-b border-border px-6 pb-4">
             <h2 className="text-lg font-semibold text-foreground">
               What issues do you most want to solve if elected?
             </h2>

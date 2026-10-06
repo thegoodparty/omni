@@ -11,9 +11,10 @@ import { useReportDictationActive } from './useReportDictationActive'
 
 interface StoryIntakeCardProps {
   question: string
-  // 'section' sets the question below a page title (the Your story page);
-  // 'page' (default) lets it lead, as onboarding's steps do.
-  questionLevel?: 'page' | 'section'
+  // 'step' (default) is onboarding's: the question leads the step, over a
+  // boxed field. 'section' sits under a page title (Your story): a smaller
+  // question, a rule under the heading, and the field as the card's own body.
+  variant?: 'step' | 'section'
   // Optional sub-line under the question. The dashboard page passes it (there is
   // no page-level per-question heading there); onboarding leaves it off since
   // the step chrome already shows the description above the card.
@@ -39,7 +40,7 @@ interface StoryIntakeCardProps {
 // char counter, then the shared action bar.
 export default function StoryIntakeCard({
   question,
-  questionLevel = 'page',
+  variant = 'step',
   description,
   examplePlaceholder,
   value,
@@ -55,16 +56,20 @@ export default function StoryIntakeCard({
   const rewrite = useStoryRewrite(rewriteField, value, onChange)
   const dictation = useDictationAppend({ analyticsLabel, value, onChange })
   useReportDictationActive(dictation.active, onDictationActiveChange)
+  const isSection = variant === 'section'
 
   return (
     <Card className="flex flex-col gap-4 p-6">
-      <div className="flex flex-col gap-1">
+      <div
+        className={cn(
+          'flex flex-col gap-1',
+          isSection && '-mx-6 border-b border-border px-6 pb-4',
+        )}
+      >
         <h2
           className={cn(
             'text-foreground',
-            questionLevel === 'page'
-              ? 'text-2xl font-bold'
-              : 'text-lg font-semibold',
+            isSection ? 'text-lg font-semibold' : 'text-2xl font-bold',
           )}
         >
           {question}
@@ -76,12 +81,21 @@ export default function StoryIntakeCard({
 
       <div className="relative">
         <Textarea
+          variant={isSection ? 'seamless' : 'default'}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={examplePlaceholder}
-          className="min-h-40 resize-none pb-9 placeholder:italic placeholder:text-muted-foreground"
+          className={cn(
+            'min-h-40 resize-none placeholder:italic placeholder:text-muted-foreground',
+            isSection ? 'pb-7' : 'pb-9',
+          )}
         />
-        <span className="pointer-events-none absolute bottom-2 right-3 text-sm text-muted-foreground">
+        <span
+          className={cn(
+            'pointer-events-none absolute text-sm text-muted-foreground',
+            isSection ? 'bottom-0 right-0' : 'bottom-2 right-3',
+          )}
+        >
           {value.length} chars
         </span>
       </div>
