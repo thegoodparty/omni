@@ -87,7 +87,7 @@ const StoryBody = ({
 }: {
   children: React.ReactNode
 }): React.JSX.Element => (
-  <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8 sm:px-8">
+  <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 pb-32 pt-8 sm:px-8">
     {children}
   </div>
 )
