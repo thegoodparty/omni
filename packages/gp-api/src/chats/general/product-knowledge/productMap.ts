@@ -206,7 +206,7 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'Opposition research on the other candidates in the race, starting with a pass on the candidate’s own public record.',
     inside: [
-      'Opens from the Your opponents card at the top of the Game Plan, or from the account menu (Manage account at the bottom of the left-hand menu), as a full page titled Your opponents with a back arrow',
+      'Not in any menu: it opens from the Your opponents card at the top of the Game Plan, as a full page titled Your opponents with a back arrow',
     ],
     gate: 'Pro only. The tab is visible without Pro but shows an upgrade view instead of the research.',
   },

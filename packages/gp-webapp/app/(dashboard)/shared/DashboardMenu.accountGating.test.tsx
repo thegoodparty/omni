@@ -197,10 +197,42 @@ describe('DashboardMenu — Account Settings visibility x organization role', ()
     expect(screen.queryByText('Account Settings')).not.toBeInTheDocument()
   })
 
+  // Profile is in the account menu on Serve only; Win reaches it as Your race.
   it('still shows Profile for a campaignAdmin — only account settings is gated', async () => {
+    mockUseElectedOffice.mockReturnValue({
+      data: { id: 'eo-1' },
+      isLoading: false,
+    })
+    mockUseOrganization.mockReturnValue({
+      slug: 'eo-1',
+      electedOfficeId: 'eo-1',
+    })
     mockUseOrganizationRole.mockReturnValue('campaignAdmin')
     renderMenu()
     await openAccountMenu()
     expect(screen.getAllByText('Profile').length).toBeGreaterThan(0)
+  })
+})
+
+describe('DashboardMenu — Win account menu', () => {
+  it('leads with Public Profile, then Team, with no Profile or Know Your Opponent', async () => {
+    renderMenu()
+    await userEvent.setup().click(screen.getByText('Manage account'))
+
+    const items = (await screen.findAllByRole('menuitem')).map(
+      (item) => item.textContent,
+    )
+    expect(items.slice(0, 3)).toEqual([
+      'Public Profile',
+      'Team',
+      'Account Settings',
+    ])
+    expect(items).not.toContain('Profile')
+    expect(items).not.toContain('Know Your Opponent')
+  })
+
+  it('keeps Know Your Opponent out of the main nav too', () => {
+    renderMenu()
+    expect(screen.queryByText('Know Your Opponent')).not.toBeInTheDocument()
   })
 })

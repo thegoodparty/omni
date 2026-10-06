@@ -434,10 +434,11 @@ export default function DashboardMenu({
 // Win pages a candidate sets up once and returns to rarely. They live in the
 // account menu (Manage account) instead of the main nav, which keeps the rail
 // to the pages a candidate works in every day.
-const WIN_ACCOUNT_MENU_PAGE_IDS = new Set([
-  'race-opponent-dashboard',
-  'public-profile-campaign',
-])
+const WIN_ACCOUNT_MENU_PAGE_IDS = new Set(['public-profile-campaign'])
+
+// Win pages reached from the Game Plan's cards (Your opponents) rather than
+// from any menu.
+const WIN_GAME_PLAN_PAGE_IDS = new Set(['race-opponent-dashboard'])
 
 const SUPPORT_MENU_ITEM = {
   label: 'Get help',
@@ -579,7 +580,11 @@ const NewNavMenu = ({
     isWin ? i.v2Category === 'campaign' : i.v2Category === 'elected-office',
   )
   const navItems = isWin
-    ? productItems.filter((i) => !WIN_ACCOUNT_MENU_PAGE_IDS.has(i.id))
+    ? productItems.filter(
+        (i) =>
+          !WIN_ACCOUNT_MENU_PAGE_IDS.has(i.id) &&
+          !WIN_GAME_PLAN_PAGE_IDS.has(i.id),
+      )
     : productItems
   const accountPages = isWin
     ? productItems.filter((i) => WIN_ACCOUNT_MENU_PAGE_IDS.has(i.id))
@@ -727,7 +732,8 @@ const NewNavMenu = ({
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {accountPages.map(accountPageSidebarItem)}
-                  {sidebarItem(accountManagementMenuItems.profile)}
+                  {/* Win's profile is Your race, opened from the Game Plan. */}
+                  {!isWin && sidebarItem(accountManagementMenuItems.profile)}
                   {showTeamAccountItem &&
                     sidebarItem(accountManagementMenuItems.team)}
                   {!isManager &&
@@ -775,13 +781,9 @@ const NewNavMenu = ({
                   align="end"
                   sideOffset={4}
                 >
-                  {accountPages.length > 0 && (
-                    <>
-                      {accountPages.map(accountPageDropDownItem)}
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
-                  {dropDownItem(accountManagementMenuItems.profile)}
+                  {accountPages.map(accountPageDropDownItem)}
+                  {/* Win's profile is Your race, opened from the Game Plan. */}
+                  {!isWin && dropDownItem(accountManagementMenuItems.profile)}
                   {showTeamAccountItem &&
                     dropDownItem(accountManagementMenuItems.team)}
                   {!isManager &&
