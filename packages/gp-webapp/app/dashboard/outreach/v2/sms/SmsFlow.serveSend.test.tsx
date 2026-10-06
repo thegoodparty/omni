@@ -6,7 +6,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { api } from 'helpers/test-utils/api-mocking'
 import {
   createP2pPhoneList,
-  getP2pPhoneListStatus,
+  getP2pPhoneListBuildStatus,
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
 import type { TcrCompliance } from 'helpers/types'
@@ -46,8 +46,13 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
 // would otherwise fail for the wrong reason, and the point is to assert they
 // were never reached at all.
 vi.mock('helpers/createP2pPhoneList', () => ({
-  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
-  getP2pPhoneListStatus: vi.fn(async () => ({
+  createP2pPhoneList: vi.fn(async () => ({
+    ok: true,
+    token: 'tok-1',
+    buildId: 'build-1',
+  })),
+  getP2pPhoneListBuildStatus: vi.fn(async () => ({
+    buildStatus: 'ready',
     phoneListId: 77,
     leadsLoaded: 1200,
     excludedOptedOutCount: 3,
@@ -184,7 +189,7 @@ describe('SmsFlow serve send path', () => {
     createCheckoutSession.mockClear()
     uploadFileToS3.mockClear()
     vi.mocked(createP2pPhoneList).mockClear()
-    vi.mocked(getP2pPhoneListStatus).mockClear()
+    vi.mocked(getP2pPhoneListBuildStatus).mockClear()
     vi.mocked(createOutreach).mockClear()
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
@@ -275,7 +280,7 @@ describe('SmsFlow serve send path', () => {
     // identity to send under, so the phone-list derivation must never run —
     // on the audience step, on the name step, or anywhere else.
     expect(createP2pPhoneList).not.toHaveBeenCalled()
-    expect(getP2pPhoneListStatus).not.toHaveBeenCalled()
+    expect(getP2pPhoneListBuildStatus).not.toHaveBeenCalled()
     // Win's campaign-scoped draft create likewise.
     expect(createOutreach).not.toHaveBeenCalled()
   })
