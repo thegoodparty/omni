@@ -12,14 +12,10 @@ import { useReportDictationActive } from './useReportDictationActive'
 interface StoryIntakeCardProps {
   question: string
   // 'step' (default) is onboarding's: the question leads the card. 'section'
-  // (Your story) sets the question and description above the card, as the
+  // (Your story) sets the question above the card, as the
   // outreach compose steps do. Either way the field is built like the
   // outreach compose cards: seamless in the card, over the action footer.
   variant?: 'step' | 'section'
-  // Optional sub-line under the question. The dashboard page passes it (there is
-  // no page-level per-question heading there); onboarding leaves it off since
-  // the step chrome already shows the description above the card.
-  description?: string
   // Shown as the italic gray placeholder inside the empty field ("e.g. …").
   examplePlaceholder: string
   value: string
@@ -42,7 +38,6 @@ interface StoryIntakeCardProps {
 export default function StoryIntakeCard({
   question,
   variant = 'step',
-  description,
   examplePlaceholder,
   value,
   onChange,
@@ -60,19 +55,14 @@ export default function StoryIntakeCard({
   const isSection = variant === 'section'
 
   const heading = (
-    <div className="flex flex-col gap-1">
-      <h2
-        className={cn(
-          'text-foreground',
-          isSection ? 'text-xl font-semibold' : 'text-2xl font-bold',
-        )}
-      >
-        {question}
-      </h2>
-      {description && (
-        <p className="text-base text-muted-foreground">{description}</p>
+    <h2
+      className={cn(
+        'text-foreground',
+        isSection ? 'text-xl font-semibold' : 'text-2xl font-bold',
       )}
-    </div>
+    >
+      {question}
+    </h2>
   )
   const field = (
     <>
@@ -93,8 +83,8 @@ export default function StoryIntakeCard({
     </>
   )
 
-  // A section is laid out like an outreach compose step: the question and
-  // its description above, and a card that holds only the field and its
+  // A section is laid out like an outreach compose step: the question
+  // above, and a card that holds only the field and its
   // footer. A step keeps the question in the card, under the step's own title.
   if (isSection) {
     return (

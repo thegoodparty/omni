@@ -25,10 +25,6 @@ import {
   BACKGROUND_EXAMPLE_PLACEHOLDER,
 } from 'app/onboarding/components/storyStepCopy'
 
-// Shared sub-line under each card's question on the dashboard page.
-const CARD_DESCRIPTION =
-  "We'll use this to draft your voter outreach and personalize your campaign plan."
-
 // The "Your story" page: a full page of its own, with no sidebar, opened from
 // the Game Plan's story card. Reuses the onboarding story cards
 // (StoryIntakeCard for why/background, StoryIssuesCard for the policy
@@ -324,7 +320,6 @@ export function StoryEditorForm({
           key={`why-${resetKey}`}
           question={STORY_WHY_QUESTION}
           variant="section"
-          description={CARD_DESCRIPTION}
           examplePlaceholder={WHY_EXAMPLE_PLACEHOLDER}
           value={why}
           onChange={setWhy}
@@ -336,7 +331,6 @@ export function StoryEditorForm({
           key={`background-${resetKey}`}
           question={STORY_BACKGROUND_QUESTION}
           variant="section"
-          description={CARD_DESCRIPTION}
           examplePlaceholder={BACKGROUND_EXAMPLE_PLACEHOLDER}
           value={background}
           onChange={setBackground}
@@ -347,14 +341,9 @@ export function StoryEditorForm({
         {/* Same shape as the why and background sections: the question
             above, then the priorities (each its own card). */}
         <section className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-xl font-semibold text-foreground">
-              What issues do you most want to solve if elected?
-            </h2>
-            <p className="text-base text-muted-foreground">
-              {CARD_DESCRIPTION}
-            </p>
-          </div>
+          <h2 className="text-xl font-semibold text-foreground">
+            What issues do you most want to solve if elected?
+          </h2>
           <StoryIssuesCard issues={issues} onChange={setIssues} />
         </section>
 
