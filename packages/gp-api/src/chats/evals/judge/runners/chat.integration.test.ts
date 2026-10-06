@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { differenceInMilliseconds, parseISO } from 'date-fns'
 import { useTestService } from '@/test-service'
 import { PRICING_VERSION } from '../pricing'
@@ -13,7 +13,25 @@ import {
 import { CaseListError } from '../cases'
 import { MAX_CHAT_HISTORY_MESSAGES } from '@/chats/services/chatStream.service'
 import { chatOrgSlug, seedChatOrg, seedOptionsFor } from './seedChatOrg'
-import { ChatMessageRole, Prisma } from '../../../../generated/prisma'
+import {
+  AnnotationKind,
+  ChatMessageRole,
+  ChatScope,
+  Prisma,
+} from '../../../../generated/prisma'
+import {
+  ChatStreamService,
+  type StreamArgs,
+} from '@/chats/services/chatStream.service'
+import { ElectionsService } from '@/elections/services/elections.service'
+import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import { BriefingAnnotationHandler } from '@/chats/briefing-chats/briefingAnnotation.handler'
+import { JUDGE_POSITION } from './seedChatOrg'
+import {
+  JUDGE_BRIEFING_TODAY,
+  JUDGE_HIGHLIGHT_ANCHOR,
+  TOP_LEVEL_ANCHOR,
+} from './briefingFixture'
 
 // The chat runner against the real app: real routes, real scope handlers, real
 // stream service, real tools, a throwaway Postgres — and a canned model, so
@@ -86,6 +104,7 @@ const runFor = async (
       agentId,
       organizationSlug: seeded.organizationSlug,
       ...(seeded.anchor && { anchor: seeded.anchor }),
+      ...(seeded.briefing && { briefing: seeded.briefing }),
       ...overrides,
     }),
   )
@@ -1033,6 +1052,319 @@ describe('runChatCase', () => {
       })
 
       expect(record.status).toBe('produced')
+    },
+    TURN_TIMEOUT_MS,
+  )
+})
+
+// BRIEFING CHAT, through the routes the webapp uses. Its conversation is
+// created with its annotation by POST /v1/briefing-chats, and its turns go to
+// /v1/briefing-chats/:annotationId/messages — the registry's create path
+// refuses the scope. Everything below is the real app; the S3 read and the
+// prompt's date are the two things the briefing seam answers.
+describe('runChatCase on briefing chat', () => {
+  // The system prompt each turn handed the stream. Read off the stream
+  // service rather than the LLM seam, which the runner owns: this is the same
+  // argument both briefing routes pass, so it is what the model would read.
+  // Read before the spy is restored, which clears what it recorded.
+  const capturePrompts = () => {
+    const spy = vi.spyOn(service.app.get(ChatStreamService), 'stream')
+    let prompts: string[] = []
+    return {
+      prompts: () => prompts,
+      restore: () => {
+        prompts = spy.mock.calls.map(
+          ([args]: [StreamArgs]) => args.systemPrompt,
+        )
+        spy.mockRestore()
+      },
+    }
+  }
+
+  it(
+    'opens the conversation on its annotation and records the turn',
+    async () => {
+      const record = await runFor('briefing_annotation')
+
+      expect(record.status).toBe('produced')
+      expect(record.output).toEqual({ kind: 'text', value: ANSWER })
+      expect(record.variant.model).toBe('claude-sonnet-4-6')
+      expect(record.variant.configDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
+
+      // Created by the briefing route: one conversation, scoped and owned the
+      // way that route writes it, and a chat annotation on the seeded
+      // briefing pointing at it.
+      const conversations = await service.prisma.chatConversation.findMany()
+      expect(conversations).toHaveLength(1)
+      expect(conversations[0]?.scope).toBe(ChatScope.briefing_annotation)
+      const annotation = await service.prisma.annotation.findFirst({
+        where: { kind: AnnotationKind.chat },
+      })
+      expect(annotation?.chatConversationId).toBe(conversations[0]?.id)
+      const briefing = await service.prisma.meetingBriefing.findFirst()
+      expect(annotation?.resourceId).toBe(briefing?.id)
+      expect(annotation?.jsonPath).toBeNull()
+      expect(await transcriptRows()).toEqual([
+        {
+          role: ChatMessageRole.user,
+          content: 'What are my top priorities?',
+          segments: 0,
+        },
+        { role: ChatMessageRole.assistant, content: ANSWER, segments: 0 },
+      ])
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'renders the fixture briefing on the pinned day',
+    async () => {
+      const capture = capturePrompts()
+      try {
+        await runFor('briefing_annotation')
+      } finally {
+        capture.restore()
+      }
+      const [prompt] = capture.prompts()
+      expect(prompt).toContain(`Today is ${JUDGE_BRIEFING_TODAY}.`)
+      // The artifact the seam served, parsed: the structured block exists
+      // only when the JSON passed BriefingSchema.
+      expect(prompt).toContain('Amendment to Short-Term Rental Ordinance')
+      expect(prompt).toContain('Acceptance of FY2024 Annual Audit')
+      expect(prompt).toContain('Meeting time: 6:30 PM')
+      // The seeded meeting's own timezone, which is also the one the real
+      // `today` would be computed in.
+      expect(prompt).toContain('Timezone: America/New_York')
+      expect(prompt).toContain('there is no specific selection')
+      // The seeded note is what advertises get_my_notes.
+      expect(prompt).toContain('YOUR NOTES (1 on this briefing)')
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'renders one prompt for two seeds of the same case',
+    async () => {
+      // Two cases seeded in one database, each with its own organization,
+      // office and briefing. Nothing that differs between them may reach the
+      // prompt, or two arms that changed nothing would never digest equal.
+      const first = await runFor('briefing_annotation', {
+        case: { caseId: 'first', question: 'q' },
+      })
+      const second = await runFor('briefing_annotation', {
+        case: { caseId: 'second', question: 'q' },
+      })
+      expect(first.variant.configDigest).toBe(second.variant.configDigest)
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // The route finds a briefing by meeting date and the caller's office, and
+  // production has one office per user. An arm seeds one per case for one
+  // user, so without the seed retiring the last case's briefing the second
+  // case would be routed onto the first's and CONTINUE its conversation.
+  it(
+    'gives every case in one database its own conversation',
+    async () => {
+      await runFor('briefing_annotation', {
+        case: { caseId: 'first', question: 'first question' },
+      })
+      await runFor('briefing_annotation', {
+        case: { caseId: 'second', question: 'second question' },
+      })
+
+      const conversations = await service.prisma.chatConversation.findMany({
+        include: {
+          messages: { orderBy: { createdAt: Prisma.SortOrder.asc } },
+        },
+        orderBy: { createdAt: Prisma.SortOrder.asc },
+      })
+      expect(
+        conversations.map((c) => c.messages.map((m) => m.content)),
+      ).toEqual([
+        ['first question', ANSWER],
+        ['second question', ANSWER],
+      ])
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'opens a highlight case on the highlighted passage',
+    async () => {
+      const capture = capturePrompts()
+      let record: RunRecord
+      try {
+        record = await runFor('briefing_annotation', {
+          case: {
+            caseId: 'highlight',
+            question: 'Why this?',
+            accountState: { briefingHighlight: true },
+          },
+        })
+      } finally {
+        capture.restore()
+      }
+
+      expect(record.status).toBe('produced')
+      const annotation = await service.prisma.annotation.findFirst({
+        where: { kind: AnnotationKind.chat },
+      })
+      expect(annotation?.jsonPath).toBe(JUDGE_HIGHLIGHT_ANCHOR.jsonPath)
+      expect(capture.prompts()[0]).toContain(
+        'Selected text: "Approve with the sunset clause."',
+      )
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'runs the seeded tools without an error',
+    async () => {
+      const record = await runFor('briefing_annotation', {
+        script: {
+          steps: [
+            { kind: 'tool', tool: 'get_artifacts', input: {} },
+            { kind: 'tool', tool: 'get_my_notes', input: {} },
+            { kind: 'text', text: ANSWER },
+          ],
+          usage: TOKENS,
+        },
+      })
+
+      expect(record.status).toBe('produced')
+      expect(record.telemetry.toolCalls).toBe(2)
+      expect(record.telemetry.toolErrors).toBe(0)
+      expect(isComparable(record)).toBe(true)
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  // THE PIN, applied. A credentialed deployment registers district_insights,
+  // so both halves it needs are supplied: the position election-api would
+  // return, and a real DatabricksSqlProvider — the class the pin is installed
+  // on — whose client records what would have been sent to the warehouse.
+  it(
+    "pins serve_agent_voters to the run's data version",
+    async () => {
+      const sent: string[] = []
+      const provider = new DatabricksSqlProvider({
+        hostname: 'host.cloud.databricks.com',
+        httpPath: '/sql/1.0/warehouses/abc',
+        accessToken: 'unused-in-this-test',
+        logger: { warn: () => undefined },
+        clientFactory: () => ({
+          connect: async () => ({
+            openSession: async () => ({
+              executeStatement: async (statement: string) => {
+                sent.push(statement)
+                return {
+                  fetchAll: async () => [{ n: 1 }],
+                  close: async () => undefined,
+                }
+              },
+              close: async () => undefined,
+            }),
+            close: async () => undefined,
+          }),
+        }),
+      })
+      const handler = service.app.get(BriefingAnnotationHandler)
+      const prior = Reflect.get(handler, 'databricks')
+      Object.assign(handler, { databricks: provider })
+      const position = vi
+        .spyOn(service.app.get(ElectionsService), 'getPositionById')
+        .mockResolvedValue(JUDGE_POSITION)
+      const sql =
+        'SELECT COUNT(*) AS n FROM serve_agent_voters ' +
+        "WHERE state_postal_code = 'WA' " +
+        "AND `City Council` = 'Judge City Council District 1'"
+      let record: RunRecord
+      try {
+        record = await runFor('briefing_annotation', {
+          dataVersion: '3237',
+          script: {
+            steps: [
+              {
+                kind: 'tool',
+                tool: 'district_insights',
+                input: { sql, rationale: 'renters in the district' },
+              },
+              { kind: 'text', text: ANSWER },
+            ],
+            usage: TOKENS,
+          },
+        })
+      } finally {
+        position.mockResolvedValue(null)
+        Object.assign(handler, { databricks: prior })
+      }
+
+      expect(record.trace).toEqual(
+        expect.not.arrayContaining([
+          expect.objectContaining({ error: expect.any(String) }),
+        ]),
+      )
+      expect(record.telemetry.toolErrors).toBe(0)
+      expect(record.toolQueries).toHaveLength(1)
+      expect(sent).toEqual([
+        expect.stringMatching(/FROM serve_agent_voters VERSION AS OF 3237\b/),
+      ])
+      expect(record.dataVersion).toBe('3237')
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'refuses a highlight case the seed opened on the whole briefing',
+    async () => {
+      const seeded = await seedChatOrg(
+        service.prisma,
+        service.user.id,
+        'briefing_annotation',
+        'mismatch',
+      )
+      await expect(
+        runChatCase(
+          { service },
+          request({
+            agentId: 'briefing_annotation',
+            organizationSlug: seeded.organizationSlug,
+            briefing: { meetingDate: '2026-05-19', anchor: TOP_LEVEL_ANCHOR },
+            case: {
+              caseId: 'mismatch',
+              question: 'q',
+              accountState: { briefingHighlight: true },
+            },
+          }),
+        ),
+      ).rejects.toThrow(/briefingHighlight is true but the briefing chat/)
+      // Refused before a conversation was opened.
+      expect(await service.prisma.chatConversation.count()).toBe(0)
+    },
+    TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'is an infraError, with no output, when no briefing was named',
+    async () => {
+      const seeded = await seedChatOrg(
+        service.prisma,
+        service.user.id,
+        'briefing_annotation',
+        'unnamed',
+      )
+      const record = await runChatCase(
+        { service },
+        request({
+          agentId: 'briefing_annotation',
+          organizationSlug: seeded.organizationSlug,
+        }),
+      )
+
+      expect(record.status).toBe('infraError')
+      expect(record.output).toBeNull()
+      expect(record.trace[0]?.error).toContain('names none')
     },
     TURN_TIMEOUT_MS,
   )

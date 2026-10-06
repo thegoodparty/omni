@@ -191,6 +191,7 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
                 },
                 organizationSlug: seeded.organizationSlug,
                 ...(seeded.anchor && { anchor: seeded.anchor }),
+                ...(seeded.briefing && { briefing: seeded.briefing }),
                 // A spending arm must SAY it wants the real model. Without
                 // this the seam refuses on its first case, because "no
                 // script" alone is a forgotten field rather than a request.
