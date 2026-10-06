@@ -189,6 +189,14 @@ describe('PendingMemoList', () => {
     expect(screen.queryByText(/Summary by/)).toBeNull()
   })
 
+  it('heads a failed note as recorded, not summarized', async () => {
+    mockPending([NOT_HEARD])
+    renderList()
+
+    expect(await screen.findByText('Recorded by Kamal Al Sawafi')).toBeVisible()
+    expect(screen.queryByText(/Summary by/)).toBeNull()
+  })
+
   it('confirms a note with the fields as they stand', async () => {
     mockPending([row()])
     let patched: unknown = null
