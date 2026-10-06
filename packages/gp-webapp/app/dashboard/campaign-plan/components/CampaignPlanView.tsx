@@ -167,17 +167,10 @@ const CampaignPlanView = ({
           downloading={heroDownloading}
           canDownload={data.planReady}
         />
-        <div className="mb-6">
-          <VoterContactsProvider>
-            <CampaignUpdateHistoryProvider>
-              <ProgressSection />
-            </CampaignUpdateHistoryProvider>
-          </VoterContactsProvider>
-        </div>
         <CampaignPlanStoryCard />
         {/* One card for the tracker: the next step on top, then the tracker's
             name and a way into every phase. */}
-        <Card className="gap-5 rounded-xl p-6 shadow-sm">
+        <Card className="mb-6 gap-5 rounded-xl p-6 shadow-sm">
           {/* The next step leads the card. Its heading lives here, sized to
               match the tracker's, rather than as the task card's own. */}
           <div className="flex flex-col gap-2">
@@ -205,6 +198,13 @@ const CampaignPlanView = ({
             </Button>
           </div>
         </Card>
+        <div>
+          <VoterContactsProvider>
+            <CampaignUpdateHistoryProvider>
+              <ProgressSection />
+            </CampaignUpdateHistoryProvider>
+          </VoterContactsProvider>
+        </div>
       </div>
       {/* The full plan reads as page content under the tracker, held together
           by an outline (no fill), its sections as pills; the PDF download is
