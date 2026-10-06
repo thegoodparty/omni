@@ -302,7 +302,7 @@ export default function NextThingCard({
           TRAY_TINTS[kindOf(next, needsFiling)],
         )}
       >
-        <Card className="-m-px gap-5 rounded-2xl border border-grayscale-300 p-6 lg:p-8">
+        <Card className="-m-px gap-5 rounded-2xl border border-grayscale-300 p-6">
           <div className="flex flex-col gap-2">
             {reasonTag && (
               <span className="self-start rounded-full bg-primary-light px-2.5 py-0.5 text-xs font-semibold text-primary-dark">
@@ -389,12 +389,12 @@ export default function NextThingCard({
           </div>
         </Card>
         {chat && (
-          <div className="px-4 py-1.5 lg:px-6">
+          <div className="px-6 py-1.5">
             <Button
               type="button"
               variant="ghost"
               size="small"
-              className="gap-1.5 px-2 font-normal text-muted-foreground hover:text-foreground"
+              className="-mx-3 gap-1.5 font-normal text-muted-foreground hover:text-foreground"
               onClick={() => {
                 onStarted('chat')
                 chat.chatAboutTask(next, questionsFor(next, needsFiling))
