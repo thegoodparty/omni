@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useId, useRef } from 'react'
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import type {
   FeedbackReportMemo,
   FeedbackReportResponse,
 } from '@goodparty_org/contracts'
-import { Alert, AlertDescription, Spinner } from '@styleguide'
+import { Alert, AlertDescription, ArrowLeftIcon, Spinner } from '@styleguide'
 import Paper from '@shared/utils/Paper'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -25,8 +26,7 @@ import UnderFloorList from './UnderFloorList'
 const toListItem = (memo: FeedbackReportMemo): MemoListItem => ({
   id: memo.id,
   transcript: memo.transcript,
-  stance: memo.stance,
-  desiredOutcome: memo.desiredOutcome,
+  issues: memo.issues,
   actorName: memo.actorName,
   channel: memo.channel,
   occurredAt: memo.occurredAt,
@@ -94,7 +94,14 @@ const ReportBody = ({
           for a failed run as well as a completed one. */}
       {report.themes.length > 0 && (
         <>
-          <NewTagsStrip isServe={isServe} />
+          {/* By the themes, not report.run, which can be failed or in
+              flight while these come from the last completed run. */}
+          <NewTagsStrip
+            isServe={isServe}
+            themeTagIds={report.themes.flatMap((theme) =>
+              theme.tag?.status === 'proposed' ? [theme.tag.id] : [],
+            )}
+          />
           <ThemeGrid
             themes={report.themes}
             outreachId={outreachId}
@@ -139,43 +146,60 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
       showAlert={false}
     >
       <Paper className="min-h-full">
-        {report ? (
-          <div className="flex flex-col gap-6">
-            <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="flex min-w-0 flex-col gap-1">
-                <h1 className="text-2xl font-semibold text-foreground">
-                  {report.question ?? copy.title}
-                </h1>
-                <ReportCaption
-                  denominators={report.denominators}
-                  outreachId={outreachId}
-                  isServe={isServe}
-                />
-              </div>
-              {report.run?.status !== 'running' && (
-                <SummarizeButton
-                  outreachId={outreachId}
-                  report={report}
-                  reportUpdatedAt={reportQuery.dataUpdatedAt}
-                  isServe={isServe}
-                  underFloor={report.denominators.confirmed < report.floor}
-                />
-              )}
-            </header>
-            <ReportBody
-              report={report}
-              outreachId={outreachId}
-              isServe={isServe}
-            />
-          </div>
-        ) : reportQuery.isError ? (
-          <p className="text-sm text-destructive">{copy.loadFailed}</p>
-        ) : (
-          <div className="flex items-center justify-center gap-3 py-20">
-            <Spinner />
-            <p className="text-base text-foreground">{copy.loading}</p>
-          </div>
-        )}
+        <div className="flex flex-col gap-6">
+          {/* The Win hub reopens this effort's details when it is named in
+              the URL, so the way back lands on the drawer the reader came
+              from rather than the top of the list. Serve's hub takes no such
+              parameter. */}
+          <Link
+            href={
+              isServe
+                ? '/dashboard/constituent-outreach'
+                : `/dashboard/outreach?outreachId=${outreachId}`
+            }
+            className="inline-flex w-fit items-center gap-2 text-sm text-foreground"
+          >
+            <ArrowLeftIcon size={16} />
+            {copy.backToOutreach}
+          </Link>
+          {report ? (
+            <div className="flex flex-col gap-6">
+              <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <h1 className="text-2xl font-semibold text-foreground">
+                    {report.question ?? copy.title}
+                  </h1>
+                  <ReportCaption
+                    denominators={report.denominators}
+                    outreachId={outreachId}
+                    isServe={isServe}
+                  />
+                </div>
+                {report.run?.status !== 'running' && (
+                  <SummarizeButton
+                    outreachId={outreachId}
+                    report={report}
+                    reportUpdatedAt={reportQuery.dataUpdatedAt}
+                    isServe={isServe}
+                    underFloor={report.denominators.confirmed < report.floor}
+                  />
+                )}
+              </header>
+              <ReportBody
+                report={report}
+                outreachId={outreachId}
+                isServe={isServe}
+              />
+            </div>
+          ) : reportQuery.isError ? (
+            <p className="text-sm text-destructive">{copy.loadFailed}</p>
+          ) : (
+            <div className="flex items-center justify-center gap-3 py-20">
+              <Spinner />
+              <p className="text-base text-foreground">{copy.loading}</p>
+            </div>
+          )}
+        </div>
       </Paper>
     </DashboardLayout>
   )

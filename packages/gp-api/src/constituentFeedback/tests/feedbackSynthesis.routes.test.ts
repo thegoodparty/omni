@@ -188,6 +188,34 @@ describe('feedback synthesis routes', () => {
     expect(res.status).toBe(HttpStatus.TOO_MANY_REQUESTS)
   })
 
+  // A memo confirmed by hand after its recording failed has no words, and
+  // would be an empty row in the pipeline's CSV. The run's count is what it
+  // was handed, so its caption never claims more than went in.
+  it('leaves a confirmed memo with no transcript out of the run', async () => {
+    const memos = await seedConfirmed(effort.targets.slice(0, 5))
+    const { memo: wordless } = await seedKnockMemo(service, {
+      slug,
+      outreachId: effort.outreachId,
+      personId: effort.targets[5]!.personId,
+    })
+    await service.prisma.constituentFeedback.update({
+      where: { id: wordless.id },
+      data: { transcript: null },
+    })
+
+    const res = await synthesize()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const handed = scheduled[0]![1]
+    expect(handed.map((memo) => memo.id).sort()).toEqual(
+      memos.map((m) => m.memo.id).sort(),
+    )
+    const run = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow({
+      where: { id: res.data.id },
+    })
+    expect(run.confirmed).toBe(5)
+  })
+
   it('runs the mock engine end to end through the same ingest', async () => {
     await seedConfirmed(effort.targets.slice(0, 6))
 
@@ -238,6 +266,51 @@ describe('feedback synthesis routes', () => {
         0,
       ),
     ).toBe(6)
+  })
+
+  it('runs a Win org’s door-knock memos through to its report and themes', async () => {
+    const win = await createWinOrg(service)
+    const winEffort = await seedTurfEffort(service, win.slug, {
+      question: 'What should the city fix first?',
+      people: 5,
+    })
+    for (const target of winEffort.targets) {
+      await seedKnockMemo(service, {
+        slug: win.slug,
+        outreachId: winEffort.outreachId,
+        personId: target.personId,
+      })
+    }
+
+    const res = await synthesize(winEffort.outreachId, win.slug)
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.engine).toBe('mock')
+    await flushEngine()
+
+    const read = await report(winEffort.outreachId, win.slug)
+    expect(read.status).toBe(HttpStatus.OK)
+    expect(read.data.run).toMatchObject({
+      id: res.data.id,
+      status: 'completed',
+    })
+    expect(read.data.denominators.confirmed).toBe(5)
+    expect(read.data.themes.length).toBeGreaterThan(0)
+    expect(
+      read.data.themes.reduce(
+        (n: number, t: { conversationCount: number }) =>
+          n + t.conversationCount,
+        0,
+      ),
+    ).toBe(5)
+
+    const detail = await service.client.get(
+      `/v1/constituent-feedback/themes/${read.data.themes[0].id}`,
+      ownerHeaders(win.slug),
+    )
+    expect(detail.status).toBe(HttpStatus.OK)
+    expect(detail.data.members.length).toBe(
+      read.data.themes[0].conversationCount,
+    )
   })
 
   // Completion is server truth, so the ingest reports it, with counts and
@@ -295,9 +368,13 @@ describe('feedback synthesis routes', () => {
       'extract',
     ).mockResolvedValue({
       extraction: {
-        issueLabel: 'Street flooding',
-        stance: 'opposes',
-        desiredOutcome: null,
+        issues: [
+          {
+            issueLabel: 'Street flooding',
+            stance: 'opposes',
+            desiredOutcome: null,
+          },
+        ],
         confidence: 0.9,
       },
       model: 'claude-test',
@@ -476,6 +553,56 @@ describe('feedback synthesis routes', () => {
           where: { organizationSlug: slug, normalizedName: 'potholes' },
         }),
       ).toBe(0)
+    })
+
+    // A dismissed proposal a later run raises again is that run's proposal,
+    // untouched since, so it goes like any other once no run makes it. A
+    // tag a person typed is not a run's to delete.
+    it('drops a revived proposal once no run makes it', async () => {
+      const memos = await seedConfirmed(effort.targets.slice(0, 5))
+      const ids = memos.map((m) => m.memo.id)
+      const typed = await service.prisma.issueTag.create({
+        data: {
+          organizationSlug: slug,
+          name: 'Bike lanes',
+          normalizedName: 'bike lanes',
+          status: IssueTagStatus.retired,
+          source: IssueTagSource.human,
+        },
+      })
+      await completeRun([{ theme: 'Potholes', memberIds: ids }])
+      const potholes = await service.prisma.issueTag.findFirstOrThrow({
+        where: { organizationSlug: slug, normalizedName: 'potholes' },
+      })
+      const dismissed = await service.client.patch(
+        `/v1/constituent-feedback/tags/${potholes.id}`,
+        { action: 'retire' },
+        ownerHeaders(slug),
+      )
+      expect(dismissed.status).toBe(HttpStatus.OK)
+      await ageCompletedRuns()
+      const secondRunId = await completeRun([
+        { theme: 'Potholes', memberIds: ids.slice(0, 3) },
+        { theme: 'Bike lanes', memberIds: ids.slice(3) },
+      ])
+      expect(
+        await service.prisma.issueTag.findUniqueOrThrow({
+          where: { id: potholes.id },
+        }),
+      ).toMatchObject({
+        status: IssueTagStatus.proposed,
+        proposedByRunId: secondRunId,
+      })
+      await ageCompletedRuns()
+
+      await completeRun([{ theme: 'Flooding', memberIds: ids }])
+
+      expect(
+        await service.prisma.issueTag.count({ where: { id: potholes.id } }),
+      ).toBe(0)
+      expect(
+        await service.prisma.issueTag.count({ where: { id: typed.id } }),
+      ).toBe(1)
     })
 
     // A run never overwrites a human's row for the same pair, and
@@ -685,8 +812,15 @@ describe('feedback synthesis routes', () => {
           occurredAt: expect.any(String),
           channel: 'door_knock',
           transcript: newer.memo.transcript,
-          stance: null,
-          desiredOutcome: null,
+          issues: [
+            {
+              id: expect.any(String),
+              position: 0,
+              issueLabel: 'Street flooding',
+              stance: null,
+              desiredOutcome: null,
+            },
+          ],
           actorName: 'Johnny Goodparty',
           confirmedAt: null,
         },
@@ -696,8 +830,15 @@ describe('feedback synthesis routes', () => {
           occurredAt: expect.any(String),
           channel: 'door_knock',
           transcript: older.memo.transcript,
-          stance: 'opposes',
-          desiredOutcome: 'Clear the drain',
+          issues: [
+            {
+              id: expect.any(String),
+              position: 0,
+              issueLabel: 'Street flooding',
+              stance: 'opposes',
+              desiredOutcome: 'Clear the drain',
+            },
+          ],
           actorName: 'Johnny Goodparty',
           confirmedAt: expect.any(String),
         },
@@ -889,6 +1030,88 @@ describe('feedback synthesis routes', () => {
       expect(runId).toBe(res.data.run.id)
     })
 
+    // Membership is per conversation, but a stance belongs to an issue. Until
+    // membership is per issue, the split counts every issue each member
+    // raised, so a conversation that raised two issues contributes two and
+    // the split can sum past conversationCount.
+    it('counts every issue each member memo raised', async () => {
+      const { opposes, supports, mixed } = ConstituentFeedbackStance
+      const issue = (
+        issueLabel: string,
+        stance: ConstituentFeedbackStance,
+        desiredOutcome: string | null = null,
+      ) => ({ issueLabel, stance, desiredOutcome })
+      const shapes = [
+        [
+          issue('Street flooding', opposes, 'Clear the drain'),
+          issue('Property taxes', supports, 'A freeze for seniors'),
+        ],
+        [issue('  street   FLOODING ', opposes), issue('Parks', supports)],
+        [issue('Street flooding', supports)],
+        [issue('Potholes', mixed, 'Fill the potholes')],
+        [issue('Street flooding', opposes)],
+      ]
+      const memos: Array<Awaited<ReturnType<typeof seedKnockMemo>>> = []
+      for (const [i, issues] of shapes.entries()) {
+        memos.push(
+          await seedKnockMemo(service, {
+            slug,
+            outreachId: effort.outreachId,
+            personId: effort.targets[i]!.personId,
+            issues,
+          }),
+        )
+      }
+      const runId = await completeRun([
+        { theme: 'Drainage', memberIds: memos.map((m) => m.memo.id) },
+      ])
+
+      const res = await report()
+
+      expect(res.data.themes[0]).toEqual(
+        expect.objectContaining({
+          conversationCount: 5,
+          stanceCounts: { supports: 3, opposes: 3, mixed: 1, unclear: 0 },
+          desiredOutcomes: [
+            'Clear the drain',
+            'A freeze for seniors',
+            'Fill the potholes',
+          ],
+        }),
+      )
+      const detail = await service.client.get(
+        `/v1/constituent-feedback/themes/${res.data.themes[0].id}`,
+        ownerHeaders(slug),
+      )
+      expect(detail.data.stanceCounts).toEqual({
+        supports: 3,
+        opposes: 3,
+        mixed: 1,
+        unclear: 0,
+      })
+      // The member still lists every issue it raised.
+      const twoIssues = detail.data.members.find(
+        (member: { feedbackId: string }) =>
+          member.feedbackId === memos[0]!.memo.id,
+      )
+      expect(
+        twoIssues.issues.map((i: { issueLabel: string }) => i.issueLabel),
+      ).toEqual(['Street flooding', 'Property taxes'])
+
+      // The tag plays no part in the count.
+      await service.prisma.feedbackTheme.updateMany({
+        where: { runId },
+        data: { tagId: null },
+      })
+      const untagged = await report()
+      expect(untagged.data.themes[0].stanceCounts).toEqual({
+        supports: 3,
+        opposes: 3,
+        mixed: 1,
+        unclear: 0,
+      })
+    })
+
     it('404s a theme from another org', async () => {
       const memos = await seedConfirmed(effort.targets.slice(0, 5))
       const runId = await completeRun([
@@ -1057,10 +1280,14 @@ describe('feedback synthesis routes', () => {
   describe('when an effort completes', () => {
     // The trigger is fire-and-forget after the response, so the run row
     // lands a moment later. Absence is checked over a shorter window.
-    const waitForRun = async (orgSlug: string, attempts = 50) => {
+    const waitForRun = async (
+      orgSlug: string,
+      attempts = 50,
+      where: Prisma.FeedbackSynthesisRunWhereInput = {},
+    ) => {
       for (let i = 0; i < attempts; i++) {
         const run = await service.prisma.feedbackSynthesisRun.findFirst({
-          where: { organizationSlug: orgSlug },
+          where: { ...where, organizationSlug: orgSlug },
         })
         if (run !== null) return run
         await new Promise((resolve) => setTimeout(resolve, 50))
@@ -1079,6 +1306,30 @@ describe('feedback synthesis routes', () => {
 
       expect(res.status).toBe(HttpStatus.CREATED)
       const run = await waitForRun(slug)
+      expect(run).toMatchObject({
+        outreachId: effort.outreachId,
+        status: SynthesisRunStatus.running,
+        requestedByUserId: null,
+      })
+    })
+
+    // The cooldown is a brake on the button. An effort finishing is when
+    // its report matters most, so the trigger does not wait it out.
+    it('starts a run on completion inside the button’s cooldown', async () => {
+      const memos = await seedConfirmed(effort.targets.slice(0, 5))
+      const firstRunId = await completeRun([
+        { theme: 'Flooding', memberIds: memos.map((m) => m.memo.id) },
+      ])
+      expect((await synthesize()).status).toBe(HttpStatus.TOO_MANY_REQUESTS)
+
+      const res = await service.client.post(
+        `/v1/door-knocking/turfs/${effort.turfId}/complete`,
+        {},
+        ownerHeaders(slug),
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const run = await waitForRun(slug, 50, { id: { not: firstRunId } })
       expect(run).toMatchObject({
         outreachId: effort.outreachId,
         status: SynthesisRunStatus.running,
@@ -1181,12 +1432,10 @@ describe('feedback synthesis routes', () => {
 
     // The routes are gated per request; the trigger has no request, so it
     // asks the flag itself. Turning the product off stops automatic runs.
-    it('starts nothing when the org’s flag is off', async () => {
+    it('starts nothing when the issue-capture flag is off', async () => {
       const flags = vi
         .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-        .mockImplementation(
-          async ({ feature }) => feature !== 'serve-issue-capture',
-        )
+        .mockImplementation(async ({ feature }) => feature !== 'issue-capture')
       onTestFinished(() => flags.mockRestore())
       await seedConfirmed(effort.targets.slice(0, 5))
 
@@ -1200,7 +1449,7 @@ describe('feedback synthesis routes', () => {
       const asked = async () =>
         flags.mock.calls.some(
           ([params]) =>
-            params.feature === 'serve-issue-capture' &&
+            params.feature === 'issue-capture' &&
             params.user === service.user.id,
         )
       for (let i = 0; i < 50 && !(await asked()); i++) {

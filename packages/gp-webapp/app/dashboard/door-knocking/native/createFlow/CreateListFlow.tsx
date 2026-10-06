@@ -32,6 +32,7 @@ import {
 } from 'app/dashboard/outreach/v2/eventDetails'
 import { purposeForRecommendedVariant } from 'app/dashboard/outreach/v2/audience/recommendedListMapping.util'
 import { CommunityInputQuestionStep } from 'app/dashboard/outreach/v2/CommunityInputQuestionStep'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
 import {
   builderFiltersFromRecommendation,
@@ -520,9 +521,13 @@ export default function CreateListFlow({
   // The goal cards and the name they suggest are the surface's answer: Serve
   // carries its own vocabulary (no election mechanics), and door knocking has
   // ONE route for both rails, so this is the only place the two can differ.
-  const purposes = serveMode
-    ? SERVE_DOOR_KNOCKING_PURPOSES
-    : DOOR_KNOCKING_PURPOSES
+  // The question-asking card is offered only where issue capture is on. The
+  // filter is here, not in the vocabulary, so a campaign already on that goal
+  // keeps its labels and its question step when the flag goes off.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
+  const purposes = (
+    serveMode ? SERVE_DOOR_KNOCKING_PURPOSES : DOOR_KNOCKING_PURPOSES
+  ).filter(({ id }) => issueCaptureOn || !purposeAsksQuestion(id))
   const purposeNameSuggestion = serveMode
     ? serveDoorKnockingPurposeNameSuggestion
     : doorKnockingPurposeNameSuggestion

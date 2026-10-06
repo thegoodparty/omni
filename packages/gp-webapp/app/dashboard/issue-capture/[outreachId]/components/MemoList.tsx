@@ -1,6 +1,6 @@
 import type {
   ConstituentFeedbackChannel,
-  ConstituentFeedbackStance,
+  ConstituentFeedbackIssue,
 } from '@goodparty_org/contracts'
 import { EmptyState } from '@styleguide'
 import { CHANNEL_LABELS, STANCE_LABELS, whatWeHeardCopy } from '../../copy'
@@ -8,8 +8,7 @@ import { CHANNEL_LABELS, STANCE_LABELS, whatWeHeardCopy } from '../../copy'
 export interface MemoListItem {
   id: string
   transcript: string | null
-  stance: ConstituentFeedbackStance | null
-  desiredOutcome: string | null
+  issues: ConstituentFeedbackIssue[]
   actorName: string | null
   channel: ConstituentFeedbackChannel
   occurredAt: Date
@@ -48,13 +47,19 @@ const MemoList = ({
           {memo.transcript !== null && (
             <p className="text-sm italic text-foreground">{memo.transcript}</p>
           )}
-          {memo.desiredOutcome !== null && (
-            <p className="text-sm text-foreground">
-              {copy.wants}: {memo.desiredOutcome}
-            </p>
+          {memo.issues.length > 0 && (
+            <ul aria-label={copy.issues} className="flex flex-col gap-0.5">
+              {memo.issues.map((issue) => (
+                <li key={issue.position} className="text-sm text-foreground">
+                  <span className="font-medium">{issue.issueLabel}</span>
+                  {issue.stance !== null && ` · ${stanceLabels[issue.stance]}`}
+                  {issue.desiredOutcome !== null &&
+                    ` · ${copy.wants}: ${issue.desiredOutcome}`}
+                </li>
+              ))}
+            </ul>
           )}
           <p className="text-xs text-muted-foreground">
-            {memo.stance !== null && `${stanceLabels[memo.stance]} · `}
             {CHANNEL_LABELS[memo.channel]}
             {' · '}
             {formatDate(memo.occurredAt)}

@@ -10,7 +10,10 @@ import { getCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { reportErrorToSentry } from '@shared/sentry'
-import { PENDING_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
+import {
+  PENDING_QUERY_KEY_PREFIX,
+  REPORT_QUERY_KEY_PREFIX,
+} from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { DictationStatus } from './useDictation'
 import type { UseDictationAppendResult } from './useDictationAppend'
 import {
@@ -26,10 +29,10 @@ import {
 // side.
 export const OFFLINE_MEMO_COPY = {
   // Nothing reached the server: the knock or call and its memo wait.
-  saved: 'Saved on your phone. It will be sent when you have signal.',
+  saved: 'Saved on your device. It will be sent when you have signal.',
   // The knock or call saved; only the recording waits, and it goes now.
-  sending: 'Note saved on your phone. Sending it now.',
-  recorded: 'Note recorded on your phone.',
+  sending: 'Note saved on your device. Sending it now.',
+  recorded: 'Note recorded on your device.',
 }
 
 // A socket that has not opened in this long will not carry a memo either,
@@ -176,14 +179,15 @@ const send = async (entry: QueueEntry): Promise<SendOutcome> => {
 const sentListeners = new Set<() => void>()
 
 // A drain that stops early leaves the rest for the next one. One that sent
-// something re-reads the review lists, so "Notes to review" counts what just
-// arrived, and tells the pages.
+// something re-reads the review lists and the reports, so "Notes to review"
+// and "What we heard" count what just arrived, and tells the pages.
 const drain = (queryClient: QueryClient): void => {
   if (!navigator.onLine) return
   drainQueue(send)
     .then((sent) => {
       if (sent === 0) return
       void queryClient.invalidateQueries({ queryKey: PENDING_QUERY_KEY_PREFIX })
+      void queryClient.invalidateQueries({ queryKey: REPORT_QUERY_KEY_PREFIX })
       sentListeners.forEach((listener) => listener())
     })
     .catch(() => undefined)

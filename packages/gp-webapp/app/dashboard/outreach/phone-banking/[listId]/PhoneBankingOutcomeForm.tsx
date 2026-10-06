@@ -1,7 +1,8 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { REPORT_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import {
   OFFLINE_MEMO_COPY,
@@ -12,11 +13,15 @@ import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
-import IssueCaptureConfirmCard from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
+import IssueCaptureConfirmCard, {
+  wasCorrected,
+} from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
 import type {
   PhoneBankingCallResult,
   PhoneBankingInteraction,
-  ConstituentFeedbackTriple,
+  ConfirmedConstituentFeedbackIssue,
+  RecordConstituentFeedbackResponse,
 } from '@goodparty_org/contracts'
 import { CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
@@ -67,14 +72,6 @@ const MEMO_PLACEHOLDER = {
     "Say it out loud, we'll clean it up",
 }
 
-// The memo is the caller's own voice, after the call. The other person is
-// never recorded, which keeps call-recording and two-party-consent law out of
-// the feature, and the field says so where the mic is.
-const MEMO_CONSENT_LINE = {
-  win: "Say what they told you. Don't record the other person.",
-  serve: "Say what they told you. Don't record the other person.",
-}
-
 // Everything `onSuccess` needs, frozen when Save is pressed. react-query
 // refreshes a mutation's callbacks on every render, so `onSuccess` runs
 // against the LATEST render's closure rather than the one that fired it — and
@@ -97,6 +94,14 @@ interface CaptureInput {
   captureMethod: 'dictation' | 'typed'
 }
 
+// What a call's form keeps when it unmounts mid-edit. Not a recording in
+// progress, and not a confirm card: the call behind a confirm card is saved.
+export interface CallDraft {
+  draft: PhoneBankingOutcomeDraft
+  memo: string
+  spoken: boolean
+}
+
 interface PhoneBankingOutcomeFormProps {
   listId: number
   entryId: number
@@ -109,6 +114,9 @@ interface PhoneBankingOutcomeFormProps {
   // than re-derived, so one loaded list cannot answer it two ways.
   isServe: boolean
   onSaved: (results: PhoneBankingCallResult[]) => void
+  // Owned by the caller page, keyed by `entryId:personId`: a tab switch
+  // remounts this form, and this is what brings the answers back.
+  drafts?: UnsavedDrafts<CallDraft>
 }
 
 // Keyed by personId from the panel, so switching the active tab remounts
@@ -125,23 +133,52 @@ export default function PhoneBankingOutcomeForm({
   householdHasOthersUnlogged,
   isServe,
   onSaved,
+  drafts,
 }: PhoneBankingOutcomeFormProps): React.JSX.Element {
-  const [draft, setDraft] = useState<PhoneBankingOutcomeDraft>(() =>
-    draftFromInteraction(interaction, isServe),
+  // The call the queue files this save and its memo under, so saving it
+  // again replaces them rather than queueing a second pair. Also the key its
+  // unsaved answers are kept under.
+  const callKey = `${entryId}:${personId}`
+  const [stashed] = useState(() => drafts?.get(callKey))
+  const [draft, setDraft] = useState<PhoneBankingOutcomeDraft>(
+    () => stashed?.draft ?? draftFromInteraction(interaction, isServe),
   )
   // Summary state once something is saved; the cascade form reopens only on
   // Edit — mirrors the canvas's sticky log-call bar.
-  const [isEditing, setIsEditing] = useState(!interaction)
+  const [isEditing, setIsEditing] = useState(
+    stashed !== undefined || !interaction,
+  )
 
-  // Issue capture. Behind the product's own flag, and only once the call is
+  // Issue capture. Behind its flag, and only once the call is
   // answered — there is nothing to summarize about a voicemail.
-  const { enabled: captureEnabled } = useIssueCaptureFlag(isServe)
+  const { enabled: captureEnabled } = useIssueCaptureFlag()
   const product = outreachProduct(isServe)
-  const [memo, setMemo] = useState('')
-  const [spoken, setSpoken] = useState(false)
+  const [memo, setMemo] = useState(stashed?.memo ?? '')
+  const [spoken, setSpoken] = useState(stashed?.spoken ?? false)
+  // Read on unmount. Only an open form holds anything unsaved: a save closes
+  // it, and Cancel puts the answers back to what the server has. A memo
+  // counts only under an answer, since Cancel leaves its text behind hidden.
+  const unsavedRef = useRef<CallDraft | null>(null)
+  useEffect(() => {
+    const base = draftFromInteraction(interaction, isServe)
+    const changed = (
+      Object.keys({ ...base, ...draft }) as (keyof PhoneBankingOutcomeDraft)[]
+    ).some((field) => draft[field] !== base[field])
+    unsavedRef.current =
+      isEditing && (changed || (memo !== '' && draft.outcome !== undefined))
+        ? { draft, memo, spoken }
+        : null
+  }, [draft, memo, spoken, isEditing, interaction, isServe])
+  useEffect(() => {
+    const unsaved = unsavedRef
+    return () => {
+      if (unsaved.current === null) drafts?.clear(callKey)
+      else drafts?.set(callKey, unsaved.current)
+    }
+  }, [drafts, callKey])
   const [captured, setCaptured] = useState<{
     id: string
-    proposed: ConstituentFeedbackTriple | null
+    proposed: RecordConstituentFeedbackResponse['extraction']
   } | null>(null)
   // A failed capture is the one failure on this surface that loses DATA: the
   // call's own payload carries no memo, so unlike the door — where the note
@@ -174,17 +211,19 @@ export default function PhoneBankingOutcomeForm({
   // its memo there until there is, call first. Only where a memo can be
   // captured: elsewhere the mic is the ordinary dictation mic.
   const offline = useOfflineMemo({ dictation, enabled: capturesIssues })
-  // The call the queue files this save and its memo under, so saving it
-  // again replaces them rather than queueing a second pair.
-  const callKey = `${entryId}:${personId}`
   // Shown where the confirm card would be: nothing is extracted until the
-  // memo reaches the server, so the triple waits in "Notes to review".
+  // memo reaches the server, so the issues wait in "Notes to review".
   // `saved` when nothing reached the server, `sending` when the call did and
   // only the recording waits.
   const [queued, setQueued] = useState<keyof typeof OFFLINE_MEMO_COPY | null>(
     null,
   )
   const [holdFailed, setHoldFailed] = useState(false)
+  // The caller page's "What we heard" counts read the report once, so each
+  // write that changes them re-reads it.
+  const queryClient = useQueryClient()
+  const refreshReport = () =>
+    void queryClient.invalidateQueries({ queryKey: REPORT_QUERY_KEY_PREFIX })
 
   // `captureMethod` rides the mutation's variables rather than being read off
   // `spoken` twice. The two reads happen a round trip apart — the request on
@@ -210,32 +249,31 @@ export default function PhoneBankingOutcomeForm({
       })
       setCaptured({ id: data.id, proposed: data.extraction })
       setFailedMemo(null)
+      refreshReport()
     },
     onError: (_error, input) => setFailedMemo(input),
   })
 
   const confirmCapture = useMutation({
-    mutationFn: (triple: ConstituentFeedbackTriple) =>
+    mutationFn: (issues: ConfirmedConstituentFeedbackIssue[]) =>
       clientRequest('PATCH /v1/constituent-feedback/:id/confirm', {
         id: captured?.id ?? '',
-        ...triple,
+        issues,
       }).then((res) => res.data),
-    onSuccess: (_data, triple) => {
+    onSuccess: (_data, issues) => {
       trackEvent(EVENTS.IssueCapture.MemoConfirmed, {
         channel: 'phoneBanking',
-        // Whether the caller changed what the model proposed, never what
-        // either of them said — a person's words are not analytics.
-        corrected:
-          triple.issueLabel !== (captured?.proposed?.issueLabel ?? null) ||
-          triple.stance !== (captured?.proposed?.stance ?? null) ||
-          triple.desiredOutcome !==
-            (captured?.proposed?.desiredOutcome ?? null),
+        corrected: wasCorrected(captured?.proposed ?? null, issues),
+        issueCount: issues.length,
         product,
       })
     },
     // Dismiss either way: a failed confirm leaves the memo saved and
     // unconfirmed, which reporting already tells apart.
-    onSettled: () => setCaptured(null),
+    onSettled: () => {
+      setCaptured(null)
+      refreshReport()
+    },
   })
 
   const logCallAnalytics = (savedDraft: PhoneBankingOutcomeDraft): void => {
@@ -328,6 +366,7 @@ export default function PhoneBankingOutcomeForm({
       ])
       logCallAnalytics(input.draft)
     }
+    drafts?.clear(callKey)
     setMemo('')
     setSpoken(false)
     setIsEditing(false)
@@ -353,10 +392,15 @@ export default function PhoneBankingOutcomeForm({
       if (captureEnabled) await offline.forget(callKey).catch(() => undefined)
       // The call is logged before the memo is even posted, and the panel is
       // told so immediately — unlike the door, where the walk is HELD at the
-      // stop until the triple is answered. A caller picks their next entry
+      // stop until the issues are answered. A caller picks their next entry
       // themselves, so there is nothing to hold, and leaving the list stale
       // while a second request runs would be the worse trade.
       onSaved(data.results)
+      refreshReport()
+      // Here and not only through the editing flag: a save can land after
+      // the caller has switched person, when the unmount has already stashed
+      // the answers this save just recorded.
+      drafts?.clear(callKey)
       setIsEditing(false)
       logCallAnalytics(input.draft)
       // Re-editing this same call through the pencil toggles `isEditing` on a
@@ -409,6 +453,8 @@ export default function PhoneBankingOutcomeForm({
     setDraft(draftFromInteraction(interaction, isServe))
     setIsEditing(!interaction)
     offline.discard()
+    unsavedRef.current = null
+    drafts?.clear(callKey)
   }
 
   if (captured !== null) {
@@ -417,7 +463,7 @@ export default function PhoneBankingOutcomeForm({
         proposed={captured.proposed}
         saving={confirmCapture.isPending}
         isServe={isServe}
-        onConfirm={(triple) => confirmCapture.mutate(triple)}
+        onConfirm={(issues) => confirmCapture.mutate(issues)}
         onSkip={() => {
           trackEvent(EVENTS.IssueCapture.MemoSkipped, {
             channel: 'phoneBanking',
@@ -687,9 +733,6 @@ export default function PhoneBankingOutcomeForm({
               disabled={saveMutation.isPending}
             />
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {MEMO_CONSENT_LINE[product]}
-          </p>
           {offline.audio !== null && (
             <p className="mt-2 text-xs text-muted-foreground">
               {OFFLINE_MEMO_COPY.recorded}

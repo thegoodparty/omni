@@ -24,8 +24,7 @@ const ThemeMemos = ({
         memos={theme.members.map((member) => ({
           id: member.feedbackId,
           transcript: member.transcript,
-          stance: member.stance,
-          desiredOutcome: member.desiredOutcome,
+          issues: member.issues,
           actorName: member.actorName,
           channel: member.channel,
           occurredAt: member.occurredAt,
