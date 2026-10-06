@@ -111,7 +111,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       userId,
       this.priorities,
     )
-    const resolved = await this.districtResolver?.resolveByUserId(userId)
+    // Resolve by the conversation's org slug, not the user: an official with
+    // offices in multiple orgs would otherwise get whichever ElectedOffice row
+    // came back first, scoping constituent data to another org's district.
+    // ctx.organizationSlug is never a guess: load() matches the office on the
+    // conversation's own slug and throws when a conversation has none.
+    const resolved = await this.districtResolver?.resolveByOrgSlug(
+      ctx.organizationSlug,
+    )
     if (!resolved) return ctx
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
@@ -121,6 +128,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      state: resolved.state,
       districtFilters,
       constituentToolEnabled,
     }

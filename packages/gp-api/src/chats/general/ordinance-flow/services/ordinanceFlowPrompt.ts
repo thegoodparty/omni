@@ -8,6 +8,7 @@ import {
   CLAIM_STRENGTH_RULE,
   LEGAL_VALUES_RULE,
 } from '../../services/claimConfidence'
+import { todayLine } from '../../services/todayLine'
 
 export const ORDINANCE_FLOW_GUARDRAIL_DECLINE =
   "I'm here to help you develop this ordinance — please ask me something " +
@@ -441,6 +442,7 @@ export const buildOrdinanceFlowSystemPrompt = (args: {
     LEGAL_VALUES_RULE,
     CLAIM_STRENGTH_RULE,
     currentStepBlock(ctx.step, legislative),
+    todayLine(ctx.state),
     ordinanceContextBlock(ctx, legislative),
     priorStepsBlock(ctx),
     scratchpadBlock(ctx),

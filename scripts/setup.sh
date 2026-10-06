@@ -8,7 +8,7 @@
 #
 # Usage:
 #   scripts/setup.sh [--from <path>] [--api-url <url>] [--force]
-#                    [--secrets-only] [--user-state <state>]
+#                    [--secrets-only] [--refresh] [--user-state <state>]
 #
 #   --from <path>     A working omni checkout to copy real .env values from,
 #                     instead of the GitHub device flow (takes precedence).
@@ -24,6 +24,11 @@
 #                     already exists (the caller's own install step, not
 #                     this one, provides it) since the secrets step shells
 #                     out via `npx tsx`.
+#   --refresh         Fetch the LOCAL_DEV_ENV bundle again and rebuild the
+#                     .env files even when they already validate, so keys
+#                     an admin added after your first run reach you. Bundle
+#                     values replace yours; every other value you set is
+#                     kept. Device flow only, so not with --from.
 #   --user-state <state>
 #                     Product state for the login this script seeds at the
 #                     end (default free-win; see
@@ -59,6 +64,7 @@ FROM=""
 API_URL="https://gp-api-dev.goodparty.org"
 FORCE=false
 SECRETS_ONLY=false
+REFRESH=false
 USER_STATE="free-win"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -78,12 +84,16 @@ while [ $# -gt 0 ]; do
       SECRETS_ONLY=true
       shift
       ;;
+    --refresh)
+      REFRESH=true
+      shift
+      ;;
     --user-state)
       USER_STATE="$2"
       shift 2
       ;;
     -h | --help)
-      sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -92,6 +102,11 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$REFRESH" = true ] && [ -n "$FROM" ]; then
+  echo "--refresh re-fetches the LOCAL_DEV_ENV bundle; it can't be combined with --from." >&2
+  exit 1
+fi
 
 log() { echo "==> $*"; }
 indent() { echo "    $*"; }
@@ -184,6 +199,7 @@ plan_action() {
   local pkg="$1" path="$2"
   if [ -f "$path" ] && npx tsx "$ROOT/scripts/setup/lib/cli.ts" check "$pkg" "$path" >/dev/null 2>&1; then
     PLAN_ACTION="skip"
+    [ "$REFRESH" = true ] && PLAN_ACTION="write"
     return
   fi
   if [ -f "$path" ] && [ "$FORCE" != true ]; then
@@ -280,15 +296,18 @@ log "[3/8] Writing/completing .env files"
 # env still doesn't validate, before anything real has been touched.
 # $device_file, when it exists, is the device flow's vended bundle for
 # this package (staged above); it takes precedence over $path, which is
-# only ever populated by the --from copy step.
+# only ever populated by the --from copy step. When both exist (--refresh,
+# or --force over an invalid file), $path goes in underneath the bundle so
+# a rebuild keeps whatever the bundle doesn't carry.
 build_one() {
-  local pkg="$1" path="$2" out="$3" device_file="${4:-}" copied="-"
+  local pkg="$1" path="$2" out="$3" device_file="${4:-}" copied="-" under=""
   if [ -n "$device_file" ] && [ -f "$device_file" ]; then
     copied="$device_file"
+    [ -f "$path" ] && under="$path"
   elif [ -f "$path" ]; then
     copied="$path"
   fi
-  if ! npx tsx "$ROOT/scripts/setup/lib/cli.ts" build "$pkg" "$copied" "$out"; then
+  if ! npx tsx "$ROOT/scripts/setup/lib/cli.ts" build "$pkg" "$copied" "$out" ${under:+"$under"}; then
     echo "ERROR: could not build a valid env for $pkg (missing vars above)." >&2
     echo "No files were written." >&2
     exit 1

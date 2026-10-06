@@ -103,10 +103,10 @@ const CHAT_CASE_LISTS: Partial<Record<ChatAgentId, string>> = {
 // dropping its reason is a typecheck failure.
 const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {
   briefing_annotation:
-    'No ChatScopeHandler yet. Briefing chat still assembles its own ' +
-    'prompt and tools, so the chat runner cannot drive it through the ' +
-    'registry. Unblocked by the briefing-chats migration, which is a ' +
-    'follow-on rather than a prerequisite.',
+    'Registered as a ChatScopeHandler, but the chat runner cannot drive it ' +
+    'yet: a briefing conversation is created with its annotation, so ' +
+    'POST /v1/chats refuses the scope, and there is no case list. ' +
+    'Unblocked by a follow-up that adds a briefing seed and its cases.',
 }
 
 const CHAT_AGENTS: AgentEntry[] = CHAT_AGENT_IDS.map((agentId) => {
