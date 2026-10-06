@@ -10,6 +10,12 @@ import {
 } from '../schemas/backfillPlans.schema'
 import { CampaignStrategyService } from './campaignStrategy.service'
 
+// Who asked. AdminAuditInterceptor only fires on @Roles(admin) routes, and
+// this one admits machine tokens instead, so the audit line is written here.
+export type BackfillActor =
+  | { userId: number; userEmail: string | null }
+  | { m2mSubject: string | undefined }
+
 export interface BackfillCandidate {
   id: number
   email: string | null
@@ -99,7 +105,15 @@ export class CampaignPlanBackfillService {
     `
   }
 
-  async run(input: BackfillPlansInput): Promise<BackfillPlansResponse> {
+  async run(
+    input: BackfillPlansInput,
+    actor: BackfillActor,
+  ): Promise<BackfillPlansResponse> {
+    this.logger.info({
+      ...actor,
+      body: input,
+      msg: 'Campaign plan backfill requested',
+    })
     const all = await this.selectCandidates(input.createdSince)
     // Test campaigns short-circuit inside the endpoint, so dispatching for
     // them would be a no-op that still counts as work. Filtered here rather
@@ -174,7 +188,12 @@ export class CampaignPlanBackfillService {
     }
 
     this.logger.info(
-      { ...outcomes, failures: undefined, createdSince: input.createdSince },
+      {
+        ...actor,
+        ...outcomes,
+        failures: undefined,
+        createdSince: input.createdSince,
+      },
       'Campaign plan backfill batch finished',
     )
 

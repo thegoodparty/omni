@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Req,
   Res,
   UseGuards,
   UseInterceptors,
@@ -14,7 +15,9 @@ import { FastifyReply } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { Campaign } from '../generated/prisma'
+import { IncomingRequest } from '@/authentication/authentication.types'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { effectiveUser } from '@/authentication/util/effectiveUser.util'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { CampaignWith } from '@/campaigns/campaigns.types'
@@ -49,14 +52,25 @@ export class CampaignStrategyController {
   }
 
   // Spends money with `apply: true` (~$2 per campaign). Dry run by default.
+  //
+  // AdminOrM2MGuard rather than @Roles(admin) so gp-admin's machine token can
+  // reach it, which also means AdminAuditInterceptor never sees it; the
+  // service writes the audit line itself from the caller passed here.
   @Post('backfill')
   @UseGuards(AdminOrM2MGuard)
   @HttpCode(HttpStatus.OK)
   @ResponseSchema(BackfillPlansResponseSchema)
   async backfillPlans(
     @Body() body: BackfillPlansRequestDto,
+    @Req() req: IncomingRequest,
   ): Promise<BackfillPlansResponse> {
-    return this.backfill.run(body)
+    const actor = effectiveUser(req)
+    return this.backfill.run(
+      body,
+      actor
+        ? { userId: actor.id, userEmail: actor.email }
+        : { m2mSubject: req.m2mToken?.subject },
+    )
   }
 
   // Cheap existence probe for UI gating (the dashboard's Campaign Plan tab).
