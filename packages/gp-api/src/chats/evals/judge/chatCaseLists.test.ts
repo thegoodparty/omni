@@ -10,7 +10,7 @@ import {
   loadCaseList,
 } from './cases'
 
-// The four chat lists. Named here rather than derived from the registry,
+// The five chat lists. Named here rather than derived from the registry,
 // because deriving them would make this file agree with whatever the registry
 // says — including a registry that lost one.
 const AUTHORED = [
@@ -18,6 +18,7 @@ const AUTHORED = [
   'campaign_assistant',
   'ordinance_flow',
   'priority_flow',
+  'briefing_annotation',
 ] as const
 
 // The fifteen background lists contribute to the registry count below, but
@@ -30,11 +31,6 @@ const AUTHORED_BACKGROUND_COUNT = 15
 // One baseline plus seven single-axis variations. Well under gates.minCases,
 // which is deliberate and recorded in every list's `note`.
 const CASES_PER_LIST = 8
-
-// briefing_annotation stays blocked until its case list lands, so it is out
-// of the denominator. Asserted rather than assumed, so the list arrives
-// together with the unblock rather than ahead of it.
-const UNAUTHORED = 'briefing_annotation'
 
 // Registry entries that name a file, narrowed so the file name is a string.
 const NAMED = AGENTS.flatMap((a) =>
@@ -50,16 +46,20 @@ it.each(NAMED)('$agentId names its list after itself', ({ agentId, cases }) => {
 })
 
 describe('the authored chat case lists', () => {
-  it('the registry points all four at their own file', () => {
+  it('the registry points all five at their own file', () => {
     expect(AUTHORED.map((id) => findAgent(id)?.cases)).toEqual(
       AUTHORED.map((id) => `${id}.json`),
     )
   })
 
-  it('leaves the blocked scope without inputs', () => {
-    const blocked = findAgent(UNAUTHORED)
-    expect(blocked?.status).toBe('blocked')
-    expect(blocked?.cases).toBeNull()
+  // Every chat scope the registry lists can be driven now, so none is left
+  // without inputs. Derived from the registry on purpose, unlike AUTHORED: a
+  // sixth scope added there without a list fails here by name.
+  it('leaves no chat agent without inputs', () => {
+    const unauthored = AGENTS.filter(
+      (a) => a.shape === 'chat' && a.cases === null,
+    ).map((a) => a.agentId)
+    expect(unauthored).toEqual([])
   })
 
   it.each(AUTHORED)('%s parses through the real loader', (agentId) => {
@@ -104,7 +104,7 @@ describe('the case-list directory', () => {
   // Without a floor, a directory that stopped matching would leave every
   // assertion below in a loop that never runs, and the suite would pass
   // having checked nothing.
-  it('holds every named list, and the registry names all 19', () => {
+  it('holds every named list, and the registry names all 20', () => {
     expect(NAMED.length).toBeGreaterThan(0)
     expect(files.length).toBeGreaterThan(0)
     expect(NAMED.length).toBe(AUTHORED.length + AUTHORED_BACKGROUND_COUNT)

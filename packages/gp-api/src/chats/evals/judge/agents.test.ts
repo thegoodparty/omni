@@ -152,17 +152,27 @@ describe('the agent registry', () => {
   })
 })
 
+// The runner opens a briefing chat through POST /v1/briefing-chats and the
+// seed gives it a briefing to open on, so the scope is judgeable like any
+// other chat agent.
+describe('briefing_annotation', () => {
+  it('is a pending chat agent with its own case list', () => {
+    expect(findAgent('briefing_annotation')).toEqual({
+      agentId: 'briefing_annotation',
+      shape: 'chat',
+      cases: 'briefing_annotation.json',
+      status: 'pending',
+    })
+  })
+})
+
 describe('coverage', () => {
   it('excludes blocked agents from the denominator', () => {
     const { wired, judgeable, blocked } = coverage()
-    // Named rather than dropped, so each gap stays visible: briefing
-    // annotation has no handler yet, and compliance_setup must not be swept
-    // at all.
-    expect(blocked.map((a) => a.agentId).sort()).toEqual([
-      'briefing_annotation',
-      'compliance_setup',
-    ])
-    expect(judgeable).toBe(19)
+    // Named rather than dropped, so the gap stays visible: compliance_setup
+    // must not be swept at all.
+    expect(blocked.map((a) => a.agentId).sort()).toEqual(['compliance_setup'])
+    expect(judgeable).toBe(20)
     expect(wired).toBe(3)
   })
 

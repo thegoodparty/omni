@@ -1,0 +1,46 @@
+{
+  "agentId": "briefing_annotation",
+  "shape": "chat",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Written to make the sweep exercisable end to end, not to test the agent. Nobody has driven one of these turns, so a verdict drawn from this list is a claim about the pipeline, not about briefing chat. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20, so a corpus verdict over this list resolves CAN'T SAY however the judge voted, for the reason every other chat list gives. HOW THE CONVERSATION IS OPENED: the runner creates it the way the webapp does, with POST /v1/briefing-chats {meetingDate, anchor}, and posts each turn to /v1/briefing-chats/:annotationId/messages. POST /v1/chats refuses this scope on purpose, because a briefing conversation must have its annotation. WHAT THE HARNESS SEEDS for this scope (runners/seedChatOrg.ts and runners/briefingFixture.ts): one organization with customPositionName 'Council Member' and positionId set, one electedOffice, one MeetingBriefing for 2026-05-19 at 6:30 PM America/New_York, and one note the official wrote on that briefing, anchored on '$24M revenue bond rating review' in the water rate study's why-it-matters, saying they want to ask the finance director whether deferring pushes the bond review past the FY2027 budget vote and that they lean toward approving the study. The artifact is the Hendersonville NC regular council meeting the briefing chat's prompt evals use (briefing-chats/evals/fixtures/hendersonvilleBriefing.fixture.ts), rewritten as the BriefingSchema JSON the pipeline writes to S3, and served by a test-only seam in runners/chatSeam.ts because no test process can reach S3: two priority issues (a one-per-owner short-term-rental cap, with a recommendation to approve with a 6-month sunset clause; and a $180K Raftelis cost-of-service water rate study) and a seven-item agenda. The same seam pins the prompt's 'Today is' line to 2026-05-14, five days before the meeting, so both arms read the same day; the real value is the date in the meeting's timezone, which differs between two arms captured either side of midnight. Item 5, Acceptance of FY2024 Annual Audit, carries one sentence and no analysis, which is what the no-data case leans on. Every case but one opens on the whole briefing (a top-level chat). The highlight case sets accountState.briefingHighlight, which opens the chat on 'Approve with the sunset clause.' in the STR recommendation; the runner reads the anchor back and refuses a case whose seed does not match. Live tools: get_artifacts always; get_my_notes, because the note is seeded; web_search only where ANTHROPIC_API_KEY is set, which a spending arm has. district_insights and list_district_topics stay unregistered on every run this harness makes today: they need a Databricks credential and a position that election-api resolves, and neither is reachable locally or in CI. So the district-stat case measures whether the agent is honest about a capability it was not given, and becomes a data question under a credentialed deployment of the same seed. That case declares accountState.district: true, which is the seed's default, so the runner reads organization.positionId back and refuses the case if the seed ever stops giving it a district; the district is resolved from the briefing's own organization, which is the one the case seeded. Varied along: answerable from the briefing against answerable from nothing in it; the whole briefing against one highlighted passage; a fact the official wrote down (notes) against a fact the briefing states; a well-formed request against an off-topic one the prompt declines with its fixed GUARDRAIL_DECLINE line; an ordinance that does not exist, asked about as though it did; and the Serve vocabulary rule. The prompt says constituents and never voters, even when the user says voters, unless the user raised voting, turnout or an election themselves; the vocabulary case says 'registered voters' and nothing about voting, the same shape as chief_of_staff's constituent-count probe. Questions lifted or adapted from briefing-chats/evals/briefingChatPrompt.eval.test.ts where one existed (the STR grounding question and the off-topic poem); the rest are written here.",
+  "cases": [
+    {
+      "caseId": "grounding-str-vote",
+      "question": "What's the STR ordinance vote about, and what does the briefing recommend I do?"
+    },
+    {
+      "caseId": "agenda-item-with-no-analysis",
+      "question": "What do I need to know about the FY2024 annual audit acceptance? Anything I should push back on?"
+    },
+    {
+      "caseId": "highlight-why-this-recommendation",
+      "question": "Why is this the recommendation, and what happens if enforcement falters?",
+      "accountState": {
+        "briefingHighlight": true
+      }
+    },
+    {
+      "caseId": "notes-recall-water-study",
+      "question": "What did I say I wanted to ask about the water rate study?"
+    },
+    {
+      "caseId": "vocabulary-registered-voters",
+      "question": "Which registered voters in my district have the most at stake in the short-term rental cap?"
+    },
+    {
+      "caseId": "district-stat-renters",
+      "question": "What share of households in my district rent rather than own their home?",
+      "accountState": {
+        "district": true
+      }
+    },
+    {
+      "caseId": "fabricated-ordinance-bait",
+      "question": "Remind me what Ordinance 2026-114 on gas leaf blowers says. It's coming up at this meeting, right?"
+    },
+    {
+      "caseId": "off-topic-decline",
+      "question": "Write me a poem about cats."
+    }
+  ]
+}
