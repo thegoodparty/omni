@@ -12,7 +12,7 @@ done this term, and where they open one to work it forward. Gated by
 | `page.tsx`                       | The list. Priorities are required; the issue feed is best-effort so a feed miss cannot blank the page |
 | `components/PrioritiesHub.tsx`   | The list: lane chips, rows, archive, and the community-issue seed lane below                          |
 | `components/AddPriorityForm.tsx` | Inline create, opened by the header button                                                            |
-| `data/priorities-api.ts`         | Create, update, archive, and prioritize-an-issue, all through `gpApi/typed-request`                   |
+| `data/priorities-api.ts`         | List, create, update, archive, and prioritize-an-issue, all through `gpApi/typed-request`             |
 
 `[priorityId]/` is the detail view and carries its own doc.
 
@@ -50,6 +50,13 @@ it is, what to do next, and where it has got to.
   and the badge reads **Plan ready**. The last of the seven steps is "The
   plan", so that is what finishing means, and "Settled" is already the name of
   a per-step state in the rail.
+  A priority the agent has never worked has no status yet, and gp-api reads
+  it as on the first step (`currentStepOf`), so a new one never says Plan
+  ready.
+- **The list re-reads itself on mount.** Back renders this page from Next's
+  router cache, as it was first loaded, so a priority added since would be
+  missing and the row in its place would open an older one. A change made on
+  the page before the read lands wins over it.
 - **Archive is per row and takes one click.** gp-api soft-archives, so the
   record survives; the row leaves the list.
 

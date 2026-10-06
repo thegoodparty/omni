@@ -6,6 +6,7 @@ import {
 } from '@goodparty_org/contracts'
 import { PrioritySource } from '@/generated/prisma'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
+import { currentStepOf } from '@/priorities/util/priority.util'
 import {
   CreatePriorityInput,
   PrioritiesToolPort,
@@ -36,7 +37,7 @@ type PriorityFlowRow = {
 
 const toFlowState = (row: PriorityFlowRow): PriorityFlowState => {
   const status = parsePriorityStatus(row.status)
-  const currentStep = PriorityStepIdSchema.safeParse(row.currentStep)
+  const currentStep = PriorityStepIdSchema.safeParse(currentStepOf(row))
   return {
     currentStep: currentStep.success ? currentStep.data : null,
     nextAction: row.nextAction,

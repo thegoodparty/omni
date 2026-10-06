@@ -1,9 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { fireEvent, screen } from '@testing-library/react'
 import type { Priority } from '@goodparty_org/contracts'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
 import PrioritiesHub from './PrioritiesHub'
+import { listPriorities } from '../data/priorities-api'
+
+vi.mock('../data/priorities-api', () => ({
+  listPriorities: vi.fn(),
+  archivePriority: vi.fn(),
+  prioritizeCommunityIssue: vi.fn(),
+  createPriority: vi.fn(),
+}))
 
 const priority = (overrides: Partial<Priority> = {}): Priority => ({
   id: 'p1',
@@ -34,6 +42,22 @@ const issue = (
 })
 
 describe('PrioritiesHub', () => {
+  beforeEach(() => {
+    vi.mocked(listPriorities).mockReturnValue(
+      new Promise<Priority[]>(() => undefined),
+    )
+  })
+
+  it('replaces a list restored from cache with the current one', async () => {
+    vi.mocked(listPriorities).mockResolvedValue([
+      priority({ currentStep: 'evidence' }),
+      priority({ id: 'p2', title: 'Added since' }),
+    ])
+    render(<PrioritiesHub priorities={[priority()]} seedIssues={[]} />)
+    expect(await screen.findByText('Added since')).toBeInTheDocument()
+    expect(screen.getByText('What we know')).toBeInTheDocument()
+  })
+
   it('tells the user what to do when they hold no priorities', () => {
     render(<PrioritiesHub priorities={[]} seedIssues={[]} />)
     expect(
