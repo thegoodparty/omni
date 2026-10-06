@@ -28,7 +28,8 @@ upgrade-at-entry), and door knocking navigates. There are no tile-swap flags.
 The text gate (Pro/compliance) runs in front of the SMS tile.
 
 **Every way into a text/robocall campaign now lands on the v2 flows, and the
-hub is the only thing that mounts them.** A campaign-plan task CTA (campaign
+hub is the only page that mounts them** (a chat card's proposal mounts one
+over the conversation, below). A campaign-plan task CTA (campaign
 tracker, campaign manager) and Know Your Opponent's suggested message all link
 to `/dashboard/outreach?compose=text|robocall`, and
 `components/OutreachComposeDeepLink.tsx` resolves those params, runs the
@@ -49,8 +50,12 @@ contract), `initialScript` (text and phone banking; opens the flow on the
 `custom` purpose, the one that never AI-drafts, so a preset message is not
 immediately drafted over), and `preselectedListId` (applied once its row
 arrives in the picker; an id naming no list of yours is a missed preselection,
-never a broken step). A chat card's proposal mounts the Serve flows itself
-(`shared/agent-chat/cards/proposalFlows.tsx`) and adds two seeds: phone
+never a broken step). A chat card's proposal mounts the flows itself
+(`shared/agent-chat/cards/proposalFlows.tsx`): the Serve surfaces for Chief
+of Staff, and Win's own `SmsFlow` for a Campaign Manager text card, behind
+the same text gate the SMS tile runs. That Win create carries the card's
+`proposalKey` on `POST /v1/outreach` (never beside `draftOutreachId`), so
+the card reads as sent once the text is paid for. It adds two seeds: phone
 banking's `initialName`, and `proposedAudience` on phone banking and SMS, an
 audience the agent counted but did not save. That one opens the audience step
 in the builder already filled in (`useOutreachAudience`'s reset seeds it), so

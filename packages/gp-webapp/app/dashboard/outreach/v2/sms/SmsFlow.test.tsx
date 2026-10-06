@@ -1054,6 +1054,8 @@ describe('SmsFlow', () => {
         initialScript: string
         preselectedListId: number
         campaignPlanDueDate: string
+        proposalLink: { proposalKey: string }
+        onProposalCreateFailed: () => void
       }>,
     ) =>
       render(
@@ -1095,6 +1097,69 @@ describe('SmsFlow', () => {
       // The audience step reads back the selected list by name rather than
       // leaving the picker on its placeholder.
       expect(await screen.findByText(/Likely voters/)).toBeInTheDocument()
+    })
+
+    // A Campaign Manager card's key rides the create, so the server marks
+    // the card sent once the text is paid for.
+    it("carries a chat card's proposal key on the create", async () => {
+      vi.mocked(createOutreach).mockClear()
+      const proposalKey = '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7'
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 41,
+        proposalLink: { proposalKey },
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await waitFor(() =>
+        expect(vi.mocked(createOutreach)).toHaveBeenCalledWith(
+          expect.objectContaining({ proposalKey, voterFileFilterId: 41 }),
+          expect.anything(),
+        ),
+      )
+    })
+
+    it('tells the card when the create carrying its key is refused', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(createOutreach).mockResolvedValueOnce(null)
+      const onProposalCreateFailed = vi.fn()
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 41,
+        proposalLink: { proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7' },
+        onProposalCreateFailed,
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await waitFor(() =>
+        expect(onProposalCreateFailed).toHaveBeenCalledTimes(1),
+      )
     })
 
     // Words the product carried in or wrote are checked for the sender's
