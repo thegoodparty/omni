@@ -28,7 +28,8 @@
 #                     .env files even when they already validate, so keys
 #                     an admin added after your first run reach you. Bundle
 #                     values replace yours; every other value you set is
-#                     kept. Device flow only, so not with --from.
+#                     kept. Device flow only, so not with --from. Also
+#                     re-vends the Grafana MCP token into .env.mcp.local.
 #   --user-state <state>
 #                     Product state for the login this script seeds at the
 #                     end (default free-win; see
@@ -59,6 +60,9 @@ source "$ROOT/scripts/setup-config.sh"
 # docs/development.md and gp-webapp/package.json's `dev` script.
 GP_API_ENV="$ROOT/packages/gp-api/.env"
 GP_WEBAPP_ENV="$ROOT/packages/gp-webapp/.env.local"
+# Not a package: the repo's MCP servers' tokens, read by scripts/mcp/*.sh.
+# Gitignored by *.local; worktree-setup.sh's root .env.* copy carries it.
+MCP_ENV="$ROOT/.env.mcp.local"
 
 FROM=""
 API_URL="https://gp-api-dev.goodparty.org"
@@ -278,9 +282,11 @@ elif [ "$need_from" = true ]; then
   npm run build -w packages/contracts >/dev/null
   # $missing is a bash word-split list of literal package names this script
   # built above ("gp-api gp-webapp"), never external input — safe unquoted.
+  # mcp rides along on every device flow rather than starting one of its
+  # own, so a blob with no mcp entry never re-prompts on each run.
   # shellcheck disable=SC2086
   if ! npx tsx "$ROOT/scripts/setup/lib/cli.ts" device-flow \
-    "$GITHUB_OAUTH_CLIENT_ID" "$API_URL" "$TMP_ENV_DIR" $missing; then
+    "$GITHUB_OAUTH_CLIENT_ID" "$API_URL" "$TMP_ENV_DIR" $missing mcp; then
     echo "ERROR: could not fetch dev env bundles via the GitHub device flow." >&2
     echo "Re-run with --from <path-to-a-working-checkout> instead, or see" >&2
     echo "the epic's ops prerequisites for help." >&2
@@ -328,6 +334,16 @@ fi
 if [ "$GP_WEBAPP_ACTION" = "write" ]; then
   mv "$TMP_ENV_DIR/gp-webapp.env" "$GP_WEBAPP_ENV"
   indent "wrote packages/gp-webapp/.env.local"
+fi
+# An empty vended token means LOCAL_DEV_ENV has no mcp entry yet; keep
+# whatever token the file already holds rather than blanking it.
+MCP_TOKEN_LINE='^GRAFANA_SERVICE_ACCOUNT_TOKEN=.'
+if grep -q "$MCP_TOKEN_LINE" "$TMP_ENV_DIR/device-mcp.env" 2>/dev/null; then
+  mv "$TMP_ENV_DIR/device-mcp.env" "$MCP_ENV"
+  indent "wrote .env.mcp.local (Grafana MCP token; restart Claude Code to pick it up)"
+elif ! grep -q "$MCP_TOKEN_LINE" "$MCP_ENV" 2>/dev/null; then
+  indent "no Grafana MCP token yet: the grafana MCP stays off until an admin"
+  indent "adds one to LOCAL_DEV_ENV, then run npm run setup -- --secrets-only --refresh"
 fi
 rm -rf "$TMP_ENV_DIR"
 TMP_ENV_DIR=""

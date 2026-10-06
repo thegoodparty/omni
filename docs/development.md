@@ -29,7 +29,9 @@ step names the feature that will stay off; the fix is adding the key to
 already validates, so a key added to `LOCAL_DEV_ENV` after your first run
 only reaches you with `npm run setup -- --secrets-only --refresh`, which
 fetches the bundle again and lays it over your files, keeping every value
-the bundle doesn't carry.
+the bundle doesn't carry. The same fetch writes the Grafana MCP token to
+`.env.mcp.local` at the repo root, so your agent can read logs
+(`docs/mcp.md`); restart Claude Code after it lands.
 election-api and
 gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
 election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.
