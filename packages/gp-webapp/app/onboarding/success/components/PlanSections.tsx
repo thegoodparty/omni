@@ -42,6 +42,7 @@ interface PlanSectionsProps {
   voterInsightsContext?: VoterInsightsContext
   navStuckClassName?: string
   navVariant?: 'select' | 'pills'
+  navStickyTop?: number
 }
 
 interface SectionProps {
@@ -441,6 +442,7 @@ const PlanSections = ({
   voterInsightsContext,
   navStuckClassName,
   navVariant,
+  navStickyTop,
 }: PlanSectionsProps): React.JSX.Element => {
   const isStrategyGenerating = strategyState?.isGenerating ?? false
   const isStrategyError = strategyState?.isError ?? false
@@ -491,6 +493,7 @@ const PlanSections = ({
         onStuckChange={onStuckChange}
         stuckClassName={navStuckClassName}
         variant={navVariant}
+        stickyTop={navStickyTop}
       />
 
       <div className="mt-8 space-y-12">

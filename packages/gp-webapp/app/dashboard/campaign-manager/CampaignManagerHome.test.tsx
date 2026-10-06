@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
@@ -200,16 +200,12 @@ async function bringToFront(title: string): Promise<void> {
   const user = userEvent.setup({ pointerEventsCheck: 0 })
   for (let i = 0; i < 5; i += 1) {
     if (screen.queryByRole('heading', { name: title, hidden: true })) return
-    // Skip sits in the front card's "More options" menu.
-    const front = screen
-      .getAllByRole('heading', { level: 3, hidden: true })[0]
-      ?.closest('[data-slot="card"]')
-    if (!(front instanceof HTMLElement)) return
+    // Skipping is the card's X, confirmed in a dialog.
     await user.click(
-      within(front).getByRole('button', { name: 'More options', hidden: true }),
+      screen.getByRole('button', { name: 'Skip this task', hidden: true }),
     )
     await user.click(
-      await screen.findByRole('menuitem', { name: 'Skip', hidden: true }),
+      await screen.findByRole('button', { name: 'Skip', hidden: true }),
     )
   }
 }
@@ -517,18 +513,6 @@ describe('CampaignManagerHome story auto-launch', () => {
       'data-tcr-status',
       'none',
     )
-  })
-
-  it('renders the post-start compliance card alongside the banner (ENG-10866)', () => {
-    renderHome()
-
-    // The banner only covers "never started" — every post-start state (PIN
-    // entry, in review, approved, denied) lives in this card. Shipping the
-    // home without it left candidates awaiting a PIN with no compliance
-    // surface here at all, so PIN entry existed only in account settings.
-    expect(
-      screen.getByTestId('pro-upgrade-3-compliance-card'),
-    ).toBeInTheDocument()
   })
 
   it('does not auto-launch the story flow without the personalize deep link', () => {

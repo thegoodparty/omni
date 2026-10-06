@@ -43,6 +43,9 @@ interface CampaignStrategyTaskRowProps {
   getAction?: (
     task: CampaignStrategyTask,
   ) => { label: string; href: string; external: boolean } | null
+  // Skips the task in the shared next-task stack; offered on the "Do this
+  // next" row only.
+  onSkip?: (task: CampaignStrategyTask) => void
 }
 
 const CHANNEL_ICONS: Record<
@@ -82,6 +85,7 @@ const CampaignStrategyTaskRow = ({
   onStartOutreach,
   onDiscuss,
   getAction,
+  onSkip,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const router = useRouter()
   const formattedDate = formatTaskDate(task.date)
@@ -149,6 +153,9 @@ const CampaignStrategyTaskRow = ({
           },
         ]
       : []),
+    ...(onSkip && task.isNext && !task.completed
+      ? [{ label: 'Skip', onClick: () => onSkip(task) }]
+      : []),
     ...(onToggleComplete && !completesItself
       ? [
           {
@@ -161,6 +168,8 @@ const CampaignStrategyTaskRow = ({
 
   return (
     <li
+      // The plan page scrolls this row into view on arrival.
+      data-next-task={task.isNext && !task.completed ? true : undefined}
       className={cn(
         'border-border flex gap-4 border-t px-6 py-4 first:border-t-0',
         task.isNext && 'bg-primary/5',

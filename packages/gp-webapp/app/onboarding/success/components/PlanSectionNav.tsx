@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
+  cn,
   FilterPill,
   FilterPillGroup,
   Select,
@@ -20,9 +21,12 @@ interface PlanSectionNavProps {
   sections: PlanSectionRef[]
   onStuckChange?: (stuck: boolean) => void
   stuckClassName?: string
-  // 'pills' lays the sections out as filter pills, for a host that shows the
-  // plan inside a card where a sticky dropdown has nowhere to stick.
+  // 'pills' lays the sections out as one horizontally scrolling row of small
+  // filter pills that pins near the top and follows the reading position.
   variant?: 'select' | 'pills'
+  // Where the pills pin, in px from the top of the viewport, for a host with
+  // its own sticky bar above the plan.
+  stickyTop?: number
 }
 
 // Activate a section when its top sits in the upper half of the viewport,
@@ -40,22 +44,24 @@ const PlanSectionNav = ({
   onStuckChange,
   stuckClassName = DEFAULT_STUCK_CLASSNAME,
   variant = 'select',
+  stickyTop = 0,
 }: PlanSectionNavProps): React.JSX.Element => {
   const [activeId, setActiveId] = useState<string>(sections[0]?.id ?? '')
   const [isStuck, setIsStuck] = useState(false)
   const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const pillScrollerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const el = wrapperRef.current
     if (!el) return
     const onScroll = () => {
       const top = el.getBoundingClientRect().top
-      setIsStuck(top <= 0)
+      setIsStuck(top <= stickyTop + 1)
     }
     onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
-  }, [])
+  }, [stickyTop])
 
   useEffect(() => {
     onStuckChange?.(isStuck)
@@ -106,6 +112,21 @@ const PlanSectionNav = ({
     return () => observer.disconnect()
   }, [sections])
 
+  // Keep the active pill in view as the page scrolls. The row is moved by
+  // hand, not with scrollIntoView, which would also scroll the page.
+  useEffect(() => {
+    if (variant !== 'pills') return
+    const scroller = pillScrollerRef.current
+    const pill = scroller?.querySelector<HTMLElement>(
+      `[data-value="${CSS.escape(activeId)}"]`,
+    )
+    if (!scroller || !pill) return
+    scroller.scrollTo({
+      left: pill.offsetLeft - (scroller.clientWidth - pill.offsetWidth) / 2,
+      behavior: 'smooth',
+    })
+  }, [activeId, variant])
+
   const handleChange = (value: string) => {
     setActiveId(value)
     const el = document.getElementById(value)
@@ -116,21 +137,42 @@ const PlanSectionNav = ({
 
   if (variant === 'pills') {
     return (
-      <FilterPillGroup
-        value={activeId}
-        onValueChange={(value) => {
-          // Radix single-toggle emits '' on re-pressing the active pill; jump
-          // back to that section rather than clearing the selection.
-          handleChange(value || activeId)
-        }}
-        aria-label="Jump to a section"
+      <div
+        ref={wrapperRef}
+        className={cn(
+          'sticky z-10 -mx-6 bg-card py-2',
+          isStuck && 'border-b border-border shadow-sm',
+        )}
+        style={{ top: stickyTop }}
       >
-        {sections.map((s) => (
-          <FilterPill key={s.id} value={s.id}>
-            {s.label}
-          </FilterPill>
-        ))}
-      </FilterPillGroup>
+        {/* One row with a hidden scrollbar, like the styleguide Tabs list. */}
+        <div
+          ref={pillScrollerRef}
+          className="overflow-x-auto px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <FilterPillGroup
+            value={activeId}
+            onValueChange={(value) => {
+              // Radix single-toggle emits '' on re-pressing the active pill;
+              // jump back to that section rather than clearing the selection.
+              handleChange(value || activeId)
+            }}
+            aria-label="Jump to a section"
+            className="w-max flex-nowrap"
+          >
+            {sections.map((s) => (
+              // FilterPill has no size prop, so the compact size is set here.
+              <FilterPill
+                key={s.id}
+                value={s.id}
+                className="shrink-0 px-2.5 py-0.5 text-xs"
+              >
+                {s.label}
+              </FilterPill>
+            ))}
+          </FilterPillGroup>
+        </div>
+      </div>
     )
   }
 

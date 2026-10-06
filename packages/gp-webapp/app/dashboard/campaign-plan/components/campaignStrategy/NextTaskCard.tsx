@@ -16,6 +16,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
   IconButton,
+  XMarkIcon,
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
@@ -32,7 +33,6 @@ import {
 } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
-import { MoreMenu } from 'app/shared/utils/MoreMenu'
 import { PHASE_META, buildTrackerStrategy } from './buildTrackerStrategy'
 import { formatTaskDate } from './CampaignStrategyTaskRow'
 import { useCompleteTrackerTask } from './useCompleteTrackerTask'
@@ -182,6 +182,11 @@ const writeSkipped = (ids: string[]): void => {
   skipListeners.forEach((listener) => listener())
 }
 
+// Skip a task from outside the card (the tracker's "Do this next" row), so
+// both surfaces share one skip list.
+export const skipNextTask = (id: string): void =>
+  writeSkipped([...readSkipped().filter((skipped) => skipped !== id), id])
+
 const subscribeSkipped = (listener: () => void): (() => void) => {
   skipListeners.add(listener)
   window.addEventListener('storage', listener)
@@ -252,6 +257,7 @@ const NextTaskCard = ({
   const story = useCampaignStoryComplete(true)
   const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks)
   const [confirmTaskId, setConfirmTaskId] = useState<string | null>(null)
+  const [confirmSkipOpen, setConfirmSkipOpen] = useState(false)
   // The plan's next step leads the page but can be folded away. The manager's
   // card is the page itself, so it always stays open.
   const collapsible = surface === 'plan'
@@ -382,20 +388,12 @@ const NextTaskCard = ({
     }
     setConfirmTaskId(frontTask.id)
   }
-  const menuItems = [
-    ...(deck.length > 1
-      ? [
-          {
-            label: 'Skip',
-            onClick: () =>
-              writeSkipped([
-                ...skippedIds.filter((id) => id !== frontTask.id),
-                frontTask.id,
-              ]),
-          },
-        ]
-      : []),
-  ]
+  const canSkip = deck.length > 1
+  const skipFront = () =>
+    writeSkipped([
+      ...skippedIds.filter((id) => id !== frontTask.id),
+      frontTask.id,
+    ])
 
   return (
     <Collapsible
@@ -403,7 +401,13 @@ const NextTaskCard = ({
       onOpenChange={(next) => writeCollapsed(!next)}
       asChild
     >
-      <section className={cn('flex w-full flex-col gap-4', className)}>
+      <section
+        className={cn(
+          'flex w-full flex-col',
+          surface === 'manager' ? 'gap-8' : 'gap-4',
+          className,
+        )}
+      >
         {/* The whole heading row toggles the section, a bigger target than
             the chevron. The chevron stays the real (keyboard-reachable)
             trigger; it stops its click here so one press toggles once. */}
@@ -414,7 +418,12 @@ const NextTaskCard = ({
           )}
           onClick={collapsible ? () => writeCollapsed(open) : undefined}
         >
-          <div className="flex flex-col gap-1">
+          <div
+            className={cn(
+              'flex flex-col gap-1',
+              surface === 'manager' && 'w-full items-center text-center',
+            )}
+          >
             <h2
               className={cn(
                 surface === 'manager'
@@ -498,9 +507,20 @@ const NextTaskCard = ({
                   ) : (
                     <Overline>{phaseTitle}</Overline>
                   )}
-                  {/* Skip is a quiet escape hatch, so it sits behind the menu
-                      rather than beside the actions. */}
-                  {menuItems.length > 0 && <MoreMenu menuItems={menuItems} />}
+                  {/* Dismissing the card asks first: Skip sends it to the back
+                      of the stack, Cancel leaves it in front. */}
+                  {canSkip && (
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      size="small"
+                      aria-label="Skip this task"
+                      className="-mt-1 -mr-2 shrink-0"
+                      onClick={() => setConfirmSkipOpen(true)}
+                    >
+                      <XMarkIcon className="size-5" aria-hidden />
+                    </IconButton>
+                  )}
                 </div>
                 <h3 className="font-opensans text-lg font-medium text-card-foreground">
                   {frontTask.title}
@@ -562,8 +582,8 @@ const NextTaskCard = ({
                         <Button
                           type="button"
                           variant="ghost"
-                          size="medium"
-                          className="w-full text-primary hover:bg-primary/5 sm:w-auto"
+                          size="small"
+                          className="w-full text-primary hover:bg-primary/5 sm:ml-auto sm:w-auto sm:self-center"
                           onClick={() =>
                             chat.discussTask(discussTaskMessage(frontTask))
                           }
@@ -602,6 +622,28 @@ const NextTaskCard = ({
                 }}
               >
                 Mark done
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={confirmSkipOpen} onOpenChange={setConfirmSkipOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Skip this task for now?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {frontTask.title} moves to the back of your list, and the next
+                task takes its place.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  skipFront()
+                  setConfirmSkipOpen(false)
+                }}
+              >
+                Skip
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

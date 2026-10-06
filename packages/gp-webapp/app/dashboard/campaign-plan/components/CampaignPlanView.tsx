@@ -3,9 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { dateUsHelper } from 'helpers/dateHelper'
 import type { User } from 'helpers/types'
-import { useCampaign } from '@shared/hooks/useCampaign'
 import {
   Accordion,
   AccordionContent,
@@ -20,8 +18,6 @@ import PlanView, {
 import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPlanData'
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
 import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
-import NextTaskCard from './campaignStrategy/NextTaskCard'
-import CampaignTrackerHero from './CampaignTrackerHero'
 import CampaignPlanStoryCard from './CampaignPlanStoryCard'
 
 const planEvents = EVENTS.Dashboard.CampaignPlan
@@ -43,7 +39,6 @@ const CampaignPlanView = ({
   initialUser,
 }: CampaignPlanViewProps): React.JSX.Element => {
   const router = useRouter()
-  const [campaign] = useCampaign()
   const data = useCampaignPlanData(initialUser)
   const { campaignId, strategy, media } = data
   const [heroDownloading, setHeroDownloading] = useState(false)
@@ -133,124 +128,84 @@ const CampaignPlanView = ({
     router.push('/dashboard')
   }
 
-  // The hero shows the primary and general dates separately. Use the *general*
-  // date for "Election Day" (not data.plan.electionDate, which is stage-anchored
-  // to relevantElectionDate and would be the primary during the primary phase).
-  const metrics = campaign?.raceTargetMetrics
-  const primaryDateIso =
-    metrics?.primaryElectionDate ?? campaign?.details?.primaryElectionDate
-  // Only true general-election sources (never relevantElectionDate, which is the
-  // primary during the primary phase). If none exist, show no date rather than a
-  // stage-anchored one mislabeled "Election Day".
-  const generalDateIso =
-    metrics?.generalElectionDate ??
-    campaign?.details?.electionDate ??
-    campaign?.electionDate
-  // dateUsHelper parses its arg with `new Date()`; a date-only ISO string is read
-  // as UTC midnight and can render a day early in far-western zones (e.g. AKST).
-  // Parse as local midnight (slice to the date + dash->slash) like the codebase's
-  // other date-only helpers; the slice keeps it safe for full-ISO values too.
-  const formatElectionDate = (iso: string): string =>
-    dateUsHelper(iso.slice(0, 10).replace(/-/g, '/'))
-
-  // Next step on top, then the headline and tracker, then the plan below it
-  // (the plan's own hero + bottom download are hidden — the tracker hero owns
-  // them).
+  // The page is the tracker itself: a sticky phase progress bar, the phases up
+  // to the one in focus, the full plan folded into a Summary card under them,
+  // and the phases still ahead in a sticky footer. The old headline, next-step
+  // band and tracker intro are gone; the PDF lives inside the Summary.
   return (
-    <>
-      {/* The next step leads the page, ruled off across the full content
-          width from the candidate's headline and the tracker below it. */}
-      <div className="w-full border-b border-border bg-background">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-10 has-[[data-slot=collapsible][data-state=closed]]:pb-4">
-          <NextTaskCard surface="plan" heading="Here’s what to do next" />
-        </div>
-      </div>
-      <div className="mx-auto w-full max-w-3xl px-4 pt-10">
-        <CampaignTrackerHero
-          candidateName={data.plan.candidateName}
-          race={data.plan.race}
-          district={campaign?.details?.district ?? ''}
-          primaryDate={primaryDateIso ? formatElectionDate(primaryDateIso) : ''}
-          electionDate={
-            generalDateIso ? formatElectionDate(generalDateIso) : ''
-          }
-          onDownload={handleHeroDownload}
-          downloading={heroDownloading}
-          canDownload={data.planReady}
-        />
-        <div className="mb-5">
-          <h2 className="text-xl font-semibold">Campaign Tracker</h2>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Everything you need to do, in order. We tell you what to do and
-            when, so you always know your next move.
-          </p>
-        </div>
+    <div className="w-full">
+      <div className="mx-auto w-full max-w-3xl px-4 empty:hidden">
         <CampaignPlanStoryCard />
-        <CampaignStrategySection />
       </div>
-      {/* The full plan folds into one card in the phases' style: closed, it
-          names the plan and offers the PDF; open, its sections are pills. */}
-      <div className="mx-auto mt-4 w-full max-w-3xl px-4 pb-10">
-        <Accordion type="single" collapsible>
-          <AccordionItem
-            value="plan"
-            className="bg-card relative overflow-hidden rounded-xl border px-0 shadow-sm"
-          >
-            <AccordionTrigger className="py-5 pr-6 pl-6 hover:no-underline">
-              <span className="flex flex-1 flex-col gap-1 text-left">
-                <span className="text-base font-semibold">
-                  Executive Summary
-                </span>
-                <span className="text-muted-foreground text-sm font-normal">
-                  This is the whole plan in one view. If you read nothing else,
-                  read this.
-                </span>
-              </span>
-            </AccordionTrigger>
-            {/* A sibling of the trigger, not inside it: a button can't nest
-                in the trigger's own button. Sits just left of its chevron. */}
-            {/* Below the description, left-aligned with it: a sibling of
-                the trigger, since a button can't nest in its own button. */}
-            <div className="px-6 pb-5">
-              <Button
-                type="button"
-                variant="outline"
-                size="small"
-                onClick={handleHeroDownload}
-                loading={heroDownloading}
-                disabled={!data.planReady}
-                className="w-full sm:w-auto"
+      <CampaignStrategySection
+        bodyEnd={
+          /* The full plan folds into one card in the phases' style: closed,
+             it names the plan; open, it offers the PDF and its sections are
+             pills. */
+          <div className="mt-4">
+            <Accordion type="single" collapsible>
+              <AccordionItem
+                value="plan"
+                className="bg-card relative rounded-xl border px-0 shadow-sm"
               >
-                <DownloadIcon className="size-4" aria-hidden />
-                Download PDF
-              </Button>
-            </div>
-            <AccordionContent className="border-border border-t pt-6">
-              <PlanView
-                showHero={false}
-                showBottomDownload={false}
-                showBottomBar={false}
-                plan={data.plan}
-                planReady={data.planReady}
-                state={data.state}
-                strategyState={data.strategyState}
-                pressOutletsState={data.pressOutletsState}
-                voterInsightsContext={data.voterInsightsContext}
-                onDownload={handleDownload}
-                onShared={handleShared}
-                onContinue={handleContinue}
-                showConfetti={false}
-                rootClassName="bg-transparent"
-                contentClassName="px-6 !pt-0 !pb-6"
-                bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 lg:left-[var(--sidebar-width,16rem)]"
-                navVariant="pills"
-                scrollToTopOnMount={false}
-              />
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </div>
-    </>
+                <AccordionTrigger className="py-5 pr-6 pl-6 hover:no-underline">
+                  <span className="flex flex-1 flex-col gap-1 text-left">
+                    <span className="text-base font-semibold">
+                      Executive Summary
+                    </span>
+                    <span className="text-muted-foreground text-sm font-normal">
+                      This is the whole plan in one view. If you read nothing
+                      else, read this.
+                    </span>
+                  </span>
+                </AccordionTrigger>
+                {/* Under the description, outside the fold: the PDF is reachable
+                    without opening the plan. A sibling of the trigger, since a button
+                    can't nest in its own button. */}
+                <div className="px-6 pb-5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="small"
+                    onClick={handleHeroDownload}
+                    loading={heroDownloading}
+                    disabled={!data.planReady}
+                    className="w-full sm:w-auto"
+                  >
+                    <DownloadIcon className="size-4" aria-hidden />
+                    Download PDF
+                  </Button>
+                </div>
+                <AccordionContent className="border-border border-t pt-6 data-[state=open]:overflow-visible">
+                  <PlanView
+                    showHero={false}
+                    showBottomDownload={false}
+                    showBottomBar={false}
+                    plan={data.plan}
+                    planReady={data.planReady}
+                    state={data.state}
+                    strategyState={data.strategyState}
+                    pressOutletsState={data.pressOutletsState}
+                    voterInsightsContext={data.voterInsightsContext}
+                    onDownload={handleDownload}
+                    onShared={handleShared}
+                    onContinue={handleContinue}
+                    showConfetti={false}
+                    rootClassName="bg-transparent"
+                    contentClassName="px-6 !pt-0 !pb-6"
+                    bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 lg:left-[var(--sidebar-width,16rem)]"
+                    navVariant="pills"
+                    // Pins just under the tracker's sticky phase bar (~73px).
+                    navStickyTop={73}
+                    scrollToTopOnMount={false}
+                  />
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </div>
+        }
+      />
+    </div>
   )
 }
 

@@ -83,9 +83,13 @@ const chooseFromMenu = async (
   await user.click(await screen.findByRole('menuitem', { name: item }))
 }
 
-// Phases start closed, so a test reaches a task row by opening its phase.
-const openLaunch = (user: ReturnType<typeof userEvent.setup>) =>
-  user.click(screen.getByRole('button', { name: /^Launch/ }))
+// The phase in focus opens on its own; open Launch only if it is closed, so
+// the helper never toggles an open phase shut.
+const openLaunch = async (user: ReturnType<typeof userEvent.setup>) => {
+  const trigger = screen.getByRole('button', { name: /^Launch/ })
+  if (trigger.getAttribute('aria-expanded') !== 'true')
+    await user.click(trigger)
+}
 
 const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
   tasks,
@@ -220,24 +224,7 @@ describe('CampaignStrategySection — completing tasks', () => {
   })
 })
 
-describe('CampaignStrategySection — manual generation override', () => {
-  it('hides the Generate tasks button in prod', () => {
-    mockIsProd = true
-    mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
-    render(<CampaignStrategySection />)
-    expect(
-      screen.queryByRole('button', { name: 'Generate tasks' }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('dispatches a generation when clicked in non-prod', async () => {
-    mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
-    const user = userEvent.setup()
-    render(<CampaignStrategySection />)
-    await user.click(screen.getByRole('button', { name: 'Generate tasks' }))
-    expect(mockGenerate).toHaveBeenCalledTimes(1)
-  })
-
+describe('CampaignStrategySection — generation banner', () => {
   it('shows the generating banner while a run is in flight', () => {
     mockIsGenerating = true
     mockTasks.mockReturnValue(settled([task({ id: 't1' })]))

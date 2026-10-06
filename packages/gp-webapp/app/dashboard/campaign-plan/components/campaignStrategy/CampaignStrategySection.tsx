@@ -1,16 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { Accordion, Button, Card } from '@styleguide'
-import { IS_PROD } from 'appEnv'
+import { Accordion, Card, Stepper, cn } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import { useGenerateTrackerTasks, useTrackerTasks } from './useTrackerTasks'
 import { trackerOrigin, useCompleteTrackerTask } from './useCompleteTrackerTask'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
-import { discussTaskMessage, taskAction } from './NextTaskCard'
+import { discussTaskMessage, skipNextTask, taskAction } from './NextTaskCard'
 import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
 import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
@@ -21,10 +20,16 @@ import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
 // has gone through campaign story, so this section is rendered only for the
 // story cohort (see CampaignPlanView) — there is no client-catalog fallback.
 // While the tracker is bootstrapping (no rows yet) it shows a setup state.
-const CampaignStrategySection = (): React.JSX.Element => {
+const CampaignStrategySection = ({
+  bodyEnd,
+}: {
+  // Rendered in the scrolling body under the phases (the plan's Summary), so
+  // the sticky footer of phases ahead stays below it.
+  bodyEnd?: React.ReactNode
+}): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
-  const { generate, isGenerating } = useGenerateTrackerTasks()
+  const { isGenerating } = useGenerateTrackerTasks()
   const router = useRouter()
   // "Start outreach" links into the hub rather than opening a flow here: the
   // hub owns the one mount of each channel flow and the gate in front of it,
@@ -103,49 +108,49 @@ const CampaignStrategySection = (): React.JSX.Element => {
     })
   }, [strategy, campaign?.id])
 
-  // Every phase starts closed: the next-task card above already shows what to
-  // do now, so opening a phase here would only repeat it. A link can still
-  // open one by naming it (`?phase=preLaunch`), for a surface that sends the
-  // candidate to a specific phase.
+  // The phase in focus opens on arrival: the one "happening now", unless a
+  // link names another (`?phase=launch`). Every other phase starts closed.
   const linkedPhase = CampaignStrategyPhaseKeySchema.safeParse(
     typeof window === 'undefined'
       ? null
       : new URLSearchParams(window.location.search).get('phase'),
   )
-  const defaultOpen =
+  const phases = strategy?.phases ?? []
+  const currentIndex = Math.max(
+    0,
+    phases.findIndex((phase) => phase.status === 'active'),
+  )
+  const focusKey =
     linkedPhase.success &&
-    strategy?.phases.some((phase) => phase.key === linkedPhase.data)
-      ? [linkedPhase.data]
-      : []
+    phases.some((phase) => phase.key === linkedPhase.data)
+      ? linkedPhase.data
+      : phases[currentIndex]?.key
+  const [openKeys, setOpenKeys] = useState<string[] | null>(null)
+  const openValue = openKeys ?? (focusKey ? [focusKey] : [])
+
+  // On arrival, bring the "Do this next" row into view so the candidate lands
+  // on what to do now; fall back to the phase in focus. Once per mount.
+  const scrolledRef = useRef(false)
+  useEffect(() => {
+    if (scrolledRef.current || !strategy) return
+    scrolledRef.current = true
+    requestAnimationFrame(() => {
+      const target =
+        document.querySelector('[data-next-task="true"]') ??
+        (focusKey ? document.getElementById(`phase-${focusKey}`) : null)
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }, [strategy, focusKey])
 
   return (
     <section>
-      {/* The section's title and intro sit above the progress card in
-          CampaignPlanView, so only this non-prod trigger is left here. Prod
-          generates via the weekly cron, but dev/qa have no cron, so this lets
-          us dispatch a run on demand. gp-api 404s the route in prod as a
-          backstop. */}
-      {!IS_PROD && (
-        <div className="mb-5 flex justify-start">
-          <Button
-            size="medium"
-            className="w-full sm:w-auto"
-            onClick={generate}
-            loading={isGenerating}
-            loadingText="Generating…"
-            disabled={isPending}
-          >
-            Generate tasks
-          </Button>
-        </div>
-      )}
       {isPending ? (
-        <Card className="flex items-center gap-3 p-4">
+        <Card className="mx-4 mt-6 flex items-center gap-3 p-4 sm:mx-auto sm:max-w-[calc(48rem-2rem)]">
           <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
           <p className="text-muted-foreground text-sm">Loading your tasks…</p>
         </Card>
       ) : isError ? (
-        <Card className="p-4">
+        <Card className="mx-4 mt-6 p-4 sm:mx-auto sm:max-w-[calc(48rem-2rem)]">
           <p className="text-muted-foreground text-sm">
             We could not load your tasks just now. Refresh the page to try
             again.
@@ -154,7 +159,7 @@ const CampaignStrategySection = (): React.JSX.Element => {
       ) : !strategy ? (
         // Plan just completed; the tracker is bootstrapping. Static rows land
         // first (seconds), then the dynamic tasks + events (a few minutes).
-        <Card className="flex items-center gap-3 p-4">
+        <Card className="mx-4 mt-6 flex items-center gap-3 p-4 sm:mx-auto sm:max-w-[calc(48rem-2rem)]">
           <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
           <p className="text-muted-foreground text-sm">
             Setting up your campaign tracker. Your tasks will appear here
@@ -163,40 +168,79 @@ const CampaignStrategySection = (): React.JSX.Element => {
         </Card>
       ) : (
         <>
-          {(isGeneratingDynamic || isGenerating) && (
-            <Card className="mb-4 flex items-center gap-3 p-4">
-              <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
-              <p className="text-muted-foreground text-sm">
-                Finding local events and personalizing the rest of your weekly
-                tasks. They will appear here automatically in a few minutes.
-              </p>
-            </Card>
-          )}
-          <Accordion
-            type="multiple"
-            defaultValue={defaultOpen}
-            className="space-y-4"
-          >
-            {strategy.phases.map((phase) => (
-              <CampaignStrategyPhase
-                key={phase.key}
-                phase={phase}
-                onToggleComplete={onToggleComplete}
-                onStartOutreach={openOutreachFlow}
-                getAction={(task) =>
-                  taskAction(
-                    tasks.find((row) => row.id === task.id),
-                    'plan',
-                  )
-                }
-                onDiscuss={
-                  chat
-                    ? (task) => chat.discussTask(discussTaskMessage(task))
-                    : undefined
-                }
+          {/* Sticky phase progress, full width under the page bar: the four
+              phases as one bar, each labelled, the current one called out. */}
+          <div className="sticky top-0 z-20 w-full border-b border-border bg-background">
+            <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-4">
+              <Stepper
+                currentStep={currentIndex + 1}
+                totalSteps={phases.length}
+                barClassName="h-2"
               />
-            ))}
-          </Accordion>
+              <ol
+                className="mt-2 grid gap-3"
+                style={{
+                  gridTemplateColumns: `repeat(${phases.length}, minmax(0, 1fr))`,
+                }}
+              >
+                {phases.map((phase, index) => (
+                  <li
+                    key={phase.key}
+                    aria-current={index === currentIndex ? 'step' : undefined}
+                    className={cn(
+                      'truncate text-xs',
+                      index === currentIndex
+                        ? 'font-semibold text-primary'
+                        : index < currentIndex
+                          ? 'text-foreground'
+                          : 'text-muted-foreground',
+                    )}
+                  >
+                    {phase.title}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+          <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10">
+            {(isGeneratingDynamic || isGenerating) && (
+              <Card className="mb-4 flex items-center gap-3 p-4">
+                <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
+                <p className="text-muted-foreground text-sm">
+                  Finding local events and personalizing the rest of your weekly
+                  tasks. They will appear here automatically in a few minutes.
+                </p>
+              </Card>
+            )}
+            <Accordion
+              type="multiple"
+              value={openValue}
+              onValueChange={setOpenKeys}
+              className="space-y-4"
+            >
+              {phases.map((phase) => (
+                <CampaignStrategyPhase
+                  key={phase.key}
+                  phase={phase}
+                  onToggleComplete={onToggleComplete}
+                  onStartOutreach={openOutreachFlow}
+                  getAction={(task) =>
+                    taskAction(
+                      tasks.find((row) => row.id === task.id),
+                      'plan',
+                    )
+                  }
+                  onSkip={(task) => skipNextTask(task.id)}
+                  onDiscuss={
+                    chat
+                      ? (task) => chat.discussTask(discussTaskMessage(task))
+                      : undefined
+                  }
+                />
+              ))}
+            </Accordion>
+            {bodyEnd}
+          </div>
         </>
       )}
 

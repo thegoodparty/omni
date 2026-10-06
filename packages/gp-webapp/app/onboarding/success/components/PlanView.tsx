@@ -48,6 +48,8 @@ interface PlanViewProps {
   navStuckClassName?: string
   // How the section nav renders; see PlanSectionNav's `variant`.
   navVariant?: 'select' | 'pills'
+  // Forwarded to PlanSectionNav's `stickyTop`.
+  navStickyTop?: number
   // Onboarding opens the plan as its own screen, so it starts at the top. A
   // host that mounts the plan in place (opening a card) passes false, or the
   // page would jump away from what was just opened.
@@ -91,6 +93,7 @@ const PlanView = ({
   bottomBarClassName = 'fixed inset-x-0 bottom-0 z-40',
   navStuckClassName,
   navVariant,
+  navStickyTop,
   scrollToTopOnMount = true,
   rootClassName,
   contentClassName,
@@ -224,6 +227,7 @@ const PlanView = ({
             voterInsightsContext={voterInsightsContext}
             navStuckClassName={navStuckClassName}
             navVariant={navVariant}
+            navStickyTop={navStickyTop}
           />
         </div>
 

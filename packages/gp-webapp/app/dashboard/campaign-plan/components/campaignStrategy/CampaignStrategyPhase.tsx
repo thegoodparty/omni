@@ -32,6 +32,7 @@ interface CampaignStrategyPhaseProps {
   getAction?: (
     task: CampaignStrategyTask,
   ) => { label: string; href: string; external: boolean } | null
+  onSkip?: (task: CampaignStrategyTask) => void
 }
 
 // `start` is the Monday (yyyy-MM-dd); show the Mon-Sun span. Parse via the same
@@ -53,6 +54,7 @@ const WeekNavigator = ({
   onStartOutreach,
   onDiscuss,
   getAction,
+  onSkip,
 }: {
   weeks: CampaignStrategyWeek[]
   onToggleComplete?: (id: string, completed: boolean) => void
@@ -65,6 +67,7 @@ const WeekNavigator = ({
   getAction?: (
     task: CampaignStrategyTask,
   ) => { label: string; href: string; external: boolean } | null
+  onSkip?: (task: CampaignStrategyTask) => void
 }): React.JSX.Element => {
   const rawIndex = weeks.findIndex((w) => w.isCurrent)
   const currentIndex = rawIndex === -1 ? weeks.length - 1 : rawIndex
@@ -130,6 +133,7 @@ const WeekNavigator = ({
               onStartOutreach={onStartOutreach}
               onDiscuss={onDiscuss}
               getAction={getAction}
+              onSkip={onSkip}
             />
           ))}
         </ul>
@@ -143,7 +147,7 @@ const WeekNavigator = ({
 }
 
 // "Done" is plain green text; the other states are pills.
-const PhaseStatus = ({
+export const PhaseStatus = ({
   status,
 }: {
   status: CampaignStrategyPhaseModel['status']
@@ -174,8 +178,10 @@ const CampaignStrategyPhase = ({
   onStartOutreach,
   onDiscuss,
   getAction,
+  onSkip,
 }: CampaignStrategyPhaseProps): React.JSX.Element => (
   <AccordionItem
+    id={`phase-${phase.key}`}
     value={phase.key}
     className={cn(
       'bg-card overflow-hidden rounded-xl border px-0 shadow-sm',
@@ -208,6 +214,7 @@ const CampaignStrategyPhase = ({
           onStartOutreach={onStartOutreach}
           onDiscuss={onDiscuss}
           getAction={getAction}
+          onSkip={onSkip}
         />
       ) : (
         phase.groups.map((group) => (
@@ -229,6 +236,7 @@ const CampaignStrategyPhase = ({
                   onStartOutreach={onStartOutreach}
                   onDiscuss={onDiscuss}
                   getAction={getAction}
+                  onSkip={onSkip}
                 />
               ))}
             </ul>

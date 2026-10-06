@@ -17,8 +17,11 @@ vi.mock('app/onboarding/success/hooks/useGenerationTiming', () => ({
 vi.mock('app/onboarding/success/pdf/downloadCampaignPlanPdf', () => ({
   downloadCampaignPlanPdf: vi.fn(),
 }))
+// The Summary card rides into the tracker's body, so the stub renders it.
 vi.mock('./campaignStrategy/CampaignStrategySection', () => ({
-  default: () => <div data-testid="tracker-section" />,
+  default: ({ bodyEnd }: { bodyEnd?: React.ReactNode }) => (
+    <div data-testid="tracker-section">{bodyEnd}</div>
+  ),
 }))
 vi.mock('./CampaignTrackerHero', () => ({
   default: () => <div data-testid="tracker-hero" />,
@@ -59,9 +62,8 @@ describe('CampaignPlanView', () => {
     mockData.mockReturnValue(planData())
   })
 
-  it('renders the tracker with the plan below it, hero + bottom bar hidden', async () => {
+  it('renders the tracker with the plan folded under it, bottom bar hidden', async () => {
     render(<CampaignPlanView initialUser={null} />)
-    expect(screen.getByTestId('tracker-hero')).toBeInTheDocument()
     expect(screen.getByTestId('tracker-section')).toBeInTheDocument()
     // The plan starts folded into its card; open it to reach the plan.
     expect(screen.queryByTestId('plan-view')).not.toBeInTheDocument()
