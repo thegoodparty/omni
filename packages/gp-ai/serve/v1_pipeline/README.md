@@ -168,7 +168,9 @@ All atomic messages with multi-cluster assignments (k=5 through k=50):
 
 ## Feedback source
 
-The pipeline also groups issue-capture memos for gp-api. gp-api uploads a CSV under `feedback-input/`, outside `input/`, so the bucket notification never starts a poll run on it. Its POST to `/serve/messages/process` is the only trigger:
+The pipeline also groups issue-capture memos for gp-api. gp-api uploads `feedback-input/<runId>.csv`, and the bucket notification on that prefix starts the run: the trigger Lambda passes `SOURCE_TYPE` `constituent_feedback`, `SOURCE_ID` from the filename (gp-api's run id) and `PUBLISH_TOP_N` 10. A file under `input/` is always a poll run.
+
+To re-run one by hand, POST this body to `/serve/messages/process`:
 
 ```json
 {
@@ -179,7 +181,7 @@ The pipeline also groups issue-capture memos for gp-api. gp-api uploads a CSV un
 }
 ```
 
-The trigger Lambda hands these to the task as `SOURCE_TYPE`, `SOURCE_ID` and `PUBLISH_TOP_N`. When the body leaves one out, the pipeline uses `poll`, an empty id, and `sqs_events.publish_top_n` (3).
+The trigger Lambda hands these to the task as `SOURCE_TYPE`, `SOURCE_ID` and `PUBLISH_TOP_N`. When a POST body leaves one out, the pipeline uses `poll`, an empty id, and `sqs_events.publish_top_n` (3).
 
 The CSV has the columns `respondent_id,message_text,sent_at`, every field quoted. `respondent_id` is a memo id. It sits where a poll's phone number sits through consolidation, clustering and merging, read as text and never normalized.
 

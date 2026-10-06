@@ -1405,8 +1405,6 @@ export {
 
 export {
   FEEDBACK_SYNTHESIS_SOURCE_TYPE,
-  FeedbackSynthesisRequestSchema,
-  type FeedbackSynthesisRequest,
   FeedbackSynthesisCompleteEventSchema,
   type FeedbackSynthesisCompleteEvent,
   FeedbackSynthesisResponseRowsSchema,

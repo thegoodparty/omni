@@ -11,6 +11,12 @@ const S3_OUTPUT_BUCKET = process.env.S3_OUTPUT_BUCKET!
 const SNS_TOPIC_ARN = process.env.SNS_TOPIC_ARN!
 const ENVIRONMENT = process.env.ENVIRONMENT || 'dev'
 
+const FEEDBACK_INPUT_PREFIX = 'feedback-input/'
+// Mirrors FEEDBACK_SYNTHESIS_SOURCE_TYPE in @goodparty_org/contracts, which
+// this Lambda cannot import.
+const FEEDBACK_SOURCE_TYPE = 'constituent_feedback'
+const FEEDBACK_TOP_N = 10
+
 interface PipelineRequest {
   campaign?: string
   csvS3Path: string
@@ -189,6 +195,11 @@ export const handler = async (
 
       request = {
         csvS3Path: `s3://${bucketName}/${objectKey}`,
+      }
+      if (objectKey.startsWith(FEEDBACK_INPUT_PREFIX)) {
+        request.sourceType = FEEDBACK_SOURCE_TYPE
+        request.sourceId = extractCampaignFromS3Path(objectKey)
+        request.topN = FEEDBACK_TOP_N
       }
       triggerSource = 'S3Upload'
 

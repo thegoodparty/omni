@@ -145,10 +145,12 @@ seeds accepted tags from its `CampaignPosition`s first.
   (unset is `pipeline`) picks the engine at boot; any other value, or a
   `FEEDBACK_SYNTHESIS_MOCK_GROUPING` other than `llm|canned`, fails boot.
   The pipeline engine writes `feedback-input/{runId}.csv` to
-  `SERVE_ANALYSIS_BUCKET_NAME` (outside `input/`, whose S3 notification
-  would start the run a second time as a poll) and POSTs
-  `AI_PIPELINE_BASE_URL/serve/messages/process`; the pipeline answers later
-  with `feedbackSynthesisComplete` on the shared queue. The mock waits five
+  `SERVE_ANALYSIS_BUCKET_NAME` and that is the whole hand-off: the bucket's
+  notification on `feedback-input/` starts the run (not `input/`, which
+  starts a poll run), with the filename as the run id. gp-api holds no key
+  or hostname for the pipeline. The pipeline answers later with
+  `feedbackSynthesisComplete` on the shared queue; S3 can notify twice, and
+  the ingest ignores a completion for a run no longer `running`. The mock waits five
   seconds and builds the same event in-process, with one LLM call or, under
   `FEEDBACK_SYNTHESIS_MOCK_GROUPING=canned`, three fixed themes and no call.
   Both end in `FeedbackSynthesisIngestService.handle`, so a laptop run

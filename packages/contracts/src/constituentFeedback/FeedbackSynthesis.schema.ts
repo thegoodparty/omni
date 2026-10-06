@@ -14,19 +14,6 @@ import {
 
 export const FEEDBACK_SYNTHESIS_SOURCE_TYPE = 'constituent_feedback'
 
-// gp-api's trigger to the synthesis pipeline. The CSV at `csvS3Path` has
-// columns `respondent_id,message_text,sent_at`, where respondent_id is the
-// memo's id. `topN` is how many themes to publish; polls keep three.
-export const FeedbackSynthesisRequestSchema = z.object({
-  sourceType: z.literal(FEEDBACK_SYNTHESIS_SOURCE_TYPE),
-  sourceId: z.string(),
-  csvS3Path: z.string(),
-  topN: z.number().int().min(1),
-})
-export type FeedbackSynthesisRequest = z.infer<
-  typeof FeedbackSynthesisRequestSchema
->
-
 // What a synthesis engine publishes when it has grouped a run's memos: the
 // polls pipeline's `pollAnalysisComplete` shape, keyed by a source type and
 // id instead of a poll id, with a memo id where polls carry a phone number.

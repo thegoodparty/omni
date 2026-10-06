@@ -350,7 +350,7 @@ serve/v1_pipeline/output/
 
 ### Feedback source
 
-`v1_pipeline` also groups issue-capture memos for gp-api. gp-api uploads a CSV with the columns `respondent_id,message_text,sent_at` (every field quoted, `respondent_id` a memo id) under `feedback-input/`, outside the `input/` prefix that starts poll runs, then POSTs:
+`v1_pipeline` also groups issue-capture memos for gp-api. gp-api uploads a CSV with the columns `respondent_id,message_text,sent_at` (every field quoted, `respondent_id` a memo id) as `feedback-input/<runId>.csv`. The bucket notification on that prefix starts the run with `SOURCE_TYPE=constituent_feedback`, `SOURCE_ID=<runId>` and `PUBLISH_TOP_N=10`; `input/` stays the poll prefix. A manual re-run POSTs:
 
 ```json
 { "sourceType": "constituent_feedback", "sourceId": "<runId>", "csvS3Path": "s3://<bucket>/feedback-input/<runId>.csv", "topN": 10 }
