@@ -108,8 +108,9 @@ vi.mock(
   }),
 )
 
-// The Pro banner is a legacy dashboard widget with its own campaign provider;
-// this smoke test only covers the home's composition, so stub it out.
+// The Pro banner + progress section are the legacy dashboard widgets (their own
+// campaign/voter-contact providers); this smoke test only covers the home's
+// composition, so stub them out.
 vi.mock('../components/campaignManager/ProUpgradeBanner', () => ({
   default: () => null,
 }))
@@ -132,6 +133,9 @@ vi.mock('../components/campaignManager/TextingSetupBanner', () => ({
 // branching is covered in ProUpgrade3ComplianceCard.test.tsx.
 vi.mock('../components/campaignManager/ProUpgrade3ComplianceCard', () => ({
   default: () => <div data-testid="pro-upgrade-3-compliance-card" />,
+}))
+vi.mock('../components/campaignManager/ProgressSection', () => ({
+  default: () => null,
 }))
 
 // No prior conversations, so the first-run "meet" card renders. Partial-mock so

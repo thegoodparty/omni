@@ -21,9 +21,6 @@ import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPla
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
 import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
 import NextTaskCard from './campaignStrategy/NextTaskCard'
-import ProgressSection from '../../components/campaignManager/ProgressSection'
-import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
-import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
 import CampaignTrackerHero from './CampaignTrackerHero'
 import CampaignPlanStoryCard from './CampaignPlanStoryCard'
 
@@ -187,13 +184,6 @@ const CampaignPlanView = ({
             Everything you need to do, in order. We tell you what to do and
             when, so you always know your next move.
           </p>
-        </div>
-        <div className="mb-6">
-          <VoterContactsProvider>
-            <CampaignUpdateHistoryProvider>
-              <ProgressSection />
-            </CampaignUpdateHistoryProvider>
-          </VoterContactsProvider>
         </div>
         <CampaignPlanStoryCard />
         <CampaignStrategySection />
