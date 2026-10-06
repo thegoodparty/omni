@@ -255,6 +255,12 @@ describe('PeerlyPhoneListService', () => {
         BadGatewayException,
       )
       expect(mockHttpService.post).toHaveBeenCalledTimes(1)
+      // The count on the failure line is what was actually attempted, so an
+      // on-call reader is not sent looking for retries that never ran.
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ attempts: 1 }),
+        expect.stringContaining('not worth retrying'),
+      )
     })
 
     it('refuses a file over the vendor size limit without calling Peerly', async () => {

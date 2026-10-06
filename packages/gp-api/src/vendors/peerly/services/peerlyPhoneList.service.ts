@@ -99,8 +99,10 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
     filename: string
   }): Promise<string> {
     let lastError: unknown
+    let attemptsMade = 0
 
     for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
+      attemptsMade = attempt
       try {
         return await this.attemptUpload({ formFields, csvBuffer, filename })
       } catch (error) {
@@ -131,11 +133,13 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
     // fact: all we kept was Peerly's one-line message.
     this.logger.error(
       {
-        attempts: UPLOAD_MAX_ATTEMPTS,
+        attempts: attemptsMade,
         listName: formFields.list_name,
         ...csvShape(csvBuffer),
       },
-      'Peerly refused this phone list upload on every attempt',
+      attemptsMade === UPLOAD_MAX_ATTEMPTS
+        ? 'Peerly refused this phone list upload on every attempt'
+        : 'Peerly rejected this phone list upload in a way not worth retrying',
     )
 
     return this.peerlyErrorHandling.handleApiError({
