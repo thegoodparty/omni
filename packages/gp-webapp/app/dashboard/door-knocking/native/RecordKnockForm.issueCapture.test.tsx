@@ -12,6 +12,7 @@ import {
 } from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { reportQueryKey } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import RecordKnockForm from './RecordKnockForm'
 import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
 
@@ -196,6 +197,27 @@ describe('RecordKnockForm issue capture', () => {
     await waitFor(() =>
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
+  })
+
+  // The turf's "What we heard" counts are read once and kept for minutes, so
+  // the knock, its note and its confirm each have to say they moved.
+  it('re-reads the report when the knock saves and again when it is confirmed', async () => {
+    const key = reportQueryKey(7)
+    testQueryClient.setQueryData(key, { denominators: {} })
+    const isInvalidated = () =>
+      testQueryClient.getQueryState(key)?.isInvalidated
+
+    const onRecorded = renderForm()
+    await walkAndSave()
+    await screen.findByRole('button', { name: 'Looks right' })
+    expect(isInvalidated()).toBe(true)
+
+    testQueryClient.setQueryData(key, { denominators: {} })
+    expect(isInvalidated()).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Looks right' }))
+
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    expect(isInvalidated()).toBe(true)
   })
 
   it('advances on skip, leaving the memo unconfirmed', async () => {

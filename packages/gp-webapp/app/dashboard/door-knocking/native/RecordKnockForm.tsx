@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ConfirmedConstituentFeedbackIssue,
   DoorKnockOutcome,
@@ -31,6 +31,7 @@ import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { REPORT_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import IssueCaptureConfirmCard, {
   wasCorrected,
@@ -227,6 +228,11 @@ export default function RecordKnockForm({
   const doorKey = String(target.stopTargetId)
   const { successSnackbar } = useSnackbar()
   const [holdFailed, setHoldFailed] = useState(false)
+  // The turf's "What we heard" counts read the report once and stay fresh
+  // for minutes, so each write that changes them re-reads it.
+  const queryClient = useQueryClient()
+  const refreshReport = () =>
+    void queryClient.invalidateQueries({ queryKey: REPORT_QUERY_KEY_PREFIX })
 
   // Held between the knock save and the confirm step. A ref rather than state
   // because `advance` is called from mutation callbacks in the same tick the
@@ -355,6 +361,7 @@ export default function RecordKnockForm({
       ).then((res) => res.data),
     onSuccess: async (data, input) => {
       trackDoorLogged(input, data.knockStatus)
+      refreshReport()
       // This save supersedes whatever the phone still held for the door, so
       // a later drain cannot send an older knock over it.
       // Only where capture is on: with the flag off the form is exactly what
@@ -417,6 +424,7 @@ export default function RecordKnockForm({
         product,
       })
       setCaptured({ id: data.id, proposed: data.extraction })
+      refreshReport()
     },
     // Holding a canvasser at a door whose knock already saved, because a
     // second request failed, is worse than losing the memo. Advance.
@@ -436,6 +444,7 @@ export default function RecordKnockForm({
         issueCount: issues.length,
         product,
       })
+      refreshReport()
       advance()
     },
     // A failed confirm leaves the memo saved and unconfirmed, which reporting

@@ -1,7 +1,8 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { REPORT_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import {
   OFFLINE_MEMO_COPY,
@@ -180,6 +181,11 @@ export default function PhoneBankingOutcomeForm({
     null,
   )
   const [holdFailed, setHoldFailed] = useState(false)
+  // The caller page's "What we heard" counts read the report once, so each
+  // write that changes them re-reads it.
+  const queryClient = useQueryClient()
+  const refreshReport = () =>
+    void queryClient.invalidateQueries({ queryKey: REPORT_QUERY_KEY_PREFIX })
 
   // `captureMethod` rides the mutation's variables rather than being read off
   // `spoken` twice. The two reads happen a round trip apart — the request on
@@ -205,6 +211,7 @@ export default function PhoneBankingOutcomeForm({
       })
       setCaptured({ id: data.id, proposed: data.extraction })
       setFailedMemo(null)
+      refreshReport()
     },
     onError: (_error, input) => setFailedMemo(input),
   })
@@ -225,7 +232,10 @@ export default function PhoneBankingOutcomeForm({
     },
     // Dismiss either way: a failed confirm leaves the memo saved and
     // unconfirmed, which reporting already tells apart.
-    onSettled: () => setCaptured(null),
+    onSettled: () => {
+      setCaptured(null)
+      refreshReport()
+    },
   })
 
   const logCallAnalytics = (savedDraft: PhoneBankingOutcomeDraft): void => {
@@ -347,6 +357,7 @@ export default function PhoneBankingOutcomeForm({
       // themselves, so there is nothing to hold, and leaving the list stale
       // while a second request runs would be the worse trade.
       onSaved(data.results)
+      refreshReport()
       setIsEditing(false)
       logCallAnalytics(input.draft)
       // Re-editing this same call through the pencil toggles `isEditing` on a

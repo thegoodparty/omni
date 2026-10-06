@@ -141,7 +141,12 @@ they recorded.
 `WhatWeHeardLink` reads `N conversations · M notes` from the report and links
 to it. It renders nothing while the flag is off (read without
 exposure: the capture card is the treatment), when there is no envelope, or
-until somebody has answered. It does not poll.
+until somebody has answered. It does not poll, so every write that moves its
+counts re-reads it: `RecordKnockForm` and `PhoneBankingOutcomeForm` invalidate
+`REPORT_QUERY_KEY_PREFIX` when a knock or call saves, when its memo lands and
+when the memo is confirmed, and a queue drain that sent anything does the same.
+A prefix rather than `reportQueryKey(outreachId)`, because neither form knows
+the effort it belongs to, the same reason the review list has one.
 
 - **Turf**: `TurfSummaryRow` fills `TurfSummaryCard`'s `heard` slot with it,
   keyed on `turf.outreachId`, and `TurfDetailsSheet` carries it under
