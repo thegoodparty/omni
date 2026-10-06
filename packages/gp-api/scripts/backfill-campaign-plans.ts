@@ -30,19 +30,27 @@
  *
  * Required env: whatever gp-api itself needs to dispatch a CAP run —
  * DATABASE_URL, AGENT_DISPATCH_QUEUE_NAME, ELECTION_API_* , AWS credentials,
- * plus the secrets the module graph validates at boot.
+ * plus the secrets the module graph validates at boot. ROBOCALL_AUDIO_BUCKET
+ * is optional-tier but a provider in the graph throws without it, so a dry
+ * run needs it set too.
  */
 import '../src/configrc'
 
 import { Module } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
+import { AnalyticsModule } from '../src/analytics/analytics.module'
 import { CampaignsModule } from '../src/campaigns/campaigns.module'
 import { CampaignStrategyModule } from '../src/campaignStrategy/campaignStrategy.module'
 import { CampaignStrategyService } from '../src/campaignStrategy/services/campaignStrategy.service'
+import { FeaturesModule } from '../src/features/features.module'
 import { loggerModule } from '../src/observability/logging/logger-module'
 import { PrismaModule } from '../src/prisma/prisma.module'
 import { PrismaService } from '../src/prisma/prisma.service'
+import { SharedModule } from '../src/shared/shared.module'
+import { UsersModule } from '../src/users/users.module'
 import { isTestCampaign } from '../src/users/util/users.util'
+import { BraintrustModule } from '../src/vendors/braintrust/braintrust.module'
+import { GeminiModule } from '../src/vendors/google/gemini.module'
 
 // Rough per-campaign cost: two plan sections plus the tracker generation the
 // completion handler dispatches. Only used to print an estimate in the dry run,
@@ -164,15 +172,28 @@ export const selectCandidates = (
 // this process never drains the real SQS queue. CampaignsModule is needed
 // because CampaignStrategyService injects CampaignTrackerTasksService, which
 // that (@Global) module provides.
+//
+// A @Global module is only visible to modules that boot under a root that
+// registers it, and only AppModule registers these. Anything reachable from
+// CampaignsModule that injects a global provider (CampaignStoryModule needs
+// GeminiService, MeetingsModule needs BraintrustService, ...) resolves only
+// because they are listed here too. Keep this in step with the @Global
+// modules in app.module.ts; the db test boots this module to catch drift.
 @Module({
   imports: [
     loggerModule,
     PrismaModule,
+    AnalyticsModule,
+    BraintrustModule,
+    FeaturesModule,
+    GeminiModule,
+    SharedModule,
+    UsersModule,
     CampaignsModule,
     CampaignStrategyModule,
   ],
 })
-class BackfillModule {}
+export class BackfillModule {}
 
 const main = async () => {
   const args = parseArgs(process.argv.slice(2))

@@ -1,7 +1,31 @@
 import { describe, expect, it } from 'vitest'
+import { NestFactory } from '@nestjs/core'
 import { addDays, format, subDays } from 'date-fns'
+import { CampaignStrategyService } from '../src/campaignStrategy/services/campaignStrategy.service'
 import { useTestService } from '../src/test-service'
-import { selectCandidates } from './backfill-campaign-plans'
+import { BackfillModule, selectCandidates } from './backfill-campaign-plans'
+
+// The script boots its own module graph, not AppModule, so a @Global module
+// that only AppModule registers is invisible to it. The first time that bit,
+// the script compiled, its tests passed, and it died on the first run against
+// prod with an unresolved provider. Booting the real module is the only check
+// that catches the next one.
+describe('BackfillModule', () => {
+  useTestService()
+
+  it('boots and resolves the service the script dispatches through', async () => {
+    const app = await NestFactory.createApplicationContext(BackfillModule, {
+      logger: false,
+    })
+    try {
+      expect(app.get(CampaignStrategyService)).toBeInstanceOf(
+        CampaignStrategyService,
+      )
+    } finally {
+      await app.close()
+    }
+  })
+})
 
 // The eligibility predicate is five SQL conditions and the one that matters
 // most is invisible from the outside: a campaign whose plan generation failed
