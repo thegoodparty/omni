@@ -9,10 +9,13 @@ import {
   parseArgs,
   pricingConfig,
   referenceTurns,
+  admittedTurns,
+  type LoadedReference,
   run,
   selectAgents,
 } from './cli'
 import { DEFAULT_JUDGE_CONFIG } from './config'
+import { estimateAgent, priceAgainstReferences } from './planCost'
 import type { AgentEntry } from './agents'
 
 const AGENTS: AgentEntry[] = [
@@ -305,6 +308,34 @@ describe('reference pricing', () => {
       [{ estimate: undefined, chatAttempts: 3, chatTurns: () => 16 }],
     ).plan
     expect(plan).toContain('(16 base + 8 candidate turns)')
+  })
+
+  // A TRIMMED LIST AND A FAILED FETCH: the base arm could walk any list the
+  // budget admits, so it is priced at that ceiling, not at the trim.
+  // chief_of_staff plans 20s a turn, so 70 min holds 210 turn-attempts: 70
+  // turns at 3 attempts. (70 + 2) x 3 x $0.52 = $112.32, x1.5 = $168.48.
+  it('prices an unread ref list at the most turns the arm admits', () => {
+    const refs: LoadedReference[] = [
+      { estimate: estimateAgent, chatAttempts: 3, chatTurns: () => 9 },
+      { estimate: undefined, chatAttempts: 3, chatTurns: () => 'unread' },
+    ]
+    expect(admittedTurns(chat, 3)).toBe(70)
+    expect(referenceTurns(refs, () => 2, 3)(chat)).toBe(70)
+    const priced = priceAgainstReferences(refs, DEFAULT_JUDGE_CONFIG, {
+      countTurns: () => 2,
+      baseTurns: referenceTurns(refs, () => 2, 3),
+    })(chat)
+    expect(priced).toMatchObject({ cents: 16850, basis: 'base-unread' })
+    expect(priced.why).toContain('(70 base + 2 candidate turns)')
+  })
+
+  it('wires the ceiling through the CLI', () => {
+    const plan = run(
+      ['--agents=chief_of_staff', '--dry-run', '--reference=x'],
+      [chat],
+      [{ estimate: estimateAgent, chatAttempts: 3, chatTurns: () => 'unread' }],
+    ).plan
+    expect(plan).toContain('(70 base + 8 candidate turns)')
   })
 
   it('takes the longest list across refs', () => {

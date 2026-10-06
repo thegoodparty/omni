@@ -1375,8 +1375,10 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
   const runEstimate = (
     plan: string,
     agents: string,
-    gh: 'ok' | '404' | 'error' = 'ok',
+    gh: 'ok' | '404' | '403' | 'error' = 'ok',
     defaultRef = 'trunk',
+    // The CLI's first, unpriced run exits 1, and its second exits this.
+    cliFails?: number,
   ) => {
     // Real, because the step builds the base copy's path from `$PWD`.
     const dir = realpathSync(
@@ -1392,7 +1394,11 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     writeFileSync(
       path.join(bin, 'npx'),
       `#!/bin/bash\necho "$*" >> "${path.join(dir, 'npx.args')}"\n` +
-        `cat "${path.join(dir, 'plan.fixture')}"\n`,
+        (cliFails === undefined
+          ? ''
+          : `[[ "$*" == *--reference* ]] || exit 1\n`) +
+        `cat "${path.join(dir, 'plan.fixture')}"\n` +
+        (cliFails === undefined ? '' : `exit ${cliFails}\n`),
     )
     // Stands in for the base ref's files; a GitHub API that does not answer
     // must not fail the step.
@@ -1402,6 +1408,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
         {
           ok: `echo "// $*"\n`,
           '404': 'echo "gh: Not Found (HTTP 404)" >&2; exit 1\n',
+          '403': 'echo "gh: Forbidden (HTTP 403)" >&2; exit 1\n',
           error: 'echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1\n',
         }[gh],
     )
@@ -1550,6 +1557,8 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
   // file, which the CLI reads as unreadable and prices at the worst case.
   it.each([
     ['404', ''],
+    // Not just any 4xx: a 403 or a rate limit is not a file that is absent.
+    ['403', 'fetch failed\n'],
     ['error', 'fetch failed\n'],
   ] as const)('leaves what a %s fetch says for the CLI', (gh, written) => {
     const result = runEstimate(
@@ -1568,6 +1577,24 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
         expect(readFileSync(path.join(result.dir, file), 'utf8')).toBe(written)
       }
     }
+  })
+
+  // The first, unpriced run is only for the ids. When it fails, the step goes
+  // on to the real run, which answers on the thread.
+  it('reaches the priced run when the unpriced one fails', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 900 (measured)  cases: chief_of_staff.json\n\n' +
+        '  unknown agent ids: typo\n',
+      'chief_of_staff,typo',
+      'ok',
+      'trunk',
+      1,
+    )
+    expect(result.status).not.toBe(0)
+    expect(result.npxArgs.split('\n').filter(Boolean)).toHaveLength(2)
+    expect(result.npxArgs).toContain('--reference=')
+    expect(result.refusal).toContain('would not accept this request')
   })
 
   // `all` is the selector, not an id: the lists fetched are the chat agents

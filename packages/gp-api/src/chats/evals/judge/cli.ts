@@ -3,6 +3,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import { AGENTS, coverage, type AgentEntry } from './agents'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
+import { ARM_BUDGET_MS, chatTurnMsFor } from './runners/backgroundDispatch'
 import {
   baseChatAttemptsIn,
   DEFAULT_SOURCES,
@@ -234,18 +235,31 @@ export const pricingConfig = (
   ),
 })
 
+// The most turns a chat agent's list may drive per attempt and still be
+// walked: the ceiling refuseChat enforces, ARM_BUDGET_MS at the agent's
+// planned seconds a turn. A longer list is refused, not run.
+export const admittedTurns = (agent: AgentEntry, attempts: number): number =>
+  Math.floor(ARM_BUDGET_MS / (chatTurnMsFor(agent.agentId) * attempts))
+
 // The longest list any ref's base arm could walk. When this branch's
 // registry names a file other than `<agentId>.json`, the ref's list was read
 // under the other name, so this branch's count is a floor for it too.
+//
+// A ref whose list could not be read could hold any list the arm admits, so
+// the base side is priced at that ceiling rather than at this branch's count:
+// a trimmed list and a failed fetch would otherwise price at the trim.
 export const referenceTurns =
   (
     references: readonly LoadedReference[],
     candidateTurns: (agent: AgentEntry) => number = DEFAULT_SOURCES.countTurns,
+    attempts: number = DEFAULT_JUDGE_CONFIG.attemptsPerCase,
   ) =>
   (agent: AgentEntry): number | undefined => {
-    const found = references
-      .map((one) => one.chatTurns(agent))
-      .filter((turns): turns is number => typeof turns === 'number')
+    const read = references.map((one) => one.chatTurns(agent))
+    if (read.includes('unread')) return admittedTurns(agent, attempts)
+    const found = read.filter(
+      (turns): turns is number => typeof turns === 'number',
+    )
     if (agent.cases !== `${agent.agentId}.json`) {
       found.push(candidateTurns(agent))
     }
@@ -294,7 +308,11 @@ export const run = (
     loaded ?? args.references.map((): LoadedReference => UNREAD)
   const config = pricingConfig(references.map((one) => one.chatAttempts))
   const estimate = priceAgainstReferences(references, config, {
-    baseTurns: referenceTurns(references),
+    baseTurns: referenceTurns(
+      references,
+      DEFAULT_SOURCES.countTurns,
+      config.attemptsPerCase,
+    ),
   })
   return {
     plan: formatPlan(selection, agents, estimate),
