@@ -19,6 +19,7 @@ import {
   budgetOutputLines,
   resolveAdmission,
   CHAT_COSTS,
+  baseCannotRunChat,
   candidateChatTurns,
   resolveChatRefusals,
 } from './armBudget'
@@ -105,6 +106,9 @@ const baseTree = (spec: {
   boundsChat?: boolean
   // A chat agent's case list on the base, as a number of cases.
   chatCases?: Record<string, number>
+  // The base ref's agents.ts. Absent means this branch's own, so a base that
+  // can run every chat agent is the default; null leaves it out.
+  registry?: string | null
 }): string => {
   const root = mkdtempSync(join(tmpdir(), 'base-tree-'))
   const judgeDir = join(root, 'packages/gp-api/src/chats/evals/judge')
@@ -117,6 +121,12 @@ const baseTree = (spec: {
     join(judgeDir, 'sweepArm.ts'),
     spec.concurrent === true ? NEW_ARM_WALK : OLD_ARM_WALK,
   )
+  if (spec.registry !== null) {
+    writeFileSync(
+      join(judgeDir, 'agents.ts'),
+      spec.registry ?? readFileSync(join(__dirname, 'agents.ts'), 'utf8'),
+    )
+  }
   if (spec.boundsChat === true) {
     mkdirSync(join(judgeDir, 'runners'))
     writeFileSync(
@@ -1117,6 +1127,7 @@ describe('the chat agents refused for time', () => {
       base: () => 8,
       baseAttempts: () => undefined,
       boundsChat: () => true,
+      baseCannotRun: () => undefined,
       ...over,
     })
 
@@ -1197,6 +1208,7 @@ describe('the chat agents refused for time', () => {
           base: () => 8,
           baseAttempts: () => baseAttempts,
           boundsChat: () => true,
+          baseCannotRun: () => undefined,
         },
         (line) => warned.push(line),
       )
@@ -1261,6 +1273,7 @@ describe('the chat agents refused for time', () => {
         },
         baseAttempts: () => 3,
         boundsChat: () => true,
+        baseCannotRun: () => undefined,
       },
       (line) => lines.push(line),
     )
@@ -1320,5 +1333,162 @@ describe("the probe for the base arm's chat attempts", () => {
     expect(
       BASE_CHAT_ATTEMPTS.exec('  attemptsPerCase: 3, foo: 1,\n'),
     ).toBeNull()
+  })
+})
+
+// A CHAT AGENT THE BASE REF CANNOT RUN. The base arm skips it as blocked or
+// listless, so the candidate arm walking it would pay for every turn and pair
+// none of them. This branch is the first to hit that: it unblocks
+// briefing_annotation, which main still blocks.
+describe('the chat agents the base ref cannot run', () => {
+  const OWN_REGISTRY = readFileSync(join(__dirname, 'agents.ts'), 'utf8')
+  const EMPTY_BLOCKED =
+    'const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {}'
+  const BRIEFING_ROW = "  briefing_annotation: 'briefing_annotation.json',\n"
+  // Main's shape before this branch: briefing chat blocked, with its reason.
+  const blockedRegistry = OWN_REGISTRY.replace(
+    EMPTY_BLOCKED,
+    'const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {\n' +
+      "  briefing_annotation:\n    'Not drivable yet.',\n}",
+  )
+  const listlessRegistry = OWN_REGISTRY.replace(BRIEFING_ROW, '')
+  const briefing = (): AgentEntry => {
+    const found = findAgent('briefing_annotation')
+    if (found === undefined) throw new Error('briefing_annotation is missing')
+    return found
+  }
+  const tree = (registry: string | null, withFile = true): string =>
+    baseTree({
+      timeouts: {},
+      boundsChat: true,
+      chatCases: withFile
+        ? { briefing_annotation: 8, chief_of_staff: 8 }
+        : { chief_of_staff: 8 },
+      registry,
+    })
+
+  it('reads this branch as able to run it, so the fixtures are real', () => {
+    expect(OWN_REGISTRY).toContain(EMPTY_BLOCKED)
+    expect(OWN_REGISTRY).toContain(BRIEFING_ROW)
+    expect(blockedRegistry).not.toBe(OWN_REGISTRY)
+    expect(listlessRegistry).not.toBe(OWN_REGISTRY)
+  })
+
+  it('refuses an agent the base registry blocks', () => {
+    expect(baseCannotRunChat(tree(blockedRegistry), briefing())).toBe(
+      'it is blocked there',
+    )
+  })
+
+  it('refuses an agent the base registry lists no case list for', () => {
+    expect(baseCannotRunChat(tree(listlessRegistry), briefing())).toBe(
+      'it has no case list there',
+    )
+  })
+
+  it('refuses an agent whose listed file is not on the base', () => {
+    expect(baseCannotRunChat(tree(OWN_REGISTRY, false), briefing())).toBe(
+      'it has no case list there',
+    )
+  })
+
+  // Fails closed, as the admission probe does: a sweep refused, nothing billed.
+  it('refuses when the base registry cannot be read', () => {
+    expect(baseCannotRunChat(tree(null), briefing())).toMatch(
+      /registry is not on the base ref/,
+    )
+    expect(
+      baseCannotRunChat(tree('export const AGENTS = []\n'), briefing()),
+    ).toMatch(/blocked list could not be found/)
+  })
+
+  it('lets an agent the base can run through', () => {
+    expect(baseCannotRunChat(tree(OWN_REGISTRY), briefing())).toBeUndefined()
+  })
+
+  // End to end, as judge.yml runs it: the refusal reaches both arms, the arm
+  // treats it as a refusal by design, and the candidate's other chat agents
+  // are still costed for time.
+  it('refuses it before spend, by name, and the arm stays green', () => {
+    const { status, written } = runEntry({
+      BASE_DIR: tree(blockedRegistry),
+      JUDGE_AGENTS: 'briefing_annotation,chief_of_staff',
+    })
+    expect(status).toBe(0)
+    const arm = parseArmEnv(intoArmEnv(PARSE(written)))
+    expect(arm.backgroundRefused?.get('briefing_annotation')).toMatch(
+      /^the base ref cannot run this agent \(it is blocked there\), so the candidate arm would pay for turns with nothing to compare/,
+    )
+    expect(arm.backgroundRefused?.has('chief_of_staff')).toBe(false)
+    expect(
+      capturableAgents(
+        ['briefing_annotation', 'chief_of_staff'],
+        arm,
+        findAgent,
+        DEFAULT_JUDGE_CONFIG,
+      ),
+    ).toEqual(['chief_of_staff'])
+  })
+
+  it('does not refuse it when the base can run it', () => {
+    const { written } = runEntry({
+      BASE_DIR: tree(OWN_REGISTRY),
+      JUDGE_AGENTS: 'briefing_annotation',
+    })
+    expect(written).toMatch(/^refused=\{\}$/m)
+  })
+
+  // The base arm skips it whether or not it bounds chat, so the candidate is
+  // the only arm that would pay.
+  it('refuses it against a base that does not bound chat too', () => {
+    expect(
+      resolveChatRefusals(
+        ['briefing_annotation'],
+        '/no/base',
+        DEFAULT_JUDGE_CONFIG,
+        AGENTS,
+        {
+          candidate: () => 8,
+          base: () => undefined,
+          baseAttempts: () => 3,
+          boundsChat: () => false,
+          baseCannotRun: () => 'it is blocked there',
+        },
+      ).map((one) => one.agentId),
+    ).toEqual(['briefing_annotation'])
+  })
+
+  // The candidate-only budget is untouched: an agent refused for the base is
+  // taken out before it, and does not use up time the others need.
+  it('keeps the time budget for the agents the base can run', () => {
+    const costs = {
+      candidate: () => 8,
+      base: () => 8,
+      baseAttempts: () => 3,
+      boundsChat: () => true,
+    }
+    const ids = ['briefing_annotation', 'chief_of_staff', 'campaign_assistant']
+    const runnable = resolveChatRefusals(
+      ids,
+      '/no/base',
+      DEFAULT_JUDGE_CONFIG,
+      AGENTS,
+      { ...costs, baseCannotRun: () => undefined },
+    )
+    const unrunnable = resolveChatRefusals(
+      ids,
+      '/no/base',
+      DEFAULT_JUDGE_CONFIG,
+      AGENTS,
+      {
+        ...costs,
+        baseCannotRun: (_dir, agent) =>
+          agent.agentId === 'briefing_annotation' ? 'blocked' : undefined,
+      },
+    )
+    expect(runnable.map((one) => one.agentId)).toEqual(['campaign_assistant'])
+    expect(unrunnable.map((one) => one.agentId)).toEqual([
+      'briefing_annotation',
+    ])
   })
 })
