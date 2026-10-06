@@ -257,8 +257,8 @@ and ordinance prompts include them: `CLAIM_STRENGTH_RULE` (what they said,
 what a source shows and what is inferred stay apart; a legal question gets a
 likely reading, the provision, what could change it, and the attorney) and
 `LEGAL_VALUES_RULE` (no legal figure unless a source read this conversation
-gave it). The priority handler also uses Chief of Staff's
-`professionalAdviceDisclaimer` backstop through `finalizeAssistantText`.
+gave it). The priority and ordinance handlers also use Chief of
+Staff's `professionalAdviceDisclaimer` backstop through `finalizeAssistantText`.
 Change the wording there, not in either prompt.
 
 ## Cards are keyed, not trusted
