@@ -11,6 +11,7 @@ import {
   cn,
 } from '@styleguide'
 import {
+  CircleAlertIcon,
   EyeIcon,
   GiftIcon,
   InfoIcon,
@@ -115,6 +116,11 @@ export const SmsReviewStep = ({
   // which is the only figure that reflects an applied promo code. Null until
   // the form reports it, so the summary falls back to the session amount.
   const [liveTotalDollars, setLiveTotalDollars] = useState<number | null>(null)
+  // A declined or failed card confirm. The form stays mounted so the
+  // candidate can try another card on the same session; swapping in the
+  // purchase-error card read as "Failed to initialize purchase" and forced a
+  // Back that minted a new draft and session (Dujuan Thomas, 2026-10-06).
+  const [cardError, setCardError] = useState<string | null>(null)
   const isRedeemingRef = useRef(false)
   const hasFetchedSession = useRef(false)
 
@@ -127,6 +133,11 @@ export const SmsReviewStep = ({
   const totalDollars = isFree
     ? 0
     : (liveTotalDollars ?? checkoutSession?.amount ?? 0)
+  // The provider's error is set both when the session could not be created
+  // and, by the form, when a confirm fails. Only the first is fatal to the
+  // step; once a session exists an error is a card problem to show inline.
+  const sessionError = Boolean(error) && !checkoutSession
+  const inlineCardError = cardError ?? (checkoutSession ? error : null)
   // No checkout session exists before the draft is saved, so the total is
   // the same estimate the audience step priced.
   const summaryDollars =
@@ -296,7 +307,7 @@ export const SmsReviewStep = ({
               ) : (
                 'Free'
               )
-            ) : prepareError || error ? (
+            ) : prepareError || sessionError ? (
               '\u2014'
             ) : preparing || (!isFree && !checkoutSession) ? (
               <Loader2Icon className="size-4 animate-spin" />
@@ -363,7 +374,7 @@ export const SmsReviewStep = ({
         <div className="flex justify-center py-6">
           <Spinner />
         </div>
-      ) : payError || error ? (
+      ) : payError || sessionError ? (
         <PurchaseError serverError={payErrorMessage ?? undefined} />
       ) : isFree ? (
         <Button
@@ -382,10 +393,19 @@ export const SmsReviewStep = ({
             <p className="font-medium text-foreground">Payment details</p>
             <CheckoutPayment
               onPaymentSuccess={handlePaidComplete}
-              onPaymentError={() => setPayError(true)}
+              onPaymentError={setCardError}
               onTotalChange={setLiveTotalDollars}
             />
           </Card>
+          {inlineCardError && (
+            <Alert
+              variant="destructive"
+              icon={<CircleAlertIcon className="size-4" />}
+            >
+              <AlertTitle>Your payment didn&apos;t go through</AlertTitle>
+              <AlertDescription>{inlineCardError}</AlertDescription>
+            </Alert>
+          )}
           <Alert variant="info" icon={<InfoIcon className="size-4" />}>
             <AlertTitle>${money(totalDollars)} due today</AlertTitle>
             <AlertDescription>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { SmsReviewStep } from './SmsReviewStep'
 
@@ -9,17 +9,27 @@ const { live } = vi.hoisted(() => ({
   live: { dollars: null as number | null },
 }))
 
+const DECLINE = 'Your card has insufficient funds. Try a different card.'
+
 vi.mock('app/dashboard/purchase/components/CheckoutPayment', async () => {
   const { useEffect } = await import('react')
   const CheckoutPaymentStub = ({
     onTotalChange,
+    onPaymentError,
   }: {
     onTotalChange?: (dollars: number) => void
+    onPaymentError?: (message: string) => void
   }) => {
     useEffect(() => {
       if (live.dollars !== null) onTotalChange?.(live.dollars)
     }, [onTotalChange])
-    return <div data-testid="checkout-payment" />
+    return (
+      <div data-testid="checkout-payment">
+        <button type="button" onClick={() => onPaymentError?.(DECLINE)}>
+          Decline the card
+        </button>
+      </div>
+    )
   }
   return { default: CheckoutPaymentStub }
 })
@@ -58,11 +68,11 @@ const renderStep = () =>
     />,
   )
 
-describe('SmsReviewStep totals', () => {
-  beforeEach(() => {
-    live.dollars = null
-  })
+beforeEach(() => {
+  live.dollars = null
+})
 
+describe('SmsReviewStep totals', () => {
   it('shows the session amount until Stripe has priced the session', async () => {
     renderStep()
 
@@ -78,5 +88,21 @@ describe('SmsReviewStep totals', () => {
     expect(await screen.findByText('$847.42 due today')).toBeInTheDocument()
     expect(screen.getByText('$847.42')).toBeInTheDocument()
     expect(screen.queryByText('$1197.42')).not.toBeInTheDocument()
+  })
+})
+
+describe('SmsReviewStep card declines', () => {
+  it('keeps the payment form and shows the decline reason instead of an initialization error', async () => {
+    renderStep()
+    await screen.findByTestId('checkout-payment')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Decline the card' }))
+
+    expect(await screen.findByText(DECLINE)).toBeInTheDocument()
+    expect(screen.getByTestId('checkout-payment')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Failed to initialize purchase'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('$1197.42')).toBeInTheDocument()
   })
 })
