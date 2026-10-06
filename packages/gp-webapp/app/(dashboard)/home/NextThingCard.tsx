@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   IconButton,
-  MessageSquareIcon,
+  SparklesIcon,
   MoreHorizontalIcon,
 } from '@styleguide'
 import {
@@ -436,7 +436,7 @@ export default function NextThingCard(): React.JSX.Element {
                 chat.chatAboutTask(next, questionsFor(next, needsFiling))
               }}
             >
-              <MessageSquareIcon className="size-4" aria-hidden />
+              <SparklesIcon className="size-4" aria-hidden />
               Chat about this
             </Button>
           </div>
