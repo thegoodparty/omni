@@ -320,12 +320,6 @@ export function StoryEditorForm({
       <StoryHeader status={status} beforeLeave={saveAll} />
 
       <StoryBody>
-        <p className="text-base text-muted-foreground">
-          The foundation we build everything else on: your why, your background,
-          and the issues you&apos;ll fight for. Your answers personalize your
-          campaign plan, stump speech, and voter messages.
-        </p>
-
         <StoryIntakeCard
           key={`why-${resetKey}`}
           question={STORY_WHY_QUESTION}
