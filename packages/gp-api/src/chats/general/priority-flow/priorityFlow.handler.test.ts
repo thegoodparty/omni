@@ -238,6 +238,9 @@ describe('PriorityFlowHandler', () => {
     const names = Object.keys(build().buildTools(baseCtx())).sort()
     expect(names).toEqual([
       'ask_clarify_question',
+      'present_authority_finding',
+      'present_comparables',
+      'present_current_law_summary',
       'present_outreach_proposal',
       'present_outside_contact',
       'present_past_outreach',
@@ -438,6 +441,33 @@ describe('PriorityFlowHandler', () => {
     expect(build().finalizeAssistantText('Potholes cluster downtown.')).toBe(
       null,
     )
+  })
+
+  it('puts research and people on cards rather than in prose', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('Research goes on the cards made for it')
+    expect(prompt).toContain('present_comparables')
+    expect(prompt).toContain('present_current_law_summary')
+    expect(prompt).toContain('present_authority_finding')
+    expect(prompt).toContain(
+      'Never put a phone number, email or address in your message',
+    )
+    expect(prompt).toContain('end the turn on their card')
+  })
+
+  it('offers the finding cards as display-only tools', async () => {
+    const tools = build().buildTools(baseCtx())
+    for (const name of [
+      'present_comparables',
+      'present_current_law_summary',
+      'present_authority_finding',
+    ]) {
+      expect(tools[name]).toBeDefined()
+    }
+    const authority = tools.present_authority_finding as {
+      execute: (input: unknown) => unknown
+    }
+    expect(await authority.execute({})).toEqual({ presented: true })
   })
 
   it('lets the outreach cards be the choice, never asked about or rebuilt', () => {

@@ -248,6 +248,18 @@ call a source stale. This is guidance, not a gate, and it uses the shared
 source shape as it is, without extending it. Numbers in prose come from a tool
 call or a named source, and a text sample's size from `size_outreach_sample`.
 
+## Research goes on the ordinance finding cards
+
+Peer cities, the current code or program, and whether the office can act are
+not written up in prose. They go on the ordinance chat's own cards
+(`findingWidgetTools` in `ordinances/components/stepWidgets.tsx`, registered
+here unchanged): `present_comparables`, `present_current_law_summary` and
+`present_authority_finding`, each with its source line. The priority handler
+offers them display-only, with the ordinance schemas, because a priority has
+no ordinance to save them to. People to contact go on outside contact cards,
+never as a phone number in prose. The model otherwise wrote a long unsourced
+"here's the picture" and ended on a phone number.
+
 ## How sure it sounds is shared with ordinances
 
 The agent strengthened what officials told it into causal conclusions and

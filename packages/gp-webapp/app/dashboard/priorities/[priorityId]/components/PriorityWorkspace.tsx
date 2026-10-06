@@ -70,6 +70,12 @@ import {
   type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
+import {
+  AUTHORITY_TOOL,
+  COMPARABLES_TOOL,
+  CURRENT_LAW_TOOL,
+  findingWidgetTools,
+} from '../../../ordinances/components/stepWidgets'
 import { PriorityStatusRail } from './PriorityStatusRail'
 import { StatusChangeMarker } from './StatusChangeMarker'
 
@@ -93,6 +99,9 @@ const GENERATING_LABELS: Record<string, string> = {
   present_past_outreach: "Checking what you've sent...",
   [STATUS_TOOL]: 'Updating where this stands...',
   web_search: 'Searching the web...',
+  [COMPARABLES_TOOL]: 'Looking at what other places did...',
+  [CURRENT_LAW_TOOL]: 'Reading the current code...',
+  [AUTHORITY_TOOL]: 'Checking what you can do here...',
 }
 
 type Phase = 'loading' | 'ready' | 'error'
@@ -101,6 +110,7 @@ type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
 
 const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
   ...cardWidgetTools,
+  ...findingWidgetTools,
   clarifyWidgetTool,
 ])
 

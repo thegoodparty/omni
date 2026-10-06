@@ -653,6 +653,48 @@ describe('PriorityWorkspace', () => {
     )
   })
 
+  it('shows how other places handled it on the ordinance comparables card', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          { kind: 'text', text: 'Here is what other cities did.' },
+          {
+            kind: 'tool',
+            toolName: 'present_comparables',
+            payload: {
+              comparables: [
+                {
+                  city: 'Boulder',
+                  state: 'CO',
+                  quote: 'Bear-resistant containers are required citywide.',
+                  status: 'passed',
+                  source: {
+                    id: 's1',
+                    title: 'Bear Protection Ordinance',
+                    url: 'https://bouldercolorado.gov/bears',
+                    publisher: 'City of Boulder',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    expect(await screen.findByText(/Boulder/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Bear-resistant containers are required citywide/),
+    ).toBeInTheDocument()
+  })
+
   it('shows an ordinary tool as a quiet pill rather than a card', async () => {
     mocks.listMessages.mockResolvedValue([
       {
