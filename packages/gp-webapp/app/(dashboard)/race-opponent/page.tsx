@@ -2,8 +2,7 @@ import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import pageMetaData from 'helpers/metadataHelper'
 import { serverRequest } from 'gpApi/server-request'
 import candidateAccess from '../shared/candidateAccess'
-import DashboardLayout from '../shared/DashboardLayout'
-import { NAV_LABELS } from '../shared/navLabels'
+import { FocusedPage } from '../shared/FocusedPage'
 import RaceOpponentList from './components/RaceOpponentList'
 import OpponentProLockedView from './components/OpponentProLockedView'
 import type { RaceOpponentResponse } from 'gpApi/api-endpoints'
@@ -46,8 +45,12 @@ const raceContextFor = (
   return parts.length > 0 ? parts.join(' · ') : undefined
 }
 
+// A focused page opened from the Game Plan's "Your opponents" card, so it
+// carries the card's name.
+const PAGE_TITLE = 'Your opponents'
+
 const meta = pageMetaData({
-  title: 'Know your opponent | GoodParty.org',
+  title: 'Your opponents | GoodParty.org',
   description: 'Collected research on your opponents',
   slug: '/race-opponent',
 })
@@ -62,19 +65,9 @@ export default async function Page(): Promise<React.JSX.Element> {
   // redirected to /pro-upgrade.
   if (!campaign?.isPro) {
     return (
-      <DashboardLayout
-        pathname="/race-opponent"
-        showAlert={false}
-        wrapperClassName="flex flex-col !p-0"
-        // The shared title bar every main nav page uses (the Voter Data page is
-        // the reference), so the icon + name match the sidebar tab exactly.
-        // This replaced the feature-local PageHeader bar.
-        navHeader={{ icon: 'flag', label: NAV_LABELS.knowYourOpponent }}
-      >
-        <div className="flex-1 px-4 py-6 lg:px-8">
-          <OpponentProLockedView />
-        </div>
-      </DashboardLayout>
+      <FocusedPage title={PAGE_TITLE}>
+        <OpponentProLockedView />
+      </FocusedPage>
     )
   }
 
@@ -100,23 +93,15 @@ export default async function Page(): Promise<React.JSX.Element> {
   )
   const raceContext = raceContextFor(racePlace, campaign.details?.electionDate)
 
+  // The report state's "Export brief" portals in beside the title
+  // (RaceOpponentList); the processing and empty states have no action.
   return (
-    <DashboardLayout
-      pathname="/race-opponent"
-      showAlert={false}
-      wrapperClassName="flex flex-col !p-0"
-      // The report state's "Export brief" portals into the bar
-      // (RaceOpponentList); the processing and empty states have no CTA, and the
-      // bar tracks that itself.
-      navHeader={{ icon: 'flag', label: NAV_LABELS.knowYourOpponent }}
-    >
-      <div className="flex-1 px-4 py-6 lg:px-8">
-        <RaceOpponentList
-          initialData={initialData}
-          raceContext={raceContext}
-          racePlace={racePlace}
-        />
-      </div>
-    </DashboardLayout>
+    <FocusedPage title={PAGE_TITLE}>
+      <RaceOpponentList
+        initialData={initialData}
+        raceContext={raceContext}
+        racePlace={racePlace}
+      />
+    </FocusedPage>
   )
 }

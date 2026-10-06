@@ -88,7 +88,7 @@ const OpponentProLockedView = (): React.JSX.Element => {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[560px] flex-col px-6 py-10">
+    <div className="mx-auto flex w-full max-w-[608px] flex-col">
       <Card>
         <CardHeader className="gap-4">
           <div className="flex flex-wrap items-center gap-2">

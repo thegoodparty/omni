@@ -43,7 +43,7 @@ export default function CampaignPlanOverviewCards(): React.JSX.Element {
       aria-label="What your plan is built from"
       className="mb-8 grid gap-3 sm:grid-cols-3"
     >
-      <OverviewLink card="race" href="/profile" title="Your race" />
+      <OverviewLink card="race" href="/race" title="Your race" />
       <OverviewLink card="story" href="/campaign-story" title="Your story" />
       <OverviewLink
         card="opponents"

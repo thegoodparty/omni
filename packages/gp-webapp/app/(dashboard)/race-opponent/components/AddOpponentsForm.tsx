@@ -132,7 +132,7 @@ const AddOpponentsForm = ({
   }
 
   return (
-    <Card className="mx-auto flex w-full min-w-0 max-w-[560px] flex-col gap-6 p-6 sm:p-8">
+    <Card className="mx-auto flex w-full min-w-0 max-w-[608px] flex-col gap-6 p-6 sm:p-8">
       <div className="flex w-full min-w-0 items-start gap-3 rounded-lg border border-info-600/20 bg-info-50 p-4">
         <InfoIcon
           className="mt-0.5 size-5 shrink-0 text-info-600"

@@ -42,32 +42,14 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
 
 ## Components (by epic / role)
 
-- **Page shell**: `page.tsx` sets `DashboardLayout`'s `navHeader`
-  (`{ icon: 'flag', label: NAV_LABELS.knowYourOpponent }`) — the shared
-  `DashboardNavHeader` bar every main nav page uses, with Voter Data as the
-  reference. This **reverted** the feature-local styleguide `PageHeader` bar
-  (ENG-10633/10638): that bar had drifted from the sidebar tab on both icon
-  (swords vs. the nav item's flag) and type scale (`text-sm` vs. the shared
-  bar's `text-base`), and its `mx-auto max-w-[608px]` content column left the
-  title indented while every other page's was flush at `px-6`. Icon key and
-  label now come from `shared/navLabels.ts`, the same source `DashboardMenu`
-  reads, so they can't drift again — change the nav item and the bar follows.
-  Both branches pass the same config: whether a CTA sits in the bar is the bar's
-  own business (it counts mounted `DashboardNavHeaderAction`s), so the report
-  state's "Export brief" shows there while the locked, processing, and empty
-  states leave the bar action-free without a per-branch flag. The bar's title is
-  desktop-only: on mobile it lives in
-  `MobileMenuTrigger`'s top bar via this route's `MOBILE_PAGE_TITLES` entry in
-  `DashboardLayout` — keep that entry, or mobile loses its title. Everything
-  below the bar (locked view or `RaceOpponentList`) sits in a
-  `flex-1 bg-muted px-4 py-6 lg:px-8` body that fills the viewport below the
-  bar (the `DashboardLayout` wrapper gets `flex flex-col` via
-  `wrapperClassName`, so short states like the processing screen don't show
-  the layout's `#f5f5f5` bg as a seam under the muted body); each state
-  centers itself in that body
-  with its own `mx-auto max-w-*` (608px for the report/processing screen, 560px
-  for the locked view and the manual-entry form) rather than the shell
-  dictating one width for all of them.
+- **Page shell**: `page.tsx` renders the shared `FocusedPage`
+  (`shared/FocusedPage.tsx`) titled "Your opponents", the name of the Game
+  Plan card it opens from: no sidebar, a back arrow, the title, then one
+  608px column, the same frame as Your story and Your race. The report
+  state's "Export brief" still goes through `DashboardNavHeaderAction`, which
+  `FocusedPage` slots in beside the title; the locked, processing and empty
+  states mount none. The sub-routes (`opponents/`, `self-research/`) still use
+  `DashboardLayout`.
 - **List + state machine**: `RaceOpponentList.tsx` (the orchestrator — owns the poll,
   status, and the precedence ladder above). Owns the "N candidates filed for
   this seat" field-header row (heading + subtitle) and the icon-only round

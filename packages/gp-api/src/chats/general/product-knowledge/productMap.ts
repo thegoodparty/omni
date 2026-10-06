@@ -138,6 +138,16 @@ const WIN_AREAS: ProductArea[] = [
   },
   {
     navId: null,
+    name: 'Your race',
+    path: '/race',
+    modes: ['win'],
+    does: 'The office they are running for, where, and the election date, with Change office to correct any of it.',
+    inside: [
+      'Not in the left-hand menu: it opens from the Your race card at the top of the Game Plan, as a full page with a back arrow. The same office details are also on Profile',
+    ],
+  },
+  {
+    navId: null,
     name: 'Your story',
     path: '/campaign-story',
     modes: ['win'],
@@ -155,7 +165,7 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
     inside: [
-      'Three cards across the top, Your race, Your story and Your opponents, open the pages where each can be reviewed and changed: race details on Profile, the story on Your story, opponents on Know Your Opponent',
+      'Three cards across the top, Your race, Your story and Your opponents, open the pages where each can be reviewed and changed: race details on Your race, the story on Your story, opponents on Your opponents (Know Your Opponent)',
       'Below them, a bar per phase (Pre-launch, Launch, Active campaign, Get out the vote) shows how far along they are, which phase they are in, and how many tasks are done',
       'The phase they are in opens to its tasks, and the task to do next is the same card as on Home, with its button, Mark done, the Skip menu and Chat about this',
     ],
@@ -203,7 +213,7 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'Opposition research on the other candidates in the race, starting with a pass on the candidate’s own public record.',
     inside: [
-      'Not in the main left rail: it is in the account menu, opened from Manage account at the bottom of the left-hand menu',
+      'Opens from the Your opponents card at the top of the Game Plan, or from the account menu (Manage account at the bottom of the left-hand menu), as a full page titled Your opponents with a back arrow',
     ],
     gate: 'Pro only. The tab is visible without Pro but shows an upgrade view instead of the research.',
   },

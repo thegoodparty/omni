@@ -35,22 +35,19 @@ vi.mock('gpApi/server-request', () => ({
 
 vi.mock('helpers/metadataHelper', () => ({ default: () => ({}) }))
 
-// The page's title bar is DashboardLayout's shared navHeader now (the same bar
-// Voter Data uses), so the stub has to render it for these assertions.
-vi.mock('../shared/DashboardLayout', () => ({
-  default: ({
+// The page is a focused page (back arrow and title, no sidebar), opened from
+// the Game Plan's "Your opponents" card. The frame has its own suite; the stub
+// renders the title so these assertions can find it.
+vi.mock('../shared/FocusedPage', () => ({
+  FocusedPage: ({
+    title,
     children,
-    navHeader,
   }: {
+    title: string
     children: ReactNode
-    navHeader?: { icon: string; label: string }
   }) => (
     <div>
-      {navHeader && (
-        <div data-testid="nav-header" data-icon={navHeader.icon}>
-          <h1>{navHeader.label}</h1>
-        </div>
-      )}
+      <h1>{title}</h1>
       {children}
     </div>
   ),
@@ -91,33 +88,21 @@ beforeEach(() => {
 })
 
 describe('dashboard/race-opponent page', () => {
-  it('titles the page through the shared nav header, as the only h1', async () => {
-    render(await Page())
-
-    expect(
-      screen.getByRole('heading', { name: 'Know Your Opponent' }),
-    ).toBeInTheDocument()
-    // The feature-local header bar is gone — the layout's shared navHeader is
-    // the single heading rendered above the (mocked) page content.
-    expect(document.querySelectorAll('h1')).toHaveLength(1)
-  })
-
   it.each([
     ['Pro', true],
     ['non-Pro', false],
   ])(
-    "carries the sidebar tab's own icon and name in the title bar on the %s branch",
+    'titles the %s page "Your opponents", as its only h1',
     async (_label, isPro) => {
       mockFetchUserCampaign.mockResolvedValue({ isPro, details: {} })
 
       render(await Page())
 
-      // Must match KNOW_YOUR_OPPONENT_MENU_ITEM in DashboardMenu (both read the
-      // same NAV_HEADER_ICONS key / NAV_LABELS entry), so what a candidate sees
-      // at the top of the page matches the item they clicked in the left rail.
-      const navHeader = screen.getByTestId('nav-header')
-      expect(navHeader).toHaveAttribute('data-icon', 'flag')
-      expect(navHeader).toHaveTextContent('Know Your Opponent')
+      // Named for the Game Plan card it opens from.
+      expect(
+        screen.getByRole('heading', { name: 'Your opponents' }),
+      ).toBeInTheDocument()
+      expect(document.querySelectorAll('h1')).toHaveLength(1)
     },
   )
 
@@ -138,13 +123,13 @@ describe('dashboard/race-opponent page', () => {
     )
   })
 
-  it('renders the locked upgrade view (not a redirect) for a non-Pro user, still under the title bar', async () => {
+  it('renders the locked upgrade view (not a redirect) for a non-Pro user, under the title', async () => {
     mockFetchUserCampaign.mockResolvedValue({ isPro: false, details: {} })
 
     render(await Page())
 
     expect(
-      screen.getByRole('heading', { name: 'Know Your Opponent' }),
+      screen.getByRole('heading', { name: 'Your opponents' }),
     ).toBeInTheDocument()
     expect(screen.getByTestId('opponent-locked-view')).toBeInTheDocument()
     expect(screen.queryByTestId('opponent-list')).not.toBeInTheDocument()

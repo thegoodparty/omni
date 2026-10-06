@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
-import { useRouter } from 'next/navigation'
-import { ArrowLeftIcon, IconButton } from '@styleguide'
+import {
+  FocusedPageBody,
+  FocusedPageHeader,
+  FocusedPageShell,
+} from '../../shared/FocusedPage'
 import AlertDialog from '@shared/utils/AlertDialog'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -31,62 +34,19 @@ import {
 // priorities). Unlike onboarding, it's a single editable page that saves as
 // the candidate goes: each field saves itself a moment after they stop typing.
 const CampaignStoryPage = (): React.JSX.Element => (
-  <main className="min-h-screen bg-sidebar">
+  <FocusedPageShell>
     <StoryEditor />
-  </main>
+  </FocusedPageShell>
 )
 
-// Back returns to wherever the candidate came from (usually the Game Plan),
-// and to the Game Plan when the page was opened directly. It saves whatever
-// is still waiting first, so leaving mid-sentence keeps the sentence.
-const StoryHeader = ({
-  status,
-  beforeLeave,
-}: {
+// The header carries the save status, and Back saves whatever is still
+// waiting first, so leaving mid-sentence keeps the sentence.
+const StoryHeader = (props: {
   status?: string | null
   beforeLeave?: () => Promise<void>
-}): React.JSX.Element => {
-  const router = useRouter()
-  const goBack = async (): Promise<void> => {
-    await beforeLeave?.()
-    if (window.history.length > 1) router.back()
-    else router.push('/campaign-plan')
-  }
-  return (
-    // From sm up, Back hangs in the margin left of the column, so the title
-    // lines up with the cards below it; on a phone it sits inline.
-    <header className="relative mx-auto flex w-full max-w-2xl items-center gap-3 px-4 pt-6 sm:px-8 sm:pt-10">
-      <IconButton
-        type="button"
-        variant="neutral"
-        size="small"
-        className="size-10 shrink-0 sm:absolute sm:-left-6"
-        aria-label="Back"
-        onClick={() => void goBack()}
-      >
-        <ArrowLeftIcon className="size-5" aria-hidden />
-      </IconButton>
-      <h1 className="text-2xl font-semibold text-foreground">Your story</h1>
-      <p
-        className="ml-auto text-sm text-muted-foreground"
-        role="status"
-        aria-live="polite"
-      >
-        {status}
-      </p>
-    </header>
-  )
-}
+}): React.JSX.Element => <FocusedPageHeader title="Your story" {...props} />
 
-const StoryBody = ({
-  children,
-}: {
-  children: React.ReactNode
-}): React.JSX.Element => (
-  <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 pb-32 pt-8 sm:px-8">
-    {children}
-  </div>
-)
+const StoryBody = FocusedPageBody
 
 // Fetches the saved story, then mounts the editable form once (so its useState
 // seeds from the real values, not the pre-resolution empty defaults).

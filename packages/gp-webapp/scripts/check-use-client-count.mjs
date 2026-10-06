@@ -509,7 +509,10 @@ import { dirname, join, relative } from 'node:path'
 // registry. Locked in per the policy above.
 // 2026-10-05: 591 -> 567. Home became one next-thing card and a chat box, so
 // its banners, progress section, tour and story cards and their modals went.
-const BASELINE = 567
+// 2026-10-06: 567 -> 568. shared/FocusedPage, the frame Your story, Your race
+// and Your opponents open in. It holds router and slot state, and two of its
+// three pages are server components, so it has to be its own client boundary.
+const BASELINE = 568
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
