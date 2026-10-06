@@ -68,7 +68,7 @@ export {
   MapPinOff as MapPinOffIcon,
   Menu as MenuIcon,
   MessageSquare as MessageSquareIcon,
-  MessageSquareHeart as MessageSquareHeartIcon,
+  MessagesSquare as MessagesSquareIcon,
   Mic as MicIcon,
   Minus as MinusIcon,
   Plus as PlusIcon,
