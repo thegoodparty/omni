@@ -79,6 +79,22 @@ import { StatusChangeMarker } from './StatusChangeMarker'
 const KICKOFF =
   "Let's begin. Tell me where this stands and what we should work on first."
 
+// While the model is still writing a card's arguments (tool_input_start, before
+// the call lands), name what it is working on. Contact, outreach and list work
+// can take a while, and with text already on screen the chat otherwise looks
+// stalled. Same signal the ordinance chat uses; tools that end as a pill fall
+// back to their pill label.
+const GENERATING_LABELS: Record<string, string> = {
+  [CLARIFY_TOOL]: 'Preparing your question...',
+  present_outside_contact: 'Looking up who to contact...',
+  present_outreach_proposal: 'Building the outreach...',
+  present_constituents: 'Pulling the list...',
+  present_contacts: 'Pulling the list...',
+  present_past_outreach: "Checking what you've sent...",
+  [STATUS_TOOL]: 'Updating where this stands...',
+  web_search: 'Searching the web...',
+}
+
 type Phase = 'loading' | 'ready' | 'error'
 
 type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
@@ -139,6 +155,8 @@ const PriorityWorkspaceBody = ({
   >([])
   const [composer, setComposer] = useState('')
   const [streamError, setStreamError] = useState<string | null>(null)
+  const [generatingTool, setGeneratingTool] = useState<string | null>(null)
+  const [streamDone, setStreamDone] = useState(false)
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
@@ -159,6 +177,7 @@ const PriorityWorkspaceBody = ({
     messages,
     setMessages,
     visibleSegments,
+    liveSegments,
     sending,
     send: sendTurn,
   } = useStreamingTurn(priorityFlowChatApi, {
@@ -166,13 +185,23 @@ const PriorityWorkspaceBody = ({
     onTurnStart: () => {
       setStreamError(null)
       setLiveWidgets([])
+      setGeneratingTool(null)
+      setStreamDone(false)
     },
     onTurnSettle: () => {
       setLiveWidgets([])
+      setGeneratingTool(null)
+      setStreamDone(false)
       void reconcile()
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+      if (event.type === 'tool_input_start') {
+        setGeneratingTool(event.toolName)
+        return true
+      }
+      if (event.type === 'tool_call') setGeneratingTool(null)
+      if (event.type === 'done') setStreamDone(true)
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
         const update = parseStatusUpdate(event.args)
         if (!update) return true
@@ -377,8 +406,24 @@ const PriorityWorkspaceBody = ({
     revealedTextLength,
   )
   // Hold the shimmer until something has actually painted, so there is no
-  // empty flash between "Thinking..." and the first word.
-  const working = sending && blocks.length === 0
+  // empty flash between "Thinking..." and the first word. After that it
+  // comes back whenever the agent is working with nothing moving on screen:
+  // between tool calls, and while a card's arguments stream in. Gated on the
+  // reveal catching up so it never sits under text still typing out, off
+  // while a tool's own pill is shimmering, and off once the stream is done:
+  // the turn can stay sending while it commits, and a shimmer under a
+  // finished question reads as more coming.
+  const revealDone = revealedTextLength >= segmentsTextLength(liveSegments)
+  const pillRunning = liveSegments.some(
+    (segment) => segment.kind === 'tool' && segment.running,
+  )
+  const working =
+    sending &&
+    (blocks.length === 0 || (revealDone && !pillRunning && !streamDone))
+  const pillLabel = generatingTool ? priorityToolLabel(generatingTool) : null
+  const workingLabel =
+    (generatingTool && GENERATING_LABELS[generatingTool]) ||
+    (pillLabel ? `${pillLabel}...` : 'Thinking...')
 
   if (phase === 'error') {
     return (
@@ -506,7 +551,7 @@ const PriorityWorkspaceBody = ({
                         onClarifyAnswer: answerClarify,
                       }}
                     />
-                    {working ? <ThinkingRow /> : null}
+                    {working ? <ThinkingRow label={workingLabel} /> : null}
                   </AssistantRow>
                 ) : null}
 

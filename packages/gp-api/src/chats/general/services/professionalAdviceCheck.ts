@@ -31,6 +31,8 @@ const DISCLAIMER_PRESENT: RegExp[] = [
   /\b(?:not|isn'?t|is not) a substitute for\b/i,
   /\bqualified professional\b/i,
   /\bseek (?:professional|legal|medical|financial|tax) (?:advice|counsel|help)\b/i,
+  // The ordinance draft's own line: "not final legal advice".
+  /\bnot (?:final )?legal advice\b/i,
 ]
 
 // Returns the line to append (with a leading blank line) when the response

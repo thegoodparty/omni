@@ -26,6 +26,7 @@ import {
   ResolveConversationResult,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import {
   buildConstituentDataScope,
   ConstituentTableConfig,
@@ -207,6 +208,12 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       ctx,
       toolNames: Object.keys(this.assembleTools(ctx)),
     })
+  }
+
+  // Legal readings (a statute cited, liability characterized) get the same
+  // deterministic disclaimer backstop Chief of Staff uses.
+  finalizeAssistantText(text: string): string | null {
+    return professionalAdviceDisclaimer(text)
   }
 
   buildTools(ctx: PriorityFlowContext): Record<string, LlmTool> {

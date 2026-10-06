@@ -100,6 +100,17 @@ describe('OrdinanceFlowHandler', () => {
     expect(names).not.toContain('save_synthesis')
   })
 
+  it('backstops a statute citation with the professional-advice line', () => {
+    expect(
+      build().finalizeAssistantText('Under RCW 35.21.766 you can do this.'),
+    ).toContain('not a substitute for professional advice')
+    expect(
+      build().finalizeAssistantText(
+        'Under RCW 35.21.766 you can. This is a first draft, not final legal advice.',
+      ),
+    ).toBe(null)
+  })
+
   it('is a sensitive, Anthropic-only scope', () => {
     const handler = build()
     expect(handler.scope).toBe(ChatScope.ordinance_flow)

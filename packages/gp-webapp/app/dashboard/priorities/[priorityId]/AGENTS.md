@@ -34,6 +34,15 @@ marker is the one block that is not a registry entry: what it shows comes from
 the replay in state, not from the tool args, so it goes in through
 `persistedTurnBlocks`' `surfaceWidget` and a hand-built live instance.
 
+The "Thinking..." shimmer covers the wait before anything paints, and comes
+back whenever the agent is working with nothing moving on screen: between tool
+calls, and while any widget's arguments stream in (`tool_input_start`, the same
+signal the ordinance chat uses). It is named for the widget being written
+("Looking up who to contact...", "Preparing your question...") or falls back to
+the tool's pill label, and stays off while a pill is shimmering. Contact,
+outreach and list work can take a long while, and without it the chat looked
+stalled with text already on screen.
+
 The conversation is anchored, not scoped-per-step: `createConversation` gets a
 `priority` anchor and the server returns the one thread for that priority. A
 brand-new thread gets one hidden kickoff so the official arrives at a
@@ -103,7 +112,9 @@ work already done through `present_outreach_proposal` on whichever channel
 those people answer on, door knocking included. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
 inverted, same gates), each on its own card. The official can take both, one,
-or neither. The check is the ask for its stage. `listen_problem` and
+or neither, from the cards' own buttons: the agent asks no follow-up question
+about them and never rebuilds a card already in the thread, because a second
+ask and a second set of cards read as redundant. The check is the ask for its stage. `listen_problem` and
 `listen_options` never ask again: they are where the answers to the `define`
 and `options` checks land, and with no check on their gate they close on what
 the official and the record already show (`isCheckAnswered` reads no check as
@@ -212,6 +223,43 @@ a prompt.
   (`PriorityFlowOutreachService.allPutOutCheck`). A proposal whose audience
   counted nobody is refused outright. Nothing calls a result statistically
   proven; the 3 in 100 who reply choose themselves.
+
+## The agent previews the path before the work
+
+The rail already shows the steps, so once the problem is defined the agent
+goes through the steps ahead by those names and says what each would take:
+research, staff, constituents, or a workflow it can start here (an outreach
+or contact card). The official picks the work as one multi-select question
+(`ROUTE_BLOCK` in `priorityFlow.prompt.ts`). Before starting a workflow the
+agent names the step it serves and that it was picked, and asks first if it
+was not. It previews again when a step goes back or something new changes
+what is ahead. Jumping straight into a texting campaign read as the agent
+deciding for them.
+
+## What it brings in carries its source
+
+Programs, grants, organizations, contacts, laws and figures the agent finds
+outside the conversation are things the official may repeat in public, so the
+prompt (`SOURCES_BLOCK` in `priorityFlow.prompt.ts`) asks for the publisher,
+the link and how current it is. On a clarify option that goes in the existing
+`ChatSource` (`source`), with the page's date in `excerpt`; anywhere else it is
+one clause in the message. The prompt carries today's date so the agent can
+call a source stale. This is guidance, not a gate, and it uses the shared
+source shape as it is, without extending it. Numbers in prose come from a tool
+call or a named source, and a text sample's size from `size_outreach_sample`.
+
+## How sure it sounds is shared with ordinances
+
+The agent strengthened what officials told it into causal conclusions and
+read the law too confidently. The confidence rules live once, in
+`gp-api/src/chats/general/services/claimConfidence.ts`, and both the priority
+and ordinance prompts include them: `CLAIM_STRENGTH_RULE` (what they said,
+what a source shows and what is inferred stay apart; a legal question gets a
+likely reading, the provision, what could change it, and the attorney) and
+`LEGAL_VALUES_RULE` (no legal figure unless a source read this conversation
+gave it). The priority and ordinance handlers also use Chief of
+Staff's `professionalAdviceDisclaimer` backstop through `finalizeAssistantText`.
+Change the wording there, not in either prompt.
 
 ## Cards are keyed, not trusted
 

@@ -13,6 +13,10 @@ import {
   type ChatScopeHandler,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import {
+  CLAIM_STRENGTH_RULE,
+  LEGAL_VALUES_RULE,
+} from '../services/claimConfidence'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import {
   PRIORITY_FLOW_MODELS,
@@ -421,6 +425,65 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('holds claims and legal readings to the shared confidence rules', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(CLAIM_STRENGTH_RULE)
+    expect(prompt).toContain(LEGAL_VALUES_RULE)
+  })
+
+  it('backstops a legal reading with the professional-advice line', () => {
+    expect(
+      build().finalizeAssistantText('Under RCW 35.21.766 you can do this.'),
+    ).toContain('not a substitute for professional advice')
+    expect(build().finalizeAssistantText('Potholes cluster downtown.')).toBe(
+      null,
+    )
+  })
+
+  it('lets the outreach cards be the choice, never asked about or rebuilt', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'The cards are the choice, so never ask about them',
+    )
+    expect(prompt).toContain('The one exception is a card already on screen')
+    expect(prompt).toContain('Never present it again unless they ask')
+    expect(prompt).not.toContain('ask both groups, just the most affected')
+  })
+
+  it('asks every question as a card, open ones included', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'Every question to them goes through ask_clarify_question',
+    )
+    expect(prompt).toContain('in your own words')
+    expect(prompt).toContain('Never write a list of questions')
+    expect(prompt).toContain('The opening turn is the same')
+  })
+
+  it('previews the path by rail step before any workflow', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('PREVIEW THE PATH BEFORE THE WORK')
+    expect(prompt).toContain('by the names the rail shows')
+    expect(prompt).toContain('like Public Works')
+    expect(prompt).toContain('one multiSelect ask_clarify_question')
+    expect(prompt).toContain('say in one line which step it is for')
+    expect(prompt).toContain('unless they picked hearing from them')
+    expect(prompt).toContain('preview the affected steps again, once')
+    expect(prompt.indexOf('PREVIEW THE PATH BEFORE THE WORK')).toBeLessThan(
+      prompt.indexOf('CHECKING A STEP WITH THE PEOPLE IT LANDS ON'),
+    )
+  })
+
+  it('asks for a source, a link and a date on what it brings in', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('SAYING WHERE IT CAME FROM')
+    expect(prompt).toContain("put it in that option's source")
+    expect(prompt).toContain('Never build or guess a URL')
+    expect(prompt).toContain('more than about two years old')
+    expect(prompt).toContain('comes from a tool you called or a source')
+    expect(prompt).not.toContain('"what I found"')
+  })
+
   it('sizes a check as a random sample, one per side', () => {
     const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('HOW MANY PEOPLE TO ASK')
@@ -817,7 +880,7 @@ describe('PriorityFlowHandler', () => {
     const handler = build()
     const ctx = await handler.loadContext('c1', USER_ID)
     const prompt = handler.buildSystemPrompt(ctx)
-    expect(prompt).toContain('Ask it with ask_clarify_question, never in prose')
+    expect(prompt).toContain('goes through ask_clarify_question, never prose')
     expect(prompt).toContain('One question at a time')
   })
 
