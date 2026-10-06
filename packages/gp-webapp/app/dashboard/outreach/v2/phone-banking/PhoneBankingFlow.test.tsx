@@ -287,6 +287,41 @@ describe('PhoneBankingFlow', () => {
     )
   })
 
+  it('sends the hear-from-voters question with the Win create', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Likely Dems' }])
+    mockListDetail(10)
+    const createCalls: PhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    openFlow()
+
+    await user.click(
+      await screen.findByRole('button', { name: /Hear from voters/i }),
+    )
+    const question = 'How do you feel about the road bond?'
+    await user.type(await screen.findByLabelText('The question'), question)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Who do you want to reach?')
+    await pickSavedListAndContinue('Likely Dems')
+
+    await screen.findAllByText('Write your call script')
+    await waitFor(() => expect(scriptText()).not.toBe(''))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(createCalls).toHaveLength(1))
+    expect(createCalls[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion: question,
+    })
+  })
+
   // Win's create is strict, and a chat card's link is Serve's: none of it,
   // the check fields included, may reach the Win route.
   it('sends nothing of a proposal link to the Win create', async () => {

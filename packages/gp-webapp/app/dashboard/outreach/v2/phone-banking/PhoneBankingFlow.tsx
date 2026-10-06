@@ -252,6 +252,7 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
       script,
       sheetCount,
       purpose,
+      communityInputQuestion,
       voterFileFilterId,
     }) => {
       // Named, not rest-spread: a proposal link is a Serve chat card's, and
@@ -261,6 +262,7 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
         script,
         sheetCount,
         purpose,
+        communityInputQuestion,
         voterFileFilterId,
       } as PhoneBankingCreate)
       return data
