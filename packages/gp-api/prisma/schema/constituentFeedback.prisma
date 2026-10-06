@@ -18,13 +18,16 @@ enum ConstituentFeedbackStance {
   unclear
 }
 
+// `dictation_offline` is a memo the phone recorded with no signal and
+// uploaded later: the server transcribed it, nobody saw the words live.
 enum ConstituentFeedbackCaptureMethod {
   dictation
   typed
+  dictation_offline
 }
 
-// `extracted` means a model produced a triple, not that anyone agreed with
-// it — `confirmedAt` is the only column that says a human saw it. `failed`
+// `extracted` means a model produced the issues, not that anyone agreed with
+// them — `confirmedAt` is the only column that says a human saw it. `failed`
 // covers a refusal or a malformed response; the transcript survives either
 // way, so nothing recorded in the field is ever lost to an extraction error.
 enum ConstituentFeedbackExtractionStatus {
@@ -34,8 +37,9 @@ enum ConstituentFeedbackExtractionStatus {
 }
 
 // What a canvasser or caller recorded about one conversation with one
-// constituent: a short spoken summary in THEIR voice, plus the issue,
-// position and desired-outcome triple extracted from it.
+// constituent: a short spoken summary in THEIR voice, plus the issues
+// extracted from it, each with a stance and an outcome
+// (`ConstituentFeedbackIssue`).
 //
 // The voice on the recording is the official's, never the constituent's, and
 // that is a deliberate design constraint rather than an implementation
@@ -44,8 +48,8 @@ enum ConstituentFeedbackExtractionStatus {
 // which is very likely a public record, so treat it as disclosable.
 //
 // There is no issue catalog behind `issueLabel`. Topics are derived from the
-// corpus during synthesis, not authored before a canvass, so this table is
-// the whole data model for the collection phase.
+// corpus during synthesis, not authored before a canvass, so this table and
+// its issues are the whole data model for the collection phase.
 model ConstituentFeedback {
   id               String       @id @default(uuid(7))
   createdAt        DateTime     @default(now()) @map("created_at")
@@ -80,40 +84,30 @@ model ConstituentFeedback {
   transcript    String?                          @db.Text
   captureMethod ConstituentFeedbackCaptureMethod @map("capture_method")
 
-  // Reserved for the offline path (record locally, upload, batch-transcribe).
-  // Null on every row today: dictation streams to Transcribe over a live
-  // socket and no audio is persisted anywhere.
+  // The offline path's recording in the speech bucket. Null on a memo
+  // dictated live: that streams to Transcribe over a socket and no audio is
+  // persisted anywhere.
   audioKey String? @map("audio_key")
 
-  // The triple, holding the CONFIRMED values — what the canvasser accepted or
-  // corrected while they still remembered the conversation.
-  issueLabel     String?                    @map("issue_label")
-  stance         ConstituentFeedbackStance?
-  desiredOutcome String?                    @map("desired_outcome") @db.Text
+  // The batch Transcribe job turning `audioKey` into `transcript`, kept so
+  // the pending-transcription cron can poll it. Null until a job starts.
+  transcriptionJobName String? @map("transcription_job_name")
 
   extractionStatus     ConstituentFeedbackExtractionStatus @default(pending) @map("extraction_status")
   extractionConfidence Float?                              @map("extraction_confidence")
   extractionModel      String?                             @map("extraction_model")
 
-  // What the model proposed before a human touched it. The confirmed columns
-  // above are the truth; these are the only record of what got corrected,
-  // and it cannot be reconstructed after the fact. Together they are the
-  // labeled corpus the synthesis phase gets evaluated against, which is why
-  // they are written during collection rather than added later.
-  //
-  // `proposedStance` is free text, not the enum: the model is prompted for
-  // one of four values but not bound to them, and an off-vocabulary answer is
-  // exactly the kind of thing worth being able to read back.
-  proposedIssueLabel     String? @map("proposed_issue_label")
-  proposedStance         String? @map("proposed_stance")
-  proposedDesiredOutcome String? @map("proposed_desired_outcome") @db.Text
+  // The issues, each with a stance and an outcome: the model's proposal
+  // until `confirmedAt` is set, then what the canvasser accepted or
+  // corrected.
+  issues ConstituentFeedbackIssue[]
 
   // The effort's question as it stood when this row was extracted.
   // Denormalized because the question can be edited afterwards and an
   // extraction has to stay readable against the prompt it actually ran with.
   effortQuestion String? @map("effort_question") @db.Text
 
-  // Set when the person who was there accepted or corrected the triple. Null
+  // Set when the person who was there accepted or corrected the issues. Null
   // means nobody with first-hand knowledge ever saw it, and no rollup should
   // count such a row as evidence of anything.
   confirmedAt DateTime? @map("confirmed_at")
@@ -137,5 +131,32 @@ model ConstituentFeedback {
   // The collection-phase read: everything awaiting or missing an extraction.
   @@index([organizationSlug, extractionStatus])
   @@index([organizationSlug, outreachId])
+  // The pending-transcription cron reads across orgs, and pending rows are few.
+  @@index([extractionStatus])
   @@map("constituent_feedback")
+}
+
+// One issue the person raised in one conversation. A memo holds up to five,
+// in the order the model heard them; most hold one.
+model ConstituentFeedbackIssue {
+  id         String              @id @default(uuid(7))
+  createdAt  DateTime            @default(now()) @map("created_at")
+  feedbackId String              @map("feedback_id")
+  feedback   ConstituentFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  position   Int
+
+  // Confirmed values: what the canvasser accepted or corrected.
+  issueLabel     String                     @map("issue_label")
+  stance         ConstituentFeedbackStance?
+  desiredOutcome String?                    @map("desired_outcome") @db.Text
+
+  // What the model proposed before a human touched it. Null on an issue a
+  // human added or rewrote from scratch. `proposedStance` is free text, as on
+  // the memo row today.
+  proposedIssueLabel     String? @map("proposed_issue_label")
+  proposedStance         String? @map("proposed_stance")
+  proposedDesiredOutcome String? @map("proposed_desired_outcome") @db.Text
+
+  @@unique([feedbackId, position])
+  @@map("constituent_feedback_issue")
 }

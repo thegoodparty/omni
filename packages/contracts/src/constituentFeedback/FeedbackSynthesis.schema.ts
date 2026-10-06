@@ -2,30 +2,17 @@ import { z } from 'zod'
 import { zCoerceDate } from '../shared/Date.schema'
 import {
   ConstituentFeedbackChannelSchema,
-  ConstituentFeedbackStanceSchema,
   IssueTagSourceSchema,
   IssueTagStatusSchema,
   SynthesisRunStatusSchema,
 } from '../generated/enums'
 import {
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  ConstituentFeedbackIssueSchema,
   IssueTagRefSchema,
 } from './ConstituentFeedback.schema'
 
 export const FEEDBACK_SYNTHESIS_SOURCE_TYPE = 'constituent_feedback'
-
-// gp-api's trigger to the synthesis pipeline. The CSV at `csvS3Path` has
-// columns `respondent_id,message_text,sent_at`, where respondent_id is the
-// memo's id. `topN` is how many themes to publish; polls keep three.
-export const FeedbackSynthesisRequestSchema = z.object({
-  sourceType: z.literal(FEEDBACK_SYNTHESIS_SOURCE_TYPE),
-  sourceId: z.string(),
-  csvS3Path: z.string(),
-  topN: z.number().int().min(1),
-})
-export type FeedbackSynthesisRequest = z.infer<
-  typeof FeedbackSynthesisRequestSchema
->
 
 // What a synthesis engine publishes when it has grouped a run's memos: the
 // polls pipeline's `pollAnalysisComplete` shape, keyed by a source type and
@@ -94,6 +81,12 @@ export type StanceCounts = z.infer<typeof StanceCountsSchema>
 // run loses its confirmation and drops out of every count until it is
 // confirmed again. A memo can sit in two themes, so a count reads
 // "conversations that touched this theme".
+//
+// `conversationCount` counts memos. `stanceCounts` and `desiredOutcomes` are
+// stances from every issue raised in the conversations in this theme; a
+// conversation that raised two issues contributes two, so counts can exceed
+// `conversationCount`. Interim, until a theme's members are issues rather
+// than memos.
 export const FeedbackThemeSummarySchema = z.object({
   id: z.string(),
   rank: z.number().int(),
@@ -119,8 +112,7 @@ export const FeedbackReportMemoSchema = z.object({
   channel: ConstituentFeedbackChannelSchema,
   // The canvasser's own summary, never the other person's words.
   transcript: z.string().nullable(),
-  stance: ConstituentFeedbackStanceSchema.nullable(),
-  desiredOutcome: z.string().nullable(),
+  issues: z.array(ConstituentFeedbackIssueSchema),
   actorName: z.string().nullable(),
   // Null means waiting for review: listed, never counted.
   confirmedAt: zCoerceDate().nullable(),
@@ -130,6 +122,12 @@ export type FeedbackReportMemo = z.infer<typeof FeedbackReportMemoSchema>
 export const FeedbackReportResponseSchema = z.object({
   // The effort's question, from its turf or list. Null when it asked none.
   question: z.string().nullable(),
+  // A turf's envelope is door_knock, a phone list's is phone_bank, whether
+  // or not any memo has been recorded on it yet.
+  channel: ConstituentFeedbackChannelSchema,
+  // The fewest confirmed memos a run accepts. Sent rather than known by the
+  // client so the line under the floor cannot drift from the 422.
+  floor: z.number().int(),
   denominators: z.object({
     // Distinct people who answered on this effort.
     conversations: z.number().int(),
@@ -158,8 +156,7 @@ export const FeedbackThemeMemberSchema = z.object({
   channel: ConstituentFeedbackChannelSchema,
   // The canvasser's own summary, never the other person's words.
   transcript: z.string().nullable(),
-  stance: ConstituentFeedbackStanceSchema.nullable(),
-  desiredOutcome: z.string().nullable(),
+  issues: z.array(ConstituentFeedbackIssueSchema),
   actorName: z.string().nullable(),
 })
 export type FeedbackThemeMember = z.infer<typeof FeedbackThemeMemberSchema>
@@ -180,6 +177,7 @@ export const IssueTagSchema = z.object({
   source: IssueTagSourceSchema,
   declaredTopIssueId: z.number().int().nullable(),
   mergedIntoId: z.string().nullable(),
+  proposedByRunId: z.string().nullable(),
   feedbackCount: z.number().int(),
 })
 export type IssueTag = z.infer<typeof IssueTagSchema>

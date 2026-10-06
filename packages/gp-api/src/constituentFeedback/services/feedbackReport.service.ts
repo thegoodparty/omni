@@ -8,6 +8,7 @@ import {
   type SynthesisRun,
 } from '@goodparty_org/contracts'
 import {
+  ConstituentFeedbackChannel,
   ConstituentFeedbackStance,
   DoorKnockOutcome,
   type FeedbackSynthesisRun,
@@ -17,6 +18,13 @@ import {
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 
+// Provisional, until dev runs at 20, 40 and 80 memos show where grouping
+// stops splintering. Under it the report lists the memos instead of themes:
+// a percentage over two conversations is the misleading number the report
+// exists to avoid. Declared here, not beside the synthesis that enforces it,
+// because that service already imports this one.
+export const MIN_CONFIRMED_FOR_SYNTHESIS = 5
+
 // The report card shows a few asks; the theme page shows them all.
 const REPORT_OUTCOME_LIMIT = 5
 
@@ -24,16 +32,31 @@ const CONFIRMED_MEMBERS = {
   where: { feedback: { confirmedAt: { not: null } } },
 } as const
 
+const ISSUE_SELECT = {
+  orderBy: { position: Prisma.SortOrder.asc },
+  select: {
+    id: true,
+    position: true,
+    issueLabel: true,
+    stance: true,
+    desiredOutcome: true,
+  },
+} as const satisfies Prisma.ConstituentFeedbackIssueFindManyArgs
+
+const TAG_SELECT = {
+  select: { id: true, name: true, status: true },
+} as const satisfies Prisma.IssueTagDefaultArgs
+
 const THEME_INCLUDE = {
-  tag: { select: { id: true, name: true, status: true } },
+  tag: TAG_SELECT,
   members: {
     ...CONFIRMED_MEMBERS,
-    select: { feedback: { select: { stance: true, desiredOutcome: true } } },
+    select: { feedback: { select: { issues: ISSUE_SELECT } } },
   },
 } as const satisfies Prisma.FeedbackThemeInclude
 
 const THEME_DETAIL_INCLUDE = {
-  tag: { select: { id: true, name: true, status: true } },
+  tag: TAG_SELECT,
   members: {
     ...CONFIRMED_MEMBERS,
     orderBy: { feedback: { occurredAt: Prisma.SortOrder.desc } },
@@ -45,8 +68,7 @@ const THEME_DETAIL_INCLUDE = {
           occurredAt: true,
           channel: true,
           transcript: true,
-          stance: true,
-          desiredOutcome: true,
+          issues: ISSUE_SELECT,
           actor: { select: { firstName: true, lastName: true } },
         },
       },
@@ -60,8 +82,7 @@ const MEMO_SELECT = {
   occurredAt: true,
   channel: true,
   transcript: true,
-  stance: true,
-  desiredOutcome: true,
+  issues: ISSUE_SELECT,
   confirmedAt: true,
   actor: { select: { firstName: true, lastName: true } },
 } as const satisfies Prisma.ConstituentFeedbackSelect
@@ -88,15 +109,22 @@ export type Denominators = FeedbackReportResponse['denominators']
 // confirmed now. Two reasons not to store them on the run: the pipeline
 // counts fragments, not conversations, and a memo re-recorded after a run
 // loses its confirmation and must stop counting without a new run.
+//
+// Conversations are memos; stances and outcomes are every issue those memos
+// raised. Membership is per memo, so a member that raised two issues
+// contributes both, and the split can sum past conversationCount. Matching an
+// issue to its theme by label missed nearly every multi-issue memo, since the
+// pipeline names tags in its own words; per-issue membership is the fix.
 const summarize = (
   theme: ThemeRow,
   outcomeLimit: number,
 ): FeedbackThemeSummary => {
   const memos = theme.members.map((member) => member.feedback)
+  const issues = memos.flatMap((memo) => memo.issues)
   const count = (stance: ConstituentFeedbackStance) =>
-    memos.filter((memo) => memo.stance === stance).length
-  const outcomes = memos
-    .map((memo) => memo.desiredOutcome?.trim() ?? '')
+    issues.filter((issue) => issue.stance === stance).length
+  const outcomes = issues
+    .map((issue) => issue.desiredOutcome?.trim() ?? '')
     .filter((outcome) => outcome !== '')
 
   return {
@@ -109,16 +137,19 @@ const summarize = (
       supports: count(ConstituentFeedbackStance.supports),
       opposes: count(ConstituentFeedbackStance.opposes),
       mixed: count(ConstituentFeedbackStance.mixed),
-      // A memo with no stance recorded a conversation but no position,
-      // which is what unclear means.
-      unclear: memos.filter(
-        (memo) =>
-          memo.stance === null ||
-          memo.stance === ConstituentFeedbackStance.unclear,
+      // An issue with no stance was raised without a position, which is
+      // what unclear means.
+      unclear: issues.filter(
+        (issue) =>
+          issue.stance === null ||
+          issue.stance === ConstituentFeedbackStance.unclear,
       ).length,
     },
     desiredOutcomes: [...new Set(outcomes)].slice(0, outcomeLimit),
-    tag: theme.tag,
+    tag:
+      theme.tag === null
+        ? null
+        : { id: theme.tag.id, name: theme.tag.name, status: theme.tag.status },
   }
 }
 
@@ -254,6 +285,11 @@ export class FeedbackReportService extends createPrismaBase(
         effort.doorKnockingTurf?.communityInputQuestion ??
         effort.phoneBankingList?.communityInputQuestion ??
         null,
+      channel:
+        effort.phoneBankingListId === null
+          ? ConstituentFeedbackChannel.door_knock
+          : ConstituentFeedbackChannel.phone_bank,
+      floor: MIN_CONFIRMED_FOR_SYNTHESIS,
       denominators,
       run: latest === null ? null : toRun(latest),
       themes: themes.map((theme) => summarize(theme, REPORT_OUTCOME_LIMIT)),
@@ -288,8 +324,7 @@ export class FeedbackReportService extends createPrismaBase(
         occurredAt: feedback.occurredAt,
         channel: feedback.channel,
         transcript: feedback.transcript,
-        stance: feedback.stance,
-        desiredOutcome: feedback.desiredOutcome,
+        issues: feedback.issues,
         actorName: actorName(feedback.actor),
       })),
     }

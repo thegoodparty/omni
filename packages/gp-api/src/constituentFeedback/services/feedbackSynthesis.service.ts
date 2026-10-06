@@ -12,27 +12,24 @@ import { Prisma, SynthesisRunStatus, SynthesisScope } from '@/generated/prisma'
 import { FeaturesService } from '@/features/services/features.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isPrismaError } from '@/prisma/util/prismaErrors.util'
-import { FeedbackReportService } from './feedbackReport.service'
+import {
+  FeedbackReportService,
+  MIN_CONFIRMED_FOR_SYNTHESIS,
+} from './feedbackReport.service'
 import { IssueTagSeedService } from './issueTagSeed.service'
 import { SYNTHESIS_ENGINE, type SynthesisEngine } from './synthesisEngine'
-import { issueCaptureFlagFor } from '../util/issueCaptureFlag.util'
+import { ISSUE_CAPTURE_FLAG } from '../util/issueCaptureFlag.util'
 
-// Provisional, until dev runs at 20, 40 and 80 memos show where grouping
-// stops splintering. Under it the report lists the memos instead of themes:
-// a percentage over two conversations is the misleading number the report
-// exists to avoid.
-export const MIN_CONFIRMED_FOR_SYNTHESIS = 5
-
-// Per scope, on demand. With the floor, this is the cost control on
-// pipeline runs.
+// Per scope, on the button only: the completion trigger fires once, as the
+// effort finishes, which is when its report matters most. With the floor,
+// this is the cost control on pipeline runs.
 export const SYNTHESIS_COOLDOWN_MS = 10 * 60_000
 
 // What a completion trigger expects to hear and keeps quiet about: under
-// the floor, inside the cooldown, or a run already in flight.
+// the floor, or a run already in flight.
 const EXPECTED_TRIGGER_REFUSALS: ReadonlySet<number> = new Set([
   HttpStatus.CONFLICT,
   HttpStatus.UNPROCESSABLE_ENTITY,
-  HttpStatus.TOO_MANY_REQUESTS,
 ])
 
 // Prisma names the violated fields or the constraint depending on the
@@ -67,22 +64,27 @@ export class FeedbackSynthesisService extends createPrismaBase(
     organizationSlug: string
     outreachId: number
     requestedByUserId: number | null
+    trigger: 'button' | 'completion'
   }): Promise<SynthesisRun> {
     const { organizationSlug, outreachId } = input
     const effort = await this.report.findEffort(organizationSlug, outreachId)
 
     // Confirmed only: a memo nobody with first-hand knowledge has checked
-    // never enters a theme.
-    const memos = await this.client.constituentFeedback.findMany({
-      where: { organizationSlug, outreachId, confirmedAt: { not: null } },
-      orderBy: { occurredAt: Prisma.SortOrder.asc },
-      select: {
-        id: true,
-        transcript: true,
-        issueLabel: true,
-        occurredAt: true,
+    // never enters a theme. One confirmed by hand after its recording
+    // failed has no words, and would be an empty row in the CSV.
+    const rows = await this.client.constituentFeedback.findMany({
+      where: {
+        organizationSlug,
+        outreachId,
+        confirmedAt: { not: null },
+        transcript: { not: null },
       },
+      orderBy: { occurredAt: Prisma.SortOrder.asc },
+      select: { id: true, transcript: true, occurredAt: true },
     })
+    const memos = rows.flatMap(({ id, transcript, occurredAt }) =>
+      transcript === null ? [] : [{ id, text: transcript, occurredAt }],
+    )
     if (memos.length < MIN_CONFIRMED_FOR_SYNTHESIS) {
       throw new UnprocessableEntityException({
         message: 'Not enough confirmed notes to summarize',
@@ -91,26 +93,28 @@ export class FeedbackSynthesisService extends createPrismaBase(
       })
     }
 
-    const lastCompleted = await this.findFirst({
-      where: {
-        organizationSlug,
-        outreachId,
-        status: SynthesisRunStatus.completed,
-      },
-      orderBy: { completedAt: Prisma.SortOrder.desc },
-      select: { completedAt: true },
-    })
-    if (
-      lastCompleted?.completedAt &&
-      isAfter(
-        addMilliseconds(lastCompleted.completedAt, SYNTHESIS_COOLDOWN_MS),
-        new Date(),
-      )
-    ) {
-      throw new HttpException(
-        'This effort was summarized moments ago',
-        HttpStatus.TOO_MANY_REQUESTS,
-      )
+    if (input.trigger === 'button') {
+      const lastCompleted = await this.findFirst({
+        where: {
+          organizationSlug,
+          outreachId,
+          status: SynthesisRunStatus.completed,
+        },
+        orderBy: { completedAt: Prisma.SortOrder.desc },
+        select: { completedAt: true },
+      })
+      if (
+        lastCompleted?.completedAt &&
+        isAfter(
+          addMilliseconds(lastCompleted.completedAt, SYNTHESIS_COOLDOWN_MS),
+          new Date(),
+        )
+      ) {
+        throw new HttpException(
+          'This effort was summarized moments ago',
+          HttpStatus.TOO_MANY_REQUESTS,
+        )
+      }
     }
 
     if (
@@ -137,7 +141,9 @@ export class FeedbackSynthesisService extends createPrismaBase(
           activeKey: `${organizationSlug}:${outreachId}`,
           conversations: denominators.conversations,
           memos: denominators.memos,
-          confirmed: denominators.confirmed,
+          // What the engine is handed, not every confirmed memo: a caption
+          // over this run must not claim more input than it had.
+          confirmed: memos.length,
           engine: this.engine.name,
           requestedByUserId: input.requestedByUserId,
         },
@@ -160,14 +166,7 @@ export class FeedbackSynthesisService extends createPrismaBase(
       'Feedback synthesis requested',
     )
 
-    await this.engine.start(
-      run,
-      memos.map((memo) => ({
-        id: memo.id,
-        text: memo.transcript ?? memo.issueLabel ?? '',
-        occurredAt: memo.occurredAt,
-      })),
-    )
+    await this.engine.start(run, memos)
 
     const started = await this.model.findUniqueOrThrow({
       where: { id: run.id },
@@ -204,7 +203,7 @@ export class FeedbackSynthesisService extends createPrismaBase(
 
   // The routes are flag-gated per request; this path has no request, so it
   // asks for the org's owner, the same subject the completion event uses.
-  // Turning a product's flag off has to stop the automatic runs too. Most
+  // Turning the flag off has to stop the automatic runs too. Most
   // completed efforts have no memos at all, so the floor is checked first
   // and keeps a flag lookup off nearly every turf's Done.
   private async runIfRolledOut(input: {
@@ -212,7 +211,11 @@ export class FeedbackSynthesisService extends createPrismaBase(
     outreachId: number
   }): Promise<void> {
     const confirmed = await this.client.constituentFeedback.count({
-      where: { ...input, confirmedAt: { not: null } },
+      where: {
+        ...input,
+        confirmedAt: { not: null },
+        transcript: { not: null },
+      },
     })
     if (confirmed < MIN_CONFIRMED_FOR_SYNTHESIS) return
 
@@ -222,9 +225,13 @@ export class FeedbackSynthesisService extends createPrismaBase(
     })
     const enabled = await this.features.isFeatureEnabled({
       user: ownerId,
-      feature: issueCaptureFlagFor(input.organizationSlug),
+      feature: ISSUE_CAPTURE_FLAG,
     })
     if (!enabled) return
-    await this.requestRun({ ...input, requestedByUserId: null })
+    await this.requestRun({
+      ...input,
+      requestedByUserId: null,
+      trigger: 'completion',
+    })
   }
 }

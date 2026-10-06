@@ -50,8 +50,6 @@ describe('feedback synthesis workers', () => {
     let memos: Array<{ id: string; text: string; occurredAt: Date }>
 
     beforeEach(async () => {
-      vi.stubEnv('AI_PIPELINE_BASE_URL', 'https://ai.test')
-      vi.stubEnv('AI_PIPELINE_API_KEY', 'pipeline-key')
       vi.stubEnv('SERVE_ANALYSIS_BUCKET_NAME', 'serve-analyze-test')
       onTestFinished(() => {
         vi.unstubAllEnvs()
@@ -81,11 +79,8 @@ describe('feedback synthesis workers', () => {
       ]
     })
 
-    const stubFetch = (response: Response | Error) => {
-      const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => {
-        if (response instanceof Error) throw response
-        return response
-      })
+    const stubFetch = () => {
+      const fetchMock = vi.fn()
       vi.stubGlobal('fetch', fetchMock)
       onTestFinished(() => {
         vi.unstubAllGlobals()
@@ -93,17 +88,12 @@ describe('feedback synthesis workers', () => {
       return fetchMock
     }
 
-    const stubUpload = () => {
+    it("writes the memo CSV where the bucket's trigger watches", async () => {
       const upload = vi
         .spyOn(service.app.get(S3Service), 'uploadFile')
         .mockResolvedValue('https://s3/whatever')
       onTestFinished(() => upload.mockRestore())
-      return upload
-    }
-
-    it('writes the memo CSV and triggers the pipeline', async () => {
-      const upload = stubUpload()
-      const fetchMock = stubFetch(new Response(null, { status: 202 }))
+      const fetchMock = stubFetch()
 
       await service.app.get(PipelineSynthesisEngine).start(run, memos)
 
@@ -119,43 +109,18 @@ describe('feedback synthesis workers', () => {
         key,
         { contentType: 'text/csv' },
       )
-      expect(fetchMock).toHaveBeenCalledWith(
-        'https://ai.test/serve/messages/process',
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({ 'x-api-key': 'pipeline-key' }),
-        }),
-      )
-      const init = fetchMock.mock.calls[0]![1]
-      expect(JSON.parse(String(init.body))).toEqual({
-        sourceType: 'constituent_feedback',
-        sourceId: run.id,
-        csvS3Path: `s3://serve-analyze-test/${key}`,
-        topN: 10,
-      })
+      expect(fetchMock).not.toHaveBeenCalled()
       const after = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow(
         { where: { id: run.id } },
       )
       expect(after.status).toBe(SynthesisRunStatus.running)
     })
 
-    it('fails the run when the pipeline answers non-2xx', async () => {
-      stubUpload()
-      stubFetch(new Response('nope', { status: 503 }))
-
-      await service.app.get(PipelineSynthesisEngine).start(run, memos)
-
-      const after = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow(
-        { where: { id: run.id } },
-      )
-      expect(after.status).toBe(SynthesisRunStatus.failed)
-      expect(after.activeKey).toBeNull()
-      expect(after.error).toContain('503')
-    })
-
-    it('fails the run when the pipeline cannot be reached', async () => {
-      stubUpload()
-      stubFetch(new Error('ECONNREFUSED'))
+    it('fails the run when the upload fails', async () => {
+      const upload = vi
+        .spyOn(service.app.get(S3Service), 'uploadFile')
+        .mockRejectedValue(new Error('AccessDenied'))
+      onTestFinished(() => upload.mockRestore())
 
       await service.app.get(PipelineSynthesisEngine).start(run, memos)
 

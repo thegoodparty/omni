@@ -27,6 +27,7 @@ const toIssueTag = (tag: CountedTag): IssueTag => ({
   source: tag.source,
   declaredTopIssueId: tag.declaredTopIssueId,
   mergedIntoId: tag.mergedIntoId,
+  proposedByRunId: tag.proposedByRunId,
   feedbackCount: tag._count.feedback,
 })
 

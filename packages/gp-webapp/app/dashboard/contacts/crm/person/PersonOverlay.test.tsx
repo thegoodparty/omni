@@ -1067,9 +1067,15 @@ describe('<PersonOverlay>', () => {
               occurredAt: new Date('2026-09-25T00:00:00.000Z'),
               channel: 'door_knock',
               transcript: 'She wants the bond spent on the roads.',
-              issueLabel: 'Road bond',
-              stance: 'supports',
-              desiredOutcome: 'Spend it on the roads',
+              issues: [
+                {
+                  id: 'issue-road-bond',
+                  position: 0,
+                  issueLabel: 'Road bond',
+                  stance: 'supports',
+                  desiredOutcome: 'Spend it on the roads',
+                },
+              ],
               extractionStatus: 'extracted',
               confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
               outreachId: 7,
@@ -1087,10 +1093,10 @@ describe('<PersonOverlay>', () => {
       })
     })
 
-    it('shows the section when win-issue-capture is on', async () => {
+    it('shows the section when issue-capture is on', async () => {
       mockedUseFlagOn.mockImplementation((key) => ({
         ready: true,
-        on: key === 'win-issue-capture',
+        on: key === 'issue-capture',
       }))
 
       render(<PersonOverlay />)
@@ -1099,11 +1105,108 @@ describe('<PersonOverlay>', () => {
       expect(screen.getByText('Road bond')).toBeInTheDocument()
     })
 
-    it('shows nothing when win-issue-capture is off', async () => {
+    // One conversation can name several issues, each with where the person
+    // stands on it and what they want.
+    it('lists each issue a conversation named', async () => {
       mockedUseFlagOn.mockImplementation((key) => ({
         ready: true,
-        on: key === 'serve-issue-capture',
+        on: key === 'issue-capture',
       }))
+      api.mock('GET /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          feedback: [
+            {
+              id: 'feedback-1',
+              personId: 'p_1',
+              occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+              channel: 'door_knock',
+              transcript: 'Wants the bond spent on roads, and the park lit.',
+              issues: [
+                {
+                  id: 'issue-road-bond',
+                  position: 0,
+                  issueLabel: 'Road bond',
+                  stance: 'supports',
+                  desiredOutcome: 'Spend it on the roads',
+                },
+                {
+                  id: 'issue-park-lighting',
+                  position: 1,
+                  issueLabel: 'Park lighting',
+                  stance: 'opposes',
+                  desiredOutcome: null,
+                },
+              ],
+              extractionStatus: 'extracted',
+              confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+              outreachId: 7,
+              actorName: 'Kamal Al Sawafi',
+              tags: [],
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      const issues = await screen.findByRole('list', { name: 'Issues' })
+      const items = within(issues).getAllByRole('listitem')
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Road bond· For itWants: Spend it on the roads',
+        'Park lighting· Against it',
+      ])
+    })
+
+    it('lists the tags a memo carries', async () => {
+      mockedUseFlagOn.mockImplementation((key) => ({
+        ready: true,
+        on: key === 'issue-capture',
+      }))
+      api.mock('GET /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          feedback: [
+            {
+              id: 'feedback-1',
+              personId: 'p_1',
+              occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+              channel: 'door_knock',
+              transcript: 'She wants the bond spent on the roads.',
+              issues: [
+                {
+                  id: 'issue-road-bond',
+                  position: 0,
+                  issueLabel: 'Road bond',
+                  stance: 'supports',
+                  desiredOutcome: 'Spend it on the roads',
+                },
+              ],
+              extractionStatus: 'extracted',
+              confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+              outreachId: 7,
+              actorName: 'Kamal Al Sawafi',
+              tags: [
+                { id: 'tag-1', name: 'Road repair', status: 'accepted' },
+                { id: 'tag-2', name: 'Taxes', status: 'accepted' },
+              ],
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      const tags = await screen.findByRole('list', { name: 'Tags' })
+      expect(
+        within(tags)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Road repair', 'Taxes'])
+    })
+
+    it('shows nothing when issue-capture is off', async () => {
+      mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
 
       render(<PersonOverlay />)
 

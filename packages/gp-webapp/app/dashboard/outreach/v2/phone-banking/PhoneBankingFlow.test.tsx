@@ -52,6 +52,12 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
   }),
 }))
 
+// The question-asking card is offered only where issue capture is on; these
+// cases pick it, so the flag is on here.
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: () => ({ ready: true, enabled: true }),
+}))
+
 // useListWizardCount (reached in the audience builder) reads the active org
 // slug — same precedent as RobocallFlow.test.tsx.
 vi.mock('@shared/organization-picker', () => ({
@@ -282,8 +288,10 @@ describe('PhoneBankingFlow', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Go to call list' }))
+    // The envelope rides along: the list read carries none, and it is how
+    // the caller page links to what people said on the list.
     expect(router.push).toHaveBeenCalledWith(
-      `/dashboard/outreach/phone-banking/${createResponse.id}`,
+      `/dashboard/outreach/phone-banking/${createResponse.id}?outreachId=${createResponse.outreachId}`,
     )
   })
 

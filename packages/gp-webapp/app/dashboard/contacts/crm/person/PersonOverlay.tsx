@@ -425,7 +425,7 @@ export const PersonRecord: React.FC<{
   activityFeed,
   showMap = true,
 }) => {
-  const { enabled: issueCaptureEnabled } = useIssueCaptureFlag(isServe, false)
+  const { enabled: issueCaptureEnabled } = useIssueCaptureFlag(false)
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )

@@ -166,18 +166,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   L2_DATA_KEY: { tier: 'degradable', feature: 'voter-file-l2' },
 
-  // The polls synthesis pipeline's trigger, for issue capture's pipeline
-  // engine. Without them a run fails at hand-off and the report offers the
-  // button again; the mock engine needs neither.
-  AI_PIPELINE_BASE_URL: {
-    tier: 'degradable',
-    feature: 'issue-capture-synthesis',
-  },
-  AI_PIPELINE_API_KEY: {
-    tier: 'degradable',
-    feature: 'issue-capture-synthesis',
-  },
-
   // Secrets Manager id of the curated local-dev bundle POST /v1/dev-env/
   // bundle vends. Set on the dev deploy only; unset everywhere else, which
   // is what keeps vending dark rather than failing boot before the secret
@@ -317,6 +305,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // deployed pipeline; `mock` keeps everything in-process.
   FEEDBACK_SYNTHESIS_ENGINE: { tier: 'optional', default: 'pipeline' },
   FEEDBACK_SYNTHESIS_MOCK_GROUPING: { tier: 'optional', default: 'llm' },
+  // Issue capture's offline memos (speech/services/transcribeFile.service.ts).
+  // Unset means S3 and batch Transcribe; `mock` keeps both on the laptop.
+  SPEECH_TRANSCRIBE_FILE_MODE: { tier: 'optional', default: 'aws' },
   TEVYN_POLL_CSVS_BUCKET: { tier: 'optional' },
   // Intentionally unset in every environment: falls back to
   // TEVYN_POLL_CSVS_BUCKET above (see outreachTextDelivery.service.ts).
