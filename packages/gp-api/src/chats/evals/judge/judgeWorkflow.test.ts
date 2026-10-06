@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
@@ -391,7 +392,7 @@ describe('judge.yml tells every judge process who asked', () => {
   })
 
   // The price and the guard state belong in the same comment: a reader
-  // approving ~$578 of sweep should be able to see whether two arms that hash
+  // approving ~$644 of sweep should be able to see whether two arms that hash
   // alike will be judged or refused.
   it('says in the plan comment which mode the request is in', () => {
     const estimate = steps.find(
@@ -1371,22 +1372,41 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
   // Run, not read, with the WHOLE run block and a fake `npx` standing in for
   // the CLI, so no slice boundary decides what is tested. The step is
   // `set -u`, so a variable read before it is set fails here too.
-  const runEstimate = (plan: string, agents: string) => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'judge-estimate-'))
+  const runEstimate = (plan: string, agents: string, ghAnswers = true) => {
+    // Real, because the step builds the base copy's path from `$PWD`.
+    const dir = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'judge-estimate-')),
+    )
+    // The base copy is written beside the candidate's CLI, so the CLI path
+    // has to be inside the scratch directory.
+    const cli = path.join(dir, 'judge/cli.ts')
+    execFileSync('mkdir', [path.dirname(cli)])
     const bin = path.join(dir, 'bin')
     execFileSync('mkdir', [bin])
     writeFileSync(path.join(dir, 'plan.fixture'), plan)
     writeFileSync(
       path.join(bin, 'npx'),
-      `#!/bin/bash\ncat "${path.join(dir, 'plan.fixture')}"\n`,
+      `#!/bin/bash\necho "$*" > "${path.join(dir, 'npx.args')}"\n` +
+        `cat "${path.join(dir, 'plan.fixture')}"\n`,
+    )
+    // Stands in for the base ref's files; a GitHub API that does not answer
+    // must not fail the step.
+    writeFileSync(
+      path.join(bin, 'gh'),
+      `#!/bin/bash\necho "$*" >> "${path.join(dir, 'gh.args')}"\n` +
+        (ghAnswers ? `echo "// $*"\n` : 'echo not found; exit 1\n'),
     )
     chmodSync(path.join(bin, 'npx'), 0o755)
+    chmodSync(path.join(bin, 'gh'), 0o755)
     const output = path.join(dir, 'output')
     writeFileSync(output, '')
     writeFileSync(path.join(dir, 'summary'), '')
     let status = 0
     try {
       execFileSync('bash', ['--noprofile', '--norc', '-c', script], {
+        // The step's working directory is the workspace, and CLI is relative
+        // to it.
+        cwd: dir,
         encoding: 'utf8',
         stdio: 'pipe',
         env: {
@@ -1397,7 +1417,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
           GITHUB_SERVER_URL: 'https://github.com',
           GITHUB_REPOSITORY: 'thegoodparty/omni',
           WORKSPACE: 'packages/gp-api',
-          CLI: 'src/chats/evals/judge/cli.ts',
+          CLI: path.relative(dir, cli),
           AGENTS: agents,
           REQUESTED: agents,
           SELECTION: EXPLICIT_SELECTION,
@@ -1422,6 +1442,9 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     }
     return {
       status,
+      dir,
+      npxArgs: read('npx.args'),
+      ghArgs: read('gh.args'),
       outputs: readFileSync(output, 'utf8'),
       comment: read('plan-comment.md'),
       refusal: read('estimate-refusal-comment.md'),
@@ -1439,22 +1462,62 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     const selection = selectAgents({ kind: 'list', ids })
     const plan = formatPlan(selection)
     const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
-    expect(cents).toEqual([700, 600, 4800])
+    expect(cents).toEqual([900, 600, 4800])
 
     const result = runEstimate(plan, ids.join(','))
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=61\.00$/m)
+    expect(result.outputs).toMatch(/^usd=63\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
     )
     const row = (id: string, shape: string, price: string) =>
       new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
-    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(700)))
+    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(900)))
     expect(result.comment).toMatch(
       row('race_opponent_summary', 'background', dollars(600)),
     )
     expect(result.comment).toMatch(
       row('self_research', 'background', `${dollars(4800)} \\(unmeasured\\)`),
+    )
+  })
+
+  // A PR prices its own sweep, so the base ref's prices are fetched and
+  // handed to the CLI, which takes the higher of the two.
+  it("hands the CLI the base ref's planCost.ts and config.ts", () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  self_research  [background]  cents: 4800 (unmeasured)  cases: self_research.json\n',
+      'self_research',
+    )
+    expect(result.status).toBe(0)
+    const base = path.join(result.dir, 'judge/planCost.base.ts')
+    const config = path.join(result.dir, 'config.base.ts')
+    expect(result.ghArgs).toContain(
+      'repos/thegoodparty/omni/contents/packages/gp-api/judge/planCost.ts?ref=main',
+    )
+    expect(result.ghArgs).toContain(
+      'repos/thegoodparty/omni/contents/packages/gp-api/judge/config.ts?ref=main',
+    )
+    expect(readFileSync(base, 'utf8')).toContain('planCost.ts?ref=main')
+    expect(readFileSync(config, 'utf8')).toContain('config.ts?ref=main')
+    expect(result.npxArgs).toContain(`--base-plan-cost=${base}`)
+    expect(result.npxArgs).toContain(`--base-config=${config}`)
+  })
+
+  // The CLI then fails closed on the empty files: see priceAgainstBase.
+  it('still prices when the base files cannot be fetched, leaving them empty', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  self_research  [background]  cents: 4800 (base-unread)  cases: self_research.json\n',
+      'self_research',
+      false,
+    )
+    expect(result.status).toBe(0)
+    expect(
+      readFileSync(path.join(result.dir, 'judge/planCost.base.ts'), 'utf8'),
+    ).toBe('')
+    expect(result.comment).toMatch(
+      /^\| self_research \| .* \| ~48\.00 \(base price unread, worst case\) \|$/m,
     )
   })
 

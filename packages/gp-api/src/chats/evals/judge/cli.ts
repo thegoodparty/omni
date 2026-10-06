@@ -1,5 +1,14 @@
+import { readFileSync } from 'node:fs'
+import { z } from 'zod'
 import { AGENTS, coverage, type AgentEntry } from './agents'
-import { estimateAgent, type AgentEstimate } from './planCost'
+import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
+import {
+  baseChatAttemptsIn,
+  estimateAgent,
+  priceAgainstBase,
+  type AgentEstimate,
+  type EstimateFn,
+} from './planCost'
 
 // The sweep's entry point, skeleton only. Everything here is a pure
 // function over the registry so the trigger track can test selection without
@@ -116,15 +125,68 @@ export const formatPlan = (
 export interface CliArgs {
   agents: AgentSelector
   dryRun: boolean
+  // The base ref's planCost.ts, placed beside this one so its imports resolve
+  // here, and its config.ts. Given by the workflow; a local run prices from
+  // this branch alone.
+  basePlanCost?: string
+  baseConfig?: string
 }
 
 export const parseArgs = (argv: string[]): CliArgs => {
-  const agentsFlag = argv.find((a) => a.startsWith('--agents='))
+  const flag = (name: string): string | undefined =>
+    argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3)
   return {
-    agents: parseAgentSelector(agentsFlag?.split('=')[1] ?? 'auto'),
+    agents: parseAgentSelector(flag('agents') ?? 'auto'),
     dryRun: argv.includes('--dry-run'),
+    basePlanCost: flag('base-plan-cost'),
+    baseConfig: flag('base-config'),
   }
 }
+
+export interface BasePricing {
+  estimate: EstimateFn | undefined
+  chatAttempts: number | undefined
+}
+
+const BaseModuleSchema = z.object({
+  estimateAgent: z.custom<EstimateFn>((value) => typeof value === 'function'),
+})
+
+// Anything that goes wrong here leaves that half undefined, and pricing then
+// fails closed: see priceAgainstBase.
+export const loadBasePricing = async (
+  planCostPath: string | undefined,
+  configPath: string | undefined,
+): Promise<BasePricing> => {
+  let estimate: EstimateFn | undefined
+  try {
+    estimate =
+      planCostPath === undefined
+        ? undefined
+        : BaseModuleSchema.parse(await import(planCostPath)).estimateAgent
+  } catch {
+    estimate = undefined
+  }
+  let chatAttempts: number | undefined
+  try {
+    chatAttempts =
+      configPath === undefined
+        ? undefined
+        : baseChatAttemptsIn(readFileSync(configPath, 'utf8'))
+  } catch {
+    chatAttempts = undefined
+  }
+  return { estimate, chatAttempts }
+}
+
+// Each arm walks its own attempts, so chat is priced at the larger.
+export const pricingConfig = (
+  chatAttempts: number | undefined,
+  config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+): JudgeConfig => ({
+  ...config,
+  attemptsPerCase: Math.max(config.attemptsPerCase, chatAttempts ?? 0),
+})
 
 export interface CliResult {
   plan: string
@@ -156,14 +218,22 @@ export const SWEEP_IS_NOT_ONE_COMMAND =
 export const run = (
   argv: string[],
   agents: readonly AgentEntry[] = AGENTS,
+  base?: BasePricing,
 ): CliResult => {
   const args = parseArgs(argv)
   const selection = selectAgents(args.agents, agents)
   if (!args.dryRun) {
     throw new Error(SWEEP_IS_NOT_ONE_COMMAND)
   }
+  const config = pricingConfig(base?.chatAttempts)
+  // Asked to compare against a base and handed none is the same as a base
+  // that would not load: priced at the worst case.
+  const estimate =
+    args.basePlanCost === undefined && base === undefined
+      ? (agent: AgentEntry) => estimateAgent(agent, config)
+      : priceAgainstBase(base?.estimate, config)
   return {
-    plan: formatPlan(selection, agents),
+    plan: formatPlan(selection, agents, estimate),
     exitCode: selection.unknown.length > 0 ? 1 : 0,
   }
 }
@@ -177,12 +247,20 @@ export const run = (
 // `require.main === module` is the house pattern here (see scripts/), and gp-api
 // is CommonJS, so import.meta is not available.
 if (require.main === module) {
-  try {
-    const result = run(process.argv.slice(2))
-    console.log(result.plan)
-    process.exitCode = result.exitCode
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err))
-    process.exitCode = 1
-  }
+  const argv = process.argv.slice(2)
+  const args = parseArgs(argv)
+  void loadBasePricing(args.basePlanCost, args.baseConfig)
+    .then((base) => {
+      const result = run(
+        argv,
+        AGENTS,
+        args.basePlanCost === undefined ? undefined : base,
+      )
+      console.log(result.plan)
+      process.exitCode = result.exitCode
+    })
+    .catch((err: Error) => {
+      console.error(err.message)
+      process.exitCode = 1
+    })
 }

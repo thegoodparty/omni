@@ -497,7 +497,7 @@ jobs:
                 # directory name reaches `--agents=` unchanged. Both are valid
                 # snake_case, so the allowlist below passes them through: a
                 # directory named `all` turns this one-agent request into the
-                # ~$578 sweep of every agent that every other guard in this file
+                # ~$644 sweep of every agent that every other guard in this file
                 # exists to prevent, and one named `auto` makes the CLI throw.
                 # Rejected here rather than filtered out, because silently
                 # judging nothing would hide a directory nobody can ever judge.
@@ -694,7 +694,7 @@ jobs:
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
       #
-      # An accidental `all` is the failure this exists for. It is roughly $578
+      # An accidental `all` is the failure this exists for. It is roughly $644
       # against single dollars for the normal one-agent case, and the difference
       # between those two is one word in a PR comment. So the number goes in
       # front of a person, in the job summary and on the PR, and the live sweep
@@ -708,11 +708,12 @@ jobs:
       # says what it would take to make it one.
       #
       # Every price is the CLI's, printed on its plan row and only summed here:
-      # src/chats/evals/judge/planCost.ts prices a background agent from its
-      # measured judge cost, its real case count and config.background, and
-      # a chat agent from the design doc. Per-agent case lists come from the
-      # same plan, which is reproduced verbatim below the table, so the facts
-      # a reader needs are never assembled by this YAML.
+      # src/chats/evals/judge/planCost.ts prices each agent from its measured
+      # judge cost per run (background) or turn (chat), its real case list and
+      # the config, at the higher of this branch's and the base ref's prices.
+      # Per-agent case lists come from the same plan, which is reproduced
+      # verbatim below the table, so the facts a reader needs are never
+      # assembled by this YAML.
       - name: Estimate the cost and case count
         id: estimate
         if: >-
@@ -731,6 +732,7 @@ jobs:
           BASE_REF: ${{ steps.gate.outputs.base_ref }}
           PR_NUMBER: ${{ inputs.pr_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -891,8 +893,20 @@ jobs:
           # this is the one number the step is reading. stderr is left to the
           # job log, so the CLI's own error text is visible without being
           # spliced into the plan that goes on the PR.
+          # THE BASE REF'S PRICES TOO, so a PR cannot lower its own estimate by
+          # editing planCost.ts: the CLI prices each agent at the higher of the
+          # two, and at the worst case when the base copy is missing or will not
+          # load. Placed beside the candidate's so its imports resolve to the
+          # case lists and config the arms will walk.
+          base_cost="$PWD/$(dirname "$CLI")/planCost.base.ts"
+          for f in planCost:"$base_cost" config:"$RUNNER_TEMP/config.base.ts"; do
+            gh api -H 'Accept: application/vnd.github.raw' \
+              "repos/$GITHUB_REPOSITORY/contents/$WORKSPACE/$(dirname "$CLI")/${f%%:*}.ts?ref=$BASE_REF" \
+              > "${f#*:}" || : > "${f#*:}"
+          done
           status=0
           npx tsx "$CLI" --agents="$AGENTS" --dry-run \
+            --base-plan-cost="$base_cost" --base-config="$RUNNER_TEMP/config.base.ts" \
             > "$RUNNER_TEMP/plan.txt" || status=$?
           cat "$RUNNER_TEMP/plan.txt"
 
@@ -1034,6 +1048,7 @@ jobs:
               case "$basis" in
                 unmeasured) note=' (unmeasured)' ;;
                 old-branch) note=' (old branch, worst case)' ;;
+                base-unread) note=' (base price unread, worst case)' ;;
                 *) note='' ;;
               esac
               printf '| %s | %s | %s | ~%d.%02d%s |\n' \
@@ -1099,9 +1114,10 @@ jobs:
             echo ''
             cat "$RUNNER_TEMP/table.md"
             echo ''
-            echo 'Chat estimates are the design doc'"'"'s measured sweep costs; the background'
-            echo 'estimate rounds up the worst measured per-run cost. Both exist to make an'
-            echo 'accidental all-agents sweep visible before it is expensive,'
+            echo 'Each estimate is the agent'"'"'s measured cost per run or turn in an earlier'
+            echo 'judge sweep, x1.5 and rounded up, or a worst case where it was never'
+            echo 'measured; the higher of this branch'"'"'s and the base ref'"'"'s prices. It exists'
+            echo 'to make an accidental all-agents sweep visible before it is expensive,'
             echo 'not to bill anyone. An agent with no case list yet is listed but'
             echo 'neither priced nor swept, because it has nothing to compare.'
             echo ''

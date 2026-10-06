@@ -50,13 +50,15 @@ excluded and why, and an agent that couldn't be compared is listed as
 refused, with the reason.
 
 A sweep of one chat agent takes about half an hour. The plan comment shows the
-estimate before anything runs: about $7 for a chat agent and $35 for
-`ordinance_flow`. A background agent is priced from what its runs cost in an
-earlier judge sweep, with a margin: $3 to $12 at the default 3 cases. One that
-has never been measured is priced at the production worst case of $8 a run,
-$48 at 3 cases, and the plan marks it "(unmeasured)". The numbers and their
-evidence are in `planCost.ts`; add an agent's measured cost there after its
-first live sweep (the report's `- cost:` line).
+estimate before anything runs, priced from what each agent cost in an earlier
+judge sweep, x1.5 and rounded up: about $9 for `chief_of_staff`, and $3 to $12
+for a measured background agent at the default 3 cases. An agent never
+measured is priced at a worst case and marked "(unmeasured)": $0.52 a chat
+turn ($37.50 for 8 cases at 3 attempts), $8 a background run ($48 at 3 cases).
+Each agent is priced at the higher of the PR's and the base ref's tables, so a
+PR cannot lower its own estimate. The numbers and their evidence are in
+`planCost.ts`; add an agent's measured cost there after its first live sweep
+(the report's `- cost:` line).
 
 **A second request on the same PR cancels the first**, from a comment or from
 Actions. That includes a plan-only `/judge`: posting one while a live sweep is

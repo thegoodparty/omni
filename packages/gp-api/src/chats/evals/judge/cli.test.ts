@@ -1,11 +1,17 @@
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   formatPlan,
+  loadBasePricing,
   parseAgentSelector,
   parseArgs,
+  pricingConfig,
   run,
   selectAgents,
 } from './cli'
+import { DEFAULT_JUDGE_CONFIG } from './config'
 import type { AgentEntry } from './agents'
 
 const AGENTS: AgentEntry[] = [
@@ -136,14 +142,24 @@ describe('formatPlan', () => {
 
 describe('parseArgs', () => {
   it('defaults to auto with no flag', () => {
-    expect(parseArgs([])).toEqual({ agents: { kind: 'auto' }, dryRun: false })
+    expect(parseArgs([])).toMatchObject({
+      agents: { kind: 'auto' },
+      dryRun: false,
+      basePlanCost: undefined,
+    })
   })
 
   it('reads the agents flag and the dry-run flag', () => {
-    expect(parseArgs(['--agents=all', '--dry-run'])).toEqual({
+    expect(parseArgs(['--agents=all', '--dry-run'])).toMatchObject({
       agents: { kind: 'all' },
       dryRun: true,
     })
+  })
+
+  it("reads the base ref's file paths", () => {
+    expect(
+      parseArgs(['--base-plan-cost=/a/p.ts', '--base-config=/b/c.ts']),
+    ).toMatchObject({ basePlanCost: '/a/p.ts', baseConfig: '/b/c.ts' })
   })
 })
 
@@ -181,5 +197,74 @@ describe('run', () => {
   // Failing loudly beats half-running a sweep whose pieces do not exist.
   it('refuses a real run in the skeleton', () => {
     expect(() => run(['--agents=all'])).toThrow(/does not run one/)
+  })
+})
+
+describe('base pricing', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'judge-base-'))
+  const file = (name: string, text: string): string => {
+    const at = path.join(dir, name)
+    writeFileSync(at, text)
+    return at
+  }
+  const agent: AgentEntry = {
+    agentId: 'race_opponent_summary',
+    shape: 'background',
+    cases: 'race_opponent_summary.json',
+    status: 'wired',
+  }
+
+  // A base whose table prices higher than this branch's wins the row.
+  it("loads the base ref's estimateAgent and its chat attempts", async () => {
+    const base = await loadBasePricing(
+      file(
+        'high.ts',
+        'export const estimateAgent = () => ' +
+          "({ cents: 99900, basis: 'measured', why: 'base' })\n",
+      ),
+      file('config.ts', '  attemptsPerCase: 5,\n'),
+    )
+    expect(base.chatAttempts).toBe(5)
+    const plan = run(
+      ['--agents=race_opponent_summary', '--dry-run', '--base-plan-cost=x'],
+      [agent],
+      base,
+    ).plan
+    expect(plan).toContain('cents: 99900 (measured)')
+  })
+
+  it.each([
+    ['an empty file', () => file('empty.ts', '')],
+    ['a missing file', () => path.join(dir, 'missing.ts')],
+    ['a GitHub error body', () => file('404.ts', '{"message": "Not Found"}')],
+  ])('leaves the estimate unset for %s', async (_name, at) => {
+    expect((await loadBasePricing(at(), undefined)).estimate).toBeUndefined()
+  })
+
+  // Asked to compare and handed nothing: the worst case, not this branch's.
+  it('prices at the worst case when asked for a base it was not given', () => {
+    const plan = run(
+      ['--agents=race_opponent_summary', '--dry-run', '--base-plan-cost=x'],
+      [agent],
+    ).plan
+    expect(plan).toContain('cents: 4800 (base-unread)')
+  })
+
+  it('prices from this branch alone when not asked for a base', () => {
+    const plan = run(
+      ['--agents=race_opponent_summary', '--dry-run'],
+      [agent],
+    ).plan
+    expect(plan).toContain('cents: 600 (measured)')
+  })
+
+  it('prices chat at the larger of the two arms attempts', () => {
+    expect(pricingConfig(5).attemptsPerCase).toBe(5)
+    expect(pricingConfig(1).attemptsPerCase).toBe(
+      DEFAULT_JUDGE_CONFIG.attemptsPerCase,
+    )
+    expect(pricingConfig(undefined).attemptsPerCase).toBe(
+      DEFAULT_JUDGE_CONFIG.attemptsPerCase,
+    )
   })
 })
