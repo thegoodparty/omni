@@ -558,6 +558,30 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(row.scheduledLocalTime).toBe('18:00')
     })
 
+    // An evening Pacific send is already the next day in UTC; the name
+    // (Peerly's job title, gp-admin's Campaign column) must carry the day
+    // the candidate picked, not the server's (Danielle Mead, 2026-10-05:
+    // titled 10/06 for an Oct 5 7 PM PDT text).
+    it('names the row for the candidate-local send day, not the UTC day', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: '2026-10-05T19:00:00-07:00',
+        scheduledLocalTime: '19:00',
+        draft: true,
+      })
+      expect(res.status).toBe(201)
+
+      const row = firstOrThrow(
+        await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        }),
+      )
+      expect(row.name).toBe('jane-doe - 10/05/2026')
+      expect(row.scheduledLocalDate).toBe('2026-10-05')
+    })
+
     it.each(['08:00', '20:30', '21:00', '6pm', '19:99'])(
       'rejects a send time outside the 09:00-20:00 window (%s)',
       async (scheduledLocalTime) => {
