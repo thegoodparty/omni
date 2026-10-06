@@ -130,7 +130,9 @@ data "aws_region" "current" {}
 
 resource "aws_iam_policy" "judge_sweep" {
   name        = local.policy_name
-  description = "Universal Judge background sweep: stage an override under _judge/ in ${local.metadata_bucket}, keep its records under _judge/ and read its own _judge- run artifacts in ${local.artifacts_bucket}, send to ${local.dispatch_queue}, and list both buckets so a missing key returns 404 rather than 403. Attach to the role the judge workflow assumes. dev only."
+  # Frozen: IAM cannot update a policy's description, so any edit here makes
+  # Terraform replace the policy and its attachment, which CI refuses to apply.
+  description = "Universal Judge background sweep: stage an override under _judge/ in ${local.metadata_bucket}, read its own _judge- run artifacts in ${local.artifacts_bucket}, send to ${local.dispatch_queue}, and list both buckets so a missing key returns 404 rather than 403. Attach to the role the judge workflow assumes. dev only."
 
   policy = jsonencode({
     Version = "2012-10-17"
