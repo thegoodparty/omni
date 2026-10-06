@@ -44,6 +44,7 @@ import { QueueType } from '../queue.types'
 import { OutreachService } from '@/outreach/services/outreach.service'
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
+import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { QueueConsumerService } from './queueConsumer.service'
 
 vi.mock('@/polls/utils/polls.utils', async (importOriginal) => ({
@@ -273,6 +274,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       createMockLogger(),
+      {} as never,
     )
   })
 
@@ -1112,6 +1114,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       createMockLogger(),
+      {} as never,
     )
   })
 
@@ -1311,6 +1314,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       createMockLogger(),
+      {} as never,
     )
   })
 
@@ -1506,6 +1510,7 @@ describe('QueueConsumerService - message type routing', () => {
         },
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: FeedbackSynthesisIngestService, useValue: {} },
       ],
     }).compile()
     module = mod
@@ -2131,6 +2136,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: OutreachTextDeliveryService, useValue: {} },
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: FeedbackSynthesisIngestService, useValue: {} },
       ],
     }).compile()
     service = mod.get(QueueConsumerService)
@@ -2341,6 +2347,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: OutreachTextDeliveryService, useValue: {} },
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: FeedbackSynthesisIngestService, useValue: {} },
       ],
     }).compile()
     service = module.get(QueueConsumerService)
@@ -2466,6 +2473,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       createMockLogger(),
+      {} as never,
     )
 
   const loopMessage = (data: unknown): Message => ({
@@ -2503,5 +2511,93 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
 
     expect(result).toBe(true)
     expect(handleStep).not.toHaveBeenCalled()
+  })
+})
+
+describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
+  const buildService = (handle: ReturnType<typeof vi.fn>) =>
+    new QueueConsumerService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never, // p2pPhoneListUpload
+      createMockLogger(),
+      { handle } as never,
+    )
+
+  const synthesisMessage = (data: object): Message => ({
+    MessageId: 'msg-synthesis-1',
+    Body: JSON.stringify({ type: QueueType.FEEDBACK_SYNTHESIS_COMPLETE, data }),
+  })
+
+  it('hands a valid event to the feedback synthesis ingest', async () => {
+    const handle = vi.fn().mockResolvedValue(undefined)
+    const service = buildService(handle)
+    const data = {
+      sourceType: 'constituent_feedback',
+      sourceId: 'run-1',
+      totalResponses: 2,
+      responsesLocation: 'output/feedback/run-1.json',
+      issues: [
+        {
+          rank: 1,
+          theme: 'Street flooding',
+          summary: 's',
+          analysis: 'a',
+          responseCount: 2,
+          quotes: [{ quote: 'q', respondent_id: 'feedback-1' }],
+        },
+      ],
+    }
+
+    const result = await service.processMessage(synthesisMessage(data))
+
+    expect(result).toBe(true)
+    expect(handle).toHaveBeenCalledWith({
+      type: QueueType.FEEDBACK_SYNTHESIS_COMPLETE,
+      data,
+    })
+  })
+
+  it('acks and drops a malformed event instead of requeueing', async () => {
+    const handle = vi.fn()
+    const service = buildService(handle)
+
+    const result = await service.processMessage(
+      synthesisMessage({ sourceId: 'run-1' }),
+    )
+
+    expect(result).toBe(true)
+    expect(handle).not.toHaveBeenCalled()
   })
 })

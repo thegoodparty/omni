@@ -36,6 +36,7 @@ export const DOOR_KNOCKING_PURPOSE_LABELS: Record<DoorKnockingPurpose, string> =
     event_invite: 'Invite people to an event',
     early_voting: 'Encourage early voting',
     election_day_turnout: 'Turn out my supporters',
+    community_input: 'Hear from voters',
     custom: 'Something else',
   }
 
@@ -55,6 +56,7 @@ export const DOOR_KNOCKING_PURPOSE_NAME_SUGGESTIONS: Record<
   event_invite: 'Event invite walk',
   early_voting: 'Early voting walk',
   election_day_turnout: 'Turnout walk',
+  community_input: 'Listening walk',
   // The flow suggests nothing for custom; the entry keeps the record total so
   // a new purpose is a compile error here.
   custom: FALLBACK_NAME,

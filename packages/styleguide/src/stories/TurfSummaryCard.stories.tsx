@@ -40,6 +40,7 @@ export const Playground: Story = {
     muted: false,
     trailing: null,
     footer: null,
+    heard: null,
   },
   argTypes: {
     muted: {
@@ -57,6 +58,11 @@ export const Playground: Story = {
       description:
         'The washed half under the full-bleed rule. Omitted entirely when there is nothing to do, rather than rendered empty with a dead control.',
     },
+    heard: {
+      control: false,
+      description:
+        'Under the figures. The details drawer puts the link into what people on the turf said here, once anyone has answered.',
+    },
     turf: { table: { disable: true } },
   },
 }
@@ -68,11 +74,12 @@ export const Progress: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex flex-col gap-2">
-      <TurfSummaryCard turf={turf} trailing={null} footer={null} />
+      <TurfSummaryCard turf={turf} trailing={null} footer={null} heard={null} />
       <TurfSummaryCard
         turf={{ ...turf, name: 'Elm & 5th', loggedCount: 41 }}
         trailing={null}
         footer={null}
+        heard={null}
       />
       <TurfSummaryCard
         turf={{
@@ -83,6 +90,7 @@ export const Progress: Story = {
         }}
         trailing={null}
         footer={null}
+        heard={null}
       />
     </div>
   ),
@@ -116,6 +124,7 @@ export const Surfaces: Story = {
               Start knocking
             </Button>
           }
+          heard={null}
         />
       </div>
       <div className="flex flex-col gap-2">
@@ -137,6 +146,7 @@ export const Surfaces: Story = {
               <Button size="small">Continue knocking</Button>
             </>
           }
+          heard={null}
         />
       </div>
     </div>
@@ -158,6 +168,7 @@ export const Muted: Story = {
           Done
         </span>
       }
+      heard={null}
     />
   ),
 }
@@ -177,6 +188,7 @@ export const WithoutStopCount: Story = {
       }}
       trailing={null}
       footer={null}
+      heard={null}
     />
   ),
 }

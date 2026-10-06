@@ -92,6 +92,8 @@ import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachService } from '@/outreach/services/outreach.service'
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
+import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
+import { FeedbackSynthesisCompleteEventSchema } from '@goodparty_org/contracts'
 
 import type { AgentExperimentResultData } from '../queue.types'
 
@@ -186,6 +188,7 @@ export class QueueConsumerService {
     private readonly outreachTextDelivery: OutreachTextDeliveryService,
     private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
+    private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -388,6 +391,25 @@ export class QueueConsumerService {
         const pollAnalysisCompleteEvent =
           PollAnalysisCompleteEventSchema.parse(queueMessage)
         return await this.handlePollAnalysisComplete(pollAnalysisCompleteEvent)
+      case QueueType.FEEDBACK_SYNTHESIS_COMPLETE: {
+        this.logger.info('received feedbackSynthesisComplete message')
+        // A malformed event can never become valid, and requeueing it would
+        // hold its FIFO group until the DLQ limit. Ack-drop it, logged; the
+        // run it names is failed by the stale-run sweep. An ingest error
+        // escapes to the requeue path: the run is still running, so a
+        // redelivery retries it, and the ingest's claim makes that safe.
+        const event =
+          FeedbackSynthesisCompleteEventSchema.safeParse(queueMessage)
+        if (!event.success) {
+          this.logger.error(
+            { messageId: message.MessageId, error: event.error },
+            'malformed feedbackSynthesisComplete message, discarding',
+          )
+          return true
+        }
+        await this.feedbackSynthesisIngest.handle(event.data)
+        return true
+      }
       case QueueType.POLL_CREATION:
         this.logger.info('received pollCreation message')
         const pollCreationEvent = PollCreationEventSchema.parse(queueMessage)

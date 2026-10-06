@@ -38,6 +38,8 @@ import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { InfoSection } from './InfoSection'
+import { ConstituentFeedbackSection } from './ConstituentFeedbackSection'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import FollowUpRow from './FollowUpRow'
 import NotesSection from './NotesSection'
 import StatusRow from './StatusRow'
@@ -423,6 +425,7 @@ export const PersonRecord: React.FC<{
   activityFeed,
   showMap = true,
 }) => {
+  const { enabled: issueCaptureEnabled } = useIssueCaptureFlag(false)
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
@@ -472,6 +475,13 @@ export const PersonRecord: React.FC<{
       <FollowUpRow person={person} isServe={isServe} />
       <div className="flex flex-col gap-6">
         <NotesSection personId={person.id} />
+
+        {/* Flag-gated with the capture that writes it, on each product's own
+            flag. The section renders nothing until there is a memo, so a
+            contact nobody has spoken to is unchanged. */}
+        {issueCaptureEnabled && (
+          <ConstituentFeedbackSection personId={person.id} isServe={isServe} />
+        )}
 
         {showActivitiesAndIssues && topIssues ? (
           <InfoSection title="Top Issues" icon={<LuFrown size={24} />}>

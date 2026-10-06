@@ -20,6 +20,43 @@ const STALE_CLAIM_MS = ms('6h')
 // new slot key, so a crashed pass retries within the hour regardless.
 const STALE_HOURLY_CLAIM_MS = ms('30m')
 
+// Ten-minute claims are honoured for half their slot, the same reasoning as
+// the hourly window: longer than a legitimate pass (one bulk update), short
+// enough that a crashed claim never outlives its slot.
+const STALE_TEN_MINUTE_CLAIM_MS = ms('5m')
+
+// Minute claims are honoured for half their slot, the same reasoning as the
+// ten-minute window: longer than a legitimate pass, short enough that a
+// crashed claim never outlives its slot.
+const STALE_MINUTE_CLAIM_MS = ms('30s')
+
+const TEN_MINUTES = 10
+
+// Start of the UTC minute containing `date`.
+const getUtcMinuteStart = (date: Date) =>
+  new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate(),
+      date.getUTCHours(),
+      date.getUTCMinutes(),
+    ),
+  )
+
+// Start of the UTC ten-minute slot containing `date`, built from UTC
+// components for the same reason as getUtcHourStart below.
+const getUtcTenMinuteStart = (date: Date) =>
+  new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate(),
+      date.getUTCHours(),
+      date.getUTCMinutes() - (date.getUTCMinutes() % TEN_MINUTES),
+    ),
+  )
+
 // Start of the UTC hour containing `date`. Built from the UTC components for
 // the same reason getMidnightForDate is: date-fns' startOfHour works in local
 // time, so a zone with a sub-hour offset would land on a different slot than
@@ -92,6 +129,51 @@ export class CronLockService extends createPrismaBase(MODELS.CronRun) {
   }
 
   /**
+   * Claims the ten-minute run slot for `jobName`, keyed on the start of the
+   * UTC ten-minute slot containing `now`. Same lock and takeover mechanics
+   * as {@link tryClaimHourlyRun}, with the shorter
+   * {@link STALE_TEN_MINUTE_CLAIM_MS} window. For a job that fires every ten
+   * minutes, where an hourly claim would deny five of every six firings.
+   * Callers must invoke {@link markTenMinuteCompleted} once the job finishes.
+   *
+   * @param now Defaults to the current time; injectable for tests.
+   */
+  async tryClaimTenMinuteRun(
+    jobName: string,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    return this.tryClaim(
+      jobName,
+      getUtcTenMinuteStart(now),
+      now,
+      STALE_TEN_MINUTE_CLAIM_MS,
+    )
+  }
+
+  /**
+   * Claims the one-minute run slot for `jobName`, keyed on the start of the
+   * UTC minute containing `now`. Same lock and takeover mechanics as
+   * {@link tryClaimTenMinuteRun}, with the shorter
+   * {@link STALE_MINUTE_CLAIM_MS} window. For a job that fires every minute.
+   * Every claim is a `cron_run` row, so a job that is usually idle should
+   * check for work before claiming. Callers must invoke
+   * {@link markMinuteCompleted} once the job finishes.
+   *
+   * @param now Defaults to the current time; injectable for tests.
+   */
+  async tryClaimMinuteRun(
+    jobName: string,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    return this.tryClaim(
+      jobName,
+      getUtcMinuteStart(now),
+      now,
+      STALE_MINUTE_CLAIM_MS,
+    )
+  }
+
+  /**
    * Marks the current UTC day's claim for `jobName` as completed, so a later
    * invocation will not treat it as a crashed run and take it over.
    *
@@ -116,6 +198,38 @@ export class CronLockService extends createPrismaBase(MODELS.CronRun) {
   ): Promise<void> {
     await this.model.updateMany({
       where: { jobName, runDate: getUtcHourStart(now) },
+      data: { completedAt: now },
+    })
+  }
+
+  /**
+   * Marks the current UTC ten-minute slot's claim for `jobName` as
+   * completed. The ten-minute counterpart of {@link markCompleted}.
+   *
+   * @param now Defaults to the current time; injectable for tests.
+   */
+  async markTenMinuteCompleted(
+    jobName: string,
+    now: Date = new Date(),
+  ): Promise<void> {
+    await this.model.updateMany({
+      where: { jobName, runDate: getUtcTenMinuteStart(now) },
+      data: { completedAt: now },
+    })
+  }
+
+  /**
+   * Marks the current UTC minute's claim for `jobName` as completed. The
+   * one-minute counterpart of {@link markCompleted}.
+   *
+   * @param now Defaults to the current time; injectable for tests.
+   */
+  async markMinuteCompleted(
+    jobName: string,
+    now: Date = new Date(),
+  ): Promise<void> {
+    await this.model.updateMany({
+      where: { jobName, runDate: getUtcMinuteStart(now) },
       data: { completedAt: now },
     })
   }

@@ -25,6 +25,7 @@ import { CrmModule } from 'src/crm/crmModule'
 import { ChatsModule } from 'src/chats/chats.module'
 import { OutreachModule } from 'src/outreach/outreach.module'
 import { PeerlyModule } from 'src/vendors/peerly/peerly.module'
+import { ConstituentFeedbackModule } from 'src/constituentFeedback/constituentFeedback.module'
 
 @Module({
   imports: [
@@ -64,6 +65,9 @@ import { PeerlyModule } from 'src/vendors/peerly/peerly.module'
     // For P2pPhoneListUploadService, which the `p2pPhoneListBuild` case
     // calls.
     PeerlyModule,
+    // For FeedbackSynthesisIngestService, the `feedbackSynthesisComplete`
+    // handler.
+    ConstituentFeedbackModule,
   ],
   providers: [QueueConsumerService],
 })
