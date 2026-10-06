@@ -1534,8 +1534,15 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
   })
 
   // A branch whose CLI predates per-agent pricing prints unpriced rows, and
-  // is priced at the old flat worst case rather than refused.
-  it('prices a plan from an older CLI at the old worst case', () => {
+  // is priced at the worst case rather than refused — never below what this
+  // branch's planCost.ts charges an unmeasured agent.
+  it('prices a plan from an older CLI at the worst case', () => {
+    const worst = (id: string) => {
+      const agent = selectAgents({ kind: 'list', ids: [id] }).selected[0]
+      return agent === undefined ? -1 : estimateAgent(agent).cents
+    }
+    expect(worst('ordinance_flow')).toBe(3750)
+    expect(worst('self_research')).toBe(4800)
     const result = runEstimate(
       'Universal Judge — plan (4 agents)\n\n' +
         '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
@@ -1545,15 +1552,15 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       'chief_of_staff,ordinance_flow,self_research,campaign_tracker_tasks',
     )
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=90\.00$/m)
+    expect(result.outputs).toMatch(/^usd=123\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,ordinance_flow,self_research$/m,
     )
     const label = '\\(old branch, worst case\\)'
     const row = (id: string, price: string) =>
       new RegExp(`^\\| ${id} \\| .* \\| ~${price} ${label} \\|$`, 'm')
-    expect(result.comment).toMatch(row('chief_of_staff', '7\\.00'))
-    expect(result.comment).toMatch(row('ordinance_flow', '35\\.00'))
+    expect(result.comment).toMatch(row('chief_of_staff', '37\\.50'))
+    expect(result.comment).toMatch(row('ordinance_flow', '37\\.50'))
     expect(result.comment).toMatch(row('self_research', '48\\.00'))
   })
 })

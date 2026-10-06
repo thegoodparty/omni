@@ -1014,15 +1014,12 @@ jobs:
                   continue
                   ;;
               esac
-              # The old flat worst case: 2 arms x 3 cases x $8 a run for a
-              # background agent, the design doc's $7 for a chat one, and $35
-              # for ordinance_flow.
+              # The worst case for an unmeasured agent, never below what
+              # planCost.ts would charge: 2 arms x 3 cases x $8 a run for a
+              # background agent, and $37.50 (8 turns x 3 attempts at $0.52,
+              # x1.5) for any chat one, ordinance_flow included.
               if [ "$basis" = old-branch ]; then
-                case "$id:$shape" in
-                  ordinance_flow:*) cents=3500 ;;
-                  *:chat) cents=700 ;;
-                  *) cents=4800 ;;
-                esac
+                [ "$shape" = chat ] && cents=3750 || cents=4800
               fi
               total=$((total + cents))
               keep "$id"
