@@ -124,7 +124,7 @@ const WIN_AREAS: ProductArea[] = [
     does: 'The home tab, and where this chat lives, alongside the one thing to do next.',
     inside: [
       'The Do this next card shows the single most important task right now, from the campaign plan; a candidate who is not on the ballot yet sees getting on the ballot first, with how to file',
-      'The card has one main button that starts the task, a Mark done button, and a menu (the three dots) with Later (it comes back in 3 days), Not for me (it stays skipped until they undo it in the campaign plan), and See it in your plan',
+      'The card has one main button that starts the task, a Mark done button, and a Skip menu with Later (it comes back in 3 days) and Not for me (it stays skipped until they undo it in the Game Plan)',
       'Chat about this, under the card, opens this chat on a new conversation about that task: it starts with a short overview of the step and offers a couple of questions to start from. The chat box sits in the page below the card; every other page has it fixed at the bottom',
       'Opening the chat resumes their most recent conversation; New chat in the chat header starts a fresh one',
       'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
@@ -157,7 +157,7 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Three cards across the top, Your race, Your story and Your opponents, open the pages where each can be reviewed and changed: race details on Profile, the story on Your story, opponents on Know Your Opponent',
       'Below them, a bar per phase (Pre-launch, Launch, Active campaign, Get out the vote) shows how far along they are, which phase they are in, and how many tasks are done',
-      'The phase they are in opens to its tasks, and the task to do next is the same card as on Home, with its button, Mark done, the three-dot menu and Chat about this',
+      'The phase they are in opens to its tasks, and the task to do next is the same card as on Home, with its button, Mark done, the Skip menu and Chat about this',
     ],
     gate: 'No gate. A candidate with no Campaign Story still gets a campaign and outreach plan, just a generic one, and completing the story regenerates it from their own answers.',
   },

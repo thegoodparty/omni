@@ -6,6 +6,7 @@ import { format, parseISO } from 'date-fns'
 import {
   Button,
   Card,
+  ChevronDownIcon,
   CircleCheckIcon,
   cn,
   Dialog,
@@ -16,12 +17,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmptyState,
-  IconButton,
   MessagesSquareIcon,
-  MoreHorizontalIcon,
 } from '@styleguide'
 import {
   isTimeBoundTask,
@@ -156,7 +154,7 @@ const NextThingSection = ({
 
 /**
  * The one thing a candidate should do next, chosen by the same
- * selectNextTrackerTask the campaign plan uses. One filled action, a quiet "Mark done", rare choices in the "…" menu,
+ * selectNextTrackerTask the campaign plan uses. One filled action, a quiet "Mark done", the ways to skip under "Skip",
  * and "Chat about this" in the tray under the card. It stays
  * until they do it, mark it done, skip it, or its date passes on a task that
  * only exists on that date.
@@ -365,15 +363,15 @@ export default function NextThingCard({
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <IconButton
+                <Button
                   type="button"
                   variant="ghost"
                   className="ml-auto"
                   disabled={busy}
-                  aria-label="More options"
                 >
-                  <MoreHorizontalIcon className="size-5" aria-hidden />
-                </IconButton>
+                  Skip
+                  <ChevronDownIcon className="size-4" aria-hidden />
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {SKIP_OPTIONS.map((option) => (
@@ -388,12 +386,6 @@ export default function NextThingCard({
                     </span>
                   </DropdownMenuItem>
                 ))}
-                <DropdownMenuSeparator />
-                {/* The sidebar's Campaign Plan covers desktop; this keeps the
-                  plan one tap away on a phone, where the sidebar is a drawer. */}
-                <DropdownMenuItem asChild>
-                  <Link href="/campaign-plan">See it in your plan</Link>
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

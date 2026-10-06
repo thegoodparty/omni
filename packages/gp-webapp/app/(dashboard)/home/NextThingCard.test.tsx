@@ -142,17 +142,25 @@ describe('NextThingCard', () => {
     })
   })
 
-  it('shows no progress count, and puts the plan link in the menu', async () => {
+  it('shows no progress count', () => {
     mockResult.mockReturnValue(
       settled([task({ id: 'a', completed: true }), task({ id: 'b' })]),
     )
     render(<NextThingCard />)
 
     expect(screen.queryByText(/of 2 done/)).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
-    expect(
-      await screen.findByRole('menuitem', { name: 'See it in your plan' }),
-    ).toHaveAttribute('href', '/campaign-plan')
+  })
+
+  it('offers only the ways to skip under Skip', async () => {
+    mockResult.mockReturnValue(settled([task({ id: 'b' })]))
+    render(<NextThingCard />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    const items = await screen.findAllByRole('menuitem')
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining('Later'),
+      expect.stringContaining('Not for me'),
+    ])
   })
 
   it("links the main action to the task's own link", () => {
@@ -206,11 +214,11 @@ describe('NextThingCard', () => {
   it.each([
     ['Later', 'later'],
     ['Not for me', 'notForMe'],
-  ])('skips from the "More options" menu with "%s"', async (label, reason) => {
+  ])('skips from the Skip menu with "%s"', async (label, reason) => {
     mockResult.mockReturnValue(settled([task({})]))
     render(<NextThingCard />)
 
-    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }))
     await userEvent.click(await screen.findByText(label))
 
     expect(mockSkip).toHaveBeenCalledWith({ id: 'task-1', reason })
