@@ -54,6 +54,8 @@ interface Props {
   pendingMessage?: string
   /** Fires once per visible message the user sends. */
   onMessageSent?: () => void
+  /** See ChiefOfStaffChatBody's `composerDraft`. */
+  composerDraft?: string
   /** Ref to the body's composer input, so a suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -105,6 +107,7 @@ export default function ChiefOfStaffChatSurface({
   pendingKickoff,
   pendingMessage,
   onMessageSent,
+  composerDraft,
   composerRef,
   disclaimer = `${title} can make mistakes. Check important details.`,
   hiddenMessageContents,
@@ -189,6 +192,7 @@ export default function ChiefOfStaffChatSurface({
           // viewer merely navigated to.
           pendingMessage={selectedId ? undefined : pendingMessage}
           onMessageSent={onMessageSent}
+          composerDraft={selectedId ? undefined : composerDraft}
           composerRef={composerRef}
           disclaimer={disclaimer}
           hiddenMessageContents={hiddenMessageContents}

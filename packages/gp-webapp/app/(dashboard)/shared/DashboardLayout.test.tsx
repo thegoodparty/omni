@@ -38,11 +38,12 @@ vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
 vi.mock('./membership/MembershipChip', () => ({
   MembershipChip: () => null,
 }))
-// The dock (mounted for every Win org now) pulls in FooterChatBar's styleguide
-// deps, which are irrelevant to this file's DashboardLayout-only assertions.
-// It stands in as a marker element rather than as bare children, because
-// whether the layout mounts the wrapper AT ALL is itself under test below.
+// The chat provider pulls in the chat surface's deps, which are irrelevant to
+// this file's DashboardLayout-only assertions. It stands in as a marker
+// element rather than as bare children, because whether the layout mounts the
+// wrapper AT ALL is itself under test below.
 vi.mock('../campaign-manager/CampaignManagerChatProvider', () => ({
+  useCampaignManagerChat: () => null,
   DashboardCampaignManagerChat: ({
     children,
   }: {
@@ -51,6 +52,7 @@ vi.mock('../campaign-manager/CampaignManagerChatProvider', () => ({
 }))
 vi.mock('@styleguide/components/ui/icons', () => ({
   MenuIcon: () => null,
+  MessagesSquareIcon: () => null,
   XMarkIcon: () => null,
   SparklesIcon: () => null,
   ClipboardListIcon: () => null,
@@ -67,6 +69,7 @@ vi.mock('@styleguide/components/ui/icons', () => ({
 }))
 vi.mock('@styleguide', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+  IconButton: () => null,
   Sidebar: ({ children }: { children: React.ReactNode }) => children,
   SidebarInset: ({ children }: { children: React.ReactNode }) => children,
   SidebarProvider: ({ children }: { children: React.ReactNode }) => children,

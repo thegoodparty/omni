@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { IconButton, Textarea } from '@styleguide'
 import { PlusIcon, SendIcon } from '@styleguide/components/ui/icons'
 import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
@@ -12,10 +12,11 @@ import ChatHistoryPopover from '../chief-of-staff/components/chat/ChatHistoryPop
 import { DictationMicButton } from '../shared/dictation/DictationMicButton'
 import { useDictationAppend } from '../shared/dictation/useDictationAppend'
 import { DictationFeedback } from '../briefings/shared/DictationFeedback'
+import { morphComposerOutOfPill } from '../shared/chatMorph'
 
 /**
- * Home's chat box, in the page under the next thing rather than in the fixed
- * footer bar the other pages use. It is the open door for anything about the
+ * Home's chat box, in the page under the next thing; elsewhere the chat is
+ * the sidebar's Chat pill (see shared/chatMorph). It is the open door for anything about the
  * campaign; questions about the next thing go through the card's "Chat about
  * this". Built like a place to work, not a search field: room for a few
  * lines, and a tool row with attach, past chats, voice and send. Sending opens
@@ -27,6 +28,20 @@ export default function HomeComposer(): React.JSX.Element | null {
   const chat = useCampaignManagerChat()
   const [message, setMessage] = useState('')
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  // Arriving from the sidebar, the box grows out of the Chat pill it shrank
+  // into on the way out (see shared/chatMorph). A callback ref rather than a
+  // mount effect, because the box itself can attach a render later than this
+  // component mounts (it renders nothing until the chat is ready).
+  const formRef = useCallback((node: HTMLFormElement | null) => {
+    if (node) morphComposerOutOfPill(node)
+  }, [])
+
+  // Leaving Home with something typed and unsent hands it to the chat, so it
+  // is waiting in the chat's input on the next open.
+  const messageRef = useRef(message)
+  messageRef.current = message
+  const holdDraft = chat?.holdDraft
+  useEffect(() => () => holdDraft?.(messageRef.current), [holdDraft])
   const dictation = useDictationAppend({
     analyticsLabel: 'home_composer',
     value: message,
@@ -46,6 +61,8 @@ export default function HomeComposer(): React.JSX.Element | null {
   return (
     <div className="flex flex-col gap-2">
       <form
+        ref={formRef}
+        data-chat-morph="composer"
         className="flex flex-col gap-2 rounded-2xl border border-grayscale-300 bg-card px-4 pb-3 pt-4 transition-colors lg:px-5 lg:pt-5 focus-within:border-primary"
         onSubmit={(event) => {
           event.preventDefault()

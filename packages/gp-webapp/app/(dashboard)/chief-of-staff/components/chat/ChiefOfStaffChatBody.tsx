@@ -162,6 +162,11 @@ interface Props {
    * these for its open-to-send funnel (ENG-10767).
    */
   onMessageSent?: () => void
+  /**
+   * Text to start the composer with, unsent: something the user typed on
+   * another surface before opening this one (Home's chat box).
+   */
+  composerDraft?: string
   /** Ref to the composer input, so a caller's suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -304,6 +309,7 @@ function ChiefOfStaffChatThread({
   pendingKickoff,
   pendingMessage,
   onMessageSent,
+  composerDraft,
   composerRef,
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
@@ -314,7 +320,7 @@ function ChiefOfStaffChatThread({
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const [composer, setComposer] = useState('')
+  const [composer, setComposer] = useState(composerDraft ?? '')
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,

@@ -12,13 +12,18 @@ import { usePathname, useRouter } from 'next/navigation'
 import { weeksTill } from 'helpers/dateHelper'
 import { Campaign } from 'helpers/types'
 import {
+  IconButton,
   Separator,
   Sidebar,
   SidebarInset,
   SidebarProvider,
   useSidebar,
 } from '@styleguide'
-import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
+import {
+  MenuIcon,
+  MessagesSquareIcon,
+  XMarkIcon,
+} from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
 import { ElectedOfficeTermDatesModalController } from './ElectedOfficeTermDatesModalController'
@@ -27,7 +32,10 @@ import { isElectionResultDismissed } from '../election-result/dismissal'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
 import { MembershipChip } from './membership/MembershipChip'
-import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
+import {
+  DashboardCampaignManagerChat,
+  useCampaignManagerChat,
+} from '../campaign-manager/CampaignManagerChatProvider'
 
 export interface DashboardNavHeaderConfig {
   // Omitted = label-only bar (the Voter Outreach design carries no icon).
@@ -144,8 +152,11 @@ const DashboardLayout = ({
     </div>
   )
 
-  return (
-    <SidebarProvider>
+  // The chat wraps the sidebar and the top bar as well as the page: on Win its
+  // way in is the sidebar's Chat pill (or the mobile top bar), not a bar over
+  // the page.
+  const shell = (
+    <>
       {!hideMenu && (
         <Sidebar>
           <DashboardMenu pathname={currentPath} />
@@ -177,15 +188,19 @@ const DashboardLayout = ({
           />
         )}
         <NavHeaderActionSlotContext.Provider value={navHeaderActionSlotValue}>
-          {hideChatDock ? (
-            pageBody
-          ) : (
-            <DashboardCampaignManagerChat>
-              {pageBody}
-            </DashboardCampaignManagerChat>
-          )}
+          {pageBody}
         </NavHeaderActionSlotContext.Provider>
       </SidebarInset>
+    </>
+  )
+
+  return (
+    <SidebarProvider>
+      {hideChatDock ? (
+        shell
+      ) : (
+        <DashboardCampaignManagerChat>{shell}</DashboardCampaignManagerChat>
+      )}
     </SidebarProvider>
   )
 }
@@ -233,6 +248,9 @@ const getMobilePageTitle = (pathname: string | null): string | null => {
 const MobileMenuTrigger = () => {
   const { setOpenMobile, openMobile } = useSidebar()
   const pathname = usePathname()
+  // Win's chat lives in the sidebar on desktop; a phone's sidebar is a closed
+  // drawer, so the top bar carries it. Home has its own chat box.
+  const chat = useCampaignManagerChat()
   // The Contacts route is shared: Win reads "Voter Data", Serve reads
   // "Constituent Data". Use the same Win/Serve source as the page body
   // (useWinVoterContext) so the header and content always agree — and wait for
@@ -270,6 +288,17 @@ const MobileMenuTrigger = () => {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {chat && pathname !== '/home' && (
+            <IconButton
+              type="button"
+              variant="ghost"
+              className="size-9"
+              onClick={chat.openManager}
+              aria-label="Open chat"
+            >
+              <MessagesSquareIcon className="size-5" aria-hidden />
+            </IconButton>
+          )}
           <MembershipChip />
           <button
             data-testid="mobile-menu-trigger"

@@ -55,11 +55,15 @@ import {
   useSidebar,
 } from '@styleguide'
 import {
+  ChevronRightIcon,
   FlagIcon,
   LifeBuoyIcon,
   MegaphoneIcon,
+  MessagesSquareIcon,
   ScrollTextIcon,
 } from '@styleguide/components/ui/icons'
+import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
+import { markArrivingAtHome, morphComposerIntoPill } from './chatMorph'
 import {
   OrganizationPicker,
   useOrganization,
@@ -478,8 +482,16 @@ const NewNavMenu = ({
   // teams exist) sees today's menu exactly.
   const isManager = organizationRole === 'campaignAdmin'
 
+  const chat = useCampaignManagerChat()
+
   const handleMenuItemClick = (item: MenuItem) => {
     item?.onClick?.()
+    // On Win, Home's chat box and the Chat pill are one thing in two places:
+    // leaving Home it shrinks into the pill, and coming back it grows out.
+    if (isWin && chat && item.link !== pathname) {
+      if (pathname === '/home') morphComposerIntoPill()
+      else if (item.link === '/home') markArrivingAtHome()
+    }
     setOpenMobile(false)
   }
 
@@ -679,6 +691,34 @@ const NewNavMenu = ({
                   </SidebarMenuItemComponent>
                 )
               })}
+              {isWin && chat && (
+                // The chat's place on every Win page: Home's chat box
+                // shrinks into this as the candidate leaves Home. On Home the
+                // box is the chat, so the pill keeps its place but stays
+                // hidden: the morph needs somewhere to land, and the rail
+                // must not shift as it appears.
+                <SidebarMenuItemComponent
+                  className={cn('mt-2', pathname === '/home' && 'invisible')}
+                  aria-hidden={pathname === '/home' || undefined}
+                >
+                  <SidebarMenuButton
+                    type="button"
+                    data-chat-morph="pill"
+                    className="h-10 gap-2 rounded-lg border border-grayscale-300 bg-card px-4 text-sm font-opensans hover:bg-card hover:border-primary"
+                    onClick={() => {
+                      setOpenMobile(false)
+                      chat.openManager()
+                    }}
+                  >
+                    <MessagesSquareIcon className="size-4" aria-hidden />
+                    <span>Chat</span>
+                    <ChevronRightIcon
+                      className="ml-auto size-4 text-muted-foreground"
+                      aria-hidden
+                    />
+                  </SidebarMenuButton>
+                </SidebarMenuItemComponent>
+              )}
               {!isMobile && !isWin && sidebarActionItem(SUPPORT_MENU_ITEM)}
               {isMobile && (
                 <>

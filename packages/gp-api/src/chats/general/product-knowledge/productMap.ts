@@ -125,7 +125,7 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'The Do this next card shows the single most important task right now, from the campaign plan; a candidate who is not on the ballot yet sees getting on the ballot first, with how to file',
       'The card has one main button that starts the task, a Mark done button, and a Skip menu with Later (it comes back in 3 days) and Not for me (it stays skipped until they undo it in the Game Plan)',
-      'Chat about this, under the card, opens this chat on a new conversation about that task: it starts with a short overview of the step and offers a couple of questions to start from. The chat box sits in the page below the card; every other page has it fixed at the bottom',
+      'Chat about this, under the card, opens this chat on a new conversation about that task: it starts with a short overview of the step and offers a couple of questions to start from. The chat box sits in the page below the card. On every other page the chat is the Chat button in the left-hand menu, under Voters (on a phone, the chat icon in the top bar), and anything typed on Home but not sent is waiting in it',
       'Opening the chat resumes their most recent conversation; New chat in the chat header starts a fresh one',
       'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
       'Each reply carries a copy button and a thumbs up / thumbs down',

@@ -19,7 +19,6 @@ import { useUser } from '@shared/hooks/useUser'
 import { useOrganization } from '@shared/organization-picker'
 import { useCampaignStoryComplete } from 'app/(dashboard)/campaign-story/useCampaignStoryComplete'
 import { useChatHistory } from '../chief-of-staff/data/use-chat-history'
-import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
 import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 import {
@@ -53,9 +52,12 @@ const GENERAL_QUICK_PROMPTS = [
 ]
 
 interface CampaignManagerChatContextValue {
-  // Open the manager in general mode (meet card / footer) on a new chat.
-  // Dismisses the first-run meet card.
+  // Open the manager in general mode (the sidebar's Chat pill, the mobile top
+  // bar). Dismisses the first-run meet card.
   openManager: () => void
+  // Keep what the candidate typed in Home's chat box when they leave Home
+  // without sending, so the next open starts with it in the chat's input.
+  holdDraft: (text: string) => void
   // Open a specific past conversation from history. Dismisses the meet card.
   openConversation: (id: string) => void
   // Open the manager into the story-intake flow. Does NOT dismiss the meet card.
@@ -119,8 +121,11 @@ export function CampaignManagerChatProvider({
   const firstName = user?.firstName || undefined
   const router = useRouter()
   const pathname = usePathname()
-  const isHome = pathname === '/home'
   const [chatOpen, setChatOpen] = useState(false)
+  const [composerDraft, setComposerDraft] = useState<string | undefined>()
+  const holdDraft = useCallback((text: string) => {
+    setComposerDraft(text.trim() ? text : undefined)
+  }, [])
   const [conversationId, setConversationId] = useState<string | null>(null)
   // One-shot hidden kickoff sent once the resolved conversation loads (see
   // ChiefOfStaffChatBody's pendingKickoff effect). Cleared on close so a later
@@ -248,7 +253,7 @@ export function CampaignManagerChatProvider({
 
   // Home's chat box collected the first message itself, so the drawer opens on
   // a new chat and sends it as the candidate's own (visible) turn. Counts as
-  // meeting the manager, like the footer bar.
+  // meeting the manager, like the sidebar's Chat pill.
   const sendFromComposer = useCallback(
     (message: string) => {
       dismissMeetCard()
@@ -344,6 +349,7 @@ export function CampaignManagerChatProvider({
   const contextValue = useMemo(
     () => ({
       openManager,
+      holdDraft,
       openConversation,
       startStory,
       startBallotAccess,
@@ -354,6 +360,7 @@ export function CampaignManagerChatProvider({
     }),
     [
       openManager,
+      holdDraft,
       openConversation,
       startStory,
       startBallotAccess,
@@ -367,35 +374,14 @@ export function CampaignManagerChatProvider({
   return (
     <CampaignManagerChatContext.Provider value={contextValue}>
       {children}
-      {/* Home puts the chat box in the page, under the next thing, so the
-          fixed footer bar (and the space reserved for it) is for every other
-          page. */}
-      {!isHome && (
-        <>
-          {/* Reserve space at the end of the scroll flow so the fixed footer
-              bar (~80px tall) never overlaps the bottom of page content, e.g.
-              Your Story's "Start over" / "Add a policy priority". shrink-0
-              keeps it from collapsing when the content region is a flex
-              child. */}
-          <div aria-hidden className="h-24 shrink-0" />
-          <FooterChatBar
-            firstName={firstName}
-            onOpen={openManager}
-            onOpenConversation={openConversation}
-            chatApi={campaignManagerChatApi}
-            historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
-            openLabel="Open chat"
-            showAttachIcon
-          />
-        </>
-      )}
       <ChiefOfStaffChatSurface
         open={chatOpen}
         onOpenChange={(next) => {
           setChatOpen(next)
           // Clear the one-shot kickoff on close: a later plain reopen (the
-          // meet card, the footer bar) must never replay the story sentinel.
+          // meet card, the Chat pill) must never replay the story sentinel.
           if (!next) {
+            setComposerDraft(undefined)
             setPendingKickoff(undefined)
             setPendingMessage(undefined)
             setTaskQuickPrompts(null)
@@ -432,6 +418,7 @@ export function CampaignManagerChatProvider({
         }
         pendingKickoff={pendingKickoff}
         pendingMessage={pendingMessage}
+        composerDraft={composerDraft}
         composerRef={composerRef}
         scope="campaign_assistant"
         hiddenMessageContents={hiddenMessageContents}

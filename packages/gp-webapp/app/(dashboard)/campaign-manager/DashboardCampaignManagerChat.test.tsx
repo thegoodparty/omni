@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen } from '@testing-library/react'
-import { usePathname } from 'next/navigation'
-import { DashboardCampaignManagerChat } from './CampaignManagerChatProvider'
+import {
+  DashboardCampaignManagerChat,
+  useCampaignManagerChat,
+} from './CampaignManagerChatProvider'
 
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: vi.fn(),
@@ -35,33 +37,38 @@ const renderGate = () =>
     </DashboardCampaignManagerChat>,
   )
 
-const dockBar = () => screen.queryByRole('button', { name: /^open chat$/i })
+// What the gate owes a page: the chat's context (the sidebar's Chat pill and
+// Home's chat box read it) on Win, and nothing on Serve. There is no footer
+// bar on any page any more.
+const ChatProbe = (): React.JSX.Element => (
+  <div data-testid="chat-context">
+    {useCampaignManagerChat() ? 'chat' : 'no chat'}
+  </div>
+)
 
-describe('DashboardCampaignManagerChat (the global dock gate)', () => {
-  it('mounts the dock for a Win (campaign) org', () => {
+const renderProbe = () =>
+  render(
+    <DashboardCampaignManagerChat>
+      <ChatProbe />
+    </DashboardCampaignManagerChat>,
+  )
+
+const footerBar = () => screen.queryByRole('button', { name: /^open chat$/i })
+
+describe('DashboardCampaignManagerChat (the global chat gate)', () => {
+  it('gives a Win (campaign) org the chat, with no footer bar', () => {
     mockOrganization.mockReturnValue(winOrg as never)
-    renderGate()
+    renderProbe()
 
-    expect(screen.getByTestId('page-content')).toBeInTheDocument()
-    expect(dockBar()).toBeInTheDocument()
+    expect(screen.getByTestId('chat-context')).toHaveTextContent('chat')
+    expect(footerBar()).not.toBeInTheDocument()
   })
 
-  it('leaves the footer bar off Home, where the chat box is in the page', () => {
-    mockOrganization.mockReturnValue(winOrg as never)
-    vi.mocked(usePathname).mockReturnValue('/home')
-    renderGate()
-
-    expect(screen.getByTestId('page-content')).toBeInTheDocument()
-    expect(dockBar()).not.toBeInTheDocument()
-    vi.mocked(usePathname).mockReturnValue('/')
-  })
-
-  it('never mounts the dock on a Serve (elected-office) org', () => {
+  it('leaves a Serve (elected-office) org without it', () => {
     mockOrganization.mockReturnValue(serveOrg as never)
     renderGate()
 
     expect(screen.getByTestId('page-content')).toBeInTheDocument()
-    // Serve keeps Chief of Staff — no Campaign Manager footer bar.
-    expect(dockBar()).not.toBeInTheDocument()
+    expect(footerBar()).not.toBeInTheDocument()
   })
 })

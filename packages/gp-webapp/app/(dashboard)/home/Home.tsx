@@ -6,8 +6,8 @@ import HomeComposer from './HomeComposer'
 
 /**
  * Home is the one next thing, under a short friendly greeting, and a chat
- * box. The chat box lives in the page here; every other page keeps the fixed
- * footer bar (CampaignManagerChatProvider skips it on /home).
+ * box. The chat box lives in the page here; on every other page the chat is
+ * the sidebar's Chat pill, which the box shrinks into on the way out.
  */
 export default function Home(): React.JSX.Element {
   // On desktop the card itself sits at the center of the screen: the rows
