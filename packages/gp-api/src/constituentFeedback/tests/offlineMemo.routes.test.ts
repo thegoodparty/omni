@@ -20,6 +20,7 @@ import { useTestService } from '@/test-service'
 import { SEED_MEMOS } from '../services/feedbackSeedMemos'
 import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
 import { PendingTranscriptionService } from '../services/pendingTranscription.service'
+import { ConstituentFeedbackService } from '../services/constituentFeedback.service'
 import {
   call,
   createWinOrg,
@@ -371,6 +372,65 @@ describe('offline memo capture', () => {
       expect(saved.extractionStatus).toBe(
         ConstituentFeedbackExtractionStatus.extracted,
       )
+    })
+
+    // Confirmed from "Notes to review" while its job ran: the person who was
+    // there has spoken, and a late model guess must not replace their word.
+    // The cron read the row before the confirm landed, so its completion
+    // still arrives.
+    const confirmMidJob = async () => {
+      const { res } = await recordOffline()
+      const confirmed = await service.client.patch(
+        `/v1/constituent-feedback/${res.data.id}/confirm`,
+        {
+          issues: [
+            {
+              issueLabel: 'Compost pickup',
+              stance: 'supports',
+              desiredOutcome: 'Collect it weekly',
+            },
+          ],
+        },
+        ownerHeaders(slug),
+      )
+      expect(confirmed.status).toBe(200)
+      return res.data.id as string
+    }
+
+    it('leaves a memo confirmed mid-job as it was confirmed', async () => {
+      const id = await confirmMidJob()
+      const { transcriptionJobName } = await row(id)
+
+      await service.app.get(ConstituentFeedbackService).completeTranscription({
+        id,
+        jobName: transcriptionJobName!,
+        transcript: 'She wants the storm drain cleared.',
+      })
+
+      const saved = await row(id)
+      expect(saved.confirmedAt).not.toBeNull()
+      expect(saved.issues).toEqual([
+        expect.objectContaining({
+          position: 0,
+          issueLabel: 'Compost pickup',
+          stance: 'supports',
+          desiredOutcome: 'Collect it weekly',
+          proposedIssueLabel: null,
+        }),
+      ])
+    })
+
+    it('stops polling a memo once it is confirmed', async () => {
+      await confirmMidJob()
+      const poll = vi.spyOn(
+        service.app.get(TranscribeFileService),
+        'fetchResult',
+      )
+      onTestFinished(() => poll.mockRestore())
+
+      await service.app.get(PendingTranscriptionService).pass(FIRST_SLOT)
+
+      expect(poll).not.toHaveBeenCalled()
     })
 
     it('starts a job for a memo whose first start failed', async () => {

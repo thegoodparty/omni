@@ -453,6 +453,7 @@ export default function PhoneBankingOutcomeForm({
     setDraft(draftFromInteraction(interaction, isServe))
     setIsEditing(!interaction)
     offline.discard()
+    unsavedRef.current = null
     drafts?.clear(callKey)
   }
 
