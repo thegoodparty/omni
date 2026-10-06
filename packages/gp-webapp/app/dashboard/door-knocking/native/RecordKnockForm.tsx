@@ -1,7 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ConfirmedConstituentFeedbackIssue,
   DoorKnockOutcome,
@@ -31,6 +31,8 @@ import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
+import { REPORT_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import IssueCaptureConfirmCard, {
   wasCorrected,
@@ -112,6 +114,18 @@ interface KnockInput {
   recording: Blob | null
 }
 
+// What a door's form keeps when it unmounts unsaved. Not a recording in
+// progress, and not a confirm card: the knock behind a confirm card is saved.
+export interface KnockDraft {
+  outcome?: DoorKnockOutcome
+  engagement?: DoorKnockOutcome
+  supportAnswer?: SupportAnswer
+  willVote?: WillVoteAnswer
+  followUp?: FollowUpAnswer
+  note: string
+  spoken: boolean
+}
+
 interface RecordKnockFormProps {
   target: RoutePayloadTarget
   // The turf this door belongs to — the parent list every logged door rolls
@@ -121,6 +135,10 @@ interface RecordKnockFormProps {
   // dead-zone retries upsert server-side instead of duplicating the knock.
   clientKey: string
   onRecorded: (personId: string, knockStatus: DoorKnockStatus) => void
+  // Owned by the walk, keyed by stop target: the form is keyed the same way,
+  // so tapping a housemate and back remounts it, and this is what brings the
+  // answers back.
+  drafts?: UnsavedDrafts<KnockDraft>
 }
 
 const ChoiceRow = <T extends string>({
@@ -166,6 +184,7 @@ export default function RecordKnockForm({
   turfId,
   clientKey,
   onRecorded,
+  drafts,
 }: RecordKnockFormProps) {
   // Which surface's engaged branch this is. An elected official's canvasser
   // asks neither of the Win questions — a constituent has no candidate to
@@ -184,14 +203,24 @@ export default function RecordKnockForm({
   // Two steps, two pieces of state, because the contract's five-way outcome is
   // a flattening of the tree the canvasser walks: `answered` in step one only
   // means "keep asking", and step two is what the door actually ends as.
-  const [outcome, setOutcome] = useState<DoorKnockOutcome | undefined>()
-  const [engagement, setEngagement] = useState<DoorKnockOutcome | undefined>()
-  const [supportAnswer, setSupportAnswer] = useState<
-    SupportAnswer | undefined
-  >()
-  const [willVote, setWillVote] = useState<WillVoteAnswer | undefined>()
-  const [followUp, setFollowUp] = useState<FollowUpAnswer | undefined>()
-  const [note, setNote] = useState('')
+  const draftKey = String(target.stopTargetId)
+  const [stashed] = useState(() => drafts?.get(draftKey))
+  const [outcome, setOutcome] = useState<DoorKnockOutcome | undefined>(
+    stashed?.outcome,
+  )
+  const [engagement, setEngagement] = useState<DoorKnockOutcome | undefined>(
+    stashed?.engagement,
+  )
+  const [supportAnswer, setSupportAnswer] = useState<SupportAnswer | undefined>(
+    stashed?.supportAnswer,
+  )
+  const [willVote, setWillVote] = useState<WillVoteAnswer | undefined>(
+    stashed?.willVote,
+  )
+  const [followUp, setFollowUp] = useState<FollowUpAnswer | undefined>(
+    stashed?.followUp,
+  )
+  const [note, setNote] = useState(stashed?.note ?? '')
   // Dictation is the point of the notes field in the field: nobody types a
   // paragraph one-handed on a doorstep in the rain. The shared hook already
   // reports under EVENTS.Dictation with this label — the transcript itself
@@ -200,7 +229,43 @@ export default function RecordKnockForm({
   // callback can say so, and it is worth recording: capture method is the
   // metric that tells us whether the ten-second spoken memo is something
   // canvassers actually do or something we imagined they would.
-  const [spoken, setSpoken] = useState(false)
+  const [spoken, setSpoken] = useState(stashed?.spoken ?? false)
+  // What the form holds unsaved, read on unmount. `saved` is set by a save
+  // that landed and stays set until Cancel, so a door left after its knock
+  // saved stashes nothing, even when a transcript lands after Save.
+  const unsavedRef = useRef<{ saved: boolean; draft: KnockDraft | null }>({
+    saved: false,
+    draft: null,
+  })
+  useEffect(() => {
+    unsavedRef.current = {
+      saved: unsavedRef.current.saved,
+      draft:
+        outcome !== undefined || note !== ''
+          ? {
+              outcome,
+              engagement,
+              supportAnswer,
+              willVote,
+              followUp,
+              note,
+              spoken,
+            }
+          : null,
+    }
+  }, [outcome, engagement, supportAnswer, willVote, followUp, note, spoken])
+  useEffect(() => {
+    const unsaved = unsavedRef
+    return () => {
+      const { saved, draft } = unsaved.current
+      if (saved || draft === null) drafts?.clear(draftKey)
+      else drafts?.set(draftKey, draft)
+    }
+  }, [drafts, draftKey])
+  const markSaved = () => {
+    unsavedRef.current = { saved: true, draft: null }
+    drafts?.clear(draftKey)
+  }
   const dictation = useDictationAppend({
     analyticsLabel: 'door_knocking_note',
     value: note,
@@ -227,6 +292,11 @@ export default function RecordKnockForm({
   const doorKey = String(target.stopTargetId)
   const { successSnackbar } = useSnackbar()
   const [holdFailed, setHoldFailed] = useState(false)
+  // The turf's "What we heard" counts read the report once and stay fresh
+  // for minutes, so each write that changes them re-reads it.
+  const queryClient = useQueryClient()
+  const refreshReport = () =>
+    void queryClient.invalidateQueries({ queryKey: REPORT_QUERY_KEY_PREFIX })
 
   // Held between the knock save and the confirm step. A ref rather than state
   // because `advance` is called from mutation callbacks in the same tick the
@@ -321,6 +391,7 @@ export default function RecordKnockForm({
       else setHoldFailed(true)
       return false
     }
+    markSaved()
     // With the knock saved, only the recording waits, and it goes now.
     successSnackbar(
       interaction === null
@@ -354,7 +425,9 @@ export default function RecordKnockForm({
         knockRequest(input),
       ).then((res) => res.data),
     onSuccess: async (data, input) => {
+      markSaved()
       trackDoorLogged(input, data.knockStatus)
+      refreshReport()
       // This save supersedes whatever the phone still held for the door, so
       // a later drain cannot send an older knock over it.
       // Only where capture is on: with the flag off the form is exactly what
@@ -417,6 +490,7 @@ export default function RecordKnockForm({
         product,
       })
       setCaptured({ id: data.id, proposed: data.extraction })
+      refreshReport()
     },
     // Holding a canvasser at a door whose knock already saved, because a
     // second request failed, is worse than losing the memo. Advance.
@@ -436,6 +510,7 @@ export default function RecordKnockForm({
         issueCount: issues.length,
         product,
       })
+      refreshReport()
       advance()
     },
     // A failed confirm leaves the memo saved and unconfirmed, which reporting
@@ -469,6 +544,8 @@ export default function RecordKnockForm({
     record.reset()
     setHoldFailed(false)
     offline.discard()
+    unsavedRef.current = { saved: false, draft: null }
+    drafts?.clear(draftKey)
   }
 
   const save = () => {

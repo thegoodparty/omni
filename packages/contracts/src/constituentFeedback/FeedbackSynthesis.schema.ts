@@ -83,10 +83,10 @@ export type StanceCounts = z.infer<typeof StanceCountsSchema>
 // "conversations that touched this theme".
 //
 // `conversationCount` counts memos. `stanceCounts` and `desiredOutcomes` are
-// stances from the issues that matched this theme: all of a memo that raised
-// one issue, and of a conversation that raised several, only the ones whose
-// label matches the theme's tag. So the four counts can sum below
-// `conversationCount`.
+// stances from every issue raised in the conversations in this theme; a
+// conversation that raised two issues contributes two, so counts can exceed
+// `conversationCount`. Interim, until a theme's members are issues rather
+// than memos.
 export const FeedbackThemeSummarySchema = z.object({
   id: z.string(),
   rank: z.number().int(),
