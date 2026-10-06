@@ -2,23 +2,37 @@ import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { hoursToMilliseconds } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
+import { z } from 'zod'
 import { LlmService } from '@/llm/services/llm.service'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import { overrideEnvForEvals } from '../envOverride'
 import { AGENTS, type AgentEntry } from './agents'
 import { armGap, windowOf } from './armGap'
 import { createRng } from './bootstrap'
+import {
+  CaseListError,
+  caseDimensionsOf,
+  loadCaseList,
+  type CaseDimension,
+  type CaseList,
+} from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
   allIdenticalReason,
   identicalOutputs,
   type IdenticalOutputs,
 } from './identicalOutputs'
-import { judgeAll, RUBRIC_VERSION, type CaseVerdict } from './judge'
+import {
+  CaseDimensionCollisionError,
+  judgeAll,
+  RUBRIC_VERSION,
+  type CaseVerdict,
+} from './judge'
 import {
   IdenticalConfigError,
   MismatchedInputError,
   normalizeAgent,
+  type NormalizedAgent,
   type NormalizeOptions,
 } from './normalize'
 import { invariantViolations } from './invariants'
@@ -66,6 +80,11 @@ export interface JudgingDeps {
   // a seed rather than only from a run.
   rng?: Rng
   registry?: readonly AgentEntry[]
+  // Where a case's own dimensions come from. THIS checkout's case list, not
+  // either arm's records: the judging step runs at the candidate commit, the
+  // arms never record the field, and so both slots of a pair are asked the
+  // same questions whatever the base ref knew.
+  loadCases?: (agent: AgentEntry) => CaseList
 }
 
 export interface SweepResult {
@@ -148,6 +167,35 @@ const storeRulings = async (
   }
 }
 
+// Background agents only: a chat case has no dimensions of its own yet.
+const caseDimensionsByCase = (
+  agent: AgentEntry | undefined,
+  load: (agent: AgentEntry) => CaseList,
+): ReadonlyMap<string, readonly CaseDimension[]> => {
+  if (agent === undefined || agent.shape !== 'background') return new Map()
+  return new Map(
+    load(agent)
+      .cases.map((one) => [one.caseId, caseDimensionsOf(one)] as const)
+      .filter(([, dimensions]) => dimensions.length > 0),
+  )
+}
+
+const withCaseDimensions = (
+  normalized: NormalizedAgent,
+  byCase: ReadonlyMap<string, readonly CaseDimension[]>,
+): NormalizedAgent =>
+  byCase.size === 0
+    ? normalized
+    : {
+        ...normalized,
+        judgeable: normalized.judgeable.map((c) => {
+          const caseDimensions = byCase.get(c.caseId)
+          return caseDimensions === undefined
+            ? c
+            : { ...c, payload: { ...c.payload, caseDimensions } }
+        }),
+      }
+
 export const judgeSweep = async (
   deps: JudgingDeps,
   env: SweepEnv,
@@ -155,6 +203,7 @@ export const judgeSweep = async (
   const config = deps.config ?? DEFAULT_JUDGE_CONFIG
   const rng = deps.rng ?? createRng(1)
   const registry = deps.registry ?? AGENTS
+  const loadCases = deps.loadCases ?? loadCaseList
 
   // Both manifests, first and fatally. An arm with no manifest never reported
   // a capture, and the failure that produces it is a vitest suite whose tests
@@ -251,7 +300,13 @@ export const judgeSweep = async (
       // named them: on `auto` the agent saw no difference, so there is
       // nothing to compare and a sweep would have spent money proving two
       // identical things identical.
-      const normalized = normalizeAgent(forAgent, rng, config, options)
+      const normalized = withCaseDimensions(
+        normalizeAgent(forAgent, rng, config, options),
+        caseDimensionsByCase(
+          registry.find((a) => a.agentId === agentId),
+          loadCases,
+        ),
+      )
       if (normalized.identicalConfig !== null) {
         identicalConfigs.push({ agentId, ...normalized.identicalConfig })
       }
@@ -283,7 +338,9 @@ export const judgeSweep = async (
     } catch (err) {
       if (
         !(err instanceof IdenticalConfigError) &&
-        !(err instanceof MismatchedInputError)
+        !(err instanceof MismatchedInputError) &&
+        !(err instanceof CaseListError) &&
+        !(err instanceof CaseDimensionCollisionError)
       ) {
         throw err
       }
@@ -435,10 +492,13 @@ const CANNED_REASONING =
   'No model was called: JUDGE_SPEND was not true, so nothing read these two ' +
   'outputs and nothing can be told apart.'
 
-export const cannedVerdict = (config: JudgeConfig): CaseVerdict => ({
+export const cannedVerdict = (
+  config: JudgeConfig,
+  dimensions: readonly string[] = config.dimensions,
+): CaseVerdict => ({
   rubric_version: RUBRIC_VERSION,
   dimensions: Object.fromEntries(
-    config.dimensions.map((dimension) => [
+    dimensions.map((dimension) => [
       dimension,
       { reasoning: CANNED_REASONING, verdict: 'cannot_determine' as const },
     ]),
@@ -446,13 +506,27 @@ export const cannedVerdict = (config: JudgeConfig): CaseVerdict => ({
   overall: { reasoning: CANNED_REASONING, verdict: 'cannot_determine' },
 })
 
-const cannedJudge = (config: JudgeConfig): JsonJudgeModel => ({
+// The dimension keys a panel schema requires, read off the schema itself: the
+// canned judge is handed nothing else, and a case with its own dimensions
+// requires keys the config does not name.
+const requiredDimensions = (
+  schema: z.ZodType,
+  config: JudgeConfig,
+): string[] =>
+  schema instanceof z.ZodObject &&
+  schema.shape.dimensions instanceof z.ZodObject
+    ? Object.keys(schema.shape.dimensions.shape)
+    : [...config.dimensions]
+
+export const cannedJudge = (config: JudgeConfig): JsonJudgeModel => ({
   // Parsed through the caller's own schema, so a canned verdict that no
   // longer satisfies it fails here rather than arriving as an "ungraded"
   // judgment — which reads as a broken judge and is how the first version of
   // this got every case wrong while still printing a report.
   jsonCompletion: async ({ schema }) => ({
-    object: schema.parse(cannedVerdict(config)),
+    object: schema.parse(
+      cannedVerdict(config, requiredDimensions(schema, config)),
+    ),
     tokens: 0,
     model: 'canned-judge',
   }),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AGENTS } from './agents'
+import { OVERALL } from './judge'
 import {
   CaseListError,
   caseListPath,
@@ -500,5 +501,83 @@ describe('a chat case with an account-state directive', () => {
   // of the record could not tell the two apart.
   it('refuses an empty state', () => {
     expect(() => parse({})).toThrow(/omit the field/)
+  })
+})
+
+describe('a background case with dimensions of its own', () => {
+  const background = {
+    agentId: 'meeting_briefing',
+    shape: 'background',
+  } as const
+  const parse = (cases: object[]) =>
+    parseCaseList(
+      'd.json',
+      JSON.stringify({ ...background, cases }),
+      background,
+    )
+  const probe = (dimensions: object[], caseId = 'one') => ({
+    caseId,
+    params: { meetingDate: '2026-01-01' },
+    dimensions,
+  })
+  const sparse = { name: 'sparse_handling', question: 'Is the gap named?' }
+
+  it('reads them', () => {
+    expect(parse([probe([sparse])]).cases).toEqual([probe([sparse])])
+  })
+
+  // The one name scoring and the verdict already use, held here as a literal
+  // because judge.ts imports cases.ts.
+  it.each(['task_success', 'user_utility', OVERALL])(
+    'refuses %s, a dimension every case already has',
+    (name) => {
+      expect(() => parse([probe([{ name, question: 'q' }])])).toThrow(
+        /already a dimension every case is judged on/,
+      )
+    },
+  )
+
+  it.each(['Sparse', '__proto__', 'two words', ''])(
+    'refuses %j, which cannot be a schema key and a report row',
+    (name) => {
+      expect(() => parse([probe([{ name, question: 'q' }])])).toThrow(
+        /snake_case identifier/,
+      )
+    },
+  )
+
+  it('refuses a name asked twice in one case', () => {
+    expect(() => parse([probe([sparse, sparse])])).toThrow(
+      /names each of its dimensions once/,
+    )
+  })
+
+  it('refuses more than four', () => {
+    const many = ['a', 'b', 'c', 'd', 'e'].map((name) => ({
+      name,
+      question: 'q',
+    }))
+    expect(() => parse([probe(many)])).toThrow(/dimensions: .*<=4/)
+  })
+
+  it('refuses a misspelled field inside one', () => {
+    expect(() => parse([probe([{ ...sparse, qustion: 'typo' }])])).toThrow(
+      /qustion/,
+    )
+  })
+
+  it('lets two cases share a dimension that asks the same question', () => {
+    expect(
+      parse([probe([sparse], 'one'), probe([sparse], 'two')]).cases,
+    ).toHaveLength(2)
+  })
+
+  it('refuses one name asking two questions across cases', () => {
+    expect(() =>
+      parse([
+        probe([sparse], 'one'),
+        probe([{ ...sparse, question: 'Something else?' }], 'two'),
+      ]),
+    ).toThrow(/case 1 asks dimension "sparse_handling" a different question/)
   })
 })

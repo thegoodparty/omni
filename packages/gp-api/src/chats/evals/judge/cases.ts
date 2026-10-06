@@ -9,6 +9,7 @@ import {
   type JsonValue,
 } from './record'
 import type { AgentEntry } from './agents'
+import { DEFAULT_JUDGE_CONFIG } from './config'
 
 // Loads an agent's inputs. One file per agent, authored per agent rather than
 // coded, which is the property that makes wiring the twenty-first agent a case
@@ -349,16 +350,72 @@ export const caseTurns = (one: ChatCase): string[] => {
 export const usesSeededTranscript = (one: ChatCase): boolean =>
   one.priorTranscript !== undefined
 
+// A question the judge is asked about ONE case, beside the config's default
+// dimensions. A probe tests a relationship between the artifact and an input
+// the case mutated, and "is this a good artifact" is the wrong question for
+// it: a polished artifact that glossed over a sparse input can read better
+// than one that handled it.
+//
+// JUDGE-ONLY. The runner never reads it, so it never reaches the agent's
+// params or a record. The judging step reads it from its own checkout's case
+// list, keyed by caseId, and puts it on the one payload both slots share — so
+// both runs are always judged on the same questions, and a base ref that
+// predates the field strips it from a case the base arm never judges anyway.
+//
+// The reserved names are the keys a verdict already has. `overall` is
+// judge.ts's OVERALL, spelled out because judge.ts imports this module.
+const RESERVED_DIMENSIONS = new Set([
+  ...DEFAULT_JUDGE_CONFIG.dimensions,
+  'overall',
+])
+
+export const MAX_CASE_DIMENSIONS = 4
+
+export const CaseDimensionSchema = z
+  .object({
+    // Becomes a key in the judge's output schema and a row in a public
+    // report, so it is held to an identifier: a leading letter also rules
+    // out `__proto__`, the one key `z.object` cannot require.
+    name: z
+      .string()
+      .max(40)
+      .regex(
+        /^[a-z][a-z0-9_]*$/,
+        'a case dimension name is a snake_case identifier',
+      )
+      .refine((name) => !RESERVED_DIMENSIONS.has(name), {
+        message:
+          'that name is already a dimension every case is judged on; a ' +
+          'case dimension has to be a question of its own',
+      }),
+    question: z.string().min(1).max(400),
+  })
+  .strict()
+export type CaseDimension = z.infer<typeof CaseDimensionSchema>
+
 export const BackgroundCaseSchema = z.object({
   caseId: CaseIdSchema,
   // The parameters fixture the experiment is dispatched with. Opaque here for
   // the same reason a record's input is opaque: only the runner knows what an
   // experiment's params mean.
   params: z.record(z.string(), JsonValueSchema),
+  dimensions: z
+    .array(CaseDimensionSchema)
+    .min(1)
+    .max(MAX_CASE_DIMENSIONS)
+    .refine(
+      (dimensions) =>
+        new Set(dimensions.map((d) => d.name)).size === dimensions.length,
+      { message: 'a case names each of its dimensions once' },
+    )
+    .optional(),
 })
 export type BackgroundCase = z.infer<typeof BackgroundCaseSchema>
 
 export type JudgeCase = ChatCase | BackgroundCase
+
+export const caseDimensionsOf = (one: JudgeCase): readonly CaseDimension[] =>
+  'dimensions' in one ? (one.dimensions ?? []) : []
 
 const CASE_SCHEMAS = {
   chat: ChatCaseSchema,
@@ -442,6 +499,7 @@ export const parseCaseList = (
   const schema = CASE_SCHEMAS[envelope.data.shape]
   const cases: JudgeCase[] = []
   const seen = new Set<string>()
+  const questions = new Map<string, string>()
 
   envelope.data.cases.forEach((raw, index) => {
     const parsed = schema.safeParse(raw)
@@ -467,6 +525,20 @@ export const parseCaseList = (
       )
     }
     seen.add(parsed.data.caseId)
+    // One name is one row in the report, aggregated across every case that
+    // carries it, so two cases asking different questions under it would be
+    // averaged into a number that answers neither.
+    for (const dimension of caseDimensionsOf(parsed.data)) {
+      const asked = questions.get(dimension.name)
+      if (asked !== undefined && asked !== dimension.question) {
+        throw new CaseListError(
+          `${source}: case ${index} asks dimension "${dimension.name}" a ` +
+            'different question than an earlier case; one name is one ' +
+            'row in the report, so give a different question its own name',
+        )
+      }
+      questions.set(dimension.name, dimension.question)
+    }
     cases.push(parsed.data)
   })
 

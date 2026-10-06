@@ -121,6 +121,43 @@ const dimensionRow = (name: string, score: DimensionScore): string =>
   `| ${name} | ${formatDelta(score)} | ${score.cases} | ` +
   `${score.wins}/${score.ties}/${score.losses} | ${score.cannotDetermine} |`
 
+// A case dimension is usually asked by one or two cases, so its interval is a
+// resample of almost nothing and reads tighter than it is. Below the floor
+// the label logic applies to the overall verdict, the row says so in place of
+// an interval, and the W/T/L beside it is the evidence.
+const caseDimensionDelta = (
+  score: DimensionScore,
+  config: JudgeConfig,
+): string =>
+  score.delta === null || score.cases >= config.gates.minCases
+    ? formatDelta(score)
+    : `${signed(score.delta, 2)}, too few cases for an interval ` +
+      `(${score.cases} of ${config.gates.minCases})`
+
+const caseDimensionLines = (
+  score: AgentScore,
+  config: JudgeConfig,
+): string[] => {
+  const rows = score.caseDimensions ?? []
+  if (rows.length === 0) return []
+  return [
+    'Case dimensions, each judged only on the cases that ask it and never ' +
+      'part of the verdict above:',
+    '',
+    '| case dimension | Δ | cases | W/T/L (pairs) | ' +
+      "can't tell (pairs) | asked by |",
+    '| --- | --- | --- | --- | --- | --- |',
+    ...rows.map(
+      (row) =>
+        `| ${row.name} | ${caseDimensionDelta(row.score, config)} | ` +
+        `${row.score.cases} | ` +
+        `${row.score.wins}/${row.score.ties}/${row.score.losses} | ` +
+        `${row.score.cannotDetermine} | ${row.caseIds.join(', ')} |`,
+    ),
+    '',
+  ]
+}
+
 // Reported as a distribution and never folded into the score: magnitude
 // calibration across judge families does not exist yet, so weighting by it
 // would add an unvalidated assumption to the primary statistic.
@@ -307,6 +344,7 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
     if (dimension !== undefined) lines.push(dimensionRow(name, dimension))
   }
   lines.push('')
+  lines.push(...caseDimensionLines(score, config))
 
   if (score.regressions.length > 0) {
     lines.push(

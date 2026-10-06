@@ -7,7 +7,8 @@ import { hoursToMilliseconds } from 'date-fns'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { AgentEntry } from './agents'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
-import { CHAT_PAIR } from './fixtures/records'
+import { CaseListError, type CaseList } from './cases'
+import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
 import { CaseVerdictSchema, RUBRIC_VERSION, type CaseVerdict } from './judge'
 import type { RunRecord } from './record'
 import {
@@ -20,6 +21,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { LlmService } from '@/llm/services/llm.service'
 import {
   anthropicJudge,
+  cannedJudge,
   cannedVerdict,
   emitReport,
   ensureFallbackModels,
@@ -1131,5 +1133,126 @@ describe('per-case rulings', () => {
     expect(result.markdown).toContain(
       '- chief_of_staff: not stored, the write failed',
     )
+  })
+})
+
+// The judging step reads a case's own dimensions from its own checkout, so the
+// arms never carry them and both slots of a pair are asked the same thing.
+describe('judgeSweep asks a case its own dimensions', () => {
+  const MEETING: AgentEntry = {
+    agentId: 'meeting_briefing',
+    shape: 'background',
+    cases: 'meeting_briefing.json',
+    status: 'pending',
+  }
+  const sparse = {
+    name: 'sparse_handling',
+    question: 'Does the run say which agenda items had no packet?',
+  }
+  const backgroundEnv: SweepEnv = { ...env, agentIds: ['meeting_briefing'] }
+  const records = ['probe', 'plain'].flatMap((caseId) =>
+    BACKGROUND_PAIR.map((r) => ({
+      ...r,
+      caseId,
+      runId: `${r.sweepId}:${caseId}:${r.arm}:1`,
+    })),
+  )
+  const manifests = (['base', 'candidate'] as const).map((arm) =>
+    manifest(arm, {
+      agents: [
+        {
+          agentId: 'meeting_briefing',
+          caseList: 'meeting_briefing.json',
+          placeholderCases: false,
+          cases: 2,
+          attempts: 1,
+          recordsWritten: 2,
+        },
+      ],
+    }),
+  )
+  const list: CaseList = {
+    agentId: 'meeting_briefing',
+    shape: 'background',
+    placeholder: false,
+    cases: [
+      { caseId: 'probe', params: {}, dimensions: [sparse] },
+      { caseId: 'plain', params: {} },
+    ],
+    source: 'meeting_briefing.json',
+  }
+  const prompts: string[] = []
+  const recording = (inner: JsonJudgeModel): JsonJudgeModel => ({
+    jsonCompletion: async (options) => {
+      prompts.push(JSON.stringify(options.messages))
+      return inner.jsonCompletion(options)
+    },
+  })
+  const judge = async (
+    llm: JsonJudgeModel,
+    loadCases: () => CaseList,
+  ): Promise<SweepResult> =>
+    judgeSweep(
+      {
+        store: await seeded(records, manifests),
+        llm,
+        registry: [MEETING],
+        loadCases,
+      },
+      backgroundEnv,
+    )
+
+  it('asks the probe its question and nobody else', async () => {
+    prompts.length = 0
+    await judge(recording(cannedJudge(DEFAULT_JUDGE_CONFIG)), () => list)
+    const asked = prompts.filter((p) => p.includes(sparse.question))
+    // The plain case's judgments are the rest, and they were not asked it.
+    expect(asked.length).toBeGreaterThan(0)
+    expect(prompts.length).toBeGreaterThan(asked.length)
+  })
+
+  // A dry run is how the pipeline is exercised for nothing, so a case with
+  // its own dimensions must not break it.
+  it('is answered by the canned judge, and scored on its own row', async () => {
+    const result = await judge(cannedJudge(DEFAULT_JUDGE_CONFIG), () => list)
+    const score = result.report.agents[0]
+    expect(score?.exclusions.ungraded).toBe(0)
+    expect(score?.caseDimensions?.map((d) => [d.name, d.caseIds])).toEqual([
+      ['sparse_handling', ['probe']],
+    ])
+  })
+
+  it('refuses the agent by name when a case reuses a config dimension', async () => {
+    const result = await judgeSweep(
+      {
+        store: await seeded(records, manifests),
+        llm: neverCalled,
+        registry: [MEETING],
+        loadCases: () => list,
+        config: {
+          ...DEFAULT_JUDGE_CONFIG,
+          dimensions: [...DEFAULT_JUDGE_CONFIG.dimensions, sparse.name],
+        },
+      },
+      backgroundEnv,
+    )
+    expect(result.report.refusals).toEqual([
+      {
+        agentId: 'meeting_briefing',
+        reason: expect.stringMatching(/probe asks sparse_handling/),
+      },
+    ])
+  })
+
+  it('refuses the agent by name when its case list cannot be read', async () => {
+    const result = await judge(neverCalled, () => {
+      throw new CaseListError('meeting_briefing.json: not valid JSON')
+    })
+    expect(result.report.refusals).toEqual([
+      {
+        agentId: 'meeting_briefing',
+        reason: 'meeting_briefing.json: not valid JSON',
+      },
+    ])
   })
 })
