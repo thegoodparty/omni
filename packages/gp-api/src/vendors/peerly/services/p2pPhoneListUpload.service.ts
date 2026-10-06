@@ -64,7 +64,7 @@ export class P2pPhoneListUploadService {
   async uploadPhoneList(
     campaign: Campaign,
     request: P2pPhoneListRequestSchema,
-  ): Promise<{ token: string; listName: string }> {
+  ): Promise<{ token: string; listName: string; buildId: string }> {
     const { name: listName, ...filterInput } = request
 
     const tcrCompliance = await this.tcrComplianceService.fetchByCampaignId(
@@ -109,6 +109,18 @@ export class P2pPhoneListUploadService {
       campaign.organizationSlug,
     )
 
+    // Created BEFORE the build so a build-status poller has a row to find
+    // from the moment the request is accepted (`queued`, the schema
+    // default) — everything above this line is request validation (bad
+    // input 400s before any row exists); everything below is "the build",
+    // and any throw in it must park this same row `failed` rather than
+    // leave it orphaned.
+    const build = await this.peerlyPhoneListCapture.createQueuedBuild({
+      organizationSlug: campaign.organizationSlug,
+      campaignId: campaign.id,
+      voterFileFilterId: filterInput.voterFileFilterId ?? null,
+    })
+
     let phoneList: {
       csvBuffer: Buffer
       recipients: PhoneListRecipient[]
@@ -121,27 +133,37 @@ export class P2pPhoneListUploadService {
         excludePersonIds,
       )
     } catch (error) {
+      // The row's buildError mirrors whatever is ABOUT TO BE thrown to the
+      // caller, never the raw caught `error` — that raw error can carry
+      // vendor/internal detail (a people-api message, a stack-bearing
+      // Error) this endpoint has never put in a client-facing response,
+      // and a future poller reading buildError is still a client.
       if (error instanceof HttpException) {
         this.logger.warn(
           { error },
           `CSV generation rejected for campaign ${campaign.id} (HttpException passthrough)`,
         )
+        await this.markBuildFailed(build.id, error)
         throw error
       }
       this.logger.error(
         { error },
         `Failed to generate voter data for phone list, campaign ${campaign.id}:`,
       )
-      throw new BadRequestException(
+      const buildError = new BadRequestException(
         'Failed to generate voter data for phone list',
       )
+      await this.markBuildFailed(build.id, buildError)
+      throw buildError
     }
     const { csvBuffer, recipients, excludedDuplicatePhoneCount } = phoneList
     if (recipients.length === 0) {
-      throw new BadRequestException(
+      const emptyAudienceError = new BadRequestException(
         'No contacts matched the filter with a valid phone number and ' +
           'complete address — narrow the filter or check your contact data.',
       )
+      await this.markBuildFailed(build.id, emptyAudienceError)
+      throw emptyAudienceError
     }
 
     let token: string
@@ -156,14 +178,16 @@ export class P2pPhoneListUploadService {
         { error },
         `Failed to upload phone list to Peerly for campaign ${campaign.id}:`,
       )
-      throw new BadGatewayException(
+      const buildError = new BadGatewayException(
         'Failed to upload phone list to Peerly platform',
       )
+      await this.markBuildFailed(build.id, buildError)
+      throw buildError
     }
 
     // Capture rows are only written once Peerly confirms it has the list —
     // both throws above happen before this line, so a list Peerly never
-    // received can never gain capture rows.
+    // received can never gain recipient rows.
     //
     // The reported count is the candidate opt-out set size, not a
     // post-composition truth: if this org's support-status "unknown"
@@ -173,20 +197,39 @@ export class P2pPhoneListUploadService {
     // count won't reflect it. Rare (both sets have to be near-cap at
     // once) and acceptable for the observability this column exists for.
     await this.peerlyPhoneListCapture.recordUpload({
-      organizationSlug: campaign.organizationSlug,
-      campaignId: campaign.id,
+      buildId: build.id,
       token,
-      voterFileFilterId: filterInput.voterFileFilterId ?? null,
       recipients,
       excludedOptedOutCount: excludePersonIds.size,
       excludedDuplicatePhoneCount,
     })
 
     this.logger.debug(
-      `P2P phone list uploaded successfully for campaign ${campaign.id}, token: ${token}`,
+      `P2P phone list uploaded successfully for campaign ${campaign.id}, token: ${token}, buildId: ${build.id}`,
     )
 
-    return { token, listName }
+    return { token, listName, buildId: build.id }
+  }
+
+  // Best-effort: a DB write failing here must not mask the build/upload
+  // error the caller is about to see (that's the one that matters), so this
+  // only logs on failure. Callers pass the exact error being thrown to the
+  // HTTP caller — never a raw internal one — so `buildError` never carries
+  // more detail than the response a client already gets today; truncated
+  // regardless, since it's a status field a poller reads, not a log sink.
+  private async markBuildFailed(
+    buildId: string,
+    error: unknown,
+  ): Promise<void> {
+    const message = error instanceof Error ? error.message : String(error)
+    await this.peerlyPhoneListCapture
+      .markBuildFailed(buildId, message.slice(0, 500))
+      .catch((markError: Error) =>
+        this.logger.error(
+          { markError, buildId },
+          'Failed to mark phone list build as failed; row left in a prior build state',
+        ),
+      )
   }
 
   private async buildPhoneList(

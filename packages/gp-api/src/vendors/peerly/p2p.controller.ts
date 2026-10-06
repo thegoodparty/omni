@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { FastifyReply } from 'fastify'
-import { Campaign } from '../../generated/prisma'
+import { Campaign, PhoneListBuildStatus } from '../../generated/prisma'
 import { ReqCampaign } from '../../campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '../../campaigns/decorators/UseCampaign.decorator'
 import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
@@ -23,6 +23,10 @@ import {
   CheckPhoneListStatusAcceptedResponseDto,
   CheckPhoneListStatusResponseDto,
 } from './schemas/p2pPhoneListStatus.schema'
+import {
+  CheckPhoneListBuildStatusFailedResponseDto,
+  CheckPhoneListBuildStatusReadyResponseDto,
+} from './schemas/p2pPhoneListBuildStatus.schema'
 import { P2pPhoneListRequestSchema } from './schemas/p2pPhoneListRequest.schema'
 import { P2pPhoneListResponseSchema } from './schemas/p2pPhoneListResponse.schema'
 import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service'
@@ -130,18 +134,116 @@ export class P2pController {
     @Body() request: P2pPhoneListRequestSchema,
   ): Promise<P2pPhoneListResponseSchema> {
     try {
-      const { token } = await this.p2pPhoneListUploadService.uploadPhoneList(
-        campaign,
-        request,
-      )
+      const { token, buildId } =
+        await this.p2pPhoneListUploadService.uploadPhoneList(campaign, request)
 
-      return { token }
+      return { token, buildId }
     } catch (error) {
       if (error instanceof HttpException) {
         throw error
       }
       this.logger.error({ error }, 'Failed to upload phone list')
       throw new BadGatewayException('Failed to upload phone list.')
+    }
+  }
+
+  // Additive counterpart to the token-status route above, keyed on the
+  // PeerlyPhoneList row id instead of the Peerly token — the handle a
+  // caller has from the moment the POST is accepted, before a token exists.
+  // Same Peerly ACTIVE resolution + peerlyListId stamping; also resolves
+  // the two build-only states the token route never sees: an in-progress
+  // build with no token yet, and a build that failed before ever reaching
+  // Peerly.
+  @Get('phone-list/build/:buildId/status')
+  @UseCampaign()
+  async checkPhoneListBuildStatus(
+    @ReqCampaign() campaign: Campaign,
+    @Param('buildId') buildId: string,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<
+    | CheckPhoneListBuildStatusReadyResponseDto
+    | CheckPhoneListStatusAcceptedResponseDto
+    | CheckPhoneListBuildStatusFailedResponseDto
+  > {
+    // Ownership check first, same reasoning as the token route: buildId is
+    // an opaque id a caller could guess/enumerate.
+    const build = await this.peerlyPhoneListCapture.findFirst({
+      where: { id: buildId, campaignId: campaign.id },
+    })
+    if (!build) {
+      throw new NotFoundException('Phone list build not found')
+    }
+
+    if (build.buildStatus === PhoneListBuildStatus.failed) {
+      return {
+        buildStatus: 'failed',
+        buildError: build.buildError ?? 'Phone list build failed',
+      }
+    }
+
+    if (!build.token) {
+      // queued/building: the synchronous build hasn't reached Peerly yet.
+      res.status(HttpStatus.ACCEPTED)
+      return {
+        message: 'Phone list build is still in progress. Please try again.',
+      }
+    }
+
+    try {
+      const statusResponse =
+        await this.peerlyPhoneListService.checkPhoneListStatus(build.token)
+
+      if (!statusResponse) {
+        res.status(HttpStatus.ACCEPTED)
+        return {
+          message: 'Phone list status is not yet available. Please try again.',
+        }
+      }
+
+      if (statusResponse.Data.list_state !== PhoneListState.ACTIVE) {
+        const status = statusResponse.Data.list_state || 'unknown'
+        res.status(HttpStatus.ACCEPTED)
+        return {
+          message:
+            status === PhoneListState.PROCESSING
+              ? 'Phone list is still processing. Please try again in a few moments.'
+              : `Phone list is not ready. Current status: ${status}`,
+        }
+      }
+
+      const listId = statusResponse.Data.list_id
+      if (!listId) {
+        throw new BadGatewayException(
+          'Phone list is active but no list_id was returned',
+        )
+      }
+
+      const detailsResponse =
+        await this.peerlyPhoneListService.getPhoneListDetails(listId)
+
+      // Same guarded stamp the token route uses — idempotent across both
+      // routes, whichever sees ACTIVE first.
+      await this.peerlyPhoneListCapture
+        .stampPeerlyListId(build.token, listId)
+        .catch((err: Error) =>
+          this.logger.warn(
+            { err, buildId, listId },
+            'Failed to stamp peerlyListId; build row stays unstamped',
+          ),
+        )
+
+      return {
+        phoneListId: listId,
+        leadsLoaded: detailsResponse.leads_loaded,
+        excludedOptedOutCount: build.excludedOptedOutCount,
+        excludedDuplicatePhoneCount: build.excludedDuplicatePhoneCount,
+      }
+    } catch (error) {
+      if (error instanceof BadGatewayException) {
+        throw error
+      }
+      this.logger.error({ error }, 'Failed to check phone list build status')
+      throw new BadGatewayException('Failed to check phone list status.')
     }
   }
 }

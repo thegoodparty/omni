@@ -583,7 +583,11 @@ Phone-list generation for saved-filter sends goes through the contacts
 pipeline (`findContactsForFilter`), so activity/support conditions are
 honored — the list matches what the wizard's count promised
 (`src/vendors/peerly/services/p2pPhoneListUpload.service.ts` +
-`peerlyPhoneListCapture.service.ts`).
+`peerlyPhoneListCapture.service.ts`). The `PeerlyPhoneList` row is created
+`queued` before this build runs, not after — see
+`src/voters/AGENTS.md`'s capture gotcha for the full `buildId`/`buildStatus`
+lifecycle (`queued → processing → ready|failed`) and the additive
+`GET /p2p/phone-list/build/:buildId/status` route.
 
 **Opt-out scrub (ENG-10800).** `P2pPhoneListUploadService` excludes every
 org-wide opted-out person (`ContactInteractionTextService.findOptedOutPersonIds`

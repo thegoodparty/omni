@@ -1,27 +1,43 @@
 import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { PhoneListBuildStatus } from '@/generated/prisma'
 
 @Injectable()
 export class PeerlyPhoneListCaptureService extends createPrismaBase(
   MODELS.PeerlyPhoneList,
 ) {
-  // Writes the parent capture row and its recipient rows together so a list
-  // Peerly never received can never gain capture rows — callers only invoke
-  // this after the Peerly upload has already succeeded.
-  async recordUpload(params: {
+  // The build is moving off the HTTP request into a background job
+  // (Voter Outreach 2.0): a row needs to exist — and be pollable — before a
+  // Peerly token is ever minted. Created `queued` (the schema default),
+  // with no token; `recordUpload` advances this same row rather than
+  // inserting a second one.
+  createQueuedBuild(params: {
     organizationSlug: string
     campaignId: number
-    token: string
     voterFileFilterId: number | null
+  }) {
+    const { organizationSlug, campaignId, voterFileFilterId } = params
+    return this.model.create({
+      data: { organizationSlug, campaignId, voterFileFilterId },
+    })
+  }
+
+  // Advances the pre-created `queued` row to `processing` with the Peerly
+  // token and the two exclusion counts, and writes the recipient rows —
+  // together, so a list Peerly never received can never gain recipient rows
+  // (callers only invoke this after the Peerly upload has already
+  // succeeded). Updates, not inserts: the row from `createQueuedBuild`
+  // already exists by `buildId`.
+  async recordUpload(params: {
+    buildId: string
+    token: string
     recipients: { personId: string; phone: string }[]
     excludedOptedOutCount: number
     excludedDuplicatePhoneCount: number
   }): Promise<void> {
     const {
-      organizationSlug,
-      campaignId,
+      buildId,
       token,
-      voterFileFilterId,
       recipients,
       excludedOptedOutCount,
       excludedDuplicatePhoneCount,
@@ -29,19 +45,18 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
 
     await this.client.$transaction(
       async (tx) => {
-        const phoneList = await tx.peerlyPhoneList.create({
+        await tx.peerlyPhoneList.update({
+          where: { id: buildId },
           data: {
-            organizationSlug,
-            campaignId,
             token,
-            voterFileFilterId,
             excludedOptedOutCount,
             excludedDuplicatePhoneCount,
+            buildStatus: PhoneListBuildStatus.processing,
           },
         })
         await tx.peerlyPhoneListRecipient.createMany({
           data: recipients.map(({ personId, phone }) => ({
-            peerlyPhoneListId: phoneList.id,
+            peerlyPhoneListId: buildId,
             personId,
             phone,
           })),
@@ -56,13 +71,25 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     )
   }
 
-  // Stamps the numeric Peerly list id the first time the status endpoint
-  // reports the list ready. Guarded on peerlyListId IS NULL so a repeat poll
-  // after the first success is a no-op rather than a re-write.
+  // The synchronous build/upload threw (empty audience, Peerly error) —
+  // park the row rather than leaving it orphaned at `queued`/`building`
+  // forever. `buildError` is a short message, not a stack trace: this is a
+  // status a future poller reads, not a log.
+  async markBuildFailed(buildId: string, buildError: string): Promise<void> {
+    await this.model.update({
+      where: { id: buildId },
+      data: { buildStatus: PhoneListBuildStatus.failed, buildError },
+    })
+  }
+
+  // Stamps the numeric Peerly list id and advances the row to `ready` the
+  // first time the status endpoint (either route — token or buildId) sees
+  // the list ACTIVE. Guarded on peerlyListId IS NULL so a repeat poll after
+  // the first success is a no-op rather than a re-write.
   async stampPeerlyListId(token: string, peerlyListId: number): Promise<void> {
     await this.model.updateMany({
       where: { token, peerlyListId: null },
-      data: { peerlyListId },
+      data: { peerlyListId, buildStatus: PhoneListBuildStatus.ready },
     })
   }
 
