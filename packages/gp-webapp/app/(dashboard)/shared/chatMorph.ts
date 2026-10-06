@@ -29,6 +29,7 @@ const EASE_OUT = 'cubic-bezier(0.2, 0.8, 0.3, 1)'
 
 const prefersReducedMotion = (): boolean =>
   typeof window === 'undefined' ||
+  typeof window.matchMedia !== 'function' ||
   window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 const visibleRect = (selector: string): DOMRect | null => {
@@ -144,13 +145,15 @@ export const morphComposerOutOfPill = (composer: HTMLElement): void => {
     arriving = markedAt > 0 && Date.now() - markedAt < ARRIVING_EXPIRES_MS
   } catch {}
   if (!arriving || prefersReducedMotion()) return
-  // A second mount of the same box mid-animation leaves it be.
-  if (composer.getAnimations().length > 0) return
+  // A second attach of the same box (React's dev double mount) while the first
+  // is still waiting or playing leaves it be.
+  if (composer.dataset.chatMorphPending || composer.getAnimations().length > 0)
+    return
 
   // The sidebar can render a beat after Home's box, so wait briefly for the
   // pill with the box hidden; it would otherwise flash in place and then jump
   // back to the pill to grow. Shown as-is if the pill never turns up.
-  const opacity = composer.style.opacity
+  composer.dataset.chatMorphPending = 'true'
   composer.style.opacity = '0'
   const startedAt = performance.now()
   const waitForPill = (): void => {
@@ -161,7 +164,10 @@ export const morphComposerOutOfPill = (composer: HTMLElement): void => {
       window.setTimeout(waitForPill, 16)
       return
     }
-    composer.style.opacity = opacity
+    // Cleared rather than restored: a value saved here could be this same
+    // hiding, set by an earlier attach.
+    composer.style.removeProperty('opacity')
+    delete composer.dataset.chatMorphPending
     const to = composer.getBoundingClientRect()
     if (from && to.width > 0) growFromPill(composer, from, to)
   }
@@ -198,4 +204,9 @@ const growFromPill = (
     } catch {}
   }
   animation.oncancel = restore
+  // A browser pauses animations in a background tab, and a grow-in stuck on
+  // its first frame would leave Home's box invisible. Jump to the end instead.
+  window.setTimeout(() => {
+    if (animation.playState !== 'finished') animation.finish()
+  }, DURATION_IN_MS + 250)
 }
