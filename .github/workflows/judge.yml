@@ -1472,16 +1472,6 @@ jobs:
           fi
           echo 'the Anthropic key is present'
 
-      # Set from a step rather than from the job's `env`, because the `runner`
-      # context is not available in `jobs.<id>.env`. Outside the checkout, so
-      # the records cannot be mistaken for tracked files or collide with the
-      # base worktree.
-      - name: Name the record store
-        run: |
-          set -euo pipefail
-          echo "RECORDS_DIR=$RUNNER_TEMP/judge-records" >> "$GITHUB_ENV"
-          echo "records for sweep $SWEEP_ID go in $RUNNER_TEMP/judge-records"
-
       # DATABRICKS_HOST CARRIES A SCHEME and gp-api's hostname does not.
       # `vars.DATABRICKS_HOST` is `https://dbc-....cloud.databricks.com`,
       # which is the form the Python side wants; @databricks/sql prefixes
@@ -1627,6 +1617,39 @@ jobs:
           # match and why this cannot be raised here alone;
           # judgeWorkflow.test.ts holds them equal.
           role-duration-seconds: 14400
+
+      # WHERE THE RECORDS GO: the private artifacts bucket, under `_judge/`,
+      # so a sweep can be re-graded and read case by case after the job is
+      # gone. The judge role's KeepJudgeRecords grant covers exactly that
+      # prefix (gp-ai's modules/universal-judge-sweep-policy).
+      #
+      # Written to $GITHUB_ENV as the ONE variable the judge processes read,
+      # never as both. The base arm runs the base ref's parser, which refuses
+      # a blank JUDGE_RECORDS_DIR rather than reading it as unset, so a step
+      # `env` that passed both with one empty would fail every base arm.
+      #
+      # Falls back to a job-local directory when the role was not assumed.
+      # The credentials step continues on error so a chat-only sweep still
+      # runs, and a bucket nobody can write to would turn that into a sweep
+      # that fails at its first record. The fallback says so: those records
+      # die with the job.
+      #
+      # Never an Actions artifact. omni is public, an artifact on a public
+      # repository is downloadable by anyone who can see the run, and a
+      # record carries the agent's whole answer and every SQL statement it
+      # ran against the constituent tables.
+      - name: Choose where records are kept
+        env:
+          CREDENTIALS: ${{ steps.judge_credentials.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$CREDENTIALS" = success ]; then
+            echo "JUDGE_RECORDS_BUCKET=gp-agent-artifacts-dev" >> "$GITHUB_ENV"
+            echo "records for sweep $SWEEP_ID go in s3://gp-agent-artifacts-dev/_judge/$SWEEP_ID/"
+          else
+            echo "JUDGE_RECORDS_DIR=$RUNNER_TEMP/judge-records" >> "$GITHUB_ENV"
+            echo "::warning::the judge role was not assumed, so records for sweep $SWEEP_ID stay in this job and are lost when it ends"
+          fi
 
       - name: Resolve where a background dispatch goes
         env:
@@ -1854,7 +1877,6 @@ jobs:
           JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
           JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
-          JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
           # The affirmative spend switch, and the second one in the chain:
           # this job already requires `inputs.live == true` to exist at all.
           # Anything other than the exact string `true` makes the runner use a
@@ -1934,7 +1956,6 @@ jobs:
           JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
           JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
-          JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
           JUDGE_SPEND: 'true'
           # Under the arm name, not ANTHROPIC_API_KEY — see the base arm above.
           JUDGE_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -1987,7 +2008,6 @@ jobs:
           JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
           JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
-          JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
           # Who asked for these agents, and THE STEP THAT ACTS ON IT: the arms
           # only parse it. See the base arm above.
           JUDGE_SELECTION: ${{ needs.plan.outputs.selection }}
@@ -2013,33 +2033,6 @@ jobs:
         run: |
           set -euo pipefail
           npx tsx "$JUDGING_ENTRY"
-
-      # THE RECORDS ARE NOT KEPT, and that is the deliberate choice rather
-      # than an omission.
-      #
-      # The design puts them under `_judge/<sweepId>/` on
-      # gp-agent-artifacts-dev, and `records.ts` has that store ready — a
-      # rubric change re-grades stored records at zero agent cost, which is
-      # only true while they exist. Two things are in the way, and neither is
-      # this PR's to decide.
-      #
-      # S3 needs an IAM grant that does not exist yet AND `id-token: write`
-      # on this job — the job that runs the branch's own code with the
-      # Anthropic and Databricks credentials in its environment. Widening its
-      # permissions is a change to review on its own.
-      #
-      # A workflow artifact is NOT the stopgap it looks like. omni is public,
-      # and an artifact on a public repository is downloadable by anyone who
-      # can see the run, anonymously. A record carries the agent's complete
-      # answer and, in `toolQueries`, every SQL statement the model wrote
-      # against the constituent tables. Publishing that to an anonymous URL
-      # for the sake of re-gradability is the wrong trade for restricted data,
-      # and a redacted projection would not serve re-grading anyway, because
-      # a rubric re-grade needs exactly the text that would have to go.
-      #
-      # So records live for the length of the job. Set JUDGE_RECORDS_BUCKET
-      # instead of JUDGE_RECORDS_DIR once the grant and the permission land,
-      # and durability arrives in the private bucket where it belongs.
 
       # What was swept and where to look, and deliberately NOT the arms' own
       # stdout. Two reasons, either sufficient. It is a program's output going

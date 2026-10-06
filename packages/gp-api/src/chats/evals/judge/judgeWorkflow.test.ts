@@ -569,6 +569,80 @@ describe('judge.yml normalizes the Databricks host', () => {
   })
 })
 
+// RECORDS GO TO THE PRIVATE BUCKET, through ONE variable. The base arm runs
+// the base ref's parser, which refuses a blank JUDGE_RECORDS_DIR, so the
+// choice is written to $GITHUB_ENV rather than mapped in each step's `env`
+// with one side empty. Run as the step's own bash, both ways.
+describe('judge.yml keeps records in the private bucket', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const names = steps.map((step) => step.name)
+  const choose = steps.find(
+    (step) => step.name === 'Choose where records are kept',
+  )
+  const POLICY = path.resolve(
+    __dirname,
+    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
+  )
+
+  const run = (credentials: string): { env: string; stdout: string } => {
+    const script = runBlockOf(choose?.body ?? '')
+    expect(script.split('\n')[0]).toBe('set -euo pipefail')
+    const dir = mkdtempSync(path.join(tmpdir(), 'judge-records-'))
+    const envFile = path.join(dir, 'github-env')
+    writeFileSync(envFile, '')
+    const stdout = execFileSync('bash', ['-c', script], {
+      env: {
+        ...process.env,
+        CREDENTIALS: credentials,
+        GITHUB_ENV: envFile,
+        RUNNER_TEMP: dir,
+        SWEEP_ID: 'judge-1-1',
+      },
+      encoding: 'utf8',
+    })
+    return { env: readFileSync(envFile, 'utf8').trim(), stdout }
+  }
+
+  it('uses the bucket when the judge role was assumed', () => {
+    const { env, stdout } = run('success')
+    expect(env).toBe('JUDGE_RECORDS_BUCKET=gp-agent-artifacts-dev')
+    expect(stdout).not.toContain('::warning::')
+  })
+
+  it('falls back to the job, and says so, when it was not', () => {
+    const { env, stdout } = run('failure')
+    expect(env).toMatch(/^JUDGE_RECORDS_DIR=\S+\/judge-records$/)
+    expect(stdout).toContain('::warning::')
+  })
+
+  // The bucket the step names is the one the role may write, under the
+  // prefix the store writes.
+  it('names the bucket the policy grants', () => {
+    const tf = readFileSync(POLICY, 'utf8')
+    const bucket = /artifacts_bucket\s*=\s*"([^"]+)"/
+      .exec(tf)?.[1]
+      ?.replace('${var.environment}', 'dev')
+    expect(bucket).toBe('gp-agent-artifacts-dev')
+    expect(tf).toMatch(/Sid\s*=\s*"KeepJudgeRecords"/)
+  })
+
+  it('leaves no step mapping a records variable itself', () => {
+    const mapped = steps
+      .filter((step) => /^ {10}JUDGE_RECORDS_(DIR|BUCKET):/m.test(step.body))
+      .map((step) => step.name)
+    expect(mapped).toEqual([])
+  })
+
+  it('chooses after the role is assumed and before the first capture', () => {
+    const at = names.indexOf('Choose where records are kept')
+    expect(at).toBeGreaterThan(
+      names.indexOf('Get credentials for staging and dispatching'),
+    )
+    expect(at).toBeLessThan(names.indexOf('Capture the base arm'))
+  })
+})
+
 // THE BASE ARM RUNS THE BASE REF'S CODE, not this branch's. The workflow is
 // resolved from the default branch, so it exports the arm key name to both
 // arms — but only a suite that calls `restoreRealModelKey` moves that into
