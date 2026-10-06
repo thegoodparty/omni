@@ -488,6 +488,14 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     expect(captureBodies).toHaveLength(0)
   })
 
+  it('never says voter on the confirm card', async () => {
+    renderForm()
+    callAndSave()
+
+    await screen.findByText('Is this right?')
+    expect(document.body.textContent ?? '').not.toMatch(/voter/i)
+  })
+
   it('reports the memo as a Serve one', async () => {
     renderForm()
     callAndSave()
