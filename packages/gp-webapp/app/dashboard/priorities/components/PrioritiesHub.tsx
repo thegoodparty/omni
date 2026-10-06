@@ -78,7 +78,8 @@ const PrioritiesHub = ({
   // Back to this page renders from Next's router cache, which still holds the
   // list as it was first loaded: a priority added since is missing, so the row
   // you click opens an older one, and step badges lag behind. Re-read on mount.
-  // A change made here before the read lands wins over it.
+  // A change made here before the read lands wins over it, and an add the
+  // read already carries is not added twice.
   useEffect(() => {
     let cancelled = false
     listPriorities()
@@ -114,7 +115,9 @@ const PrioritiesHub = ({
     try {
       const created = await prioritizeCommunityIssue(issue.id)
       changedHere.current = true
-      setItems((prev) => [...prev, created])
+      setItems((prev) =>
+        prev.some((p) => p.id === created.id) ? prev : [...prev, created],
+      )
     } catch {
       setError('Could not add that issue. Please try again.')
     } finally {
@@ -162,7 +165,11 @@ const PrioritiesHub = ({
           <AddPriorityForm
             onCreated={(created) => {
               changedHere.current = true
-              setItems((prev) => [...prev, created])
+              setItems((prev) =>
+                prev.some((p) => p.id === created.id)
+                  ? prev
+                  : [...prev, created],
+              )
               setAdding(false)
             }}
             onCancel={() => setAdding(false)}
