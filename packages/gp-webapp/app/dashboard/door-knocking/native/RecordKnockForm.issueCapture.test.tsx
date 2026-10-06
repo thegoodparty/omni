@@ -819,6 +819,29 @@ describe('RecordKnockForm offline edges', () => {
     expect(memo?.kind === 'memo' && memo.blob).toBeInstanceOf(Blob)
   })
 
+  // Signal came back before Save: the knock goes now, and the recording
+  // follows it through the queue.
+  it('says the note is being sent when a recording follows a saved knock', async () => {
+    online = false
+    const onRecorded = renderForm()
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Engaged')
+    answer('Do they need follow-up?', 'Yes')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate note' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Stop dictation' }),
+    )
+    await screen.findByText('Note recorded on your device.')
+    online = true
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    expect(mocks.successSnackbar).toHaveBeenCalledWith(
+      'Note saved on your device. Sending it now.',
+    )
+  })
+
   // A door that did not engage has no conversation to capture, so the mic
   // stays the ordinary dictation mic and nothing records on the phone.
   it('never records on the phone at a door that did not engage', async () => {
