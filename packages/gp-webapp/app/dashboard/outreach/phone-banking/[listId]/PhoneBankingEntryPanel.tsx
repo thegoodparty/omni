@@ -60,7 +60,6 @@ interface PhoneBankingEntryPanelProps {
   // engaged-call question on each surface.
   isServe: boolean
   onSaved: (results: PhoneBankingCallResult[]) => void
-  // The caller page's unsaved answers, passed through to the outcome form.
   callDrafts?: UnsavedDrafts<CallDraft>
 }
 

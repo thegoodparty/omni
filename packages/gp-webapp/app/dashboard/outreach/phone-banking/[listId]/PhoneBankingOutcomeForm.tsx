@@ -366,6 +366,7 @@ export default function PhoneBankingOutcomeForm({
       ])
       logCallAnalytics(input.draft)
     }
+    drafts?.clear(callKey)
     setMemo('')
     setSpoken(false)
     setIsEditing(false)
@@ -396,6 +397,10 @@ export default function PhoneBankingOutcomeForm({
       // while a second request runs would be the worse trade.
       onSaved(data.results)
       refreshReport()
+      // Here and not only through the editing flag: a save can land after
+      // the caller has switched person, when the unmount has already stashed
+      // the answers this save just recorded.
+      drafts?.clear(callKey)
       setIsEditing(false)
       logCallAnalytics(input.draft)
       // Re-editing this same call through the pencil toggles `isEditing` on a

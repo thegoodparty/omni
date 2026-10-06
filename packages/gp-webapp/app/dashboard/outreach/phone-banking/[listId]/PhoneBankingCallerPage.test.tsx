@@ -431,6 +431,64 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(within(dialog).queryByText('Did they answer?')).toBeNull()
   })
 
+  // Save on a slow connection, then a tap on the housemate before the
+  // answer lands: the form has already unmounted with its answers, and the
+  // save that lands afterwards is what has to drop them.
+  it('drops the unsaved answers of a call whose save lands after a switch', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+    let land: () => void = () => undefined
+    const landed = new Promise<void>((resolve) => {
+      land = resolve
+    })
+    api.mock('POST /v1/phone-banking/lists/:id/calls', async () => {
+      await landed
+      const response: RecordPhoneBankingCallResponse = {
+        entryId: 2,
+        results: [
+          {
+            personId: 'house-a',
+            interaction: {
+              outcome: 'no_answer',
+              supportAnswer: null,
+              willVote: null,
+              followUp: null,
+              occurredAt: new Date(),
+            },
+          },
+        ],
+        envelopeCompleted: false,
+      }
+      return { status: 200, data: response }
+    })
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+    await user.click(screen.getByText('Casey Household, Robin Household'))
+    await user.click(await screen.findByText('Casey Household'))
+    const dialog = await screen.findByRole('dialog')
+    const tab = (name: RegExp) => within(dialog).getByRole('tab', { name })
+
+    await user.click(within(dialog).getByRole('radio', { name: 'No answer' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await user.click(tab(/Robin Household/))
+    land()
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.PhoneBanking.CallLogged,
+        expect.objectContaining({ contactId: 'house-a' }),
+      ),
+    )
+    await user.click(tab(/Casey Household/))
+
+    expect(
+      await within(dialog).findByRole('button', {
+        name: "Edit this call's outcome",
+      }),
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText('Did they answer?')).toBeNull()
+  })
+
   it('fires Call Sheet Downloaded from the header PDF button', async () => {
     const user = userEvent.setup()
     mockGetList(buildList())
