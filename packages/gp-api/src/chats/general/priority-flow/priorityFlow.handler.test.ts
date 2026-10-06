@@ -13,6 +13,10 @@ import {
   type ChatScopeHandler,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import {
+  CLAIM_STRENGTH_RULE,
+  LEGAL_VALUES_RULE,
+} from '../services/claimConfidence'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import {
   PRIORITY_FLOW_MODELS,
@@ -234,6 +238,9 @@ describe('PriorityFlowHandler', () => {
     const names = Object.keys(build().buildTools(baseCtx())).sort()
     expect(names).toEqual([
       'ask_clarify_question',
+      'present_authority_finding',
+      'present_comparables',
+      'present_current_law_summary',
       'present_outreach_proposal',
       'present_outside_contact',
       'present_past_outreach',
@@ -419,6 +426,100 @@ describe('PriorityFlowHandler', () => {
     expect(prompt.indexOf('HOW TO CHOOSE WHO TO HEAR FROM')).toBeLessThan(
       prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT'),
     )
+  })
+
+  it('holds claims and legal readings to the shared confidence rules', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(CLAIM_STRENGTH_RULE)
+    expect(prompt).toContain(LEGAL_VALUES_RULE)
+  })
+
+  it('backstops a legal reading with the professional-advice line', () => {
+    expect(
+      build().finalizeAssistantText('Under RCW 35.21.766 you can do this.'),
+    ).toContain('not a substitute for professional advice')
+    expect(build().finalizeAssistantText('Potholes cluster downtown.')).toBe(
+      null,
+    )
+  })
+
+  it('puts research and people on cards rather than in prose', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('Research goes on the cards made for it')
+    expect(prompt).toContain('write no lead-in of your own above it')
+    expect(prompt).toContain('in date when the page was published')
+    expect(prompt).toContain('present_comparables')
+    expect(prompt).toContain('present_current_law_summary')
+    expect(prompt).toContain('present_authority_finding')
+    expect(prompt).toContain(
+      'Never put a phone number, email or address in your message',
+    )
+    expect(prompt).toContain('their card is the last thing in the turn')
+    expect(prompt).toContain('Never recap what the cards say')
+    expect(prompt).toContain('Never narrate the research itself')
+    expect(prompt).toContain('A figure in your message carries its source')
+    expect(prompt).toContain('HOW A RESEARCH TURN ENDS')
+    expect(prompt).toContain('Nothing comes after a contact card')
+    expect(prompt).toContain('Never use a pronoun for someone you found')
+  })
+
+  it('offers the finding cards as display-only tools', async () => {
+    const tools = build().buildTools(baseCtx())
+    for (const name of [
+      'present_comparables',
+      'present_current_law_summary',
+      'present_authority_finding',
+    ]) {
+      expect(tools[name]).toBeDefined()
+    }
+    const authority = tools.present_authority_finding as {
+      execute: (input: unknown) => unknown
+    }
+    expect(await authority.execute({})).toEqual({ presented: true })
+  })
+
+  it('lets the outreach cards be the choice, never asked about or rebuilt', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'The cards are the choice, so never ask about them',
+    )
+    expect(prompt).toContain('The one exception is a card already on screen')
+    expect(prompt).toContain('Never present it again unless they ask')
+    expect(prompt).not.toContain('ask both groups, just the most affected')
+  })
+
+  it('asks every question as a card, open ones included', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'Every question to them goes through ask_clarify_question',
+    )
+    expect(prompt).toContain('in your own words')
+    expect(prompt).toContain('Never write a list of questions')
+    expect(prompt).toContain('The opening turn is the same')
+  })
+
+  it('previews the path by rail step before any workflow', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('PREVIEW THE PATH BEFORE THE WORK')
+    expect(prompt).toContain('by the names the rail shows')
+    expect(prompt).toContain('like Public Works')
+    expect(prompt).toContain('one multiSelect ask_clarify_question')
+    expect(prompt).toContain('say in one line which step it is for')
+    expect(prompt).toContain('unless they picked hearing from them')
+    expect(prompt).toContain('preview the affected steps again, once')
+    expect(prompt.indexOf('PREVIEW THE PATH BEFORE THE WORK')).toBeLessThan(
+      prompt.indexOf('CHECKING A STEP WITH THE PEOPLE IT LANDS ON'),
+    )
+  })
+
+  it('asks for a source, a link and a date on what it brings in', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('SAYING WHERE IT CAME FROM')
+    expect(prompt).toContain("put it in that option's source")
+    expect(prompt).toContain('Never build or guess a URL')
+    expect(prompt).toContain('more than about two years old')
+    expect(prompt).toContain('comes from a tool you called or a source')
+    expect(prompt).not.toContain('"what I found"')
   })
 
   it('sizes a check as a random sample, one per side', () => {
@@ -817,7 +918,7 @@ describe('PriorityFlowHandler', () => {
     const handler = build()
     const ctx = await handler.loadContext('c1', USER_ID)
     const prompt = handler.buildSystemPrompt(ctx)
-    expect(prompt).toContain('Ask it with ask_clarify_question, never in prose')
+    expect(prompt).toContain('goes through ask_clarify_question, never prose')
     expect(prompt).toContain('One question at a time')
   })
 

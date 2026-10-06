@@ -57,11 +57,13 @@ const ctxWith = (
   district: null,
   officeLevel: null,
   location: null,
-  weeksToElection: null,
+  electionDate: null,
+  primaryElectionDate: null,
+  primaryResult: null,
+  didWin: null,
   ballotStatus: null,
   filingPeriodStart: null,
   filingPeriodEnd: null,
-  daysToFilingDeadline: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
@@ -681,8 +683,59 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
 
   // details is untyped JSON at the read site, so an unparseable date must not
   // reach the prompt as NaN -- it would slip past every null-guard downstream.
+  it('passes the stored dates and results through as the record holds them', async () => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: ORG.slug }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: {
+          findFirst: vi.fn(() =>
+            Promise.resolve({
+              id: 5,
+              details: {
+                electionDate: '2026-11-03',
+                primaryElectionDate: '2026-05-19',
+                filingPeriodsStart: '2025-11-05',
+                filingPeriodsEnd: '2026-01-09',
+              },
+              primaryResult: 'lost',
+              didWin: null,
+              data: {},
+              user: null,
+            }),
+          ),
+        },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(ORG)) },
+      },
+    } as unknown as CampaignsService
+    const handler = new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+    )
+
+    const ctx = await handler.loadContext('c1', 7)
+
+    expect(ctx.electionDate).toBe('2026-11-03')
+    expect(ctx.primaryElectionDate).toBe('2026-05-19')
+    expect(ctx.filingPeriodStart).toBe('2025-11-05')
+    expect(ctx.filingPeriodEnd).toBe('2026-01-09')
+    expect(ctx.primaryResult).toBe('lost')
+    expect(ctx.didWin).toBeNull()
+    const prompt = handler.buildSystemPrompt(ctx)
+    expect(prompt).toContain(
+      'Election date on record: Tuesday, November 3, 2026',
+    )
+    expect(prompt).toContain('Primary result on record: lost')
+  })
+
   it.each(['2025-Q1', 'not a date', ''])(
-    'returns null day/week counts for the unparseable date %o',
+    'carries the unparseable date %o through and the prompt reads it as none',
     async (bad) => {
       const store = {
         findFirst: vi.fn(() =>
@@ -714,9 +767,12 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
 
       const ctx = await handler.loadContext('c1', 7)
 
-      expect(ctx.daysToFilingDeadline).toBeNull()
-      expect(ctx.weeksToElection).toBeNull()
-      expect(handler.buildSystemPrompt(ctx)).not.toContain('NaN')
+      expect(ctx.electionDate).toBe(bad)
+      expect(ctx.filingPeriodEnd).toBe(bad)
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain('Election date on record: none')
+      expect(prompt).toContain('Filing period on record: none')
+      expect(prompt).not.toContain('NaN')
     },
   )
 

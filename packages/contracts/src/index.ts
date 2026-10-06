@@ -824,6 +824,8 @@ export {
 export {
   ShowListMapSchema,
   type ShowListMap,
+  ListProposalSchema,
+  type ListProposal,
 } from './chats/ChiefOfStaffWidgets.schema'
 
 export {
@@ -1286,6 +1288,11 @@ export {
   type GeoJsonShape,
   shapePolygons,
   shapePartCount,
+  MAX_GEO_SHAPE_NAME_LENGTH,
+  GeoShapeLabelSchema,
+  type GeoShapeLabel,
+  GeoShapeLabelsSchema,
+  type GeoShapeLabels,
 } from './shared/GeoJsonShape.schema'
 
 export {

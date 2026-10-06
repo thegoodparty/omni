@@ -39,6 +39,7 @@ import {
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
+import { buildPresentListProposalTool } from '../crm-tools/presentListProposal.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
@@ -280,6 +281,9 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         // crud_saved_filters just returned, so advertising it in a session
         // that cannot create a list would be offering a map of nothing.
         crmTools.show_list_map = buildShowListMapTool()
+        // How a list gets saved from here: as a card the official presses,
+        // not a write the model makes after a typed "yes".
+        crmTools.present_list_proposal = buildPresentListProposalTool()
       }
       // The catalog is built over the other CRM tools so its description
       // names only the filter tools registered beside it, and is still

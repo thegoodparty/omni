@@ -77,6 +77,8 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
       expect(prompt).toContain('SPECIFIC LEGAL VALUES')
       expect(prompt).toContain('came from a source you consulted in THIS')
       expect(prompt).toContain('say so and POINT')
+      expect(prompt).toContain('HOW SURE TO SOUND')
+      expect(prompt).toContain('Match the verb to the evidence')
     }
   })
 

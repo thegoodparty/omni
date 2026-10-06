@@ -31,3 +31,13 @@ export const todayLine = (
   const label = ZONE_LABELS[zone] ?? zone
   return `Today is ${formatInTimeZone(now, zone, DATE_FORMAT)} (${label}).`
 }
+
+// The calendar day in the user's zone, as yyyy-MM-dd. Every count a prompt
+// renders against a stored date starts from this day, so a late evening in
+// Chicago is not counted as tomorrow by a UTC server and the date line and the
+// counts can never disagree about what day it is.
+export const localDay = (
+  state: string | null | undefined,
+  now: Date = new Date(),
+): string =>
+  formatInTimeZone(now, resolveSendWindowTimeZone(state), 'yyyy-MM-dd')

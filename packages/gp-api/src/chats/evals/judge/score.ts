@@ -2,6 +2,7 @@ import { bootstrapCi, createRng, mean, type Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
   OVERALL,
+  type FlagType,
   type GradedJudgment,
   type Judgment,
   type Magnitude,
@@ -137,7 +138,7 @@ export interface ToolErrorCause {
 
 export interface OrientedFlag {
   arm: Arm
-  type: string
+  type: FlagType
   explanation: string
   loc: string | undefined
   caseId: string

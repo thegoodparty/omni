@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { JSONParseError, NoObjectGeneratedError, TypeValidationError } from 'ai'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
@@ -7,6 +8,7 @@ import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
 import {
   CaseVerdictSchema,
   caseVerdictSchemaFor,
+  FLAG_TYPES,
   judgeAll,
   judgeCase,
   OVERALL,
@@ -379,6 +381,66 @@ describe('judgeCase', () => {
     expect(result.flags).toEqual([
       expect.objectContaining({ run: 'Y', type: 'restricted_data' }),
     ])
+  })
+})
+
+// The rubric doc's flag list, enforced. A free-text type let one finding
+// arrive under two names, so a flag count did not compare run to run.
+describe('the flag vocabulary', () => {
+  const flagged = (type: string): JsonValue =>
+    reply({
+      flags: [{ run: 'X', type, loc: 'X.final', explanation: 'why' }],
+    })
+
+  it('names every flag type in the prompt', async () => {
+    const { llm, calls } = fake([reply()])
+    await judgeCase(llm, plan(blindCase(BASE, CANDIDATE, X_IS_BASE)))
+    const user = calls[0]?.messages[1]?.content ?? ''
+    expect(user).toContain(`types: ${FLAG_TYPES.join(', ')}.`)
+  })
+
+  it('shows the model the list in the schema it fills', () => {
+    const schema = JSON.stringify(
+      z.toJSONSchema(caseVerdictSchemaFor(DEFAULT_JUDGE_CONFIG.dimensions)),
+    )
+    expect(schema).toContain(JSON.stringify(FLAG_TYPES))
+  })
+
+  // Anthropic's tool mode does not enforce an enum, so an invented type does
+  // arrive, and refusing it would throw away the seat's whole verdict.
+  it('keeps the verdict and replaces an invented type', async () => {
+    const { llm } = fake([flagged('name error inherited')])
+    const result = await judgeCase(
+      llm,
+      plan(blindCase(BASE, CANDIDATE, X_IS_BASE)),
+    )
+    const judgment = graded(result)
+    expect(judgment.flags.map((f) => f.type)).toEqual(['other_severe'])
+    expect(JSON.stringify(judgment)).not.toContain('name error inherited')
+  })
+
+  it('replaces an invented type on a stored verdict too', () => {
+    const parsed = CaseVerdictSchema.parse(flagged('name error propagated'))
+    expect(parsed.flags?.map((f) => f.type)).toEqual(['other_severe'])
+    expect(
+      CaseVerdictSchema.parse(flagged('fabricated_source')).flags?.[0]?.type,
+    ).toBe('fabricated_source')
+  })
+})
+
+describe('an ungraded judgment', () => {
+  it('keeps the slot map, so its stored ruling names the arms', async () => {
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      panel: { seats: [], temperature: 0 },
+    }
+    const planned = plan(blindCase(BASE, CANDIDATE, X_IS_BASE))
+    const { llm } = fake([reply()])
+    const result = await judgeCase(llm, planned, config)
+    expect(result).toMatchObject({
+      kind: 'ungraded',
+      slotMap: planned.slotMap,
+    })
   })
 })
 

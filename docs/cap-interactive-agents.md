@@ -232,9 +232,25 @@ COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 always **streaming** (multi-step `stepCountIs`); the non-streaming `toolCompletion`
 exists but isn't used by these surfaces.
 
+### A list is saved from a card, not a typed "yes"
+
+The Chief of Staff never creates a list itself. It counts the filter with
+`count_contacts` and calls `present_list_proposal`, a display tool whose args
+are the card: name, one-line summary, count and the filter it counted with.
+The card's **Create list** button posts that filter to
+`POST /v1/voters/voter-file/filter` with a `proposalKey` derived from the
+conversation and the tool call (`mintProposalKey`), so a second press returns
+the first list, and `GET /v1/voters/voter-file/filter/by-proposal-key/:key`
+tells a reloaded card that its list already exists. Once it does, the card
+renders as that list's map card. The write touches nothing the model sees, so
+the body sends a hidden turn (`listCreatedMessage`) naming the list and its id,
+through the same queue a drawn boundary uses. The prompt forbids asking
+whether to save a list in prose, which is what produced the "Ready to save
+that list?" / "yes" exchange.
+
 ### A drawn boundary reaches the conversation
 
-`show_list_map`'s card carries a Draw area button, and the shape the holder
+The list map card carries a Draw shapes button, and the shape the holder
 draws is written straight from the browser to `PUT /v1/voters/voter-file/
 filter/:id`. That write touches nothing the model can see. So the transcript
 has to be told, and three things do it together — fixing any one alone leaves

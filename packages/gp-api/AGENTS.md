@@ -45,7 +45,7 @@ about 4-5 min of wall clock; and an empty `Validate` gate `needs` both so the
 branch-protection-required `Validate` check is green only when all of them pass.
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 
-`lint` and `lint:fix` set a 6 GB Node heap themselves. Type-aware ESLint over
+`lint`, `lint:fix` and `start:dev` set a 6 GB Node heap themselves (`start:dev` for the watch-mode type check, which hit the same ceiling). Type-aware ESLint over
 the whole package peaks right at Node's default ~4 GB, so without it lint dies
 with a heap-out-of-memory crash (exit 134) on a laptop just as it did in CI.
 

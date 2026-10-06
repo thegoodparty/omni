@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
+import { AGENTS } from './agents'
 import { budgetOutputLines } from './armBudget'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
 import { formatPlan, selectAgents } from './cli'
@@ -404,6 +405,33 @@ describe('judge.yml tells every judge process who asked', () => {
     )
     expect(estimate?.body).toMatch(/\| selection \| named in the request/)
     expect(estimate?.body).toMatch(/\| selection \| \\`auto\\`, from the diff/)
+  })
+})
+
+// `auto` picks chat agents off the directories a PR touches, through a table
+// in the select step. A chat agent missing from it is never judged unless
+// someone names it, which is a gap nobody sees. Derived from the registry, so
+// a new chat scope without a row fails here by name.
+describe('judge.yml auto-selects every chat agent', () => {
+  const select = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
+    (step) => step.name === 'Resolve the agent selection',
+  )
+
+  it.each(AGENTS.filter((a) => a.shape === 'chat').map((a) => a.agentId))(
+    'maps a source directory to %s',
+    (agentId) => {
+      expect(select?.body).toMatch(
+        new RegExp(
+          `packages/gp-api/src/chats/\\S+/\\*\\)\\s+add ${agentId} ;;`,
+        ),
+      )
+    },
+  )
+
+  it('maps the briefing chat module to briefing_annotation', () => {
+    expect(select?.body).toMatch(
+      /packages\/gp-api\/src\/chats\/briefing-chats\/\*\)\s+add briefing_annotation ;;/,
+    )
   })
 })
 
@@ -1759,4 +1787,45 @@ describe('the arms reach AWS on the role, not on the stub', () => {
   it.each(Object.values(ARM_AWS_ENV))('the env table documents %s', (name) => {
     expect(readme).toMatch(new RegExp(`^\\| .*\`${name}\``, 'm'))
   })
+})
+
+// GITHUB'S 21,000-CHARACTER EXPRESSION LIMIT. A `run:` script that contains
+// `${{` anywhere, even inside a shell comment, is evaluated as one expression,
+// and past 21,000 characters the whole workflow fails to parse: every
+// /judge request is then refused with "Exceeded max expression length". A
+// prose mention of `${{ runner.temp }}` in a comment did exactly that to the
+// estimate step once it grew past the limit.
+describe('judge workflows stay under the expression length limit', () => {
+  const LIMIT = 21_000
+  const files = ['judge.yml', 'judge-comment.yml', 'judge-request.yml'].map(
+    (name) => path.resolve(path.dirname(WORKFLOW), name),
+  )
+
+  it.each(files)(
+    '%s has no run script over the limit with ${{ in it',
+    (file) => {
+      const lines = readFileSync(file, 'utf8').split('\n')
+      const offenders: string[] = []
+      lines.forEach((line, index) => {
+        const match = /^(\s*)run: \|\s*$/.exec(line)
+        if (match === null) return
+        const indent = (match[1] ?? '').length
+        const body: string[] = [line]
+        for (let next = index + 1; next < lines.length; next += 1) {
+          const text = lines[next] ?? ''
+          if (
+            text.trim() !== '' &&
+            text.length - text.trimStart().length <= indent
+          )
+            break
+          body.push(text)
+        }
+        const script = body.join('\n')
+        if (script.includes('${{') && script.length >= LIMIT) {
+          offenders.push(`line ${index + 1}: ${script.length} chars`)
+        }
+      })
+      expect(offenders).toEqual([])
+    },
+  )
 })

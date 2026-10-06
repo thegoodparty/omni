@@ -27,7 +27,10 @@ export const DRAFT_TOOL = 'present_draft'
 
 export type OrdinanceWidgetContext = { slug: string }
 
-export const ordinanceWidgets = createWidgetRegistry<OrdinanceWidgetContext>([
+// The finding cards that carry no ordinance context, so another chat can
+// register them as they are: the priority chat shows peer cities, current
+// code and legal authority on the same cards.
+export const findingWidgetTools = [
   defineWidgetTool({
     toolName: AUTHORITY_TOOL,
     parse: (args) => {
@@ -45,6 +48,20 @@ export const ordinanceWidgets = createWidgetRegistry<OrdinanceWidgetContext>([
     render: (summary) => <CurrentLawSummaryWidget summary={summary} />,
   }),
   defineWidgetTool({
+    toolName: COMPARABLES_TOOL,
+    parse: (args) => {
+      const parsed = OrdinancePresentComparablesSchema.safeParse(args)
+      if (!parsed.success) return null
+      const { intro, comparables, takeaway } = parsed.data
+      return comparables.length > 0 || intro || takeaway ? parsed.data : null
+    },
+    render: (presentation) => <ComparablesWidget presentation={presentation} />,
+  }),
+]
+
+export const ordinanceWidgets = createWidgetRegistry<OrdinanceWidgetContext>([
+  ...findingWidgetTools,
+  defineWidgetTool({
     toolName: HISTORY_TOOL,
     parse: (args) => {
       // Valid but content-less payloads drop like parse failures so they never
@@ -55,16 +72,6 @@ export const ordinanceWidgets = createWidgetRegistry<OrdinanceWidgetContext>([
         : null
     },
     render: (history) => <LegislativeHistoryWidget history={history} />,
-  }),
-  defineWidgetTool({
-    toolName: COMPARABLES_TOOL,
-    parse: (args) => {
-      const parsed = OrdinancePresentComparablesSchema.safeParse(args)
-      if (!parsed.success) return null
-      const { intro, comparables, takeaway } = parsed.data
-      return comparables.length > 0 || intro || takeaway ? parsed.data : null
-    },
-    render: (presentation) => <ComparablesWidget presentation={presentation} />,
   }),
   defineWidgetTool({
     toolName: DRAFT_TOOL,
