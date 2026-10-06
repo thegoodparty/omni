@@ -473,6 +473,46 @@ describe('OutreachMaterializationService', () => {
       }
     })
 
+    it('falls back to filter resolution when the phone list exists but has zero captured recipients', async () => {
+      const { campaign, outreach, filterId } = await seedOutreach({
+        slug: 'mat-captured-zero',
+        phoneListId: 6161,
+      })
+      // Present phone-list row, but no recipient rows under it — the
+      // present-yet-empty branch, distinct from mat-no-capture's "row never
+      // existed" branch. findRecipientsPage's real first call returns [].
+      await seedCapturedPhoneList({
+        organizationSlug: campaign.organizationSlug,
+        campaignId: campaign.id,
+        peerlyListId: 6161,
+        voterFileFilterId: filterId,
+        personIds: [],
+      })
+      const findContacts = vi
+        .spyOn(contacts, 'findContacts')
+        .mockResolvedValue(peoplePage(['pid-1', 'pid-2']))
+      const warnSpy = vi
+        .spyOn(PinoLogger.prototype, 'warn')
+        .mockImplementation(() => undefined)
+
+      try {
+        await materialization.materializeOutreach(campaign, outreach)
+
+        expect(findContacts).toHaveBeenCalled()
+        const rows = await textRowsFor(outreach.id)
+        expect(rows.map((r) => r.personId)).toEqual(['pid-1', 'pid-2'])
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            outreachId: outreach.id,
+            phoneListId: 6161,
+          }),
+          expect.stringContaining('falling back'),
+        )
+      } finally {
+        warnSpy.mockRestore()
+      }
+    })
+
     it('robocall with a phoneListId still resolves the filter, never capture', async () => {
       const { campaign, outreach } = await seedOutreach({
         slug: 'mat-robocall-phonelist',
