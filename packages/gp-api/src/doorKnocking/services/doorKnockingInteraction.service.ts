@@ -72,6 +72,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
       sourceId: input.clientKey,
       manual: false,
       actorUserId,
+      outreachId,
     })
 
     // The status of the PERSON, not of the row just written. The walk view
@@ -232,7 +233,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     }
     const outreachId = target.stop.turf.outreach?.id
     if (outreachId === undefined) {
-      throw new Error(
+      throw new NotFoundException(
         `Door-knocking turf for stop target ${stopTargetId} has no ` +
           'outreach envelope; every turf is created with one',
       )

@@ -429,12 +429,15 @@ webapp_ok=false
 # 450 * 2s = 15min, matching the setup-smoke job's outer poll budget: a cold
 # first boot compiles gp-webapp + gp-api on a 2-core CI runner, and this
 # inner gate must never give up before the workflow's own deadline does.
+# Each probe is capped: a dev server mid-compile accepts the connection and
+# answers nothing, and an uncapped curl then parks this loop past the job's
+# own timeout, so the dev log below never prints and the run reads as a hang.
 timeout_iters=450
 for _ in $(seq 1 "$timeout_iters"); do
-  if [ "$api_ok" != true ] && curl -fsS "http://localhost:3000/v1/health" >/dev/null 2>&1; then
+  if [ "$api_ok" != true ] && curl -fsS --max-time 5 "http://localhost:3000/v1/health" >/dev/null 2>&1; then
     api_ok=true
   fi
-  if [ "$webapp_ok" != true ] && curl -fsS "http://localhost:4000" >/dev/null 2>&1; then
+  if [ "$webapp_ok" != true ] && curl -fsS --max-time 5 "http://localhost:4000" >/dev/null 2>&1; then
     webapp_ok=true
   fi
   if [ "$api_ok" = true ] && [ "$webapp_ok" = true ]; then

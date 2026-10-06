@@ -242,6 +242,13 @@ export const EVENTS = {
   DoorKnocking: {
     CanvassingTotalsUpdated: 'Door Knocking - Canvassing Totals Updated',
   },
+  // Issue capture (Win and Serve). Fires from the synthesis ingest when a run
+  // completes, whichever engine produced it: completion is server truth, the
+  // report page only polls for it. Counts and ids only, never what anyone
+  // said.
+  IssueCapture: {
+    SynthesisCompleted: 'Issue Capture - Synthesis Completed',
+  },
   // A visitor on a public /people page asking an unclaimed person to complete
   // their profile. Distinct from gp-marketing's browser-side 'Person Profile
   // Notify Submitted', which counts the same submission for product analytics:

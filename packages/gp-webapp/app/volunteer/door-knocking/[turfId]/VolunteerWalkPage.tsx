@@ -27,6 +27,8 @@ import { useLiveLocation } from 'app/dashboard/door-knocking/native/useLiveLocat
 import { useWalkCompletion } from 'app/dashboard/door-knocking/native/walkCompletion'
 import { routeQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
 import { DoorKnockingSurface } from 'app/dashboard/door-knocking/native/doorKnockingSurface'
+import { useOfflineQueueDrain } from 'app/dashboard/shared/dictation/useOfflineMemo'
+import { NotesToReviewLink } from 'app/dashboard/issue-capture/NotesToReviewLink'
 
 // Same seam VoterMapCanvas has behind `NativeDoorKnockingPage` — this page is
 // the second mount site (ENG-11055), so it needs its own dynamic import to
@@ -95,6 +97,9 @@ export default function VolunteerWalkPage({
   turfId: number
 }): React.JSX.Element {
   const router = useRouter()
+  // Doors logged with no signal wait on the phone; this sends them when it
+  // returns, whether or not a door's form is open.
+  useOfflineQueueDrain()
   // The turf itself, for its name (the walk session needs one to start) and
   // for `useWalkCompletion`, which needs the full row to derive whether the
   // walk is finished. GET /v1/door-knocking/turfs/:id admits an assigned
@@ -261,6 +266,14 @@ export default function VolunteerWalkPage({
           onRoutePinClick={walkMap.onPinTap}
         />
         <WalkMapHint visible={walkMap.hintVisible} />
+        {/* Over the top of the map, clear of the controls and the sheet:
+            this volunteer's own notes still waiting for review. */}
+        <NotesToReviewLink
+          outreachId={turfQuery.data?.outreachId ?? null}
+          isServe={isServe}
+          href={`/volunteer/door-knocking/${turfId}/review`}
+          className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full border border-border bg-background/95 px-4 py-2 shadow-sm"
+        />
         <WalkSurface
           turfId={walk.turf.id}
           turfName={walk.turf.name}

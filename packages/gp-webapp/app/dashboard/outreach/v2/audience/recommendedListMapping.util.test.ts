@@ -44,8 +44,10 @@ describe('intentForOutreachPurpose', () => {
     expect(intentForOutreachPurpose('election_day_turnout')).toBe('electionDay')
   })
 
-  it('gives custom no intent', () => {
+  it('gives custom and hear-from-voters no intent', () => {
     expect(intentForOutreachPurpose('custom')).toBeNull()
+    // A listening effort has no audience a recommendation is cut for.
+    expect(intentForOutreachPurpose('community_input')).toBeNull()
   })
 })
 

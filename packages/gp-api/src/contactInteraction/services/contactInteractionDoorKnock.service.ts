@@ -74,6 +74,7 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
         willVote: data.willVote,
         followUp: data.followUp,
         note: data.note,
+        outreachId: data.outreachId,
       },
     })
     await this.emitLikelihoodEvent(row)

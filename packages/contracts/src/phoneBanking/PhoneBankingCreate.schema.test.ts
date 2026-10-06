@@ -53,6 +53,43 @@ describe('PhoneBankingCreateSchema', () => {
     const request = { ...base, purpose: 'explain_decision' }
     expect(() => PhoneBankingCreateSchema.parse(request)).toThrow()
   })
+
+  // "Hear from voters" is the Win purpose that asks a question, so it carries
+  // the question the same way Serve's community input does.
+  it('accepts community_input with the question it asks', () => {
+    expect(() =>
+      PhoneBankingCreateSchema.parse({
+        ...base,
+        purpose: 'community_input',
+        communityInputQuestion: 'How do you feel about the road bond?',
+      }),
+    ).not.toThrow()
+  })
+
+  it('refuses community_input with no question to ask', () => {
+    expect(() =>
+      PhoneBankingCreateSchema.parse({ ...base, purpose: 'community_input' }),
+    ).toThrow()
+  })
+
+  it('refuses a question on a purpose that does not ask one', () => {
+    expect(() =>
+      PhoneBankingCreateSchema.parse({
+        ...base,
+        communityInputQuestion: 'How do you feel about the road bond?',
+      }),
+    ).toThrow()
+  })
+
+  it('refuses a question longer than a canvasser would read aloud', () => {
+    expect(() =>
+      PhoneBankingCreateSchema.parse({
+        ...base,
+        purpose: 'community_input',
+        communityInputQuestion: 'x'.repeat(301),
+      }),
+    ).toThrow()
+  })
 })
 
 describe('ServePhoneBankingCreateSchema', () => {
