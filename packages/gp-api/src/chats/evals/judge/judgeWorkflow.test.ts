@@ -21,6 +21,7 @@ import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { ARM_AWS_ENV } from './awsCredentials'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
+import { JUDGE_PREFIX } from './records'
 
 // The sweep's three processes each read their spend switch from their own
 // workflow step, so the steps can disagree — and the first version of this
@@ -1008,6 +1009,31 @@ describe('the judge policy grants what the sweep job calls', () => {
       'sqs:SendMessage',
     ])
     expect(statement('DispatchJudgeRuns')).toContain('${local.dispatch_queue}')
+  })
+
+  // The record store writes under one head prefix, and real run artifacts
+  // share this bucket, so the grant is pinned to that prefix and to the two
+  // actions the store calls. Derived from records.ts so a renamed prefix fails
+  // here rather than as a denied write after both arms were paid for.
+  it('keeps records under the store prefix only, with no delete', () => {
+    expect(actions('KeepJudgeRecords').sort()).toEqual([
+      's3:GetObject',
+      's3:PutObject',
+    ])
+    // The whole list, so a second and wider ARN beside this one fails too.
+    const resources = statement('KeepJudgeRecords').match(
+      /Resource\s*=\s*\[([^\]]*)\]/,
+    )?.[1]
+    expect(resources?.split(',').map((one) => one.trim())).toEqual([
+      `"arn:aws:s3:::\${local.artifacts_bucket}/${JUDGE_PREFIX}/*"`,
+    ])
+    // Read off the Action lists, not the whole file: the header comment names
+    // DeleteObject in order to say it is absent.
+    const granted = [...tf.matchAll(/Action\s*=\s*\[([^\]]*)\]/g)]
+      .map((match) => match[1] ?? '')
+      .join(',')
+    expect(granted).toContain('s3:PutObject')
+    expect(granted).not.toMatch(/Delete|Acl|Tagging/)
   })
 })
 

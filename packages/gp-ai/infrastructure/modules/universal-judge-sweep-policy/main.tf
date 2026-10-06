@@ -42,12 +42,13 @@ data "aws_region" "current" {}
 #
 # The sweep drives background (PMF experiment) agents by staging an override
 # config in S3 and sending one dispatch message per run. Chat agents need none
-# of this — they run in-process against a test container — so this policy
-# exists solely for the background half.
+# of that — they run in-process against a test container. Every sweep, chat or
+# background, needs grant 3: somewhere private to keep its records.
 #
-# THREE GRANTS, each narrowed to the keys the runner actually touches. Read
-# `runners/background.ts` before widening any of them: every shape below comes
-# from that file, not from a guess about what a harness might want.
+# EACH GRANT is narrowed to the keys the judge actually touches. Read
+# `runners/background.ts` and `records.ts` before widening any of them: every
+# shape below comes from those files, not from a guess about what a harness
+# might want.
 #
 #   1. Staging WRITE + READ on the metadata bucket, under `_judge/` only.
 #      `stageAgentConfig` writes exactly two objects per agent-config digest:
@@ -64,14 +65,30 @@ data "aws_region" "current" {}
 #      correct expression of "only this judge's own runs" — it still refuses
 #      every artifact belonging to a real experiment run.
 #
-#   3. SendMessage on the dispatch queue, and GetQueueUrl on it, which is how
+#   3. Records WRITE + READ on the artifacts bucket, under `_judge/` only.
+#      The sweep's own record store (gp-api judge `records.ts`): every arm's
+#      answer at `_judge/<sweepId>/records/<arm>/<agentId>/<caseId>-<n>.json`,
+#      the arm manifests beside them, and the panel's per-case rulings at
+#      `_judge/<sweepId>/rulings/<agentId>.json`. Kept so a rubric change can
+#      re-grade a sweep at no agent cost, and so a bench can be read probe by
+#      probe after the job is gone. Unlike grant 2 this one IS head-anchored:
+#      real artifact keys start with an experiment id, which the dispatch
+#      Lambda holds to `^[a-z]`, so no run's key can start with `_judge/`.
+#      That check is the only one: the broker's mint pattern also admits a
+#      leading underscore, so loosening the Lambda's would reopen this.
+#      This is restricted data: a record carries the agent's whole answer
+#      and every SQL statement it ran against the constituent tables. It
+#      belongs in this private bucket and nowhere public, which is why the
+#      workflow does not upload records as an Actions artifact.
+#
+#   4. SendMessage on the dispatch queue, and GetQueueUrl on it, which is how
 #      judge.yml finds the queue to send to: a lookup on the one queue,
 #      returning its URL and nothing else. Without it the lookup fails, the
 #      sweep has nowhere to dispatch, and every background agent is refused.
 #      Send only otherwise: the sweep never receives,
 #      deletes, or changes queue attributes.
 #
-#   4. ListBucket on both buckets, which is NOT about enumeration and is the
+#   5. ListBucket on both buckets, which is NOT about enumeration and is the
 #      one grant here that exists for a reason other than an action the runner
 #      takes. S3 hides key existence from a principal that cannot list: without
 #      s3:ListBucket, GetObject on a key that does not exist returns 403
@@ -97,8 +114,8 @@ data "aws_region" "current" {}
 #      to change, which is a runner change rather than a policy one.
 #
 # DELIBERATELY ABSENT, and each omission is a decision:
-#   * No write of any kind to the artifacts bucket. The judge reads what a run
-#     produced; the runner and the broker are what write there.
+#   * No write to the artifacts bucket outside `_judge/`. The judge reads what
+#     a run produced; the runner and the broker are what write there.
 #   * No s3:DeleteObject anywhere. A sweep that could delete could destroy a
 #     real run's artifact, and nothing in the capture path removes anything.
 #   * No sqs:ReceiveMessage / DeleteMessage. Consuming the dispatch queue is
@@ -113,7 +130,7 @@ data "aws_region" "current" {}
 
 resource "aws_iam_policy" "judge_sweep" {
   name        = local.policy_name
-  description = "Universal Judge background sweep: stage an override under _judge/ in ${local.metadata_bucket}, read its own _judge- run artifacts in ${local.artifacts_bucket}, send to ${local.dispatch_queue}, and list both buckets so a missing key returns 404 rather than 403. Attach to the role the judge workflow assumes. dev only."
+  description = "Universal Judge background sweep: stage an override under _judge/ in ${local.metadata_bucket}, keep its records under _judge/ and read its own _judge- run artifacts in ${local.artifacts_bucket}, send to ${local.dispatch_queue}, and list both buckets so a missing key returns 404 rather than 403. Attach to the role the judge workflow assumes. dev only."
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -125,13 +142,19 @@ resource "aws_iam_policy" "judge_sweep" {
         Resource = ["arn:aws:s3:::${local.metadata_bucket}/_judge/*"]
       },
       {
+        Sid      = "KeepJudgeRecords"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject"]
+        Resource = ["arn:aws:s3:::${local.artifacts_bucket}/_judge/*"]
+      },
+      {
         Sid      = "ReadOwnJudgeRunArtifacts"
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
         Resource = ["arn:aws:s3:::${local.artifacts_bucket}/*/_judge-*/*"]
       },
       # Both ListBucket grants exist so GetObject on a missing key returns 404
-      # rather than 403 — see note 4 above. Neither is here to enumerate.
+      # rather than 403 — see note 5 above. Neither is here to enumerate.
       {
         Sid      = "DistinguishNotYetFromNotAllowedWhenStaging"
         Effect   = "Allow"
