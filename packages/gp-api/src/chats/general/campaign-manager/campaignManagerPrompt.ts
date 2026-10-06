@@ -484,11 +484,6 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
 // promises a tool the model can't call.
 const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.crmToolsEnabled || !ctx.organization) return null
-  // No voter file tool is registered for a campaign without Pro, so there is
-  // nothing for this block to describe. What filtering covers and what it
-  // needs are the product map's facts, so a change to the gate is a change
-  // to the map.
-  if (ctx.isPro === false) return null
   const readGuidance =
     'You can explore the voter file in aggregate: call ' +
     'describe_filter_dimensions to see every filterable dimension and its ' +
@@ -501,6 +496,19 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'the dimension you used instead. Never say a dimension is ' +
     'unavailable, and never offer one, without having called ' +
     'describe_filter_dimensions in this conversation.'
+  // Counting and the text card are open to a campaign without Pro; saving
+  // lists here, precincts and sending are not, and the card's own button is
+  // where the candidate meets that gate.
+  if (ctx.isPro === false) {
+    return (
+      readGuidance +
+      ' This campaign does not have Pro. You can still count voters and ' +
+      'present a text, but saving lists here, seeing precincts and sending ' +
+      'the text need Pro. When they start a text from your card, it takes ' +
+      'them to the Pro upgrade, so say that once when you present it ' +
+      'rather than refusing to help.'
+    )
+  }
   if (!ctx.savedFilterToolsEnabled) return readGuidance
   return (
     readGuidance +

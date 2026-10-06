@@ -443,22 +443,15 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // No voter file tool registers when the campaign is known not to have
-    // access, the open catalog included: a catalog whose output this
-    // campaign cannot act on reads to the model as a menu to walk through,
-    // and what filtering covers is one line in the product map instead.
-    // Saved lists too: without Pro the service refuses every saved-list
-    // action except listing names, so the tool here would be a list of names
-    // the campaign cannot count, edit, or use, one more menu it cannot act
-    // on. Only a known false gates. An unknown flag
-    // arises only when no campaign resolved, which also turns these tools
-    // off, so the service stays the deciding check.
-    if (
-      this.contacts &&
-      ctx.crmToolsEnabled &&
-      ctx.organization &&
-      ctx.isPro !== false
-    ) {
+    // A campaign without Pro can still count, size a sample and be shown a
+    // text card: the count service is open to it (the outreach build path
+    // prices a list before the upgrade) and the card's own button takes it
+    // to the Pro gate. Only the tools whose services refuse it stay Pro:
+    // precincts and saved-list management. Only a known false gates; an
+    // unknown flag arises only when no campaign resolved, which turns every
+    // one of these off anyway.
+    if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
+      const isPro = ctx.isPro !== false
       const filterTools: Record<string, LlmTool> = {}
       filterTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
@@ -468,14 +461,16 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       // tools: it IS the vocabulary read for the one dimension the catalog
       // cannot carry, and a count is as entitled to a precinct as a saved
       // list is.
-      filterTools.list_precincts = buildListPrecinctsTool({
-        contacts: this.contacts,
-        organization: ctx.organization,
-      })
+      if (isPro) {
+        filterTools.list_precincts = buildListPrecinctsTool({
+          contacts: this.contacts,
+          organization: ctx.organization,
+        })
+      }
       // Saved-filter CRUD goes through the same VoterFileFilterService
       // paths as the voter-file routes (Pro gate, completed-outreach
       // validation, org scoping, locked-filter conflict all inherited).
-      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+      if (isPro && this.voterFileFilters && ctx.savedFilterToolsEnabled) {
         filterTools.crud_saved_filters = buildCrudSavedFiltersTool({
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
@@ -491,11 +486,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         filterConsumers: registeredFilterConsumers(filterTools),
       })
       Object.assign(tools, filterTools)
-      // Beside the saved-list tool because a sized sample is acted on by
-      // saving it as a list, which the card's text flow does when the
-      // candidate starts it; a session that cannot save one gets a number
-      // and a card it can do nothing with.
-      if (filterTools.crud_saved_filters) {
+      // The card's text flow saves the list through the voter-file route,
+      // which a free campaign can use too, so this follows the saved-list
+      // signal rather than the Pro-only tool.
+      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
         tools.size_outreach_sample = buildSizeOutreachSampleTool()
         tools.present_outreach_proposal =
           buildCampaignManagerOutreachProposalTool()

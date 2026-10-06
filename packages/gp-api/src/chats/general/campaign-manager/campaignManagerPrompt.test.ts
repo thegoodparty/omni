@@ -323,7 +323,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(noOrg).not.toContain('count_contacts')
   })
 
-  it('renders no voter data block without Pro', () => {
+  it('tells a campaign without Pro what it can do and where the gate is', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
         crmToolsEnabled: true,
@@ -333,16 +333,12 @@ describe('buildCampaignManagerSystemPrompt', () => {
       }),
     )
 
-    // Nothing is registered, so nothing is described; the map carries what
-    // filtering covers and what it needs.
-    for (const name of [
-      'describe_filter_dimensions',
-      'count_contacts',
-      'list_precincts',
-      'crud_saved_filters',
-    ]) {
-      expect(prompt).not.toContain(name)
-    }
+    expect(prompt).toContain('count_contacts')
+    expect(prompt).toContain('This campaign does not have Pro')
+    expect(prompt).toContain('takes them to the Pro upgrade')
+    // Saved lists and precincts are not registered for it.
+    expect(prompt).not.toContain('crud_saved_filters')
+    expect(prompt).not.toContain('list_precincts')
   })
 
   it('keeps the full voter-data guidance when Pro status is unknown', () => {

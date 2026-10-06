@@ -551,7 +551,10 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     )
   })
 
-  it('registers no voter file tool for a campaign without Pro', () => {
+  // A free campaign can count, size and be shown a text card (the card's
+  // button is its Pro gate); only the tools whose services refuse it stay
+  // Pro.
+  it('lets a campaign without Pro count and present, but not manage lists', () => {
     const tools = buildCrmHandler(
       buildContacts(),
       buildVoterFileFilters(),
@@ -563,15 +566,15 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       }),
     )
 
-    // The catalog too: its output is a menu this campaign cannot order
-    // from, and what filtering covers is the product map's line instead.
     for (const name of [
       'describe_filter_dimensions',
       'count_contacts',
-      'list_precincts',
-      'crud_saved_filters',
       'size_outreach_sample',
+      'present_outreach_proposal',
     ]) {
+      expect(Object.keys(tools)).toContain(name)
+    }
+    for (const name of ['list_precincts', 'crud_saved_filters']) {
       expect(Object.keys(tools)).not.toContain(name)
     }
   })
