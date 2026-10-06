@@ -12,7 +12,9 @@ import {
 } from 'app/dashboard/shared/dictation/offlineMemoQueue'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
-import RecordKnockForm from './RecordKnockForm'
+import { reportQueryKey } from 'app/dashboard/issue-capture/[outreachId]/queries'
+import RecordKnockForm, { type KnockDraft } from './RecordKnockForm'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -130,6 +132,36 @@ const renderForm = (onRecorded = vi.fn(), serveMode = true) => {
   return onRecorded
 }
 
+// The walk's store, as a plain map the test can read after an unmount.
+const draftStore = () => {
+  const store = new Map<string, KnockDraft>()
+  const drafts: UnsavedDrafts<KnockDraft> = {
+    get: (key) => store.get(key),
+    set: (key, draft) => {
+      store.set(key, draft)
+    },
+    clear: (key) => {
+      store.delete(key)
+    },
+  }
+  return { store, drafts }
+}
+
+const formWithDrafts = (
+  drafts: UnsavedDrafts<KnockDraft>,
+  onRecorded = vi.fn(),
+) => (
+  <DoorKnockingSurfaceProvider value={true}>
+    <RecordKnockForm
+      target={target}
+      turfId={1}
+      clientKey="6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90"
+      onRecorded={onRecorded}
+      drafts={drafts}
+    />
+  </DoorKnockingSurfaceProvider>
+)
+
 // A Serve door with a conversation and a dictated memo, saved.
 const walkAndSave = async () => {
   answer('Did they answer?', 'Answered')
@@ -196,6 +228,60 @@ describe('RecordKnockForm issue capture', () => {
     await waitFor(() =>
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
+  })
+
+  // The turf's "What we heard" counts are read once and kept for minutes, so
+  // the knock, its note and its confirm each have to say they moved.
+  it('re-reads the report when the knock saves and again when it is confirmed', async () => {
+    const key = reportQueryKey(7)
+    testQueryClient.setQueryData(key, { denominators: {} })
+    const isInvalidated = () =>
+      testQueryClient.getQueryState(key)?.isInvalidated
+
+    const onRecorded = renderForm()
+    await walkAndSave()
+    await screen.findByRole('button', { name: 'Looks right' })
+    expect(isInvalidated()).toBe(true)
+
+    testQueryClient.setQueryData(key, { denominators: {} })
+    expect(isInvalidated()).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Looks right' }))
+
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    expect(isInvalidated()).toBe(true)
+  })
+
+  // The knock behind a confirm card is saved, so leaving the card for a
+  // housemate keeps nothing, and coming back offers a fresh door.
+  it('never restores a confirm card or the answers behind it', async () => {
+    const { store, drafts } = draftStore()
+    const view = render(formWithDrafts(drafts))
+    await walkAndSave()
+    await screen.findByText('Is this right?')
+
+    view.unmount()
+    expect(store.has('21')).toBe(false)
+
+    render(formWithDrafts(drafts))
+    expect(screen.queryByText('Is this right?')).toBeNull()
+    expect(
+      question('Did they answer?').getByRole('radio', { name: 'Answered' }),
+    ).toHaveAttribute('data-state', 'off')
+  })
+
+  // A transcript can arrive after Save. It is not a new, unsaved answer.
+  it('keeps nothing for a saved door when dictation lands late', async () => {
+    const { store, drafts } = draftStore()
+    const onRecorded = vi.fn()
+    const view = render(formWithDrafts(drafts, onRecorded))
+    answer('Did they answer?', 'Not home')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+
+    dictate('and a sentence the socket was still sending')
+    view.unmount()
+
+    expect(store.has('21')).toBe(false)
   })
 
   it('advances on skip, leaving the memo unconfirmed', async () => {
@@ -438,21 +524,6 @@ describe('RecordKnockForm issue capture', () => {
     expect(screen.queryByText('Is this right?')).toBeNull()
   })
 
-  // The canvasser speaks after the conversation, about it. The other person
-  // is never recorded, and the field says so where the mic is.
-  it('tells the canvasser to speak for themselves', () => {
-    renderForm()
-    answer('Did they answer?', 'Answered')
-    answer('Did they engage?', 'Engaged')
-    answer('Do they need follow-up?', 'Yes')
-
-    expect(
-      screen.getByText(
-        "Say what they told you. Don't record the other person.",
-      ),
-    ).toBeVisible()
-  })
-
   it('reports the memo as a Serve one', async () => {
     renderForm()
     await walkAndSave()
@@ -505,7 +576,7 @@ describe('RecordKnockForm issue capture with no signal', () => {
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
     expect(mocks.successSnackbar).toHaveBeenCalledWith(
-      'Saved on your phone. It will be sent when you have signal.',
+      'Saved on your device. It will be sent when you have signal.',
     )
     expect(knocks).not.toHaveBeenCalled()
     expect(screen.queryByText('Is this right?')).toBeNull()
@@ -602,6 +673,32 @@ describe('RecordKnockForm offline edges', () => {
 
   afterEach(() => {
     online = true
+  })
+
+  // Held on the device is saved: the answers that were restored into the
+  // form go with the hold.
+  it('drops the answers it restored once the door is held', async () => {
+    const { store, drafts } = draftStore()
+    store.set('21', {
+      outcome: 'not_home',
+      note: 'Dog in the yard',
+      spoken: false,
+    })
+    const onRecorded = vi.fn()
+    const view = render(formWithDrafts(drafts, onRecorded))
+    expect(
+      question('Did they answer?').getByRole('radio', { name: 'Not home' }),
+    ).toHaveAttribute('data-state', 'on')
+
+    online = false
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    view.unmount()
+
+    expect(await listQueue()).toEqual([
+      expect.objectContaining({ kind: 'knock' }),
+    ])
+    expect(store.has('21')).toBe(false)
   })
 
   // The flag is the rollback lever: with it off, nothing is held.
@@ -713,13 +810,34 @@ describe('RecordKnockForm offline edges', () => {
       await screen.findByRole('button', { name: 'Stop dictation' }),
     )
     expect(
-      await screen.findByText('Note recorded on your phone.'),
+      await screen.findByText('Note recorded on your device.'),
     ).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(onRecorded).toHaveBeenCalled())
     const memo = (await listQueue()).find((entry) => entry.kind === 'memo')
     expect(memo?.kind === 'memo' && memo.blob).toBeInstanceOf(Blob)
+  })
+
+  it('says the note is being sent when a recording follows a saved knock', async () => {
+    online = false
+    const onRecorded = renderForm()
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Engaged')
+    answer('Do they need follow-up?', 'Yes')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate note' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Stop dictation' }),
+    )
+    await screen.findByText('Note recorded on your device.')
+    online = true
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    expect(mocks.successSnackbar).toHaveBeenCalledWith(
+      'Note saved on your device. Sending it now.',
+    )
   })
 
   // A door that did not engage has no conversation to capture, so the mic
@@ -733,7 +851,7 @@ describe('RecordKnockForm offline edges', () => {
 
     // The live dictation it wraps, which fails the ordinary way offline.
     expect(mocks.start).toHaveBeenCalled()
-    expect(screen.queryByText('Note recorded on your phone.')).toBeNull()
+    expect(screen.queryByText('Note recorded on your device.')).toBeNull()
   })
 })
 
@@ -794,11 +912,6 @@ describe('RecordKnockForm issue capture on a Win door', () => {
     answer('Will they vote this election?', 'Yes')
 
     expect(screen.getByPlaceholderText('What did they tell you?')).toBeVisible()
-    expect(
-      screen.getByText(
-        "Say what they told you. Don't record the other person.",
-      ),
-    ).toBeVisible()
     expect(document.body.textContent ?? '').not.toMatch(/constituent/i)
   })
 

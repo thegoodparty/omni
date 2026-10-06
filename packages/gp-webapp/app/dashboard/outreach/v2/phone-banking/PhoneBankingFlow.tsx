@@ -76,6 +76,7 @@ import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 
 type StepId =
   | 'purpose'
@@ -369,6 +370,13 @@ export const PhoneBankingFlow = ({
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
+  // The question-asking card is offered only where issue capture is on. The
+  // filter is here, not in the surface's vocabulary, so an effort already on
+  // that purpose keeps its labels and its question step when the flag goes off.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
+  const offeredPurposes = surface.purposes.filter(
+    ({ id }) => issueCaptureOn || id !== COMMUNITY_INPUT_PURPOSE,
+  )
   // What this effort is asking, collected on the step that follows a
   // community_input purpose. Required there by contract, so the step's
   // Continue stays disabled until it is filled in.
@@ -1041,7 +1049,7 @@ export const PhoneBankingFlow = ({
             body="This helps us tailor your script and who to call."
           />
           <PurposeStep
-            purposes={surface.purposes}
+            purposes={offeredPurposes}
             selected={purpose}
             onSelect={handleSelectPurpose}
           />

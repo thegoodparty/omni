@@ -281,7 +281,9 @@ const PendingMemoList = ({
               className="flex flex-col gap-2 rounded-lg border border-border p-4"
             >
               <p className="text-xs font-medium text-muted-foreground">
-                {copy.summaryBy(memo.actorName)}
+                {memo.extractionStatus === 'extracted'
+                  ? copy.summaryBy(memo.actorName)
+                  : copy.recordedBy(memo.actorName)}
               </p>
               {memo.transcript !== null && (
                 <p className="text-sm italic text-foreground">
