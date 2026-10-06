@@ -635,6 +635,41 @@ describe('PriorityWorkspace', () => {
     gate.resolve()
   })
 
+  it('drops the shimmer as soon as a question card is up', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'One thing to settle first. ' },
+          { type: 'tool_input_start', toolName: 'ask_clarify_question' },
+          {
+            type: 'tool_call',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-q',
+            args: {
+              questionId: 'q1',
+              question: 'Is the problem trash or garages?',
+              options: [{ label: 'Trash' }, { label: 'Garages' }],
+            },
+          },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Is the problem trash or garages?'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Preparing your question...'),
+    ).not.toBeInTheDocument()
+    gate.resolve()
+  })
+
   it('drops the shimmer once the turn has finished streaming', async () => {
     mocks.streamMessage.mockImplementation(
       streamOf([

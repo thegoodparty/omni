@@ -427,8 +427,13 @@ const PriorityWorkspaceBody = ({
   const pillRunning = liveSegments.some(
     (segment) => segment.kind === 'tool' && segment.running,
   )
+  // A question card ends the turn, so nothing more is coming once it is up.
+  const clarifyLive = liveWidgets.some(
+    (widget) => widget.instance.toolName === CLARIFY_TOOL,
+  )
   const working =
     sending &&
+    !clarifyLive &&
     (blocks.length === 0 || (revealDone && !pillRunning && !streamDone))
   const pillLabel = generatingTool ? priorityToolLabel(generatingTool) : null
   const workingLabel =
