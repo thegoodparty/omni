@@ -506,7 +506,8 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
       'present a text, but saving lists here, seeing precincts and sending ' +
       'the text need Pro. When they start a text from your card, it takes ' +
       'them to the Pro upgrade, so say that once when you present it ' +
-      'rather than refusing to help.'
+      'rather than refusing to help. Do not describe what happens after ' +
+      'they upgrade, such as where the text gets built or saved.'
     )
   }
   if (!ctx.savedFilterToolsEnabled) return readGuidance

@@ -336,6 +336,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('count_contacts')
     expect(prompt).toContain('This campaign does not have Pro')
     expect(prompt).toContain('takes them to the Pro upgrade')
+    expect(prompt).toContain('Do not describe what happens after')
     // Saved lists and precincts are not registered for it.
     expect(prompt).not.toContain('crud_saved_filters')
     expect(prompt).not.toContain('list_precincts')
