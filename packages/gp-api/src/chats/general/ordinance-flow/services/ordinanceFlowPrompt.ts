@@ -4,6 +4,7 @@ import type {
   OrdinanceFlowStep,
 } from '@goodparty_org/contracts'
 import { OrdinanceFlowContext } from './ordinanceFlowContext.service'
+import { todayLine } from '../../services/todayLine'
 
 export const ORDINANCE_FLOW_GUARDRAIL_DECLINE =
   "I'm here to help you develop this ordinance — please ask me something " +
@@ -441,6 +442,7 @@ export const buildOrdinanceFlowSystemPrompt = (args: {
     guardrailsBlock(legislative),
     GROUNDING_RULE,
     currentStepBlock(ctx.step, legislative),
+    todayLine(ctx.state),
     ordinanceContextBlock(ctx, legislative),
     priorStepsBlock(ctx),
     scratchpadBlock(ctx),

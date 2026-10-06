@@ -128,6 +128,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      state: resolved.state,
       districtFilters,
       constituentToolEnabled,
     }

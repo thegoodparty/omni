@@ -17,6 +17,8 @@ export interface ChiefOfStaffContext {
   userLastName: string | null
   officeTitle: string | null
   jurisdiction: string | null
+  // Two-letter state from the resolved district, for the date line's zone.
+  state?: string | null
   swornInDate: Date | null
   party: string | null
   electedDate: Date | null

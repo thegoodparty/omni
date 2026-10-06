@@ -319,6 +319,22 @@ describe('PriorityFlowHandler', () => {
       {} as never,
     )
 
+  it("tells the assistant what day it is, in the office state's zone", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    try {
+      const prompt = buildWithCrm().buildSystemPrompt({
+        ...baseCtx(),
+        state: 'TX',
+      })
+      expect(prompt).toContain(
+        'Today is Monday, October 5, 2026 (Central Time).',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('counts a text audience by cell phone and asks options as choices', () => {
     const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
     expect(prompt).toContain('Has Cell Phone for a text')

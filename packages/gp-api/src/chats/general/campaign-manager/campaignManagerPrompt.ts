@@ -6,6 +6,7 @@ import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strate
 import { buildProductKnowledgeBlocks } from '../product-knowledge/productKnowledgePrompt'
 import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 import type { BallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
+import { todayLine } from '../services/todayLine'
 
 export type { BallotStatus }
 
@@ -27,6 +28,8 @@ export interface CampaignManagerContext {
   // field onboarding actually writes. details.level is never populated.
   officeLevel: string | null
   location: string | null
+  // Two-letter state from the campaign record, for the date line's zone.
+  state?: string | null
   weeksToElection: number | null
   // What the candidate answered in onboarding's "Are you already on the
   // ballot?" step. Null when they never answered (pre-dates the step, or came
@@ -555,6 +558,7 @@ export const buildCampaignManagerSystemPrompt = (
 ): string =>
   [
     ROLE,
+    todayLine(ctx.state),
     raceContext(ctx),
     ballotStatusBlock(ctx),
     storyBlock(ctx),
