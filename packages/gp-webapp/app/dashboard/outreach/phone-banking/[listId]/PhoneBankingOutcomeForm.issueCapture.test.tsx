@@ -711,6 +711,47 @@ describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
   })
 })
 
+describe('PhoneBankingOutcomeForm drafts', () => {
+  // A switch away in the same tick as Cancel unmounts before the ref that
+  // tracks unsaved answers has caught up, so Cancel has to clear it itself.
+  it('keeps nothing for a call cancelled as the caller switches away', () => {
+    const store = new Map<string, CallDraft>()
+    const drafts: UnsavedDrafts<CallDraft> = {
+      get: (key) => store.get(key),
+      set: (key, draft) => {
+        store.set(key, draft)
+      },
+      clear: (key) => {
+        store.delete(key)
+      },
+    }
+    const view = render(
+      <PhoneBankingOutcomeForm
+        listId={9}
+        entryId={ENTRY_ID}
+        entrySeq={1}
+        personId="person-1"
+        interaction={null}
+        householdHasOthersUnlogged={false}
+        isServe
+        onSaved={vi.fn()}
+        drafts={drafts}
+      />,
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Engaged' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Yes' }))
+    dictate(MEMO)
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      view.unmount()
+    })
+
+    expect(store.has(`${ENTRY_ID}:person-1`)).toBe(false)
+  })
+})
+
 describe('PhoneBankingOutcomeForm with capture off', () => {
   // The form is exactly what it was: an online save does not wait on the
   // phone's storage.
