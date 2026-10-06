@@ -10,6 +10,7 @@ import {
 } from '@goodparty_org/contracts'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type { PriorityFlowContext } from './services/priorityFlowContext.service'
+import { todayLine } from '../services/todayLine'
 import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
 import { buildSampleSizingRules } from '../chat-tools/outreachSampling.prompt'
 
@@ -381,6 +382,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
     buildReadingRepliesBlock(has),
     GUARDRAILS_BLOCK,
     `TOOLS AVAILABLE TO YOU\n${args.toolNames.map((n) => `- ${n}`).join('\n')}`,
+    todayLine(args.ctx.state),
     priorityBlock(args.ctx),
     statusBlock(args.ctx),
     threadBlock(args.ctx),

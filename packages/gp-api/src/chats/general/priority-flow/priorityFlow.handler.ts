@@ -193,6 +193,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      state: resolved.state,
       districtFilters: this.districtResolver
         ? this.districtResolver.toMandatoryFilters(resolved)
         : null,

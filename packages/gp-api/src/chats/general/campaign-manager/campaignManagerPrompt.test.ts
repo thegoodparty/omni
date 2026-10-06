@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
@@ -50,6 +50,19 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('frames the agent as a campaign manager', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt.toLowerCase()).toContain('campaign manager')
+  })
+
+  it("tells the manager what day it is, in the campaign state's zone", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    try {
+      const prompt = buildCampaignManagerSystemPrompt(ctx({ state: 'IL' }))
+      expect(prompt).toContain(
+        'Today is Monday, October 5, 2026 (Central Time).',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('makes every drafted text name the candidate and their office', () => {

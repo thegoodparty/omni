@@ -347,6 +347,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       district: details.district ?? null,
       officeLevel: details.ballotLevel ?? null,
       location,
+      state: details.state ?? null,
       weeksToElection: electionDate ? calendarWeeksUntil(electionDate) : null,
       ballotStatus,
       filingPeriodStart: details.filingPeriodsStart ?? null,

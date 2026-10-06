@@ -17,6 +17,7 @@ import {
   type PriorityStepContrast,
 } from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
+import { todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
 import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
 import {
@@ -533,6 +534,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     relationshipBlock(ctx.isFirstConversation),
     ...(ctx.priorities.length === 0 ? [NO_PRIORITIES_BLOCK] : []),
     ...(ctx.isFirstConversation ? [firstRunResearchBlock(hasWebSearch)] : []),
+    todayLine(ctx.state),
     officeContextBlock(ctx),
     prioritiesBlock(ctx.priorities),
     ...(ctx.anchor ? [anchoredIssueBlock(ctx.anchor)] : []),
