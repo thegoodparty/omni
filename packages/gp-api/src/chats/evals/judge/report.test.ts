@@ -542,7 +542,7 @@ describe('qualifiers', () => {
   it('does not headline a flag that both arms raised', async () => {
     const score = await pipeline(sweepRecords(3))
     const flag = {
-      type: 'other_severe',
+      type: 'other_severe' as const,
       explanation: 'both did it',
       loc: undefined,
       caseId: 'cos-case-0',

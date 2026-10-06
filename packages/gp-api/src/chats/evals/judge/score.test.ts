@@ -717,7 +717,7 @@ describe('flags and the absolute floor', () => {
   it('orients a flag with the slot map of its own judgment', () => {
     const flag = {
       run: 'X' as const,
-      type: 'restricted_data',
+      type: 'restricted_data' as const,
       explanation: 'named a voter',
       loc: 'X.final',
     }

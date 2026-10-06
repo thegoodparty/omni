@@ -7,6 +7,7 @@ import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
 import {
   CaseVerdictSchema,
   caseVerdictSchemaFor,
+  FLAG_TYPES,
   judgeAll,
   judgeCase,
   OVERALL,
@@ -379,6 +380,38 @@ describe('judgeCase', () => {
     expect(result.flags).toEqual([
       expect.objectContaining({ run: 'Y', type: 'restricted_data' }),
     ])
+  })
+})
+
+// The rubric doc's flag list, enforced. A free-text type let one finding
+// arrive under two names, so a flag count did not compare run to run.
+describe('the flag vocabulary', () => {
+  const flagged = (type: string): JsonValue =>
+    reply({
+      flags: [{ run: 'X', type, loc: 'X.final', explanation: 'why' }],
+    })
+
+  it('names every flag type in the prompt', async () => {
+    const { llm, calls } = fake([reply()])
+    await judgeCase(llm, plan(blindCase(BASE, CANDIDATE, X_IS_BASE)))
+    const user = calls[0]?.messages[1]?.content ?? ''
+    expect(user).toContain(`types: ${FLAG_TYPES.join(', ')}.`)
+  })
+
+  it('gives the model a schema that refuses an invented type', async () => {
+    const { llm, calls } = fake([reply()])
+    await judgeCase(llm, plan(blindCase(BASE, CANDIDATE, X_IS_BASE)))
+    expect(calls[0]?.schemaAccepts(flagged('fabricated_source'))).toBe(true)
+    expect(calls[0]?.schemaAccepts(flagged('name error inherited'))).toBe(false)
+  })
+
+  it('refuses an invented type on a stored verdict too', () => {
+    expect(CaseVerdictSchema.safeParse(flagged('other_severe')).success).toBe(
+      true,
+    )
+    expect(
+      CaseVerdictSchema.safeParse(flagged('name error propagated')).success,
+    ).toBe(false)
   })
 })
 

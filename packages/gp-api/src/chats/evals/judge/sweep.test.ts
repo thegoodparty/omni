@@ -1076,3 +1076,55 @@ describe('judgeSweep checks the agents invariants', () => {
     expect(result.markdown).not.toContain('broke a rule')
   })
 })
+
+// A sweep is read case by case after the job is gone, so every ruling is
+// stored, and only where it went reaches the report: a ruling quotes the
+// agent's output and the report is public.
+describe('per-case rulings', () => {
+  const PRIVATE = 'reasoning that quotes the agent verbatim'
+
+  const quoting: JsonJudgeModel = {
+    jsonCompletion: async ({ schema }) => ({
+      object: schema.parse({
+        ...verdict('X'),
+        overall: { reasoning: PRIVATE, verdict: 'X', magnitude: 'clear' },
+      }),
+      tokens: 10,
+      model: 'claude-sonnet-4-6',
+    }),
+  }
+
+  it('stores every judgment and prints only the location', async () => {
+    const result = await run(await seeded(cases(3)), quoting)
+    const [stored] = result.report.rulings ?? []
+    expect(stored?.agentId).toBe('chief_of_staff')
+    const location = stored?.location ?? ''
+    const written = JSON.parse(await readFile(location, 'utf8'))
+    expect(written.agentId).toBe('chief_of_staff')
+    expect(written.rubricVersion).toBe(RUBRIC_VERSION)
+    expect(
+      written.judgments.map((j: { key: { caseId: string } }) => j.key.caseId),
+    ).toEqual(expect.arrayContaining(['case-0', 'case-1', 'case-2']))
+    expect(JSON.stringify(written)).toContain(PRIVATE)
+    expect(result.markdown).toContain(location)
+    expect(result.markdown).not.toContain(PRIVATE)
+  })
+
+  it('keeps the verdict when the rulings cannot be written', async () => {
+    const store = await seeded(cases(3))
+    const failing: RecordStore = {
+      ...store,
+      putRulings: async () => {
+        throw new Error('denied')
+      },
+    }
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const result = await run(failing, quoting)
+    error.mockRestore()
+    expect(result.exitCode).toBe(0)
+    expect(result.report.agents).toHaveLength(1)
+    expect(result.markdown).toContain(
+      '- chief_of_staff: not stored, the write failed',
+    )
+  })
+})

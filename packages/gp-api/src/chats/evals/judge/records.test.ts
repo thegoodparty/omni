@@ -14,7 +14,9 @@ import {
   MANIFEST_SCHEMA_VERSION,
   manifestKey,
   recordKey,
+  rulingsKey,
   s3PortFromClient,
+  type AgentRulings,
   type ArmManifest,
   type S3RecordPort,
 } from './records'
@@ -27,6 +29,19 @@ import {
 // prevent.
 
 const [BASE, CANDIDATE] = CHAT_PAIR
+
+const RULINGS: AgentRulings = {
+  sweepId: BASE.sweepId,
+  agentId: BASE.agentId,
+  rubricVersion: 'uj-rubric-test',
+  judgments: [
+    {
+      kind: 'ungraded',
+      key: { caseId: BASE.caseId, attempt: 1, order: 'primary' },
+      reason: 'no judge seats configured',
+    },
+  ],
+}
 
 const root = async (): Promise<string> =>
   mkdtemp(path.join(tmpdir(), 'judge-records-'))
@@ -574,5 +589,49 @@ describe('the seeded-transcript mark on a manifest', () => {
     expect(() =>
       ArmManifestSchema.parse(withAgent({ seededTranscriptCases: [] })),
     ).toThrow(/expected array to have >=1 items/)
+  })
+})
+
+// Rulings sit beside the records, under a sibling of `records/`, so the
+// listing the judge reads its pairs from cannot pick one up as a run.
+describe('per-case rulings', () => {
+  it('writes them locally and resolves to the file a reader opens', async () => {
+    const dir = await root()
+    const store = createLocalRecordStore(dir)
+    const location = await store.putRulings(RULINGS)
+    expect(location).toBe(
+      path.join(dir, rulingsKey(RULINGS.sweepId, RULINGS.agentId)),
+    )
+    expect(JSON.parse(await readFile(location, 'utf8'))).toEqual(RULINGS)
+  })
+
+  it('is never listed as a record', async () => {
+    const store = createLocalRecordStore(await root())
+    await store.putRecord(BASE)
+    await store.putRulings(RULINGS)
+    expect(await store.listRecords(BASE.sweepId, 'base')).toEqual([BASE])
+  })
+
+  it('writes them to S3 and resolves to the object URL', async () => {
+    const objects = new Map<string, string>()
+    const store = createS3RecordStore(
+      {
+        putObject: async (key, body) => {
+          objects.set(key, body)
+        },
+        getObject: async () => '',
+        listKeys: async () => [],
+      },
+      'bucket',
+    )
+    const key = rulingsKey(RULINGS.sweepId, RULINGS.agentId)
+    expect(await store.putRulings(RULINGS)).toBe(`s3://bucket/${key}`)
+    expect(JSON.parse(objects.get(key) ?? '')).toEqual(RULINGS)
+  })
+
+  it('refuses an agent id that is not a key segment', () => {
+    expect(() => rulingsKey(BASE.sweepId, '../manifests')).toThrow(
+      RecordStoreError,
+    )
   })
 })
