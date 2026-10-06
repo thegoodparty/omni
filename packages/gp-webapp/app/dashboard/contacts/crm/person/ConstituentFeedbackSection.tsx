@@ -4,22 +4,48 @@ import type {
   ConstituentFeedbackStance,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
-import { MessageSquareIcon } from '@styleguide'
+import { Badge, MessageSquareIcon } from '@styleguide'
 import { InfoSection } from './InfoSection'
 
-// Serve-only: every consumer of this section is gated on an elected office.
-const SERVE_FEEDBACK_COPY = {
-  title: 'What they told us',
-  empty: 'Nothing recorded yet.',
-  unconfirmed: 'Not yet reviewed',
-  wants: 'Wants',
+// On a voter's record and on a constituent's, so the copy is mode-keyed
+// (docs/product-vocabulary.md) and the Serve branch is where the vocabulary
+// gate reads it. The two read the same today because nothing here names the
+// person: Win must never say constituent, and Serve must never say voter.
+const FEEDBACK_COPY = {
+  win: {
+    title: 'What they told us',
+    empty: 'Nothing recorded yet.',
+    unconfirmed: 'Not yet reviewed',
+    wants: 'Wants',
+    issues: 'Issues',
+    tags: 'Tags',
+  },
+  serve: {
+    title: 'What they told us',
+    empty: 'Nothing recorded yet.',
+    unconfirmed: 'Not yet reviewed',
+    wants: 'Wants',
+    issues: 'Issues',
+    tags: 'Tags',
+  },
 }
 
-const SERVE_STANCE_LABELS: Record<ConstituentFeedbackStance, string> = {
-  supports: 'For it',
-  opposes: 'Against it',
-  mixed: 'Mixed',
-  unclear: 'Unclear',
+const STANCE_LABELS: Record<
+  'win' | 'serve',
+  Record<ConstituentFeedbackStance, string>
+> = {
+  win: {
+    supports: 'For it',
+    opposes: 'Against it',
+    mixed: 'Mixed',
+    unclear: 'Unclear',
+  },
+  serve: {
+    supports: 'For it',
+    opposes: 'Against it',
+    mixed: 'Mixed',
+    unclear: 'Unclear',
+  },
 }
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -34,28 +60,48 @@ const formatDate = (value: Date): string =>
     year: 'numeric',
   })
 
-const FeedbackRow = ({ entry }: { entry: ConstituentFeedbackRecord }) => (
+const FeedbackRow = ({
+  entry,
+  mode,
+}: {
+  entry: ConstituentFeedbackRecord
+  mode: 'win' | 'serve'
+}) => (
   <div className="flex flex-col gap-1 border-b border-border pb-3 last:border-b-0 last:pb-0">
-    <div className="flex flex-wrap items-baseline gap-x-2">
+    {entry.issues.length === 0 ? (
       <span className="text-sm font-semibold text-foreground">
-        {entry.issueLabel ?? SERVE_FEEDBACK_COPY.empty}
+        {FEEDBACK_COPY[mode].empty}
       </span>
-      {entry.stance !== null && (
-        <span className="text-sm text-muted-foreground">
-          · {SERVE_STANCE_LABELS[entry.stance]}
-        </span>
-      )}
-    </div>
-
-    {entry.desiredOutcome !== null && (
-      <p className="text-sm text-foreground">
-        {SERVE_FEEDBACK_COPY.wants}: {entry.desiredOutcome}
-      </p>
+    ) : (
+      <ul
+        aria-label={FEEDBACK_COPY[mode].issues}
+        className="flex flex-col gap-1"
+      >
+        {entry.issues.map((issue) => (
+          <li key={issue.position}>
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-sm font-semibold text-foreground">
+                {issue.issueLabel}
+              </span>
+              {issue.stance !== null && (
+                <span className="text-sm text-muted-foreground">
+                  · {STANCE_LABELS[mode][issue.stance]}
+                </span>
+              )}
+            </div>
+            {issue.desiredOutcome !== null && (
+              <p className="text-sm text-foreground">
+                {FEEDBACK_COPY[mode].wants}: {issue.desiredOutcome}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
     )}
 
-    {/* The memo itself, kept under the triple rather than replacing it. The
-        official recorded this about the constituent, so it is their own
-        summary and not a quotation — see the module's Prisma comment. */}
+    {/* The memo itself, kept under its issues rather than replacing them. The
+        canvasser recorded this about the person, so it is their own summary
+        and not a quotation — see the module's Prisma comment. */}
     {entry.transcript !== null && (
       <p className="text-sm italic text-muted-foreground">{entry.transcript}</p>
     )}
@@ -68,8 +114,23 @@ const FeedbackRow = ({ entry }: { entry: ConstituentFeedbackRecord }) => (
       {/* An unconfirmed row is a model's reading that nobody who was there
           has checked. Saying so here is the same honesty the reporting owes
           later: it is not evidence until a person agreed with it. */}
-      {entry.confirmedAt === null && ` · ${SERVE_FEEDBACK_COPY.unconfirmed}`}
+      {entry.confirmedAt === null && ` · ${FEEDBACK_COPY[mode].unconfirmed}`}
     </p>
+
+    {/* Accepted only, which the API already guarantees: a tag the summary
+        proposed and nobody accepted is not a fact about this person. */}
+    {entry.tags.length > 0 && (
+      <ul
+        aria-label={FEEDBACK_COPY[mode].tags}
+        className="flex flex-wrap gap-1.5 pt-1"
+      >
+        {entry.tags.map((tag) => (
+          <li key={tag.id}>
+            <Badge variant="outline">{tag.name}</Badge>
+          </li>
+        ))}
+      </ul>
+    )}
   </div>
 )
 
@@ -78,9 +139,12 @@ const FeedbackRow = ({ entry }: { entry: ConstituentFeedbackRecord }) => (
 // and this section is additive to a surface that is already long.
 export const ConstituentFeedbackSection = ({
   personId,
+  isServe,
 }: {
   personId: string
+  isServe: boolean
 }) => {
+  const mode = isServe ? 'serve' : 'win'
   const { data } = useQuery({
     queryKey: ['constituent-feedback', personId],
     queryFn: () =>
@@ -94,11 +158,11 @@ export const ConstituentFeedbackSection = ({
 
   return (
     <InfoSection
-      title={SERVE_FEEDBACK_COPY.title}
+      title={FEEDBACK_COPY[mode].title}
       icon={<MessageSquareIcon size={24} />}
     >
       {entries.map((entry) => (
-        <FeedbackRow key={entry.id} entry={entry} />
+        <FeedbackRow key={entry.id} entry={entry} mode={mode} />
       ))}
     </InfoSection>
   )

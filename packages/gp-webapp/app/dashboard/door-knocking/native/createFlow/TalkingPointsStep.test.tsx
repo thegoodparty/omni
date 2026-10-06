@@ -32,6 +32,12 @@ vi.mock('app/dashboard/outreach/v2/gate/useOutreachGate', () => ({
   }),
 }))
 
+// The question-asking card is offered only where issue capture is on; these
+// cases pick it, so the flag is on here.
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: () => ({ ready: true, enabled: true }),
+}))
+
 const useCampaignMock = vi.fn()
 const useUserMock = vi.fn()
 
@@ -453,6 +459,31 @@ describe('the talking points step', () => {
       purpose: 'community_input',
       communityInputQuestion: question,
     })
+  })
+
+  // Win's "Hear from voters" asks one question too, and its card is written
+  // from it by the Win prompt, never the Serve one.
+  it('sends the hear-from-voters question to the win endpoint', async () => {
+    mockDraft()
+    const question = 'How do you feel about the road bond?'
+
+    const view = render(<CreateListFlow {...baseProps} step="filters" />)
+    fireEvent.click(screen.getByRole('button', { name: /Hear from voters/ }))
+    fireEvent.change(await screen.findByLabelText('The question'), {
+      target: { value: question },
+    })
+    view.rerender(<CreateListFlow {...baseProps} step="name" />)
+    fireEvent.change(screen.getByLabelText('Campaign name'), {
+      target: { value: 'Road bond listening' },
+    })
+    view.rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    await waitFor(() => expect(drafts).toHaveLength(1))
+    expect(drafts[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion: question,
+    })
+    expect(serveDrafts).toHaveLength(0)
   })
 
   // Every other purpose asks nothing, so it must not carry a stale question

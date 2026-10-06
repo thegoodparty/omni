@@ -65,8 +65,16 @@ model ContactInteractionDoorKnock {
   // one. At most one per knock — a re-record corrects in place.
   constituentFeedback ConstituentFeedback?
 
+  // The envelope the knock was logged under. The write path already resolves
+  // this to authorize volunteers and never stored it; without it, "how many
+  // doors answered on this effort" has no exact source, because a person can
+  // sit in two turfs. Null on every row before this shipped.
+  outreachId Int?      @map("outreach_id")
+  outreach   Outreach? @relation(fields: [outreachId], references: [id], onDelete: SetNull)
+
   @@unique([organizationSlug, sourceId])
   @@index([organizationSlug, personId, occurredAt])
   @@index([organizationSlug, actorUserId])
+  @@index([organizationSlug, outreachId])
   @@map("contact_interaction_door_knock")
 }
