@@ -29,7 +29,7 @@ import { morphComposerOutOfPill } from '../shared/chatMorph'
  * the chat drawer with the message as the candidate's first turn.
  */
 const PLACEHOLDER = 'How can I help you today?'
-const MIC_IDLE_LABEL = 'Dictate a message'
+const MIC_IDLE_LABEL = 'Record your voice'
 const MIC_RECORDING_LABEL = 'Stop dictation'
 
 export default function HomeComposer(): React.JSX.Element | null {

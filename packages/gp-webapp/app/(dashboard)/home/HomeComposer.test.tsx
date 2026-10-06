@@ -53,7 +53,7 @@ describe('HomeComposer', () => {
       screen.getByRole('button', { name: 'Past chats' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Dictate a message' }),
+      screen.getByRole('button', { name: 'Record your voice' }),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: 'Attach a file' }))
@@ -62,7 +62,7 @@ describe('HomeComposer', () => {
 
   it.each([
     ['Attach a file', 'Attach a file'],
-    ['Dictate a message', 'Dictate a message'],
+    ['Record your voice', 'Record your voice'],
   ])('names the %s tool on hover', async (button, tip) => {
     render(<HomeComposer />)
 
