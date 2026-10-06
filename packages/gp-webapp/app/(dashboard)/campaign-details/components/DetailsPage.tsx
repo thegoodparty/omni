@@ -2,6 +2,9 @@
 
 import DashboardLayout from '../../shared/DashboardLayout'
 import DashboardPageHeader from 'app/(dashboard)/shared/DashboardPageHeader'
+import DashboardNavHeaderAction from 'app/(dashboard)/shared/DashboardNavHeaderAction'
+import { FocusedPage } from 'app/(dashboard)/shared/FocusedPage'
+import { Button } from '@styleguide'
 import ProfileHeroCard from './cards/ProfileHeroCard'
 import OfficeDetailsCard from './cards/OfficeDetailsCard'
 import YourDetailsCard from './cards/YourDetailsCard'
@@ -22,6 +25,9 @@ interface DetailsPageProps {
   pathname: string
   campaign: Campaign | undefined
   user?: User | null
+  // Win opens this as "Your race" from the Game Plan's card, a focused page
+  // with no sidebar; Serve keeps it as Profile in the dashboard.
+  focused?: boolean
 }
 
 export default function DetailsPage(
@@ -45,6 +51,39 @@ export default function DetailsPage(
       ? getWebsiteUrl(website.vanityPath, false, website.domain)
       : undefined
 
+  const cards = (
+    <>
+      <WebsiteSunsetBanner
+        eligible={isWebsiteSunsetEligible(website ?? null)}
+      />
+      <ProfileHeroCard user={activeUser} />
+      <OfficeDetailsCard campaign={activeCampaign} />
+      <YourDetailsCard campaign={activeCampaign} />
+    </>
+  )
+
+  if (props.focused) {
+    return (
+      <FocusedPage title="Your race">
+        {publicUrl && (
+          <DashboardNavHeaderAction>
+            <Button
+              size="small"
+              variant="outline"
+              icon={<ExternalLink size={16} />}
+              onClick={() =>
+                window.open(publicUrl, '_blank', 'noopener,noreferrer')
+              }
+            >
+              View public profile
+            </Button>
+          </DashboardNavHeaderAction>
+        )}
+        <div className="flex flex-col gap-4">{cards}</div>
+      </FocusedPage>
+    )
+  }
+
   return (
     <DashboardLayout pathname={props.pathname} wrapperClassName="!p-0">
       <DashboardPageHeader
@@ -64,15 +103,7 @@ export default function DetailsPage(
 
       <div className="w-full bg-muted px-4 py-6 pb-20 sm:px-8 md:px-16">
         <div className="mx-auto flex w-full max-w-[640px] flex-col gap-4">
-          <WebsiteSunsetBanner
-            eligible={isWebsiteSunsetEligible(website ?? null)}
-          />
-
-          <ProfileHeroCard user={activeUser} />
-
-          <OfficeDetailsCard campaign={activeCampaign} />
-
-          <YourDetailsCard campaign={activeCampaign} />
+          {cards}
         </div>
       </div>
     </DashboardLayout>

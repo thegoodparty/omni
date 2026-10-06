@@ -63,7 +63,10 @@ const SHARED_AREAS: ProductArea[] = [
     path: '/profile',
     modes: ['win', 'serve'],
     does: 'Edit your own name, contact details, and campaign or office details.',
-    inside: ['In the account menu, at the bottom of the left-hand menu'],
+    inside: [
+      'For a candidate it is titled Your race and opens from the Your race card at the top of the Game Plan, as a full page with a back arrow; View public profile sits beside the title once their site is published',
+      'For an elected official it is in the account menu, at the bottom of the left-hand menu',
+    ],
   },
   {
     navId: 'campaign-details-dashboard',
@@ -134,16 +137,6 @@ const WIN_AREAS: ProductArea[] = [
       'Pasting a link attaches it as a source the assistant can read',
       'A citation in a reply opens the document it points to, to the cited page when there is one',
       'Asking to turn a reply into a social post opens Outreach’s social flow with the draft already written in, to review before you post it',
-    ],
-  },
-  {
-    navId: null,
-    name: 'Your race',
-    path: '/race',
-    modes: ['win'],
-    does: 'The office they are running for, where, and the election date, with Change office to correct any of it.',
-    inside: [
-      'Not in the left-hand menu: it opens from the Your race card at the top of the Game Plan, as a full page with a back arrow. The same office details are also on Profile',
     ],
   },
   {

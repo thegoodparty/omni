@@ -16,7 +16,7 @@ describe('CampaignPlanOverviewCards', () => {
 
     expect(screen.getByRole('link', { name: /Your race/ })).toHaveAttribute(
       'href',
-      '/race',
+      '/profile',
     )
     expect(screen.getByRole('link', { name: /Your story/ })).toHaveAttribute(
       'href',

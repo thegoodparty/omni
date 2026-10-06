@@ -27,7 +27,6 @@ export const DASHBOARD_ROUTE_SEGMENTS = [
   'public-profile',
   'purchase',
   'questions',
-  'race',
   'race-opponent',
   'team',
   'website',
