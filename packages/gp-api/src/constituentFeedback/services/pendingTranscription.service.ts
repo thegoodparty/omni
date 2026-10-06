@@ -23,13 +23,15 @@ const BATCH_SIZE = 25
 const GIVE_UP_AFTER_MINUTES = 60
 
 // Offline memos whose recording is uploaded and whose words are not back.
+// A memo confirmed meanwhile is done: its job's words would be thrown away.
 const AWAITING_TRANSCRIPT = {
   extractionStatus: ConstituentFeedbackExtractionStatus.pending,
   audioKey: { not: null },
   transcript: null,
+  confirmedAt: null,
 } satisfies Prisma.ConstituentFeedbackWhereInput
 
-// Turns offline memos' recordings into transcripts and triples. Every
+// Turns offline memos' recordings into transcripts and issues. Every
 // minute, because a batch job takes about that long and the canvasser who
 // just got signal back is the one waiting to review it.
 //

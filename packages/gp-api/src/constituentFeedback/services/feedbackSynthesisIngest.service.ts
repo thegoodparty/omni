@@ -267,31 +267,47 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
     }
 
     // A person merged this name into another tag. The theme follows that
-    // decision rather than reviving the merged-away name. Merge targets are
-    // accepted and a merge re-points earlier ones, so one hop is enough.
-    if (existing.mergedIntoId !== null) return existing.mergedIntoId
+    // decision rather than reviving the merged-away name. A merge re-points
+    // earlier ones, so one hop is enough; the target was accepted then but
+    // may have been retired since, which retiring does not re-point, so it
+    // goes through the same branches as a tag matched by name.
+    const tag =
+      existing.mergedIntoId === null
+        ? existing
+        : await tx.issueTag.findUniqueOrThrow({
+            where: { id: existing.mergedIntoId },
+          })
 
-    if (existing.status === IssueTagStatus.proposed) {
+    if (tag.status === IssueTagStatus.proposed) {
       // Moved to this run so superseding the run that first proposed it
       // does not delete a suggestion this run still makes. updatedAt is
       // carried over: relinking is not a human touching it.
       await tx.issueTag.update({
-        where: { id: existing.id },
-        data: { proposedByRunId: run.id, updatedAt: existing.updatedAt },
+        where: { id: tag.id },
+        data: { proposedByRunId: run.id, updatedAt: tag.updatedAt },
       })
-    } else if (existing.status === IssueTagStatus.retired) {
+    } else if (tag.status === IssueTagStatus.retired) {
+      // Revived as this run's own untouched proposal, so updatedAt goes
+      // back to createdAt: the retire was a human touching the old one, and
+      // left standing it would keep a later run from ever sweeping this.
       await tx.issueTag.update({
-        where: { id: existing.id },
-        data: { status: IssueTagStatus.proposed, proposedByRunId: run.id },
+        where: { id: tag.id },
+        data: {
+          status: IssueTagStatus.proposed,
+          proposedByRunId: run.id,
+          updatedAt: tag.createdAt,
+        },
       })
     }
-    return existing.id
+    return tag.id
   }
 
   // Older completed runs for the same scope become history. Their themes
   // and members stay, for comparing runs over time; their tagging and any
   // proposal nobody touched go, so only the latest run's tagging is live.
-  // A status change cascades nothing, so both deletes are explicit.
+  // A status change cascades nothing, so both deletes are explicit. Only a
+  // run's own proposals go: a seeded or typed tag a run revived is a
+  // person's, and deleting it would take their tagging with it.
   private async supersedePrevious(
     tx: Prisma.TransactionClient,
     run: FeedbackSynthesisRun,
@@ -319,6 +335,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
     await tx.issueTag.deleteMany({
       where: {
         proposedByRunId: { in: ids },
+        source: IssueTagSource.synthesis,
         status: IssueTagStatus.proposed,
         updatedAt: { equals: tx.issueTag.fields.createdAt },
       },

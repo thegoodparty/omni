@@ -35,9 +35,15 @@ const theirMemo: PendingFeedback = {
   occurredAt: new Date('2026-10-01T00:00:00Z'),
   channel: 'door_knock',
   transcript: 'She wants the storm drain on her corner cleared.',
-  issueLabel: 'Street flooding',
-  stance: 'opposes',
-  desiredOutcome: 'Clear the drain',
+  issues: [
+    {
+      id: 'issue-street-flooding',
+      position: 0,
+      issueLabel: 'Street flooding',
+      stance: 'opposes',
+      desiredOutcome: 'Clear the drain',
+    },
+  ],
   extractionStatus: 'extracted',
   confirmedAt: null,
   outreachId: OUTREACH_ID,

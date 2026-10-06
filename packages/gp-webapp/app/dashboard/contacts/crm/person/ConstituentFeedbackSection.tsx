@@ -17,6 +17,7 @@ const FEEDBACK_COPY = {
     empty: 'Nothing recorded yet.',
     unconfirmed: 'Not yet reviewed',
     wants: 'Wants',
+    issues: 'Issues',
     tags: 'Tags',
   },
   serve: {
@@ -24,6 +25,7 @@ const FEEDBACK_COPY = {
     empty: 'Nothing recorded yet.',
     unconfirmed: 'Not yet reviewed',
     wants: 'Wants',
+    issues: 'Issues',
     tags: 'Tags',
   },
 }
@@ -66,24 +68,38 @@ const FeedbackRow = ({
   mode: 'win' | 'serve'
 }) => (
   <div className="flex flex-col gap-1 border-b border-border pb-3 last:border-b-0 last:pb-0">
-    <div className="flex flex-wrap items-baseline gap-x-2">
+    {entry.issues.length === 0 ? (
       <span className="text-sm font-semibold text-foreground">
-        {entry.issueLabel ?? FEEDBACK_COPY[mode].empty}
+        {FEEDBACK_COPY[mode].empty}
       </span>
-      {entry.stance !== null && (
-        <span className="text-sm text-muted-foreground">
-          · {STANCE_LABELS[mode][entry.stance]}
-        </span>
-      )}
-    </div>
-
-    {entry.desiredOutcome !== null && (
-      <p className="text-sm text-foreground">
-        {FEEDBACK_COPY[mode].wants}: {entry.desiredOutcome}
-      </p>
+    ) : (
+      <ul
+        aria-label={FEEDBACK_COPY[mode].issues}
+        className="flex flex-col gap-1"
+      >
+        {entry.issues.map((issue) => (
+          <li key={issue.position}>
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-sm font-semibold text-foreground">
+                {issue.issueLabel}
+              </span>
+              {issue.stance !== null && (
+                <span className="text-sm text-muted-foreground">
+                  · {STANCE_LABELS[mode][issue.stance]}
+                </span>
+              )}
+            </div>
+            {issue.desiredOutcome !== null && (
+              <p className="text-sm text-foreground">
+                {FEEDBACK_COPY[mode].wants}: {issue.desiredOutcome}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
     )}
 
-    {/* The memo itself, kept under the triple rather than replacing it. The
+    {/* The memo itself, kept under its issues rather than replacing them. The
         canvasser recorded this about the person, so it is their own summary
         and not a quotation — see the module's Prisma comment. */}
     {entry.transcript !== null && (

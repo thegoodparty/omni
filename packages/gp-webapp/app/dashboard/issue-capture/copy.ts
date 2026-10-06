@@ -60,7 +60,10 @@ export const WHAT_WE_HEARD_COPY = {
     // the other person's words, and it says so.
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
+    recordedBy: (actorName: string | null): string =>
+      `Recorded by ${actorName ?? 'your team'}`,
     wants: 'Wants',
+    issues: 'Issues',
     newTags: 'New tags to review',
     newTagsCaption: 'Accepted tags show on each person’s record.',
     accept: 'Accept',
@@ -68,6 +71,7 @@ export const WHAT_WE_HEARD_COPY = {
     tagFailed: "We couldn't update that tag. Try again.",
     back: 'Back to what we heard',
     backToWalk: 'Back to the walk',
+    backToOutreach: 'Back to Voter Outreach',
     details: 'Details',
     whatPeopleWant: 'What people want',
     theNotes: 'The notes',
@@ -143,7 +147,10 @@ export const WHAT_WE_HEARD_COPY = {
     notYetReviewed: 'Not yet reviewed',
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
+    recordedBy: (actorName: string | null): string =>
+      `Recorded by ${actorName ?? 'your team'}`,
     wants: 'Wants',
+    issues: 'Issues',
     newTags: 'New tags to review',
     newTagsCaption: 'Accepted tags show on each person’s record.',
     accept: 'Accept',
@@ -151,6 +158,7 @@ export const WHAT_WE_HEARD_COPY = {
     tagFailed: "We couldn't update that tag. Try again.",
     back: 'Back to what we heard',
     backToWalk: 'Back to the walk',
+    backToOutreach: 'Back to Constituent Outreach',
     details: 'Details',
     whatPeopleWant: 'What people want',
     theNotes: 'The notes',

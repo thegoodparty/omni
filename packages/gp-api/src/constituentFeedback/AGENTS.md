@@ -1,9 +1,9 @@
 # constituentFeedback
 
 Issue capture, on Win and Serve. A canvasser or caller records a short spoken
-summary of one conversation; the request extracts the issue, the person's
-position on it, and the outcome they want, and hands that back for the person
-who was just there to confirm or correct. The module keeps its name; the user
+summary of one conversation; the request extracts the issues the person
+raised (up to five), each with a stance and an outcome, and hands them back
+for the person who was just there to confirm, correct or remove. The module keeps its name; the user
 never sees it.
 
 An effort's confirmed memos are then synthesized into ranked themes, each
@@ -19,7 +19,7 @@ for confirmation (see Offline memos).
 | --------------------------------------------------- | ---------------------------------------------------- |
 | `constituentFeedback.controller.ts`                 | Routes under `/v1/constituent-feedback`              |
 | `services/constituentFeedback.service.ts`           | Resolve, upsert, confirm, read                       |
-| `services/constituentFeedbackExtraction.service.ts` | The triple, via `LlmService.jsonCompletion`          |
+| `services/constituentFeedbackExtraction.service.ts` | The issues, via `LlmService.jsonCompletion`          |
 | `services/feedbackSynthesis.service.ts`             | `requestRun`: floor, cooldown, run row, engine start |
 | `services/synthesisEngine.ts`                       | The engine seam and its `SYNTHESIS_ENGINE` token     |
 | `services/pipelineSynthesisEngine.ts`               | CSV to S3, trigger the polls pipeline                |
@@ -41,6 +41,13 @@ Request/response shapes are in `@goodparty_org/contracts`
 ## Prisma model
 
 `ConstituentFeedback` — via `this.model` / `this.client.constituentFeedback`.
+Its issues are `ConstituentFeedbackIssue` rows
+(`this.client.constituentFeedbackIssue`), one per issue in `position` order
+from 0, unique on `(feedbackId, position)`.
+An extraction (capture, the offline cron, retry) replaces a memo's issues
+whole (`replaceIssues`: delete, then insert, in one transaction), keeping the
+first five with a name and dropping the rest. Confirm keeps the rows it
+names by id and updates them in place.
 Enums: `ConstituentFeedbackChannel`, `ConstituentFeedbackStance`,
 `ConstituentFeedbackCaptureMethod`, `ConstituentFeedbackExtractionStatus`.
 
@@ -77,10 +84,15 @@ deletes only the rows carrying its `runId`.
 All under `@Controller('constituent-feedback')`, all `@UseOrganization()`.
 
 - `POST /`: record a memo. With a `transcript`, extracts in the request and
-  returns the proposed triple. With an `audioKey` (the offline path), saves
+  returns the proposed issues (`extraction: { issues }`, null when extraction
+  failed, an empty list when the note named none). With an `audioKey` (the offline path), saves
   it pending and starts a transcription job. `@AllowVolunteer()`.
-- `PATCH /:id/confirm`: the confirmed triple. Sets `confirmedAt`.
-  `@AllowVolunteer()`.
+- `PATCH /:id/confirm`: `{ issues }`, at most five, each `issueLabel`,
+  `stance`, `desiredOutcome` and an optional `fromIssueId`. The list
+  REPLACES the memo's issues, positions reassigned in list order: removing
+  one is leaving it out, and an empty list confirms a memo that named none.
+  A `fromIssueId` keeps that row; one that is not this memo's, or is named
+  twice, is a 422. Sets `confirmedAt`. `@AllowVolunteer()`.
 - `POST audio-upload-url`: `{ clientKey, contentType }` to `{ audioKey,
 uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
 - `POST audio-upload/:clientKey`: the mock-mode upload sink (multipart,
@@ -99,6 +111,7 @@ uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
   one is in flight.
 - `GET themes/:id`: one theme with its confirmed members.
 - `GET tags?status=` and `PATCH tags/:id`: the tag list and its curation.
+  Each tag carries `proposedByRunId`, the run that last proposed it.
 - `POST seed`: dev-only fake memos; 404s on prod.
 
 The report, synthesis, theme and tag routes are default posture: what
@@ -110,32 +123,35 @@ who records and confirms it, the posture the knock and call routes already
 carry, and under the same rule: a volunteer acts only on an effort they hold
 an `OutreachAssignment` on (`assertVolunteerAssignedToOutreach`, the knock
 routes' predicate). Capture checks the resolved `outreachId` before it spends
-an extraction; confirm checks the row's. A volunteer gets the same 404 the
+an extraction; confirm checks the row's, and, like retry, lets a volunteer
+confirm only a memo they recorded. A volunteer gets the same 404 the
 knock or call route would give ("Stop target not found" / "Phone banking list
 not found"), including for a memo with no effort, which nothing can be
 assigned to. Owners and campaign managers are unaffected.
 
 Every route is flag-gated and 404s when the flag is off, so a surface a user
-has not been rolled out to does not advertise itself. The flag is the org's
-product's: an `eo-` slug reads `serve-issue-capture`, anything else
-`win-issue-capture`, so each product rolls out on its own schedule. Unlike
+has not been rolled out to does not advertise itself. One flag,
+`issue-capture` (`ISSUE_CAPTURE_FLAG`), gates Win and Serve alike. Unlike
 `outreachServeSms.controller.ts`, which gates only its writes, there is no
 inert read here — the reads are the feature. `@UseOrganization()` and its role
 guard are the access check; the flag gates rollout, not access.
 
 ## Synthesis
 
-`requestRun` loads the effort's confirmed memos, refuses under
-`MIN_CONFIRMED_FOR_SYNTHESIS` (5, provisional) and inside
-`SYNTHESIS_COOLDOWN_MS` (10 minutes since the last completed run), inserts a
-`running` run, and hands the memos to the engine. Two ways in: the report's
-button, and the effort completing (a turf's Done in
+`requestRun` loads the effort's confirmed memos that have a transcript (one
+confirmed by hand after a failed recording has none, and would be an empty
+CSV row), refuses under `MIN_CONFIRMED_FOR_SYNTHESIS` (5, provisional),
+inserts a `running` run whose `confirmed` is that count, and hands the memos
+to the engine. Two ways in: the report's button (`trigger: 'button'`), which
+is also refused inside `SYNTHESIS_COOLDOWN_MS` (10 minutes since the last
+completed run), and the effort completing (a turf's Done in
 `doorKnockingTurf.service.ts`, a list's last call in
 `phoneBankingCall.service.ts`), which calls `requestRunOnEffortCompleted`
-fire-and-forget and swallows the three refusals. That path has no request to
-flag-gate, so it checks the floor and then the product's flag for the org's
-owner itself; turning a flag off stops automatic runs too. The first run of a Win org
-seeds accepted tags from its `CampaignPosition`s first.
+fire-and-forget, skips the cooldown, and swallows the floor and the run in
+flight. That path has no request to flag-gate, so it checks the floor and
+then the flag for the org's owner itself; turning the flag off
+stops automatic runs too. The first run of a Win org seeds accepted tags
+from its `CampaignPosition`s first.
 
 - **The race guard is the index.** `activeKey` is
   `<org>:<outreachId>` while a run is in flight and unique, so the button and
@@ -171,15 +187,17 @@ One transaction, claimed first with a conditional update on
   dropped and counted in the log. If no theme keeps a member, the run fails
   (`error: no_members_in_scope`) rather than superseding a good one.
 - One tag per theme, by `normalizedName`: merged away follows
-  `mergedIntoId` to its target (one hop; targets are accepted and merges
-  re-point earlier ones); accepted is linked; retired is revived to
-  `proposed`; proposed is relinked to this run; none is created `proposed`,
-  `source: synthesis`. Relinking carries `updatedAt` over, so it
-  does not count as a human touching the tag.
+  `mergedIntoId` to its target (one hop; merges re-point earlier ones) and
+  is then handled as that target, which may since have been retired;
+  accepted is linked; retired is revived to `proposed` with `updatedAt` set
+  back to `createdAt`; proposed is relinked to this run; none is created
+  `proposed`, `source: synthesis`. Relinking carries `updatedAt` over, and
+  reviving resets it, so neither counts as a human touching the tag.
 - **Old runs are kept.** The previous completed run for the scope becomes
   `superseded`; its themes and members stay as history. Its tag rows and its
-  untouched proposals (`updatedAt = createdAt`) are deleted explicitly,
-  because a status change cascades nothing. That happens before this run's
+  untouched `synthesis` proposals (`updatedAt = createdAt`) are deleted
+  explicitly, because a status change cascades nothing; a seeded or typed
+  tag it revived is a person's, and stays. That happens before this run's
   tag rows are written, or a pair both runs applied would be lost.
 - `ConstituentFeedbackTag` rows are written with `skipDuplicates`, which is
   what keeps a human's row on a pair the run also applies.
@@ -200,7 +218,17 @@ non-superseded run; themes come from the latest completed one, so a run in
 flight or a failed one leaves the previous themes up. `memos` lists the
 effort's memos, confirmed and pending, newest first, capped at
 `FEEDBACK_REPORT_MEMO_LIMIT` (200): the page shows them when there are no
-themes to show, under the floor and while a run is in flight. `channel` is
+themes to show, under the floor and while a run is in flight.
+
+A theme's `conversationCount` is distinct confirmed member memos, but
+`stanceCounts` and `desiredOutcomes` are stances from every issue raised in
+the conversations in this theme; a conversation that raised two issues
+contributes two, so counts can exceed `conversationCount`. That is the interim
+rule: membership is per memo, and matching an issue to its theme by label
+missed nearly every multi-issue memo. Per-issue membership through the
+pipeline is the follow-up that lets the split count only this theme's issues.
+An issue with no stance counts as unclear; a memo that named no issue adds no
+stance. `channel` is
 the effort's own (a turf's envelope is `door_knock`, a list's `phone_bank`,
 memo or no memo), and `floor` is `MIN_CONFIRMED_FOR_SYNTHESIS`, sent so the
 page's "Themes appear after N" line cannot drift from the 422. The constant
@@ -220,7 +248,7 @@ source with `mergedIntoId`.
 
 `POST seed { outreachId, count }` writes answered knocks or calls and
 confirmed memos from a 40-memo fixture (`services/feedbackSeedMemos.ts`,
-five issues) on an effort that already has stop targets or list entries. A
+five issues, one to three per memo) on an effort that already has stop targets or list entries. A
 list takes one memo per person who has none. Gated like the community
 issues seed (`util/devOnlyRoute.util.ts`): `OTEL_SERVICE_ENVIRONMENT`
 unset, `local`, `test`, `preview` or `dev`; anything else 404s.
@@ -253,7 +281,8 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    for the cron.
 3. `PendingTranscriptionService` (`feedbackPendingTranscription`, every
    minute, `CronLockService` minute slot) reads rows that are pending, have
-   an `audioKey` and no transcript, oldest touch first, 25 a pass. It reads
+   an `audioKey` and no transcript, and are not confirmed, oldest touch
+   first, 25 a pass. It reads
    before it claims, so an idle minute writes no `cron_run` row. Per row:
    start the job if there is none, else poll it. On text it writes the
    transcript and runs extraction exactly as a live capture does
@@ -262,7 +291,8 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    hour is applied after the poll, so a job that finished while the cron
    was not running is read rather than failed. Every
    write is scoped by the job name, so a memo re-recorded or retried
-   meanwhile is left to its own job. No deploy allowlist: it calls
+   meanwhile is left to its own job, and to `confirmedAt` null, so one
+   confirmed meanwhile keeps the issues its confirmer gave. No deploy allowlist: it calls
    Transcribe only for memos recorded on its own database.
 4. `GET pending` is the "Notes to review" list. Each item is the record
    plus its `clientKey` and a `reference` (the knock's `knockClientKey` and
@@ -270,7 +300,8 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    two batched lookups because neither row keeps the stop target or entry it
    was recorded against; null when they are gone. `POST :id/retry` on a
    memo with a recording and no words resets it to pending and starts a new
-   job; on one with words it extracts again. "Type it instead" posts the
+   job; on one with words it extracts again, and writes nothing if the memo
+   was confirmed while the model was answering. "Type it instead" posts the
    typed text to `POST /` with that reference and `clientKey` and
    `captureMethod: typed`: an ordinary re-record, so the row gets a
    transcript (what synthesis groups) and a fresh extraction. Confirming
@@ -291,7 +322,7 @@ deploy. `.env.test` sets `mock`.
 
 ## The extraction prompt names no product
 
-The same three fields land on a voter's record and a constituent's, and the
+The same issues land on a voter's record and a constituent's, and the
 copy around them is mode-keyed by the UI. So the prompt says "the person they
 spoke with", never voter or constituent: a product noun there steers the
 model into writing one product's word into the other's record.
@@ -312,16 +343,26 @@ said.
 
 A failed extraction never fails the request. `extract()` returns null, the row
 persists with its transcript and `extractionStatus: failed`, and the surface
-shows an empty triple to fill in by hand. The memo is the record worth
+shows an empty issue to fill in by hand. The memo is the record worth
 keeping.
 
 ## proposed\_\* vs the confirmed columns
 
-`issueLabel` / `stance` / `desiredOutcome` hold what a human confirmed.
-`proposedIssueLabel` / `proposedStance` / `proposedDesiredOutcome` hold what
-the model said first. The diff between them is the correction rate, and it is
-the labeled corpus the synthesis phase gets evaluated against — it cannot be
-reconstructed later, which is why it is written here.
+On each `ConstituentFeedbackIssue`, `issueLabel` / `stance` /
+`desiredOutcome` hold what a human confirmed (until then, the model's answer
+clamped to fit). `proposedIssueLabel` / `proposedStance` /
+`proposedDesiredOutcome` hold what the model said first. The diff between
+them is the correction rate, and it is the labeled corpus the synthesis phase
+gets evaluated against — it cannot be reconstructed later, which is why it is
+written here.
+
+Confirm keeps each issue it names in `fromIssueId`: the same row, its
+`proposed*` untouched, its confirmed values and position updated in place.
+An id and not a position, because confirming renumbers positions, and a
+confirm tapped again after its response was lost has to land on the same
+rows; repeating one changes nothing. An issue with no `fromIssueId` (written
+by hand) is a new row with null proposals. A proposed issue the canvasser
+removed is deleted with its proposal.
 
 `proposedStance` is text, not the enum. The model is prompted for one of four
 values but not bound to them, and `toStance()` drops an off-vocabulary answer
@@ -341,14 +382,14 @@ rules hold that together.
   `phoneBankingInteractionId` rather than updating what is already there.
   `clientKey` is still the fallback, which is what covers a retry whose first
   attempt never landed.
-- **A re-record clears `confirmedAt`.** The update branch replaces the triple
+- **A re-record clears `confirmedAt`.** The update branch replaces the issues
   with a fresh model proposal, so any confirmation the old one earned is void.
   Leaving it set hands reporting a model guess wearing a human's signature,
   which is the one thing the column exists to prevent.
 - **An overlong proposal is truncated, not rejected.** The response schema caps
-  `issueLabel` at 120 and `desiredOutcome` at 1000 and the interceptor enforces
-  that on the way out, so an unclamped string would save the row and then 500
-  the request that saved it — the surface would show a capture failure for a
+  each issue's `issueLabel` at 120 and `desiredOutcome` at 1000 and the
+  interceptor enforces that on the way out, so an unclamped string would save
+  the row and then 500 the request that saved it — the surface would show a capture failure for a
   memo safely on disk. The untruncated text survives in `proposed*` and in the
   transcript.
 
@@ -419,11 +460,12 @@ Transcribe streaming and still needs AWS credentials, so type the memo to
 see the confirm card without them.
 
 Flags: with a real `AMPLITUDE_PROJECT_API_KEY`, gp-api asks Amplitude for
-the product's flag, and a flag Amplitude does not define reads off, so every
-route 404s. The `.env.example` placeholder (`some_key`) reads every gp-api
-flag as on. The webapp gets its flags from gp-api, so with the placeholder
-they are all off except what the `e2e-flag-overrides` cookie sets
-(gp-webapp `app/shared/experiments/flagOverrides.ts`). The seed route and
+`issue-capture`, and a flag Amplitude does not define reads off, so every
+route 404s. With the `.env.example` placeholder (`some_key`), gp-api's
+per-route flag guard reads every flag as on, but its variants endpoint
+returns no variants, so the webapp sees every flag off and needs the
+`e2e-flag-overrides` cookie (gp-webapp
+`app/shared/experiments/flagOverrides.ts`) to show the feature. The seed route and
 the mock sink also need `OTEL_SERVICE_ENVIRONMENT` unset or a dev-only value
 (see The seed route).
 

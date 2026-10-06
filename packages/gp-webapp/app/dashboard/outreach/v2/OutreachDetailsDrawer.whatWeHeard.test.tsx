@@ -8,8 +8,7 @@ import type {
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
-import { useWinIssueCaptureFlag } from 'app/shared/experiments/winIssueCaptureFlag'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import type { HistoryRow } from './historyStatus.util'
 
@@ -19,12 +18,8 @@ vi.mock('@shared/organization-picker', () => ({
 
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
 
-vi.mock('app/shared/experiments/serveIssueCaptureFlag', () => ({
-  useServeIssueCaptureFlag: vi.fn(),
-}))
-
-vi.mock('app/shared/experiments/winIssueCaptureFlag', () => ({
-  useWinIssueCaptureFlag: vi.fn(),
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
 }))
 
 const OUTREACH_ID = 30
@@ -108,15 +103,8 @@ const turf = (id: number, outreachId: number): DoorKnockingTurf => ({
   updatedAt: new Date('2026-08-10T00:00:00Z'),
 })
 
-const setFlags = ({ serve, win }: { serve: boolean; win: boolean }) => {
-  vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: serve,
-  })
-  vi.mocked(useWinIssueCaptureFlag).mockReturnValue({
-    ready: true,
-    enabled: win,
-  })
+const setFlag = (enabled: boolean) => {
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({ ready: true, enabled })
 }
 
 const mockPhoneDetail = (status: OutreachDetail['status'] = 'completed') =>
@@ -160,7 +148,7 @@ beforeEach(() => {
       memos: [],
     },
   })
-  setFlags({ serve: false, win: true })
+  setFlag(true)
 })
 
 describe('OutreachDetailsDrawer: what we heard', () => {
@@ -192,8 +180,7 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     ).toHaveAttribute('href', `/dashboard/issue-capture/${OUTREACH_ID}`)
   })
 
-  it('speaks to an official about constituents on the Serve flag', async () => {
-    setFlags({ serve: true, win: false })
+  it('speaks to an official about constituents on Serve', async () => {
     mockPhoneDetail()
     render(
       <OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} isServe />,
@@ -222,8 +209,8 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     expect(link()).toBeNull()
   })
 
-  it('offers nothing while the product’s capture is off', async () => {
-    setFlags({ serve: true, win: false })
+  it('offers nothing while the flag is off', async () => {
+    setFlag(false)
     mockPhoneDetail()
     render(<OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} />)
 

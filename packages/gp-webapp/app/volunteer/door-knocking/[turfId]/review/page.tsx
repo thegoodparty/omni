@@ -12,7 +12,7 @@ export const metadata = pageMetaData({
 export const dynamic = 'force-dynamic'
 
 // Reached from the volunteer walk's "Notes to review" line. The volunteer
-// layout is the role gate; this checks the product's flag and, like the walk
+// layout is the role gate; this checks the flag and, like the walk
 // page, refuses a hand-mangled id before asking the API about it.
 export default async function Page({
   params,
