@@ -8,6 +8,8 @@ its verdict and findings. Defaults to the PR head commit.
 
   --trigger   post "delegate review" first, and only accept a verdict that
               lands after it. Use this for every review after the first push.
+              Delegate reviews each commit once, so this only works on a
+              commit it has not reviewed yet.
   --timeout   minutes to wait before giving up (default 20).
 
 exit codes:
@@ -16,7 +18,9 @@ exit codes:
   2  review failed (re-trigger with --trigger)
   3  no verdict before the timeout
   4  commit no longer reviewable (superseded, or approval dismissed because
-     the PR moved on)'
+     the PR moved on)
+  5  --trigger refused: delegate already reviewed this commit. Push a new
+     commit, then re-run with --trigger'
 
 REPO=thegoodparty/omni
 BOT='delegate-reviewer[bot]'
@@ -38,6 +42,8 @@ done
 
 [ -n "$PR" ] || { echo "$usage" >&2; exit 64; }
 [ -n "$SHA" ] || SHA=$(gh pr view "$PR" -R "$REPO" --json headRefOid --jq .headRefOid)
+FULL=$(gh api "repos/$REPO/commits/$SHA" --jq .sha 2>/dev/null) || { echo "No commit $SHA in $REPO" >&2; exit 64; }
+SHA=$FULL
 SHORT=${SHA:0:7}
 
 SINCE=''
@@ -57,6 +63,12 @@ while :; do
   STATE=$(jq -r '.state // ""' <<<"$STATUS")
   DESC=$(jq -r '.description // ""' <<<"$STATUS")
   case "$STATE" in success|failure|error) break ;; esac
+  if [ "$TRIGGER" = 1 ] && gh api "repos/$REPO/issues/$PR/comments?since=$SINCE&per_page=100" \
+    | jq -e --arg bot "$BOT" --arg short "$SHORT" --arg since "$SINCE" \
+      'any(.[]; .user.login == $bot and .created_at > $since and (.body | startswith("`" + $short + "` already has a review run")))' >/dev/null; then
+    echo "Delegate already reviewed #$PR at $SHORT and reviews each commit once. Push a new commit, then re-run with --trigger."
+    exit 5
+  fi
   if [ "$(date +%s)" -ge "$DEADLINE" ]; then
     echo "No verdict on #$PR at $SHORT after ${TIMEOUT_MIN}m. Latest status: ${STATE:-none} ${DESC}"
     if [ -z "$STATE" ] && [ "$TRIGGER" = 0 ]; then

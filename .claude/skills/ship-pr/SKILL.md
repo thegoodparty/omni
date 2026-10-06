@@ -69,6 +69,9 @@ Delegate is `delegate-reviewer[bot]`. It reviews one commit at a time:
 - It reviews the **first push** on its own (opening a PR, or marking a draft
   ready). Every later review happens only when someone comments
   `delegate review`.
+- It reviews **each commit once**. `delegate review` on a commit that already
+  has a run, even a failed one, is refused with a PR comment. To get another
+  review, push a new commit.
 - While it reviews a commit it sets a `pr-reviewer` commit status of `pending`
   on that commit, then a terminal status (`Approved`, `Commented: N finding(s)`,
   or `Review failed`).
@@ -80,7 +83,8 @@ Delegate is `delegate-reviewer[bot]`. It reviews one commit at a time:
 **Wait with `scripts/delegate-review-wait.sh`, never a hand-rolled poll.** It
 tracks one commit, waits for delegate's terminal status on it, and prints the
 verdict, the review body, and every inline finding. Exit codes: `0` approved,
-`1` findings, `2` review failed, `3` timed out, `4` the commit was superseded.
+`1` findings, `2` review failed, `3` timed out, `4` the commit was superseded,
+`5` delegate refused because it already reviewed this commit.
 Run it in the background so you can keep working: Claude Code's
 `run_in_background`, or `bash_background` in pi.
 
@@ -93,11 +97,13 @@ Loop:
    - **Any later push** (you pushed fixes): `scripts/delegate-review-wait.sh <n>
      --trigger`. It posts `delegate review` and only accepts a verdict that lands
      after that comment, so an earlier verdict on the same commit can't fool it.
-   - Exit `2` (review failed): re-run once with `--trigger`. A second failure is
-     a delegate problem; report it with the review link.
+   - Exit `2` (review failed): a delegate problem, not a finding. That commit
+     can't be reviewed again, so stop and report it with the review link.
    - Exit `3` (timed out after 20 min): stop and report. Don't extend the wait.
    - Exit `4` (superseded): HEAD moved while delegate reviewed. Re-run against
      the new HEAD with `--trigger`.
+   - Exit `5` (refused): you triggered a commit delegate already reviewed. Push
+     your fixes first, then `--trigger`.
 
 2. **Verdict.**
    - Exit `0` (approved) → delegate gate passed. Go to **Phase 3** to confirm
