@@ -19,6 +19,12 @@ describe('getAssistantChat', () => {
     expect(binding.defaultIntro[0]).toBe("Hi, I'm your Campaign Manager.")
   })
 
+  it("greets a Win candidate by first name, as the Campaign Manager's own chat does", () => {
+    expect(getAssistantChat(true, 'Renee').defaultIntro[0]).toBe(
+      "Hi Renee, I'm your Campaign Manager.",
+    )
+  })
+
   it('binds Serve to the chief_of_staff client and its history key', () => {
     const binding = getAssistantChat(false)
     expect(binding.chatApi).toBe(chiefOfStaffChatApi)

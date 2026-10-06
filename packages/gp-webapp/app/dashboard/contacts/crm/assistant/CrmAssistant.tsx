@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { useUser } from '@shared/hooks/useUser'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
 import { ASSISTANT_PLACEHOLDER, getAssistantChat } from './assistantChat'
@@ -20,6 +21,7 @@ import ChiefOfStaffChatSurface from '../../../chief-of-staff/components/chat/Chi
 // already keeps flag-off pages byte-identical.
 export default function CrmAssistant(): React.JSX.Element | null {
   const { isWinContext, isWinContextReady } = useContactsTable()
+  const [user] = useUser()
   const [open, setOpen] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   // The bar collects the first message before the surface is open, so it goes
@@ -42,7 +44,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
   // which would bind a Win user to the chief_of_staff scope.
   if (!isWinContextReady) return null
 
-  const chat = getAssistantChat(isWinContext)
+  const chat = getAssistantChat(isWinContext, user?.firstName)
   const context = isWinContext ? 'win' : 'serve'
 
   // ENG-10767: chat opened + message sent (the instrument-analytics-event

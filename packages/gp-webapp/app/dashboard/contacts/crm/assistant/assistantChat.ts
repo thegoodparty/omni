@@ -38,6 +38,7 @@ export interface AssistantChatBinding {
 // with those surfaces instead of double-fetching the same list.
 export const getAssistantChat = (
   isWinContext: boolean,
+  firstName?: string | null,
 ): AssistantChatBinding =>
   isWinContext
     ? {
@@ -46,7 +47,7 @@ export const getAssistantChat = (
         scope: 'campaign_assistant',
         agentName: 'Campaign manager',
         analyticsLabel: 'campaign-manager-chat',
-        defaultIntro: buildCampaignManagerIntro(),
+        defaultIntro: buildCampaignManagerIntro(firstName),
       }
     : {
         chatApi: chiefOfStaffChatApi,
