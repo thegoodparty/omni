@@ -1,9 +1,12 @@
 import {
+  Body,
   Controller,
   Get,
+  HttpCode,
   HttpStatus,
   Post,
   Res,
+  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
@@ -11,12 +14,19 @@ import { FastifyReply } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { Campaign } from '../generated/prisma'
+import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
+import { CampaignPlanBackfillService } from './services/campaignPlanBackfill.service'
 import { CampaignStrategyService } from './services/campaignStrategy.service'
+import {
+  BackfillPlansRequestDto,
+  BackfillPlansResponse,
+  BackfillPlansResponseSchema,
+} from './schemas/backfillPlans.schema'
 import {
   StrategicLandscapeResponse,
   StrategicLandscapeResponseSchema,
@@ -32,9 +42,21 @@ import {
 export class CampaignStrategyController {
   constructor(
     private readonly campaignStrategy: CampaignStrategyService,
+    private readonly backfill: CampaignPlanBackfillService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(CampaignStrategyController.name)
+  }
+
+  // Spends money with `apply: true` (~$2 per campaign). Dry run by default.
+  @Post('backfill')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(BackfillPlansResponseSchema)
+  async backfillPlans(
+    @Body() body: BackfillPlansRequestDto,
+  ): Promise<BackfillPlansResponse> {
+    return this.backfill.run(body)
   }
 
   // Cheap existence probe for UI gating (the dashboard's Campaign Plan tab).
