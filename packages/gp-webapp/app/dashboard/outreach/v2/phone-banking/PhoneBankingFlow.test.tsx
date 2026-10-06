@@ -52,6 +52,12 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
   }),
 }))
 
+// The question-asking card is offered only where issue capture is on; these
+// cases pick it, so the flag is on here.
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: () => ({ ready: true, enabled: true }),
+}))
+
 // useListWizardCount (reached in the audience builder) reads the active org
 // slug — same precedent as RobocallFlow.test.tsx.
 vi.mock('@shared/organization-picker', () => ({
@@ -282,9 +288,46 @@ describe('PhoneBankingFlow', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Go to call list' }))
+    // The envelope rides along: the list read carries none, and it is how
+    // the caller page links to what people said on the list.
     expect(router.push).toHaveBeenCalledWith(
-      `/dashboard/outreach/phone-banking/${createResponse.id}`,
+      `/dashboard/outreach/phone-banking/${createResponse.id}?outreachId=${createResponse.outreachId}`,
     )
+  })
+
+  it('sends the hear-from-voters question with the Win create', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Likely Dems' }])
+    mockListDetail(10)
+    const createCalls: PhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    openFlow()
+
+    await user.click(
+      await screen.findByRole('button', { name: /Hear from voters/i }),
+    )
+    const question = 'How do you feel about the road bond?'
+    await user.type(await screen.findByLabelText('The question'), question)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Who do you want to reach?')
+    await pickSavedListAndContinue('Likely Dems')
+
+    await screen.findAllByText('Write your call script')
+    await waitFor(() => expect(scriptText()).not.toBe(''))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(createCalls).toHaveLength(1))
+    expect(createCalls[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion: question,
+    })
   })
 
   // Win's create is strict, and a chat card's link is Serve's: none of it,

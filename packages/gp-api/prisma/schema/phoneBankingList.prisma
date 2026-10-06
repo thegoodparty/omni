@@ -9,7 +9,8 @@ enum PhoneBankingPurpose {
   early_voting
   election_day_turnout
   custom
-  // Serve-only purposes (ENG-10985).
+  // Serve-only purposes (ENG-10985), except community_input, which Win
+  // carries too as "Hear from voters".
   explain_decision
   community_input
   share_resource

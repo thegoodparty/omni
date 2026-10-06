@@ -76,6 +76,7 @@ import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 
 type StepId =
   | 'purpose'
@@ -89,9 +90,10 @@ type StepId =
 // Two purposes each insert one step after `purpose`, and no purpose inserts
 // both — so the order is DERIVED rather than one constant per shape. That is
 // also what keeps the progress bar honest: a hardcoded length would draw five
-// segments for a six-step flow.
+// segments for a six-step flow. The question purpose is the same slug on both
+// surfaces: Win's "Hear from voters" and Serve's community input.
 //
-// The question step is NOT gated on `serve-issue-capture`. The create
+// The question step is NOT gated on either issue-capture flag. The create
 // contract requires a question whenever the purpose is community_input, so a
 // flow that skipped this step would 400 on save with nothing on screen
 // explaining why.
@@ -114,6 +116,13 @@ const STEP_TITLES: Record<StepId, string> = {
   // either variant exactly would make it collide with the visible one for
   // that variant while staying non-unique text across the two states.
   download: 'Download your call sheets',
+}
+
+// Serve's promises the read-back an official gets; Win's says only what is
+// already true of the script this flow drafts.
+const QUESTION_STEP_BODY = {
+  win: 'Your callers will ask this on every call.',
+  serve: 'We will read this back to you with what people said.',
 }
 
 const GENERIC_CREATE_ERROR_MESSAGE =
@@ -188,6 +197,7 @@ interface PhoneBankingFlowDraftInput {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
+  communityInputQuestion?: string
   event?: OutreachEventDetails
 }
 
@@ -197,9 +207,7 @@ interface PhoneBankingFlowCreateInput extends ProposalLink {
   sheetCount: number
   purpose: PhoneBankingFlowPurpose
   voterFileFilterId: number
-  // Serve's community_input only, where the contract requires it. Always
-  // undefined on the Win surface, whose purpose vocabulary has no such
-  // member, so its endpoint never sees the field.
+  // community_input only, where the contract requires it on both surfaces.
   communityInputQuestion?: string
 }
 
@@ -245,6 +253,7 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
       script,
       sheetCount,
       purpose,
+      communityInputQuestion,
       voterFileFilterId,
     }) => {
       // Named, not rest-spread: a proposal link is a Serve chat card's, and
@@ -254,6 +263,7 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
         script,
         sheetCount,
         purpose,
+        communityInputQuestion,
         voterFileFilterId,
       } as PhoneBankingCreate)
       return data
@@ -360,6 +370,13 @@ export const PhoneBankingFlow = ({
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
+  // The question-asking card is offered only where issue capture is on. The
+  // filter is here, not in the surface's vocabulary, so an effort already on
+  // that purpose keeps its labels and its question step when the flag goes off.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
+  const offeredPurposes = surface.purposes.filter(
+    ({ id }) => issueCaptureOn || id !== COMMUNITY_INPUT_PURPOSE,
+  )
   // What this effort is asking, collected on the step that follows a
   // community_input purpose. Required there by contract, so the step's
   // Continue stays disabled until it is filled in.
@@ -884,8 +901,12 @@ export const PhoneBankingFlow = ({
             // The caller page is shared across surfaces by design: it is
             // auth-only (no campaign required) and fetches org-scoped, so
             // serve lists open here too (ENG-10970) — not a per-surface path.
+            // The envelope rides along when there is one, so the page can
+            // link to what people said on the list (the list read has none).
             router.push(
-              `/dashboard/outreach/phone-banking/${createResponse.id}`,
+              createResponse.outreachId === null
+                ? `/dashboard/outreach/phone-banking/${createResponse.id}`
+                : `/dashboard/outreach/phone-banking/${createResponse.id}?outreachId=${createResponse.outreachId}`,
             )
             onClose()
           },
@@ -1028,7 +1049,7 @@ export const PhoneBankingFlow = ({
             body="This helps us tailor your script and who to call."
           />
           <PurposeStep
-            purposes={surface.purposes}
+            purposes={offeredPurposes}
             selected={purpose}
             onSelect={handleSelectPurpose}
           />
@@ -1045,11 +1066,16 @@ export const PhoneBankingFlow = ({
           <Intro
             channel="phoneBanking"
             title={STEP_TITLES.question}
-            body="We will read this back to you with what people said."
+            body={
+              surface.isServe
+                ? QUESTION_STEP_BODY.serve
+                : QUESTION_STEP_BODY.win
+            }
           />
           <CommunityInputQuestionStep
             question={question}
             onChange={setQuestion}
+            isServe={surface.isServe}
           />
         </div>
       ) : stepId === 'who' ? (

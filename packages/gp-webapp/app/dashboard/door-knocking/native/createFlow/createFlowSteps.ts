@@ -1,3 +1,5 @@
+import { COMMUNITY_INPUT_PURPOSE } from '@goodparty_org/contracts'
+
 // The create flow's two vocabularies, and the map between them.
 //
 // `CreateFlowStep` is the ORCHESTRATOR's word for where the flow is. The page
@@ -94,6 +96,11 @@ export interface StepperPosition {
   currentStep: number
   totalSteps: number
 }
+
+// Whether a purpose inserts the `question` stage. One slug on both products:
+// Win's "Hear from voters" and Serve's community input.
+export const purposeAsksQuestion = (purpose: string | null): boolean =>
+  purpose === COMMUNITY_INPUT_PURPOSE
 
 // One path of five steps, six when the purpose asks for one of the two
 // optional pre-draw stages. Choosing "Create a new list" picks the audience,

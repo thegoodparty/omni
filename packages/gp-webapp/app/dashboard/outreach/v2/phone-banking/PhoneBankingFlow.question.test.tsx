@@ -8,6 +8,7 @@ import {
   SERVE_PHONE_BANKING_SURFACE,
 } from './PhoneBankingFlow'
 import { gateRef } from '../gate/testing/mockReactiveGate'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 
 vi.mock('../gate/useOutreachGate', async () => {
   const { useMockOutreachGate } =
@@ -20,10 +21,21 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
+// The question-asking card is offered only where issue capture is on. On by
+// default so the question-step cases below can pick it.
+const issueCapture = vi.hoisted(() => ({ enabled: true }))
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(() => ({
+    ready: true,
+    enabled: issueCapture.enabled,
+  })),
+}))
+
 // useOutreachAudience reads the org on mount and useOrganization throws
 // without its provider — the same stand-in the sibling flow tests use.
+const orgMock = vi.hoisted(() => ({ slug: 'eo-test-org' }))
 vi.mock('@shared/organization-picker', () => ({
-  useOrganization: () => ({ slug: 'eo-test-org' }),
+  useOrganization: () => orgMock,
 }))
 
 const renderFlow = () =>
@@ -37,6 +49,8 @@ const renderFlow = () =>
   )
 
 beforeEach(() => {
+  orgMock.slug = 'eo-test-org'
+  issueCapture.enabled = true
   gateRef.set({
     enabled: false,
     requirement: null,
@@ -160,4 +174,139 @@ describe('PhoneBankingFlow community-input question step', () => {
       expect(screen.queryByLabelText('The question')).toBeNull(),
     )
   })
+})
+
+// Win's "Hear from voters" is the same question step on the candidate's own
+// surface, and the question reaches the Win draft endpoint.
+describe('PhoneBankingFlow hear-from-voters question step', () => {
+  let winDraftBodies: Record<string, unknown>[] = []
+
+  beforeEach(() => {
+    orgMock.slug = 'campaign-test-org'
+    winDraftBodies = []
+    api.mock('POST /v1/outreach/phone-banking/draft', ({ body }) => {
+      winDraftBodies.push(body as Record<string, unknown>)
+      return { status: 200, data: { draft: 'Hi, I am volunteering for Jane.' } }
+    })
+  })
+
+  const renderWinFlow = () =>
+    render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
+
+  it('asks what the candidate wants to learn, then drafts from it', async () => {
+    renderWinFlow()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Hear from voters/i }),
+    )
+    await screen.findByLabelText('The question')
+    expect(winDraftBodies).toHaveLength(0)
+    // Serve's caption promises a read-back; Win's says only what is true.
+    expect(
+      screen.getByText('Your callers will ask this on every call.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'We will read this back to you with what people said.',
+      ),
+    ).toBeNull()
+
+    const question = 'How do you feel about the road bond?'
+    await userEvent.type(screen.getByLabelText('The question'), question)
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(winDraftBodies).toHaveLength(1))
+    expect(winDraftBodies[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion: question,
+    })
+    expect(draftBodies).toHaveLength(0)
+  })
+})
+
+describe('PhoneBankingFlow question-asking card behind issue capture', () => {
+  const surfaces = [
+    {
+      name: 'Win',
+      label: /Hear from voters/i,
+      slug: 'campaign-test-org',
+      surface: undefined,
+    },
+    {
+      name: 'Serve',
+      label: /Ask for community input/i,
+      slug: 'eo-test-org',
+      surface: SERVE_PHONE_BANKING_SURFACE,
+    },
+  ]
+
+  beforeEach(() => {
+    api.mock('POST /v1/outreach/phone-banking/draft', {
+      status: 200,
+      data: { draft: 'Hi, I am volunteering for Jane.' },
+    })
+  })
+
+  const renderOn = ({ surface }: (typeof surfaces)[number]) =>
+    render(
+      <PhoneBankingFlow
+        source="outreach_page"
+        open
+        onClose={vi.fn()}
+        surface={surface}
+      />,
+    )
+
+  it.each(surfaces)(
+    'offers the card only where issue capture is on ($name)',
+    async (entry) => {
+      orgMock.slug = entry.slug
+      const first = renderOn(entry)
+      expect(
+        await screen.findByRole('button', { name: entry.label }),
+      ).toBeInTheDocument()
+      first.unmount()
+
+      issueCapture.enabled = false
+      renderOn(entry)
+      await screen.findByRole('button', { name: /Introduce myself/i })
+      expect(screen.queryByRole('button', { name: entry.label })).toBeNull()
+      // A picker render is not the treatment, so it must not log an exposure.
+      expect(useIssueCaptureFlag).toHaveBeenCalledWith(false)
+    },
+  )
+
+  // The card is the only thing the flag takes away: an effort already on the
+  // question-asking purpose when the flag goes off still asks and drafts.
+  it.each(surfaces)(
+    'keeps the question step for a purpose picked before the flag went off ($name)',
+    async (entry) => {
+      orgMock.slug = entry.slug
+      const view = renderOn(entry)
+      await userEvent.click(
+        await screen.findByRole('button', { name: entry.label }),
+      )
+      const field = await screen.findByLabelText('The question')
+
+      issueCapture.enabled = false
+      view.rerender(
+        <PhoneBankingFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          surface={entry.surface}
+        />,
+      )
+
+      expect(screen.getByLabelText('The question')).toBe(field)
+      await userEvent.type(field, 'Would you take part in a compost pilot?')
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await waitFor(() =>
+        expect(screen.queryByLabelText('The question')).toBeNull(),
+      )
+    },
+  )
 })

@@ -10,6 +10,7 @@ import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { TurfDraft } from '../turfDrafts'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
@@ -23,6 +24,16 @@ vi.mock('@shared/organization-picker', () => ({
 }))
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
+}))
+
+// The question-asking card is offered only where issue capture is on. On by
+// default so every other case here keeps the full set of cards.
+const issueCapture = vi.hoisted(() => ({ enabled: true }))
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(() => ({
+    ready: true,
+    enabled: issueCapture.enabled,
+  })),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -1763,6 +1774,7 @@ describe('CreateListFlow purpose step', () => {
   beforeEach(() => {
     testQueryClient.clear()
     vi.clearAllMocks()
+    issueCapture.enabled = true
   })
 
   const renderPurpose = (serveMode: boolean) =>
@@ -1809,6 +1821,28 @@ describe('CreateListFlow purpose step', () => {
     )
   })
 
+  // Win's question-asking goal is the same slug as Serve's, under the Win
+  // label, and it takes the same extra step.
+  it('asks a candidate what they want to learn after Hear from voters', async () => {
+    renderPurpose(false)
+
+    fireEvent.click(screen.getByText('Hear from voters'))
+
+    const field = await screen.findByLabelText('The question')
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: 'What do you want to learn?',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(field, { target: { value: 'How about the road bond?' } })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
   // Continue only guards emptiness, so a question left over from an earlier
   // pick would ship as this campaign's rather than tripping the guard.
   it('does not carry a question over to a later purpose pick', async () => {
@@ -1825,6 +1859,56 @@ describe('CreateListFlow purpose step', () => {
     expect(await screen.findByLabelText('The question')).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
+
+  it.each([
+    [false, 'Hear from voters'],
+    [true, 'Ask for community input'],
+  ])(
+    'offers the question-asking goal only where issue capture is on (serve: %s)',
+    (serveMode, label) => {
+      const first = renderPurpose(serveMode)
+      expect(screen.getByText(label)).toBeInTheDocument()
+      first.unmount()
+
+      issueCapture.enabled = false
+      renderPurpose(serveMode)
+      expect(screen.queryByText(label)).toBeNull()
+      expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+      // A picker render is not the treatment, so it must not log an exposure.
+      expect(useIssueCaptureFlag).toHaveBeenCalledWith(false)
+    },
+  )
+
+  // The card is the only thing the flag takes away: a campaign already on the
+  // question-asking goal when the flag goes off still asks and still saves.
+  it.each([
+    [false, 'Hear from voters'],
+    [true, 'Ask for community input'],
+  ])(
+    'keeps the question step for a goal picked before the flag went off (serve: %s)',
+    async (serveMode, label) => {
+      const view = renderPurpose(serveMode)
+      fireEvent.click(screen.getByText(label))
+      const field = await screen.findByLabelText('The question')
+
+      issueCapture.enabled = false
+      view.rerender(
+        <DoorKnockingSurfaceProvider value={serveMode}>
+          <CreateListFlow {...baseProps} step="filters" />
+        </DoorKnockingSurfaceProvider>,
+      )
+
+      expect(screen.getByLabelText('The question')).toBe(field)
+      fireEvent.change(field, { target: { value: 'Would you compost?' } })
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await waitFor(() =>
+        expect(screen.queryByLabelText('The question')).toBeNull(),
+      )
+    },
+  )
 
   // The per-card second line is gone with the bespoke card: no other channel
   // has one, and the step is now literally the other channels' component.

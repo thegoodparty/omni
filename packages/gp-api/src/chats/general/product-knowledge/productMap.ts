@@ -167,6 +167,7 @@ const WIN_AREAS: ProductArea[] = [
       'Click that row to reopen the flow and pick up where you left off, or delete it from there',
       'One saved text and one saved robocall at a time, kept for 90 days',
       'SMS and Robocall take a promo code on their payment step, in a Promo Code box above the card details. A code that covers the whole cost schedules the send with no card',
+      'Phone banking and Door knocking offer Hear from voters as a goal. The flow asks what question to put to people, and the call script or door card is written to ask it',
     ],
   },
   {
@@ -183,6 +184,7 @@ const WIN_AREAS: ProductArea[] = [
       'Recommended voter lists sit above the saved lists: ready-made audiences (voters who have not heard from you, persuadable independent-leaning voters, your supporters to invite or turn out) with a Details view and a Send outreach button, no saving needed',
       'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',
       'Opening a list shows its filter summary and outreach history, never a table of individual voters',
+      'A voter’s record can carry What they told us: what they said at the door or on the phone, the issues they raised, where they stand on each and what they want, and any accepted tags. It is being rolled out account by account',
     ],
     gate: 'Filtering the voter file needs the Pro upgrade, and so does seeing which precincts it covers. Without Pro the page still shows district aggregates and a blurred preview.',
   },
@@ -395,6 +397,39 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'Creating a campaign ends at drawing the turfs. The walking route is planned the first time somebody starts knocking a turf, which is also when they are asked whether they are walking or driving',
       'Each turf can be handed to a different person, from its card in the campaign’s row in outreach history',
     ],
+  },
+  {
+    navId: null,
+    name: 'What we heard',
+    path: '/dashboard/issue-capture/[outreachId]',
+    modes: ['win', 'serve'],
+    does: 'Read what people said on one door knocking turf or phone banking list, grouped into themes ranked by how many conversations raised them.',
+    inside: [
+      'Reached from What we heard in outreach history: open a phone banking row, or a door knocking campaign of one turf, at any status. A campaign of several turfs carries it on each turf’s card once somebody there has answered. A phone banking call list also shows it at the top',
+      'The line under the title counts who answered, who left a note, and how many notes are confirmed. Only confirmed notes count toward a theme',
+      'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
+      'Summarize what we heard groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
+      'Each theme opens to its details, where people stand, what they want, and the notes behind it',
+      'New tags to review lists the suggested tags of the themes shown: Accept puts one on people’s records, Dismiss drops it',
+    ],
+    gate: 'Being rolled out account by account, so not every account has it yet.',
+  },
+  {
+    // One area seen by two roles: the owner's page under the dashboard and a
+    // volunteer's own under their walk, with the same title, so one entry
+    // with the volunteer's way in rather than the same name twice.
+    navId: null,
+    name: 'Notes to review',
+    path: '/dashboard/issue-capture/[outreachId]/review',
+    modes: ['win', 'serve'],
+    does: 'Confirm what a conversation’s note says when nobody confirmed it at the door, including notes recorded with no signal.',
+    inside: [
+      'Reached from the waiting for review count under the title of What we heard, and from Notes to review on a door knocking turf’s details',
+      'A note recorded with no signal reads Still transcribing until it has been turned into text, usually within a couple of minutes',
+      'Looks right confirms a note. A note that could not be read offers Try again, or Type it instead to type what the person said',
+      'A volunteer has a Notes to review of their own, from the line at the top of the map while they walk a turf, listing only the notes they took',
+    ],
+    gate: 'Being rolled out account by account, so not every account has it yet.',
   },
 ]
 

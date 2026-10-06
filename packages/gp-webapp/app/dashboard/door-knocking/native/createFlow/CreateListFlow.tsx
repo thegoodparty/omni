@@ -32,6 +32,7 @@ import {
 } from 'app/dashboard/outreach/v2/eventDetails'
 import { purposeForRecommendedVariant } from 'app/dashboard/outreach/v2/audience/recommendedListMapping.util'
 import { CommunityInputQuestionStep } from 'app/dashboard/outreach/v2/CommunityInputQuestionStep'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
 import {
   builderFiltersFromRecommendation,
@@ -65,6 +66,7 @@ import {
   flowStage,
   MAX_CAMPAIGN_NAME_LENGTH,
   previousStage,
+  purposeAsksQuestion,
   stageStep,
   stepperPosition,
   type CreateFlowStage,
@@ -95,7 +97,6 @@ import type {
   RecommendedListIntent,
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
-import { COMMUNITY_INPUT_PURPOSE } from '@goodparty_org/contracts'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
 
@@ -367,9 +368,9 @@ const STAGE_META: Record<
     title: EVENT_DETAILS_TITLE,
     caption: "We'll put these in your talking points.",
   },
-  // Reached only from the community_input purpose, which exists only in the
-  // Serve vocabulary — so this copy is only ever read by an elected
-  // official's canvasser even though the stage lives in a shared file.
+  // Reached only from the community_input purpose, which both products carry
+  // (Win's "Hear from voters", Serve's community input), so the copy names
+  // neither voters nor constituents.
   question: {
     title: 'What do you want to learn?',
     caption: 'One clear question, in the words you would say out loud.',
@@ -520,9 +521,13 @@ export default function CreateListFlow({
   // The goal cards and the name they suggest are the surface's answer: Serve
   // carries its own vocabulary (no election mechanics), and door knocking has
   // ONE route for both rails, so this is the only place the two can differ.
-  const purposes = serveMode
-    ? SERVE_DOOR_KNOCKING_PURPOSES
-    : DOOR_KNOCKING_PURPOSES
+  // The question-asking card is offered only where issue capture is on. The
+  // filter is here, not in the vocabulary, so a campaign already on that goal
+  // keeps its labels and its question step when the flag goes off.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
+  const purposes = (
+    serveMode ? SERVE_DOOR_KNOCKING_PURPOSES : DOOR_KNOCKING_PURPOSES
+  ).filter(({ id }) => issueCaptureOn || !purposeAsksQuestion(id))
   const purposeNameSuggestion = serveMode
     ? serveDoorKnockingPurposeNameSuggestion
     : doorKnockingPurposeNameSuggestion
@@ -764,7 +769,7 @@ export default function CreateListFlow({
   const stage = flowStage(step, preDrawStage)
   // The community-input purpose asks one extra thing, which inserts a stage
   // and makes the path six long.
-  const asksQuestion = purpose === COMMUNITY_INPUT_PURPOSE
+  const asksQuestion = purposeAsksQuestion(purpose)
 
   // Which of the two optional pre-draw stages this purpose asks for. One
   // value rather than two flags because the path has one slot: an event
@@ -1090,24 +1095,27 @@ export default function CreateListFlow({
       communityInputQuestion?: string
       event?: OutreachEventDetails
     }) => {
-      const { communityInputQuestion, ...rest } = input
-      const body = { ...rest, filters: draftFilters }
       // Two endpoints for one call, chosen by the same `serveMode` context the
       // create body below uses — a Serve official's card must never be written
       // by the prompt that says "running for".
       const { data } = await (serveMode
         ? clientRequest('POST /v1/outreach/serve/door-knocking/draft', {
-            ...body,
             purpose: input.purpose as ServeDoorKnockingPurpose,
-            // Serve only, and destructured out of `body` above so the Win
-            // branch cannot send a field its endpoint does not accept.
-            ...(communityInputQuestion === undefined
-              ? {}
-              : { communityInputQuestion }),
+            filters: draftFilters,
+            currentDraft: input.currentDraft,
+            previousDraft: input.previousDraft,
+            instructions: input.instructions,
+            communityInputQuestion: input.communityInputQuestion,
+            event: input.event,
           })
         : clientRequest('POST /v1/outreach/door-knocking/draft', {
-            ...body,
             purpose: input.purpose as DoorKnockingPurpose,
+            filters: draftFilters,
+            currentDraft: input.currentDraft,
+            previousDraft: input.previousDraft,
+            instructions: input.instructions,
+            communityInputQuestion: input.communityInputQuestion,
+            event: input.event,
           }))
       return data
     },
@@ -1134,8 +1142,9 @@ export default function CreateListFlow({
     // Read here and passed as a variable, the way `instructions` is: the
     // question is what a community-input effort exists to ask, so the card's
     // ask has to be written from it rather than from a generic prompt.
-    const askedQuestion =
-      nextPurpose === COMMUNITY_INPUT_PURPOSE ? question.trim() : ''
+    const askedQuestion = purposeAsksQuestion(nextPurpose)
+      ? question.trim()
+      : ''
     const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draft.mutate(
       {
@@ -1790,7 +1799,7 @@ export default function CreateListFlow({
                 goToStage(
                   isEventInvite(next)
                     ? 'details'
-                    : next === COMMUNITY_INPUT_PURPOSE
+                    : purposeAsksQuestion(next)
                       ? 'question'
                       : 'who',
                 )
@@ -1812,6 +1821,7 @@ export default function CreateListFlow({
             <CommunityInputQuestionStep
               question={question}
               onChange={setQuestion}
+              isServe={serveMode}
             />
           )}
 
