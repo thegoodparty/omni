@@ -5,7 +5,13 @@ import { useSingleEffect } from '@shared/hooks/useSingleEffect'
 interface LongPollProps<T = void> {
   pollingMethod?: () => Promise<T | void>
   pollingDelay?: number
-  onSuccess?: (result: T | void) => void
+  // Returning `true` marks this tick's result terminal. That's the only
+  // same-tick signal LongPoll has for it: a caller that's about to flip
+  // `stopPolling` does so via React state, which won't reach this
+  // component's `stopPolling` prop (or `stopPollingRef`) until a re-render
+  // that hasn't happened yet, so it can't by itself stop a same-tick
+  // `onLimitReached` on the boundary attempt.
+  onSuccess?: (result: T | void) => void | boolean
   onError?: (error: unknown) => void
   // Called once, instead of `onError`, if `limit` is hit without `stopPolling`
   // ever being set — a poll loop that never reached a terminal state within
@@ -70,10 +76,11 @@ export const LongPoll = <T = void,>({
 
   useSingleEffect(() => {
     const poll = async () => {
+      let resolvedTerminal = false
       try {
         const result = await pollingMethodRef.current()
         if (result) {
-          onSuccessRef.current(result)
+          resolvedTerminal = onSuccessRef.current(result) === true
         } else {
           onErrorRef.current(result)
         }
@@ -83,10 +90,16 @@ export const LongPoll = <T = void,>({
 
       countRef.current += 1
 
+      // A terminal result this tick wins outright, even on the exact
+      // attempt that also exhausts `limit` -- see `onSuccess`'s doc comment.
+      if (resolvedTerminal || stopPollingRef.current) {
+        return
+      }
+
       const limitReached = Boolean(limit) && countRef.current >= limit
-      if (!stopPollingRef.current && !limitReached) {
+      if (!limitReached) {
         timeoutIdRef.current = setTimeout(poll, pollingDelayRef.current)
-      } else if (limitReached && !stopPollingRef.current) {
+      } else {
         onLimitReachedRef.current()
       }
     }

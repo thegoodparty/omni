@@ -1807,7 +1807,7 @@ export const SmsFlow = ({
           onSuccess={(result) => {
             // `getP2pPhoneListBuildStatus` always resolves to a value — this
             // guard is only here because LongPoll's signature allows `void`.
-            if (!result) return
+            if (!result) return false
             if (result.buildStatus === 'ready') {
               const {
                 phoneListId,
@@ -1822,13 +1822,17 @@ export const SmsFlow = ({
                 excludedDuplicatePhoneCount,
               })
               setStopPolling(true)
-              return
+              // Terminal this tick -- told synchronously so a `ready` on the
+              // last allowed attempt doesn't also trip `onLimitReached`.
+              return true
             }
             if (result.buildStatus === 'failed') {
               setPhoneListBuildFailed(true)
               setStopPolling(true)
+              return true
             }
             // 'building': keep polling, nothing changes yet.
+            return false
           }}
           limit={PHONE_LIST_BUILD_POLL_LIMIT}
           onLimitReached={() => {
